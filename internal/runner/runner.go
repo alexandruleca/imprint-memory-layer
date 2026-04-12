@@ -41,6 +41,14 @@ func RunCapture(name string, args ...string) (string, error) {
 	return strings.TrimSpace(out.String()), err
 }
 
+// CommandWithEnv creates an exec.Cmd with extra environment variables.
+// Each env entry should be "KEY=VALUE".
+func CommandWithEnv(name string, args []string, env ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), env...)
+	return cmd
+}
+
 // Exists checks if a command exists on the PATH.
 func Exists(name string) (string, bool) {
 	path, err := exec.LookPath(name)

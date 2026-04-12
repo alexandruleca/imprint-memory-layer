@@ -106,10 +106,48 @@ type HookGroup struct {
 	Hooks   []HookEntry `json:"hooks"`
 }
 
+// SetHook replaces all hooks for an event with a single new hook.
+// Unlike EnsureHook, this always overwrites — no duplicates possible.
+func SetHook(settingsPath, event, command string, timeout int, async bool) error {
+	data, err := ReadJSON(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			data = map[string]any{}
+		} else {
+			return err
+		}
+	}
+
+	hooks, ok := data["hooks"].(map[string]any)
+	if !ok {
+		hooks = map[string]any{}
+		data["hooks"] = hooks
+	}
+
+	newHook := map[string]any{
+		"type":    "command",
+		"command": command,
+	}
+	if timeout > 0 {
+		newHook["timeout"] = timeout
+	}
+	if async {
+		newHook["async"] = true
+	}
+
+	hooks[event] = []any{
+		map[string]any{
+			"hooks": []any{newHook},
+		},
+	}
+
+	return WriteJSON(settingsPath, data)
+}
+
 // EnsureHook adds a hook to the hooks.<event> array in settings.json.
 // It checks if a hook with the same command already exists and skips if so.
 // Returns true if added, false if already present.
-func EnsureHook(settingsPath, event, command string, timeout int) (bool, error) {
+func EnsureHook(settingsPath, event, command string, timeout int, async bool) (bool, error) {
 	data, err := ReadJSON(settingsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -160,6 +198,9 @@ func EnsureHook(settingsPath, event, command string, timeout int) (bool, error) 
 	}
 	if timeout > 0 {
 		newHook["timeout"] = timeout
+	}
+	if async {
+		newHook["async"] = true
 	}
 
 	newGroup := map[string]any{

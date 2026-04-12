@@ -17,6 +17,8 @@ import (
 func Setup() {
 	projectDir := platform.FindProjectDir()
 	venvDir := filepath.Join(projectDir, ".venv")
+	dataDir := platform.DataDir(projectDir)
+	requirementsFile := filepath.Join(projectDir, "requirements.txt")
 
 	// Detect OS
 	output.Info("Detected platform: " + platform.OSName())
@@ -60,49 +62,42 @@ func Setup() {
 	venvPython := platform.VenvPython(projectDir)
 	venvPip := platform.VenvBin(projectDir, "pip")
 
-	// Step 5: Install mempalace
-	output.Info("Checking mempalace installation...")
-	mpVer := ""
-	if out, err := runner.RunCapture(venvPip, "show", "mempalace"); err == nil {
-		mpVer = parsePackageVersion(out)
-		output.Skip("mempalace " + mpVer + " already installed")
+	// Step 5: Install dependencies from requirements.txt
+	output.Info("Checking dependencies...")
+	if out, err := runner.RunCapture(venvPip, "show", "fastmcp"); err == nil {
+		ver := parsePackageVersion(out)
+		output.Skip("Dependencies installed (fastmcp " + ver + ")")
 	} else {
-		output.Info("Installing mempalace (this may take a minute)...")
-		if err := runner.Run(venvPip, "install", "mempalace", "--quiet"); err != nil {
-			output.Fail("Failed to install mempalace: " + err.Error())
+		output.Info("Installing dependencies (this may take a minute)...")
+		if err := runner.Run(venvPip, "install", "-r", requirementsFile, "--quiet"); err != nil {
+			output.Fail("Failed to install dependencies: " + err.Error())
 		}
-		if out, err := runner.RunCapture(venvPip, "show", "mempalace"); err == nil {
-			mpVer = parsePackageVersion(out)
-		}
-		output.Success("Installed mempalace " + mpVer)
+		output.Success("Dependencies installed")
 	}
 
-	mempalace := platform.VenvBin(projectDir, "mempalace")
-
-	// Step 6: Create data directory and initialize palace
-	dataDir := platform.DataDir(projectDir)
-	output.Info("Checking palace initialization...")
-	projectConfig := filepath.Join(projectDir, "mempalace.yaml")
-	if platform.DirExists(dataDir) && platform.FileExists(projectConfig) {
-		output.Skip("Palace already initialized at " + dataDir)
+	// Step 6: Create data directory
+	output.Info("Checking data directory...")
+	if platform.DirExists(dataDir) {
+		output.Skip("Data directory at " + dataDir)
 	} else {
-		if !platform.DirExists(dataDir) {
-			os.MkdirAll(dataDir, 0755)
-		}
-		output.Info("Initializing palace (scanning " + projectDir + ")...")
-		if err := runner.Run(mempalace, "init", projectDir, "--yes"); err != nil {
-			output.Warn("Init reported issues (this is OK for an empty directory)")
-		}
-		output.Success("Palace initialized at " + dataDir)
+		os.MkdirAll(dataDir, 0755)
+		output.Success("Created data directory at " + dataDir)
 	}
 
-	// Step 7: Register MCP server with --palace pointing to data/
+	// Step 7: Register MCP server
 	output.Info("Checking MCP server registration...")
-	if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "mempalace") {
-		output.Skip("MCP server 'mempalace' already registered")
+	if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "knowledge") {
+		output.Skip("MCP server 'knowledge' already registered")
 	} else {
+		// Remove old mempalace MCP if present
+		if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "mempalace") {
+			runner.RunCapture("claude", "mcp", "remove", "mempalace")
+		}
 		output.Info("Registering MCP server with Claude Code (user scope)...")
-		if err := runner.Run("claude", "mcp", "add", "--scope", "user", "mempalace", "--", venvPython, "-m", "mempalace.mcp_server", "--palace", dataDir); err != nil {
+		if err := runner.Run("claude", "mcp", "add", "--scope", "user",
+			"knowledge",
+			"-e", "PYTHONPATH="+projectDir,
+			"--", venvPython, "-m", "knowledgebase"); err != nil {
 			output.Fail("Failed to register MCP server: " + err.Error())
 		}
 		output.Success("MCP server registered globally")
@@ -111,45 +106,42 @@ func Setup() {
 	// Step 8: Add permissions
 	output.Info("Checking Claude Code permissions...")
 	settingsPath := platform.ClaudeSettingsPath()
-	added, err := jsonutil.EnsurePermission(settingsPath, "mcp__mempalace__*")
+	added, err := jsonutil.EnsurePermission(settingsPath, "mcp__knowledge__*")
 	if err != nil {
 		output.Warn("Could not update " + settingsPath + ": " + err.Error())
 	} else if added {
-		output.Success("Added mempalace permissions to " + settingsPath)
+		output.Success("Added knowledge permissions to " + settingsPath)
 	} else {
-		output.Skip("mempalace permissions already configured")
+		output.Skip("knowledge permissions already configured")
 	}
 
 	// Step 9: Claude Code hooks
 	output.Info("Checking Claude Code hooks...")
-	setupHooks(settingsPath, mempalace, dataDir)
+	setupHooks(settingsPath)
 
 	// Step 10: Global CLAUDE.md
 	output.Info("Checking global CLAUDE.md...")
 	setupGlobalClaudeMD()
 
-	// Step 11: Shell aliases (knowledge + mempalace)
+	// Step 11: Shell aliases
 	output.Info("Setting up shell aliases...")
 	knowledgeBin, _ := os.Executable()
 	knowledgeBin, _ = filepath.EvalSymlinks(knowledgeBin)
 	knowledgeBin, _ = filepath.Abs(knowledgeBin)
 	setupShellAlias("knowledge", knowledgeBin)
-	setupShellAlias("mempalace", mempalace)
 
 	// Summary
-	output.Header("═══ MemPalace Setup Complete ═══")
+	output.Header("═══ Knowledge Setup Complete ═══")
 	venvPythonVer, _ := runner.RunCapture(venvPython, "--version")
 	fmt.Printf("  Python:      %s (%s)\n", venvPythonVer, venvPython)
 	fmt.Printf("  Venv:        %s\n", venvDir)
-	fmt.Printf("  mempalace:   %s\n", mpVer)
-	fmt.Printf("  Palace:      %s\n", dataDir)
-	fmt.Printf("  MCP server:  registered (user scope)\n")
+	fmt.Printf("  Data:        %s\n", dataDir)
+	fmt.Printf("  MCP server:  knowledge (user scope)\n")
 	fmt.Println()
 	output.Info("Next steps:")
 	fmt.Println("  1. Restart Claude Code to load the MCP server")
-	fmt.Println("  2. Run /mcp in a session to verify mempalace tools are available")
-	fmt.Println("  3. Use 'mempalace init <project-dir>' to index your project directories")
-	fmt.Println("  4. Use 'mempalace mine <dir>' to ingest project files into the palace")
+	fmt.Println("  2. Run /mcp in a session to verify knowledge tools are available")
+	fmt.Println("  3. Use 'knowledge index <dir>' to index your project directories")
 }
 
 var pythonVersionRe = regexp.MustCompile(`Python (\d+)\.(\d+)\.(\d+)`)
@@ -198,7 +190,6 @@ func setupShellAlias(name, targetPath string) {
 
 	aliasLine := platform.AliasLine(shellName, name, targetPath)
 
-	// Create parent directory if needed (e.g., fish config dir)
 	dir := filepath.Dir(rcFile)
 	if !platform.DirExists(dir) {
 		os.MkdirAll(dir, 0755)
@@ -219,73 +210,78 @@ func setupShellAlias(name, targetPath string) {
 	output.Success("Added " + name + " alias to " + rcFile)
 }
 
-func setupHooks(settingsPath, mempalace, dataDir string) {
-	// The hook commands pipe Claude Code's stdin JSON through to mempalace's hook runner
-	baseCmd := mempalace + " --palace " + dataDir + " hook run --harness claude-code"
+func setupHooks(settingsPath string) {
+	projectDir := platform.FindProjectDir()
+	venvPython := platform.VenvPython(projectDir)
+	dataDir := platform.DataDir(projectDir)
 
 	type hookDef struct {
 		event   string
-		hook    string
+		command string
 		timeout int
+		async   bool
 	}
+
+	// Stop hook: index conversation exchanges + extract decisions (async, background)
+	// Reads transcript_path from stdin JSON, indexes exchanges, then extracts decisions
+	stopCmd := fmt.Sprintf(
+		`PYTHONPATH=%s KNOWLEDGE_DATA_DIR=%s %s -c "
+import json,sys,subprocess,os
+d=json.loads(sys.stdin.read())
+tp=d.get('transcript_path','')
+if tp:
+    subprocess.run([sys.executable,'-m','knowledgebase.cli_conversations','--transcript',tp],env=os.environ)
+    subprocess.run([sys.executable,'-m','knowledgebase.cli_extract',tp],env=os.environ)
+" 2>/dev/null`,
+		projectDir, dataDir, venvPython,
+	)
 
 	hooks := []hookDef{
-		{"Stop", "stop", 60},
-		{"PreCompact", "precompact", 90},
+		// Stop: index conversation + extract decisions
+		{"Stop", stopCmd, 120, true},
+		// PreCompact: instruct Claude to save everything before context compression
+		{"PreCompact", "echo '{\"decision\":\"block\",\"reason\":\"COMPACTION IMMINENT. Save ALL topics, decisions, and important context from this session using the knowledge MCP tools (store, kg_add). Be thorough — after compaction, detailed context will be lost.\"}'", 90, false},
 	}
 
-	anyAdded := false
 	for _, h := range hooks {
-		cmd := baseCmd + " --hook " + h.hook
-		added, err := jsonutil.EnsureHook(settingsPath, h.event, cmd, h.timeout)
-		if err != nil {
-			output.Warn("Could not add " + h.event + " hook: " + err.Error())
-			continue
+		if err := jsonutil.SetHook(settingsPath, h.event, h.command, h.timeout, h.async); err != nil {
+			output.Warn("Could not set " + h.event + " hook: " + err.Error())
+		} else {
+			output.Success("Configured " + h.event + " hook")
 		}
-		if added {
-			output.Success("Added " + h.event + " hook")
-			anyAdded = true
-		}
-	}
-
-	if !anyAdded {
-		output.Skip("Claude Code hooks already configured")
 	}
 }
 
 const globalClaudeMD = `# Global Instructions
 
-## MemPalace — Use Memory Before Reading Files
+## Knowledge Base — Check Memory First
 
-A MemPalace MCP server is registered globally. It stores project knowledge (decisions, patterns, architecture, bug fixes, user preferences) across sessions.
+A Knowledge MCP server is registered globally. It contains indexed code chunks, decisions, patterns, and project knowledge from past sessions.
 
 ### Every conversation:
-1. Call mcp__mempalace__wake_up at the start to load prior context (~170 tokens)
-2. Before reading files for context or background, call mcp__mempalace__search with a relevant query first
-3. Only fall back to Read/Grep when the palace has no results or you need current file content (live edits, specific line numbers)
-4. Store important discoveries, decisions, and patterns via MemPalace tools during the conversation
+1. Call mcp__knowledge__wake_up at the start to load prior context
+2. Before answering questions about code, architecture, or project context — call mcp__knowledge__search first
+3. If search returns relevant results, use them to answer. The knowledge base contains actual code chunks — often enough for explanations without reading files
+4. If the context from search isn't enough, or you need exact current file content for edits, read the files as needed
 
-### What to store:
-- Architectural decisions and why they were made
+### During conversation — store what you learn:
+- Architectural decisions and WHY they were made
 - Bug root causes and how they were fixed
 - Project conventions and patterns
 - User corrections and preferences
-- Cross-project relationships
 
-### What NOT to store:
-- Current file contents (they change — read them live)
+### Do NOT store:
+- Raw file contents (already indexed)
 - Temporary debugging state
-- Things already in git history
-
-This saves tokens and API usage by not re-reading files and re-discovering context from previous sessions.
+- Things derivable from git history
 `
 
 func setupGlobalClaudeMD() {
 	claudeDir := filepath.Join(platform.HomeDir(), ".claude")
 	claudeMD := filepath.Join(claudeDir, "CLAUDE.md")
 
-	if platform.FileExists(claudeMD) && platform.FileContains(claudeMD, "MemPalace") {
-		output.Skip("Global CLAUDE.md already has MemPalace instructions")
+	if platform.FileExists(claudeMD) && platform.FileContains(claudeMD, "Knowledge") && platform.FileContains(claudeMD, "mcp__knowledge") {
+		output.Skip("Global CLAUDE.md already has Knowledge instructions")
 		return
 	}
 
@@ -293,25 +289,10 @@ func setupGlobalClaudeMD() {
 		os.MkdirAll(claudeDir, 0755)
 	}
 
-	if platform.FileExists(claudeMD) {
-		// Append to existing file
-		f, err := os.OpenFile(claudeMD, os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			output.Warn("Could not write to " + claudeMD + ": " + err.Error())
-			return
-		}
-		defer f.Close()
-		if _, err := f.WriteString("\n" + globalClaudeMD); err != nil {
-			output.Warn("Could not append to " + claudeMD + ": " + err.Error())
-			return
-		}
-		output.Success("Appended MemPalace instructions to " + claudeMD)
-	} else {
-		// Create new file
-		if err := os.WriteFile(claudeMD, []byte(globalClaudeMD), 0644); err != nil {
-			output.Warn("Could not create " + claudeMD + ": " + err.Error())
-			return
-		}
-		output.Success("Created " + claudeMD + " with MemPalace instructions")
+	// Always overwrite — we own this file
+	if err := os.WriteFile(claudeMD, []byte(globalClaudeMD), 0644); err != nil {
+		output.Warn("Could not write " + claudeMD + ": " + err.Error())
+		return
 	}
+	output.Success("Updated " + claudeMD)
 }

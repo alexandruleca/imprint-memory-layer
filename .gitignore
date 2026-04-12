@@ -1,9 +1,6 @@
 .venv/
-.mempalace/
 .claude/
 __pycache__/
 *.pyc
-entities.json
-mempalace.yaml
 build/
 data/

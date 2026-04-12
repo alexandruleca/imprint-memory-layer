@@ -1,84 +1,53 @@
-# Knowledge Base — MemPalace
+# Knowledge Base
 
-This repo hosts the MemPalace setup for persistent cross-project memory.
+Custom lightweight MCP memory server for Claude Code. Replaces MemPalace with LanceDB + ONNX embeddings.
 
-## IMPORTANT: Use MemPalace Before Reading Files
+## IMPORTANT: Use Knowledge Before Reading Files
 
-**At the start of every conversation**, call `mcp__mempalace__wake_up` to load prior context (~170 tokens). This avoids re-reading files and re-discovering things from previous sessions.
+**At the start of every conversation**, call `mcp__knowledge__wake_up` to load prior context.
 
-**Before reading files for context/background**, call `mcp__mempalace__search` first with a relevant query. If the palace has the answer, use it — don't re-read source files. Only fall back to Read/Grep when:
-- The palace returns no results
-- You need the *current* content of a specific file (live edits, line numbers)
+**Before reading files for context**, call `mcp__knowledge__search` first. If the knowledge base has the answer, use it — don't re-read source files. Only fall back to Read/Grep when:
+- The knowledge base returns no results
+- You need the *current* content of a specific file
 - The user explicitly asks you to read a file
 
 **During conversation**, store important findings:
-- Architectural decisions and their reasoning
-- Bug root causes and fixes
-- Project patterns and conventions
-- User preferences and corrections
-- Cross-project relationships
+- `mcp__knowledge__store` — decisions, patterns, findings, preferences, bugs
+- `mcp__knowledge__kg_add` — structured facts (subject → predicate → object)
 
-**This saves tokens and API usage.** Re-reading files that were already discussed in past sessions is wasteful. The palace remembers so you don't have to re-discover.
+## MCP Tools (8 total)
 
-## MemPalace
+| Tool | Purpose |
+|------|---------|
+| `wake_up` | Load summary context at session start |
+| `search` | Semantic search with optional project/type filters |
+| `store` | Store a memory with metadata |
+| `delete` | Remove a memory by ID |
+| `kg_query` | Query temporal facts |
+| `kg_add` | Add a structured fact |
+| `kg_invalidate` | Mark a fact as ended |
+| `status` | Show overview stats |
 
-- **Palace data**: `data/` in this repo (gitignored, machine-local)
-- **MCP server**: registered globally via `claude mcp add --scope user`
-- **Python venv**: `.venv/` in this directory (gitignored)
+## Architecture
 
-## MCP Tools
+- **Vector store**: LanceDB (Rust, zero native deps)
+- **Embeddings**: nomic-embed-text-v1.5 via ONNX Runtime (768-dim, 8192 token context)
+- **Knowledge graph**: SQLite with temporal facts
+- **MCP framework**: FastMCP
+- **Data**: `data/` directory (gitignored)
 
-The MemPalace MCP server exposes 19 tools. Key ones:
+## Project Detection
 
-- `mcp__mempalace__wake_up` — load L0+L1 memory layers (~170 tokens). Call this FIRST in every session.
-- `mcp__mempalace__search` — semantic search across all stored knowledge. Use this before Read/Grep for context questions.
-- `mcp__mempalace__store` / `remember` — persist new knowledge
-- `mcp__mempalace__kg_query` — query the temporal knowledge graph
+Projects are identified by canonical name from manifest files (package.json, go.mod, etc.), not by path. This means the same project on different machines gets the same identity.
 
-Run `/mcp` in any Claude Code session to see the full tool list.
-
-## Knowledge CLI
+## CLI
 
 ```bash
-knowledge setup              # install mempalace, register MCP, configure alias
-knowledge index <dir>        # init + mine every subdirectory of <dir>
+knowledge setup              # install deps, register MCP, configure Claude Code
+knowledge ingest <dir>       # detect projects + ingest into knowledge base
+knowledge refresh <dir>      # re-index only changed files
+knowledge sync serve --relay <host>  # expose KB for syncing
+knowledge sync <host>/<id>   # bidirectional sync with peer
+knowledge viz                # 3D brain cluster visualization
 knowledge version            # print version
 ```
-
-## MemPalace CLI
-
-After setup, `mempalace` is aliased and available globally:
-
-```bash
-mempalace init <project-dir>               # Detect rooms from folder structure
-mempalace mine <dir>                        # Ingest project files
-mempalace mine <dir> --mode convos          # Ingest conversation exports
-mempalace search "query"                    # Search the palace
-mempalace wake-up                           # Show L0+L1 context
-mempalace wake-up --wing <project>          # Wing-specific context
-mempalace status                            # Show what's been filed
-mempalace compress                          # Compress using AAAK dialect
-```
-
-## Hooks
-
-MemPalace supports Claude Code hooks for automatic memory capture:
-
-```bash
-mempalace hook run --hook session-start --harness claude-code
-mempalace hook run --hook stop --harness claude-code
-mempalace hook run --hook precompact --harness claude-code
-```
-
-These read JSON from stdin and output JSON to stdout.
-
-## Setup
-
-Build and run the Go tool:
-
-```bash
-make build
-./build/knowledge setup
-```
-
-Or download a pre-built binary from `build/<os>-<arch>/`.
