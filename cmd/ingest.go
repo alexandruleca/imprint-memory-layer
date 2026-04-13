@@ -5,13 +5,50 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/hunter/knowledge/internal/output"
 	"github.com/hunter/knowledge/internal/platform"
 	"github.com/hunter/knowledge/internal/runner"
 )
 
+// parseBatchSizeFlag strips --batch-size N / --batch-size=N from args.
+// Returns (batchSize, remaining). batchSize = 0 means "not provided, use Python default".
+func parseBatchSizeFlag(args []string) (int, []string) {
+	out := make([]string, 0, len(args))
+	batchSize := 0
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--batch-size" {
+			if i+1 >= len(args) {
+				output.Fail("--batch-size requires a value")
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 1 {
+				output.Fail(fmt.Sprintf("--batch-size must be a positive integer, got %q", args[i+1]))
+			}
+			batchSize = n
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "--batch-size=") {
+			v := strings.TrimPrefix(a, "--batch-size=")
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				output.Fail(fmt.Sprintf("--batch-size must be a positive integer, got %q", v))
+			}
+			batchSize = n
+			continue
+		}
+		out = append(out, a)
+	}
+	return batchSize, out
+}
+
 func Ingest(args []string) {
+	batchSize, args := parseBatchSizeFlag(args)
+
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
@@ -50,10 +87,10 @@ func Ingest(args []string) {
 	if len(args) > 0 {
 		output.Info("Step 3/3: Indexing project files...")
 		targetDir, _ := filepath.Abs(args[0])
-		indexDir(venvPython, envVars, targetDir, projectDir, dataDir)
+		indexDir(venvPython, envVars, targetDir, projectDir, dataDir, batchSize)
 	} else {
 		output.Info("Step 3/3: Skipped — no directory provided")
-		fmt.Println("  Tip: run 'knowledge ingest ~/code' to also index project files")
+		fmt.Println("  Tip: run 'knowledge ingest [--batch-size N] ~/code' to also index project files")
 	}
 
 	fmt.Println()
@@ -77,7 +114,7 @@ func runPython(venvPython string, envVars []string, script string) {
 	cmd.Run()
 }
 
-func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDir string) {
+func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDir string, batchSize int) {
 	if !platform.DirExists(targetDir) {
 		output.Warn("Directory not found: " + targetDir)
 		return
@@ -115,7 +152,11 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 
 	output.Info(fmt.Sprintf("Found %d projects", len(projects)))
 
-	pyArgs := []string{"-m", "knowledgebase.cli_index", targetDir}
+	pyArgs := []string{"-m", "knowledgebase.cli_index"}
+	if batchSize > 0 {
+		pyArgs = append(pyArgs, "--batch-size", strconv.Itoa(batchSize))
+	}
+	pyArgs = append(pyArgs, targetDir)
 	for _, p := range projects {
 		pyArgs = append(pyArgs, p.Path+":"+p.Name)
 	}

@@ -17,7 +17,22 @@ func main() {
 
 	switch os.Args[1] {
 	case "setup":
-		cmd.Setup()
+		// `knowledge setup`              → claude-code (back-compat default)
+		// `knowledge setup claude-code`  → SetupClaudeCode
+		// `knowledge setup cursor`       → SetupCursor
+		target := "claude-code"
+		if len(os.Args) >= 3 {
+			target = os.Args[2]
+		}
+		switch target {
+		case "claude-code", "claude":
+			cmd.SetupClaudeCode()
+		case "cursor":
+			cmd.SetupCursor()
+		default:
+			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | cursor)\n", target)
+			os.Exit(1)
+		}
 	case "ingest":
 		cmd.Ingest(os.Args[2:])
 	case "refresh":
@@ -40,7 +55,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `knowledge — AI memory for Claude Code
 
 Usage:
-  knowledge setup              Install deps, register MCP server, configure Claude Code
+  knowledge setup [target]     Install deps, register MCP server, configure host AI tool
+                                 target: claude-code (default) | cursor
   knowledge ingest [dir]       Import memories + conversations [+ index project files]
   knowledge refresh <dir>      Re-index only files that changed since last index
   knowledge sync serve --relay <host>  Expose KB for syncing via relay
@@ -51,6 +67,7 @@ Usage:
 
 Examples:
   knowledge setup
+  knowledge setup cursor
   knowledge ingest ~/code
   knowledge sync serve --relay sync.example.com
   knowledge sync sync.example.com/abc123

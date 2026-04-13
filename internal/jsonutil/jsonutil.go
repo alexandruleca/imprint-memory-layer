@@ -144,6 +144,111 @@ func SetHook(settingsPath, event, command string, timeout int, async bool) error
 	return WriteJSON(settingsPath, data)
 }
 
+// SetHookWithMatcher replaces all hooks for an event/matcher pair with a single
+// new hook. Existing groups for the same event with a different matcher are
+// preserved; the group whose matcher equals `matcher` is replaced (or appended
+// if absent). Use empty matcher for events without one (Stop, PreCompact,
+// SessionStart-without-matcher).
+func SetHookWithMatcher(settingsPath, event, matcher, command string, timeout int, async bool) error {
+	data, err := ReadJSON(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			data = map[string]any{}
+		} else {
+			return err
+		}
+	}
+
+	hooks, ok := data["hooks"].(map[string]any)
+	if !ok {
+		hooks = map[string]any{}
+		data["hooks"] = hooks
+	}
+
+	newHook := map[string]any{
+		"type":    "command",
+		"command": command,
+	}
+	if timeout > 0 {
+		newHook["timeout"] = timeout
+	}
+	if async {
+		newHook["async"] = true
+	}
+
+	newGroup := map[string]any{
+		"hooks": []any{newHook},
+	}
+	if matcher != "" {
+		newGroup["matcher"] = matcher
+	}
+
+	existing, _ := hooks[event].([]any)
+	replaced := false
+	for i, g := range existing {
+		group, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		gm, _ := group["matcher"].(string)
+		if gm == matcher {
+			existing[i] = newGroup
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		existing = append(existing, newGroup)
+	}
+	hooks[event] = existing
+
+	return WriteJSON(settingsPath, data)
+}
+
+// EnsureMCPServer adds a server entry to mcpServers in a Cursor-style mcp.json.
+// Returns true if the entry was added or updated, false if already identical.
+// Creates the file (and parent dir) if missing.
+func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return false, fmt.Errorf("creating directory %s: %w", dir, err)
+		}
+		data := map[string]any{
+			"mcpServers": map[string]any{name: spec},
+		}
+		return true, WriteJSON(path, data)
+	}
+
+	data, err := ReadJSON(path)
+	if err != nil {
+		return false, err
+	}
+
+	servers, ok := data["mcpServers"].(map[string]any)
+	if !ok {
+		servers = map[string]any{}
+		data["mcpServers"] = servers
+	}
+
+	if existing, ok := servers[name].(map[string]any); ok {
+		if jsonEqual(existing, spec) {
+			return false, nil
+		}
+	}
+	servers[name] = spec
+	return true, WriteJSON(path, data)
+}
+
+func jsonEqual(a, b map[string]any) bool {
+	ja, err1 := json.Marshal(a)
+	jb, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return string(ja) == string(jb)
+}
+
 // EnsureHook adds a hook to the hooks.<event> array in settings.json.
 // It checks if a hook with the same command already exists and skips if so.
 // Returns true if added, false if already present.

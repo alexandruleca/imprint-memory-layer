@@ -26,12 +26,14 @@ C_YELLOW = "\033[1;33m"
 
 # Minimum useful exchange length
 MIN_EXCHANGE_LEN = 100
-# Max chars to store per exchange (keeps embeddings focused)
-MAX_EXCHANGE_LEN = 3000
+# Soft max — preferred size, can overflow to keep complete thoughts
+TARGET_EXCHANGE_LEN = 4000
+# Hard max — absolute limit (model context is 8192 tokens ~ 24000 chars)
+HARD_MAX_EXCHANGE_LEN = 8000
 # Skip assistant messages that are mostly tool calls / code
 CODE_LINE_THRESHOLD = 0.7
 # Cap assistant response at N lines to avoid storing huge dumps
-MAX_ASSISTANT_LINES = 30
+MAX_ASSISTANT_LINES = 60
 
 
 def extract_text(msg: dict) -> str:
@@ -127,7 +129,7 @@ def _build_exchange(user_msgs: list[str], assistant_msgs: list[str], title: str)
     if not best_assistant:
         return {"text": "", "user_text": "", "title": title, "code_heavy": False}
 
-    # Cap assistant response
+    # Cap assistant response by lines
     lines = best_assistant.split("\n")
     if len(lines) > MAX_ASSISTANT_LINES:
         best_assistant = "\n".join(lines[:MAX_ASSISTANT_LINES])
@@ -138,12 +140,42 @@ def _build_exchange(user_msgs: list[str], assistant_msgs: list[str], title: str)
 
     exchange_text = f"Q: {user_text}\n\nA: {best_assistant}"
 
+    # Smart truncation — keep complete sentences/paragraphs
+    if len(exchange_text) > HARD_MAX_EXCHANGE_LEN:
+        exchange_text = _smart_truncate(exchange_text, HARD_MAX_EXCHANGE_LEN)
+
     return {
-        "text": exchange_text[:MAX_EXCHANGE_LEN],
+        "text": exchange_text,
         "user_text": user_text[:500],
         "title": title,
         "code_heavy": code_ratio > CODE_LINE_THRESHOLD,
     }
+
+
+def _smart_truncate(text: str, max_len: int) -> str:
+    """Truncate at a natural boundary — paragraph, sentence, or line break."""
+    if len(text) <= max_len:
+        return text
+
+    cut = text[:max_len]
+
+    # Try paragraph break
+    pos = cut.rfind("\n\n")
+    if pos > max_len * 0.6:
+        return cut[:pos]
+
+    # Try sentence end
+    for end in [". ", ".\n", "? ", "?\n", "! ", "!\n"]:
+        pos = cut.rfind(end)
+        if pos > max_len * 0.6:
+            return cut[:pos + 1]
+
+    # Try line break
+    pos = cut.rfind("\n")
+    if pos > max_len * 0.5:
+        return cut[:pos]
+
+    return cut
 
 
 def derive_project(transcript_path: str) -> str:
@@ -197,11 +229,19 @@ def find_all_transcripts() -> list[tuple[str, str]]:
 
 
 def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
-    """Index a single transcript. Returns (stored, skipped)."""
+    """Index a single transcript. Returns (stored, skipped).
+
+    Buffers all qualifying exchanges and flushes via vs.store_batch() so the
+    embedding model sees grouped inputs and LanceDB sees one fragment per
+    transcript instead of one per exchange. Big OOM/throughput win because
+    `knowledge ingest` walks hundreds of transcripts before touching code.
+    """
     exchanges = parse_exchanges(transcript_path)
     stored = 0
     skipped = 0
+    session_id = Path(transcript_path).stem[:8]
 
+    records: list[dict] = []
     for ex in exchanges:
         if not ex["text"] or len(ex["text"]) < MIN_EXCHANGE_LEN:
             skipped += 1
@@ -214,15 +254,20 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
         if confidence < 0.2:
             mem_type = "finding"
 
-        session_id = Path(transcript_path).stem[:8]
-        vs.store(
-            content=ex["text"],
-            project=project,
-            type=mem_type,
-            source=f"conversation/{session_id}",
-            tags="conversation",
-        )
-        stored += 1
+        records.append({
+            "content": ex["text"],
+            "project": project,
+            "type": mem_type,
+            "source": f"conversation/{session_id}",
+            "tags": "conversation",
+        })
+
+    # Flush in small sub-batches so a transcript with hundreds of exchanges
+    # doesn't pin a giant batch through tokenization + ONNX at once.
+    BATCH = 8
+    for i in range(0, len(records), BATCH):
+        inserted, _ = vs.store_batch(records[i:i + BATCH])
+        stored += inserted
 
     return stored, skipped
 
@@ -270,17 +315,21 @@ def main():
     total_skipped = 0
     t_start = time.time()
 
-    bar_width = 40
+    try:
+        cols = os.get_terminal_size().columns
+    except (ValueError, OSError):
+        cols = 80
+
     for idx, (path, project) in enumerate(transcripts):
-        # Progress bar
         pct = (idx + 1) / len(transcripts)
-        filled = int(bar_width * pct)
-        bar = "█" * filled + "░" * (bar_width - filled)
         elapsed = time.time() - t_start
         eta = elapsed / pct * (1 - pct) if pct < 1 else 0
-        session = Path(path).stem[:8]
-        line = f"  {bar} {int(pct*100):3d}% {idx+1}/{len(transcripts)}  eta {int(eta)}s  {C_DIM}{project}/{session}{C_RESET}"
-        print(f"\r{line:<100}", end="", flush=True)
+        stats = f" {int(pct*100):3d}% {idx+1}/{len(transcripts)} eta {int(eta)}s"
+        bar_width = max(10, cols - len(stats) - 3)
+        filled = int(bar_width * pct)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        line = f"  {bar}{stats}"
+        print(f"\r{line[:cols]}", end="", flush=True)
 
         try:
             stored, skipped = index_transcript(path, project)
@@ -296,8 +345,10 @@ def main():
 
     # Final bar
     elapsed = time.time() - t_start
+    stats = f" 100% {len(transcripts)}/{len(transcripts)} {elapsed:.1f}s"
+    bar_width = max(10, cols - len(stats) - 3)
     bar = "█" * bar_width
-    print(f"\r  {bar} 100% {len(transcripts)}/{len(transcripts)}  {elapsed:.1f}s{' '*40}")
+    print(f"\r  {bar}{stats}{' ' * 10}")
 
     print()
     print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")

@@ -15,6 +15,14 @@ def get_data_dir() -> Path:
 
 
 MODEL_NAME = "nomic-ai/nomic-embed-text-v1.5"
+# ONNX file variant. `model_quantized.onnx` is int8 dynamic quantization —
+# 2-4× faster on CPU vs fp32 with ~1% MTEB drop. Override with
+# KNOWLEDGE_MODEL_FILE for fp32 (`onnx/model.onnx`) or fp16/q4 variants.
+MODEL_FILE = os.environ.get("KNOWLEDGE_MODEL_FILE", "onnx/model_quantized.onnx")
 EMBEDDING_DIM = 768
-MAX_SEQ_LENGTH = 2048
+# Token cap per embedding call. nomic-embed supports up to 8192 but activation
+# memory scales linearly — 1024 covers ~4k chars, which fits the chunker's
+# typical output. Override with KNOWLEDGE_MAX_SEQ_LENGTH for higher fidelity
+# at the cost of more RAM during ingest.
+MAX_SEQ_LENGTH = int(os.environ.get("KNOWLEDGE_MAX_SEQ_LENGTH", "4096"))
 MEMORIES_TABLE = "memories"

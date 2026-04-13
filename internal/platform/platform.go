@@ -58,6 +58,22 @@ func ClaudeSettingsPath() string {
 	return filepath.Join(HomeDir(), ".claude", "settings.json")
 }
 
+// CursorConfigDir returns the user-global Cursor config directory (~/.cursor).
+func CursorConfigDir() string {
+	return filepath.Join(HomeDir(), ".cursor")
+}
+
+// CursorMCPPath returns the user-global Cursor MCP servers config file.
+func CursorMCPPath() string {
+	return filepath.Join(CursorConfigDir(), "mcp.json")
+}
+
+// CursorRulesDir returns the user-global Cursor rules directory.
+// Cursor reads rules from ~/.cursor/rules/*.mdc.
+func CursorRulesDir() string {
+	return filepath.Join(CursorConfigDir(), "rules")
+}
+
 func PalaceConfigPath() string {
 	return filepath.Join(HomeDir(), ".mempalace", "config.json")
 }
