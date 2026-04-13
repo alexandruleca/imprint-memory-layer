@@ -1,3 +1,10 @@
+"""BGE-M3 embedding via ONNX Runtime.
+
+Model produces 1024-dim dense vectors. No prefix needed (unlike nomic-embed
+which uses `search_document:` / `search_query:`). Optional sparse head is
+exposed for future hybrid search but not wired into storage yet.
+"""
+
 import gc
 import os
 
@@ -11,23 +18,11 @@ from . import config
 _session = None
 _tokenizer = None
 
-# Per-text char cap before tokenization. Tokenizer will still truncate to
-# MAX_SEQ_LENGTH, but pre-trimming avoids spending memory tokenizing 50k chars
-# only to throw most of it away. ~6 chars/token average → 1024*6 ≈ 6000.
 _PRETRIM_CHARS = max(2048, config.MAX_SEQ_LENGTH * 8)
 
 
 def _build_session_options() -> ort.SessionOptions:
-    """Configure ONNX Runtime to release memory between inference calls.
-
-    Defaults grow a CPU memory arena to the worst-case size and never shrink it.
-    For batched embedding of variable-length text on a low-RAM box (WSL2) that
-    arena pins hundreds of MB / GB indefinitely. Disabling the arena and
-    mem-pattern planner is slightly slower but keeps memory bounded.
-
-    Threads are also clamped — multiple intra-op threads each carry their own
-    workspace allocator and inflate peak RSS.
-    """
+    """Keep ONNX memory bounded on low-RAM boxes. See earlier OOM fix notes."""
     so = ort.SessionOptions()
     so.enable_cpu_mem_arena = False
     so.enable_mem_pattern = False
@@ -39,92 +34,145 @@ def _build_session_options() -> ort.SessionOptions:
     return so
 
 
+def _preload_cuda_libs() -> None:
+    """Dlopen pip-installed CUDA libs so ORT-GPU finds them without needing
+    LD_LIBRARY_PATH set at process start. Best-effort — silently no-ops if
+    libs aren't installed (CPU path still works)."""
+    import ctypes
+    import glob
+    import site
+
+    for sp in site.getsitepackages() + [site.getusersitepackages()]:
+        nv = os.path.join(sp, "nvidia")
+        if not os.path.isdir(nv):
+            continue
+        # Order matters: cuda_runtime → cublas → cudnn (cudnn depends on cublas).
+        for sub in ("cuda_runtime", "cublas", "cudnn", "cufft", "curand"):
+            for so in sorted(glob.glob(os.path.join(nv, sub, "lib", "lib*.so.*"))):
+                try:
+                    ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass
+        return
+
+
+def _resolve_providers() -> list:
+    """Pick the ORT execution provider list based on config.DEVICE.
+
+    `cpu` → CPU only. `gpu` → CUDA then CPU fallback. `auto` → CUDA if the
+    GPU provider is actually registered, else CPU. The CPU provider is
+    always listed last as a safety net so inference still runs when CUDA
+    init fails (e.g. driver mismatch).
+    """
+    mode = config.DEVICE
+    if mode != "cpu":
+        _preload_cuda_libs()
+    avail = set(ort.get_available_providers())
+    want_gpu = mode == "gpu" or (mode == "auto" and "CUDAExecutionProvider" in avail)
+    if want_gpu and "CUDAExecutionProvider" in avail:
+        # Cap VRAM + use kSameAsRequested so arena doesn't grow unbounded.
+        # Default arena_extend_strategy=kNextPowerOfTwo can OOM the GPU on
+        # variable-length batches (each long batch doubles arena). Capping
+        # gpu_mem_limit also prevents driver kills under WSL2.
+        gpu_mem_mb = int(os.environ.get("KNOWLEDGE_GPU_MEM_MB", "6144"))
+        device_id = int(os.environ.get("KNOWLEDGE_GPU_DEVICE", "0"))
+        cuda_opts = {
+            "device_id": device_id,
+            "arena_extend_strategy": "kSameAsRequested",
+            "gpu_mem_limit": gpu_mem_mb * 1024 * 1024,
+            "cudnn_conv_algo_search": "HEURISTIC",
+            "do_copy_in_default_stream": True,
+        }
+        return [("CUDAExecutionProvider", cuda_opts), "CPUExecutionProvider"]
+    return ["CPUExecutionProvider"]
+
+
 def _load():
     global _session, _tokenizer
     if _session is not None:
         return
     model_path = hf_hub_download(config.MODEL_NAME, config.MODEL_FILE)
+    # BGE-M3 also ships a data file next to large ONNX files; make sure it's
+    # pulled into the same cache dir so ORT finds it.
+    try:
+        hf_hub_download(config.MODEL_NAME, config.MODEL_FILE + "_data")
+    except Exception:
+        pass
     tok_path = hf_hub_download(config.MODEL_NAME, "tokenizer.json")
-    _session = ort.InferenceSession(model_path, sess_options=_build_session_options())
+    _session = ort.InferenceSession(
+        model_path,
+        sess_options=_build_session_options(),
+        providers=_resolve_providers(),
+    )
     _tokenizer = Tokenizer.from_file(tok_path)
     _tokenizer.enable_padding()
     _tokenizer.enable_truncation(max_length=config.MAX_SEQ_LENGTH)
 
 
 def _embed_raw(texts: list[str]) -> np.ndarray:
-    """Embed pre-prefixed texts into normalized vectors.
-
-    Caller is responsible for keeping the batch size small and the texts
-    similar in length (see embed_documents_batch for length bucketing).
-    """
+    """Embed texts into L2-normalized 1024-dim vectors."""
     _load()
     encoded = _tokenizer.encode_batch(texts)
     input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
     attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
-    token_type_ids = np.zeros_like(input_ids)
 
-    outputs = _session.run(
-        None,
-        {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "token_type_ids": token_type_ids,
-        },
-    )
-    # Mean pooling
+    # BGE-M3 is XLM-Roberta under the hood — requires input_ids + attention_mask
+    # only (no token_type_ids). Feed only the inputs the model expects.
+    inputs = {}
+    input_names = {i.name for i in _session.get_inputs()}
+    if "input_ids" in input_names:
+        inputs["input_ids"] = input_ids
+    if "attention_mask" in input_names:
+        inputs["attention_mask"] = attention_mask
+    if "token_type_ids" in input_names:
+        inputs["token_type_ids"] = np.zeros_like(input_ids)
+
+    outputs = _session.run(None, inputs)
     token_embeddings = outputs[0]
-    mask_expanded = np.expand_dims(attention_mask, -1).astype(np.float32)
-    pooled = np.sum(token_embeddings * mask_expanded, axis=1) / np.clip(
-        mask_expanded.sum(axis=1), 1e-9, None
-    )
-    # L2 normalize
-    norms = np.linalg.norm(pooled, axis=1, keepdims=True)
-    result = pooled / norms
 
-    # Drop large intermediates immediately so they can't pile up across calls.
-    del encoded, input_ids, attention_mask, token_type_ids
-    del outputs, token_embeddings, mask_expanded, pooled, norms
-    return result
+    # BGE-M3's sentence-level output is the [CLS] token (first position), not
+    # mean-pooled like nomic. Use CLS pooling + L2 norm.
+    cls = token_embeddings[:, 0, :]
+    norms = np.linalg.norm(cls, axis=1, keepdims=True)
+    result = cls / np.clip(norms, 1e-9, None)
+
+    del encoded, input_ids, attention_mask, outputs, token_embeddings, cls, norms
+    return result.astype(np.float32)
 
 
 def embed_document(text: str) -> list[float]:
-    """Embed a document/stored content. Uses 'search_document:' prefix for nomic."""
-    return _embed_raw([f"search_document: {text[:_PRETRIM_CHARS]}"])[0].tolist()
+    """Embed a document. BGE-M3 takes raw text — no prefix required."""
+    return _embed_raw([text[:_PRETRIM_CHARS]])[0].tolist()
 
 
 def embed_query(text: str) -> list[float]:
-    """Embed a search query. Uses 'search_query:' prefix for nomic."""
-    return _embed_raw([f"search_query: {text[:_PRETRIM_CHARS]}"])[0].tolist()
+    """Embed a search query. Same model path as documents for BGE-M3."""
+    return _embed_raw([text[:_PRETRIM_CHARS]])[0].tolist()
 
 
-def embed_documents_batch(texts: list[str], batch_size: int = 16) -> list[list[float]]:
-    """Embed multiple documents in length-bucketed batches.
+def embed_documents_batch(texts: list[str], batch_size: int | None = None) -> list[list[float]]:
+    """batch_size None → auto: 8 on GPU (VRAM-safe), 16 on CPU."""
+    if batch_size is None:
+        batch_size = 4 if config.DEVICE != "cpu" else 16
+    return _embed_documents_batch(texts, batch_size)
 
-    Why bucketing matters: the tokenizer pads every text in a batch to the
-    longest one, and ONNX activation memory scales with batch * seq_len. A
-    single 2048-token chunk mixed with three 100-token chunks costs the same
-    as a batch of four 2048-token chunks. Sorting by length and batching
-    similar-length items keeps padding (and peak memory) low.
 
-    The result list is reordered back to the caller's original order.
-    """
+def _embed_documents_batch(texts: list[str], batch_size: int) -> list[list[float]]:
+    """Embed multiple documents in length-bucketed batches."""
     if not texts:
         return []
 
     pretrimmed = [t[:_PRETRIM_CHARS] for t in texts]
-
-    # Sort indices by text length so each batch contains similar-length items.
     order = sorted(range(len(pretrimmed)), key=lambda i: len(pretrimmed[i]))
 
     vectors: list[list[float] | None] = [None] * len(pretrimmed)
     for i in range(0, len(order), batch_size):
         idx_slice = order[i:i + batch_size]
-        batch = [f"search_document: {pretrimmed[j]}" for j in idx_slice]
+        batch = [pretrimmed[j] for j in idx_slice]
         out = _embed_raw(batch)
         for k, j in enumerate(idx_slice):
             vectors[j] = out[k].tolist()
         del batch, out
-        # Force release of the per-batch tensors before the next iteration.
         gc.collect()
 
     return vectors  # type: ignore[return-value]

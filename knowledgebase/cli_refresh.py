@@ -12,7 +12,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import vectorstore as vs
+from knowledgebase import tagger, vectorstore as vs
+from knowledgebase.chunker import chunk_file
 from knowledgebase.cli_index import (
     EXTENSIONS,
     SKIP_DIRS,
@@ -116,17 +117,31 @@ def main():
                     continue
 
                 source_key = f"{project}/{rel}"
-                # Delete old version if exists
+                # Delete old chunks for this source before re-chunking so we
+                # don't accumulate stale versions.
                 if source_key in stored_sources:
                     vs.delete_by_source(source_key)
 
-                vs.store(
-                    content=content[:5000],
-                    project=project,
-                    type="architecture",
-                    source=source_key,
-                )
-                stored += 1
+                chunks = chunk_file(content, rel)
+                if not chunks:
+                    skipped += 1
+                    continue
+
+                mtime = os.path.getmtime(fpath)
+                records = []
+                for chunk_text, chunk_idx in chunks:
+                    tags = tagger.build_payload_tags(chunk_text, rel_path=rel)
+                    records.append({
+                        "content": chunk_text,
+                        "project": project,
+                        "type": "architecture",
+                        "tags": tags,
+                        "source": source_key,
+                        "chunk_index": chunk_idx,
+                        "source_mtime": mtime,
+                    })
+                inserted, _ = vs.store_batch(records)
+                stored += inserted
             except KeyboardInterrupt:
                 raise
             except Exception:

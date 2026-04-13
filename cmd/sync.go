@@ -233,30 +233,29 @@ func syncExportScript(projectDir, dataDir string) string {
 import os, sys, json
 sys.path.insert(0, %q)
 os.environ["KNOWLEDGE_DATA_DIR"] = %q
-from knowledgebase import vectorstore as vs
+from knowledgebase import config, vectorstore as vs
 
-table = vs._get_table()
-count = table.count_rows()
-if count == 0:
+client = vs._ensure_collection()
+info = client.get_collection(config.QDRANT_COLLECTION)
+if (info.points_count or 0) == 0:
     print("[]")
     sys.exit(0)
 
-rows = table.search().limit(count).select(
-    ["id", "content", "project", "type", "tags", "source", "chunk_index", "source_mtime", "timestamp"]
-).to_list()
-
 records = []
-for r in rows:
+for pl in vs._scroll_all([
+    "_mid", "content", "project", "type", "tags", "source",
+    "chunk_index", "source_mtime", "timestamp",
+]):
     records.append({
-        "id": r["id"],
-        "content": r["content"],
-        "project": r["project"],
-        "type": r["type"],
-        "tags": r["tags"],
-        "source": r["source"],
-        "chunk_index": r.get("chunk_index", 0),
-        "source_mtime": r.get("source_mtime", 0),
-        "timestamp": r.get("timestamp", 0),
+        "id": pl.get("_mid", ""),
+        "content": pl.get("content", ""),
+        "project": pl.get("project", ""),
+        "type": pl.get("type", ""),
+        "tags": pl.get("tags", {}),
+        "source": pl.get("source", ""),
+        "chunk_index": pl.get("chunk_index", 0),
+        "source_mtime": pl.get("source_mtime", 0),
+        "timestamp": pl.get("timestamp", 0),
     })
 
 print(json.dumps(records))
@@ -280,20 +279,23 @@ if not records:
 inserted = 0
 skipped = 0
 
-for r in records:
-    result = vs.store(
-        content=r["content"],
-        project=r.get("project", ""),
-        type=r.get("type", ""),
-        tags=r.get("tags", ""),
-        source=r.get("source", ""),
-        chunk_index=r.get("chunk_index", 0),
-        source_mtime=r.get("source_mtime", 0),
-    )
-    # store returns the ID — if it matched an existing ID, it was a skip
-    inserted += 1
+# store_batch chunks by default flush size, so pass everything in at once.
+ins, sk = vs.store_batch([
+    {
+        "content": r["content"],
+        "project": r.get("project", ""),
+        "type": r.get("type", ""),
+        "tags": r.get("tags", {}),
+        "source": r.get("source", ""),
+        "chunk_index": r.get("chunk_index", 0),
+        "source_mtime": r.get("source_mtime", 0),
+    }
+    for r in records
+])
+inserted = ins
+skipped = sk
 
-print(json.dumps({"inserted": inserted, "total": len(records)}))
+print(json.dumps({"inserted": inserted, "skipped": skipped, "total": len(records)}))
 `, projectDir, dataDir, tmpFile)
 }
 

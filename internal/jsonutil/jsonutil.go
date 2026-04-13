@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ReadJSON reads a JSON file into a map.
@@ -203,6 +204,79 @@ func SetHookWithMatcher(settingsPath, event, matcher, command string, timeout in
 	hooks[event] = existing
 
 	return WriteJSON(settingsPath, data)
+}
+
+// RemoveHooksMatching strips every hook whose command string contains any of
+// the given substrings. Empty groups are removed; events with no remaining
+// groups are deleted. Returns the count of hook entries removed.
+func RemoveHooksMatching(settingsPath string, needles []string) (int, error) {
+	data, err := ReadJSON(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	hooks, ok := data["hooks"].(map[string]any)
+	if !ok {
+		return 0, nil
+	}
+
+	matches := func(cmd string) bool {
+		for _, n := range needles {
+			if n != "" && strings.Contains(cmd, n) {
+				return true
+			}
+		}
+		return false
+	}
+
+	removed := 0
+	for event, raw := range hooks {
+		groups, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		newGroups := make([]any, 0, len(groups))
+		for _, g := range groups {
+			grp, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			entries, _ := grp["hooks"].([]any)
+			keep := make([]any, 0, len(entries))
+			for _, h := range entries {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					keep = append(keep, h)
+					continue
+				}
+				cmd, _ := hm["command"].(string)
+				if matches(cmd) {
+					removed++
+					continue
+				}
+				keep = append(keep, h)
+			}
+			if len(keep) == 0 {
+				continue
+			}
+			grp["hooks"] = keep
+			newGroups = append(newGroups, grp)
+		}
+		if len(newGroups) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = newGroups
+		}
+	}
+
+	if removed > 0 {
+		if err := WriteJSON(settingsPath, data); err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
 }
 
 // EnsureMCPServer adds a server entry to mcpServers in a Cursor-style mcp.json.

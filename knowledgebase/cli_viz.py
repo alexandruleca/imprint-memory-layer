@@ -18,12 +18,11 @@ import time
 import webbrowser
 import platform as plat
 
-import lancedb
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import config
+from knowledgebase import config, vectorstore as vs
 
 DEFAULT_PORT = 8420
 SPHERE_RADIUS = 2.5
@@ -42,26 +41,52 @@ TYPE_COLORS = {
 
 
 def get_all_rows():
-    data_dir = config.get_data_dir()
+    """Pull every point from Qdrant with its vector. Streams via scroll so
+    a 30k-row collection doesn't materialize all at once."""
     try:
-        db = lancedb.connect(str(data_dir / "lance"))
-        table = db.open_table(config.MEMORIES_TABLE)
+        client = vs._ensure_collection()
     except Exception:
         return []
-    count = table.count_rows()
-    if count == 0:
+
+    try:
+        info = client.get_collection(config.QDRANT_COLLECTION)
+        if (info.points_count or 0) == 0:
+            return []
+    except Exception:
         return []
-    # Stream in arrow batches so a 30k-row table doesn't allocate one giant
-    # python list of dicts up front. LanceQueryBuilder.to_batches returns a
-    # streaming RecordBatchReader.
+
+    from qdrant_client.http.exceptions import UnexpectedResponse  # noqa: F401
+
     rows: list[dict] = []
+    offset = None
     try:
-        for batch in table.search().to_batches(batch_size=2000):
-            rows.extend(batch.to_pylist())
-            del batch
-        return rows
+        while True:
+            pts, offset = client.scroll(
+                collection_name=config.QDRANT_COLLECTION,
+                limit=2000,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            for p in pts:
+                pl = p.payload or {}
+                vecs = p.vector or {}
+                # Qdrant returns dict of named vectors
+                vec = vecs.get(config.QDRANT_VECTOR_NAME) if isinstance(vecs, dict) else vecs
+                rows.append({
+                    "id": pl.get("_mid", ""),
+                    "content": pl.get("content", ""),
+                    "project": pl.get("project", ""),
+                    "type": pl.get("type", ""),
+                    "tags": pl.get("tags", {}),
+                    "source": pl.get("source", ""),
+                    "vector": vec,
+                })
+            if offset is None:
+                break
     except Exception:
-        return table.search().limit(count).to_list()
+        pass
+    return rows
 
 
 _pca_basis = None
@@ -191,9 +216,9 @@ def check_for_changes():
         _last_wal_size = size
         changed = True
     try:
-        db = lancedb.connect(str(config.get_data_dir() / "lance"))
-        table = db.open_table(config.MEMORIES_TABLE)
-        count = table.count_rows()
+        client = vs._ensure_collection()
+        info = client.get_collection(config.QDRANT_COLLECTION)
+        count = info.points_count or 0
         if count != _last_row_count:
             _last_row_count = count
             changed = True
@@ -507,7 +532,7 @@ function init() {
     ctrl.enableDamping = true;
     ctrl.dampingFactor = 0.03;
     ctrl.autoRotate = false;
-    ctrl.minDistance = 1.0;
+    ctrl.minDistance = Math.max(0.3, SPHERE_R * 0.3);
     ctrl.maxDistance = SPHERE_R * 6;
     ctrl.enablePan = false;
 
@@ -714,8 +739,18 @@ function buildScene() {
 //  Incremental update
 // ================================================================
 function updateScene() {
+  var prevR = SPHERE_R;
   SPHERE_R = DATA.radius || SPHERE_R;
-  rebuildNodes();
+  // Radius grew/shrank → scaffold (rings, shell, motes) must rescale with it.
+  if (Math.abs(SPHERE_R - prevR) > 1e-4) {
+    buildScene();
+    if (ctrl) {
+      ctrl.minDistance = Math.max(0.3, SPHERE_R * 0.3);
+      ctrl.maxDistance = SPHERE_R * 6;
+    }
+  } else {
+    rebuildNodes();
+  }
   if (activeFilterFn) applyFilter();
   document.getElementById('total').textContent = DATA.nodes.length;
 }

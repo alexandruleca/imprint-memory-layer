@@ -16,7 +16,7 @@ import time
 # Ensure the knowledgebase package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import vectorstore as vs
+from knowledgebase import tagger, vectorstore as vs
 
 # Files worth indexing — code with logic, not styling/config/generated
 EXTENSIONS = {
@@ -401,8 +401,17 @@ def main():
     # Override via --batch-size N; higher = faster but more peak memory.
     BATCH_SIZE = batch_size
 
+    # Opt-in tag sources. Zero-shot + LLM are off by default because they
+    # cost extra compute / $$ at ingest time. Enable via env var.
+    enable_llm = os.environ.get("KNOWLEDGE_LLM_TAGS", "0") == "1"
+    enable_zero_shot = os.environ.get("KNOWLEDGE_ZERO_SHOT_TAGS", "0") == "1"
+
     def read_and_chunk(args):
-        """Read a file and chunk it. Returns list of record dicts or None."""
+        """Read a file and chunk it. Returns list of record dicts or None.
+
+        Each chunk gets its own structured tag payload derived by the tagger
+        (deterministic lang/layer/kind + keyword-matched domain tags).
+        """
         project, rel, fpath = args
         try:
             with open(fpath, 'r', errors='ignore') as f:
@@ -416,17 +425,24 @@ def main():
                 return None
             mtime = os.path.getmtime(fpath)
             source_key = f"{project}/{rel}"
-            return [
-                {
+            records = []
+            for chunk_text, chunk_idx in chunks:
+                tags = tagger.build_payload_tags(
+                    chunk_text,
+                    rel_path=rel,
+                    llm=enable_llm,
+                    zero_shot=enable_zero_shot,
+                )
+                records.append({
                     "content": chunk_text,
                     "project": project,
                     "type": "architecture",
+                    "tags": tags,
                     "source": source_key,
                     "chunk_index": chunk_idx,
                     "source_mtime": mtime,
-                }
-                for chunk_text, chunk_idx in chunks
-            ]
+                })
+            return records
         except Exception:
             return None
 

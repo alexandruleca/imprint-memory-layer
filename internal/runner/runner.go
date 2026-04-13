@@ -49,6 +49,17 @@ func CommandWithEnv(name string, args []string, env ...string) *exec.Cmd {
 	return cmd
 }
 
+// RunCaptureEnv is like RunCapture but lets caller pass extra env vars.
+func RunCaptureEnv(name string, env []string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), env...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	return strings.TrimSpace(out.String()), err
+}
+
 // Exists checks if a command exists on the PATH.
 func Exists(name string) (string, bool) {
 	path, err := exec.LookPath(name)

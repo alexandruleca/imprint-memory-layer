@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import vectorstore as vs
+from knowledgebase import tagger, vectorstore as vs
 
 # Minimum length for a message to be worth storing
 MIN_LENGTH = 200
@@ -191,12 +191,16 @@ def main():
     stored = 0
     for _, text in candidates[:MAX_MESSAGES]:
         mem_type = classify_type(text)
+        tags = tagger.build_payload_tags(text)
+        tags["lang"] = "conversation"
+        tags["layer"] = "session"
+        tags["kind"] = "auto-extract"
         vs.store(
             content=text,
             project=project,
             type=mem_type,
             source="auto-extract",
-            tags="auto",
+            tags=tags,
         )
         stored += 1
 

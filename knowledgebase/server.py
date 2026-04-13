@@ -9,6 +9,11 @@ from . import vectorstore as vs
 
 mcp = FastMCP("knowledge")
 
+# Release the embedded Qdrant lock after 30s of no MCP activity so
+# `knowledge ingest` (a separate process) can grab it. Without this, the
+# MCP server pins the lock for the lifetime of Claude Code.
+vs.release_idle_client(after_seconds=float(__import__("os").environ.get("KNOWLEDGE_MCP_IDLE_S", "30")))
+
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
 
@@ -76,7 +81,16 @@ def wake_up() -> str:
 
 
 @mcp.tool()
-def search(query: str, project: str = "", type: str = "", limit: int = 10) -> str:
+def search(
+    query: str,
+    project: str = "",
+    type: str = "",
+    lang: str = "",
+    layer: str = "",
+    kind: str = "",
+    domain: str = "",
+    limit: int = 10,
+) -> str:
     """Semantic search across stored knowledge.
     Check this BEFORE reading files — the answer may already be here.
     Returns relevant code chunks, decisions, and patterns.
@@ -85,9 +99,28 @@ def search(query: str, project: str = "", type: str = "", limit: int = 10) -> st
         query: What to search for (natural language)
         project: Filter by project name (optional)
         type: Filter by type: decision, pattern, finding, preference, bug, architecture (optional)
+        lang: Filter by language tag (python, typescript, go, php, markdown, conversation, ...)
+        layer: Filter by layer (api, ui, tests, infra, config, migrations, docs, scripts, cli, session)
+        kind: Filter by file kind (source, test, migration, readme, types, module, qa, auto-extract)
+        domain: Filter by domain tag, comma-separated for multi-match (auth, db, api, math, rendering, ui, testing, infra, ml, perf, security, build, payments)
         limit: Max results (default 10)
     """
-    results = vs.search(query, limit=limit, project=project, type=type)
+    tag_filters: dict = {}
+    if lang:
+        tag_filters["lang"] = lang
+    if layer:
+        tag_filters["layer"] = layer
+    if kind:
+        tag_filters["kind"] = kind
+    if domain:
+        doms = [d.strip() for d in domain.split(",") if d.strip()]
+        if doms:
+            tag_filters["domain"] = doms
+
+    results = vs.search(
+        query, limit=limit, project=project, type=type,
+        tag_filters=tag_filters or None,
+    )
 
     if not results:
         return "No results. Try reading the relevant files directly."
@@ -104,6 +137,19 @@ def search(query: str, project: str = "", type: str = "", limit: int = 10) -> st
             meta.append(r["project"])
         if r["source"]:
             meta.append(r["source"])
+        # Surface structured tags so the model can use them for follow-up
+        # filtering without calling search again.
+        tags = r.get("tags") or {}
+        tag_bits = []
+        if isinstance(tags, dict):
+            if tags.get("lang"):
+                tag_bits.append(tags["lang"])
+            if tags.get("layer"):
+                tag_bits.append(tags["layer"])
+            for d in (tags.get("domain") or [])[:3]:
+                tag_bits.append(d)
+        if tag_bits:
+            meta.append("#" + " #".join(tag_bits))
         meta_str = " | ".join(meta) if meta else ""
 
         lines.append(f"[{i}] {meta_str}  (similarity: {r['similarity']:.3f})")

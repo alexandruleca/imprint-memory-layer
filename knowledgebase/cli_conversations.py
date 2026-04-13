@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import vectorstore as vs
+from knowledgebase import chunker, tagger, vectorstore as vs
 from knowledgebase.classifier import classify
 
 C_RESET = "\033[0m"
@@ -24,16 +24,8 @@ C_CYAN = "\033[0;36m"
 C_GREEN = "\033[0;32m"
 C_YELLOW = "\033[1;33m"
 
-# Minimum useful exchange length
+# Minimum useful exchange length — drop sub-100-char noise.
 MIN_EXCHANGE_LEN = 100
-# Soft max — preferred size, can overflow to keep complete thoughts
-TARGET_EXCHANGE_LEN = 4000
-# Hard max — absolute limit (model context is 8192 tokens ~ 24000 chars)
-HARD_MAX_EXCHANGE_LEN = 8000
-# Skip assistant messages that are mostly tool calls / code
-CODE_LINE_THRESHOLD = 0.7
-# Cap assistant response at N lines to avoid storing huge dumps
-MAX_ASSISTANT_LINES = 60
 
 
 def extract_text(msg: dict) -> str:
@@ -110,72 +102,31 @@ def _clean_user_text(text: str) -> str:
 
 
 def _build_exchange(user_msgs: list[str], assistant_msgs: list[str], title: str) -> dict:
-    """Build a single exchange from user + assistant messages."""
+    """Build a single exchange from user + assistant messages.
+
+    Concats ALL assistant messages between user turns (preserves multi-turn
+    flow + tool-call narration). No line cap, no code-heavy skip, no
+    truncation — long exchanges are split downstream by chunker.chunk_prose.
+    """
     user_text = _clean_user_text("\n".join(user_msgs))
 
-    # Skip if user message is empty after cleaning (was just system noise)
+    # Skip if user message is empty after cleaning (was just system noise).
     if len(user_text) < 10:
-        return {"text": "", "user_text": "", "title": title, "code_heavy": False}
+        return {"text": "", "user_text": "", "title": title}
 
-    # Take the most substantial assistant response (not just "Let me look...")
-    best_assistant = ""
-    for msg in assistant_msgs:
-        # Skip very short responses (tool call acknowledgements)
-        if len(msg) < 50:
-            continue
-        if len(msg) > len(best_assistant):
-            best_assistant = msg
+    # Concat every assistant text block, dropping only ack-tier stubs.
+    parts = [m for m in assistant_msgs if len(m) >= 50]
+    if not parts:
+        return {"text": "", "user_text": "", "title": title}
+    assistant_text = "\n\n".join(parts)
 
-    if not best_assistant:
-        return {"text": "", "user_text": "", "title": title, "code_heavy": False}
-
-    # Cap assistant response by lines
-    lines = best_assistant.split("\n")
-    if len(lines) > MAX_ASSISTANT_LINES:
-        best_assistant = "\n".join(lines[:MAX_ASSISTANT_LINES])
-
-    # Check code ratio — skip if mostly code
-    code_lines = sum(1 for l in lines if l.strip().startswith(("```", "  ", "\t", "import ", "from ", "const ", "export ")))
-    code_ratio = code_lines / max(len(lines), 1)
-
-    exchange_text = f"Q: {user_text}\n\nA: {best_assistant}"
-
-    # Smart truncation — keep complete sentences/paragraphs
-    if len(exchange_text) > HARD_MAX_EXCHANGE_LEN:
-        exchange_text = _smart_truncate(exchange_text, HARD_MAX_EXCHANGE_LEN)
+    exchange_text = f"Q: {user_text}\n\nA: {assistant_text}"
 
     return {
         "text": exchange_text,
         "user_text": user_text[:500],
         "title": title,
-        "code_heavy": code_ratio > CODE_LINE_THRESHOLD,
     }
-
-
-def _smart_truncate(text: str, max_len: int) -> str:
-    """Truncate at a natural boundary — paragraph, sentence, or line break."""
-    if len(text) <= max_len:
-        return text
-
-    cut = text[:max_len]
-
-    # Try paragraph break
-    pos = cut.rfind("\n\n")
-    if pos > max_len * 0.6:
-        return cut[:pos]
-
-    # Try sentence end
-    for end in [". ", ".\n", "? ", "?\n", "! ", "!\n"]:
-        pos = cut.rfind(end)
-        if pos > max_len * 0.6:
-            return cut[:pos + 1]
-
-    # Try line break
-    pos = cut.rfind("\n")
-    if pos > max_len * 0.5:
-        return cut[:pos]
-
-    return cut
 
 
 def derive_project(transcript_path: str) -> str:
@@ -232,8 +183,8 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
     """Index a single transcript. Returns (stored, skipped).
 
     Buffers all qualifying exchanges and flushes via vs.store_batch() so the
-    embedding model sees grouped inputs and LanceDB sees one fragment per
-    transcript instead of one per exchange. Big OOM/throughput win because
+    embedding model sees grouped inputs and Qdrant gets one upsert call per
+    transcript instead of one per exchange. Big throughput win because
     `knowledge ingest` walks hundreds of transcripts before touching code.
     """
     exchanges = parse_exchanges(transcript_path)
@@ -246,21 +197,30 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
         if not ex["text"] or len(ex["text"]) < MIN_EXCHANGE_LEN:
             skipped += 1
             continue
-        if ex["code_heavy"]:
-            skipped += 1
-            continue
 
         mem_type, confidence = classify(ex["text"])
         if confidence < 0.2:
             mem_type = "finding"
 
-        records.append({
-            "content": ex["text"],
-            "project": project,
-            "type": mem_type,
-            "source": f"conversation/{session_id}",
-            "tags": "conversation",
-        })
+        # Conversation tags: always-on lang/layer/kind + keyword domains.
+        tags = tagger.build_payload_tags(ex["text"])
+        tags["lang"] = "conversation"
+        tags["layer"] = "session"
+        tags["kind"] = "qa"
+
+        # Split long exchanges via semantic chunker (with sliding overlap)
+        # so retrieval lands on coherent topic segments instead of a single
+        # giant embedding or a mid-word truncation.
+        pieces = chunker.chunk_prose(ex["text"]) or [ex["text"]]
+        for ci, piece in enumerate(pieces):
+            records.append({
+                "content": piece,
+                "project": project,
+                "type": mem_type,
+                "source": f"conversation/{session_id}",
+                "chunk_index": ci,
+                "tags": tags,
+            })
 
     # Flush in small sub-batches so a transcript with hundreds of exchanges
     # doesn't pin a giant batch through tokenization + ONNX at once.

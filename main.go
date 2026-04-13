@@ -24,6 +24,7 @@ func main() {
 		if len(os.Args) >= 3 {
 			target = os.Args[2]
 		}
+		fmt.Fprintf(os.Stderr, "\n→ knowledge setup target: %s\n\n", target)
 		switch target {
 		case "claude-code", "claude":
 			cmd.SetupClaudeCode()
@@ -43,6 +44,14 @@ func main() {
 		cmd.Relay(os.Args[2:])
 	case "viz":
 		cmd.Viz(os.Args[2:])
+	case "server":
+		cmd.Server(os.Args[2:])
+	case "enable":
+		cmd.Enable(os.Args[2:])
+	case "disable":
+		cmd.Disable(os.Args[2:])
+	case "status":
+		cmd.Status(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("knowledge %s\n", version)
 	default:
@@ -63,6 +72,11 @@ Usage:
   knowledge sync <host>/<id>   Pull + push to a remote peer
   knowledge relay              Run the sync relay server
   knowledge viz                3D brain cluster visualization
+  knowledge server <cmd>       Manage the local Qdrant server
+                                 cmd: start | stop | status | log
+  knowledge status             Show enabled/disabled state, server pid, hook count, memory stats
+  knowledge disable            Stop server, unregister MCP, strip hooks (data preserved)
+  knowledge enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor)
   knowledge version            Print version
 
 Examples:
