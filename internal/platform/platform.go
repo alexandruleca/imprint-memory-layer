@@ -163,8 +163,13 @@ func PipInstallHint() string {
 	}
 }
 
+// projectRootMarkers are files whose presence indicates the imprint project root.
+var projectRootMarkers = []string{"go.mod", "requirements.txt", "imprint/__main__.py"}
+
 // FindProjectDir walks up from the binary's directory to find the project root
-// (identified by having a go.mod file). Falls back to the binary's directory.
+// (identified by having go.mod, requirements.txt, or imprint/__main__.py).
+// If the walk-up fails, checks the standard install location (~/.local/share/imprint).
+// Falls back to the binary's directory.
 func FindProjectDir() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -178,10 +183,25 @@ func FindProjectDir() string {
 	}
 
 	dir := filepath.Dir(exe)
-	// Walk up looking for go.mod (project root marker)
+	// Walk up looking for project root markers.
+	if found := walkUpForRoot(dir); found != "" {
+		return found
+	}
+
+	// Fallback: check standard install location.
+	installDir := filepath.Join(HomeDir(), ".local", "share", "imprint")
+	if hasProjectMarker(installDir) {
+		return installDir
+	}
+
+	return dir
+}
+
+// walkUpForRoot walks up from dir looking for a project root marker.
+func walkUpForRoot(dir string) string {
 	current := dir
 	for {
-		if _, err := os.Stat(filepath.Join(current, "go.mod")); err == nil {
+		if hasProjectMarker(current) {
 			return current
 		}
 		parent := filepath.Dir(current)
@@ -190,7 +210,17 @@ func FindProjectDir() string {
 		}
 		current = parent
 	}
-	return dir
+	return ""
+}
+
+// hasProjectMarker returns true if any project root marker exists in dir.
+func hasProjectMarker(dir string) bool {
+	for _, marker := range projectRootMarkers {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // FileContains checks if a file exists and contains the given substring.

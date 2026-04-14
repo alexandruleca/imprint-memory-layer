@@ -485,6 +485,15 @@ body { background: #1a1a2e; color: #dcddde; font-family: -apple-system, BlinkMac
 .neighbor-item:hover { background: #2a2a4a; border-left-color: #4ecdc4; }
 .neighbor-sim { font-size: 10px; color: #4ecdc4; float: right; }
 
+/* Reset button */
+#reset-btn {
+  position: absolute; top: 12px; left: 12px; z-index: 15;
+  background: #4ecdc4; color: #1a1a2e; border: none; border-radius: 6px;
+  padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  display: none; transition: opacity 0.2s;
+}
+#reset-btn:hover { opacity: 0.85; }
+
 /* Empty state */
 #empty-state {
   display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -518,6 +527,7 @@ body { background: #1a1a2e; color: #dcddde; font-family: -apple-system, BlinkMac
     <span id="stats"></span>
   </div>
   <div id="graph-container">
+    <button id="reset-btn">&larr; Back to Overview</button>
     <div id="loading"><div class="spinner"></div>Loading graph...</div>
     <div id="empty-state"><h2>No memories yet</h2><p>Ingest some files to get started:<br><code>imprint ingest &lt;dir&gt;</code></p></div>
     <div id="detail">
@@ -591,11 +601,16 @@ function initGraph() {
       style: {
         labelText: d => d.data?.label || d.id,
         labelFill: '#dcddde',
-        labelFontSize: d => d.data?.level === 'leaf' ? 10 : 12,
-        labelPlacement: 'bottom',
-        labelMaxWidth: 120,
+        labelFontSize: d => {
+          if (d.data?.level === 'leaf') return 9;
+          const sz = d.style?.size || 40;
+          return Math.max(9, Math.min(14, sz / 6));
+        },
+        labelPlacement: 'center',
+        labelMaxWidth: d => (d.style?.size || 40) * 1.4,
         labelWordWrap: true,
-        labelMaxLines: 2,
+        labelMaxLines: 3,
+        labelTextOverflow: 'ellipsis',
         cursor: 'pointer',
         lineWidth: 2,
         stroke: d => d.data?.borderColor || '#2a2a4a',
@@ -699,9 +714,10 @@ async function loadOverview() {
   graph.setLayout({
     type: 'force',
     preventOverlap: true,
-    nodeSize: d => clampSize(d.data?.count || 1, 40, 120) + 20,
-    linkDistance: 180,
-    nodeStrength: -800,
+    nodeSize: d => clampSize(d.data?.count || 1, 40, 120) + 80,
+    nodeSpacing: 80,
+    linkDistance: 350,
+    nodeStrength: -3000,
     animated: true,
     maxSpeed: 200,
   });
@@ -729,10 +745,11 @@ async function drillIntoProject(projectName) {
     data: { label: projectName, color: detail.color },
   });
 
-  // Type cluster nodes inside combo
+  // Type cluster nodes only — no peripheral projects
   for (const t of detail.types) {
     if (!t.name) continue;
     const nodeId = `type_${projectName}_${t.name}`;
+    const sz = clampSize(t.count, 40, 90);
     nodes.push({
       id: nodeId,
       combo: comboId,
@@ -746,7 +763,7 @@ async function drillIntoProject(projectName) {
         borderColor: TYPE_COLORS[t.name] || '#60a5fa',
       },
       style: {
-        size: clampSize(t.count, 24, 70),
+        size: sz,
         fill: (TYPE_COLORS[t.name] || '#60a5fa') + '33',
         stroke: TYPE_COLORS[t.name] || '#60a5fa',
         lineWidth: 2,
@@ -755,41 +772,14 @@ async function drillIntoProject(projectName) {
     });
   }
 
-  // Also add other projects as small peripheral nodes
-  if (DATA && DATA.projects) {
-    for (const p of DATA.projects) {
-      if (p.name === projectName) continue;
-      nodes.push({
-        id: p.id,
-        data: {
-          level: 'project',
-          name: p.name,
-          count: p.count,
-          types: p.types,
-          color: p.color,
-          label: p.name,
-          borderColor: p.color,
-        },
-        style: {
-          size: clampSize(p.count, 20, 50),
-          fill: p.color + '15',
-          stroke: p.color + '44',
-          lineWidth: 1,
-          labelText: p.name,
-          labelFill: '#5a5a7a',
-          labelFontSize: 10,
-        },
-      });
-    }
-  }
-
   graph.setData({ nodes, edges: [], combos });
   graph.setLayout({
     type: 'force',
     preventOverlap: true,
-    nodeSize: d => (d.data?.level === 'type-cluster' ? clampSize(d.data?.count || 1, 24, 70) : clampSize(d.data?.count || 1, 20, 50)) + 20,
-    linkDistance: 120,
-    nodeStrength: -400,
+    nodeSize: d => clampSize(d.data?.count || 1, 40, 90) + 60,
+    nodeSpacing: 60,
+    linkDistance: 250,
+    nodeStrength: -1500,
     animated: true,
   });
   await graph.render();
@@ -888,9 +878,10 @@ async function drillIntoType(projectName, typeName) {
   graph.setLayout({
     type: 'force',
     preventOverlap: true,
-    nodeSize: d => (d.id === hubId ? 60 : 20),
-    linkDistance: d => d.source === hubId || d.target === hubId ? 100 : 60,
-    nodeStrength: -150,
+    nodeSize: d => (d.id === hubId ? 70 : 30),
+    nodeSpacing: 40,
+    linkDistance: d => d.source === hubId || d.target === hubId ? 180 : 100,
+    nodeStrength: -600,
     animated: true,
     maxSpeed: 200,
   });
@@ -1074,9 +1065,10 @@ async function doSearch(query) {
   graph.setLayout({
     type: 'force',
     preventOverlap: true,
-    nodeSize: 30,
-    linkDistance: 120,
-    nodeStrength: -200,
+    nodeSize: 40,
+    nodeSpacing: 40,
+    linkDistance: 200,
+    nodeStrength: -800,
     animated: true,
   });
   await graph.render();
@@ -1131,6 +1123,16 @@ function renderChips(containerId, items) {
 }
 
 // ── Breadcrumb ──
+function updateResetBtn() {
+  const btn = document.getElementById('reset-btn');
+  if (currentLevel === 'overview') {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = 'block';
+    btn.textContent = currentLevel === 'type' ? '\u2190 Back to ' + currentProject : '\u2190 Back to Overview';
+  }
+}
+
 function updateBreadcrumb() {
   const bc = document.getElementById('breadcrumb');
   let html = '';
@@ -1157,6 +1159,7 @@ function updateBreadcrumb() {
       else if (c.dataset.action === 'project') drillIntoProject(c.dataset.name);
     });
   });
+  updateResetBtn();
 }
 
 // ── UI helpers ──
@@ -1232,6 +1235,13 @@ document.getElementById('search-box').addEventListener('input', (e) => {
 
 // Detail close button
 document.getElementById('detail-close').addEventListener('click', closeDetail);
+
+// Reset / back button
+document.getElementById('reset-btn').addEventListener('click', () => {
+  closeDetail();
+  if (currentLevel === 'type' && currentProject) drillIntoProject(currentProject);
+  else loadOverview();
+});
 
 // Resize handling
 window.addEventListener('resize', () => {

@@ -760,3 +760,6 @@ Or deploy to Docker Swarm with `docker-compose.relay.yml`.
 - [ ] Local Auto Back-up
 - [ ] External Qdrant Instance instead of local db
 - [ ] BackUp/Sync to another Qdrant Remote Instance Server
+- [ ] Document (pdf, doc, odt, ...etc) ingestion capability
+- [ ] Video / Audio ingestion capability
+- [ ] URL ingestion capability

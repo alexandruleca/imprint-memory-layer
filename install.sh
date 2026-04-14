@@ -49,9 +49,14 @@ else
     git clone --quiet "https://github.com/$REPO.git" "$INSTALL_DIR"
 fi
 
-# --- Build or download binary ---
-if command -v go &>/dev/null; then
-    info "Go found — building from source..."
+# --- Use pre-built binary from bin/ ---
+BUNDLED_BIN="$INSTALL_DIR/bin/imprint-${PLATFORM}-${ARCH}"
+if [ -f "$BUNDLED_BIN" ]; then
+    IMPRINT_BIN="$BUNDLED_BIN"
+    chmod +x "$IMPRINT_BIN"
+    info "Using bundled binary: $IMPRINT_BIN"
+elif command -v go &>/dev/null; then
+    info "Bundled binary not found for ${PLATFORM}/${ARCH}. Go found — building from source..."
     cd "$INSTALL_DIR"
     go build -ldflags "-s -w" -o build/imprint . 2>/dev/null
     IMPRINT_BIN="$INSTALL_DIR/build/imprint"
@@ -70,6 +75,40 @@ else
 fi
 
 success "Binary ready at $IMPRINT_BIN"
+
+# --- Set up Python venv and dependencies ---
+info "Setting up Python virtual environment..."
+
+PYTHON=""
+for cmd in python3 python; do
+    if $cmd --version 2>/dev/null | grep -qE 'Python 3\.(9|1[0-9]|[2-9][0-9])'; then
+        PYTHON="$cmd"
+        break
+    fi
+done
+
+if [ -z "$PYTHON" ]; then
+    fail "Python 3.9+ not found. Install Python first."
+fi
+
+VENV_DIR="$INSTALL_DIR/.venv"
+if [ -d "$VENV_DIR" ] && "$VENV_DIR/bin/python" --version &>/dev/null; then
+    info "Virtual environment already exists at $VENV_DIR"
+else
+    rm -rf "$VENV_DIR"
+    $PYTHON -m venv "$VENV_DIR" || fail "Failed to create virtual environment"
+    success "Created virtual environment at $VENV_DIR"
+fi
+
+info "Installing Python dependencies..."
+"$VENV_DIR/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --quiet || fail "Failed to install dependencies"
+success "Python dependencies installed"
+
+# --- Symlink into PATH ---
+info "Linking imprint into $BIN_DIR..."
+mkdir -p "$BIN_DIR"
+ln -sf "$IMPRINT_BIN" "$BIN_DIR/imprint"
+success "Symlinked $BIN_DIR/imprint → $IMPRINT_BIN"
 
 # --- Run setup ---
 info "Running imprint setup..."

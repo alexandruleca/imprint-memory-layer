@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"runtime"
+
 	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
@@ -49,10 +51,22 @@ func setupBackend() backendPaths {
 	}
 	output.Success("pip available")
 
+	venvPython := platform.VenvPython(projectDir)
+	venvPip := platform.VenvBin(projectDir, "pip")
+
 	output.Info("Setting up virtual environment...")
+	venvHealthy := false
 	if platform.DirExists(venvDir) {
-		output.Skip("Virtual environment at " + venvDir)
-	} else {
+		// Verify the venv python binary actually works.
+		if _, err := runner.RunCapture(venvPython, "--version"); err == nil {
+			venvHealthy = true
+			output.Skip("Virtual environment at " + venvDir)
+		} else {
+			output.Warn("Virtual environment at " + venvDir + " is broken, recreating...")
+			os.RemoveAll(venvDir)
+		}
+	}
+	if !venvHealthy {
 		venvArgs := append(pythonArgs, "-m", "venv", venvDir)
 		if err := runner.Run(pythonCmd, venvArgs...); err != nil {
 			output.Fail("Failed to create virtual environment: " + err.Error())
@@ -60,10 +74,10 @@ func setupBackend() backendPaths {
 		output.Success("Created virtual environment at " + venvDir)
 	}
 
-	venvPython := platform.VenvPython(projectDir)
-	venvPip := platform.VenvBin(projectDir, "pip")
-
 	output.Info("Checking dependencies...")
+	if !platform.FileExists(requirementsFile) {
+		output.Fail("requirements.txt not found at " + requirementsFile + " — is the project directory correct?")
+	}
 	if out, err := runner.RunCapture(venvPip, "show", "fastmcp"); err == nil {
 		ver := parsePackageVersion(out)
 		output.Skip("Dependencies installed (fastmcp " + ver + ")")
@@ -84,9 +98,13 @@ func setupBackend() backendPaths {
 	}
 
 	output.Info("Setting up shell aliases...")
-	imprintBin, _ := os.Executable()
-	imprintBin, _ = filepath.EvalSymlinks(imprintBin)
-	imprintBin, _ = filepath.Abs(imprintBin)
+	imprintBin := bundledBinaryPath(projectDir)
+	if imprintBin == "" {
+		// Fallback: use the running executable itself
+		imprintBin, _ = os.Executable()
+		imprintBin, _ = filepath.EvalSymlinks(imprintBin)
+		imprintBin, _ = filepath.Abs(imprintBin)
+	}
 	setupShellAlias("imprint", imprintBin)
 
 	return backendPaths{
@@ -185,6 +203,21 @@ func parsePackageVersion(pipShowOutput string) string {
 		}
 	}
 	return "unknown"
+}
+
+// bundledBinaryPath returns the absolute path to the platform-specific imprint
+// binary in the project's bin/ directory. Returns "" if not found.
+func bundledBinaryPath(projectDir string) string {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	name := fmt.Sprintf("imprint-%s-%s%s", runtime.GOOS, runtime.GOARCH, ext)
+	p := filepath.Join(projectDir, "bin", name)
+	if platform.FileExists(p) {
+		return p
+	}
+	return ""
 }
 
 func setupShellAlias(name, targetPath string) {

@@ -22,6 +22,7 @@ import gc
 import hashlib
 import json
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -33,9 +34,9 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from . import config, embeddings, qdrant_runner
 
 _client: QdrantClient | None = None
-_id_cache: set[str] | None = None
-_collection_ready = False
-_active_workspace: str | None = None
+_collections_ready: set[str] = set()
+_id_caches: dict[str, set[str]] = {}
+_cache_lock = threading.Lock()
 
 _inserts_since_compact = 0
 _COMPACT_EVERY = int(os.environ.get("IMPRINT_COMPACT_EVERY", "500"))
@@ -73,7 +74,7 @@ def _close_client() -> None:
     """Close Qdrant client deterministically at interpreter exit. Without
     this, QdrantClient.__del__ fires during shutdown when sys.meta_path is
     already None and prints a noisy ImportError traceback."""
-    global _client, _collection_ready, _id_cache, _active_workspace
+    global _client
     if _client is None:
         return
     try:
@@ -81,9 +82,8 @@ def _close_client() -> None:
     except Exception:
         pass
     _client = None
-    _collection_ready = False
-    _id_cache = None
-    _active_workspace = None
+    _collections_ready.clear()
+    _id_caches.clear()
 
 
 atexit.register(_close_client)
@@ -126,24 +126,18 @@ def release_idle_client(after_seconds: float = 30.0) -> None:
     _idle_thread.start()
 
 
-def _resolve_collection() -> str:
-    """Return current collection name, resetting caches if workspace changed."""
-    global _collection_ready, _id_cache, _active_workspace
-    ws = config.get_active_workspace()
-    if ws != _active_workspace:
-        _collection_ready = False
-        _id_cache = None
-        _active_workspace = ws
-    return config.collection_name(ws)
+def _resolve_collection(workspace: str | None = None) -> str:
+    """Return collection name for the given (or active) workspace."""
+    return config.collection_name(workspace)
 
 
-def _ensure_collection() -> tuple[QdrantClient, str]:
-    global _collection_ready
-    coll = _resolve_collection()
+def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]:
+    coll = _resolve_collection(workspace)
     client = _get_client()
     _touch_use()
-    if _collection_ready:
-        return client, coll
+    with _cache_lock:
+        if coll in _collections_ready:
+            return client, coll
 
     collections = {c.name for c in client.get_collections().collections}
     if coll not in collections:
@@ -197,7 +191,8 @@ def _ensure_collection() -> tuple[QdrantClient, str]:
         except Exception:
             pass
 
-    _collection_ready = True
+    with _cache_lock:
+        _collections_ready.add(coll)
     return client, coll
 
 
@@ -216,8 +211,8 @@ def _point_uuid(memory_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"imprint::{memory_id}"))
 
 
-def _wal_log(operation: str, **kwargs) -> None:
-    wal_path = config.wal_path()
+def _wal_log(operation: str, workspace: str | None = None, **kwargs) -> None:
+    wal_path = config.wal_path(workspace)
     entry = {"ts": time.time(), "op": operation, **kwargs}
     try:
         with open(wal_path, "a") as f:
@@ -250,12 +245,14 @@ def _normalize_tags(tags) -> dict:
 
 
 # ── Existing-id cache ───────────────────────────────────────────
-def _get_existing_ids() -> set[str]:
-    global _id_cache
-    if _id_cache is not None:
-        return _id_cache
-    client, coll = _ensure_collection()
-    _id_cache = set()
+def _get_existing_ids(workspace: str | None = None) -> set[str]:
+    coll = _resolve_collection(workspace)
+    with _cache_lock:
+        if coll in _id_caches:
+            return _id_caches[coll]
+    # Build locally, then atomically swap in to avoid partial visibility.
+    client, coll = _ensure_collection(workspace)
+    local_cache: set[str] = set()
     offset = None
     try:
         while True:
@@ -269,12 +266,16 @@ def _get_existing_ids() -> set[str]:
             for p in points:
                 mid = (p.payload or {}).get("_mid")
                 if mid:
-                    _id_cache.add(mid)
+                    local_cache.add(mid)
             if offset is None:
                 break
     except Exception:
         pass
-    return _id_cache
+    with _cache_lock:
+        # Another thread may have populated it already — use first writer wins.
+        if coll not in _id_caches:
+            _id_caches[coll] = local_cache
+        return _id_caches[coll]
 
 
 # ── store / store_batch ─────────────────────────────────────────
@@ -286,14 +287,15 @@ def store(
     source: str = "",
     chunk_index: int = 0,
     source_mtime: float = 0.0,
+    workspace: str | None = None,
 ) -> str:
     """Store a single memory. Returns the 16-hex logical id."""
-    client, coll = _ensure_collection()
+    client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
-    if memory_id in _get_existing_ids():
+    if memory_id in _get_existing_ids(workspace):
         return memory_id
 
-    _wal_log("store", id=memory_id, project=project, source=source, type=type)
+    _wal_log("store", workspace=workspace, id=memory_id, project=project, source=source, type=type)
 
     vector = embeddings.embed_document(content)
     payload = {
@@ -317,19 +319,19 @@ def store(
             )
         ],
     )
-    _get_existing_ids().add(memory_id)
+    _get_existing_ids(workspace).add(memory_id)
     return memory_id
 
 
-def store_batch(records: list[dict]) -> tuple[int, int]:
+def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
     """Store many records with one embed pass. Skips duplicates by logical id.
 
     Each record: {content, project?, type?, tags?, source?, chunk_index?,
                   source_mtime?}. tags may be dict or comma-string.
     Returns (inserted, skipped).
     """
-    client, coll = _ensure_collection()
-    existing = _get_existing_ids()
+    client, coll = _ensure_collection(workspace)
+    existing = _get_existing_ids(workspace)
 
     new_records = []
     for r in records:
@@ -371,7 +373,7 @@ def store_batch(records: list[dict]) -> tuple[int, int]:
     for r in new_records:
         existing.add(r["_mid"])
 
-    _wal_log("store_batch", count=len(points))
+    _wal_log("store_batch", workspace=workspace, count=len(points))
 
     inserted = len(points)
     del points, vectors, texts, new_records
@@ -426,13 +428,14 @@ def search(
     project: str = "",
     type: str = "",
     tag_filters: dict | None = None,
+    workspace: str | None = None,
 ) -> list[dict]:
     """Semantic search with optional metadata filters.
 
     tag_filters example:
         {"lang": "python", "domain": ["auth", "db"]}
     """
-    client, coll = _ensure_collection()
+    client, coll = _ensure_collection(workspace)
     info = client.get_collection(coll)
     if info.points_count == 0:
         return []
@@ -467,24 +470,24 @@ def search(
 
 
 # ── delete ─────────────────────────────────────────────────────
-def delete(memory_id: str) -> bool:
-    client, coll = _ensure_collection()
+def delete(memory_id: str, workspace: str | None = None) -> bool:
+    client, coll = _ensure_collection(workspace)
     try:
-        _wal_log("delete", id=memory_id)
+        _wal_log("delete", workspace=workspace, id=memory_id)
         client.delete(
             collection_name=coll,
             points_selector=qm.PointIdsList(points=[_point_uuid(memory_id)]),
         )
-        _get_existing_ids().discard(memory_id)
+        _get_existing_ids(workspace).discard(memory_id)
         return True
     except Exception:
         return False
 
 
-def delete_by_source(source: str) -> bool:
-    client, coll = _ensure_collection()
+def delete_by_source(source: str, workspace: str | None = None) -> bool:
+    client, coll = _ensure_collection(workspace)
     try:
-        _wal_log("delete_by_source", source=source)
+        _wal_log("delete_by_source", workspace=workspace, source=source)
         client.delete(
             collection_name=coll,
             points_selector=qm.FilterSelector(
@@ -493,17 +496,17 @@ def delete_by_source(source: str) -> bool:
                 ])
             ),
         )
-        # Invalidate id cache — couldn't know which ids matched without a scan.
-        global _id_cache
-        _id_cache = None
+        # Invalidate id cache for this collection.
+        with _cache_lock:
+            _id_caches.pop(coll, None)
         return True
     except Exception:
         return False
 
 
 # ── bulk reads ─────────────────────────────────────────────────
-def _scroll_all(fields: list[str]) -> Iterable[dict]:
-    client, coll = _ensure_collection()
+def _scroll_all(fields: list[str], workspace: str | None = None) -> Iterable[dict]:
+    client, coll = _ensure_collection(workspace)
     offset = None
     while True:
         points, offset = client.scroll(
@@ -519,11 +522,11 @@ def _scroll_all(fields: list[str]) -> Iterable[dict]:
             break
 
 
-def get_source_mtimes() -> dict[str, float]:
+def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:
     """Return {source: source_mtime} for refresh deduplication."""
     out: dict[str, float] = {}
     try:
-        for pl in _scroll_all(["source", "source_mtime"]):
+        for pl in _scroll_all(["source", "source_mtime"], workspace=workspace):
             s = pl.get("source")
             m = pl.get("source_mtime")
             if s and m:
@@ -533,11 +536,11 @@ def get_source_mtimes() -> dict[str, float]:
     return out
 
 
-def recent(limit: int = 15, types: list[str] | None = None) -> list[dict]:
+def recent(limit: int = 15, types: list[str] | None = None, workspace: str | None = None) -> list[dict]:
     """Top-K most recent memories, optionally filtered by type."""
     import heapq
 
-    client, coll = _ensure_collection()
+    client, coll = _ensure_collection(workspace)
     info = client.get_collection(coll)
     if info.points_count == 0:
         return []
@@ -549,7 +552,7 @@ def recent(limit: int = 15, types: list[str] | None = None) -> list[dict]:
     try:
         for pl in _scroll_all([
             "_mid", "content", "project", "type", "tags", "source", "timestamp"
-        ]):
+        ], workspace=workspace):
             if type_set and pl.get("type", "") not in type_set:
                 continue
             ts = pl.get("timestamp") or 0
@@ -575,8 +578,8 @@ def recent(limit: int = 15, types: list[str] | None = None) -> list[dict]:
     ]
 
 
-def status() -> dict:
-    client, coll = _ensure_collection()
+def status(workspace: str | None = None) -> dict:
+    client, coll = _ensure_collection(workspace)
     try:
         info = client.get_collection(coll)
         total = info.points_count or 0
@@ -585,7 +588,7 @@ def status() -> dict:
 
     by_project: dict[str, int] = {}
     if total:
-        facets = facet_counts("project", limit=50)
+        facets = facet_counts("project", limit=50, workspace=workspace)
         if facets:
             by_project = {v: c for v, c in facets}
         else:
@@ -594,10 +597,10 @@ def status() -> dict:
     return {"total_memories": total, "by_project": by_project}
 
 
-def facet_counts(key: str, limit: int = 10) -> list[tuple[str, int]]:
+def facet_counts(key: str, limit: int = 10, workspace: str | None = None) -> list[tuple[str, int]]:
     """Top (value, count) pairs for a payload key via Qdrant facet API.
     Uses keyword indexes — no full scan."""
-    client, coll = _ensure_collection()
+    client, coll = _ensure_collection(workspace)
     try:
         resp = client.facet(
             collection_name=coll,
@@ -609,9 +612,9 @@ def facet_counts(key: str, limit: int = 10) -> list[tuple[str, int]]:
         return []
 
 
-def recent_ordered(limit: int = 15, types: list[str] | None = None) -> list[dict]:
+def recent_ordered(limit: int = 15, types: list[str] | None = None, workspace: str | None = None) -> list[dict]:
     """Top-K most recent memories via indexed order_by. No full scan."""
-    client, coll = _ensure_collection()
+    client, coll = _ensure_collection(workspace)
     try:
         info = client.get_collection(coll)
         if info.points_count == 0:

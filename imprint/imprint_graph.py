@@ -1,32 +1,25 @@
+import atexit
 import sqlite3
 import time
 
 from . import config
 
-_conn = None
-_conn_workspace: str | None = None
+_conns: dict[str, sqlite3.Connection] = {}
 
 
-def _get_conn() -> sqlite3.Connection:
-    global _conn, _conn_workspace
-    ws = config.get_active_workspace()
-    if _conn is not None and _conn_workspace == ws:
-        return _conn
-    if _conn is not None:
-        try:
-            _conn.close()
-        except Exception:
-            pass
-        _conn = None
+def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
+    ws = workspace or config.get_active_workspace()
+    if ws in _conns:
+        return _conns[ws]
 
     data_dir = config.get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     db_path = config.graph_db_path(ws)
 
-    _conn = sqlite3.connect(str(db_path))
-    _conn.row_factory = sqlite3.Row
-    _conn.execute("PRAGMA journal_mode=WAL")
-    _conn.execute(
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
         """
         CREATE TABLE IF NOT EXISTS facts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,15 +32,27 @@ def _get_conn() -> sqlite3.Connection:
         )
     """
     )
-    _conn.execute(
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject)"
     )
-    _conn.execute(
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate)"
     )
-    _conn.commit()
-    _conn_workspace = ws
-    return _conn
+    conn.commit()
+    _conns[ws] = conn
+    return conn
+
+
+def _close_all() -> None:
+    for conn in _conns.values():
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _conns.clear()
+
+
+atexit.register(_close_all)
 
 
 def add(
@@ -55,9 +60,10 @@ def add(
     predicate: str,
     object: str,
     source: str = "",
+    workspace: str | None = None,
 ) -> int:
     """Add a temporal fact. Returns the fact ID."""
-    conn = _get_conn()
+    conn = _get_conn(workspace)
     cur = conn.execute(
         "INSERT INTO facts (subject, predicate, object, valid_from, source) VALUES (?, ?, ?, ?, ?)",
         (subject, predicate, object, time.time(), source),
@@ -71,9 +77,10 @@ def query(
     predicate: str = "",
     active_only: bool = True,
     limit: int = 20,
+    workspace: str | None = None,
 ) -> list[dict]:
     """Query facts. Filters by subject and/or predicate."""
-    conn = _get_conn()
+    conn = _get_conn(workspace)
     conditions = []
     params = []
 
@@ -106,9 +113,9 @@ def query(
     ]
 
 
-def invalidate(fact_id: int) -> bool:
+def invalidate(fact_id: int, workspace: str | None = None) -> bool:
     """Mark a fact as ended (no longer valid)."""
-    conn = _get_conn()
+    conn = _get_conn(workspace)
     cur = conn.execute(
         "UPDATE facts SET ended = ? WHERE id = ? AND ended IS NULL",
         (time.time(), fact_id),
@@ -117,6 +124,6 @@ def invalidate(fact_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def recent(limit: int = 5) -> list[dict]:
+def recent(limit: int = 5, workspace: str | None = None) -> list[dict]:
     """Get the most recent active facts."""
-    return query(active_only=True, limit=limit)
+    return query(active_only=True, limit=limit, workspace=workspace)

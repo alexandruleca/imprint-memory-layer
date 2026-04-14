@@ -4,6 +4,11 @@ import re
 from pathlib import Path
 
 
+def get_project_dir() -> Path:
+    """Return the imprint project root (parent of the imprint/ package)."""
+    return Path(__file__).parent.parent
+
+
 def get_data_dir() -> Path:
     """Resolve the data directory for storage. Priority:
     1. IMPRINT_DATA_DIR env var
@@ -12,7 +17,7 @@ def get_data_dir() -> Path:
     env = os.environ.get("IMPRINT_DATA_DIR")
     if env:
         return Path(env)
-    return Path(__file__).parent.parent / "data"
+    return get_project_dir() / "data"
 
 
 # ── Schema-driven resolution ────────────────────────────────────

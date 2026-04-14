@@ -23,20 +23,42 @@ RECENT_MAX_ENTRIES = 8
 RECENT_MAX_CHARS = 800  # ~200 tokens — recent activity
 
 
+def _validate_ws(workspace: str) -> tuple[str | None, str | None]:
+    """Resolve and validate workspace parameter.
+    Returns (resolved_workspace_or_None, error_message_or_None)."""
+    if not workspace:
+        return None, None
+    err = config.validate_workspace_name(workspace)
+    if err:
+        return None, f"Invalid workspace name: {err}"
+    if workspace not in config.get_known_workspaces():
+        known = ", ".join(config.get_known_workspaces())
+        return None, f"Unknown workspace '{workspace}'. Known: {known}. Create with: imprint workspace switch {workspace}"
+    return workspace, None
+
+
 @mcp.tool()
-def wake_up() -> str:
+def wake_up(workspace: str = "") -> str:
     """Load prior context at the start of a conversation.
-    Call this FIRST in every session. Returns project overview, essential decisions/patterns, and active facts."""
-    ws = config.get_active_workspace()
-    facts = kg.recent(limit=10)
+    Call this FIRST in every session. Returns project overview, essential decisions/patterns, and active facts.
+
+    Args:
+        workspace: Target a specific workspace instead of the active one (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    facts = kg.recent(limit=10, workspace=ws)
     lines = []
 
-    if ws != "default":
-        lines.append(f"Active workspace: {ws}")
+    display_ws = ws or config.get_active_workspace()
+    if display_ws != "default":
+        label = "Workspace" if ws else "Active workspace"
+        lines.append(f"{label}: {display_ws}")
         lines.append("")
 
     # ── Section 1: Project overview (facet-based, no scan) ──
-    project_facets = vs.facet_counts("project", limit=20)
+    project_facets = vs.facet_counts("project", limit=20, workspace=ws)
     if project_facets:
         lines.append("Projects in memory:")
         for name, count in project_facets:
@@ -46,6 +68,7 @@ def wake_up() -> str:
     essential = vs.recent_ordered(
         limit=50,
         types=["decision", "pattern", "preference", "bug", "milestone", "architecture"],
+        workspace=ws,
     )
     if essential:
         type_weight = {
@@ -68,7 +91,7 @@ def wake_up() -> str:
             total_chars += len(entry)
 
     # ── Section 3: Recent activity (any type, deduped by source) ──
-    recent_all = vs.recent_ordered(limit=RECENT_MAX_ENTRIES * 3)  # over-fetch to account for dedup
+    recent_all = vs.recent_ordered(limit=RECENT_MAX_ENTRIES * 3, workspace=ws)  # over-fetch to account for dedup
     if recent_all:
         lines.append("\nRecent activity:")
         total_chars = 0
@@ -111,9 +134,9 @@ def wake_up() -> str:
             count += 1
 
     # ── Section 4: Knowledge coverage (faceted tag stats) ──
-    lang_facets = vs.facet_counts("tags.lang", limit=8)
-    domain_facets = vs.facet_counts("tags.domain", limit=10)
-    layer_facets = vs.facet_counts("tags.layer", limit=6)
+    lang_facets = vs.facet_counts("tags.lang", limit=8, workspace=ws)
+    domain_facets = vs.facet_counts("tags.domain", limit=10, workspace=ws)
+    layer_facets = vs.facet_counts("tags.layer", limit=6, workspace=ws)
 
     coverage_parts = []
     if lang_facets:
@@ -155,6 +178,7 @@ def search(
     kind: str = "",
     domain: str = "",
     limit: int = 10,
+    workspace: str = "",
 ) -> str:
     """Semantic search across stored memories.
     Check this BEFORE reading files — the answer may already be here.
@@ -169,7 +193,12 @@ def search(
         kind: Filter by file kind (source, test, migration, readme, types, module, qa, auto-extract)
         domain: Filter by domain tag, comma-separated for multi-match (auth, db, api, math, rendering, ui, testing, infra, ml, perf, security, build, payments)
         limit: Max results (default 10)
+        workspace: Target a specific workspace instead of the active one (optional)
     """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
     tag_filters: dict = {}
     if lang:
         tag_filters["lang"] = lang
@@ -184,7 +213,7 @@ def search(
 
     results = vs.search(
         query, limit=limit, project=project, type=type,
-        tag_filters=tag_filters or None,
+        tag_filters=tag_filters or None, workspace=ws,
     )
 
     if not results:
@@ -231,6 +260,7 @@ def store(
     type: str = "",
     tags: str = "",
     source: str = "",
+    workspace: str = "",
 ) -> str:
     """Store a memory. Write it as a self-contained note that will make sense
     months from now without additional context. Include the WHY, not just the WHAT.
@@ -241,40 +271,54 @@ def store(
         type: One of: decision, pattern, finding, preference, bug, architecture, milestone
         tags: Comma-separated tags (e.g. 'cors,security')
         source: Where this came from (e.g. file path, conversation topic)
+        workspace: Target a specific workspace instead of the active one (optional)
     """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
     # Auto-classify type if not provided
     if not type:
         from . import classifier
         type, _ = classifier.classify(content)
 
     memory_id = vs.store(
-        content=content, project=project, type=type, tags=tags, source=source
+        content=content, project=project, type=type, tags=tags, source=source,
+        workspace=ws,
     )
     return f"Stored [{memory_id}] as {type}"
 
 
 @mcp.tool()
-def delete(memory_id: str) -> str:
+def delete(memory_id: str, workspace: str = "") -> str:
     """Delete a memory by its ID.
 
     Args:
         memory_id: The memory ID from store or search results
+        workspace: Target a specific workspace instead of the active one (optional)
     """
-    if vs.delete(memory_id):
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    if vs.delete(memory_id, workspace=ws):
         return f"Deleted {memory_id}"
     return f"Not found: {memory_id}"
 
 
 @mcp.tool()
-def kg_query(subject: str = "", predicate: str = "", limit: int = 20) -> str:
+def kg_query(subject: str = "", predicate: str = "", limit: int = 20, workspace: str = "") -> str:
     """Query temporal facts from the imprint graph.
 
     Args:
         subject: Entity to look up (partial match)
         predicate: Relationship type (partial match)
         limit: Max results
+        workspace: Target a specific workspace instead of the active one (optional)
     """
-    facts = kg.query(subject=subject, predicate=predicate, limit=limit)
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    facts = kg.query(subject=subject, predicate=predicate, limit=limit, workspace=ws)
 
     if not facts:
         return "No facts found."
@@ -288,7 +332,7 @@ def kg_query(subject: str = "", predicate: str = "", limit: int = 20) -> str:
 
 
 @mcp.tool()
-def kg_add(subject: str, predicate: str, object: str, source: str = "") -> str:
+def kg_add(subject: str, predicate: str, object: str, source: str = "", workspace: str = "") -> str:
     """Add a structured fact. Use for relationships that may change over time.
 
     Args:
@@ -296,34 +340,49 @@ def kg_add(subject: str, predicate: str, object: str, source: str = "") -> str:
         predicate: The relationship (e.g. 'uses', 'decided', 'prefers')
         object: The value (e.g. 'NestJS', 'wildcard CORS')
         source: Where this fact came from
+        workspace: Target a specific workspace instead of the active one (optional)
     """
-    fact_id = kg.add(subject=subject, predicate=predicate, object=object, source=source)
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    fact_id = kg.add(subject=subject, predicate=predicate, object=object, source=source, workspace=ws)
     return f"Fact [{fact_id}]: {subject} → {predicate} → {object}"
 
 
 @mcp.tool()
-def kg_invalidate(fact_id: int) -> str:
+def kg_invalidate(fact_id: int, workspace: str = "") -> str:
     """Mark a fact as ended (no longer true).
 
     Args:
         fact_id: The fact ID from kg_query
+        workspace: Target a specific workspace instead of the active one (optional)
     """
-    if kg.invalidate(fact_id):
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    if kg.invalidate(fact_id, workspace=ws):
         return f"Ended fact {fact_id}"
     return f"Not found or already ended: {fact_id}"
 
 
 @mcp.tool()
-def status() -> str:
-    """Imprint memory overview."""
-    ws = config.get_active_workspace()
-    stats = vs.status()
-    facts = kg.query(limit=1000)
+def status(workspace: str = "") -> str:
+    """Imprint memory overview.
+
+    Args:
+        workspace: Target a specific workspace instead of the active one (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    display_ws = ws or config.get_active_workspace()
+    stats = vs.status(workspace=ws)
+    facts = kg.query(limit=1000, workspace=ws)
     active = sum(1 for f in facts if not f["ended"])
 
     lines = []
-    if ws != "default":
-        lines.append(f"Workspace: {ws}")
+    if display_ws != "default":
+        lines.append(f"Workspace: {display_ws}")
     lines.append(f"Memories: {stats['total_memories']}  |  Facts: {active}")
     if stats["by_project"]:
         projects = ", ".join(
