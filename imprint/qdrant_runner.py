@@ -13,7 +13,7 @@ Lifecycle:
     4. Wait until /readyz responds 200 (timeout: 30s).
 
 The daemon survives the parent process (start_new_session=True). Stops when
-the user runs `knowledge stop` or when the OS kills it. PID file at
+the user runs `imprint stop` or when the OS kills it. PID file at
 data/qdrant.pid lets us restart cleanly without orphaning processes.
 """
 
@@ -34,19 +34,19 @@ from pathlib import Path
 
 from . import config
 
-log = logging.getLogger("knowledge.qdrant_runner")
+log = logging.getLogger("imprint.qdrant_runner")
 
 # Pinned version. Bump when needed; client compatibility is generous.
-QDRANT_VERSION = os.environ.get("KNOWLEDGE_QDRANT_VERSION", "v1.17.1")
+QDRANT_VERSION = os.environ.get("IMPRINT_QDRANT_VERSION", "v1.17.1")
 
-QDRANT_HOST = os.environ.get("KNOWLEDGE_QDRANT_HOST", "127.0.0.1")
-QDRANT_PORT = int(os.environ.get("KNOWLEDGE_QDRANT_PORT", "6333"))
-QDRANT_GRPC_PORT = int(os.environ.get("KNOWLEDGE_QDRANT_GRPC_PORT", "6334"))
+QDRANT_HOST = os.environ.get("IMPRINT_QDRANT_HOST", "127.0.0.1")
+QDRANT_PORT = int(os.environ.get("IMPRINT_QDRANT_PORT", "6333"))
+QDRANT_GRPC_PORT = int(os.environ.get("IMPRINT_QDRANT_GRPC_PORT", "6334"))
 
 # Disable auto-spawn entirely — operator runs their own server (Docker etc.).
-DISABLE_SPAWN = os.environ.get("KNOWLEDGE_QDRANT_NO_SPAWN", "0") == "1"
+DISABLE_SPAWN = os.environ.get("IMPRINT_QDRANT_NO_SPAWN", "0") == "1"
 
-_READY_TIMEOUT_S = float(os.environ.get("KNOWLEDGE_QDRANT_READY_TIMEOUT_S", "30"))
+_READY_TIMEOUT_S = float(os.environ.get("IMPRINT_QDRANT_READY_TIMEOUT_S", "30"))
 
 
 def _bin_dir() -> Path:
@@ -118,12 +118,12 @@ def _platform_asset() -> str:
 
 def _find_or_download_binary() -> Path:
     """Locate qdrant binary. Search order:
-    1. KNOWLEDGE_QDRANT_BIN env var (explicit path)
+    1. IMPRINT_QDRANT_BIN env var (explicit path)
     2. data/qdrant-bin/qdrant (previously downloaded)
     3. `qdrant` on PATH (system install)
     4. Download from GitHub releases.
     """
-    env_path = os.environ.get("KNOWLEDGE_QDRANT_BIN")
+    env_path = os.environ.get("IMPRINT_QDRANT_BIN")
     if env_path and Path(env_path).is_file():
         return Path(env_path)
 
@@ -237,7 +237,7 @@ def ensure_running() -> tuple[str, int]:
     if DISABLE_SPAWN:
         raise RuntimeError(
             f"Qdrant server not reachable at http://{QDRANT_HOST}:{QDRANT_PORT} "
-            "and KNOWLEDGE_QDRANT_NO_SPAWN=1 disables auto-spawn. "
+            "and IMPRINT_QDRANT_NO_SPAWN=1 disables auto-spawn. "
             "Start the server manually or unset the flag."
         )
 

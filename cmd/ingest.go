@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hunter/knowledge/internal/output"
-	"github.com/hunter/knowledge/internal/platform"
-	"github.com/hunter/knowledge/internal/runner"
+	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/runner"
 )
 
 // parseBatchSizeFlag strips --batch-size N / --batch-size=N from args.
@@ -54,16 +54,16 @@ func Ingest(args []string) {
 	dataDir := platform.DataDir(projectDir)
 
 	if !platform.FileExists(venvPython) {
-		output.Fail("Python venv not found — run 'knowledge setup' first")
+		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
-		"KNOWLEDGE_DATA_DIR=" + dataDir,
+		"IMPRINT_DATA_DIR=" + dataDir,
 	}
 
 	fmt.Println()
-	output.Header("═══ Knowledge Ingest ═══")
+	output.Header("═══ Imprint Ingest ═══")
 	fmt.Println()
 
 	// Step 1: Migrate Claude Code auto-memory files
@@ -74,7 +74,7 @@ func Ingest(args []string) {
 	// Step 2: Index conversations
 	output.Info("Step 2/3: Indexing conversation transcripts...")
 	cmd := runner.CommandWithEnv(venvPython,
-		[]string{"-m", "knowledgebase.cli_conversations", "--all"},
+		[]string{"-m", "imprint.cli_conversations", "--all"},
 		envVars...,
 	)
 	cmd.Stdout = os.Stdout
@@ -90,7 +90,7 @@ func Ingest(args []string) {
 		indexDir(venvPython, envVars, targetDir, projectDir, dataDir, batchSize)
 	} else {
 		output.Info("Step 3/3: Skipped — no directory provided")
-		fmt.Println("  Tip: run 'knowledge ingest [--batch-size N] ~/code' to also index project files")
+		fmt.Println("  Tip: run 'imprint ingest [--batch-size N] ~/code' to also index project files")
 	}
 
 	fmt.Println()
@@ -98,7 +98,7 @@ func Ingest(args []string) {
 
 	// Show final stats
 	runPython(venvPython, envVars, `
-from knowledgebase import vectorstore as vs
+from imprint import vectorstore as vs
 s = vs.status()
 print(f"  Total memories: {s['total_memories']}")
 for p, c in sorted(s['by_project'].items(), key=lambda x: -x[1]):
@@ -124,7 +124,7 @@ func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDi
 	detectScript := fmt.Sprintf(`
 import sys, json
 sys.path.insert(0, %q)
-from knowledgebase.projects import find_projects
+from imprint.projects import find_projects
 projects = find_projects(%q)
 print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for p in projects]))
 `, projectDir, targetDir)
@@ -152,7 +152,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 
 	output.Info(fmt.Sprintf("Found %d projects", len(projects)))
 
-	pyArgs := []string{"-m", "knowledgebase.cli_index"}
+	pyArgs := []string{"-m", "imprint.cli_index"}
 	if batchSize > 0 {
 		pyArgs = append(pyArgs, "--batch-size", strconv.Itoa(batchSize))
 	}
@@ -172,7 +172,7 @@ func migrateScript(projectDir, dataDir string) string {
 	return `
 import os, sys, json
 from pathlib import Path
-from knowledgebase import vectorstore as vs
+from imprint import vectorstore as vs
 
 claude_dir = Path.home() / ".claude" / "projects"
 if not claude_dir.exists():
@@ -194,8 +194,8 @@ for project_dir in claude_dir.iterdir():
         project = "brightspaces"
     elif "personal" in name:
         project = "personal"
-    elif "knowledge" in name:
-        project = "knowledge"
+    elif "imprint" in name:
+        project = "imprint"
 
     for f in mem_dir.glob("*.md"):
         content = f.read_text(errors="ignore").strip()

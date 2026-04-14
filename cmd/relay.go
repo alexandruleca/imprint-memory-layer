@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hunter/knowledge/internal/output"
+	"github.com/hunter/imprint/internal/output"
 	"nhooyr.io/websocket"
 )
 
@@ -69,7 +69,7 @@ func Relay(args []string) {
 
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	fmt.Println()
-	output.Header("═══ Knowledge Relay ═══")
+	output.Header("═══ Imprint Relay ═══")
 	fmt.Printf("  Listening on %s\n", addr)
 	fmt.Printf("  Rooms expire after 1 hour\n")
 	fmt.Println()

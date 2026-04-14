@@ -4,14 +4,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hunter/knowledge/internal/instructions"
-	"github.com/hunter/knowledge/internal/jsonutil"
-	"github.com/hunter/knowledge/internal/output"
-	"github.com/hunter/knowledge/internal/platform"
-	"github.com/hunter/knowledge/internal/runner"
+	"github.com/hunter/imprint/internal/instructions"
+	"github.com/hunter/imprint/internal/jsonutil"
+	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/runner"
 )
 
-// SetupCursor wires the Knowledge MCP server into Cursor. Cursor has no hook
+// SetupCursor wires the Imprint MCP server into Cursor. Cursor has no hook
 // system, so enforcement is text-only via an always-applied rule. The MCP
 // server itself is registered globally in ~/.cursor/mcp.json so tool calls
 // work the same way as in Claude Code.
@@ -29,19 +29,19 @@ func SetupCursor() {
 	output.Info("Checking Cursor MCP registration...")
 	spec := map[string]any{
 		"command": bp.VenvPython,
-		"args":    []any{"-m", "knowledgebase"},
+		"args":    []any{"-m", "imprint"},
 		"env": map[string]any{
 			"PYTHONPATH":         bp.ProjectDir,
-			"KNOWLEDGE_DATA_DIR": bp.DataDir,
+			"IMPRINT_DATA_DIR": bp.DataDir,
 		},
 	}
-	added, err := jsonutil.EnsureMCPServer(mcpPath, "knowledge", spec)
+	added, err := jsonutil.EnsureMCPServer(mcpPath, "imprint", spec)
 	if err != nil {
 		output.Warn("Could not update " + mcpPath + ": " + err.Error())
 	} else if added {
-		output.Success("Registered knowledge MCP server in " + mcpPath)
+		output.Success("Registered imprint MCP server in " + mcpPath)
 	} else {
-		output.Skip("knowledge MCP server already registered in " + mcpPath)
+		output.Skip("imprint MCP server already registered in " + mcpPath)
 	}
 
 	// Step: install the always-on usage rule.
@@ -51,7 +51,7 @@ func SetupCursor() {
 			output.Warn("Could not create " + rulesDir + ": " + err.Error())
 		}
 	}
-	rulePath := filepath.Join(rulesDir, "knowledge.mdc")
+	rulePath := filepath.Join(rulesDir, "imprint.mdc")
 	output.Info("Checking Cursor rule...")
 	if existing, err := os.ReadFile(rulePath); err == nil && string(existing) == instructions.CursorRule {
 		output.Skip("Cursor rule already up to date at " + rulePath)
@@ -63,7 +63,7 @@ func SetupCursor() {
 		}
 	}
 
-	output.Header("═══ Knowledge → Cursor setup complete ═══")
+	output.Header("═══ Imprint → Cursor setup complete ═══")
 	venvPythonVer, _ := runner.RunCapture(bp.VenvPython, "--version")
 	if venvPythonVer != "" {
 		output.Info("Python:     " + venvPythonVer + " (" + bp.VenvPython + ")")
@@ -74,6 +74,6 @@ func SetupCursor() {
 	output.Warn("Cursor has no hook system — enforcement is text-only via the always-on rule. For hard enforcement (PreToolUse block) use Claude Code.")
 	output.Info("Next steps:")
 	output.Info("  1. Restart Cursor to pick up the new MCP server")
-	output.Info("  2. In Cursor settings, verify the 'knowledge' MCP server is listed")
-	output.Info("  3. Use 'knowledge ingest <dir>' to index your project directories")
+	output.Info("  2. In Cursor settings, verify the 'imprint' MCP server is listed")
+	output.Info("  3. Use 'imprint ingest <dir>' to index your project directories")
 }

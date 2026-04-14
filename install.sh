@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-line installer for Knowledge (MemPalace CLI)
+# One-line installer for Imprint Memory Layer
 # Usage: curl -fsSL https://raw.githubusercontent.com/alexandruleca/claude-code-memory-layer/main/install.sh | bash
 
 REPO="alexandruleca/claude-code-memory-layer"
-INSTALL_DIR="$HOME/.local/share/knowledge"
+INSTALL_DIR="$HOME/.local/share/imprint"
 BIN_DIR="$HOME/.local/bin"
 
 # --- Output helpers ---
@@ -29,8 +29,8 @@ case "$ARCH" in
     *)             fail "Unsupported architecture: $ARCH" ;;
 esac
 
-BINARY="knowledge"
-RELEASE_URL="https://github.com/$REPO/releases/latest/download/knowledge-${PLATFORM}-${ARCH}"
+BINARY="imprint"
+RELEASE_URL="https://github.com/$REPO/releases/latest/download/imprint-${PLATFORM}-${ARCH}"
 
 info "Detected platform: ${PLATFORM}/${ARCH}"
 
@@ -40,7 +40,7 @@ if ! command -v claude &>/dev/null; then
 fi
 
 # --- Clone or update repo ---
-info "Setting up knowledge repository..."
+info "Setting up imprint repository..."
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Updating existing installation..."
     git -C "$INSTALL_DIR" pull --quiet 2>/dev/null || true
@@ -53,26 +53,26 @@ fi
 if command -v go &>/dev/null; then
     info "Go found — building from source..."
     cd "$INSTALL_DIR"
-    go build -ldflags "-s -w" -o build/knowledge . 2>/dev/null
-    KNOWLEDGE_BIN="$INSTALL_DIR/build/knowledge"
+    go build -ldflags "-s -w" -o build/imprint . 2>/dev/null
+    IMPRINT_BIN="$INSTALL_DIR/build/imprint"
 else
     info "Downloading pre-built binary..."
     mkdir -p "$INSTALL_DIR/build"
-    KNOWLEDGE_BIN="$INSTALL_DIR/build/knowledge"
+    IMPRINT_BIN="$INSTALL_DIR/build/imprint"
     if command -v curl &>/dev/null; then
-        curl -fsSL "$RELEASE_URL" -o "$KNOWLEDGE_BIN" 2>/dev/null || fail "Download failed. Install Go and run again to build from source."
+        curl -fsSL "$RELEASE_URL" -o "$IMPRINT_BIN" 2>/dev/null || fail "Download failed. Install Go and run again to build from source."
     elif command -v wget &>/dev/null; then
-        wget -q "$RELEASE_URL" -O "$KNOWLEDGE_BIN" 2>/dev/null || fail "Download failed. Install Go and run again to build from source."
+        wget -q "$RELEASE_URL" -O "$IMPRINT_BIN" 2>/dev/null || fail "Download failed. Install Go and run again to build from source."
     else
         fail "Neither curl nor wget found. Install Go and run again to build from source."
     fi
-    chmod +x "$KNOWLEDGE_BIN"
+    chmod +x "$IMPRINT_BIN"
 fi
 
-success "Binary ready at $KNOWLEDGE_BIN"
+success "Binary ready at $IMPRINT_BIN"
 
 # --- Run setup ---
-info "Running knowledge setup..."
-"$KNOWLEDGE_BIN" setup
+info "Running imprint setup..."
+"$IMPRINT_BIN" setup
 
-success "Installation complete! Restart your terminal to use 'knowledge' and 'mempalace' commands."
+success "Installation complete! Restart your terminal to use the 'imprint' command."

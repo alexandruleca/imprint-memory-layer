@@ -1,18 +1,18 @@
-"""Knowledge MCP Server — lightweight memory for Claude Code."""
+"""Imprint MCP Server — lightweight memory for Claude Code."""
 
 from collections import defaultdict
 
 from fastmcp import FastMCP
 
-from . import knowledge_graph as kg
+from . import imprint_graph as kg
 from . import vectorstore as vs
 
-mcp = FastMCP("knowledge")
+mcp = FastMCP("imprint")
 
 # Release the embedded Qdrant lock after 30s of no MCP activity so
-# `knowledge ingest` (a separate process) can grab it. Without this, the
+# `imprint ingest` (a separate process) can grab it. Without this, the
 # MCP server pins the lock for the lifetime of Claude Code.
-vs.release_idle_client(after_seconds=float(__import__("os").environ.get("KNOWLEDGE_MCP_IDLE_S", "30")))
+vs.release_idle_client(after_seconds=float(__import__("os").environ.get("IMPRINT_MCP_IDLE_S", "30")))
 
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
@@ -32,7 +32,7 @@ def wake_up() -> str:
 
     # Project overview
     if stats["by_project"]:
-        lines.append("Projects in knowledge base:")
+        lines.append("Projects in imprint memory:")
         for p, c in sorted(stats["by_project"].items(), key=lambda x: -x[1]):
             lines.append(f"  {p} ({c} memories)")
 
@@ -75,7 +75,7 @@ def wake_up() -> str:
             lines.append(f"  • {f['subject']} {f['predicate']} {f['object']}")
 
     if not lines:
-        return "Knowledge base is empty. Use 'store' to add memories and 'knowledge index' to index projects."
+        return "Imprint memory is empty. Use 'store' to add memories and 'imprint index' to index projects."
 
     return "\n".join(lines)
 
@@ -91,7 +91,7 @@ def search(
     domain: str = "",
     limit: int = 10,
 ) -> str:
-    """Semantic search across stored knowledge.
+    """Semantic search across stored memories.
     Check this BEFORE reading files — the answer may already be here.
     Returns relevant code chunks, decisions, and patterns.
 
@@ -202,7 +202,7 @@ def delete(memory_id: str) -> str:
 
 @mcp.tool()
 def kg_query(subject: str = "", predicate: str = "", limit: int = 20) -> str:
-    """Query temporal facts from the knowledge graph.
+    """Query temporal facts from the imprint graph.
 
     Args:
         subject: Entity to look up (partial match)
@@ -250,7 +250,7 @@ def kg_invalidate(fact_id: int) -> str:
 
 @mcp.tool()
 def status() -> str:
-    """Knowledge base overview."""
+    """Imprint memory overview."""
     stats = vs.status()
     facts = kg.query(limit=1000)
     active = sum(1 for f in facts if not f["ended"])

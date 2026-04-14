@@ -6,20 +6,20 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hunter/knowledge/internal/output"
-	"github.com/hunter/knowledge/internal/platform"
-	"github.com/hunter/knowledge/internal/runner"
+	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/runner"
 )
 
 func Refresh(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, `Usage: knowledge refresh <directory>
+		fmt.Fprintf(os.Stderr, `Usage: imprint refresh <directory>
 
 Re-indexes only files that changed since last indexing.
 
 Examples:
-  knowledge refresh ~/code/brightspaces
-  knowledge refresh ~/code
+  imprint refresh ~/code/brightspaces
+  imprint refresh ~/code
 `)
 		os.Exit(1)
 	}
@@ -38,19 +38,19 @@ Examples:
 	dataDir := platform.DataDir(projectDir)
 
 	if !platform.FileExists(venvPython) {
-		output.Fail("Python venv not found — run 'knowledge setup' first")
+		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
-		"KNOWLEDGE_DATA_DIR=" + dataDir,
+		"IMPRINT_DATA_DIR=" + dataDir,
 	}
 
 	// Detect projects
 	detectScript := fmt.Sprintf(`
 import sys, json
 sys.path.insert(0, %q)
-from knowledgebase.projects import find_projects
+from imprint.projects import find_projects
 projects = find_projects(%q)
 print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 `, projectDir, targetDir)
@@ -72,7 +72,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 		output.Fail("No projects found in " + targetDir)
 	}
 
-	pyArgs := []string{"-m", "knowledgebase.cli_refresh", targetDir}
+	pyArgs := []string{"-m", "imprint.cli_refresh", targetDir}
 	for _, p := range projects {
 		pyArgs = append(pyArgs, p.Path+":"+p.Name)
 	}

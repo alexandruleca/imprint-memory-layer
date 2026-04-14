@@ -1,7 +1,7 @@
-"""CLI helper for indexing directories into the knowledge base.
+"""CLI helper for indexing directories into imprint memory.
 
 Usage:
-    python -m knowledgebase.cli_index [--batch-size N] <target_dir> <dir1:project1> <dir2:project2> ...
+    python -m imprint.cli_index [--batch-size N] <target_dir> <dir1:project1> <dir2:project2> ...
 
 Options:
     --batch-size N    Chunks to buffer before each embed+insert (default: 32).
@@ -13,10 +13,10 @@ import os
 import sys
 import time
 
-# Ensure the knowledgebase package is importable
+# Ensure the imprint package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import tagger, vectorstore as vs
+from imprint import tagger, vectorstore as vs
 
 # Files worth indexing — code with logic, not styling/config/generated
 EXTENSIONS = {
@@ -33,7 +33,7 @@ EXTENSIONS = {
     '.sh',                                              # Scripts
 }
 
-# Skip these — low value for knowledge context
+# Skip these — low value for memory context
 SKIP_EXTENSIONS = {
     '.css', '.scss', '.sass', '.less', '.styl',         # Styling
     '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico',    # Assets
@@ -329,7 +329,7 @@ def main():
 
     if len(rest) < 2:
         print(
-            "Usage: python -m knowledgebase.cli_index [--batch-size N] <target_dir> <dir:project> ...",
+            "Usage: python -m imprint.cli_index [--batch-size N] <target_dir> <dir:project> ...",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -395,7 +395,7 @@ def main():
     # was *slower* in practice than sequential — the embed step holds the
     # GIL and dominates wall time, so parallel readers just queue up behind
     # it and add overhead. Keep this sequential.
-    from knowledgebase.chunker import chunk_file
+    from imprint.chunker import chunk_file
 
     # Conservative batch size to avoid OOM on WSL2 / low-RAM systems.
     # Override via --batch-size N; higher = faster but more peak memory.
@@ -403,8 +403,8 @@ def main():
 
     # Opt-in tag sources. Zero-shot + LLM are off by default because they
     # cost extra compute / $$ at ingest time. Enable via env var.
-    enable_llm = os.environ.get("KNOWLEDGE_LLM_TAGS", "0") == "1"
-    enable_zero_shot = os.environ.get("KNOWLEDGE_ZERO_SHOT_TAGS", "0") == "1"
+    enable_llm = os.environ.get("IMPRINT_LLM_TAGS", "0") == "1"
+    enable_zero_shot = os.environ.get("IMPRINT_ZERO_SHOT_TAGS", "0") == "1"
 
     def read_and_chunk(args):
         """Read a file and chunk it. Returns list of record dicts or None.

@@ -1,9 +1,9 @@
-"""Index Claude Code conversation transcripts into the knowledge base.
+"""Index Claude Code conversation transcripts into imprint memory.
 
 Parses JSONL transcripts, extracts Q+A exchange pairs, classifies each
 by type, and stores as searchable memories.
 
-Usage: python -m knowledgebase.cli_conversations [--all] [--transcript <path>]
+Usage: python -m imprint.cli_conversations [--all] [--transcript <path>]
 """
 
 import json
@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import chunker, tagger, vectorstore as vs
-from knowledgebase.classifier import classify
+from imprint import chunker, tagger, vectorstore as vs
+from imprint.classifier import classify
 
 C_RESET = "\033[0m"
 C_BOLD = "\033[1m"
@@ -134,7 +134,7 @@ def derive_project(transcript_path: str) -> str:
 
     Claude project dirs look like: -home-hunter-code-brightspaces-node-auto-space-api
     We want the last meaningful segment: auto-space-api
-    For paths like -home-hunter-code-knowledge, we get: knowledge
+    For paths like -home-hunter-code-imprint, we get: knowledge
     """
     parts = transcript_path.split("/")
     for part in parts:
@@ -185,7 +185,7 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
     Buffers all qualifying exchanges and flushes via vs.store_batch() so the
     embedding model sees grouped inputs and Qdrant gets one upsert call per
     transcript instead of one per exchange. Big throughput win because
-    `knowledge ingest` walks hundreds of transcripts before touching code.
+    `imprint ingest` walks hundreds of transcripts before touching code.
     """
     exchanges = parse_exchanges(transcript_path)
     stored = 0
@@ -257,8 +257,8 @@ def main():
 
     if not index_all:
         print("Usage:")
-        print("  python -m knowledgebase.cli_conversations --all")
-        print("  python -m knowledgebase.cli_conversations --transcript <path>")
+        print("  python -m imprint.cli_conversations --all")
+        print("  python -m imprint.cli_conversations --transcript <path>")
         sys.exit(1)
 
     # Index all transcripts

@@ -13,7 +13,7 @@ def _get_conn() -> sqlite3.Connection:
 
     data_dir = config.get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    db_path = data_dir / "knowledge_graph.sqlite3"
+    db_path = data_dir / "imprint_graph.sqlite3"
 
     _conn = sqlite3.connect(str(db_path))
     _conn.row_factory = sqlite3.Row

@@ -10,21 +10,21 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/hunter/knowledge/internal/output"
-	"github.com/hunter/knowledge/internal/platform"
-	"github.com/hunter/knowledge/internal/runner"
+	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/runner"
 	"nhooyr.io/websocket"
 )
 
 func Sync(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, `Usage:
-  knowledge sync serve --relay <host>    Expose this machine's KB via relay
-  knowledge sync <relay-url>/<id>        Pull from + push to remote machine
+  imprint sync serve --relay <host>    Expose this machine's KB via relay
+  imprint sync <relay-url>/<id>        Pull from + push to remote machine
 
 Examples:
-  knowledge sync serve --relay sync.example.com
-  knowledge sync sync.example.com/abc123
+  imprint sync serve --relay sync.example.com
+  imprint sync sync.example.com/abc123
 `)
 		os.Exit(1)
 	}
@@ -52,7 +52,7 @@ func syncServe(args []string) {
 	dataDir := platform.DataDir(projectDir)
 
 	if !platform.FileExists(venvPython) {
-		output.Fail("Run 'knowledge setup' first")
+		output.Fail("Run 'imprint setup' first")
 	}
 
 	// Generate room ID
@@ -68,7 +68,7 @@ func syncServe(args []string) {
 	wsURL := fmt.Sprintf("%s://%s/%s?role=provider", scheme, relay, roomID)
 
 	fmt.Println()
-	output.Header("═══ Knowledge Sync Server ═══")
+	output.Header("═══ Imprint Sync Server ═══")
 	output.Info("Connecting to relay: " + relay)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -82,7 +82,7 @@ func syncServe(args []string) {
 
 	fmt.Println()
 	output.Success("Connected! Share this with the other machine:")
-	fmt.Printf("\n  knowledge sync %s/%s\n\n", relay, roomID)
+	fmt.Printf("\n  imprint sync %s/%s\n\n", relay, roomID)
 	output.Info("Waiting for peer... (Ctrl+C to stop)")
 
 	// Handle interrupt
@@ -156,7 +156,7 @@ func syncPull(target string) {
 	dataDir := platform.DataDir(projectDir)
 
 	if !platform.FileExists(venvPython) {
-		output.Fail("Run 'knowledge setup' first")
+		output.Fail("Run 'imprint setup' first")
 	}
 
 	scheme := "wss"
@@ -166,7 +166,7 @@ func syncPull(target string) {
 	wsURL := fmt.Sprintf("%s://%s/%s?role=consumer", scheme, relay, roomID)
 
 	fmt.Println()
-	output.Header("═══ Knowledge Sync ═══")
+	output.Header("═══ Imprint Sync ═══")
 	output.Info("Connecting to " + relay + "/" + roomID + "...")
 
 	ctx := context.Background()
@@ -232,8 +232,8 @@ func syncExportScript(projectDir, dataDir string) string {
 	return fmt.Sprintf(`
 import os, sys, json
 sys.path.insert(0, %q)
-os.environ["KNOWLEDGE_DATA_DIR"] = %q
-from knowledgebase import config, vectorstore as vs
+os.environ["IMPRINT_DATA_DIR"] = %q
+from imprint import config, vectorstore as vs
 
 client = vs._ensure_collection()
 info = client.get_collection(config.QDRANT_COLLECTION)
@@ -266,8 +266,8 @@ func syncImportScript(projectDir, dataDir, tmpFile string) string {
 	return fmt.Sprintf(`
 import os, sys, json
 sys.path.insert(0, %q)
-os.environ["KNOWLEDGE_DATA_DIR"] = %q
-from knowledgebase import vectorstore as vs
+os.environ["IMPRINT_DATA_DIR"] = %q
+from imprint import vectorstore as vs
 
 with open(%q) as f:
     records = json.load(f)
@@ -303,8 +303,8 @@ func syncStatusScript(projectDir, dataDir string) string {
 	return fmt.Sprintf(`
 import os, sys, json
 sys.path.insert(0, %q)
-os.environ["KNOWLEDGE_DATA_DIR"] = %q
-from knowledgebase import vectorstore as vs
+os.environ["IMPRINT_DATA_DIR"] = %q
+from imprint import vectorstore as vs
 s = vs.status()
 print(json.dumps(s))
 `, projectDir, dataDir)

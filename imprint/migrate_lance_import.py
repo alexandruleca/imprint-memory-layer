@@ -1,6 +1,6 @@
 """Re-ingest a LanceDB dump JSONL into the new Qdrant store.
 
-Usage: python -m knowledgebase.migrate_lance_import <path.jsonl>
+Usage: python -m imprint.migrate_lance_import <path.jsonl>
 
 Each line is a dict from the old schema:
   {id, content, project, type, tags, source, chunk_index, source_mtime, timestamp}
@@ -17,12 +17,12 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import tagger, vectorstore as vs
+from imprint import tagger, vectorstore as vs
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python -m knowledgebase.migrate_lance_import <path.jsonl>", file=sys.stderr)
+        print("Usage: python -m imprint.migrate_lance_import <path.jsonl>", file=sys.stderr)
         sys.exit(1)
 
     path = sys.argv[1]

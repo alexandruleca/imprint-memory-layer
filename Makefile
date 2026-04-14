@@ -6,7 +6,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 # Build for current OS/arch
 build:
-	go build -ldflags "$(LDFLAGS)" -o build/knowledge .
+	go build -ldflags "$(LDFLAGS)" -o build/imprint .
 
 # Cross-compile all platforms + local convenience binary
 all: $(PLATFORMS) build
@@ -16,7 +16,7 @@ $(PLATFORMS):
 	$(eval ARCH := $(word 2,$(subst /, ,$@)))
 	$(eval EXT := $(if $(filter windows,$(OS)),.exe,))
 	GOOS=$(OS) GOARCH=$(ARCH) CGO_ENABLED=0 \
-		go build -ldflags "$(LDFLAGS)" -o build/$(OS)-$(ARCH)/knowledge$(EXT) .
+		go build -ldflags "$(LDFLAGS)" -o build/$(OS)-$(ARCH)/imprint$(EXT) .
 
 clean:
 	rm -rf build/

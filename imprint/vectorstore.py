@@ -37,11 +37,11 @@ _id_cache: set[str] | None = None
 _collection_ready = False
 
 _inserts_since_compact = 0
-_COMPACT_EVERY = int(os.environ.get("KNOWLEDGE_COMPACT_EVERY", "500"))
-_SCAN_BATCH = int(os.environ.get("KNOWLEDGE_SCAN_BATCH", "2000"))
+_COMPACT_EVERY = int(os.environ.get("IMPRINT_COMPACT_EVERY", "500"))
+_SCAN_BATCH = int(os.environ.get("IMPRINT_SCAN_BATCH", "2000"))
 
 # Idle close: when set, the client is released after this many seconds of
-# inactivity so other processes (`knowledge ingest`) can grab the on-disk
+# inactivity so other processes (`imprint ingest`) can grab the on-disk
 # lock. The MCP server enables it via release_idle_client(); CLI ingest
 # leaves it disabled (long-running session, never wants to reconnect).
 _idle_close_secs: float | None = None
@@ -57,8 +57,8 @@ def _get_client() -> QdrantClient:
     configured host:port. HTTP server mode supports unlimited concurrent
     clients, so MCP + CLI ingest + hooks coexist without lock contention.
 
-    To use a managed/remote server instead, set KNOWLEDGE_QDRANT_HOST and
-    KNOWLEDGE_QDRANT_NO_SPAWN=1 to skip the auto-spawn.
+    To use a managed/remote server instead, set IMPRINT_QDRANT_HOST and
+    IMPRINT_QDRANT_NO_SPAWN=1 to skip the auto-spawn.
     """
     global _client
     if _client is not None:
@@ -96,7 +96,7 @@ def _touch_use() -> None:
 def release_idle_client(after_seconds: float = 30.0) -> None:
     """Enable idle auto-close. After `after_seconds` of no vectorstore
     activity, release the on-disk Qdrant lock so other processes
-    (e.g. `knowledge ingest`) can take it. Intended for the MCP server,
+    (e.g. `imprint ingest`) can take it. Intended for the MCP server,
     which sits idle most of the time between user actions.
 
     Safe to call multiple times — only one watcher thread runs.
@@ -198,7 +198,7 @@ def _point_uuid(memory_id: str) -> str:
     """Qdrant point ids must be uuid or unsigned int. Convert our 16-hex id
     deterministically to a uuid5 so the same logical id always maps to the
     same point."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge::{memory_id}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"imprint::{memory_id}"))
 
 
 def _wal_log(operation: str, **kwargs) -> None:

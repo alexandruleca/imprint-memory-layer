@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 import re
 
+import numpy as np
+
 from . import config
 
 # ── Language map for CodeChunker ───────────────────────────────
@@ -74,6 +76,14 @@ def _get_code_chunker(language: str):
         return None
 
 
+def _safe_similarity(self, u: np.ndarray, v: np.ndarray) -> np.float32:
+    """Cosine similarity that handles zero-norm vectors instead of dividing by zero."""
+    denom = np.linalg.norm(u) * np.linalg.norm(v)
+    if denom == 0:
+        return np.float32(0.0)
+    return np.divide(np.dot(u, v), denom, dtype=np.float32)
+
+
 def _get_semantic_chunker():
     global _semantic_chunker
     if _semantic_chunker is not None:
@@ -90,6 +100,13 @@ def _get_semantic_chunker():
             similarity_window=3,
             skip_window=1,
         )
+        # Patch: chonkie's Model2VecEmbeddings.similarity divides by zero
+        # when a sentence embeds to a zero vector (empty/whitespace input).
+        # Replace with a safe version that returns 0.0 for zero-norm vectors.
+        if hasattr(_semantic_chunker, 'embedding_model'):
+            _semantic_chunker.embedding_model.similarity = (
+                _safe_similarity.__get__(_semantic_chunker.embedding_model)
+            )
         return _semantic_chunker
     except Exception:
         _semantic_chunker = None

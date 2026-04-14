@@ -4,7 +4,7 @@ Called by the Stop hook after each conversation turn.
 Reads the transcript JSONL, extracts assistant text messages,
 and stores meaningful content as memories.
 
-Usage: python -m knowledgebase.cli_extract <transcript_path> [--project <name>]
+Usage: python -m imprint.cli_extract <transcript_path> [--project <name>]
 """
 
 import json
@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import tagger, vectorstore as vs
+from imprint import tagger, vectorstore as vs
 
 # Minimum length for a message to be worth storing
 MIN_LENGTH = 200
@@ -104,7 +104,7 @@ def is_meta(text: str) -> bool:
 
 def classify_type(text: str) -> str:
     """Classify memory type using the shared classifier."""
-    from knowledgebase.classifier import classify
+    from imprint.classifier import classify
     mem_type, _ = classify(text)
     return mem_type
 

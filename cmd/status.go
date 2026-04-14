@@ -6,19 +6,19 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hunter/knowledge/internal/output"
-	"github.com/hunter/knowledge/internal/platform"
-	"github.com/hunter/knowledge/internal/runner"
+	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/runner"
 )
 
-// Status prints a one-screen health view of the whole Knowledge system:
+// Status prints a one-screen health view of the whole Imprint system:
 // is the MCP registered, are the hooks wired, is Qdrant up, how many
 // memories are stored. The top-level verdict is enabled vs disabled —
 // "enabled" means MCP + at least one hook are present.
 func Status(args []string) {
 	_ = args
 	fmt.Println()
-	output.Header("═══ Knowledge Status ═══")
+	output.Header("═══ Imprint Status ═══")
 	fmt.Println()
 
 	projectDir := platform.FindProjectDir()
@@ -29,13 +29,13 @@ func Status(args []string) {
 	mcpRegistered := false
 	if _, ok := runner.Exists("claude"); ok {
 		mcpOut, err := runner.RunCapture("claude", "mcp", "list")
-		if err == nil && strings.Contains(mcpOut, "knowledge") {
+		if err == nil && strings.Contains(mcpOut, "imprint") {
 			mcpRegistered = true
 		}
 	}
 
 	// ── Hooks ────────────────────────────────────────────────
-	hooksCount := countKnowledgeHooks(platform.ClaudeSettingsPath(), dataDir)
+	hooksCount := countImprintHooks(platform.ClaudeSettingsPath(), dataDir)
 
 	// ── Qdrant server ────────────────────────────────────────
 	serverStatus := map[string]any{}
@@ -43,15 +43,15 @@ func Status(args []string) {
 	byProject := map[string]int{}
 	if platform.FileExists(venvPython) {
 		out, err := runner.RunCaptureEnv(venvPython,
-			[]string{"PYTHONPATH=" + projectDir, "KNOWLEDGE_DATA_DIR=" + dataDir},
+			[]string{"PYTHONPATH=" + projectDir, "IMPRINT_DATA_DIR=" + dataDir},
 			"-c", `import json
-from knowledgebase import qdrant_runner as q
+from imprint import qdrant_runner as q
 s = q.status()
 mem_total = 0
 by_project = {}
 if s.get('running'):
     try:
-        from knowledgebase import vectorstore as vs
+        from imprint import vectorstore as vs
         st = vs.status()
         mem_total = st.get('total_memories', 0)
         by_project = st.get('by_project', {})
@@ -120,21 +120,21 @@ print(json.dumps({**s, 'mem_total': mem_total, 'by_project': by_project}))`)
 			fmt.Printf("    ... %d more\n", len(byProject)-printed)
 		}
 	} else if running {
-		fmt.Println("  Memories: 0 — run `knowledge ingest <dir>` to populate")
+		fmt.Println("  Memories: 0 — run `imprint ingest <dir>` to populate")
 	}
 	fmt.Println()
 
 	if !enabled {
-		fmt.Println("  Run `knowledge enable` to re-wire MCP + hooks.")
+		fmt.Println("  Run `imprint enable` to re-wire MCP + hooks.")
 		fmt.Println()
 	}
 
 	_ = os.Stdout
 }
 
-// countKnowledgeHooks walks settings.json and counts hook entries whose
+// countImprintHooks walks settings.json and counts hook entries whose
 // command string mentions any of our shell-out modules / sentinels.
-func countKnowledgeHooks(settingsPath, dataDir string) int {
+func countImprintHooks(settingsPath, dataDir string) int {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return 0
@@ -148,12 +148,12 @@ func countKnowledgeHooks(settingsPath, dataDir string) int {
 		return 0
 	}
 	needles := []string{
-		"knowledgebase.cli_conversations",
-		"knowledgebase.cli_extract",
-		"knowledgebase.cli_index",
+		"imprint.cli_conversations",
+		"imprint.cli_extract",
+		"imprint.cli_index",
 		"COMPACTION IMMINENT",
-		"Knowledge MCP available",
-		"Knowledge MCP gate",
+		"Imprint MCP available",
+		"Imprint MCP gate",
 		dataDir + "/.sessions",
 	}
 	count := 0

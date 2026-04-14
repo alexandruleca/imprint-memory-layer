@@ -3,7 +3,7 @@
 Compares current file modification times against stored timestamps.
 Updates changed files, adds new files, skips unchanged.
 
-Usage: python -m knowledgebase.cli_refresh <target_dir> <dir:project> ...
+Usage: python -m imprint.cli_refresh <target_dir> <dir:project> ...
 """
 
 import os
@@ -12,9 +12,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from knowledgebase import tagger, vectorstore as vs
-from knowledgebase.chunker import chunk_file
-from knowledgebase.cli_index import (
+from imprint import tagger, vectorstore as vs
+from imprint.chunker import chunk_file
+from imprint.cli_index import (
     EXTENSIONS,
     SKIP_DIRS,
     BAR_WIDTH,
@@ -38,7 +38,7 @@ def get_stored_sources() -> dict[str, float]:
 def main():
     if len(sys.argv) < 3:
         print(
-            "Usage: python -m knowledgebase.cli_refresh <target_dir> <dir:project> ...",
+            "Usage: python -m imprint.cli_refresh <target_dir> <dir:project> ...",
             file=sys.stderr,
         )
         sys.exit(1)

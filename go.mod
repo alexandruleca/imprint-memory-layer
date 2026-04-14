@@ -1,4 +1,4 @@
-module github.com/hunter/knowledge
+module github.com/hunter/imprint
 
 go 1.25.0
 

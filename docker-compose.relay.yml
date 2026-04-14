@@ -1,8 +1,8 @@
 version: "3.8"
 
 services:
-  knowledge-relay:
-    image: ghcr.io/alexandruleca/knowledge-relay:latest
+  imprint-relay:
+    image: ghcr.io/alexandruleca/imprint-relay:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,10 +11,10 @@ services:
       replicas: 1
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.knowledge-relay.rule=Host(`sync.yourdomain.com`)"
-        - "traefik.http.routers.knowledge-relay.entrypoints=websecure"
-        - "traefik.http.routers.knowledge-relay.tls.certresolver=letsencrypt"
-        - "traefik.http.services.knowledge-relay.loadbalancer.server.port=8430"
+        - "traefik.http.routers.imprint-relay.rule=Host(`sync.yourdomain.com`)"
+        - "traefik.http.routers.imprint-relay.entrypoints=websecure"
+        - "traefik.http.routers.imprint-relay.tls.certresolver=letsencrypt"
+        - "traefik.http.services.imprint-relay.loadbalancer.server.port=8430"
     networks:
       - traefik-public
 

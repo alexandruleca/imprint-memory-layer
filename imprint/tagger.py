@@ -268,7 +268,7 @@ def derive_llm(content: str, max_chars: int = 3000) -> list[str]:
     try:
         client = anthropic.Anthropic(api_key=key)
         resp = client.messages.create(
-            model=os.environ.get("KNOWLEDGE_LLM_TAGGER_MODEL", "claude-haiku-4-5"),
+            model=os.environ.get("IMPRINT_LLM_TAGGER_MODEL", "claude-haiku-4-5"),
             max_tokens=60,
             messages=[{"role": "user", "content": _LLM_PROMPT + content[:max_chars]}],
         )

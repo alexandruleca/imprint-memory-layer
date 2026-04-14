@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hunter/knowledge/internal/instructions"
-	"github.com/hunter/knowledge/internal/jsonutil"
-	"github.com/hunter/knowledge/internal/output"
-	"github.com/hunter/knowledge/internal/platform"
-	"github.com/hunter/knowledge/internal/runner"
+	"github.com/hunter/imprint/internal/instructions"
+	"github.com/hunter/imprint/internal/jsonutil"
+	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/runner"
 )
 
 // backendPaths holds the resolved local paths produced by setupBackend.
@@ -84,10 +84,10 @@ func setupBackend() backendPaths {
 	}
 
 	output.Info("Setting up shell aliases...")
-	knowledgeBin, _ := os.Executable()
-	knowledgeBin, _ = filepath.EvalSymlinks(knowledgeBin)
-	knowledgeBin, _ = filepath.Abs(knowledgeBin)
-	setupShellAlias("knowledge", knowledgeBin)
+	imprintBin, _ := os.Executable()
+	imprintBin, _ = filepath.EvalSymlinks(imprintBin)
+	imprintBin, _ = filepath.Abs(imprintBin)
+	setupShellAlias("imprint", imprintBin)
 
 	return backendPaths{
 		ProjectDir: projectDir,
@@ -96,10 +96,10 @@ func setupBackend() backendPaths {
 	}
 }
 
-// SetupClaudeCode wires the Knowledge MCP server into Claude Code: registers
+// SetupClaudeCode wires the Imprint MCP server into Claude Code: registers
 // the server, adds permissions, installs hooks (SessionStart reminder +
 // PreToolUse block on Read/Grep until search is called), and writes the
-// managed Knowledge section into ~/.claude/CLAUDE.md.
+// managed Imprint section into ~/.claude/CLAUDE.md.
 func SetupClaudeCode() {
 	output.Info("Checking for Claude Code CLI...")
 	if claudePath, ok := runner.Exists("claude"); ok {
@@ -111,17 +111,17 @@ func SetupClaudeCode() {
 	bp := setupBackend()
 
 	output.Info("Checking MCP server registration...")
-	if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "knowledge") {
-		output.Skip("MCP server 'knowledge' already registered")
+	if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "imprint") {
+		output.Skip("MCP server 'imprint' already registered")
 	} else {
 		if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "mempalace") {
 			runner.RunCapture("claude", "mcp", "remove", "mempalace")
 		}
 		output.Info("Registering MCP server with Claude Code (user scope)...")
 		if err := runner.Run("claude", "mcp", "add", "--scope", "user",
-			"knowledge",
+			"imprint",
 			"-e", "PYTHONPATH="+bp.ProjectDir,
-			"--", bp.VenvPython, "-m", "knowledgebase"); err != nil {
+			"--", bp.VenvPython, "-m", "imprint"); err != nil {
 			output.Fail("Failed to register MCP server: " + err.Error())
 		}
 		output.Success("MCP server registered globally")
@@ -129,13 +129,13 @@ func SetupClaudeCode() {
 
 	output.Info("Checking Claude Code permissions...")
 	settingsPath := platform.ClaudeSettingsPath()
-	added, err := jsonutil.EnsurePermission(settingsPath, "mcp__knowledge__*")
+	added, err := jsonutil.EnsurePermission(settingsPath, "mcp__imprint__*")
 	if err != nil {
 		output.Warn("Could not update " + settingsPath + ": " + err.Error())
 	} else if added {
-		output.Success("Added knowledge permissions to " + settingsPath)
+		output.Success("Added imprint permissions to " + settingsPath)
 	} else {
-		output.Skip("knowledge permissions already configured")
+		output.Skip("imprint permissions already configured")
 	}
 
 	output.Info("Checking Claude Code hooks...")
@@ -144,16 +144,16 @@ func SetupClaudeCode() {
 	output.Info("Checking global CLAUDE.md...")
 	setupGlobalClaudeMD()
 
-	output.Header("═══ Knowledge → Claude Code setup complete ═══")
+	output.Header("═══ Imprint → Claude Code setup complete ═══")
 	venvPythonVer, _ := runner.RunCapture(bp.VenvPython, "--version")
 	fmt.Printf("  Python:      %s (%s)\n", venvPythonVer, bp.VenvPython)
 	fmt.Printf("  Data:        %s\n", bp.DataDir)
-	fmt.Printf("  MCP server:  knowledge (user scope)\n")
+	fmt.Printf("  MCP server:  imprint (user scope)\n")
 	fmt.Println()
 	output.Info("Next steps:")
 	fmt.Println("  1. Restart Claude Code to load the MCP server")
-	fmt.Println("  2. Run /mcp in a session to verify knowledge tools are available")
-	fmt.Println("  3. Use 'knowledge ingest <dir>' to index your project directories")
+	fmt.Println("  2. Run /mcp in a session to verify imprint tools are available")
+	fmt.Println("  3. Use 'imprint ingest <dir>' to index your project directories")
 }
 
 var pythonVersionRe = regexp.MustCompile(`Python (\d+)\.(\d+)\.(\d+)`)
@@ -222,14 +222,14 @@ func setupShellAlias(name, targetPath string) {
 	output.Success("Added " + name + " alias to " + rcFile)
 }
 
-// setupHooks installs all Claude Code hooks needed for the knowledge MCP:
+// setupHooks installs all Claude Code hooks needed for the imprint MCP:
 //
 //   - Stop:        async transcript ingest + decision extraction
 //   - PreCompact:  block + force a save before context compression
 //   - SessionStart: inject reminder telling Claude to call wake_up + search
-//   - PostToolUse(mcp__knowledge__search|wake_up): mark per-session sentinel
+//   - PostToolUse(mcp__imprint__search|wake_up): mark per-session sentinel
 //   - PreToolUse(Read|Grep|Glob): block until the session sentinel exists,
-//     forcing the model to call mcp__knowledge__search first
+//     forcing the model to call mcp__imprint__search first
 func setupHooks(settingsPath string, bp backendPaths) {
 	venvPython := bp.VenvPython
 	projectDir := bp.ProjectDir
@@ -237,25 +237,25 @@ func setupHooks(settingsPath string, bp backendPaths) {
 
 	// Stop: index transcript + extract decisions (async, background).
 	stopCmd := fmt.Sprintf(
-		`PYTHONPATH=%s KNOWLEDGE_DATA_DIR=%s %s -c "
+		`PYTHONPATH=%s IMPRINT_DATA_DIR=%s %s -c "
 import json,sys,subprocess,os
 d=json.loads(sys.stdin.read())
 tp=d.get('transcript_path','')
 if tp:
-    subprocess.run([sys.executable,'-m','knowledgebase.cli_conversations','--transcript',tp],env=os.environ)
-    subprocess.run([sys.executable,'-m','knowledgebase.cli_extract',tp],env=os.environ)
+    subprocess.run([sys.executable,'-m','imprint.cli_conversations','--transcript',tp],env=os.environ)
+    subprocess.run([sys.executable,'-m','imprint.cli_extract',tp],env=os.environ)
 " 2>/dev/null`,
 		projectDir, dataDir, venvPython,
 	)
 
 	// PreCompact: tell Claude to flush before compression.
-	preCompactCmd := `echo '{"decision":"block","reason":"COMPACTION IMMINENT. Save ALL topics, decisions, and important context from this session using the knowledge MCP tools (store, kg_add). Be thorough — after compaction, detailed context will be lost."}'`
+	preCompactCmd := `echo '{"decision":"block","reason":"COMPACTION IMMINENT. Save ALL topics, decisions, and important context from this session using the imprint MCP tools (store, kg_add). Be thorough — after compaction, detailed context will be lost."}'`
 
 	// SessionStart: inject a system reminder so Claude sees the contract
 	// in fresh context (no CLAUDE.md drift after compaction).
-	sessionStartCmd := `echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Knowledge MCP available. Call mcp__knowledge__wake_up to load prior context. Call mcp__knowledge__search BEFORE Read/Grep when answering context questions — Read/Grep will be blocked until you do."}}'`
+	sessionStartCmd := `echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Imprint MCP available. Call mcp__imprint__wake_up to load prior context. Call mcp__imprint__search BEFORE Read/Grep when answering context questions — Read/Grep will be blocked until you do."}}'`
 
-	// PostToolUse on knowledge search/wake_up: write a per-session sentinel
+	// PostToolUse on imprint search/wake_up: write a per-session sentinel
 	// so the PreToolUse gate on Read/Grep stops blocking.
 	sentinelDir := filepath.Join(dataDir, ".sessions")
 	postSearchCmd := fmt.Sprintf(
@@ -273,8 +273,8 @@ except Exception:
 	)
 
 	// PreToolUse on Read|Grep|Glob: block (exit 2) until the sentinel
-	// exists for this session_id. Once mcp__knowledge__search or
-	// mcp__knowledge__wake_up has run, Read/Grep flow normally.
+	// exists for this session_id. Once mcp__imprint__search or
+	// mcp__imprint__wake_up has run, Read/Grep flow normally.
 	preReadCmd := fmt.Sprintf(
 		`%s -c "
 import json,sys,os,pathlib
@@ -284,7 +284,7 @@ try:
     p=pathlib.Path(r'%s')/sid
     if p.exists():
         sys.exit(0)
-    sys.stderr.write('Knowledge MCP gate: call mcp__knowledge__search (or mcp__knowledge__wake_up) before Read/Grep/Glob. The knowledge base may already have the answer.\n')
+    sys.stderr.write('Imprint MCP gate: call mcp__imprint__search (or mcp__imprint__wake_up) before Read/Grep/Glob. The knowledge base may already have the answer.\n')
     sys.exit(2)
 except SystemExit:
     raise
@@ -306,7 +306,7 @@ except Exception:
 		{"Stop", "", stopCmd, 120, true},
 		{"PreCompact", "", preCompactCmd, 90, false},
 		{"SessionStart", "startup|resume", sessionStartCmd, 10, false},
-		{"PostToolUse", "mcp__knowledge__search|mcp__knowledge__wake_up", postSearchCmd, 10, true},
+		{"PostToolUse", "mcp__imprint__search|mcp__imprint__wake_up", postSearchCmd, 10, true},
 		{"PreToolUse", "Read|Grep|Glob", preReadCmd, 10, false},
 	}
 
@@ -323,7 +323,7 @@ except Exception:
 	}
 }
 
-// setupGlobalClaudeMD writes the managed Knowledge section into
+// setupGlobalClaudeMD writes the managed Imprint section into
 // ~/.claude/CLAUDE.md, preserving any other user-authored content. The
 // section is bracketed with marker comments so re-running setup replaces
 // only the managed block instead of clobbering the file.
