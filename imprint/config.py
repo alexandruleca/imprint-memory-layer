@@ -59,20 +59,22 @@ QDRANT_VECTOR_NAME = "dense"
 # ── Chunker ─────────────────────────────────────────────────────
 # Sliding-window overlap appended at chunk boundaries so retrieval doesn't
 # miss signal sitting right at a split.
-CHUNK_OVERLAP = int(os.environ.get("IMPRINT_CHUNK_OVERLAP", "150"))
+CHUNK_OVERLAP = int(os.environ.get("IMPRINT_CHUNK_OVERLAP", "400"))
 
-# Per-modality target sizes.
-# Code: small enough that CodeChunker (tree-sitter) emits one top-level
-# definition (function, method) per chunk for typical methods, while still
-# bundling tight classes whole. Methods longer than this get sub-AST split.
-# Prose: larger — SemanticChunker decides boundaries via topic-shift
-# detection; the size acts as a soft cap, not the primary boundary signal.
-CHUNK_SIZE_CODE = int(os.environ.get("IMPRINT_CHUNK_SIZE_CODE", "800"))
-CHUNK_SIZE_PROSE = int(os.environ.get("IMPRINT_CHUNK_SIZE_PROSE", "1500"))
+# Per-modality target sizes. BGE-M3 handles 8192 tokens (~24-32k chars),
+# so chunks can be large. Semantic chunking decides the real boundaries
+# via topic-shift detection — these targets are soft caps, not the primary
+# split signal. Bigger chunks = more context per retrieval hit.
+# Code: whole classes/modules stay together. Oversized chunks get
+# semantic sub-splitting where the logic shifts topic.
+# Prose: full sections stay whole. SemanticChunker splits at topic change.
+CHUNK_SIZE_CODE = int(os.environ.get("IMPRINT_CHUNK_SIZE_CODE", "4000"))
+CHUNK_SIZE_PROSE = int(os.environ.get("IMPRINT_CHUNK_SIZE_PROSE", "6000"))
 # Legacy alias — some callers may still import CHUNK_SIZE_CHARS.
 CHUNK_SIZE_CHARS = int(os.environ.get("IMPRINT_CHUNK_SIZE", str(CHUNK_SIZE_PROSE)))
 
-CHUNK_HARD_MAX = int(os.environ.get("IMPRINT_CHUNK_HARD_MAX", "6000"))
+# Hard max ~4000 tokens — well within BGE-M3's 8192 context.
+CHUNK_HARD_MAX = int(os.environ.get("IMPRINT_CHUNK_HARD_MAX", "16000"))
 
 # SemanticChunker topic-shift threshold. Lower = more aggressive topic
 # splits (each subtle shift starts a new chunk). 0.5 catches paragraph-level

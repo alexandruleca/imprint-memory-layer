@@ -132,9 +132,9 @@ def _build_exchange(user_msgs: list[str], assistant_msgs: list[str], title: str)
 def derive_project(transcript_path: str) -> str:
     """Derive project name from transcript path.
 
-    Claude project dirs look like: -home-hunter-code-brightspaces-node-auto-space-api
-    We want the last meaningful segment: auto-space-api
-    For paths like -home-hunter-code-imprint, we get: knowledge
+    Claude project dirs look like: -home-user-code-myorg-node-my-web-app
+    We want the last meaningful segment: my-web-app
+    For paths like -home-user-code-imprint, we get: imprint
     """
     parts = transcript_path.split("/")
     for part in parts:
@@ -143,8 +143,8 @@ def derive_project(transcript_path: str) -> str:
             remainder = part[idx:]
             # Split by known grouping prefixes and take the last project name
             segments = remainder.split("-")
-            # Skip known group prefixes: brightspaces, node, python, php, personal
-            skip = {"brightspaces", "node", "python", "php", "personal", "workspaces"}
+            # Skip known group prefixes (org dirs, language dirs, etc.)
+            skip = {"node", "python", "php", "personal", "workspaces"}
             # Find the first non-skip segment — that starts the project name
             project_parts = []
             found_start = False

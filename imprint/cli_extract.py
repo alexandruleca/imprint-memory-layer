@@ -116,8 +116,6 @@ def derive_project_from_path(transcript_path: str) -> str:
         if part.startswith("-home-") and "code-" in part:
             idx = part.index("code-") + 5
             remainder = part[idx:]
-            if remainder.startswith("brightspaces"):
-                return "brightspaces"
             if remainder.startswith("personal"):
                 return "personal"
             return remainder.split("-")[0]

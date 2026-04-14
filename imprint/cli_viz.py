@@ -113,7 +113,7 @@ def compute_edges(vectors, k=5):
     k = min(k, n - 1)
 
     edges = {}  # (i,j) -> max similarity
-    batch = 500
+    batch = 2000
     for start in range(0, n, batch):
         end = min(start + batch, n)
         sims = vecs[start:end] @ vecs.T
@@ -135,12 +135,6 @@ def build_data():
     if not rows:
         return {"nodes": [], "links": [], "projects": [], "types": list(TYPE_COLORS.keys()),
                 "projectColors": {}, "typeColors": TYPE_COLORS, "total": 0, "version": 0}
-
-    MAX_NODES = 5000
-    if len(rows) > MAX_NODES:
-        rng = np.random.RandomState(42)
-        indices = rng.choice(len(rows), MAX_NODES, replace=False)
-        rows = [rows[i] for i in sorted(indices)]
 
     vectors = [r["vector"] for r in rows]
 
@@ -380,9 +374,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <div id="graph-container"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sigma@3/build/sigma.min.js"></script>
-<script>
+<script type="module">
+import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
 (function() {
   'use strict';
 
@@ -618,7 +612,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
     return renderer;
   }
 
-  // ── ForceAtlas2 layout ───────────────────────────────────────
+  // ── ForceAtlas2 layout (sync assign in rAF loop) ────────────
   function startLayout(graph) {
     var n = graph.order;
     var settings = {
@@ -631,17 +625,29 @@ HTML_PAGE = r"""<!DOCTYPE html>
       adjustSizes: false,
     };
 
-    fa2 = new FA2Layout(graph, {
-      settings: settings,
-    });
-    fa2.start();
+    var totalIter = n > 5000 ? 600 : n > 2000 ? 300 : 150;
+    var batch = n > 5000 ? 1 : n > 2000 ? 3 : 5;
+    var done = 0;
+    fa2 = {
+      _running: true,
+      stop: function() { this._running = false; },
+      isRunning: function() { return this._running; },
+    };
 
-    // Stop after convergence or timeout
-    setTimeout(function() {
-      if (fa2 && fa2.isRunning()) fa2.stop();
-      var el = document.getElementById('settling');
-      if (el) { el.style.opacity = '0'; setTimeout(function() { if (el) el.style.display = 'none'; }, 500); }
-    }, n > 2000 ? 12000 : 6000);
+    function tick() {
+      if (!fa2._running) return;
+      forceAtlas2.assign(graph, { iterations: batch, settings: settings });
+      done += batch;
+      if (done < totalIter && fa2._running) {
+        requestAnimationFrame(tick);
+      } else {
+        fa2._running = false;
+        var el = document.getElementById('settling');
+        if (el) { el.style.opacity = '0'; setTimeout(function() { if (el) el.style.display = 'none'; }, 500); }
+      }
+    }
+
+    requestAnimationFrame(tick);
   }
 
   // ── Detail panel ─────────────────────────────────────────────

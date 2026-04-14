@@ -171,8 +171,8 @@ def store(
     months from now without additional context. Include the WHY, not just the WHAT.
 
     Args:
-        content: The knowledge to remember — be specific, include reasoning
-        project: Project this relates to (e.g. 'commute-api', 'editor-2d')
+        content: The memory to store — be specific, include reasoning
+        project: Project this relates to (e.g. 'my-web-app', 'api-server')
         type: One of: decision, pattern, finding, preference, bug, architecture, milestone
         tags: Comma-separated tags (e.g. 'cors,security')
         source: Where this came from (e.g. file path, conversation topic)
@@ -227,7 +227,7 @@ def kg_add(subject: str, predicate: str, object: str, source: str = "") -> str:
     """Add a structured fact. Use for relationships that may change over time.
 
     Args:
-        subject: The entity (e.g. 'commute-api', 'Hunter')
+        subject: The entity (e.g. 'api-server', 'auth-service')
         predicate: The relationship (e.g. 'uses', 'decided', 'prefers')
         object: The value (e.g. 'NestJS', 'wildcard CORS')
         source: Where this fact came from

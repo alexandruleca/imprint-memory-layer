@@ -18,7 +18,7 @@ func Refresh(args []string) {
 Re-indexes only files that changed since last indexing.
 
 Examples:
-  imprint refresh ~/code/brightspaces
+  imprint refresh ~/code/myproject
   imprint refresh ~/code
 `)
 		os.Exit(1)

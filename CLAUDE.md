@@ -49,10 +49,10 @@ Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + BGE-M3
 | `IMPRINT_MAX_SEQ_LENGTH` | `2048` | Token cap per embed call |
 | `IMPRINT_MODEL_NAME` | `Xenova/bge-m3` | HF repo |
 | `IMPRINT_MODEL_FILE` | auto | `onnx/model_int8.onnx` (CPU) / `onnx/model_fp16.onnx` (GPU) |
-| `IMPRINT_CHUNK_OVERLAP` | `150` | Sliding overlap chars (prose only; code paths skip) |
-| `IMPRINT_CHUNK_SIZE_CODE` | `800` | Target chunk size for code (favors method-per-chunk) |
-| `IMPRINT_CHUNK_SIZE_PROSE` | `1500` | Target chunk size for prose (SemanticChunker decides boundary) |
-| `IMPRINT_CHUNK_HARD_MAX` | `6000` | Absolute max chunk size |
+| `IMPRINT_CHUNK_OVERLAP` | `400` | Sliding overlap chars between chunks |
+| `IMPRINT_CHUNK_SIZE_CODE` | `4000` | Soft target for code (semantic subsplit above 2×) |
+| `IMPRINT_CHUNK_SIZE_PROSE` | `6000` | Soft target for prose (SemanticChunker decides boundary) |
+| `IMPRINT_CHUNK_HARD_MAX` | `16000` | Absolute max (~4k tokens, within BGE-M3's 8k context) |
 | `IMPRINT_SEMANTIC_THRESHOLD` | `0.5` | SemanticChunker topic-shift threshold (lower = sharper splits) |
 | `IMPRINT_QDRANT_HOST` | `127.0.0.1` | Qdrant bind/connect host |
 | `IMPRINT_QDRANT_PORT` | `6333` | Qdrant HTTP port |

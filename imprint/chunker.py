@@ -139,11 +139,11 @@ def chunk_file(content: str, rel_path: str) -> list[tuple[str, int]]:
     if not raw:
         raw = _split_by_size(content)
 
-    # Overlap only for prose: code already has clean AST boundaries; raw
-    # char-slice overlap on code lands mid-statement / mid-string and adds
-    # embedding noise. Prose benefits from sentence-aware tail context.
-    if not is_code:
-        raw = _apply_overlap(raw)
+    # Sliding overlap between chunks preserves boundary context so
+    # retrieval doesn't miss signal at split points. Applied to all
+    # chunks — code included, since semantic subsplitting can produce
+    # non-AST boundaries within large functions.
+    raw = _apply_overlap(raw)
 
     raw = [_enforce_hard_max(c) for c in raw if len(c) >= MIN_SIZE]
 
@@ -168,9 +168,13 @@ def _chunk_code(content: str, language: str) -> list[str]:
         return _legacy_split_by_boundaries(content)
     try:
         chunks = cc.chunk(content)
-        return [c.text for c in chunks if c.text and len(c.text.strip()) >= MIN_SIZE]
+        raw = [c.text for c in chunks if c.text and len(c.text.strip()) >= MIN_SIZE]
     except Exception:
-        return _legacy_split_by_boundaries(content)
+        raw = _legacy_split_by_boundaries(content)
+    # Second pass: sub-split oversized code chunks by topic shift.
+    # Small focused functions stay whole; large functions split where
+    # the logic shifts (e.g. setup → processing → cleanup).
+    return _semantic_subsplit(raw)
 
 
 def _chunk_prose(content: str) -> list[str]:
@@ -234,6 +238,35 @@ def _enforce_hard_max(text: str) -> str:
     if cut > 0:
         return text[:cut]
     return text[:HARD_MAX]
+
+
+def _semantic_subsplit(chunks: list[str]) -> list[str]:
+    """Sub-split oversized chunks using semantic topic detection.
+
+    Chunks smaller than 2× TARGET_SIZE_CODE pass through unchanged.
+    Larger ones get run through the SemanticChunker which detects topic
+    shifts via embedding similarity — producing dynamic-sized pieces
+    that cut where the subject matter changes.
+    """
+    threshold = TARGET_SIZE_CODE * 2
+    sc = _get_semantic_chunker()
+    if sc is None:
+        return chunks
+    out = []
+    for chunk in chunks:
+        if len(chunk) <= threshold:
+            out.append(chunk)
+            continue
+        try:
+            sub = sc.chunk(chunk)
+            pieces = [c.text for c in sub if c.text and len(c.text.strip()) >= MIN_SIZE]
+            if pieces:
+                out.extend(pieces)
+            else:
+                out.append(chunk)
+        except Exception:
+            out.append(chunk)
+    return out
 
 
 # ── Legacy fallbacks ───────────────────────────────────────────

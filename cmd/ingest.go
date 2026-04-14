@@ -190,9 +190,7 @@ for project_dir in claude_dir.iterdir():
     # Derive project name
     name = project_dir.name
     project = "general"
-    if "brightspaces" in name:
-        project = "brightspaces"
-    elif "personal" in name:
+    if "personal" in name:
         project = "personal"
     elif "imprint" in name:
         project = "imprint"
