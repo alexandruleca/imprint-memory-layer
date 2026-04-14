@@ -4,16 +4,24 @@ import time
 from . import config
 
 _conn = None
+_conn_workspace: str | None = None
 
 
 def _get_conn() -> sqlite3.Connection:
-    global _conn
-    if _conn is not None:
+    global _conn, _conn_workspace
+    ws = config.get_active_workspace()
+    if _conn is not None and _conn_workspace == ws:
         return _conn
+    if _conn is not None:
+        try:
+            _conn.close()
+        except Exception:
+            pass
+        _conn = None
 
     data_dir = config.get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    db_path = data_dir / "imprint_graph.sqlite3"
+    db_path = config.graph_db_path(ws)
 
     _conn = sqlite3.connect(str(db_path))
     _conn.row_factory = sqlite3.Row
@@ -38,6 +46,7 @@ def _get_conn() -> sqlite3.Connection:
         "CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate)"
     )
     _conn.commit()
+    _conn_workspace = ws
     return _conn
 
 

@@ -7,12 +7,12 @@ Collection schema:
   - payload: {content, project, type, tags, source, chunk_index, source_mtime,
               timestamp}
     where tags = {lang, layer, kind, domain: [...], topics: [...]}
-  - payload indexes on project, type, source, source_mtime, tags.lang,
-    tags.domain (keyword list), tags.topics (keyword list) for cheap filtering
+  - payload indexes on project, type, source, source_mtime, timestamp,
+    tags.lang, tags.domain (keyword list), tags.topics (keyword list)
 
 Public API (kept stable for callers):
   store, store_batch, search, delete, delete_by_source, get_source_mtimes,
-  recent, status, _get_existing_ids
+  recent, recent_ordered, facet_counts, status, _get_existing_ids
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from . import config, embeddings, qdrant_runner
 _client: QdrantClient | None = None
 _id_cache: set[str] | None = None
 _collection_ready = False
+_active_workspace: str | None = None
 
 _inserts_since_compact = 0
 _COMPACT_EVERY = int(os.environ.get("IMPRINT_COMPACT_EVERY", "500"))
@@ -72,7 +73,7 @@ def _close_client() -> None:
     """Close Qdrant client deterministically at interpreter exit. Without
     this, QdrantClient.__del__ fires during shutdown when sys.meta_path is
     already None and prints a noisy ImportError traceback."""
-    global _client, _collection_ready, _id_cache
+    global _client, _collection_ready, _id_cache, _active_workspace
     if _client is None:
         return
     try:
@@ -82,6 +83,7 @@ def _close_client() -> None:
     _client = None
     _collection_ready = False
     _id_cache = None
+    _active_workspace = None
 
 
 atexit.register(_close_client)
@@ -124,18 +126,30 @@ def release_idle_client(after_seconds: float = 30.0) -> None:
     _idle_thread.start()
 
 
-def _ensure_collection() -> QdrantClient:
+def _resolve_collection() -> str:
+    """Return current collection name, resetting caches if workspace changed."""
+    global _collection_ready, _id_cache, _active_workspace
+    ws = config.get_active_workspace()
+    if ws != _active_workspace:
+        _collection_ready = False
+        _id_cache = None
+        _active_workspace = ws
+    return config.collection_name(ws)
+
+
+def _ensure_collection() -> tuple[QdrantClient, str]:
     global _collection_ready
+    coll = _resolve_collection()
     client = _get_client()
     _touch_use()
     if _collection_ready:
-        return client
+        return client, coll
 
     collections = {c.name for c in client.get_collections().collections}
-    if config.QDRANT_COLLECTION not in collections:
+    if coll not in collections:
         try:
             client.create_collection(
-                collection_name=config.QDRANT_COLLECTION,
+                collection_name=coll,
                 vectors_config={
                     config.QDRANT_VECTOR_NAME: qm.VectorParams(
                         size=config.EMBEDDING_DIM,
@@ -172,10 +186,11 @@ def _ensure_collection() -> QdrantClient:
         ("tags.kind", qm.PayloadSchemaType.KEYWORD),
         ("tags.domain", qm.PayloadSchemaType.KEYWORD),
         ("tags.topics", qm.PayloadSchemaType.KEYWORD),
+        ("timestamp", qm.PayloadSchemaType.FLOAT),
     ]:
         try:
             client.create_payload_index(
-                collection_name=config.QDRANT_COLLECTION,
+                collection_name=coll,
                 field_name=field,
                 field_schema=kind,
             )
@@ -183,7 +198,7 @@ def _ensure_collection() -> QdrantClient:
             pass
 
     _collection_ready = True
-    return client
+    return client, coll
 
 
 # ── ID + WAL helpers ────────────────────────────────────────────
@@ -202,7 +217,7 @@ def _point_uuid(memory_id: str) -> str:
 
 
 def _wal_log(operation: str, **kwargs) -> None:
-    wal_path = config.get_data_dir() / "wal.jsonl"
+    wal_path = config.wal_path()
     entry = {"ts": time.time(), "op": operation, **kwargs}
     try:
         with open(wal_path, "a") as f:
@@ -239,13 +254,13 @@ def _get_existing_ids() -> set[str]:
     global _id_cache
     if _id_cache is not None:
         return _id_cache
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     _id_cache = set()
     offset = None
     try:
         while True:
             points, offset = client.scroll(
-                collection_name=config.QDRANT_COLLECTION,
+                collection_name=coll,
                 limit=_SCAN_BATCH,
                 offset=offset,
                 with_payload=["_mid"],
@@ -273,7 +288,7 @@ def store(
     source_mtime: float = 0.0,
 ) -> str:
     """Store a single memory. Returns the 16-hex logical id."""
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     memory_id = _make_id(content, project, source)
     if memory_id in _get_existing_ids():
         return memory_id
@@ -293,7 +308,7 @@ def store(
         "timestamp": time.time(),
     }
     client.upsert(
-        collection_name=config.QDRANT_COLLECTION,
+        collection_name=coll,
         points=[
             qm.PointStruct(
                 id=_point_uuid(memory_id),
@@ -313,7 +328,7 @@ def store_batch(records: list[dict]) -> tuple[int, int]:
                   source_mtime?}. tags may be dict or comma-string.
     Returns (inserted, skipped).
     """
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     existing = _get_existing_ids()
 
     new_records = []
@@ -351,7 +366,7 @@ def store_batch(records: list[dict]) -> tuple[int, int]:
             )
         )
 
-    client.upsert(collection_name=config.QDRANT_COLLECTION, points=points)
+    client.upsert(collection_name=coll, points=points)
 
     for r in new_records:
         existing.add(r["_mid"])
@@ -417,8 +432,8 @@ def search(
     tag_filters example:
         {"lang": "python", "domain": ["auth", "db"]}
     """
-    client = _ensure_collection()
-    info = client.get_collection(config.QDRANT_COLLECTION)
+    client, coll = _ensure_collection()
+    info = client.get_collection(coll)
     if info.points_count == 0:
         return []
 
@@ -426,7 +441,7 @@ def search(
     flt = _build_filter(project=project, type=type, tag_filters=tag_filters)
 
     hits = client.query_points(
-        collection_name=config.QDRANT_COLLECTION,
+        collection_name=coll,
         query=vector,
         using=config.QDRANT_VECTOR_NAME,
         query_filter=flt,
@@ -453,11 +468,11 @@ def search(
 
 # ── delete ─────────────────────────────────────────────────────
 def delete(memory_id: str) -> bool:
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     try:
         _wal_log("delete", id=memory_id)
         client.delete(
-            collection_name=config.QDRANT_COLLECTION,
+            collection_name=coll,
             points_selector=qm.PointIdsList(points=[_point_uuid(memory_id)]),
         )
         _get_existing_ids().discard(memory_id)
@@ -467,11 +482,11 @@ def delete(memory_id: str) -> bool:
 
 
 def delete_by_source(source: str) -> bool:
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     try:
         _wal_log("delete_by_source", source=source)
         client.delete(
-            collection_name=config.QDRANT_COLLECTION,
+            collection_name=coll,
             points_selector=qm.FilterSelector(
                 filter=qm.Filter(must=[
                     qm.FieldCondition(key="source", match=qm.MatchValue(value=source))
@@ -488,11 +503,11 @@ def delete_by_source(source: str) -> bool:
 
 # ── bulk reads ─────────────────────────────────────────────────
 def _scroll_all(fields: list[str]) -> Iterable[dict]:
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     offset = None
     while True:
         points, offset = client.scroll(
-            collection_name=config.QDRANT_COLLECTION,
+            collection_name=coll,
             limit=_SCAN_BATCH,
             offset=offset,
             with_payload=fields,
@@ -522,8 +537,8 @@ def recent(limit: int = 15, types: list[str] | None = None) -> list[dict]:
     """Top-K most recent memories, optionally filtered by type."""
     import heapq
 
-    client = _ensure_collection()
-    info = client.get_collection(config.QDRANT_COLLECTION)
+    client, coll = _ensure_collection()
+    info = client.get_collection(coll)
     if info.points_count == 0:
         return []
 
@@ -561,23 +576,79 @@ def recent(limit: int = 15, types: list[str] | None = None) -> list[dict]:
 
 
 def status() -> dict:
-    client = _ensure_collection()
+    client, coll = _ensure_collection()
     try:
-        info = client.get_collection(config.QDRANT_COLLECTION)
+        info = client.get_collection(coll)
         total = info.points_count or 0
     except (UnexpectedResponse, ValueError):
         return {"total_memories": 0, "by_project": {}}
 
     by_project: dict[str, int] = {}
     if total:
-        try:
-            for pl in _scroll_all(["project"]):
-                key = pl.get("project") or "(none)"
-                by_project[key] = by_project.get(key, 0) + 1
-        except Exception:
+        facets = facet_counts("project", limit=50)
+        if facets:
+            by_project = {v: c for v, c in facets}
+        else:
             by_project = {"(unknown)": total}
 
     return {"total_memories": total, "by_project": by_project}
+
+
+def facet_counts(key: str, limit: int = 10) -> list[tuple[str, int]]:
+    """Top (value, count) pairs for a payload key via Qdrant facet API.
+    Uses keyword indexes — no full scan."""
+    client, coll = _ensure_collection()
+    try:
+        resp = client.facet(
+            collection_name=coll,
+            key=key,
+            limit=limit,
+        )
+        return [(hit.value, hit.count) for hit in resp.hits]
+    except Exception:
+        return []
+
+
+def recent_ordered(limit: int = 15, types: list[str] | None = None) -> list[dict]:
+    """Top-K most recent memories via indexed order_by. No full scan."""
+    client, coll = _ensure_collection()
+    try:
+        info = client.get_collection(coll)
+        if info.points_count == 0:
+            return []
+    except Exception:
+        return []
+
+    scroll_filter = None
+    if types:
+        scroll_filter = qm.Filter(must=[
+            qm.FieldCondition(key="type", match=qm.MatchAny(any=types))
+        ])
+
+    try:
+        points, _ = client.scroll(
+            collection_name=coll,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            order_by=qm.OrderBy(key="timestamp", direction=qm.Direction.DESC),
+            with_payload=["_mid", "content", "project", "type", "tags", "source", "timestamp"],
+            with_vectors=False,
+        )
+    except Exception:
+        return []
+
+    return [
+        {
+            "id": (p.payload or {}).get("_mid", ""),
+            "content": (p.payload or {}).get("content", ""),
+            "project": (p.payload or {}).get("project", ""),
+            "type": (p.payload or {}).get("type", ""),
+            "tags": (p.payload or {}).get("tags", {}),
+            "source": (p.payload or {}).get("source", ""),
+            "timestamp": (p.payload or {}).get("timestamp", 0),
+        }
+        for p in points
+    ]
 
 
 def _get_table():

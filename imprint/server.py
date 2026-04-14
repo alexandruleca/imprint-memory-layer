@@ -1,9 +1,8 @@
 """Imprint MCP Server — lightweight memory for Claude Code."""
 
-from collections import defaultdict
-
 from fastmcp import FastMCP
 
+from . import config
 from . import imprint_graph as kg
 from . import vectorstore as vs
 
@@ -17,58 +16,124 @@ vs.release_idle_client(after_seconds=float(__import__("os").environ.get("IMPRINT
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
 
-# L1 Essential Story limits (from MemPalace's proven defaults)
+# Token budget splits (~1100 tokens total)
 L1_MAX_ENTRIES = 15
-L1_MAX_CHARS = 3200  # ~800 tokens
+L1_MAX_CHARS = 2400   # ~600 tokens — essential decisions/patterns
+RECENT_MAX_ENTRIES = 8
+RECENT_MAX_CHARS = 800  # ~200 tokens — recent activity
 
 
 @mcp.tool()
 def wake_up() -> str:
     """Load prior context at the start of a conversation.
     Call this FIRST in every session. Returns project overview, essential decisions/patterns, and active facts."""
-    stats = vs.status()
+    ws = config.get_active_workspace()
     facts = kg.recent(limit=10)
     lines = []
 
-    # Project overview
-    if stats["by_project"]:
-        lines.append("Projects in imprint memory:")
-        for p, c in sorted(stats["by_project"].items(), key=lambda x: -x[1]):
-            lines.append(f"  {p} ({c} memories)")
+    if ws != "default":
+        lines.append(f"Active workspace: {ws}")
+        lines.append("")
 
-    # L1 Essential Story — top decisions, patterns, preferences, bugs
-    # Scored by type importance, capped at ~800 tokens
-    recent = vs.recent(limit=50, types=["decision", "pattern", "preference", "bug", "milestone", "architecture"])
-    if recent:
-        # Score by type importance
-        type_weight = {"decision": 5, "preference": 4, "pattern": 3, "bug": 3, "architecture": 2, "milestone": 2, "finding": 1}
-        scored = [(type_weight.get(r["type"], 1), r) for r in recent]
-        scored.sort(key=lambda x: -x[0])
+    # ── Section 1: Project overview (facet-based, no scan) ──
+    project_facets = vs.facet_counts("project", limit=20)
+    if project_facets:
+        lines.append("Projects in memory:")
+        for name, count in project_facets:
+            lines.append(f"  {name} ({count} memories)")
 
-        # Group by project, cap at L1 limits
-        by_project = defaultdict(list)
-        for _, r in scored[:L1_MAX_ENTRIES]:
-            p = r["project"] or "(general)"
-            by_project[p].append(r)
+    # ── Section 2: L1 Essential Story ──
+    essential = vs.recent_ordered(
+        limit=50,
+        types=["decision", "pattern", "preference", "bug", "milestone", "architecture"],
+    )
+    if essential:
+        type_weight = {
+            "decision": 5, "preference": 4, "pattern": 3,
+            "bug": 3, "architecture": 2, "milestone": 2, "finding": 1,
+        }
+        scored = sorted(essential, key=lambda r: -type_weight.get(r["type"], 1))
 
         lines.append("\nEssential context:")
         total_chars = 0
-        for project, entries in sorted(by_project.items()):
-            for r in entries:
-                summary = _first_meaningful_line(r["content"], max_len=200)
-                entry = f"  • [{r['type']}] {summary}"
-                if r["source"]:
-                    entry += f"  ({r['source']})"
-                if total_chars + len(entry) > L1_MAX_CHARS:
-                    lines.append("  ... (use search for more)")
-                    break
-                lines.append(entry)
-                total_chars += len(entry)
-            else:
-                continue
-            break
+        for r in scored[:L1_MAX_ENTRIES]:
+            summary = _first_meaningful_line(r["content"], max_len=180)
+            entry = f"  • [{r['type']}] {summary}"
+            if r["source"]:
+                entry += f"  ({r['source']})"
+            if total_chars + len(entry) > L1_MAX_CHARS:
+                lines.append("  ... (use search for more)")
+                break
+            lines.append(entry)
+            total_chars += len(entry)
 
-    # Active facts
+    # ── Section 3: Recent activity (any type, deduped by source) ──
+    recent_all = vs.recent_ordered(limit=RECENT_MAX_ENTRIES * 3)  # over-fetch to account for dedup
+    if recent_all:
+        lines.append("\nRecent activity:")
+        total_chars = 0
+        seen_sources: set[str] = set()
+        count = 0
+        for r in recent_all:
+            if count >= RECENT_MAX_ENTRIES:
+                break
+            dedup_key = r["source"] or r["id"]
+            if dedup_key in seen_sources:
+                continue
+            seen_sources.add(dedup_key)
+
+            preview = _first_meaningful_line(r["content"], max_len=120)
+            meta_parts = []
+            if r["project"]:
+                meta_parts.append(r["project"])
+            if r["type"]:
+                meta_parts.append(r["type"])
+            meta = " | ".join(meta_parts)
+
+            src = ""
+            if r["source"]:
+                src = r["source"].rsplit("/", 1)[-1]
+
+            if src:
+                entry = f"  • {src}"
+                if meta:
+                    entry += f"  ({meta})"
+                entry += f" — {preview}"
+            else:
+                entry = f"  • {preview}"
+                if meta:
+                    entry += f"  ({meta})"
+
+            if total_chars + len(entry) > RECENT_MAX_CHARS:
+                break
+            lines.append(entry)
+            total_chars += len(entry)
+            count += 1
+
+    # ── Section 4: Knowledge coverage (faceted tag stats) ──
+    lang_facets = vs.facet_counts("tags.lang", limit=8)
+    domain_facets = vs.facet_counts("tags.domain", limit=10)
+    layer_facets = vs.facet_counts("tags.layer", limit=6)
+
+    coverage_parts = []
+    if lang_facets:
+        langs = ", ".join(f"{v}({c})" for v, c in lang_facets if v)
+        if langs:
+            coverage_parts.append(f"  Languages: {langs}")
+    if domain_facets:
+        domains = ", ".join(f"{v}({c})" for v, c in domain_facets if v)
+        if domains:
+            coverage_parts.append(f"  Domains: {domains}")
+    if layer_facets:
+        layers = ", ".join(f"{v}({c})" for v, c in layer_facets if v)
+        if layers:
+            coverage_parts.append(f"  Layers: {layers}")
+
+    if coverage_parts:
+        lines.append("\nKnowledge coverage (searchable with filters):")
+        lines.extend(coverage_parts)
+
+    # ── Section 5: Active facts ──
     if facts:
         lines.append("\nActive facts:")
         for f in facts:
@@ -251,11 +316,15 @@ def kg_invalidate(fact_id: int) -> str:
 @mcp.tool()
 def status() -> str:
     """Imprint memory overview."""
+    ws = config.get_active_workspace()
     stats = vs.status()
     facts = kg.query(limit=1000)
     active = sum(1 for f in facts if not f["ended"])
 
-    lines = [f"Memories: {stats['total_memories']}  |  Facts: {active}"]
+    lines = []
+    if ws != "default":
+        lines.append(f"Workspace: {ws}")
+    lines.append(f"Memories: {stats['total_memories']}  |  Facts: {active}")
     if stats["by_project"]:
         projects = ", ".join(
             f"{p}({c})" for p, c in sorted(stats["by_project"].items(), key=lambda x: -x[1])

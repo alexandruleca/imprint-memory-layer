@@ -25,6 +25,9 @@ func Status(args []string) {
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
 
+	// ── Workspace ────────────────────────────────────────────
+	wsCfg := readWorkspaceConfig(dataDir)
+
 	// ── MCP registration ──────────────────────────────────────
 	mcpRegistered := false
 	if _, ok := runner.Exists("claude"); ok {
@@ -106,6 +109,15 @@ print(json.dumps({**s, 'mem_total': mem_total, 'by_project': by_project}))`)
 	venvOk := platform.FileExists(venvPython)
 	fmt.Printf("  %s Python venv    %s\n", check(venvOk), venvPython)
 	fmt.Printf("  %s Data dir       %s\n", check(platform.DirExists(dataDir)), dataDir)
+
+	// ── Workspace ────────────────────────────────────────────
+	if wsCfg.Active != "default" || len(wsCfg.Known) > 1 {
+		fmt.Printf("    Workspace: %s", wsCfg.Active)
+		if len(wsCfg.Known) > 1 {
+			fmt.Printf("  (%d total)", len(wsCfg.Known))
+		}
+		fmt.Println()
+	}
 	fmt.Println()
 
 	// ── Memory stats ─────────────────────────────────────────

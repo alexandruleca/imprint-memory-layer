@@ -235,8 +235,8 @@ sys.path.insert(0, %q)
 os.environ["IMPRINT_DATA_DIR"] = %q
 from imprint import config, vectorstore as vs
 
-client = vs._ensure_collection()
-info = client.get_collection(config.QDRANT_COLLECTION)
+client, coll = vs._ensure_collection()
+info = client.get_collection(coll)
 if (info.points_count or 0) == 0:
     print("[]")
     sys.exit(0)

@@ -52,6 +52,10 @@ func main() {
 		cmd.Disable(os.Args[2:])
 	case "status":
 		cmd.Status(os.Args[2:])
+	case "workspace":
+		cmd.Workspace(os.Args[2:])
+	case "wipe":
+		cmd.Wipe(os.Args[2:])
 	case "version", "--version":
 		fmt.Printf("imprint %s\n", version)
 	default:
@@ -77,6 +81,10 @@ Usage:
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Stop server, unregister MCP, strip hooks (data preserved)
   imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor)
+  imprint workspace          List workspaces and show active
+  imprint workspace switch <n>  Switch to workspace (create if new)
+  imprint workspace delete <n>  Delete a workspace and its data
+  imprint wipe [--force]     Wipe active workspace (--all for everything)
   imprint version            Print version
 
 Examples:

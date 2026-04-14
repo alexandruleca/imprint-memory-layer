@@ -1,8 +1,7 @@
-"""Obsidian-style force-directed graph visualization of the imprint memory.
+"""2D scatter visualization of imprint memory.
 
-Uses Sigma.js v3 (WebGL) + graphology + ForceAtlas2 for interactive 2D
-force layout. Handles 100k+ nodes. Nodes = memories, edges = semantic
-similarity (cosine KNN on embeddings). Same-project nodes cluster.
+Pre-computes layout server-side (t-SNE or PCA). Renders with Canvas 2D.
+Zero JS dependencies. Handles 50k+ nodes at 60fps.
 
 Usage: python -m imprint.cli_viz [--port 8420]
 """
@@ -54,28 +53,25 @@ def _extract_label(content: str, source: str, idx: int) -> str:
 
 
 def get_all_rows():
-    """Pull every point from Qdrant with its vector. Streams via scroll so
-    a 30k-row collection doesn't materialize all at once."""
+    """Pull every point from Qdrant with its vector. Streams via scroll."""
     try:
-        client = vs._ensure_collection()
+        client, coll = vs._ensure_collection()
     except Exception:
         return []
 
     try:
-        info = client.get_collection(config.QDRANT_COLLECTION)
+        info = client.get_collection(coll)
         if (info.points_count or 0) == 0:
             return []
     except Exception:
         return []
-
-    from qdrant_client.http.exceptions import UnexpectedResponse  # noqa: F401
 
     rows: list[dict] = []
     offset = None
     try:
         while True:
             pts, offset = client.scroll(
-                collection_name=config.QDRANT_COLLECTION,
+                collection_name=coll,
                 limit=2000,
                 offset=offset,
                 with_payload=True,
@@ -101,18 +97,47 @@ def get_all_rows():
     return rows
 
 
-def compute_edges(vectors, k=5):
-    """Cosine-similarity KNN on embedding vectors — pure numpy, no scipy.
-    Returns links with similarity scores for visual weight."""
+def compute_layout_2d(vectors):
+    """Reduce embeddings to 2D positions via t-SNE (sklearn) or PCA fallback."""
     vecs = np.array(vectors, dtype=np.float32)
     n = len(vecs)
     if n < 2:
-        return []
+        return np.zeros((n, 2), dtype=np.float32)
+
+    try:
+        from sklearn.decomposition import PCA
+        from sklearn.manifold import TSNE
+        n_pca = min(50, vecs.shape[1], n - 1)
+        reduced = PCA(n_components=n_pca).fit_transform(vecs)
+        perp = min(30, max(5, n // 5))
+        pos = TSNE(
+            n_components=2, perplexity=perp, init="pca",
+            random_state=42, max_iter=500, learning_rate="auto",
+        ).fit_transform(reduced)
+    except ImportError:
+        centered = vecs - vecs.mean(axis=0)
+        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+        pos = centered @ Vt[:2].T
+
+    mins = pos.min(axis=0)
+    maxs = pos.max(axis=0)
+    span = np.maximum(maxs - mins, 1e-8)
+    pos = (pos - mins) / span * 1000 - 500
+    return pos
+
+
+def compute_neighbors(vectors, k=5):
+    """Cosine KNN — returns per-node neighbor lists."""
+    vecs = np.array(vectors, dtype=np.float32)
+    n = len(vecs)
+    if n < 2:
+        return [[] for _ in range(n)]
+
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
     vecs = vecs / np.maximum(norms, 1e-8)
     k = min(k, n - 1)
 
-    edges = {}  # (i,j) -> max similarity
+    neighbors: list[list[dict]] = [[] for _ in range(n)]
     batch = 2000
     for start in range(0, n, batch):
         end = min(start + batch, n)
@@ -122,21 +147,66 @@ def compute_edges(vectors, k=5):
             sims[bi, i] = -2.0
             top_k = np.argpartition(sims[bi], -k)[-k:]
             for j in top_k:
-                key = (min(i, int(j)), max(i, int(j)))
-                score = float(sims[bi, int(j)])
-                if key not in edges or score > edges[key]:
-                    edges[key] = score
+                neighbors[i].append({"idx": int(j), "sim": round(float(sims[bi, int(j)]), 3)})
 
-    return [{"source": e[0], "target": e[1], "sim": round(s, 3)} for e, s in edges.items()]
+    return neighbors
+
+
+_layout_cache: dict[str, tuple[float, float]] = {}
 
 
 def build_data():
+    global _layout_cache
     rows = get_all_rows()
     if not rows:
-        return {"nodes": [], "links": [], "projects": [], "types": list(TYPE_COLORS.keys()),
+        return {"nodes": [], "projects": [], "types": list(TYPE_COLORS.keys()),
                 "projectColors": {}, "typeColors": TYPE_COLORS, "total": 0, "version": 0}
 
     vectors = [r["vector"] for r in rows]
+
+    # Generate stable node IDs
+    nids = []
+    for i, r in enumerate(rows):
+        nid = r.get("id") or hashlib.md5(
+            f"{i}|{r.get('source', '')}|{r.get('project', '')}|{r.get('type', '')}|{r.get('content', '')[:200]}".encode()
+        ).hexdigest()[:12]
+        nids.append(nid)
+
+    # Layout: full t-SNE or incremental
+    cached = sum(1 for nid in nids if nid in _layout_cache)
+    if cached < len(rows) * 0.8 or not _layout_cache:
+        print(f"  \033[2mComputing 2D layout for {len(rows)} memories...\033[0m")
+        positions = compute_layout_2d(vectors)
+        _layout_cache.clear()
+        for i in range(len(rows)):
+            _layout_cache[nids[i]] = (round(float(positions[i, 0]), 2), round(float(positions[i, 1]), 2))
+    else:
+        positions = np.zeros((len(rows), 2), dtype=np.float32)
+        new_indices = []
+        for i, nid in enumerate(nids):
+            if nid in _layout_cache:
+                positions[i] = _layout_cache[nid]
+            else:
+                new_indices.append(i)
+        if new_indices:
+            vecs = np.array(vectors, dtype=np.float32)
+            norms_all = np.linalg.norm(vecs, axis=1, keepdims=True)
+            normed = vecs / np.maximum(norms_all, 1e-8)
+            new_set = set(new_indices)
+            for i in new_indices:
+                sims = normed[i] @ normed.T
+                sims[i] = -2.0
+                top5 = np.argpartition(sims, -5)[-5:]
+                placed = [int(j) for j in top5 if int(j) not in new_set]
+                if placed:
+                    positions[i, 0] = np.mean(positions[placed, 0]) + np.random.randn() * 3
+                    positions[i, 1] = np.mean(positions[placed, 1]) + np.random.randn() * 3
+                else:
+                    positions[i] = np.random.randn(2) * 50
+                _layout_cache[nids[i]] = (round(float(positions[i, 0]), 2), round(float(positions[i, 1]), 2))
+
+    print(f"  \033[2mComputing neighbors...\033[0m")
+    all_neighbors = compute_neighbors(vectors, k=5)
 
     projects = sorted(set(r.get("project", "") or "(none)" for r in rows))
     pc = {p: _project_color(p) for p in projects}
@@ -149,10 +219,12 @@ def build_data():
         source = r.get("source", "")
         tags = r.get("tags", {})
         label = _extract_label(content, source, i)
-        nid = hashlib.md5(f"{source}|{project}|{mem_type}|{content[:200]}".encode()).hexdigest()[:12]
+        nb = all_neighbors[i]
         nodes.append({
-            "id": nid,
+            "id": nids[i],
             "idx": i,
+            "x": round(float(positions[i, 0]), 2) if isinstance(positions, np.ndarray) else _layout_cache[nids[i]][0],
+            "y": round(float(positions[i, 1]), 2) if isinstance(positions, np.ndarray) else _layout_cache[nids[i]][1],
             "project": project,
             "type": mem_type,
             "source": source,
@@ -160,19 +232,12 @@ def build_data():
             "content": content[:500],
             "color": pc.get(project, "#ffa500"),
             "tags": tags,
+            "val": 1 + len(nb),
+            "neighbors": nb,
         })
 
-    links = compute_edges(vectors, k=5)
-
-    conn_count = [0] * len(nodes)
-    for link in links:
-        conn_count[link["source"]] += 1
-        conn_count[link["target"]] += 1
-    for i, node in enumerate(nodes):
-        node["val"] = 1 + conn_count[i]
-
     return {
-        "nodes": nodes, "links": links, "projects": projects,
+        "nodes": nodes, "projects": projects,
         "types": list(TYPE_COLORS.keys()),
         "projectColors": pc, "typeColors": TYPE_COLORS,
         "total": len(nodes), "version": int(time.time()),
@@ -187,17 +252,17 @@ _data_version = 0
 def check_for_changes():
     global _last_wal_size, _last_row_count, _data_version
     changed = False
-    wal_path = config.get_data_dir() / "wal.jsonl"
+    wp = config.wal_path()
     try:
-        size = os.path.getsize(wal_path) if wal_path.exists() else 0
+        size = os.path.getsize(wp) if wp.exists() else 0
     except OSError:
         size = 0
     if size != _last_wal_size:
         _last_wal_size = size
         changed = True
     try:
-        client = vs._ensure_collection()
-        info = client.get_collection(config.QDRANT_COLLECTION)
+        client, coll = vs._ensure_collection()
+        info = client.get_collection(coll)
         count = info.points_count or 0
         if count != _last_row_count:
             _last_row_count = count
@@ -218,9 +283,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #1a1a2e; color: #dcddde; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
 
-  #graph-container { width: 100vw; height: 100vh; }
+  #canvas { display: block; width: 100vw; height: 100vh; }
 
-  /* Info panel — top left */
   #info {
     position: fixed; top: 16px; left: 16px; z-index: 100;
     background: rgba(26, 26, 46, 0.85); border: 1px solid rgba(255,255,255,0.06);
@@ -237,7 +301,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   }
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
-  /* Search — top center */
   #search {
     position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 100;
   }
@@ -250,7 +313,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   #q:focus { border-color: rgba(78,205,196,0.4); }
   #q::placeholder { color: rgba(220,221,222,0.3); }
 
-  /* Legend — right side */
   #legend {
     position: fixed; top: 16px; right: 16px; z-index: 100;
     background: rgba(26, 26, 46, 0.85); border: 1px solid rgba(255,255,255,0.06);
@@ -268,7 +330,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .lg .count { margin-left: auto; font-size: 10px; color: rgba(220,221,222,0.3); }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
-  /* Detail panel — right side drawer */
   #detail {
     display: none; position: fixed; top: 0; right: 0; bottom: 0; z-index: 200;
     width: 380px; background: rgba(22, 22, 40, 0.95);
@@ -289,14 +350,12 @@ HTML_PAGE = r"""<!DOCTYPE html>
   }
   #detail .close-btn:hover { color: #dcddde; background: rgba(255,255,255,0.06); }
 
-  /* Detail sections */
   .detail-section { padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.03); }
   .detail-section:last-child { border-bottom: none; }
   .detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(220,221,222,0.35); margin-bottom: 6px; font-weight: 500; }
   .detail-value { font-size: 12px; color: rgba(220,221,222,0.8); line-height: 1.5; }
   .detail-value.mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; }
 
-  /* Tag chips */
   .tag-chips { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag-chip {
     display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px;
@@ -310,7 +369,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .tag-chip.topic { border-color: rgba(244,114,182,0.3); color: rgba(244,114,182,0.8); }
   .tag-chip.type-tag { border-color: rgba(255,107,107,0.3); color: rgba(255,107,107,0.8); }
 
-  /* Related nodes list */
   .related-node {
     display: flex; align-items: center; gap: 8px; padding: 6px 8px;
     border-radius: 6px; cursor: pointer; transition: background 0.15s;
@@ -321,7 +379,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .related-label { font-size: 11px; color: rgba(220,221,222,0.7); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .related-sim { font-size: 10px; color: rgba(78,205,196,0.5); flex-shrink: 0; font-family: 'SF Mono', monospace; }
 
-  /* Content preview */
   .content-preview {
     font-size: 11px; line-height: 1.6; color: rgba(220,221,222,0.7);
     white-space: pre-wrap; font-family: 'SF Mono', 'Fira Code', monospace;
@@ -330,21 +387,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
     margin-top: 4px;
   }
 
-  /* Metadata grid */
   .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .meta-item {}
-  .meta-item .detail-label { margin-bottom: 3px; }
-  .meta-item .detail-value { font-size: 11px; }
 
-  /* Settling indicator */
-  #settling {
+  #loading {
     position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
     background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(78,205,196,0.15);
     border-radius: 16px; padding: 6px 14px; font-size: 11px; color: rgba(78,205,196,0.7);
     transition: opacity 0.5s; pointer-events: none;
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
@@ -369,375 +420,307 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <div id="detail-body"></div>
 </div>
 
-<div id="settling">Settling graph...</div>
+<div id="loading">Loading...</div>
 
-<div id="graph-container"></div>
+<canvas id="canvas"></canvas>
 
-<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sigma@3/build/sigma.min.js"></script>
-<script type="module">
-import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
+<script>
 (function() {
   'use strict';
 
   var DATA = null;
   var currentVersion = 0;
-  var adjacencyMap = new Map();
-  var linksByNode = new Map();
-  var nodeById = {};
+  var camera = { x: 0, y: 0, zoom: 1 };
+  var displayW = 0, displayH = 0;
+  var canvas, ctx;
+  var qtree = null;
   var hoveredNode = null;
   var selectedNode = null;
   var activeProjectFilter = null;
   var matchSet = null;
-  var graph = null;
-  var renderer = null;
-  var fa2 = null;
+  var dirty = true;
+  var dragging = false;
+  var dragLast = null;
+  var didDrag = false;
+  var animTarget = null;
+  var nbSet = null;
 
   // ── Helpers ──────────────────────────────────────────────────
-  function escHtml(s) {
-    if (!s) return '';
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  function hexA(hex, a) {
+    return 'rgba(' + parseInt(hex.slice(1,3),16) + ',' + parseInt(hex.slice(3,5),16) + ',' + parseInt(hex.slice(5,7),16) + ',' + a + ')';
+  }
+  function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+  function s2w(sx, sy) { return { x: (sx - displayW/2) / camera.zoom + camera.x, y: (sy - displayH/2) / camera.zoom + camera.y }; }
+
+  // ── Quadtree ─────────────────────────────────────────────────
+  function QT(x, y, w, h) { this.x=x; this.y=y; this.w=w; this.h=h; this.pts=[]; this.ch=null; }
+  QT.prototype.insert = function(px, py, d) {
+    if (px < this.x || px >= this.x+this.w || py < this.y || py >= this.y+this.h) return;
+    if (!this.ch && this.pts.length < 8) { this.pts.push({x:px,y:py,d:d}); return; }
+    if (!this.ch) {
+      var hw=this.w/2, hh=this.h/2;
+      this.ch=[new QT(this.x,this.y,hw,hh),new QT(this.x+hw,this.y,hw,hh),
+               new QT(this.x,this.y+hh,hw,hh),new QT(this.x+hw,this.y+hh,hw,hh)];
+      for (var i=0;i<this.pts.length;i++)
+        for (var j=0;j<4;j++) this.ch[j].insert(this.pts[i].x,this.pts[i].y,this.pts[i].d);
+      this.pts=[];
+    }
+    for (var i=0;i<4;i++) this.ch[i].insert(px,py,d);
+  };
+  QT.prototype.nearest = function(qx,qy,r) {
+    var best={d:null,dist:r*r}; this._f(qx,qy,best); return best.d;
+  };
+  QT.prototype._f = function(qx,qy,best) {
+    var cx=Math.max(this.x,Math.min(qx,this.x+this.w));
+    var cy=Math.max(this.y,Math.min(qy,this.y+this.h));
+    if ((cx-qx)*(cx-qx)+(cy-qy)*(cy-qy) > best.dist) return;
+    for (var i=0;i<this.pts.length;i++) {
+      var dx=this.pts[i].x-qx, dy=this.pts[i].y-qy, d2=dx*dx+dy*dy;
+      if (d2 < best.dist) { best.dist=d2; best.d=this.pts[i].d; }
+    }
+    if (this.ch) for (var i=0;i<4;i++) this.ch[i]._f(qx,qy,best);
+  };
+
+  // ── Quadtree build ──────────────────────────────────────────
+  function buildQT() {
+    if (!DATA || !DATA.nodes.length) { qtree = null; return; }
+    var x1=Infinity,x2=-Infinity,y1=Infinity,y2=-Infinity;
+    for (var i=0;i<DATA.nodes.length;i++) {
+      var n=DATA.nodes[i];
+      if (n.x<x1) x1=n.x; if (n.x>x2) x2=n.x;
+      if (n.y<y1) y1=n.y; if (n.y>y2) y2=n.y;
+    }
+    var pad=10;
+    qtree = new QT(x1-pad, y1-pad, (x2-x1)+pad*2, (y2-y1)+pad*2);
+    for (var i=0;i<DATA.nodes.length;i++) {
+      var n=DATA.nodes[i];
+      qtree.insert(n.x, n.y, n);
+    }
   }
 
-  function hexToRgba(hex, alpha) {
-    var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
-  }
-
-  // ── Build graph from API data ────────────────────────────────
-  function buildGraph(data) {
-    DATA = data;
-    nodeById = {};
-
-    graph = new graphology.Graph();
-
-    // Add nodes with random initial positions
-    data.nodes.forEach(function(n) {
-      nodeById[n.id] = n;
-      graph.addNode(n.id, {
-        label: n.label,
-        x: Math.random() * 1000 - 500,
-        y: Math.random() * 1000 - 500,
-        size: Math.max(2, Math.sqrt(n.val) * 2),
-        color: n.color,
-        // Stash metadata on node attributes
-        _project: n.project,
-        _type: n.type,
-        _source: n.source,
-        _content: n.content,
-        _tags: n.tags,
-        _val: n.val,
-        _origColor: n.color,
-      });
-    });
-
-    // Add edges
-    data.links.forEach(function(link, i) {
-      var srcId = data.nodes[link.source].id;
-      var tgtId = data.nodes[link.target].id;
-      if (graph.hasNode(srcId) && graph.hasNode(tgtId) && !graph.hasEdge('e' + i)) {
-        var sim = link.sim || 0.5;
-        var srcNode = data.nodes[link.source];
-        var tgtNode = data.nodes[link.target];
-        var sameProject = srcNode.project === tgtNode.project;
-        graph.addEdge(srcId, tgtId, {
-          key: 'e' + i,
-          size: 0.3,
-          color: sameProject ? hexToRgba(srcNode.color, 0.06) : 'rgba(255,255,255,0.02)',
-          _sim: sim,
-          _origColor: sameProject ? hexToRgba(srcNode.color, 0.06) : 'rgba(255,255,255,0.02)',
-        });
-      }
-    });
-
-    rebuildAdjacency(data);
-    return graph;
-  }
-
-  // ── Adjacency + relations map ────────────────────────────────
-  function rebuildAdjacency(data) {
-    adjacencyMap = new Map();
-    linksByNode = new Map();
-
-    data.links.forEach(function(link) {
-      var srcId = data.nodes[link.source].id;
-      var tgtId = data.nodes[link.target].id;
-      var sim = link.sim || 0.5;
-
-      if (!adjacencyMap.has(srcId)) adjacencyMap.set(srcId, new Set());
-      if (!adjacencyMap.has(tgtId)) adjacencyMap.set(tgtId, new Set());
-      adjacencyMap.get(srcId).add(tgtId);
-      adjacencyMap.get(tgtId).add(srcId);
-
-      if (!linksByNode.has(srcId)) linksByNode.set(srcId, []);
-      if (!linksByNode.has(tgtId)) linksByNode.set(tgtId, []);
-      linksByNode.get(srcId).push({ nodeId: tgtId, sim: sim });
-      linksByNode.get(tgtId).push({ nodeId: srcId, sim: sim });
-    });
-  }
-
-  // ── Sigma renderer with reducers ─────────────────────────────
-  function createRenderer(graph) {
-    var container = document.getElementById('graph-container');
-
-    renderer = new Sigma(graph, container, {
-      allowInvalidContainer: true,
-      renderLabels: true,
-      labelDensity: 0.07,
-      labelGridCellSize: 100,
-      labelRenderedSizeThreshold: 6,
-      labelFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      labelColor: { color: '#dcddde' },
-      labelSize: 10,
-      defaultEdgeType: 'line',
-      stagePadding: 40,
-
-      nodeReducer: function(node, data) {
-        var res = Object.assign({}, data);
-        var neighbors = adjacencyMap.get(node);
-
-        // Hover highlight
-        if (hoveredNode) {
-          if (node === hoveredNode) {
-            res.highlighted = true;
-            res.zIndex = 2;
-          } else if (neighbors && neighbors.has(hoveredNode)) {
-            res.zIndex = 1;
-          } else {
-            res.color = '#222230';
-            res.label = '';
-            res.zIndex = 0;
-          }
-        }
-        // Selected highlight
-        else if (selectedNode) {
-          if (node === selectedNode) {
-            res.highlighted = true;
-            res.zIndex = 2;
-          } else if (neighbors && neighbors.has(selectedNode)) {
-            res.zIndex = 1;
-          } else {
-            res.color = '#2a2a3a';
-            res.label = '';
-            res.zIndex = 0;
-          }
-        }
-        // Search filter
-        else if (matchSet) {
-          var nodeData = nodeById[node];
-          if (!nodeData || !matchSet.has(nodeData)) {
-            res.color = '#222230';
-            res.label = '';
-          }
-        }
-        // Project filter
-        else if (activeProjectFilter) {
-          if (data._project !== activeProjectFilter) {
-            res.color = '#222230';
-            res.label = '';
-          }
-        }
-
-        return res;
-      },
-
-      edgeReducer: function(edge, data) {
-        var res = Object.assign({}, data);
-        var src = graph.source(edge);
-        var tgt = graph.target(edge);
-
-        if (hoveredNode) {
-          if (src === hoveredNode || tgt === hoveredNode) {
-            var sim = data._sim || 0.5;
-            res.color = 'rgba(255,255,255,' + (0.15 + sim * 0.35).toFixed(3) + ')';
-            res.size = Math.max(0.8, sim * 2.5);
-            res.zIndex = 1;
-          } else {
-            res.color = 'rgba(255,255,255,0.003)';
-          }
-        } else if (selectedNode) {
-          if (src === selectedNode || tgt === selectedNode) {
-            var sim = data._sim || 0.5;
-            res.color = 'rgba(78,205,196,' + (0.1 + sim * 0.3).toFixed(3) + ')';
-            res.size = Math.max(0.6, sim * 2);
-            res.zIndex = 1;
-          } else {
-            res.color = 'rgba(255,255,255,0.003)';
-          }
-        } else if (matchSet) {
-          var srcData = nodeById[src], tgtData = nodeById[tgt];
-          if (!srcData || !tgtData || !matchSet.has(srcData) || !matchSet.has(tgtData)) {
-            res.color = 'rgba(255,255,255,0.003)';
-          }
-        } else if (activeProjectFilter) {
-          var sa = graph.getNodeAttribute(src, '_project');
-          var ta = graph.getNodeAttribute(tgt, '_project');
-          if (sa !== activeProjectFilter || ta !== activeProjectFilter) {
-            res.color = 'rgba(255,255,255,0.003)';
-          }
-        }
-
-        return res;
-      }
-    });
-
-    // ── Hover events ─────────────────────────────────────────
-    renderer.on('enterNode', function(e) {
-      hoveredNode = e.node;
-      container.style.cursor = 'pointer';
-      renderer.refresh();
-    });
-
-    renderer.on('leaveNode', function() {
-      hoveredNode = null;
-      container.style.cursor = 'default';
-      renderer.refresh();
-    });
-
-    // ── Click events ─────────────────────────────────────────
-    renderer.on('clickNode', function(e) {
-      var node = e.node;
-      selectedNode = node;
-      renderer.refresh();
-      showDetail(node);
-    });
-
-    renderer.on('clickStage', function() {
-      selectedNode = null;
-      hoveredNode = null;
-      closeDetail();
-      renderer.refresh();
-    });
-
-    return renderer;
-  }
-
-  // ── ForceAtlas2 layout (sync assign in rAF loop) ────────────
-  function startLayout(graph) {
-    var n = graph.order;
-    var settings = {
-      scalingRatio: n > 2000 ? 20 : n > 500 ? 10 : 5,
-      gravity: n > 2000 ? 0.5 : 1,
-      strongGravityMode: false,
-      barnesHutOptimize: n > 1000,
-      barnesHutTheta: 0.5,
-      slowDown: 5,
-      adjustSizes: false,
+  // ── Camera animation ────────────────────────────────────────
+  function animateCam(target, dur) {
+    animTarget = {
+      fx: camera.x, fy: camera.y, fz: camera.zoom,
+      tx: target.x, ty: target.y, tz: target.zoom,
+      t0: performance.now(), dur: dur || 600
     };
+    markDirty();
+  }
+  function tickAnim() {
+    if (!animTarget) return false;
+    var t = (performance.now() - animTarget.t0) / animTarget.dur;
+    if (t >= 1) {
+      camera.x=animTarget.tx; camera.y=animTarget.ty; camera.zoom=animTarget.tz;
+      animTarget=null; return true;
+    }
+    t = 1 - Math.pow(1-t, 3);
+    camera.x = animTarget.fx + (animTarget.tx - animTarget.fx) * t;
+    camera.y = animTarget.fy + (animTarget.ty - animTarget.fy) * t;
+    camera.zoom = animTarget.fz + (animTarget.tz - animTarget.fz) * t;
+    return true;
+  }
 
-    var totalIter = n > 5000 ? 600 : n > 2000 ? 300 : 150;
-    var batch = n > 5000 ? 1 : n > 2000 ? 3 : 5;
-    var done = 0;
-    fa2 = {
-      _running: true,
-      stop: function() { this._running = false; },
-      isRunning: function() { return this._running; },
-    };
+  // ── Neighbor set for active node ────────────────────────────
+  function updateNbSet() {
+    var active = selectedNode || hoveredNode;
+    if (!active) { nbSet = null; return; }
+    nbSet = new Set();
+    var nb = active.neighbors || [];
+    for (var i=0;i<nb.length;i++) nbSet.add(nb[i].idx);
+  }
 
-    function tick() {
-      if (!fa2._running) return;
-      forceAtlas2.assign(graph, { iterations: batch, settings: settings });
-      done += batch;
-      if (done < totalIter && fa2._running) {
-        requestAnimationFrame(tick);
-      } else {
-        fa2._running = false;
-        var el = document.getElementById('settling');
-        if (el) { el.style.opacity = '0'; setTimeout(function() { if (el) el.style.display = 'none'; }, 500); }
+  // ── Dirty-flag rendering ────────────────────────────────────
+  function markDirty() { if (!dirty) { dirty=true; requestAnimationFrame(render); } }
+
+  function render() {
+    dirty = false;
+    var anim = tickAnim();
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (!DATA || !DATA.nodes.length) { if (anim) markDirty(); return; }
+
+    var hw = displayW/2, hh = displayH/2;
+    var z = camera.zoom, cx = camera.x, cy = camera.y;
+    var active = selectedNode || hoveredNode;
+    var hasFilter = !!(activeProjectFilter || matchSet);
+
+    // ── Edges (only for active node) ──
+    if (active) {
+      var nb = active.neighbors || [];
+      var ax = hw + (active.x - cx) * z, ay = hh + (active.y - cy) * z;
+      ctx.lineWidth = 1;
+      for (var i=0;i<nb.length;i++) {
+        var tgt = DATA.nodes[nb[i].idx];
+        if (!tgt) continue;
+        ctx.strokeStyle = 'rgba(78,205,196,' + (0.15 + nb[i].sim * 0.45).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(hw + (tgt.x - cx) * z, hh + (tgt.y - cy) * z);
+        ctx.stroke();
       }
     }
 
-    requestAnimationFrame(tick);
+    // ── Nodes ──
+    for (var i=0;i<DATA.nodes.length;i++) {
+      var n = DATA.nodes[i];
+      var sx = hw + (n.x - cx) * z, sy = hh + (n.y - cy) * z;
+      var r = Math.max(1.5, Math.sqrt(n.val) * Math.min(z, 4) * 0.9);
+
+      if (sx + r < 0 || sx - r > displayW || sy + r < 0 || sy - r > displayH) continue;
+
+      var a = 0.85;
+      if (hasFilter) {
+        if (activeProjectFilter && n.project !== activeProjectFilter) a = 0.06;
+        if (matchSet && !matchSet.has(n)) a = 0.06;
+      }
+      if (active && a > 0.06) {
+        if (n === active) a = 1.0;
+        else if (nbSet && nbSet.has(n.idx)) a = 0.9;
+        else if (!hasFilter) a = 0.1;
+      }
+
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, 6.2832);
+      ctx.fillStyle = hexA(n.color, a);
+      ctx.fill();
+    }
+
+    // ── Rings ──
+    if (hoveredNode) {
+      var hsx = hw + (hoveredNode.x - cx)*z, hsy = hh + (hoveredNode.y - cy)*z;
+      var hr = Math.max(1.5, Math.sqrt(hoveredNode.val)*Math.min(z,4)*0.9) + 3;
+      ctx.beginPath(); ctx.arc(hsx, hsy, hr, 0, 6.2832);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    if (selectedNode && selectedNode !== hoveredNode) {
+      var ssx = hw + (selectedNode.x - cx)*z, ssy = hh + (selectedNode.y - cy)*z;
+      var sr = Math.max(1.5, Math.sqrt(selectedNode.val)*Math.min(z,4)*0.9) + 3;
+      ctx.beginPath(); ctx.arc(ssx, ssy, sr, 0, 6.2832);
+      ctx.strokeStyle = '#4ecdc4'; ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    // ── Labels (zoom-dependent) ──
+    if (z > 2.5) {
+      ctx.font = '10px -apple-system,BlinkMacSystemFont,sans-serif';
+      ctx.fillStyle = 'rgba(220,221,222,0.7)';
+      ctx.textBaseline = 'middle';
+      for (var i=0;i<DATA.nodes.length;i++) {
+        var n = DATA.nodes[i];
+        var sx = hw + (n.x - cx)*z, sy = hh + (n.y - cy)*z;
+        if (sx < -50 || sx > displayW+50 || sy < -20 || sy > displayH+20) continue;
+        if (activeProjectFilter && n.project !== activeProjectFilter) continue;
+        if (matchSet && !matchSet.has(n)) continue;
+        var r = Math.max(1.5, Math.sqrt(n.val)*Math.min(z,4)*0.9);
+        if (r > 3 || z > 5) ctx.fillText(n.label.substring(0,40), sx + r + 4, sy);
+      }
+    }
+
+    // ── Active label (always shown) ──
+    if (active) {
+      var alx = hw + (active.x - cx)*z, aly = hh + (active.y - cy)*z;
+      var alr = Math.max(1.5, Math.sqrt(active.val)*Math.min(z,4)*0.9);
+      ctx.font = 'bold 12px -apple-system,BlinkMacSystemFont,sans-serif';
+      ctx.fillStyle = '#e0e0e0';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(active.label, alx + alr + 5, aly);
+    }
+
+    if (anim) markDirty();
+  }
+
+  // ── Fit camera to data ──────────────────────────────────────
+  function fitAll(dur) {
+    if (!DATA || !DATA.nodes.length) return;
+    var x1=Infinity,x2=-Infinity,y1=Infinity,y2=-Infinity;
+    for (var i=0;i<DATA.nodes.length;i++) {
+      var n=DATA.nodes[i];
+      if (n.x<x1) x1=n.x; if (n.x>x2) x2=n.x;
+      if (n.y<y1) y1=n.y; if (n.y>y2) y2=n.y;
+    }
+    var span = Math.max(x2-x1, y2-y1, 1);
+    var z = Math.min(displayW, displayH) / (span * 1.15);
+    animateCam({x:(x1+x2)/2, y:(y1+y2)/2, zoom:z}, dur||400);
   }
 
   // ── Detail panel ─────────────────────────────────────────────
-  function showDetail(nodeId) {
-    var n = nodeById[nodeId];
+  function showDetail(n) {
     if (!n) return;
-    var attrs = graph.getNodeAttributes(nodeId);
-    var tags = attrs._tags || {};
-    var connections = (linksByNode.get(nodeId) || []).slice().sort(function(a,b) { return b.sim - a.sim; });
+    var tags = n.tags || {};
+    var connections = (n.neighbors || []).slice().sort(function(a,b) { return b.sim - a.sim; });
 
     var html = '';
-
-    // Project + Label
     html += '<div class="detail-section">';
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
     html += '<span style="width:10px;height:10px;border-radius:50%;background:' + n.color + '"></span>';
-    html += '<span style="font-size:13px;font-weight:600;color:' + n.color + '">' + escHtml(n.project) + '</span>';
+    html += '<span style="font-size:13px;font-weight:600;color:' + n.color + '">' + esc(n.project) + '</span>';
     html += '</div>';
     html += '<div class="detail-label">Label</div>';
-    html += '<div class="detail-value">' + escHtml(n.label) + '</div>';
+    html += '<div class="detail-value">' + esc(n.label) + '</div>';
     html += '</div>';
 
-    // Metadata grid
     html += '<div class="detail-section"><div class="meta-grid">';
-    html += '<div class="meta-item"><div class="detail-label">Type</div><div class="detail-value"><span class="tag-chip type-tag">' + escHtml(n.type) + '</span></div></div>';
-    html += '<div class="meta-item"><div class="detail-label">Connections</div><div class="detail-value">' + (n.val - 1) + ' nodes</div></div>';
+    html += '<div><div class="detail-label">Type</div><div class="detail-value"><span class="tag-chip type-tag">' + esc(n.type) + '</span></div></div>';
+    html += '<div><div class="detail-label">Connections</div><div class="detail-value">' + connections.length + ' nodes</div></div>';
     if (n.source) {
-      html += '<div class="meta-item" style="grid-column:span 2"><div class="detail-label">Source</div><div class="detail-value mono">' + escHtml(n.source) + '</div></div>';
+      html += '<div style="grid-column:span 2"><div class="detail-label">Source</div><div class="detail-value mono">' + esc(n.source) + '</div></div>';
     }
     html += '</div></div>';
 
-    // Tags
-    var hasAnyTag = tags.lang || tags.layer || tags.kind || (tags.domain && tags.domain.length) || (tags.topics && tags.topics.length);
-    if (hasAnyTag) {
-      html += '<div class="detail-section">';
-      html += '<div class="detail-label">Tags</div>';
-      html += '<div class="tag-chips">';
-      if (tags.lang) html += '<span class="tag-chip lang">' + escHtml(tags.lang) + '</span>';
-      if (tags.layer) html += '<span class="tag-chip layer">' + escHtml(tags.layer) + '</span>';
-      if (tags.kind) html += '<span class="tag-chip kind">' + escHtml(tags.kind) + '</span>';
-      if (tags.domain) for (var di = 0; di < tags.domain.length; di++) html += '<span class="tag-chip domain">' + escHtml(tags.domain[di]) + '</span>';
-      if (tags.topics) for (var ti = 0; ti < tags.topics.length; ti++) html += '<span class="tag-chip topic">' + escHtml(tags.topics[ti]) + '</span>';
+    var hasTag = tags.lang || tags.layer || tags.kind || (tags.domain && tags.domain.length) || (tags.topics && tags.topics.length);
+    if (hasTag) {
+      html += '<div class="detail-section"><div class="detail-label">Tags</div><div class="tag-chips">';
+      if (tags.lang) html += '<span class="tag-chip lang">' + esc(tags.lang) + '</span>';
+      if (tags.layer) html += '<span class="tag-chip layer">' + esc(tags.layer) + '</span>';
+      if (tags.kind) html += '<span class="tag-chip kind">' + esc(tags.kind) + '</span>';
+      if (tags.domain) for (var di=0;di<tags.domain.length;di++) html += '<span class="tag-chip domain">' + esc(tags.domain[di]) + '</span>';
+      if (tags.topics) for (var ti=0;ti<tags.topics.length;ti++) html += '<span class="tag-chip topic">' + esc(tags.topics[ti]) + '</span>';
       html += '</div></div>';
     }
 
-    // Related nodes
     if (connections.length > 0) {
-      html += '<div class="detail-section">';
-      html += '<div class="detail-label">Related (' + connections.length + ')</div>';
-      var maxShow = Math.min(connections.length, 20);
-      for (var ri = 0; ri < maxShow; ri++) {
+      html += '<div class="detail-section"><div class="detail-label">Related (' + connections.length + ')</div>';
+      var mx = Math.min(connections.length, 20);
+      for (var ri=0;ri<mx;ri++) {
         var rel = connections[ri];
-        var relNode = nodeById[rel.nodeId];
-        if (!relNode) continue;
-        html += '<div class="related-node" data-id="' + escHtml(rel.nodeId) + '">';
-        html += '<span class="related-dot" style="background:' + relNode.color + '"></span>';
-        html += '<span class="related-label">' + escHtml(relNode.label) + '</span>';
+        var rn = DATA.nodes[rel.idx];
+        if (!rn) continue;
+        html += '<div class="related-node" data-idx="' + rel.idx + '">';
+        html += '<span class="related-dot" style="background:' + rn.color + '"></span>';
+        html += '<span class="related-label">' + esc(rn.label) + '</span>';
         html += '<span class="related-sim">' + (rel.sim * 100).toFixed(0) + '%</span>';
         html += '</div>';
       }
       html += '</div>';
     }
 
-    // Content
-    html += '<div class="detail-section">';
-    html += '<div class="detail-label">Content</div>';
-    html += '<div class="content-preview">' + escHtml(n.content) + '</div>';
-    html += '</div>';
+    html += '<div class="detail-section"><div class="detail-label">Content</div>';
+    html += '<div class="content-preview">' + esc(n.content) + '</div></div>';
 
     document.getElementById('detail-title').textContent = 'Memory Details';
     document.getElementById('detail-body').innerHTML = html;
     document.getElementById('detail').style.display = 'block';
 
-    // Click handlers for related nodes
-    document.querySelectorAll('.related-node[data-id]').forEach(function(el) {
+    document.querySelectorAll('.related-node[data-idx]').forEach(function(el) {
       el.addEventListener('click', function() {
-        var id = this.getAttribute('data-id');
-        selectedNode = id;
-        renderer.refresh();
-        showDetail(id);
-        // Animate camera to node
-        var pos = renderer.getNodeDisplayData(id);
-        if (pos) renderer.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.3 }, { duration: 600 });
+        var idx = parseInt(this.getAttribute('data-idx'));
+        var target = DATA.nodes[idx];
+        if (!target) return;
+        selectedNode = target;
+        updateNbSet();
+        showDetail(target);
+        animateCam({x: target.x, y: target.y, zoom: Math.max(camera.zoom, 4)}, 600);
       });
     });
   }
 
   function closeDetail() {
     document.getElementById('detail').style.display = 'none';
-    if (selectedNode) { selectedNode = null; if (renderer) renderer.refresh(); }
+    if (selectedNode) { selectedNode = null; updateNbSet(); markDirty(); }
   }
 
   // ── Search ───────────────────────────────────────────────────
@@ -746,7 +729,7 @@ import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function() {
       var q = e.target.value.toLowerCase().trim();
-      if (!q) { matchSet = null; if (renderer) renderer.refresh(); return; }
+      if (!q) { matchSet = null; markDirty(); return; }
       matchSet = new Set();
       if (DATA) DATA.nodes.forEach(function(n) {
         if ((n.content && n.content.toLowerCase().indexOf(q) !== -1) ||
@@ -757,7 +740,7 @@ import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
           matchSet.add(n);
         }
       });
-      if (renderer) renderer.refresh();
+      markDirty();
     }, 150);
   });
 
@@ -766,48 +749,124 @@ import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
     if (!DATA) return;
     var el = document.getElementById('legend');
     el.innerHTML = '<h2>Projects</h2>';
-
     var projCounts = {};
-    DATA.nodes.forEach(function(n) { projCounts[n.project] = (projCounts[n.project] || 0) + 1; });
-
+    DATA.nodes.forEach(function(n) { projCounts[n.project] = (projCounts[n.project]||0) + 1; });
     DATA.projects.forEach(function(p) {
       var d = document.createElement('div');
       d.className = 'lg' + (activeProjectFilter === p ? ' active' : '');
       d.innerHTML = '<span class="dot" style="background:' + DATA.projectColors[p] + '"></span>'
-        + escHtml(p) + '<span class="count">' + (projCounts[p] || 0) + '</span>';
+        + esc(p) + '<span class="count">' + (projCounts[p]||0) + '</span>';
       d.onclick = function() {
         activeProjectFilter = (activeProjectFilter === p) ? null : p;
         buildLegend();
-        if (renderer) renderer.refresh();
+        markDirty();
       };
       el.appendChild(d);
     });
-
     var sep = document.createElement('h2');
     sep.style.marginTop = '14px';
     sep.textContent = 'Types';
     el.appendChild(sep);
-
     var typeCounts = {};
-    DATA.nodes.forEach(function(n) { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
-
+    DATA.nodes.forEach(function(n) { typeCounts[n.type] = (typeCounts[n.type]||0) + 1; });
     DATA.types.forEach(function(t) {
       if (!typeCounts[t]) return;
       var d = document.createElement('div');
-      d.className = 'lg';
-      d.style.cursor = 'default';
-      d.innerHTML = '<span class="dot" style="background:' + (DATA.typeColors[t] || '#888') + '"></span>'
-        + escHtml(t) + '<span class="count">' + (typeCounts[t] || 0) + '</span>';
+      d.className = 'lg'; d.style.cursor = 'default';
+      d.innerHTML = '<span class="dot" style="background:' + (DATA.typeColors[t]||'#888') + '"></span>'
+        + esc(t) + '<span class="count">' + (typeCounts[t]||0) + '</span>';
       el.appendChild(d);
     });
   }
 
-  // ── Stats ────────────────────────────────────────────────────
   function updateStats() {
     if (!DATA) return;
     document.getElementById('stats').textContent =
-      DATA.total + ' memories \u00b7 ' + DATA.links.length + ' links \u00b7 ' + DATA.projects.length + ' projects';
+      DATA.total + ' memories \u00b7 ' + DATA.projects.length + ' projects';
   }
+
+  // ── Interaction ──────────────────────────────────────────────
+  function initInteraction() {
+    canvas.addEventListener('mousedown', function(e) {
+      if (e.button === 0) { dragging = true; didDrag = false; dragLast = {x:e.offsetX, y:e.offsetY}; }
+    });
+    canvas.addEventListener('mouseup', function() { dragging = false; });
+    canvas.addEventListener('mouseleave', function() { dragging = false; });
+
+    canvas.addEventListener('mousemove', function(e) {
+      if (dragging) {
+        var dx = e.offsetX - dragLast.x, dy = e.offsetY - dragLast.y;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
+        camera.x -= dx / camera.zoom;
+        camera.y -= dy / camera.zoom;
+        dragLast = {x:e.offsetX, y:e.offsetY};
+        markDirty();
+        return;
+      }
+      var w = s2w(e.offsetX, e.offsetY);
+      var hit = qtree ? qtree.nearest(w.x, w.y, 15/camera.zoom) : null;
+      if (hit !== hoveredNode) {
+        hoveredNode = hit;
+        updateNbSet();
+        canvas.style.cursor = hit ? 'pointer' : 'grab';
+        markDirty();
+      }
+    });
+
+    canvas.addEventListener('click', function(e) {
+      if (didDrag) return;
+      if (hoveredNode) {
+        selectedNode = hoveredNode;
+        updateNbSet();
+        showDetail(selectedNode);
+        markDirty();
+      } else {
+        selectedNode = null;
+        updateNbSet();
+        closeDetail();
+        markDirty();
+      }
+    });
+
+    canvas.addEventListener('dblclick', function(e) {
+      var w = s2w(e.offsetX, e.offsetY);
+      animateCam({x:w.x, y:w.y, zoom: camera.zoom * 2.5}, 400);
+    });
+
+    canvas.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var factor = e.deltaY > 0 ? 0.88 : 1.14;
+      var before = s2w(e.offsetX, e.offsetY);
+      camera.zoom = Math.max(0.05, Math.min(camera.zoom * factor, 100));
+      var after = s2w(e.offsetX, e.offsetY);
+      camera.x += before.x - after.x;
+      camera.y += before.y - after.y;
+      markDirty();
+    }, {passive: false});
+  }
+
+  // ── Keyboard ─────────────────────────────────────────────────
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeDetail();
+      if (activeProjectFilter) { activeProjectFilter = null; buildLegend(); markDirty(); }
+      if (matchSet) { matchSet = null; document.getElementById('q').value = ''; markDirty(); }
+    }
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault();
+      document.getElementById('q').focus();
+    }
+  });
+
+  // ── Resize ───────────────────────────────────────────────────
+  function resizeCanvas() {
+    displayW = window.innerWidth;
+    displayH = window.innerHeight;
+    canvas.width = displayW;
+    canvas.height = displayH;
+    markDirty();
+  }
+  window.addEventListener('resize', resizeCanvas);
 
   // ── Load data ────────────────────────────────────────────────
   function loadData() {
@@ -815,16 +874,18 @@ import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
       .then(function(r) { return r.json(); })
       .then(function(data) {
         currentVersion = data.version;
-        var g = buildGraph(data);
-        createRenderer(g);
-        startLayout(g);
+        DATA = data;
+        buildQT();
         buildLegend();
         updateStats();
+        fitAll(600);
+        var el = document.getElementById('loading');
+        if (el) { el.style.opacity = '0'; setTimeout(function() { el.style.display = 'none'; }, 500); }
       })
       .catch(function(err) { console.error('Failed to load data:', err); });
   }
 
-  // ── SSE live updates ─────────────────────────────────────────
+  // ── SSE ──────────────────────────────────────────────────────
   function connectSSE() {
     var es = new EventSource('/api/stream');
     es.addEventListener('update', function(e) {
@@ -833,58 +894,28 @@ import forceAtlas2 from 'https://esm.sh/graphology-layout-forceatlas2@0.10.1';
         fetch('/api/data')
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            // Save existing positions
-            var oldPos = {};
-            if (graph) {
-              graph.forEachNode(function(node) {
-                oldPos[node] = { x: graph.getNodeAttribute(node, 'x'), y: graph.getNodeAttribute(node, 'y') };
-              });
-            }
-
-            // Tear down old
-            if (fa2 && fa2.isRunning()) fa2.stop();
-            if (renderer) renderer.kill();
-
             currentVersion = data.version;
-            var g = buildGraph(data);
-
-            // Restore positions for existing nodes
-            g.forEachNode(function(node) {
-              if (oldPos[node]) {
-                g.setNodeAttribute(node, 'x', oldPos[node].x);
-                g.setNodeAttribute(node, 'y', oldPos[node].y);
-              }
-            });
-
-            createRenderer(g);
-            startLayout(g);
+            DATA = data;
+            buildQT();
             buildLegend();
             updateStats();
+            markDirty();
           });
       }
     });
     es.onerror = function() { es.close(); setTimeout(connectSSE, 3000); };
   }
 
-  // ── Keyboard shortcuts ───────────────────────────────────────
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      closeDetail();
-      if (activeProjectFilter) { activeProjectFilter = null; buildLegend(); if (renderer) renderer.refresh(); }
-      if (matchSet) { matchSet = null; document.getElementById('q').value = ''; if (renderer) renderer.refresh(); }
-    }
-    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
-      e.preventDefault();
-      document.getElementById('q').focus();
-    }
-  });
-
   // ── Init ─────────────────────────────────────────────────────
+  canvas = document.getElementById('canvas');
+  ctx = canvas.getContext('2d');
+  resizeCanvas();
+  initInteraction();
   loadData();
   connectSSE();
+  canvas.style.cursor = 'grab';
 
   window.closeDetail = closeDetail;
-
 })();
 </script>
 </body>
@@ -918,7 +949,7 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
                         self.wfile.write(f"event: update\ndata: {msg}\n\n".encode())
                         self.wfile.flush()
                     else:
-                        self.wfile.write(f": heartbeat\n\n".encode())
+                        self.wfile.write(": heartbeat\n\n".encode())
                         self.wfile.flush()
                     time.sleep(2)
             except (BrokenPipeError, ConnectionResetError):
@@ -989,21 +1020,20 @@ def main():
     VizHandler.data_cache = build_data()
     total = VizHandler.data_cache["total"]
     projects = len(VizHandler.data_cache["projects"])
-    links = len(VizHandler.data_cache.get("links", []))
 
-    wal_path = config.get_data_dir() / "wal.jsonl"
+    wp = config.wal_path()
     try:
-        _last_wal_size = os.path.getsize(wal_path) if wal_path.exists() else 0
+        _last_wal_size = os.path.getsize(wp) if wp.exists() else 0
     except OSError:
         _last_wal_size = 0
     _last_row_count = total
 
-    print(f"  {total} memories, {links} links, {projects} projects")
+    print(f"  {total} memories, {projects} projects")
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), VizHandler)
     url = f"http://127.0.0.1:{port}"
-    print(f"\n  \033[0;33m✦ Imprint Graph running at {url}\033[0m")
-    print(f"  \033[2mLive updates enabled · Press Ctrl+C to stop\033[0m\n")
+    print(f"\n  \033[0;33m\u2726 Imprint Graph running at {url}\033[0m")
+    print(f"  \033[2mLive updates enabled \u00b7 Press Ctrl+C to stop\033[0m\n")
 
     threading.Timer(0.5, lambda: launch_app_window(url)).start()
 

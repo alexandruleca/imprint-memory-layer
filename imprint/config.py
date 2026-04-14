@@ -1,4 +1,6 @@
+import json
 import os
+import re
 from pathlib import Path
 
 
@@ -82,5 +84,97 @@ CHUNK_HARD_MAX = int(os.environ.get("IMPRINT_CHUNK_HARD_MAX", "16000"))
 # different things get merged.
 CHUNK_SEMANTIC_THRESHOLD = float(os.environ.get("IMPRINT_SEMANTIC_THRESHOLD", "0.5"))
 
-# ── Legacy compat ───────────────────────────────────────────────
-MEMORIES_TABLE = QDRANT_COLLECTION
+# ── Workspaces ─────────────────────────────────────────────────
+WORKSPACE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
+
+
+def _workspace_file() -> Path:
+    return get_data_dir() / "workspace.json"
+
+
+def _read_workspace_config() -> dict:
+    wf = _workspace_file()
+    if wf.exists():
+        try:
+            return json.loads(wf.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"active": "default", "known": ["default"]}
+
+
+def _write_workspace_config(cfg: dict) -> None:
+    import tempfile
+    wf = _workspace_file()
+    wf.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(wf.parent), suffix=".tmp")
+    try:
+        os.write(fd, (json.dumps(cfg, indent=2) + "\n").encode())
+        os.close(fd)
+        os.replace(tmp, str(wf))
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def validate_workspace_name(name: str) -> str | None:
+    """Return error message if invalid, None if ok."""
+    if not name:
+        return "name cannot be empty"
+    if len(name) > 40:
+        return "name too long (max 40)"
+    if not WORKSPACE_NAME_RE.match(name):
+        return "must be lowercase alphanumeric + hyphens, start with letter/digit"
+    return None
+
+
+def get_active_workspace() -> str:
+    return _read_workspace_config().get("active", "default")
+
+
+def get_known_workspaces() -> list[str]:
+    return _read_workspace_config().get("known", ["default"])
+
+
+def switch_workspace(name: str) -> None:
+    cfg = _read_workspace_config()
+    cfg["active"] = name
+    if name not in cfg.get("known", []):
+        cfg.setdefault("known", []).append(name)
+    _write_workspace_config(cfg)
+
+
+def remove_workspace(name: str) -> None:
+    cfg = _read_workspace_config()
+    if name in cfg.get("known", []):
+        cfg["known"].remove(name)
+    if cfg.get("active") == name:
+        cfg["active"] = "default"
+    _write_workspace_config(cfg)
+
+
+def collection_name(workspace: str | None = None) -> str:
+    ws = workspace or get_active_workspace()
+    if ws == "default":
+        return QDRANT_COLLECTION
+    return f"memories_{ws}"
+
+
+def graph_db_path(workspace: str | None = None) -> Path:
+    ws = workspace or get_active_workspace()
+    if ws == "default":
+        return get_data_dir() / "imprint_graph.sqlite3"
+    return get_data_dir() / f"imprint_graph_{ws}.sqlite3"
+
+
+def wal_path(workspace: str | None = None) -> Path:
+    ws = workspace or get_active_workspace()
+    if ws == "default":
+        return get_data_dir() / "wal.jsonl"
+    return get_data_dir() / f"wal_{ws}.jsonl"
