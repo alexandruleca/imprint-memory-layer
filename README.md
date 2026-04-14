@@ -763,3 +763,4 @@ Or deploy to Docker Swarm with `docker-compose.relay.yml`.
 - [ ] Document (pdf, doc, odt, ...etc) ingestion capability
 - [ ] Video / Audio ingestion capability
 - [ ] URL ingestion capability
+- [ ] Sync Topics
