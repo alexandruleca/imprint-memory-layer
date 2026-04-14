@@ -118,6 +118,19 @@ print(json.dumps({**s, 'mem_total': mem_total, 'by_project': by_project}))`)
 		}
 		fmt.Println()
 	}
+
+	// ── Config overrides ─────────────────────────────────────
+	if platform.FileExists(venvPython) {
+		cfgOut, err := runner.RunCaptureEnv(venvPython,
+			[]string{"PYTHONPATH=" + projectDir, "IMPRINT_DATA_DIR=" + dataDir},
+			"-c", `from imprint.config_schema import cli_status_overrides; cli_status_overrides()`)
+		if err == nil {
+			cfgOut = strings.TrimRight(cfgOut, "\n")
+			if cfgOut != "" {
+				fmt.Println(cfgOut)
+			}
+		}
+	}
 	fmt.Println()
 
 	// ── Memory stats ─────────────────────────────────────────

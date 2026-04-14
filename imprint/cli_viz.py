@@ -1,7 +1,10 @@
-"""2D scatter visualization of imprint memory.
+"""Imprint Graph — hierarchical bubble visualization of memory.
 
-Pre-computes layout server-side (t-SNE or PCA). Renders with Canvas 2D.
-Zero JS dependencies. Handles 50k+ nodes at 60fps.
+Server-side aggregation via Qdrant facets. Frontend renders with G6 v5
+(AntV) for Neo4j-style combo clustering with drill-down.
+
+Zero build step. G6 loaded via CDN. Handles 100k+ memories by never
+sending more than ~500 nodes to the browser at once.
 
 Usage: python -m imprint.cli_viz [--port 8420]
 """
@@ -17,12 +20,12 @@ import threading
 import time
 import webbrowser
 import platform as plat
-
-import numpy as np
+from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import config, vectorstore as vs
+from qdrant_client import models as qm
 
 DEFAULT_PORT = 8420
 
@@ -44,209 +47,299 @@ def _project_color(name: str) -> str:
     return PROJECT_COLORS[h % len(PROJECT_COLORS)]
 
 
-def _extract_label(content: str, source: str, idx: int) -> str:
+def _extract_label(content: str, source: str = "", fallback: str = "") -> str:
     for line in content.split("\n"):
         line = line.strip()
         if line and len(line) > 10 and not line.startswith(("[", "import ", "from ", "#", "---", "```")):
             return line[:80]
-    return source or f"mem-{idx}"
+    return source or fallback or "memory"
 
 
-def get_all_rows():
-    """Pull every point from Qdrant with its vector. Streams via scroll."""
+# ── Backend API functions ──────────────────────────────────────
+
+
+def _facet(key: str, limit: int = 100, filt: qm.Filter | None = None) -> list[tuple[str, int]]:
+    """Facet counts with optional filter. Index-based, no scan."""
+    client, coll = vs._ensure_collection()
     try:
-        client, coll = vs._ensure_collection()
+        resp = client.facet(
+            collection_name=coll,
+            key=key,
+            facet_filter=filt,
+            limit=limit,
+        )
+        return [(hit.value, hit.count) for hit in resp.hits]
     except Exception:
         return []
 
+
+def build_overview(filters: dict | None = None) -> dict:
+    """Project-level aggregation. Returns bubble data for overview."""
+    client, coll = vs._ensure_collection()
     try:
         info = client.get_collection(coll)
-        if (info.points_count or 0) == 0:
-            return []
+        total = info.points_count or 0
     except Exception:
-        return []
+        return {"projects": [], "total": 0, "version": int(time.time()), "facets": {}}
 
-    rows: list[dict] = []
-    offset = None
-    try:
-        while True:
-            pts, offset = client.scroll(
-                collection_name=coll,
-                limit=2000,
-                offset=offset,
-                with_payload=True,
-                with_vectors=True,
-            )
-            for p in pts:
-                pl = p.payload or {}
-                vecs = p.vector or {}
-                vec = vecs.get(config.QDRANT_VECTOR_NAME) if isinstance(vecs, dict) else vecs
-                rows.append({
-                    "id": pl.get("_mid", ""),
-                    "content": pl.get("content", ""),
-                    "project": pl.get("project", ""),
-                    "type": pl.get("type", ""),
-                    "tags": pl.get("tags", {}),
-                    "source": pl.get("source", ""),
-                    "vector": vec,
-                })
-            if offset is None:
-                break
-    except Exception:
-        pass
-    return rows
+    if total == 0:
+        return {"projects": [], "total": 0, "version": int(time.time()), "facets": {}}
 
+    # Build global filter from query params
+    global_filter = _build_global_filter(filters) if filters else None
 
-def compute_layout_2d(vectors):
-    """Reduce embeddings to 2D positions via t-SNE (sklearn) or PCA fallback."""
-    vecs = np.array(vectors, dtype=np.float32)
-    n = len(vecs)
-    if n < 2:
-        return np.zeros((n, 2), dtype=np.float32)
+    # Global facets for filter sidebar
+    type_facets = _facet("type", 20, global_filter)
+    lang_facets = _facet("tags.lang", 30, global_filter)
+    domain_facets = _facet("tags.domain", 50, global_filter)
+    layer_facets = _facet("tags.layer", 20, global_filter)
 
-    try:
-        from sklearn.decomposition import PCA
-        from sklearn.manifold import TSNE
-        n_pca = min(50, vecs.shape[1], n - 1)
-        reduced = PCA(n_components=n_pca).fit_transform(vecs)
-        perp = min(30, max(5, n // 5))
-        pos = TSNE(
-            n_components=2, perplexity=perp, init="pca",
-            random_state=42, max_iter=500, learning_rate="auto",
-        ).fit_transform(reduced)
-    except ImportError:
-        centered = vecs - vecs.mean(axis=0)
-        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
-        pos = centered @ Vt[:2].T
+    # Project facets
+    project_facets = _facet("project", 100, global_filter)
 
-    mins = pos.min(axis=0)
-    maxs = pos.max(axis=0)
-    span = np.maximum(maxs - mins, 1e-8)
-    pos = (pos - mins) / span * 1000 - 500
-    return pos
+    projects = []
+    for name, count in project_facets:
+        if not name:
+            continue
+        proj_must = [qm.FieldCondition(key="project", match=qm.MatchValue(value=name))]
+        if global_filter and global_filter.must:
+            proj_must.extend(global_filter.must)
+        proj_filter = qm.Filter(must=proj_must)
 
+        type_in_proj = _facet("type", 20, proj_filter)
+        domain_in_proj = _facet("tags.domain", 10, proj_filter)
+        lang_in_proj = _facet("tags.lang", 5, proj_filter)
 
-def compute_neighbors(vectors, k=5):
-    """Cosine KNN — returns per-node neighbor lists."""
-    vecs = np.array(vectors, dtype=np.float32)
-    n = len(vecs)
-    if n < 2:
-        return [[] for _ in range(n)]
-
-    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-    vecs = vecs / np.maximum(norms, 1e-8)
-    k = min(k, n - 1)
-
-    neighbors: list[list[dict]] = [[] for _ in range(n)]
-    batch = 2000
-    for start in range(0, n, batch):
-        end = min(start + batch, n)
-        sims = vecs[start:end] @ vecs.T
-        for bi in range(end - start):
-            i = start + bi
-            sims[bi, i] = -2.0
-            top_k = np.argpartition(sims[bi], -k)[-k:]
-            for j in top_k:
-                neighbors[i].append({"idx": int(j), "sim": round(float(sims[bi, int(j)]), 3)})
-
-    return neighbors
-
-
-_layout_cache: dict[str, tuple[float, float]] = {}
-
-
-def build_data():
-    global _layout_cache
-    rows = get_all_rows()
-    if not rows:
-        return {"nodes": [], "projects": [], "types": list(TYPE_COLORS.keys()),
-                "projectColors": {}, "typeColors": TYPE_COLORS, "total": 0, "version": 0}
-
-    vectors = [r["vector"] for r in rows]
-
-    # Generate stable node IDs
-    nids = []
-    for i, r in enumerate(rows):
-        nid = r.get("id") or hashlib.md5(
-            f"{i}|{r.get('source', '')}|{r.get('project', '')}|{r.get('type', '')}|{r.get('content', '')[:200]}".encode()
-        ).hexdigest()[:12]
-        nids.append(nid)
-
-    # Layout: full t-SNE or incremental
-    cached = sum(1 for nid in nids if nid in _layout_cache)
-    if cached < len(rows) * 0.8 or not _layout_cache:
-        print(f"  \033[2mComputing 2D layout for {len(rows)} memories...\033[0m")
-        positions = compute_layout_2d(vectors)
-        _layout_cache.clear()
-        for i in range(len(rows)):
-            _layout_cache[nids[i]] = (round(float(positions[i, 0]), 2), round(float(positions[i, 1]), 2))
-    else:
-        positions = np.zeros((len(rows), 2), dtype=np.float32)
-        new_indices = []
-        for i, nid in enumerate(nids):
-            if nid in _layout_cache:
-                positions[i] = _layout_cache[nid]
-            else:
-                new_indices.append(i)
-        if new_indices:
-            vecs = np.array(vectors, dtype=np.float32)
-            norms_all = np.linalg.norm(vecs, axis=1, keepdims=True)
-            normed = vecs / np.maximum(norms_all, 1e-8)
-            new_set = set(new_indices)
-            for i in new_indices:
-                sims = normed[i] @ normed.T
-                sims[i] = -2.0
-                top5 = np.argpartition(sims, -5)[-5:]
-                placed = [int(j) for j in top5 if int(j) not in new_set]
-                if placed:
-                    positions[i, 0] = np.mean(positions[placed, 0]) + np.random.randn() * 3
-                    positions[i, 1] = np.mean(positions[placed, 1]) + np.random.randn() * 3
-                else:
-                    positions[i] = np.random.randn(2) * 50
-                _layout_cache[nids[i]] = (round(float(positions[i, 0]), 2), round(float(positions[i, 1]), 2))
-
-    print(f"  \033[2mComputing neighbors...\033[0m")
-    all_neighbors = compute_neighbors(vectors, k=5)
-
-    projects = sorted(set(r.get("project", "") or "(none)" for r in rows))
-    pc = {p: _project_color(p) for p in projects}
-
-    nodes = []
-    for i, r in enumerate(rows):
-        project = r.get("project", "") or "(none)"
-        mem_type = r.get("type", "finding")
-        content = r.get("content", "")
-        source = r.get("source", "")
-        tags = r.get("tags", {})
-        label = _extract_label(content, source, i)
-        nb = all_neighbors[i]
-        nodes.append({
-            "id": nids[i],
-            "idx": i,
-            "x": round(float(positions[i, 0]), 2) if isinstance(positions, np.ndarray) else _layout_cache[nids[i]][0],
-            "y": round(float(positions[i, 1]), 2) if isinstance(positions, np.ndarray) else _layout_cache[nids[i]][1],
-            "project": project,
-            "type": mem_type,
-            "source": source,
-            "label": label,
-            "content": content[:500],
-            "color": pc.get(project, "#ffa500"),
-            "tags": tags,
-            "val": 1 + len(nb),
-            "neighbors": nb,
+        projects.append({
+            "id": f"proj_{name}",
+            "name": name,
+            "count": count,
+            "types": {v: c for v, c in type_in_proj if v},
+            "color": _project_color(name),
+            "topDomains": [v for v, _ in domain_in_proj[:5] if v],
+            "topLangs": [v for v, _ in lang_in_proj[:3] if v],
         })
 
     return {
-        "nodes": nodes, "projects": projects,
-        "types": list(TYPE_COLORS.keys()),
-        "projectColors": pc, "typeColors": TYPE_COLORS,
-        "total": len(nodes), "version": int(time.time()),
+        "projects": sorted(projects, key=lambda p: -p["count"]),
+        "total": total,
+        "version": int(time.time()),
+        "facets": {
+            "types": [(v, c) for v, c in type_facets if v],
+            "langs": [(v, c) for v, c in lang_facets if v],
+            "domains": [(v, c) for v, c in domain_facets if v],
+            "layers": [(v, c) for v, c in layer_facets if v],
+        },
     }
 
+
+def _build_global_filter(filters: dict) -> qm.Filter | None:
+    """Build Qdrant filter from query param dict."""
+    must = []
+    if filters.get("type"):
+        vals = filters["type"] if isinstance(filters["type"], list) else [filters["type"]]
+        must.append(qm.FieldCondition(key="type", match=qm.MatchAny(any=vals)))
+    if filters.get("lang"):
+        vals = filters["lang"] if isinstance(filters["lang"], list) else [filters["lang"]]
+        must.append(qm.FieldCondition(key="tags.lang", match=qm.MatchAny(any=vals)))
+    if filters.get("domain"):
+        vals = filters["domain"] if isinstance(filters["domain"], list) else [filters["domain"]]
+        must.append(qm.FieldCondition(key="tags.domain", match=qm.MatchAny(any=vals)))
+    if filters.get("layer"):
+        vals = filters["layer"] if isinstance(filters["layer"], list) else [filters["layer"]]
+        must.append(qm.FieldCondition(key="tags.layer", match=qm.MatchAny(any=vals)))
+    return qm.Filter(must=must) if must else None
+
+
+def build_project_detail(project_name: str, filters: dict | None = None) -> dict:
+    """Type/domain breakdown + sample nodes for one project."""
+    client, coll = vs._ensure_collection()
+
+    proj_must = [qm.FieldCondition(key="project", match=qm.MatchValue(value=project_name))]
+    if filters:
+        gf = _build_global_filter(filters)
+        if gf and gf.must:
+            proj_must.extend(gf.must)
+    proj_filter = qm.Filter(must=proj_must)
+
+    type_facets = _facet("type", 20, proj_filter)
+    domain_facets = _facet("tags.domain", 30, proj_filter)
+    lang_facets = _facet("tags.lang", 20, proj_filter)
+
+    # Sample nodes
+    try:
+        sample_pts, _ = client.scroll(
+            collection_name=coll,
+            scroll_filter=proj_filter,
+            limit=200,
+            with_payload=["_mid", "content", "type", "source", "tags", "timestamp"],
+            with_vectors=False,
+        )
+    except Exception:
+        sample_pts = []
+
+    sample_nodes = []
+    for p in sample_pts:
+        pl = p.payload or {}
+        sample_nodes.append({
+            "id": pl.get("_mid", ""),
+            "label": _extract_label(pl.get("content", ""), pl.get("source", "")),
+            "type": pl.get("type", ""),
+            "source": pl.get("source", ""),
+            "tags": pl.get("tags", {}),
+            "content": (pl.get("content", "") or "")[:500],
+        })
+
+    total_count = sum(c for _, c in type_facets)
+
+    return {
+        "project": project_name,
+        "count": total_count,
+        "color": _project_color(project_name),
+        "types": [{"name": v, "count": c} for v, c in type_facets if v],
+        "domains": [{"name": v, "count": c} for v, c in domain_facets if v],
+        "langs": [{"name": v, "count": c} for v, c in lang_facets if v],
+        "sampleNodes": sample_nodes,
+    }
+
+
+def build_node_page(project: str = "", type_: str = "", domain: str = "",
+                    lang: str = "", limit: int = 500, offset_id: str = "") -> dict:
+    """Paginated leaf nodes with filters."""
+    client, coll = vs._ensure_collection()
+
+    must = []
+    if project:
+        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+    if type_:
+        must.append(qm.FieldCondition(key="type", match=qm.MatchValue(value=type_)))
+    if domain:
+        must.append(qm.FieldCondition(key="tags.domain", match=qm.MatchValue(value=domain)))
+    if lang:
+        must.append(qm.FieldCondition(key="tags.lang", match=qm.MatchValue(value=lang)))
+
+    filt = qm.Filter(must=must) if must else None
+
+    try:
+        count_result = client.count(collection_name=coll, count_filter=filt, exact=False)
+        total = count_result.count
+    except Exception:
+        total = 0
+
+    try:
+        pts, next_offset = client.scroll(
+            collection_name=coll,
+            scroll_filter=filt,
+            limit=limit,
+            offset=offset_id if offset_id else None,
+            with_payload=["_mid", "content", "project", "type", "source", "tags", "timestamp"],
+            with_vectors=False,
+        )
+    except Exception:
+        pts = []
+        next_offset = None
+
+    nodes = []
+    for p in pts:
+        pl = p.payload or {}
+        nodes.append({
+            "id": pl.get("_mid", ""),
+            "label": _extract_label(pl.get("content", ""), pl.get("source", "")),
+            "content": (pl.get("content", "") or "")[:500],
+            "type": pl.get("type", ""),
+            "project": pl.get("project", ""),
+            "source": pl.get("source", ""),
+            "tags": pl.get("tags", {}),
+        })
+
+    return {
+        "nodes": nodes,
+        "total": total,
+        "hasMore": next_offset is not None,
+        "nextOffset": str(next_offset) if next_offset else None,
+    }
+
+
+def search_nodes(query: str, project: str = "", type_: str = "",
+                 domain: str = "", limit: int = 20) -> dict:
+    """Semantic search wrapper."""
+    tag_filters = {}
+    if domain:
+        tag_filters["domain"] = [domain]
+
+    results = vs.search(
+        query=query,
+        limit=limit,
+        project=project,
+        type=type_,
+        tag_filters=tag_filters if tag_filters else None,
+    )
+
+    return {"nodes": results}
+
+
+def get_neighbors(node_id: str, k: int = 10) -> dict:
+    """On-demand KNN for a single node."""
+    client, coll = vs._ensure_collection()
+    point_uuid = vs._point_uuid(node_id)
+
+    try:
+        pts = client.retrieve(
+            collection_name=coll,
+            ids=[point_uuid],
+            with_vectors=True,
+            with_payload=["_mid"],
+        )
+    except Exception:
+        return {"source": node_id, "neighbors": []}
+
+    if not pts:
+        return {"source": node_id, "neighbors": []}
+
+    vec = pts[0].vector
+    if isinstance(vec, dict):
+        vec = vec.get(config.QDRANT_VECTOR_NAME)
+
+    try:
+        hits = client.query_points(
+            collection_name=coll,
+            query=vec,
+            using=config.QDRANT_VECTOR_NAME,
+            limit=k + 1,
+            with_payload=["_mid", "content", "project", "type", "source", "tags"],
+        ).points
+    except Exception:
+        return {"source": node_id, "neighbors": []}
+
+    neighbors = []
+    for h in hits:
+        pl = h.payload or {}
+        mid = pl.get("_mid", "")
+        if mid == node_id:
+            continue
+        neighbors.append({
+            "id": mid,
+            "label": _extract_label(pl.get("content", ""), pl.get("source", "")),
+            "similarity": round(max(0.0, float(h.score)), 3),
+            "project": pl.get("project", ""),
+            "type": pl.get("type", ""),
+            "source": pl.get("source", ""),
+            "content": (pl.get("content", "") or "")[:300],
+            "tags": pl.get("tags", {}),
+        })
+
+    return {"source": node_id, "neighbors": neighbors[:k]}
+
+
+# ── Change detection + caching ──────────────────────────────────
 
 _last_wal_size = 0
 _last_row_count = -1
 _data_version = 0
+_overview_cache = None
+_overview_cache_version = -1
+_project_cache: dict[str, tuple[int, dict]] = {}  # name -> (version, data)
+_PROJECT_CACHE_MAX = 30
 
 
 def check_for_changes():
@@ -274,678 +367,979 @@ def check_for_changes():
     return changed
 
 
+def _get_overview(filters: dict | None = None) -> dict:
+    global _overview_cache, _overview_cache_version
+    # Filtered requests bypass cache
+    if filters:
+        return build_overview(filters)
+    if _overview_cache and _overview_cache_version == _data_version:
+        return _overview_cache
+    _overview_cache = build_overview()
+    _overview_cache_version = _data_version
+    return _overview_cache
+
+
+def _get_project_detail(name: str, filters: dict | None = None) -> dict:
+    if filters:
+        return build_project_detail(name, filters)
+    cached = _project_cache.get(name)
+    if cached and cached[0] == _data_version:
+        return cached[1]
+    data = build_project_detail(name)
+    if len(_project_cache) >= _PROJECT_CACHE_MAX:
+        oldest = next(iter(_project_cache))
+        del _project_cache[oldest]
+    _project_cache[name] = (_data_version, data)
+    return data
+
+
+# ── HTML page ──────────────────────────────────────────────────
+
 HTML_PAGE = r"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>Imprint Graph</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #1a1a2e; color: #dcddde; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { background: #1a1a2e; color: #dcddde; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; }
 
-  #canvas { display: block; width: 100vw; height: 100vh; }
+/* Filter sidebar */
+#sidebar {
+  width: 250px; min-width: 250px; height: 100vh;
+  background: #16213e; border-right: 1px solid #2a2a4a;
+  overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  z-index: 10;
+}
+#sidebar h2 { font-size: 14px; color: #4ecdc4; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+.filter-section { margin-bottom: 8px; }
+.filter-section h3 { font-size: 12px; color: #8892b0; margin-bottom: 6px; cursor: pointer; user-select: none; }
+.filter-section h3:hover { color: #dcddde; }
+.filter-items { display: flex; flex-wrap: wrap; gap: 4px; }
+.filter-chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 12px;
+  background: #2a2a4a; color: #8892b0; cursor: pointer;
+  border: 1px solid transparent; transition: all 0.15s; white-space: nowrap;
+  user-select: none;
+}
+.filter-chip:hover { border-color: #4ecdc4; color: #dcddde; }
+.filter-chip.active { background: #4ecdc422; border-color: #4ecdc4; color: #4ecdc4; }
+.filter-chip .count { font-size: 10px; opacity: 0.6; margin-left: 3px; }
 
-  #info {
-    position: fixed; top: 16px; left: 16px; z-index: 100;
-    background: rgba(26, 26, 46, 0.85); border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 10px; padding: 12px 16px; backdrop-filter: blur(16px);
-    min-width: 160px;
-  }
-  #info h1 { font-size: 13px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
-  #info .stat { font-size: 11px; color: rgba(220,221,222,0.5); }
-  #live-dot {
-    display: inline-block; width: 5px; height: 5px; border-radius: 50%;
-    background: #4ecdc4; margin-right: 5px;
-    box-shadow: 0 0 6px rgba(78,205,196,0.6);
-    animation: pulse 2.5s ease-in-out infinite;
-  }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+/* Main area */
+#main { flex: 1; display: flex; flex-direction: column; position: relative; min-width: 0; }
 
-  #search {
-    position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 100;
-  }
-  #q {
-    width: 280px; padding: 8px 14px; border-radius: 20px;
-    background: rgba(26, 26, 46, 0.85); border: 1px solid rgba(255,255,255,0.08);
-    color: #dcddde; font-size: 12px; outline: none; backdrop-filter: blur(16px);
-    transition: border-color 0.2s;
-  }
-  #q:focus { border-color: rgba(78,205,196,0.4); }
-  #q::placeholder { color: rgba(220,221,222,0.3); }
+/* Breadcrumb + search bar */
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: #16213e; border-bottom: 1px solid #2a2a4a;
+  z-index: 10;
+}
+#breadcrumb { display: flex; align-items: center; gap: 4px; font-size: 13px; flex-shrink: 0; }
+.crumb { color: #8892b0; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.crumb:hover { color: #4ecdc4; background: #2a2a4a; }
+.crumb.current { color: #dcddde; cursor: default; }
+.crumb.current:hover { background: transparent; }
+.crumb-sep { color: #4a4a6a; font-size: 11px; }
+#search-box {
+  flex: 1; max-width: 400px; margin-left: auto;
+  background: #2a2a4a; border: 1px solid #3a3a5a; border-radius: 6px;
+  padding: 6px 12px; color: #dcddde; font-size: 13px; outline: none;
+}
+#search-box:focus { border-color: #4ecdc4; }
+#search-box::placeholder { color: #5a5a7a; }
+#stats { font-size: 11px; color: #5a5a7a; margin-left: 8px; white-space: nowrap; }
 
-  #legend {
-    position: fixed; top: 16px; right: 16px; z-index: 100;
-    background: rgba(26, 26, 46, 0.85); border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(16px);
-    max-height: calc(100vh - 32px); overflow-y: auto; min-width: 150px;
-  }
-  #legend h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: rgba(220,221,222,0.4); margin-bottom: 8px; font-weight: 500; }
-  .lg {
-    display: flex; align-items: center; gap: 8px; padding: 3px 6px;
-    border-radius: 4px; cursor: pointer; font-size: 11px; color: rgba(220,221,222,0.7);
-    transition: background 0.15s;
-  }
-  .lg:hover { background: rgba(255,255,255,0.05); }
-  .lg.active { background: rgba(255,255,255,0.08); color: #e0e0e0; }
-  .lg .count { margin-left: auto; font-size: 10px; color: rgba(220,221,222,0.3); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+/* Graph container */
+#graph-container { flex: 1; position: relative; overflow: hidden; }
 
-  #detail {
-    display: none; position: fixed; top: 0; right: 0; bottom: 0; z-index: 200;
-    width: 380px; background: rgba(22, 22, 40, 0.95);
-    border-left: 1px solid rgba(255,255,255,0.06);
-    backdrop-filter: blur(24px); overflow-y: auto;
-    animation: slideIn 0.25s ease-out;
-  }
-  @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-  #detail .header {
-    padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.05);
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  #detail .header h3 { font-size: 12px; font-weight: 600; color: #e0e0e0; }
-  #detail .close-btn {
-    cursor: pointer; color: rgba(220,221,222,0.4); font-size: 18px; line-height: 1;
-    width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
-    border-radius: 4px; transition: all 0.15s;
-  }
-  #detail .close-btn:hover { color: #dcddde; background: rgba(255,255,255,0.06); }
+/* Loading overlay */
+#loading {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #1a1a2ecc; z-index: 50; font-size: 14px; color: #8892b0;
+}
+#loading.hidden { display: none; }
+.spinner { width: 24px; height: 24px; border: 2px solid #4ecdc444; border-top-color: #4ecdc4; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-  .detail-section { padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.03); }
-  .detail-section:last-child { border-bottom: none; }
-  .detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(220,221,222,0.35); margin-bottom: 6px; font-weight: 500; }
-  .detail-value { font-size: 12px; color: rgba(220,221,222,0.8); line-height: 1.5; }
-  .detail-value.mono { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; }
+/* Detail panel */
+#detail {
+  position: absolute; top: 0; right: -400px; width: 400px; height: 100%;
+  background: #16213e; border-left: 1px solid #2a2a4a;
+  overflow-y: auto; padding: 16px; z-index: 20;
+  transition: right 0.25s ease;
+}
+#detail.open { right: 0; }
+#detail-close { position: absolute; top: 12px; right: 12px; cursor: pointer; color: #8892b0; font-size: 18px; background: none; border: none; }
+#detail-close:hover { color: #dcddde; }
+#detail h3 { font-size: 15px; color: #4ecdc4; margin-bottom: 12px; padding-right: 30px; }
+.detail-field { margin-bottom: 10px; }
+.detail-field label { font-size: 11px; color: #5a5a7a; text-transform: uppercase; display: block; margin-bottom: 2px; }
+.detail-field .value { font-size: 13px; color: #dcddde; word-break: break-word; }
+.detail-content { background: #1a1a2e; padding: 10px; border-radius: 6px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; max-height: 300px; overflow-y: auto; color: #b0b0c0; }
+.detail-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.detail-tag { font-size: 10px; padding: 2px 6px; background: #2a2a4a; border-radius: 8px; color: #8892b0; }
+.neighbor-item { padding: 6px 8px; margin: 4px 0; background: #1a1a2e; border-radius: 4px; cursor: pointer; font-size: 12px; border-left: 3px solid transparent; }
+.neighbor-item:hover { background: #2a2a4a; border-left-color: #4ecdc4; }
+.neighbor-sim { font-size: 10px; color: #4ecdc4; float: right; }
 
-  .tag-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .tag-chip {
-    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px;
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
-    color: rgba(220,221,222,0.6);
-  }
-  .tag-chip.lang { border-color: rgba(96,165,250,0.3); color: rgba(96,165,250,0.8); }
-  .tag-chip.layer { border-color: rgba(167,139,250,0.3); color: rgba(167,139,250,0.8); }
-  .tag-chip.kind { border-color: rgba(52,211,153,0.3); color: rgba(52,211,153,0.8); }
-  .tag-chip.domain { border-color: rgba(251,191,36,0.3); color: rgba(251,191,36,0.8); }
-  .tag-chip.topic { border-color: rgba(244,114,182,0.3); color: rgba(244,114,182,0.8); }
-  .tag-chip.type-tag { border-color: rgba(255,107,107,0.3); color: rgba(255,107,107,0.8); }
+/* Empty state */
+#empty-state {
+  display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; color: #5a5a7a; z-index: 5;
+}
+#empty-state h2 { font-size: 20px; margin-bottom: 8px; color: #8892b0; }
+#empty-state p { font-size: 14px; }
 
-  .related-node {
-    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-    border-radius: 6px; cursor: pointer; transition: background 0.15s;
-    margin-bottom: 2px;
-  }
-  .related-node:hover { background: rgba(255,255,255,0.04); }
-  .related-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-  .related-label { font-size: 11px; color: rgba(220,221,222,0.7); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .related-sim { font-size: 10px; color: rgba(78,205,196,0.5); flex-shrink: 0; font-family: 'SF Mono', monospace; }
-
-  .content-preview {
-    font-size: 11px; line-height: 1.6; color: rgba(220,221,222,0.7);
-    white-space: pre-wrap; font-family: 'SF Mono', 'Fira Code', monospace;
-    max-height: 200px; overflow-y: auto;
-    background: rgba(0,0,0,0.15); border-radius: 6px; padding: 10px 12px;
-    margin-top: 4px;
-  }
-
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-
-  #loading {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
-    background: rgba(26, 26, 46, 0.8); border: 1px solid rgba(78,205,196,0.15);
-    border-radius: 16px; padding: 6px 14px; font-size: 11px; color: rgba(78,205,196,0.7);
-    transition: opacity 0.5s; pointer-events: none;
-  }
-
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+/* Tooltip */
+.g6-tooltip {
+  background: #16213eee !important; border: 1px solid #4ecdc4 !important;
+  border-radius: 6px !important; padding: 8px 12px !important;
+  color: #dcddde !important; font-size: 12px !important;
+  max-width: 300px !important; box-shadow: 0 4px 12px #00000066 !important;
+}
 </style>
 </head>
 <body>
-
-<div id="info">
-  <h1>Imprint Graph</h1>
-  <div class="stat"><span id="live-dot" class="live-dot"></span><span id="stats"></span></div>
+<div id="sidebar">
+  <h2>Imprint Graph</h2>
+  <div id="filter-projects" class="filter-section"><h3>Projects</h3><div class="filter-items" id="fp-items"></div></div>
+  <div id="filter-types" class="filter-section"><h3>Types</h3><div class="filter-items" id="ft-items"></div></div>
+  <div id="filter-langs" class="filter-section"><h3>Languages</h3><div class="filter-items" id="fl-items"></div></div>
+  <div id="filter-domains" class="filter-section"><h3>Domains</h3><div class="filter-items" id="fd-items"></div></div>
 </div>
 
-<div id="search"><input id="q" type="text" placeholder="Search memories...  (press /)" spellcheck="false"></div>
-
-<div id="legend"></div>
-
-<div id="detail">
-  <div class="header">
-    <h3 id="detail-title">Node Details</h3>
-    <span class="close-btn" onclick="closeDetail()">&times;</span>
+<div id="main">
+  <div id="topbar">
+    <div id="breadcrumb"><span class="crumb current" data-level="overview">Overview</span></div>
+    <input id="search-box" type="text" placeholder="Search memories... (press /)" />
+    <span id="stats"></span>
   </div>
-  <div id="detail-body"></div>
+  <div id="graph-container">
+    <div id="loading"><div class="spinner"></div>Loading graph...</div>
+    <div id="empty-state"><h2>No memories yet</h2><p>Ingest some files to get started:<br><code>imprint ingest &lt;dir&gt;</code></p></div>
+    <div id="detail">
+      <button id="detail-close">&times;</button>
+      <div id="detail-body"></div>
+    </div>
+  </div>
 </div>
 
-<div id="loading">Loading...</div>
-
-<canvas id="canvas"></canvas>
-
+<script src="https://unpkg.com/@antv/g6@5/dist/g6.min.js"></script>
 <script>
 (function() {
-  'use strict';
+'use strict';
 
-  var DATA = null;
-  var currentVersion = 0;
-  var camera = { x: 0, y: 0, zoom: 1 };
-  var displayW = 0, displayH = 0;
-  var canvas, ctx;
-  var qtree = null;
-  var hoveredNode = null;
-  var selectedNode = null;
-  var activeProjectFilter = null;
-  var matchSet = null;
-  var dirty = true;
-  var dragging = false;
-  var dragLast = null;
-  var didDrag = false;
-  var animTarget = null;
-  var nbSet = null;
+// ── State ──
+let DATA = null;         // current overview data
+let graph = null;
+let currentLevel = 'overview';   // overview | project | type
+let currentProject = null;
+let currentType = null;
+let activeFilters = {};  // {type: [...], lang: [...], domain: [...]}
+let searchTimeout = null;
+let detailOpen = false;
+let neighborEdges = [];
 
-  // ── Helpers ──────────────────────────────────────────────────
-  function hexA(hex, a) {
-    return 'rgba(' + parseInt(hex.slice(1,3),16) + ',' + parseInt(hex.slice(3,5),16) + ',' + parseInt(hex.slice(5,7),16) + ',' + a + ')';
+const TYPE_COLORS = {
+  decision: '#ff6b6b', pattern: '#4ecdc4', bug: '#ff8c42',
+  preference: '#a78bfa', architecture: '#60a5fa', milestone: '#34d399',
+  finding: '#fbbf24', conversation: '#f472b6',
+};
+
+// ── Helpers ──
+function show(el) { el.classList.remove('hidden'); el.style.display = ''; }
+function hide(el) { el.classList.add('hidden'); el.style.display = 'none'; }
+
+function filterParams() {
+  const p = new URLSearchParams();
+  for (const [k, vals] of Object.entries(activeFilters)) {
+    if (vals && vals.length) vals.forEach(v => p.append(k, v));
   }
-  function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
-  function s2w(sx, sy) { return { x: (sx - displayW/2) / camera.zoom + camera.x, y: (sy - displayH/2) / camera.zoom + camera.y }; }
+  return p.toString();
+}
 
-  // ── Quadtree ─────────────────────────────────────────────────
-  function QT(x, y, w, h) { this.x=x; this.y=y; this.w=w; this.h=h; this.pts=[]; this.ch=null; }
-  QT.prototype.insert = function(px, py, d) {
-    if (px < this.x || px >= this.x+this.w || py < this.y || py >= this.y+this.h) return;
-    if (!this.ch && this.pts.length < 8) { this.pts.push({x:px,y:py,d:d}); return; }
-    if (!this.ch) {
-      var hw=this.w/2, hh=this.h/2;
-      this.ch=[new QT(this.x,this.y,hw,hh),new QT(this.x+hw,this.y,hw,hh),
-               new QT(this.x,this.y+hh,hw,hh),new QT(this.x+hw,this.y+hh,hw,hh)];
-      for (var i=0;i<this.pts.length;i++)
-        for (var j=0;j<4;j++) this.ch[j].insert(this.pts[i].x,this.pts[i].y,this.pts[i].d);
-      this.pts=[];
-    }
-    for (var i=0;i<4;i++) this.ch[i].insert(px,py,d);
-  };
-  QT.prototype.nearest = function(qx,qy,r) {
-    var best={d:null,dist:r*r}; this._f(qx,qy,best); return best.d;
-  };
-  QT.prototype._f = function(qx,qy,best) {
-    var cx=Math.max(this.x,Math.min(qx,this.x+this.w));
-    var cy=Math.max(this.y,Math.min(qy,this.y+this.h));
-    if ((cx-qx)*(cx-qx)+(cy-qy)*(cy-qy) > best.dist) return;
-    for (var i=0;i<this.pts.length;i++) {
-      var dx=this.pts[i].x-qx, dy=this.pts[i].y-qy, d2=dx*dx+dy*dy;
-      if (d2 < best.dist) { best.dist=d2; best.d=this.pts[i].d; }
-    }
-    if (this.ch) for (var i=0;i<4;i++) this.ch[i]._f(qx,qy,best);
-  };
+async function api(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  const fp = filterParams();
+  const url = fp ? path + sep + fp : path;
+  const r = await fetch(url);
+  return r.json();
+}
 
-  // ── Quadtree build ──────────────────────────────────────────
-  function buildQT() {
-    if (!DATA || !DATA.nodes.length) { qtree = null; return; }
-    var x1=Infinity,x2=-Infinity,y1=Infinity,y2=-Infinity;
-    for (var i=0;i<DATA.nodes.length;i++) {
-      var n=DATA.nodes[i];
-      if (n.x<x1) x1=n.x; if (n.x>x2) x2=n.x;
-      if (n.y<y1) y1=n.y; if (n.y>y2) y2=n.y;
-    }
-    var pad=10;
-    qtree = new QT(x1-pad, y1-pad, (x2-x1)+pad*2, (y2-y1)+pad*2);
-    for (var i=0;i<DATA.nodes.length;i++) {
-      var n=DATA.nodes[i];
-      qtree.insert(n.x, n.y, n);
-    }
-  }
+// ── Graph init ──
+function initGraph() {
+  const container = document.getElementById('graph-container');
+  const w = container.clientWidth;
+  const h = container.clientHeight;
 
-  // ── Camera animation ────────────────────────────────────────
-  function animateCam(target, dur) {
-    animTarget = {
-      fx: camera.x, fy: camera.y, fz: camera.zoom,
-      tx: target.x, ty: target.y, tz: target.zoom,
-      t0: performance.now(), dur: dur || 600
-    };
-    markDirty();
-  }
-  function tickAnim() {
-    if (!animTarget) return false;
-    var t = (performance.now() - animTarget.t0) / animTarget.dur;
-    if (t >= 1) {
-      camera.x=animTarget.tx; camera.y=animTarget.ty; camera.zoom=animTarget.tz;
-      animTarget=null; return true;
-    }
-    t = 1 - Math.pow(1-t, 3);
-    camera.x = animTarget.fx + (animTarget.tx - animTarget.fx) * t;
-    camera.y = animTarget.fy + (animTarget.ty - animTarget.fy) * t;
-    camera.zoom = animTarget.fz + (animTarget.tz - animTarget.fz) * t;
-    return true;
-  }
-
-  // ── Neighbor set for active node ────────────────────────────
-  function updateNbSet() {
-    var active = selectedNode || hoveredNode;
-    if (!active) { nbSet = null; return; }
-    nbSet = new Set();
-    var nb = active.neighbors || [];
-    for (var i=0;i<nb.length;i++) nbSet.add(nb[i].idx);
-  }
-
-  // ── Dirty-flag rendering ────────────────────────────────────
-  function markDirty() { if (!dirty) { dirty=true; requestAnimationFrame(render); } }
-
-  function render() {
-    dirty = false;
-    var anim = tickAnim();
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (!DATA || !DATA.nodes.length) { if (anim) markDirty(); return; }
-
-    var hw = displayW/2, hh = displayH/2;
-    var z = camera.zoom, cx = camera.x, cy = camera.y;
-    var active = selectedNode || hoveredNode;
-    var hasFilter = !!(activeProjectFilter || matchSet);
-
-    // ── Edges (only for active node) ──
-    if (active) {
-      var nb = active.neighbors || [];
-      var ax = hw + (active.x - cx) * z, ay = hh + (active.y - cy) * z;
-      ctx.lineWidth = 1;
-      for (var i=0;i<nb.length;i++) {
-        var tgt = DATA.nodes[nb[i].idx];
-        if (!tgt) continue;
-        ctx.strokeStyle = 'rgba(78,205,196,' + (0.15 + nb[i].sim * 0.45).toFixed(3) + ')';
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(hw + (tgt.x - cx) * z, hh + (tgt.y - cy) * z);
-        ctx.stroke();
-      }
-    }
-
-    // ── Nodes ──
-    for (var i=0;i<DATA.nodes.length;i++) {
-      var n = DATA.nodes[i];
-      var sx = hw + (n.x - cx) * z, sy = hh + (n.y - cy) * z;
-      var r = Math.max(1.5, Math.sqrt(n.val) * Math.min(z, 4) * 0.9);
-
-      if (sx + r < 0 || sx - r > displayW || sy + r < 0 || sy - r > displayH) continue;
-
-      var a = 0.85;
-      if (hasFilter) {
-        if (activeProjectFilter && n.project !== activeProjectFilter) a = 0.06;
-        if (matchSet && !matchSet.has(n)) a = 0.06;
-      }
-      if (active && a > 0.06) {
-        if (n === active) a = 1.0;
-        else if (nbSet && nbSet.has(n.idx)) a = 0.9;
-        else if (!hasFilter) a = 0.1;
-      }
-
-      ctx.beginPath();
-      ctx.arc(sx, sy, r, 0, 6.2832);
-      ctx.fillStyle = hexA(n.color, a);
-      ctx.fill();
-    }
-
-    // ── Rings ──
-    if (hoveredNode) {
-      var hsx = hw + (hoveredNode.x - cx)*z, hsy = hh + (hoveredNode.y - cy)*z;
-      var hr = Math.max(1.5, Math.sqrt(hoveredNode.val)*Math.min(z,4)*0.9) + 3;
-      ctx.beginPath(); ctx.arc(hsx, hsy, hr, 0, 6.2832);
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-    }
-    if (selectedNode && selectedNode !== hoveredNode) {
-      var ssx = hw + (selectedNode.x - cx)*z, ssy = hh + (selectedNode.y - cy)*z;
-      var sr = Math.max(1.5, Math.sqrt(selectedNode.val)*Math.min(z,4)*0.9) + 3;
-      ctx.beginPath(); ctx.arc(ssx, ssy, sr, 0, 6.2832);
-      ctx.strokeStyle = '#4ecdc4'; ctx.lineWidth = 2; ctx.stroke();
-    }
-
-    // ── Labels (zoom-dependent) ──
-    if (z > 2.5) {
-      ctx.font = '10px -apple-system,BlinkMacSystemFont,sans-serif';
-      ctx.fillStyle = 'rgba(220,221,222,0.7)';
-      ctx.textBaseline = 'middle';
-      for (var i=0;i<DATA.nodes.length;i++) {
-        var n = DATA.nodes[i];
-        var sx = hw + (n.x - cx)*z, sy = hh + (n.y - cy)*z;
-        if (sx < -50 || sx > displayW+50 || sy < -20 || sy > displayH+20) continue;
-        if (activeProjectFilter && n.project !== activeProjectFilter) continue;
-        if (matchSet && !matchSet.has(n)) continue;
-        var r = Math.max(1.5, Math.sqrt(n.val)*Math.min(z,4)*0.9);
-        if (r > 3 || z > 5) ctx.fillText(n.label.substring(0,40), sx + r + 4, sy);
-      }
-    }
-
-    // ── Active label (always shown) ──
-    if (active) {
-      var alx = hw + (active.x - cx)*z, aly = hh + (active.y - cy)*z;
-      var alr = Math.max(1.5, Math.sqrt(active.val)*Math.min(z,4)*0.9);
-      ctx.font = 'bold 12px -apple-system,BlinkMacSystemFont,sans-serif';
-      ctx.fillStyle = '#e0e0e0';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(active.label, alx + alr + 5, aly);
-    }
-
-    if (anim) markDirty();
-  }
-
-  // ── Fit camera to data ──────────────────────────────────────
-  function fitAll(dur) {
-    if (!DATA || !DATA.nodes.length) return;
-    var x1=Infinity,x2=-Infinity,y1=Infinity,y2=-Infinity;
-    for (var i=0;i<DATA.nodes.length;i++) {
-      var n=DATA.nodes[i];
-      if (n.x<x1) x1=n.x; if (n.x>x2) x2=n.x;
-      if (n.y<y1) y1=n.y; if (n.y>y2) y2=n.y;
-    }
-    var span = Math.max(x2-x1, y2-y1, 1);
-    var z = Math.min(displayW, displayH) / (span * 1.15);
-    animateCam({x:(x1+x2)/2, y:(y1+y2)/2, zoom:z}, dur||400);
-  }
-
-  // ── Detail panel ─────────────────────────────────────────────
-  function showDetail(n) {
-    if (!n) return;
-    var tags = n.tags || {};
-    var connections = (n.neighbors || []).slice().sort(function(a,b) { return b.sim - a.sim; });
-
-    var html = '';
-    html += '<div class="detail-section">';
-    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
-    html += '<span style="width:10px;height:10px;border-radius:50%;background:' + n.color + '"></span>';
-    html += '<span style="font-size:13px;font-weight:600;color:' + n.color + '">' + esc(n.project) + '</span>';
-    html += '</div>';
-    html += '<div class="detail-label">Label</div>';
-    html += '<div class="detail-value">' + esc(n.label) + '</div>';
-    html += '</div>';
-
-    html += '<div class="detail-section"><div class="meta-grid">';
-    html += '<div><div class="detail-label">Type</div><div class="detail-value"><span class="tag-chip type-tag">' + esc(n.type) + '</span></div></div>';
-    html += '<div><div class="detail-label">Connections</div><div class="detail-value">' + connections.length + ' nodes</div></div>';
-    if (n.source) {
-      html += '<div style="grid-column:span 2"><div class="detail-label">Source</div><div class="detail-value mono">' + esc(n.source) + '</div></div>';
-    }
-    html += '</div></div>';
-
-    var hasTag = tags.lang || tags.layer || tags.kind || (tags.domain && tags.domain.length) || (tags.topics && tags.topics.length);
-    if (hasTag) {
-      html += '<div class="detail-section"><div class="detail-label">Tags</div><div class="tag-chips">';
-      if (tags.lang) html += '<span class="tag-chip lang">' + esc(tags.lang) + '</span>';
-      if (tags.layer) html += '<span class="tag-chip layer">' + esc(tags.layer) + '</span>';
-      if (tags.kind) html += '<span class="tag-chip kind">' + esc(tags.kind) + '</span>';
-      if (tags.domain) for (var di=0;di<tags.domain.length;di++) html += '<span class="tag-chip domain">' + esc(tags.domain[di]) + '</span>';
-      if (tags.topics) for (var ti=0;ti<tags.topics.length;ti++) html += '<span class="tag-chip topic">' + esc(tags.topics[ti]) + '</span>';
-      html += '</div></div>';
-    }
-
-    if (connections.length > 0) {
-      html += '<div class="detail-section"><div class="detail-label">Related (' + connections.length + ')</div>';
-      var mx = Math.min(connections.length, 20);
-      for (var ri=0;ri<mx;ri++) {
-        var rel = connections[ri];
-        var rn = DATA.nodes[rel.idx];
-        if (!rn) continue;
-        html += '<div class="related-node" data-idx="' + rel.idx + '">';
-        html += '<span class="related-dot" style="background:' + rn.color + '"></span>';
-        html += '<span class="related-label">' + esc(rn.label) + '</span>';
-        html += '<span class="related-sim">' + (rel.sim * 100).toFixed(0) + '%</span>';
-        html += '</div>';
-      }
-      html += '</div>';
-    }
-
-    html += '<div class="detail-section"><div class="detail-label">Content</div>';
-    html += '<div class="content-preview">' + esc(n.content) + '</div></div>';
-
-    document.getElementById('detail-title').textContent = 'Memory Details';
-    document.getElementById('detail-body').innerHTML = html;
-    document.getElementById('detail').style.display = 'block';
-
-    document.querySelectorAll('.related-node[data-idx]').forEach(function(el) {
-      el.addEventListener('click', function() {
-        var idx = parseInt(this.getAttribute('data-idx'));
-        var target = DATA.nodes[idx];
-        if (!target) return;
-        selectedNode = target;
-        updateNbSet();
-        showDetail(target);
-        animateCam({x: target.x, y: target.y, zoom: Math.max(camera.zoom, 4)}, 600);
-      });
-    });
-  }
-
-  function closeDetail() {
-    document.getElementById('detail').style.display = 'none';
-    if (selectedNode) { selectedNode = null; updateNbSet(); markDirty(); }
-  }
-
-  // ── Search ───────────────────────────────────────────────────
-  var searchTimer;
-  document.getElementById('q').addEventListener('input', function(e) {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(function() {
-      var q = e.target.value.toLowerCase().trim();
-      if (!q) { matchSet = null; markDirty(); return; }
-      matchSet = new Set();
-      if (DATA) DATA.nodes.forEach(function(n) {
-        if ((n.content && n.content.toLowerCase().indexOf(q) !== -1) ||
-            (n.label && n.label.toLowerCase().indexOf(q) !== -1) ||
-            (n.project && n.project.toLowerCase().indexOf(q) !== -1) ||
-            (n.type && n.type.toLowerCase().indexOf(q) !== -1) ||
-            (n.source && n.source.toLowerCase().indexOf(q) !== -1)) {
-          matchSet.add(n);
+  graph = new G6.Graph({
+    container: 'graph-container',
+    width: w,
+    height: h,
+    autoFit: 'view',
+    padding: [60, 60, 60, 60],
+    animation: true,
+    behaviors: [
+      'drag-canvas',
+      'zoom-canvas',
+      'drag-element',
+    ],
+    node: {
+      style: {
+        labelText: d => d.data?.label || d.id,
+        labelFill: '#dcddde',
+        labelFontSize: d => d.data?.level === 'leaf' ? 10 : 12,
+        labelPlacement: 'bottom',
+        labelMaxWidth: 120,
+        labelWordWrap: true,
+        labelMaxLines: 2,
+        cursor: 'pointer',
+        lineWidth: 2,
+        stroke: d => d.data?.borderColor || '#2a2a4a',
+      },
+    },
+    edge: {
+      style: {
+        stroke: '#4ecdc4',
+        lineWidth: 1,
+        lineDash: [4, 4],
+        endArrow: false,
+      },
+    },
+    combo: {
+      type: 'circle',
+      style: {
+        fillOpacity: 0.06,
+        stroke: d => d.data?.color || '#4ecdc444',
+        lineWidth: 1,
+        labelText: d => d.data?.label || '',
+        labelFill: '#8892b0',
+        labelFontSize: 13,
+        labelPlacement: 'top',
+        cursor: 'pointer',
+        collapsedSize: d => d.data?.collapsedSize || 40,
+      },
+    },
+    plugins: [{
+      type: 'tooltip',
+      getContent: (e, items) => {
+        if (!items || !items.length) return '';
+        const d = items[0];
+        if (!d || !d.data) return '';
+        const dd = d.data;
+        if (dd.level === 'project') {
+          const types = dd.types || {};
+          const typesStr = Object.entries(types).map(([t, c]) => `${t}: ${c}`).join(', ');
+          return `<div class="g6-tooltip"><b>${dd.name}</b><br>${dd.count} memories<br>${typesStr || ''}</div>`;
         }
+        if (dd.level === 'type-cluster') {
+          return `<div class="g6-tooltip"><b>${dd.typeName}</b><br>${dd.count} memories in ${dd.project}</div>`;
+        }
+        if (dd.level === 'leaf') {
+          return `<div class="g6-tooltip"><b>${dd.source || dd.label}</b><br>Type: ${dd.memType || ''}<br>${(dd.content || '').substring(0, 150)}...</div>`;
+        }
+        return '';
+      },
+    }],
+    background: '#1a1a2e',
+  });
+
+  graph.on('node:click', onNodeClick);
+
+  return graph;
+}
+
+// ── Overview rendering ──
+async function loadOverview() {
+  showLoading();
+  currentLevel = 'overview';
+  currentProject = null;
+  currentType = null;
+  updateBreadcrumb();
+
+  DATA = await api('/api/overview');
+
+  if (!DATA.projects || DATA.projects.length === 0) {
+    hideLoading();
+    document.getElementById('empty-state').style.display = 'block';
+    if (graph) graph.clear();
+    return;
+  }
+  document.getElementById('empty-state').style.display = 'none';
+
+  buildFilterSidebar(DATA.facets, DATA.projects);
+  updateStats(DATA.total, DATA.projects.length);
+
+  const nodes = DATA.projects.map(p => ({
+    id: p.id,
+    data: {
+      level: 'project',
+      name: p.name,
+      count: p.count,
+      types: p.types,
+      color: p.color,
+      topDomains: p.topDomains,
+      topLangs: p.topLangs,
+      label: `${p.name}\n(${fmtNum(p.count)})`,
+      borderColor: p.color,
+    },
+    style: {
+      size: clampSize(p.count, 40, 120),
+      fill: p.color + '33',
+      stroke: p.color,
+      lineWidth: 2,
+      labelText: `${p.name}\n(${fmtNum(p.count)})`,
+    },
+  }));
+
+  graph.setData({ nodes, edges: [], combos: [] });
+  graph.setLayout({
+    type: 'force',
+    preventOverlap: true,
+    nodeSize: d => clampSize(d.data?.count || 1, 40, 120) + 20,
+    linkDistance: 180,
+    nodeStrength: -800,
+    animated: true,
+    maxSpeed: 200,
+  });
+  await graph.render();
+  hideLoading();
+}
+
+// ── Project drill-in ──
+async function drillIntoProject(projectName) {
+  showLoading();
+  currentLevel = 'project';
+  currentProject = projectName;
+  currentType = null;
+  updateBreadcrumb();
+
+  const detail = await api(`/api/project/${encodeURIComponent(projectName)}`);
+
+  const nodes = [];
+  const combos = [];
+  const comboId = `combo_${projectName}`;
+
+  // Project combo
+  combos.push({
+    id: comboId,
+    data: { label: projectName, color: detail.color },
+  });
+
+  // Type cluster nodes inside combo
+  for (const t of detail.types) {
+    if (!t.name) continue;
+    const nodeId = `type_${projectName}_${t.name}`;
+    nodes.push({
+      id: nodeId,
+      combo: comboId,
+      data: {
+        level: 'type-cluster',
+        typeName: t.name,
+        project: projectName,
+        count: t.count,
+        color: TYPE_COLORS[t.name] || '#60a5fa',
+        label: `${t.name}\n(${fmtNum(t.count)})`,
+        borderColor: TYPE_COLORS[t.name] || '#60a5fa',
+      },
+      style: {
+        size: clampSize(t.count, 24, 70),
+        fill: (TYPE_COLORS[t.name] || '#60a5fa') + '33',
+        stroke: TYPE_COLORS[t.name] || '#60a5fa',
+        lineWidth: 2,
+        labelText: `${t.name}\n(${fmtNum(t.count)})`,
+      },
+    });
+  }
+
+  // Also add other projects as small peripheral nodes
+  if (DATA && DATA.projects) {
+    for (const p of DATA.projects) {
+      if (p.name === projectName) continue;
+      nodes.push({
+        id: p.id,
+        data: {
+          level: 'project',
+          name: p.name,
+          count: p.count,
+          types: p.types,
+          color: p.color,
+          label: p.name,
+          borderColor: p.color,
+        },
+        style: {
+          size: clampSize(p.count, 20, 50),
+          fill: p.color + '15',
+          stroke: p.color + '44',
+          lineWidth: 1,
+          labelText: p.name,
+          labelFill: '#5a5a7a',
+          labelFontSize: 10,
+        },
       });
-      markDirty();
-    }, 150);
+    }
+  }
+
+  graph.setData({ nodes, edges: [], combos });
+  graph.setLayout({
+    type: 'force',
+    preventOverlap: true,
+    nodeSize: d => (d.data?.level === 'type-cluster' ? clampSize(d.data?.count || 1, 24, 70) : clampSize(d.data?.count || 1, 20, 50)) + 20,
+    linkDistance: 120,
+    nodeStrength: -400,
+    animated: true,
+  });
+  await graph.render();
+  hideLoading();
+}
+
+// ── Type drill-in (show leaf nodes) ──
+async function drillIntoType(projectName, typeName) {
+  showLoading();
+  currentLevel = 'type';
+  currentProject = projectName;
+  currentType = typeName;
+  updateBreadcrumb();
+
+  const data = await api(`/api/nodes?project=${encodeURIComponent(projectName)}&type=${encodeURIComponent(typeName)}&limit=300`);
+
+  const nodes = [];
+  const edges = [];
+  const typeColor = TYPE_COLORS[typeName] || '#60a5fa';
+
+  // Central type hub node
+  const hubId = `hub_${projectName}_${typeName}`;
+  nodes.push({
+    id: hubId,
+    data: {
+      level: 'hub',
+      label: `${typeName} (${fmtNum(data.total)})`,
+      color: typeColor,
+    },
+    style: {
+      size: 50,
+      fill: typeColor + '33',
+      stroke: typeColor,
+      lineWidth: 3,
+      labelText: `${typeName}\n${fmtNum(data.total)} memories`,
+      labelFontSize: 13,
+    },
   });
 
-  // ── Legend ────────────────────────────────────────────────────
-  function buildLegend() {
-    if (!DATA) return;
-    var el = document.getElementById('legend');
-    el.innerHTML = '<h2>Projects</h2>';
-    var projCounts = {};
-    DATA.nodes.forEach(function(n) { projCounts[n.project] = (projCounts[n.project]||0) + 1; });
-    DATA.projects.forEach(function(p) {
-      var d = document.createElement('div');
-      d.className = 'lg' + (activeProjectFilter === p ? ' active' : '');
-      d.innerHTML = '<span class="dot" style="background:' + DATA.projectColors[p] + '"></span>'
-        + esc(p) + '<span class="count">' + (projCounts[p]||0) + '</span>';
-      d.onclick = function() {
-        activeProjectFilter = (activeProjectFilter === p) ? null : p;
-        buildLegend();
-        markDirty();
-      };
-      el.appendChild(d);
+  for (const n of data.nodes) {
+    const nid = `leaf_${n.id}`;
+    nodes.push({
+      id: nid,
+      data: {
+        level: 'leaf',
+        memId: n.id,
+        memType: n.type,
+        project: projectName,
+        source: n.source,
+        content: n.content,
+        tags: n.tags,
+        label: n.label,
+        borderColor: typeColor + '88',
+      },
+      style: {
+        size: 12,
+        fill: typeColor + '44',
+        stroke: typeColor + '66',
+        lineWidth: 1,
+        labelText: n.label,
+        labelFontSize: 9,
+        labelFill: '#8892b0',
+      },
     });
-    var sep = document.createElement('h2');
-    sep.style.marginTop = '14px';
-    sep.textContent = 'Types';
-    el.appendChild(sep);
-    var typeCounts = {};
-    DATA.nodes.forEach(function(n) { typeCounts[n.type] = (typeCounts[n.type]||0) + 1; });
-    DATA.types.forEach(function(t) {
-      if (!typeCounts[t]) return;
-      var d = document.createElement('div');
-      d.className = 'lg'; d.style.cursor = 'default';
-      d.innerHTML = '<span class="dot" style="background:' + (DATA.typeColors[t]||'#888') + '"></span>'
-        + esc(t) + '<span class="count">' + (typeCounts[t]||0) + '</span>';
-      el.appendChild(d);
+
+    edges.push({
+      id: `e_${hubId}_${nid}`,
+      source: hubId,
+      target: nid,
+      style: { stroke: typeColor + '22', lineWidth: 0.5, lineDash: 0 },
     });
   }
 
-  function updateStats() {
-    if (!DATA) return;
-    document.getElementById('stats').textContent =
-      DATA.total + ' memories \u00b7 ' + DATA.projects.length + ' projects';
+  if (data.hasMore) {
+    const moreId = 'load_more';
+    nodes.push({
+      id: moreId,
+      data: { level: 'load-more', label: `+ ${data.total - data.nodes.length} more...` },
+      style: {
+        size: 30,
+        fill: '#2a2a4a',
+        stroke: '#4ecdc4',
+        lineWidth: 1,
+        labelText: `+${fmtNum(data.total - data.nodes.length)} more`,
+        labelFontSize: 10,
+      },
+    });
+    edges.push({
+      id: `e_${hubId}_${moreId}`,
+      source: hubId, target: moreId,
+      style: { stroke: '#4ecdc422', lineWidth: 0.5, lineDash: [4, 4] },
+    });
   }
 
-  // ── Interaction ──────────────────────────────────────────────
-  function initInteraction() {
-    canvas.addEventListener('mousedown', function(e) {
-      if (e.button === 0) { dragging = true; didDrag = false; dragLast = {x:e.offsetX, y:e.offsetY}; }
-    });
-    canvas.addEventListener('mouseup', function() { dragging = false; });
-    canvas.addEventListener('mouseleave', function() { dragging = false; });
+  graph.setData({ nodes, edges, combos: [] });
+  graph.setLayout({
+    type: 'force',
+    preventOverlap: true,
+    nodeSize: d => (d.id === hubId ? 60 : 20),
+    linkDistance: d => d.source === hubId || d.target === hubId ? 100 : 60,
+    nodeStrength: -150,
+    animated: true,
+    maxSpeed: 200,
+  });
+  await graph.render();
+  hideLoading();
+}
 
-    canvas.addEventListener('mousemove', function(e) {
-      if (dragging) {
-        var dx = e.offsetX - dragLast.x, dy = e.offsetY - dragLast.y;
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
-        camera.x -= dx / camera.zoom;
-        camera.y -= dy / camera.zoom;
-        dragLast = {x:e.offsetX, y:e.offsetY};
-        markDirty();
-        return;
-      }
-      var w = s2w(e.offsetX, e.offsetY);
-      var hit = qtree ? qtree.nearest(w.x, w.y, 15/camera.zoom) : null;
-      if (hit !== hoveredNode) {
-        hoveredNode = hit;
-        updateNbSet();
-        canvas.style.cursor = hit ? 'pointer' : 'grab';
-        markDirty();
-      }
-    });
+// ── Node click handler ──
+async function onNodeClick(e) {
+  const nodeId = e.target?.id;
+  if (!nodeId) return;
+  const nodeData = graph.getNodeData(nodeId);
+  if (!nodeData || !nodeData.data) return;
+  const d = nodeData.data;
 
-    canvas.addEventListener('click', function(e) {
-      if (didDrag) return;
-      if (hoveredNode) {
-        selectedNode = hoveredNode;
-        updateNbSet();
-        showDetail(selectedNode);
-        markDirty();
+  if (d.level === 'project') {
+    closeDetail();
+    await drillIntoProject(d.name);
+  } else if (d.level === 'type-cluster') {
+    closeDetail();
+    await drillIntoType(d.project, d.typeName);
+  } else if (d.level === 'leaf') {
+    await showNodeDetail(d);
+  } else if (d.level === 'load-more') {
+    // Could load more nodes, for now drill into type view
+  }
+}
+
+// ── Detail panel ──
+async function showNodeDetail(d) {
+  const body = document.getElementById('detail-body');
+  const tags = d.tags || {};
+  const domains = (tags.domain || []).map(t => `<span class="detail-tag">${t}</span>`).join('');
+  const topics = (tags.topics || []).map(t => `<span class="detail-tag">${t}</span>`).join('');
+
+  body.innerHTML = `
+    <h3>${d.label || 'Memory'}</h3>
+    <div class="detail-field"><label>Source</label><div class="value">${d.source || '—'}</div></div>
+    <div class="detail-field"><label>Type</label><div class="value">${d.memType || '—'}</div></div>
+    <div class="detail-field"><label>Project</label><div class="value">${d.project || '—'}</div></div>
+    ${tags.lang ? `<div class="detail-field"><label>Language</label><div class="value">${tags.lang}</div></div>` : ''}
+    ${tags.layer ? `<div class="detail-field"><label>Layer</label><div class="value">${tags.layer}</div></div>` : ''}
+    ${domains ? `<div class="detail-field"><label>Domains</label><div class="detail-tags">${domains}</div></div>` : ''}
+    ${topics ? `<div class="detail-field"><label>Topics</label><div class="detail-tags">${topics}</div></div>` : ''}
+    <div class="detail-field"><label>Content</label><div class="detail-content">${escHtml(d.content || '')}</div></div>
+    <div class="detail-field"><label>Neighbors</label><div id="neighbors-list"><i style="color:#5a5a7a;font-size:12px">Loading...</i></div></div>
+  `;
+
+  document.getElementById('detail').classList.add('open');
+  detailOpen = true;
+
+  // Load neighbors
+  if (d.memId) {
+    const nb = await api(`/api/neighbors?id=${encodeURIComponent(d.memId)}&k=8`);
+    const list = document.getElementById('neighbors-list');
+    if (nb.neighbors && nb.neighbors.length) {
+      list.innerHTML = nb.neighbors.map(n => `
+        <div class="neighbor-item" data-project="${escHtml(n.project)}" data-type="${escHtml(n.type)}" data-id="${escHtml(n.id)}">
+          <span class="neighbor-sim">${(n.similarity * 100).toFixed(0)}%</span>
+          <div style="font-size:12px;color:#dcddde">${escHtml(n.label)}</div>
+          <div style="font-size:10px;color:#5a5a7a">${escHtml(n.project)} / ${escHtml(n.type)}</div>
+        </div>
+      `).join('');
+
+      // Draw neighbor edges on graph
+      clearNeighborEdges();
+      const sourceNodeId = `leaf_${d.memId}`;
+      for (const n of nb.neighbors) {
+        const targetId = `leaf_${n.id}`;
+        // Only draw edge if target node exists in current graph
+        try {
+          const targetNode = graph.getNodeData(targetId);
+          if (targetNode) {
+            const edgeId = `nb_${d.memId}_${n.id}`;
+            neighborEdges.push(edgeId);
+            graph.addEdgeData([{
+              id: edgeId,
+              source: sourceNodeId,
+              target: targetId,
+              style: {
+                stroke: '#4ecdc4',
+                lineWidth: Math.max(0.5, n.similarity * 2),
+                opacity: Math.max(0.2, n.similarity * 0.8),
+                lineDash: 0,
+              },
+            }]);
+          }
+        } catch (e) { /* target not in current graph */ }
+      }
+      if (neighborEdges.length) graph.draw();
+    } else {
+      list.innerHTML = '<i style="color:#5a5a7a;font-size:12px">No similar memories found</i>';
+    }
+  }
+}
+
+function clearNeighborEdges() {
+  if (neighborEdges.length) {
+    try { graph.removeEdgeData(neighborEdges); } catch (e) {}
+    neighborEdges = [];
+  }
+}
+
+function closeDetail() {
+  document.getElementById('detail').classList.remove('open');
+  detailOpen = false;
+  clearNeighborEdges();
+}
+
+// ── Search ──
+async function doSearch(query) {
+  if (!query || query.length < 2) {
+    // Reload current view
+    if (currentLevel === 'overview') await loadOverview();
+    else if (currentLevel === 'project' && currentProject) await drillIntoProject(currentProject);
+    return;
+  }
+
+  showLoading();
+  const results = await api(`/api/search?q=${encodeURIComponent(query)}&limit=30`);
+  hideLoading();
+
+  if (!results.nodes || results.nodes.length === 0) return;
+
+  // Show search results as a star layout
+  currentLevel = 'search';
+  updateBreadcrumb();
+
+  const nodes = [];
+  const edges = [];
+  const hubId = 'search_hub';
+
+  nodes.push({
+    id: hubId,
+    data: { level: 'hub', label: `"${query}"`, color: '#4ecdc4' },
+    style: {
+      size: 40, fill: '#4ecdc433', stroke: '#4ecdc4', lineWidth: 2,
+      labelText: `"${query}"\n${results.nodes.length} results`,
+      labelFontSize: 12,
+    },
+  });
+
+  for (const n of results.nodes) {
+    const nid = `search_${n.id}`;
+    const typeColor = TYPE_COLORS[n.type] || '#60a5fa';
+    nodes.push({
+      id: nid,
+      data: {
+        level: 'leaf',
+        memId: n.id,
+        memType: n.type,
+        project: n.project,
+        source: n.source,
+        content: n.content,
+        tags: n.tags,
+        label: n.label || _extract(n.content),
+        borderColor: typeColor,
+      },
+      style: {
+        size: 10 + (n.similarity || 0) * 15,
+        fill: typeColor + '44',
+        stroke: typeColor,
+        lineWidth: 1,
+        labelText: n.label || _extract(n.content),
+        labelFontSize: 9,
+        labelFill: '#8892b0',
+      },
+    });
+    edges.push({
+      id: `se_${hubId}_${nid}`,
+      source: hubId, target: nid,
+      style: {
+        stroke: '#4ecdc4' + Math.round((n.similarity || 0.5) * 99).toString(16).padStart(2, '0'),
+        lineWidth: Math.max(0.5, (n.similarity || 0.5) * 2),
+        lineDash: 0,
+      },
+    });
+  }
+
+  graph.setData({ nodes, edges, combos: [] });
+  graph.setLayout({
+    type: 'force',
+    preventOverlap: true,
+    nodeSize: 30,
+    linkDistance: 120,
+    nodeStrength: -200,
+    animated: true,
+  });
+  await graph.render();
+}
+
+function _extract(content) {
+  if (!content) return 'memory';
+  const lines = content.split('\n');
+  for (const l of lines) {
+    const t = l.trim();
+    if (t.length > 10) return t.substring(0, 80);
+  }
+  return content.substring(0, 80);
+}
+
+// ── Filter sidebar ──
+function buildFilterSidebar(facets, projects) {
+  // Projects
+  renderChips('fp-items', projects.map(p => ({ key: p.name, label: p.name, count: p.count, filterKey: 'project' })));
+  // Types
+  renderChips('ft-items', (facets.types || []).map(([v, c]) => ({ key: v, label: v, count: c, filterKey: 'type' })));
+  // Languages
+  renderChips('fl-items', (facets.langs || []).map(([v, c]) => ({ key: v, label: v, count: c, filterKey: 'lang' })));
+  // Domains
+  renderChips('fd-items', (facets.domains || []).map(([v, c]) => ({ key: v, label: v, count: c, filterKey: 'domain' })));
+}
+
+function renderChips(containerId, items) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = items.map(item => {
+    const active = (activeFilters[item.filterKey] || []).includes(item.key);
+    return `<span class="filter-chip ${active ? 'active' : ''}" data-key="${escHtml(item.filterKey)}" data-value="${escHtml(item.key)}">${escHtml(item.label)}<span class="count">${fmtNum(item.count)}</span></span>`;
+  }).join('');
+
+  el.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const key = chip.dataset.key;
+      const val = chip.dataset.value;
+      if (!activeFilters[key]) activeFilters[key] = [];
+      const idx = activeFilters[key].indexOf(val);
+      if (idx >= 0) {
+        activeFilters[key].splice(idx, 1);
+        if (!activeFilters[key].length) delete activeFilters[key];
       } else {
-        selectedNode = null;
-        updateNbSet();
-        closeDetail();
-        markDirty();
+        activeFilters[key].push(val);
       }
+      chip.classList.toggle('active');
+      loadOverview(); // Re-fetch with filters
     });
-
-    canvas.addEventListener('dblclick', function(e) {
-      var w = s2w(e.offsetX, e.offsetY);
-      animateCam({x:w.x, y:w.y, zoom: camera.zoom * 2.5}, 400);
-    });
-
-    canvas.addEventListener('wheel', function(e) {
-      e.preventDefault();
-      var factor = e.deltaY > 0 ? 0.88 : 1.14;
-      var before = s2w(e.offsetX, e.offsetY);
-      camera.zoom = Math.max(0.05, Math.min(camera.zoom * factor, 100));
-      var after = s2w(e.offsetX, e.offsetY);
-      camera.x += before.x - after.x;
-      camera.y += before.y - after.y;
-      markDirty();
-    }, {passive: false});
-  }
-
-  // ── Keyboard ─────────────────────────────────────────────────
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      closeDetail();
-      if (activeProjectFilter) { activeProjectFilter = null; buildLegend(); markDirty(); }
-      if (matchSet) { matchSet = null; document.getElementById('q').value = ''; markDirty(); }
-    }
-    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
-      e.preventDefault();
-      document.getElementById('q').focus();
-    }
   });
+}
 
-  // ── Resize ───────────────────────────────────────────────────
-  function resizeCanvas() {
-    displayW = window.innerWidth;
-    displayH = window.innerHeight;
-    canvas.width = displayW;
-    canvas.height = displayH;
-    markDirty();
-  }
-  window.addEventListener('resize', resizeCanvas);
+// ── Breadcrumb ──
+function updateBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  let html = '';
 
-  // ── Load data ────────────────────────────────────────────────
-  function loadData() {
-    fetch('/api/data')
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        currentVersion = data.version;
-        DATA = data;
-        buildQT();
-        buildLegend();
-        updateStats();
-        fitAll(600);
-        var el = document.getElementById('loading');
-        if (el) { el.style.opacity = '0'; setTimeout(function() { el.style.display = 'none'; }, 500); }
-      })
-      .catch(function(err) { console.error('Failed to load data:', err); });
+  if (currentLevel === 'overview') {
+    html = '<span class="crumb current">Overview</span>';
+  } else if (currentLevel === 'project') {
+    html = '<span class="crumb" data-action="overview">Overview</span><span class="crumb-sep">&rsaquo;</span>';
+    html += `<span class="crumb current">${escHtml(currentProject)}</span>`;
+  } else if (currentLevel === 'type') {
+    html = '<span class="crumb" data-action="overview">Overview</span><span class="crumb-sep">&rsaquo;</span>';
+    html += `<span class="crumb" data-action="project" data-name="${escHtml(currentProject)}">${escHtml(currentProject)}</span><span class="crumb-sep">&rsaquo;</span>`;
+    html += `<span class="crumb current">${escHtml(currentType)}</span>`;
+  } else if (currentLevel === 'search') {
+    html = '<span class="crumb" data-action="overview">Overview</span><span class="crumb-sep">&rsaquo;</span>';
+    html += '<span class="crumb current">Search Results</span>';
   }
 
-  // ── SSE ──────────────────────────────────────────────────────
-  function connectSSE() {
-    var es = new EventSource('/api/stream');
-    es.addEventListener('update', function(e) {
-      var info = JSON.parse(e.data);
-      if (info.version !== currentVersion) {
-        fetch('/api/data')
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            currentVersion = data.version;
-            DATA = data;
-            buildQT();
-            buildLegend();
-            updateStats();
-            markDirty();
-          });
-      }
+  bc.innerHTML = html;
+  bc.querySelectorAll('.crumb[data-action]').forEach(c => {
+    c.addEventListener('click', () => {
+      closeDetail();
+      if (c.dataset.action === 'overview') loadOverview();
+      else if (c.dataset.action === 'project') drillIntoProject(c.dataset.name);
     });
-    es.onerror = function() { es.close(); setTimeout(connectSSE, 3000); };
+  });
+}
+
+// ── UI helpers ──
+function showLoading() { document.getElementById('loading').classList.remove('hidden'); document.getElementById('loading').style.display = 'flex'; }
+function hideLoading() { document.getElementById('loading').classList.add('hidden'); document.getElementById('loading').style.display = 'none'; }
+function updateStats(total, projects) { document.getElementById('stats').textContent = `${fmtNum(total)} memories \u00b7 ${projects} projects`; }
+
+function fmtNum(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
+}
+
+function clampSize(count, min, max) {
+  const s = Math.sqrt(count) * 3;
+  return Math.max(min, Math.min(max, s));
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── SSE live updates ──
+function connectSSE() {
+  const es = new EventSource('/api/stream');
+  es.addEventListener('update', async (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (currentLevel === 'overview') {
+        DATA = await api('/api/overview');
+        if (DATA.projects && DATA.projects.length) {
+          buildFilterSidebar(DATA.facets, DATA.projects);
+          updateStats(DATA.total, DATA.projects.length);
+          // Soft update: just resize nodes
+          for (const p of DATA.projects) {
+            try {
+              graph.updateNodeData([{
+                id: p.id,
+                data: { count: p.count, label: `${p.name}\n(${fmtNum(p.count)})` },
+                style: { size: clampSize(p.count, 40, 120), labelText: `${p.name}\n(${fmtNum(p.count)})` },
+              }]);
+            } catch (e) {}
+          }
+          graph.draw();
+        }
+      }
+    } catch (err) {}
+  });
+  es.onerror = () => { es.close(); setTimeout(connectSSE, 3000); };
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== document.getElementById('search-box')) {
+    e.preventDefault();
+    document.getElementById('search-box').focus();
   }
+  if (e.key === 'Escape') {
+    if (detailOpen) { closeDetail(); return; }
+    const sb = document.getElementById('search-box');
+    if (document.activeElement === sb) { sb.blur(); sb.value = ''; loadOverview(); return; }
+    if (currentLevel === 'type' && currentProject) { drillIntoProject(currentProject); return; }
+    if (currentLevel === 'project' || currentLevel === 'search') { loadOverview(); return; }
+  }
+});
 
-  // ── Init ─────────────────────────────────────────────────────
-  canvas = document.getElementById('canvas');
-  ctx = canvas.getContext('2d');
-  resizeCanvas();
-  initInteraction();
-  loadData();
+// Search input
+document.getElementById('search-box').addEventListener('input', (e) => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => doSearch(e.target.value.trim()), 300);
+});
+
+// Detail close button
+document.getElementById('detail-close').addEventListener('click', closeDetail);
+
+// Resize handling
+window.addEventListener('resize', () => {
+  if (graph) {
+    const c = document.getElementById('graph-container');
+    graph.resize(c.clientWidth, c.clientHeight);
+  }
+});
+
+// ── Boot ──
+async function boot() {
+  initGraph();
+  await loadOverview();
   connectSSE();
-  canvas.style.cursor = 'grab';
+}
 
-  window.closeDetail = closeDetail;
+boot();
+
 })();
 </script>
 </body>
 </html>"""
 
 
+# ── HTTP handler ──────────────────────────────────────────────
+
 class VizHandler(http.server.BaseHTTPRequestHandler):
-    data_cache = None
 
     def do_GET(self):
-        if self.path == "/api/data":
-            if VizHandler.data_cache is None:
-                VizHandler.data_cache = build_data()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(VizHandler.data_cache).encode())
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        qs = parse_qs(parsed.query, keep_blank_values=True)
 
-        elif self.path == "/api/stream":
+        # Flatten single-value params, keep multi-value as lists
+        def param(key, default=""):
+            vals = qs.get(key, [])
+            return vals[0] if len(vals) == 1 else (vals if vals else default)
+
+        def param_list(key):
+            return qs.get(key, [])
+
+        def filters_from_qs():
+            f = {}
+            for k in ("type", "lang", "domain", "layer"):
+                v = param_list(k)
+                if v:
+                    f[k] = v
+            return f if f else None
+
+        if path == "/api/overview":
+            data = _get_overview(filters_from_qs())
+            self._json(data)
+
+        elif path.startswith("/api/project/"):
+            name = path[len("/api/project/"):]
+            from urllib.parse import unquote
+            name = unquote(name)
+            data = _get_project_detail(name, filters_from_qs())
+            self._json(data)
+
+        elif path == "/api/nodes":
+            data = build_node_page(
+                project=param("project"),
+                type_=param("type"),
+                domain=param("domain"),
+                lang=param("lang"),
+                limit=int(param("limit") or "500"),
+                offset_id=param("offset"),
+            )
+            self._json(data)
+
+        elif path == "/api/search":
+            q = param("q")
+            if not q:
+                self._json({"nodes": []})
+            else:
+                data = search_nodes(
+                    query=q,
+                    project=param("project"),
+                    type_=param("type"),
+                    domain=param("domain"),
+                    limit=int(param("limit") or "20"),
+                )
+                self._json(data)
+
+        elif path == "/api/neighbors":
+            nid = param("id")
+            k = int(param("k") or "10")
+            if not nid:
+                self._json({"source": "", "neighbors": []})
+            else:
+                data = get_neighbors(nid, k)
+                self._json(data)
+
+        elif path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             try:
                 while True:
                     if check_for_changes():
-                        VizHandler.data_cache = build_data()
-                        msg = json.dumps({"version": _data_version, "total": VizHandler.data_cache["total"]})
+                        global _overview_cache
+                        _overview_cache = None
+                        _project_cache.clear()
+                        msg = json.dumps({"version": _data_version, "total": _last_row_count})
                         self.wfile.write(f"event: update\ndata: {msg}\n\n".encode())
                         self.wfile.flush()
                     else:
@@ -956,19 +1350,31 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
         else:
+            # Serve HTML page
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode())
+
+    def _json(self, data):
+        body = json.dumps(data).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, format, *args):
         pass
 
 
+# ── Chrome launcher ──────────────────────────────────────────
+
 def launch_app_window(url: str):
     chrome_flags = [
         f"--app={url}",
-        "--window-size=800,600",
+        "--window-size=1200,800",
         "--disable-extensions",
         "--disable-default-apps",
         "--no-first-run",
@@ -1008,6 +1414,8 @@ def launch_app_window(url: str):
     webbrowser.open(url)
 
 
+# ── Main ──────────────────────────────────────────────────────
+
 def main():
     global _last_wal_size, _last_row_count
     port = DEFAULT_PORT
@@ -1016,10 +1424,15 @@ def main():
         if arg == "--port" and i + 1 < len(args):
             port = int(args[i + 1])
 
-    print(f"\n  \033[0;36mBuilding visualization data...\033[0m")
-    VizHandler.data_cache = build_data()
-    total = VizHandler.data_cache["total"]
-    projects = len(VizHandler.data_cache["projects"])
+    print(f"\n  \033[0;36mStarting Imprint Graph...\033[0m")
+
+    # Warm up Qdrant connection + initial counts
+    try:
+        client, coll = vs._ensure_collection()
+        info = client.get_collection(coll)
+        total = info.points_count or 0
+    except Exception:
+        total = 0
 
     wp = config.wal_path()
     try:
@@ -1028,6 +1441,10 @@ def main():
         _last_wal_size = 0
     _last_row_count = total
 
+    # Pre-warm overview cache
+    _get_overview()
+
+    projects = len((_overview_cache or {}).get("projects", []))
     print(f"  {total} memories, {projects} projects")
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), VizHandler)

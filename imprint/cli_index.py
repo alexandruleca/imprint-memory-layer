@@ -401,10 +401,11 @@ def main():
     # Override via --batch-size N; higher = faster but more peak memory.
     BATCH_SIZE = batch_size
 
-    # Opt-in tag sources. Zero-shot + LLM are off by default because they
-    # cost extra compute / $$ at ingest time. Enable via env var.
-    enable_llm = os.environ.get("IMPRINT_LLM_TAGS", "0") == "1"
-    enable_zero_shot = os.environ.get("IMPRINT_ZERO_SHOT_TAGS", "0") == "1"
+    # Zero-shot on by default; LLM opt-in replaces zero-shot.
+    # Resolved through config (env > config.json > default).
+    from imprint.config_schema import resolve
+    enable_llm = resolve("tagger.llm")[0]
+    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
 
     def read_and_chunk(args):
         """Read a file and chunk it. Returns list of record dicts or None.

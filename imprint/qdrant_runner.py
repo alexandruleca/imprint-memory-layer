@@ -36,15 +36,12 @@ from . import config
 
 log = logging.getLogger("imprint.qdrant_runner")
 
-# Pinned version. Bump when needed; client compatibility is generous.
-QDRANT_VERSION = os.environ.get("IMPRINT_QDRANT_VERSION", "v1.17.1")
-
-QDRANT_HOST = os.environ.get("IMPRINT_QDRANT_HOST", "127.0.0.1")
-QDRANT_PORT = int(os.environ.get("IMPRINT_QDRANT_PORT", "6333"))
-QDRANT_GRPC_PORT = int(os.environ.get("IMPRINT_QDRANT_GRPC_PORT", "6334"))
-
-# Disable auto-spawn entirely — operator runs their own server (Docker etc.).
-DISABLE_SPAWN = os.environ.get("IMPRINT_QDRANT_NO_SPAWN", "0") == "1"
+# All qdrant settings resolved through config (env > config.json > default).
+QDRANT_VERSION = config.QDRANT_VERSION
+QDRANT_HOST = config.QDRANT_HOST
+QDRANT_PORT = config.QDRANT_PORT
+QDRANT_GRPC_PORT = config.QDRANT_GRPC_PORT
+DISABLE_SPAWN = config.QDRANT_NO_SPAWN
 
 _READY_TIMEOUT_S = float(os.environ.get("IMPRINT_QDRANT_READY_TIMEOUT_S", "30"))
 

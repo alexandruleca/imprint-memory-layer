@@ -1,6 +1,6 @@
 # Imprint Memory Layer
 
-Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + BGE-M3 ONNX embeddings + Chonkie hybrid chunker + structured tag payloads.
+Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + EmbeddingGemma-300M ONNX embeddings + Chonkie hybrid chunker + structured tag payloads.
 
 ## IMPORTANT: Use Imprint Before Reading Files
 
@@ -31,34 +31,43 @@ Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + BGE-M3
 ## Architecture
 
 - **Vector store**: Qdrant server, auto-spawned local daemon on `127.0.0.1:6333` via [`qdrant_runner.py`](imprint/qdrant_runner.py). HTTP client = unlimited concurrent readers/writers. Int8 scalar quantization, on-disk payload, payload indexes on `project`/`type`/`source`/`tags.*`
-- **Embeddings**: BGE-M3 via ONNX Runtime (1024-dim, 8192 ctx, MTEB ~67). Auto-picks GPU if `CUDAExecutionProvider` available, else CPU. Variant: `model_int8.onnx` (CPU) or `model_fp16.onnx` (GPU)
+- **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (768-dim, 2048 ctx). Any HF ONNX model supported — configure via `imprint config set model.name/dim/pooling`. Auto-picks GPU if `CUDAExecutionProvider` available, else CPU
 - **Chunker**: Chonkie hybrid — `CodeChunker` (tree-sitter, language-aware) for code, `SemanticChunker` for prose. Sliding overlap on top
-- **Tagger**: structured payload `{lang, layer, kind, domain[], topics[]}`. Always-on deterministic + keyword dict; opt-in zero-shot (`IMPRINT_ZERO_SHOT_TAGS=1`) + LLM (`IMPRINT_LLM_TAGS=1`, needs `ANTHROPIC_API_KEY`)
-- **Imprint graph**: SQLite with temporal facts
+- **Tagger**: structured payload `{lang, layer, kind, domain[], topics[]}`. Always-on deterministic + keyword dict; zero-shot on by default (opt-out `IMPRINT_ZERO_SHOT_TAGS=0`); LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`, replaces zero-shot). LLM providers: anthropic, openai, ollama, vllm, gemini — set via `IMPRINT_LLM_TAGGER_PROVIDER`
+- **Imprint graph**: SQLite with temporal facts (per workspace)
+- **Workspaces**: isolated memory environments — each gets its own Qdrant collection, SQLite DB, and WAL. Config in `data/workspace.json`. Default workspace uses `memories` collection + `imprint_graph.sqlite3` (backward compat). Named workspaces use `memories_{name}` + `imprint_graph_{name}.sqlite3` + `wal_{name}.jsonl`
 - **MCP framework**: FastMCP
-- **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph.sqlite3` (gitignored)
+- **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph*.sqlite3` + `data/workspace.json` (gitignored)
 - **Lifecycle**: `imprint enable` / `disable` / `status` toggle MCP + hooks + server in one shot
 
-## Tunables
+## Configuration
 
-| Env var | Default | Notes |
+All settings persistable via `imprint config set <key> <value>`. Stored in `data/config.json`. Precedence: env var > config.json > default. Run `imprint config` to see all settings + current values.
+
+Key settings (full list via `imprint config`):
+
+| Key | Default | Notes |
 |---|---|---|
-| `IMPRINT_DEVICE` | `auto` | `cpu` / `gpu` / `auto` |
-| `IMPRINT_GPU_MEM_MB` | `2048` | VRAM cap for ORT CUDA arena (conservative for WSL2; raise on dedicated GPUs) |
-| `IMPRINT_ONNX_THREADS` | `4` | CPU intra-op threads |
-| `IMPRINT_MAX_SEQ_LENGTH` | `2048` | Token cap per embed call |
-| `IMPRINT_MODEL_NAME` | `Xenova/bge-m3` | HF repo |
-| `IMPRINT_MODEL_FILE` | auto | `onnx/model_int8.onnx` (CPU) / `onnx/model_fp16.onnx` (GPU) |
-| `IMPRINT_CHUNK_OVERLAP` | `400` | Sliding overlap chars between chunks |
-| `IMPRINT_CHUNK_SIZE_CODE` | `4000` | Soft target for code (semantic subsplit above 2×) |
-| `IMPRINT_CHUNK_SIZE_PROSE` | `6000` | Soft target for prose (SemanticChunker decides boundary) |
-| `IMPRINT_CHUNK_HARD_MAX` | `16000` | Absolute max (~4k tokens, within BGE-M3's 8k context) |
-| `IMPRINT_SEMANTIC_THRESHOLD` | `0.5` | SemanticChunker topic-shift threshold (lower = sharper splits) |
-| `IMPRINT_QDRANT_HOST` | `127.0.0.1` | Qdrant bind/connect host |
-| `IMPRINT_QDRANT_PORT` | `6333` | Qdrant HTTP port |
-| `IMPRINT_QDRANT_VERSION` | `v1.17.1` | Pinned release for auto-download |
-| `IMPRINT_QDRANT_BIN` | (auto) | Override Qdrant binary path |
-| `IMPRINT_QDRANT_NO_SPAWN` | `0` | Set `1` to skip auto-spawn (BYO server) |
+| `model.name` | `onnx-community/embeddinggemma-300m-ONNX` | HF embedding model repo (any ONNX model) |
+| `model.dim` | `768` | Embedding dimension (must match model) |
+| `model.seq_length` | `2048` | Token cap per embed call |
+| `model.device` | `auto` | `cpu` / `gpu` / `auto` |
+| `model.threads` | `4` | CPU intra-op threads |
+| `model.gpu_mem_mb` | `2048` | VRAM cap for CUDA arena |
+| `model.pooling` | `auto` | Pooling: auto / cls / mean / last |
+| `qdrant.host` | `127.0.0.1` | Qdrant bind/connect host |
+| `qdrant.port` | `6333` | Qdrant HTTP port |
+| `qdrant.no_spawn` | `false` | Skip auto-spawn (BYO server) |
+| `chunker.overlap` | `400` | Sliding overlap chars |
+| `chunker.size_code` | `4000` | Soft target for code chunks |
+| `chunker.size_prose` | `6000` | Soft target for prose chunks |
+| `chunker.hard_max` | `8000` | Absolute max chunk size |
+| `tagger.zero_shot` | `true` | Zero-shot topic tagging (opt-out) |
+| `tagger.llm` | `false` | LLM tagging (replaces zero-shot) |
+| `tagger.llm_provider` | `anthropic` | `anthropic` / `openai` / `ollama` / `vllm` / `gemini` |
+| `tagger.llm_model` | per-provider | Override model name |
+
+Env vars (`IMPRINT_*`) still work and take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` remain env-only.
 
 ## Project Detection
 
@@ -73,7 +82,16 @@ imprint enable [target]    # re-wire MCP + hooks + start server
 imprint disable            # stop server, unregister MCP, strip hooks
 imprint ingest <dir>       # detect projects + ingest into imprint memory
 imprint refresh <dir>      # re-index only changed files
+imprint config             # show all settings with current values
+imprint config set <k> <v> # persist a setting
+imprint config get <key>   # show one setting
+imprint config reset <key> # remove override, revert to default
 imprint server <cmd>       # daemon control: start | stop | status | log
+imprint workspace          # list workspaces and show active
+imprint workspace switch <name>  # switch to workspace (creates if new)
+imprint workspace delete <name>  # delete a workspace and its data
+imprint wipe [--force]     # wipe active workspace
+imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve --relay <host>  # expose KB for syncing
 imprint sync <host>/<id>   # bidirectional sync with peer
 imprint viz                # graph visualization of memory clusters

@@ -99,6 +99,11 @@ def main():
         return
 
     # ── Phase 3: Re-index changed files ────────────────────────
+    # Zero-shot on by default; LLM opt-in replaces zero-shot.
+    from imprint.config_schema import resolve
+    enable_llm = resolve("tagger.llm")[0]
+    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
+
     stored = 0
     skipped = 0
     t_start = time.time()
@@ -130,7 +135,10 @@ def main():
                 mtime = os.path.getmtime(fpath)
                 records = []
                 for chunk_text, chunk_idx in chunks:
-                    tags = tagger.build_payload_tags(chunk_text, rel_path=rel)
+                    tags = tagger.build_payload_tags(
+                        chunk_text, rel_path=rel,
+                        zero_shot=enable_zero_shot, llm=enable_llm,
+                    )
                     records.append({
                         "content": chunk_text,
                         "project": project,

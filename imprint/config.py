@@ -15,74 +15,73 @@ def get_data_dir() -> Path:
     return Path(__file__).parent.parent / "data"
 
 
-# ── Embedding model ─────────────────────────────────────────────
-# BGE-M3: 1024-dim, 8192 ctx, Apache 2.0. Xenova ships int8/fp16/q4 ONNX
-# variants — pick int8 for speed-quality trade-off (~1% MTEB drop, 2-4×
-# faster on CPU). Override via env vars for fp32 or fp16.
-MODEL_NAME = os.environ.get("IMPRINT_MODEL_NAME", "Xenova/bge-m3")
+# ── Schema-driven resolution ────────────────────────────────────
+# All settings now go through config_schema.resolve() which checks:
+#   env var > data/config.json > hardcoded default
+from .config_schema import resolve as _resolve
 
-# Device control. `auto` (default) picks GPU if CUDA/ORT-GPU is available,
-# CPU otherwise. `gpu` forces GPU. `cpu` forces CPU. ONNX quantization
-# kernels are CPU-only — when the device resolves to GPU we auto-swap to
-# the fp16 model file unless the user pinned one via IMPRINT_MODEL_FILE.
-DEVICE = os.environ.get("IMPRINT_DEVICE", "auto").lower()
+
+def _get(key: str):
+    val, _ = _resolve(key)
+    return val
+
+
+# ── Embedding model ─────────────────────────────────────────────
+MODEL_NAME = _get("model.name")
+DEVICE = str(_get("model.device")).lower()
 
 
 def _default_model_file() -> str:
-    """Pick a sensible ONNX variant per device. int8 flies on CPU; GPU
-    wants fp16 since int8 quant ops fall back to CPU kernels."""
-    if DEVICE == "cpu":
-        return "onnx/model_int8.onnx"
-    if DEVICE == "gpu":
-        return "onnx/model_fp16.onnx"
-    # auto: probe provider list
-    try:
-        import onnxruntime as _ort
-        if "CUDAExecutionProvider" in _ort.get_available_providers():
+    """Pick the best ONNX variant for the configured model + device.
+
+    BGE-M3 ships int8/fp16 variants — pick by device. EmbeddingGemma
+    and most other models have a single onnx/model.onnx.
+    """
+    model_lower = MODEL_NAME.lower()
+    if "bge-m3" in model_lower:
+        if DEVICE == "cpu":
+            return "onnx/model_int8.onnx"
+        if DEVICE == "gpu":
             return "onnx/model_fp16.onnx"
-    except Exception:
-        pass
-    return "onnx/model_int8.onnx"
+        try:
+            import onnxruntime as _ort
+            if "CUDAExecutionProvider" in _ort.get_available_providers():
+                return "onnx/model_fp16.onnx"
+        except Exception:
+            pass
+        return "onnx/model_int8.onnx"
+    # Generic ONNX model — single file
+    return "onnx/model.onnx"
 
 
-MODEL_FILE = os.environ.get("IMPRINT_MODEL_FILE", _default_model_file())
-EMBEDDING_DIM = int(os.environ.get("IMPRINT_EMBEDDING_DIM", "1024"))
-# Token cap per embedding call. BGE-M3 supports 8192 but activation memory
-# + CPU compute scale linearly with seq len. 2048 covers ~8k-char inputs,
-# which exceeds the chunker's HARD_MAX=6000 — no truncation in practice,
-# and embedding is ~2× faster than at 4096. Raise via env if you want
-# full-document embedding without chunking.
-MAX_SEQ_LENGTH = int(os.environ.get("IMPRINT_MAX_SEQ_LENGTH", "2048"))
+_model_file_raw = _get("model.file")
+MODEL_FILE = _default_model_file() if _model_file_raw == "auto" else _model_file_raw
+EMBEDDING_DIM = _get("model.dim")
+MAX_SEQ_LENGTH = _get("model.seq_length")
+POOLING = str(_get("model.pooling")).lower()
 
 # ── Qdrant ──────────────────────────────────────────────────────
-QDRANT_COLLECTION = os.environ.get("IMPRINT_COLLECTION", "memories")
+QDRANT_COLLECTION = _get("collection")
 QDRANT_VECTOR_NAME = "dense"
+QDRANT_HOST = _get("qdrant.host")
+QDRANT_PORT = _get("qdrant.port")
+QDRANT_GRPC_PORT = _get("qdrant.grpc_port")
+QDRANT_VERSION = _get("qdrant.version")
+QDRANT_NO_SPAWN = _get("qdrant.no_spawn")
 
 # ── Chunker ─────────────────────────────────────────────────────
-# Sliding-window overlap appended at chunk boundaries so retrieval doesn't
-# miss signal sitting right at a split.
-CHUNK_OVERLAP = int(os.environ.get("IMPRINT_CHUNK_OVERLAP", "400"))
-
-# Per-modality target sizes. BGE-M3 handles 8192 tokens (~24-32k chars),
-# so chunks can be large. Semantic chunking decides the real boundaries
-# via topic-shift detection — these targets are soft caps, not the primary
-# split signal. Bigger chunks = more context per retrieval hit.
-# Code: whole classes/modules stay together. Oversized chunks get
-# semantic sub-splitting where the logic shifts topic.
-# Prose: full sections stay whole. SemanticChunker splits at topic change.
-CHUNK_SIZE_CODE = int(os.environ.get("IMPRINT_CHUNK_SIZE_CODE", "4000"))
-CHUNK_SIZE_PROSE = int(os.environ.get("IMPRINT_CHUNK_SIZE_PROSE", "6000"))
-# Legacy alias — some callers may still import CHUNK_SIZE_CHARS.
+CHUNK_OVERLAP = _get("chunker.overlap")
+CHUNK_SIZE_CODE = _get("chunker.size_code")
+CHUNK_SIZE_PROSE = _get("chunker.size_prose")
+# Legacy alias
 CHUNK_SIZE_CHARS = int(os.environ.get("IMPRINT_CHUNK_SIZE", str(CHUNK_SIZE_PROSE)))
+CHUNK_HARD_MAX = _get("chunker.hard_max")
+CHUNK_SEMANTIC_THRESHOLD = _get("chunker.semantic_threshold")
 
-# Hard max ~4000 tokens — well within BGE-M3's 8192 context.
-CHUNK_HARD_MAX = int(os.environ.get("IMPRINT_CHUNK_HARD_MAX", "16000"))
-
-# SemanticChunker topic-shift threshold. Lower = more aggressive topic
-# splits (each subtle shift starts a new chunk). 0.5 catches paragraph-level
-# topic changes well; 0.7 is too lenient — adjacent paragraphs about
-# different things get merged.
-CHUNK_SEMANTIC_THRESHOLD = float(os.environ.get("IMPRINT_SEMANTIC_THRESHOLD", "0.5"))
+# ── Embedding runtime ──────────────────────────────────────────
+ONNX_THREADS = _get("model.threads")
+GPU_MEM_MB = _get("model.gpu_mem_mb")
+GPU_DEVICE = _get("model.gpu_device")
 
 # ── Workspaces ─────────────────────────────────────────────────
 WORKSPACE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')

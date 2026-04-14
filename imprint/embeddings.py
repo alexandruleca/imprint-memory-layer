@@ -1,8 +1,8 @@
-"""BGE-M3 embedding via ONNX Runtime.
+"""ONNX Runtime embedding for any HuggingFace model.
 
-Model produces 1024-dim dense vectors. No prefix needed (unlike nomic-embed
-which uses `search_document:` / `search_query:`). Optional sparse head is
-exposed for future hybrid search but not wired into storage yet.
+Default: EmbeddingGemma-300M (768-dim, 2048 ctx). Also works with BGE-M3
+(1024-dim, int8/fp16 variants) and other ONNX models. Model, dimension,
+and pooling strategy are configurable via `imprint config`.
 """
 
 import gc
@@ -33,8 +33,8 @@ def _build_session_options() -> ort.SessionOptions:
     # 0=VERBOSE, 1=INFO, 2=WARNING, 3=ERROR, 4=FATAL
     so.log_severity_level = 4
 
-    threads = int(os.environ.get("IMPRINT_ONNX_THREADS", "4"))
-    so.intra_op_num_threads = max(1, threads)
+    from . import config as _cfg
+    so.intra_op_num_threads = max(1, _cfg.ONNX_THREADS)
     so.inter_op_num_threads = 1
     return so
 
@@ -81,8 +81,9 @@ def _resolve_providers() -> list:
         # gpu_mem_limit also prevents driver kills under WSL2 (shared VRAM
         # with host makes large caps risky). 2048MB is conservative but safe
         # across WSL2/consumer GPUs — raise via env on dedicated cards.
-        gpu_mem_mb = int(os.environ.get("IMPRINT_GPU_MEM_MB", "2048"))
-        device_id = int(os.environ.get("IMPRINT_GPU_DEVICE", "0"))
+        from . import config as _cfg
+        gpu_mem_mb = _cfg.GPU_MEM_MB
+        device_id = _cfg.GPU_DEVICE
         cuda_opts = {
             "device_id": device_id,
             "arena_extend_strategy": "kSameAsRequested",
@@ -99,8 +100,8 @@ def _load():
     if _session is not None:
         return
     model_path = hf_hub_download(config.MODEL_NAME, config.MODEL_FILE)
-    # BGE-M3 also ships a data file next to large ONNX files; make sure it's
-    # pulled into the same cache dir so ORT finds it.
+    # Some models ship a companion data file (model.onnx_data) alongside the
+    # main graph. Pull it into the same cache dir so ORT finds it.
     try:
         hf_hub_download(config.MODEL_NAME, config.MODEL_FILE + "_data")
     except Exception:
@@ -135,8 +136,38 @@ def _get_cpu_session() -> ort.InferenceSession:
     return _cpu_session
 
 
+def _pool(embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
+    """Apply pooling strategy to token-level embeddings.
+
+    If output is already 2D (batch, dim) — model handled pooling internally.
+    If 3D (batch, seq_len, dim) — apply configured strategy.
+    """
+    if embeddings.ndim == 2:
+        # Already pooled by the model (e.g. some ONNX exports)
+        return embeddings
+
+    mode = config.POOLING
+    if mode == "auto":
+        # BGE-M3 → CLS, others → mean
+        if "bge-m3" in config.MODEL_NAME.lower():
+            mode = "cls"
+        else:
+            mode = "mean"
+
+    if mode == "cls":
+        return embeddings[:, 0, :]
+    elif mode == "last":
+        # Last non-padding token per sequence
+        lengths = attention_mask.sum(axis=1).astype(int) - 1
+        return embeddings[np.arange(len(embeddings)), lengths, :]
+    else:
+        # Mean pooling — mask out padding tokens
+        mask = attention_mask[:, :, np.newaxis].astype(np.float32)
+        return (embeddings * mask).sum(axis=1) / mask.sum(axis=1).clip(min=1e-9)
+
+
 def _run_session(session: ort.InferenceSession, texts: list[str]) -> np.ndarray:
-    """Run inference on a session, return L2-normalized 1024-dim vectors."""
+    """Run inference on a session, return L2-normalized embedding vectors."""
     encoded = _tokenizer.encode_batch(texts)
     input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
     attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
@@ -151,18 +182,18 @@ def _run_session(session: ort.InferenceSession, texts: list[str]) -> np.ndarray:
         inputs["token_type_ids"] = np.zeros_like(input_ids)
 
     outputs = session.run(None, inputs)
-    token_embeddings = outputs[0]
+    raw = outputs[0]
 
-    cls = token_embeddings[:, 0, :]
-    norms = np.linalg.norm(cls, axis=1, keepdims=True)
-    result = cls / np.clip(norms, 1e-9, None)
+    pooled = _pool(raw, attention_mask)
+    norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+    result = pooled / np.clip(norms, 1e-9, None)
 
-    del encoded, input_ids, attention_mask, outputs, token_embeddings, cls, norms
+    del encoded, input_ids, attention_mask, outputs, raw, pooled, norms
     return result.astype(np.float32)
 
 
 def _embed_raw(texts: list[str]) -> np.ndarray:
-    """Embed texts into L2-normalized 1024-dim vectors."""
+    """Embed texts into L2-normalized vectors (dimension per config.EMBEDDING_DIM)."""
     _load()
     return _run_session(_session, texts)
 
@@ -174,12 +205,12 @@ def _embed_raw_cpu(texts: list[str]) -> np.ndarray:
 
 
 def embed_document(text: str) -> list[float]:
-    """Embed a document. BGE-M3 takes raw text — no prefix required."""
+    """Embed a document into a dense vector."""
     return _embed_raw([text[:_PRETRIM_CHARS]])[0].tolist()
 
 
 def embed_query(text: str) -> list[float]:
-    """Embed a search query. Same model path as documents for BGE-M3."""
+    """Embed a search query into a dense vector."""
     return _embed_raw([text[:_PRETRIM_CHARS]])[0].tolist()
 
 

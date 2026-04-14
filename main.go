@@ -52,6 +52,8 @@ func main() {
 		cmd.Disable(os.Args[2:])
 	case "status":
 		cmd.Status(os.Args[2:])
+	case "config":
+		cmd.Config(os.Args[2:])
 	case "workspace":
 		cmd.Workspace(os.Args[2:])
 	case "wipe":
@@ -78,6 +80,10 @@ Usage:
   imprint viz                Graph visualization of memory clusters
   imprint server <cmd>       Manage the local Qdrant server
                                cmd: start | stop | status | log
+  imprint config             Show all settings and current values
+  imprint config set <k> <v> Persist a setting (e.g. model.name, qdrant.port)
+  imprint config get <key>   Show one setting
+  imprint config reset <key> Remove override, revert to default
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Stop server, unregister MCP, strip hooks (data preserved)
   imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor)

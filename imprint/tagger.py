@@ -5,14 +5,18 @@ Four layered sources, ordered from cheap+reliable to rich+expensive:
   1. derive_deterministic(rel_path) → {lang, layer, kind} from file metadata.
   2. derive_keywords(content)       → domain:[...] via hand-rolled keyword dict.
   3. derive_zero_shot(vector)       → topics:[...] by cosine against label
-                                       prototypes (opt-in; costs one extra
-                                       embed per label set during warmup).
-  4. derive_llm(content)            → topics:[...] via Claude API (opt-in,
-                                       slow, needs ANTHROPIC_API_KEY).
+                                       prototypes (on by default; opt-out via
+                                       IMPRINT_ZERO_SHOT_TAGS=0).
+  4. derive_llm(content)            → topics:[...] via LLM API (opt-in via
+                                       IMPRINT_LLM_TAGS=1). Supports multiple
+                                       providers: anthropic, openai, ollama,
+                                       vllm, gemini. When enabled, replaces
+                                       zero-shot.
 
 `build_payload_tags` is the orchestrator — always runs (1) and (2), runs (3)
-if `zero_shot=True`, runs (4) if `llm=True`. Merges results into a single
-structured dict that matches the vectorstore payload schema.
+by default unless (4) is enabled. When LLM tagging is on, it replaces
+zero-shot. Merges results into a single structured dict that matches the
+vectorstore payload schema.
 """
 
 from __future__ import annotations
@@ -255,9 +259,42 @@ _LLM_PROMPT = (
     "only a comma-separated list, no explanation.\n\n"
 )
 
+# Provider configs: default model + API key env var + base URL.
+# Ollama and vLLM use OpenAI-compatible API with custom base_url.
+_PROVIDER_DEFAULTS: dict[str, dict] = {
+    "anthropic": {"model": "claude-haiku-4-5", "key_env": "ANTHROPIC_API_KEY"},
+    "openai":    {"model": "gpt-4o-mini",      "key_env": "OPENAI_API_KEY"},
+    "gemini":    {"model": "gemini-2.0-flash",  "key_env": "GOOGLE_API_KEY", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+    "ollama":    {"model": "llama3.2",          "key_env": None, "base_url": "http://localhost:11434/v1"},
+    "vllm":      {"model": "default",           "key_env": None, "base_url": "http://localhost:8000/v1"},
+}
 
-def derive_llm(content: str, max_chars: int = 3000) -> list[str]:
-    """Opt-in: ask Claude for topic tags. Requires ANTHROPIC_API_KEY in env."""
+
+def _get_llm_provider() -> str:
+    from .config_schema import resolve
+    return str(resolve("tagger.llm_provider")[0]).lower()
+
+
+def _get_llm_model() -> str:
+    from .config_schema import resolve
+    val, source = resolve("tagger.llm_model")
+    if source != "default":
+        return str(val)
+    # If user didn't override model, use provider-specific default
+    provider = _get_llm_provider()
+    defaults = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["anthropic"])
+    return defaults["model"]
+
+
+def _sanitize_tags(text: str) -> list[str]:
+    """Parse comma-separated LLM response into sanitized tag list."""
+    tags = [t.strip().lower() for t in text.split(",") if t.strip()]
+    tags = [re.sub(r"[^a-z0-9\-]+", "-", t).strip("-") for t in tags]
+    tags = [t for t in tags if 1 <= len(t) <= 32]
+    return tags[:4]
+
+
+def _derive_llm_anthropic(content: str, max_chars: int) -> list[str]:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return []
@@ -265,19 +302,61 @@ def derive_llm(content: str, max_chars: int = 3000) -> list[str]:
         import anthropic
     except ImportError:
         return []
+    client = anthropic.Anthropic(api_key=key)
+    resp = client.messages.create(
+        model=_get_llm_model(),
+        max_tokens=60,
+        messages=[{"role": "user", "content": _LLM_PROMPT + content[:max_chars]}],
+    )
+    text = resp.content[0].text if resp.content else ""
+    return _sanitize_tags(text)
+
+
+def _derive_llm_openai_compat(content: str, max_chars: int) -> list[str]:
+    """OpenAI-compatible provider (openai, ollama, vllm, gemini)."""
+    provider = _get_llm_provider()
+    defaults = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["openai"])
+
+    key_env = defaults.get("key_env")
+    api_key = os.environ.get(key_env) if key_env else os.environ.get("IMPRINT_LLM_TAGGER_API_KEY", "no-key-needed")
+    if key_env and not api_key:
+        return []
+
+    from .config_schema import resolve
+    configured_url = resolve("tagger.llm_base_url")[0]
+    base_url = configured_url if configured_url else defaults.get("base_url")
+
     try:
-        client = anthropic.Anthropic(api_key=key)
-        resp = client.messages.create(
-            model=os.environ.get("IMPRINT_LLM_TAGGER_MODEL", "claude-haiku-4-5"),
-            max_tokens=60,
-            messages=[{"role": "user", "content": _LLM_PROMPT + content[:max_chars]}],
-        )
-        text = resp.content[0].text if resp.content else ""
-        tags = [t.strip().lower() for t in text.split(",") if t.strip()]
-        # Sanitize — kebab-case, drop overlong
-        tags = [re.sub(r"[^a-z0-9\-]+", "-", t).strip("-") for t in tags]
-        tags = [t for t in tags if 1 <= len(t) <= 32]
-        return tags[:4]
+        import openai
+    except ImportError:
+        return []
+    kwargs: dict = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = openai.OpenAI(**kwargs)
+    resp = client.chat.completions.create(
+        model=_get_llm_model(),
+        max_tokens=60,
+        messages=[
+            {"role": "user", "content": _LLM_PROMPT + content[:max_chars]},
+        ],
+    )
+    text = resp.choices[0].message.content or "" if resp.choices else ""
+    return _sanitize_tags(text)
+
+
+def derive_llm(content: str, max_chars: int = 3000) -> list[str]:
+    """Opt-in: ask an LLM for topic tags.
+
+    Provider controlled by IMPRINT_LLM_TAGGER_PROVIDER (default: anthropic).
+    Model controlled by IMPRINT_LLM_TAGGER_MODEL (default per provider).
+    Base URL override: IMPRINT_LLM_TAGGER_BASE_URL.
+    """
+    try:
+        provider = _get_llm_provider()
+        if provider == "anthropic":
+            return _derive_llm_anthropic(content, max_chars)
+        return _derive_llm_openai_compat(content, max_chars)
     except Exception:
         return []
 
@@ -288,23 +367,27 @@ def build_payload_tags(
     rel_path: str = "",
     *,
     vector: list[float] | None = None,
-    zero_shot: bool = False,
+    zero_shot: bool = True,
     llm: bool = False,
 ) -> dict:
-    """Combine all four tag sources into the canonical payload shape."""
+    """Combine all four tag sources into the canonical payload shape.
+
+    When ``llm=True``, LLM tagging replaces zero-shot (no point running both).
+    Zero-shot is on by default (opt-out via ``zero_shot=False``).
+    """
     d = derive_deterministic(rel_path) if rel_path else {"lang": "", "layer": "", "kind": ""}
     domain = derive_keywords(content)
     topics: list[str] = []
 
-    if zero_shot and vector is not None:
-        try:
-            topics.extend(derive_zero_shot(vector))
-        except Exception:
-            pass
-
     if llm:
+        # LLM tagging replaces zero-shot
         try:
             topics.extend(derive_llm(content))
+        except Exception:
+            pass
+    elif zero_shot and vector is not None:
+        try:
+            topics.extend(derive_zero_shot(vector))
         except Exception:
             pass
 
