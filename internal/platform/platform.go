@@ -25,14 +25,53 @@ func PythonCandidates() []PythonCandidate {
 	if runtime.GOOS == "windows" {
 		return []PythonCandidate{
 			{Cmd: "py", ExtraArgs: []string{"-3"}},
+			{Cmd: "python3.13"},
+			{Cmd: "python3.12"},
+			{Cmd: "python3.11"},
+			{Cmd: "python3.10"},
 			{Cmd: "python3"},
 			{Cmd: "python"},
 		}
 	}
-	return []PythonCandidate{
-		{Cmd: "python3"},
-		{Cmd: "python"},
+
+	var candidates []PythonCandidate
+
+	// On macOS, check Homebrew versioned formula paths first.
+	// `brew install python@3.X` puts the binary at /opt/homebrew/bin/python3.X
+	// (Apple Silicon) or /usr/local/bin/python3.X (Intel), and also under
+	// the opt prefix. Check both so we find them even when not on PATH.
+	if runtime.GOOS == "darwin" {
+		for _, prefix := range []string{"/opt/homebrew", "/usr/local"} {
+			// Compatible versions first (highest preferred).
+			for _, minor := range []string{"13", "12", "11", "10"} {
+				candidates = append(candidates, PythonCandidate{
+					Cmd: filepath.Join(prefix, "bin", "python3."+minor),
+				})
+				candidates = append(candidates, PythonCandidate{
+					Cmd: filepath.Join(prefix, "opt", "python@3."+minor, "bin", "python3."+minor),
+				})
+			}
+			// Potentially too-new versions — won't be selected, but detected
+			// so the error message can tell the user what was found.
+			for _, minor := range []string{"14", "15", "16"} {
+				candidates = append(candidates, PythonCandidate{
+					Cmd: filepath.Join(prefix, "bin", "python3."+minor),
+				})
+			}
+		}
 	}
+
+	// Standard PATH-based candidates, highest compatible version first.
+	candidates = append(candidates,
+		PythonCandidate{Cmd: "python3.13"},
+		PythonCandidate{Cmd: "python3.12"},
+		PythonCandidate{Cmd: "python3.11"},
+		PythonCandidate{Cmd: "python3.10"},
+		PythonCandidate{Cmd: "python3"},
+		PythonCandidate{Cmd: "python"},
+	)
+
+	return candidates
 }
 
 func VenvPython(projectDir string) string {
@@ -180,13 +219,13 @@ func ReplaceAliasBlock(content, name, newAliasLine string) string {
 func PythonInstallHint() string {
 	switch runtime.GOOS {
 	case "linux":
-		return "sudo apt install python3"
+		return "sudo apt install python3.13 (or: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.13)"
 	case "darwin":
-		return "brew install python3"
+		return "brew install python@3.13"
 	case "windows":
-		return "download from https://www.python.org/downloads/"
+		return "download Python 3.13 from https://www.python.org/downloads/"
 	default:
-		return "install Python 3.9+"
+		return "install Python 3.10–3.13"
 	}
 }
 

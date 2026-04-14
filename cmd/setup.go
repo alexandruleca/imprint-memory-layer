@@ -37,16 +37,25 @@ func setupBackend() backendPaths {
 
 	output.Info("Detected platform: " + platform.OSName())
 
-	output.Info("Checking for Python 3.9+...")
-	pythonCmd, pythonArgs, pythonVer := findPython()
-	if pythonCmd == "" {
-		output.Fail("Python 3.9+ not found. Install with: " + platform.PythonInstallHint())
+	output.Info(fmt.Sprintf("Checking for Python 3.%d–3.%d...", pythonMinMinor, pythonMaxMinor))
+	py := findPython()
+	if py.Cmd == "" {
+		if len(py.TooNew) > 0 {
+			output.Fail(fmt.Sprintf(
+				"Found Python %s but it's too new — some dependencies don't support it yet (need 3.%d–3.%d).\n    Install a compatible version: %s",
+				strings.Join(py.TooNew, ", "), pythonMinMinor, pythonMaxMinor, platform.PythonInstallHint(),
+			))
+		}
+		output.Fail(fmt.Sprintf(
+			"No compatible Python found (need 3.%d–3.%d). Install with: %s",
+			pythonMinMinor, pythonMaxMinor, platform.PythonInstallHint(),
+		))
 	}
-	output.Success(fmt.Sprintf("Found Python %s (%s)", pythonVer, pythonCmd))
+	output.Success(fmt.Sprintf("Found Python %s (%s)", py.Version, py.Cmd))
 
 	output.Info("Checking for pip...")
-	pipArgs := append(pythonArgs, "-m", "pip", "--version")
-	if _, err := runner.RunCapture(pythonCmd, pipArgs...); err != nil {
+	pipArgs := append(append([]string{}, py.ExtraArgs...), "-m", "pip", "--version")
+	if _, err := runner.RunCapture(py.Cmd, pipArgs...); err != nil {
 		output.Fail("pip not found. Install with: " + platform.PipInstallHint())
 	}
 	output.Success("pip available")
@@ -57,21 +66,46 @@ func setupBackend() backendPaths {
 	output.Info("Setting up virtual environment...")
 	venvHealthy := false
 	if platform.DirExists(venvDir) {
-		// Verify the venv python binary actually works.
-		if _, err := runner.RunCapture(venvPython, "--version"); err == nil {
-			venvHealthy = true
-			output.Skip("Virtual environment at " + venvDir)
+		// Verify the venv python binary works AND matches the version we found.
+		// A venv created with an older Python will "work" but pip won't install
+		// packages that require the newer version.
+		venvOut, err := runner.RunCapture(venvPython, "--version")
+		if err == nil {
+			venvMatch := pythonVersionRe.FindStringSubmatch(venvOut)
+			pyMatch := pythonVersionRe.FindStringSubmatch("Python " + py.Version)
+			if venvMatch != nil && pyMatch != nil &&
+				venvMatch[1] == pyMatch[1] && venvMatch[2] == pyMatch[2] {
+				venvHealthy = true
+				output.Skip("Virtual environment at " + venvDir)
+			} else {
+				venvVer := "unknown"
+				if venvMatch != nil {
+					venvVer = venvMatch[1] + "." + venvMatch[2]
+				}
+				output.Warn(fmt.Sprintf(
+					"Virtual environment uses Python %s but found %s — recreating...",
+					venvVer, py.Version,
+				))
+				os.RemoveAll(venvDir)
+			}
 		} else {
 			output.Warn("Virtual environment at " + venvDir + " is broken, recreating...")
 			os.RemoveAll(venvDir)
 		}
 	}
 	if !venvHealthy {
-		venvArgs := append(pythonArgs, "-m", "venv", venvDir)
-		if err := runner.Run(pythonCmd, venvArgs...); err != nil {
+		venvArgs := append(append([]string{}, py.ExtraArgs...), "-m", "venv", venvDir)
+		if err := runner.Run(py.Cmd, venvArgs...); err != nil {
 			output.Fail("Failed to create virtual environment: " + err.Error())
 		}
 		output.Success("Created virtual environment at " + venvDir)
+	}
+
+	output.Info("Upgrading pip...")
+	if err := runner.Run(venvPip, "install", "--upgrade", "pip", "--quiet"); err != nil {
+		output.Warn("Could not upgrade pip: " + err.Error())
+	} else {
+		output.Success("pip up to date")
 	}
 
 	output.Info("Checking dependencies...")
@@ -174,11 +208,26 @@ func SetupClaudeCode() {
 	fmt.Println("  3. Use 'imprint ingest <dir>' to index your project directories")
 }
 
+const (
+	pythonMinMinor = 10 // minimum supported: 3.10
+	pythonMaxMinor = 13 // maximum supported: 3.13 (ONNX Runtime, etc.)
+)
+
 var pythonVersionRe = regexp.MustCompile(`Python (\d+)\.(\d+)\.(\d+)`)
 
-func findPython() (cmd string, extraArgs []string, version string) {
+type pythonSearchResult struct {
+	Cmd       string
+	ExtraArgs []string
+	Version   string
+	TooNew    []string // deduplicated version strings found but above max
+}
+
+func findPython() pythonSearchResult {
+	var result pythonSearchResult
+	tooNewSeen := make(map[string]bool)
+
 	for _, candidate := range platform.PythonCandidates() {
-		args := append(candidate.ExtraArgs, "--version")
+		args := append(append([]string{}, candidate.ExtraArgs...), "--version")
 		out, err := runner.RunCapture(candidate.Cmd, args...)
 		if err != nil {
 			continue
@@ -189,11 +238,24 @@ func findPython() (cmd string, extraArgs []string, version string) {
 		}
 		major, _ := strconv.Atoi(matches[1])
 		minor, _ := strconv.Atoi(matches[2])
-		if major > 3 || (major == 3 && minor >= 9) {
-			return candidate.Cmd, candidate.ExtraArgs, matches[1] + "." + matches[2] + "." + matches[3]
+		ver := matches[1] + "." + matches[2] + "." + matches[3]
+
+		if major == 3 && minor > pythonMaxMinor {
+			if !tooNewSeen[ver] {
+				result.TooNew = append(result.TooNew, ver)
+				tooNewSeen[ver] = true
+			}
+			continue
+		}
+		if major > 3 || (major == 3 && minor >= pythonMinMinor) {
+			result.Cmd = candidate.Cmd
+			result.ExtraArgs = candidate.ExtraArgs
+			result.Version = ver
+			return result
 		}
 	}
-	return "", nil, ""
+
+	return result
 }
 
 func parsePackageVersion(pipShowOutput string) string {
