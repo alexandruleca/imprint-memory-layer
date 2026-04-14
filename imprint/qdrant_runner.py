@@ -55,21 +55,6 @@ def _binary_path() -> Path:
     return _bin_dir() / name
 
 
-def _bundled_binary_path() -> Path:
-    """Return path to the committed qdrant binary in the project's bin/ dir."""
-    sysname = platform.system().lower()
-    machine = platform.machine().lower()
-    if machine in ("x86_64", "amd64"):
-        arch = "amd64"
-    elif machine in ("aarch64", "arm64"):
-        arch = "arm64"
-    else:
-        return Path("/nonexistent")  # unsupported, will fail is_file()
-    ext = ".exe" if sysname == "windows" else ""
-    name = f"qdrant-{sysname}-{arch}{ext}"
-    return config.get_project_dir() / "bin" / name
-
-
 def _pid_file() -> Path:
     return config.get_data_dir() / "qdrant.pid"
 
@@ -131,18 +116,13 @@ def _platform_asset() -> str:
 def _find_or_download_binary() -> Path:
     """Locate qdrant binary. Search order:
     1. IMPRINT_QDRANT_BIN env var (explicit path)
-    2. bin/qdrant-<os>-<arch> (committed to repo, version-locked)
-    3. data/qdrant-bin/qdrant (previously downloaded)
-    4. `qdrant` on PATH (system install)
-    5. Download from GitHub releases.
+    2. data/qdrant-bin/qdrant (previously downloaded)
+    3. `qdrant` on PATH (system install)
+    4. Download pinned version from GitHub releases.
     """
     env_path = os.environ.get("IMPRINT_QDRANT_BIN")
     if env_path and Path(env_path).is_file():
         return Path(env_path)
-
-    bundled = _bundled_binary_path()
-    if bundled.is_file():
-        return bundled
 
     local = _binary_path()
     if local.is_file():
