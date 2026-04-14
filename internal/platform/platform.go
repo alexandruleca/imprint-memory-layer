@@ -137,6 +137,46 @@ func AliasSearchPattern(shellName, name string) string {
 	return "alias " + name
 }
 
+// ReplaceAliasBlock replaces an existing alias line for the given name.
+// Looks for the "# <name> CLI alias" marker first (comment + next line).
+// Falls back to finding the bare alias/function line directly.
+func ReplaceAliasBlock(content, name, newAliasLine string) string {
+	marker := "# " + name + " CLI alias"
+	idx := strings.Index(content, marker)
+	if idx >= 0 {
+		// Marker found — replace the line after it
+		afterMarker := idx + len(marker)
+		if afterMarker < len(content) && content[afterMarker] == '\n' {
+			afterMarker++
+		}
+		endOfAlias := strings.Index(content[afterMarker:], "\n")
+		if endOfAlias < 0 {
+			endOfAlias = len(content) - afterMarker
+		}
+		end := afterMarker + endOfAlias
+		return content[:afterMarker] + newAliasLine + content[end:]
+	}
+
+	// No marker — find the bare alias line
+	for _, prefix := range []string{
+		`alias ` + name + `=`,
+		`alias ` + name + ` `,
+		`function ` + name,
+	} {
+		idx = strings.Index(content, prefix)
+		if idx >= 0 {
+			endOfLine := strings.Index(content[idx:], "\n")
+			if endOfLine < 0 {
+				endOfLine = len(content) - idx
+			}
+			end := idx + endOfLine
+			return content[:idx] + newAliasLine + content[end:]
+		}
+	}
+
+	return content
+}
+
 func PythonInstallHint() string {
 	switch runtime.GOOS {
 	case "linux":

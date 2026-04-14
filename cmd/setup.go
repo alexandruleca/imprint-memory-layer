@@ -227,12 +227,6 @@ func setupShellAlias(name, targetPath string) {
 		return
 	}
 
-	searchPattern := platform.AliasSearchPattern(shellName, name)
-	if platform.FileContains(rcFile, searchPattern) {
-		output.Skip(name + " alias in " + rcFile)
-		return
-	}
-
 	aliasLine := platform.AliasLine(shellName, name, targetPath)
 
 	dir := filepath.Dir(rcFile)
@@ -240,6 +234,28 @@ func setupShellAlias(name, targetPath string) {
 		os.MkdirAll(dir, 0755)
 	}
 
+	// Read existing content to check for stale alias
+	data, _ := os.ReadFile(rcFile)
+	content := string(data)
+
+	searchPattern := platform.AliasSearchPattern(shellName, name)
+	if strings.Contains(content, searchPattern) {
+		// Alias exists — check if it already points to the right target
+		if strings.Contains(content, aliasLine) {
+			output.Skip(name + " alias in " + rcFile)
+			return
+		}
+		// Stale alias — replace it
+		updated := platform.ReplaceAliasBlock(content, name, aliasLine)
+		if err := os.WriteFile(rcFile, []byte(updated), 0644); err != nil {
+			output.Warn("Could not update " + rcFile + ": " + err.Error())
+			return
+		}
+		output.Success("Updated " + name + " alias in " + rcFile)
+		return
+	}
+
+	// No alias yet — append
 	f, err := os.OpenFile(rcFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		output.Warn("Could not write to " + rcFile + ": " + err.Error())
