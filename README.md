@@ -755,7 +755,8 @@ Or deploy to Docker Swarm with `docker-compose.relay.yml`.
 
 **LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically with `imprint setup`. No extra steps needed for any provider.
 
-**Roadmap Features**
-[] Local Auto Back-up
-[] External Qdrant Instance/Sync2Instance
-[] 
+## Roadmap Features
+
+- [ ] Local Auto Back-up
+- [ ] External Qdrant Instance instead of local db
+- [ ] BackUp/Sync to another Qdrant Remote Instance Server
