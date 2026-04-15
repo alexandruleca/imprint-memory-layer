@@ -342,23 +342,28 @@ def store(
     return memory_id
 
 
-# Qdrant caps inbound JSON at 32 MB by default. Split sub-batches well
-# under that to leave room for vector+overhead serialization.
-_MAX_UPSERT_BYTES = 24 * 1024 * 1024
+# Qdrant caps inbound JSON at 32 MB by default. Target ~14 MB so we have
+# generous headroom for JSON-encoding overhead (floats serialize to ~16B
+# each; content gets escape-char bloat; metadata dict keys repeat per point).
+_MAX_UPSERT_BYTES = 14 * 1024 * 1024
 
 
 def _point_size_estimate(p: qm.PointStruct) -> int:
     payload = getattr(p, "payload", None) or {}
     content = payload.get("content") or ""
-    # Content dominates; pad for vector (dim * ~6 chars per float) and meta.
+    # JSON-escape inflates UTF-8 content by ~20%.
+    content_bytes = int(len(content.encode("utf-8", errors="ignore")) * 1.2)
+    # Each float serializes to ~16 bytes in JSON (digits + comma).
     vec_bytes = 0
     try:
         vec_map = p.vector if isinstance(p.vector, dict) else {"_": p.vector}
         for v in vec_map.values():
-            vec_bytes += len(v) * 6
+            vec_bytes += len(v) * 16
     except Exception:
         pass
-    return len(content.encode("utf-8", errors="ignore")) + vec_bytes + 2048
+    # Payload keys + doc_metadata + tags dict + timestamps.
+    meta_bytes = 3072
+    return content_bytes + vec_bytes + meta_bytes
 
 
 def _upsert_chunked(client, coll: str, points: list) -> None:
