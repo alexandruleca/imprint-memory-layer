@@ -342,6 +342,44 @@ def store(
     return memory_id
 
 
+# Qdrant caps inbound JSON at 32 MB by default. Split sub-batches well
+# under that to leave room for vector+overhead serialization.
+_MAX_UPSERT_BYTES = 24 * 1024 * 1024
+
+
+def _point_size_estimate(p: qm.PointStruct) -> int:
+    payload = getattr(p, "payload", None) or {}
+    content = payload.get("content") or ""
+    # Content dominates; pad for vector (dim * ~6 chars per float) and meta.
+    vec_bytes = 0
+    try:
+        vec_map = p.vector if isinstance(p.vector, dict) else {"_": p.vector}
+        for v in vec_map.values():
+            vec_bytes += len(v) * 6
+    except Exception:
+        pass
+    return len(content.encode("utf-8", errors="ignore")) + vec_bytes + 2048
+
+
+def _upsert_chunked(client, coll: str, points: list) -> None:
+    """Upsert points in size-bounded sub-batches so we stay under Qdrant's
+    32 MB per-request payload limit."""
+    if not points:
+        return
+    batch: list = []
+    size = 0
+    for p in points:
+        est = _point_size_estimate(p)
+        if batch and (size + est) > _MAX_UPSERT_BYTES:
+            client.upsert(collection_name=coll, points=batch)
+            batch = []
+            size = 0
+        batch.append(p)
+        size += est
+    if batch:
+        client.upsert(collection_name=coll, points=batch)
+
+
 def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
     """Store many records with one embed pass. Skips duplicates by logical id.
 
@@ -392,7 +430,7 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
             )
         )
 
-    client.upsert(collection_name=coll, points=points)
+    _upsert_chunked(client, coll, points)
 
     for r in new_records:
         existing.add(r["_mid"])
