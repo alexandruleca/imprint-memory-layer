@@ -94,6 +94,8 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	// Disable 32 KiB default — sync payloads are MBs.
+	conn.SetReadLimit(-1)
 
 	roomsMu.Lock()
 	room, exists := rooms[id]
@@ -135,14 +137,22 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Cleanup
+	// Cleanup. Close the peer too so the other side fails fast instead of
+	// hanging on Read until TCP keepalive.
 	roomsMu.Lock()
 	room.mu.Lock()
+	var peer *websocket.Conn
 	if room.provider == conn {
 		room.provider = nil
+		peer = room.consumer
+		room.consumer = nil
 	}
 	if room.consumer == conn {
 		room.consumer = nil
+		if peer == nil {
+			peer = room.provider
+		}
+		room.provider = nil
 	}
 	empty := room.provider == nil && room.consumer == nil
 	room.mu.Unlock()
@@ -151,4 +161,7 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	roomsMu.Unlock()
 	conn.Close(websocket.StatusNormalClosure, "done")
+	if peer != nil {
+		peer.Close(websocket.StatusGoingAway, "peer disconnected")
+	}
 }

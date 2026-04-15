@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -25,6 +27,9 @@ import (
 // defaultRelayHost is used when the user does not pass --relay or a host
 // prefix on the sync target. Supports WSS.
 const defaultRelayHost = "imprint.alexandruleca.com"
+
+// defaultBatchSize is the default number of records per streamed batch.
+const defaultBatchSize = 500
 
 type deviceIdentity struct {
 	Hostname    string `json:"hostname"`
@@ -46,6 +51,17 @@ type helloRequest struct {
 	OS          string `json:"os"`
 	Fingerprint string `json:"fingerprint"`
 	PIN         string `json:"pin"`
+}
+
+// streamMsg is the wire format for streamed pull/push payloads.
+// Newline-delimited JSON of this shape flows over the WS and to/from Python.
+type streamMsg struct {
+	Kind     string             `json:"kind"`              // "meta" | "batch" | "done" | "error"
+	Datasets map[string]int     `json:"datasets,omitempty"` // on meta: dataset name → total count
+	Dataset  string             `json:"dataset,omitempty"`  // on batch: "memories" | "facts"
+	Seq      int                `json:"seq,omitempty"`
+	Records  []json.RawMessage  `json:"records,omitempty"`
+	Message  string             `json:"message,omitempty"`  // on error
 }
 
 func Sync(args []string) {
@@ -111,6 +127,8 @@ func syncServe(args []string) {
 		output.Fail("Cannot connect to relay: " + err.Error())
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
+	// Disable 32 KiB default — sync payloads may be MBs per batch.
+	conn.SetReadLimit(-1)
 
 	hostname, _ := os.Hostname()
 	fmt.Println()
@@ -164,34 +182,33 @@ func syncServe(args []string) {
 			continue
 		}
 
-		var resp []byte
-
 		switch req.Path {
 		case "/sync/pull":
 			output.Info("Peer requesting pull...")
-			out, _ := runner.RunCapture(venvPython, "-c", syncExportScript(projectDir, dataDir))
-			resp, _ = json.Marshal(map[string]any{"status": 200, "body": json.RawMessage(out)})
-			output.Success("Sent data to peer")
+			if err := streamExport(ctx, conn, venvPython, projectDir, dataDir, req.Body, "Sending"); err != nil {
+				output.Warn("Export failed: " + err.Error())
+			} else {
+				output.Success("Export complete")
+			}
 
 		case "/sync/push":
 			output.Info("Peer pushing data...")
-			// Write body to temp file, import
-			tmpFile := dataDir + "/.sync_incoming.json"
-			os.WriteFile(tmpFile, req.Body, 0644)
-			out, _ := runner.RunCapture(venvPython, "-c", syncImportScript(projectDir, dataDir, tmpFile))
-			os.Remove(tmpFile)
-			resp, _ = json.Marshal(map[string]any{"status": 200, "body": json.RawMessage(out)})
-			output.Success("Merged peer data: " + out)
+			result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving")
+			if err != nil {
+				writeEnvelope(ctx, conn, 500, []byte(fmt.Sprintf("%q", err.Error())))
+				output.Warn("Import failed: " + err.Error())
+			} else {
+				writeEnvelope(ctx, conn, 200, []byte(result))
+				output.Success("Merged peer data: " + result)
+			}
 
 		case "/sync/status":
 			out, _ := runner.RunCapture(venvPython, "-c", syncStatusScript(projectDir, dataDir))
-			resp, _ = json.Marshal(map[string]any{"status": 200, "body": json.RawMessage(out)})
+			writeEnvelope(ctx, conn, 200, []byte(out))
 
 		default:
-			resp, _ = json.Marshal(map[string]any{"status": 404})
+			writeEnvelope(ctx, conn, 404, []byte(`"unknown path"`))
 		}
-
-		conn.Write(ctx, websocket.MessageText, resp)
 	}
 
 	fmt.Println("  Connection closed.")
@@ -245,6 +262,7 @@ func syncPull(args []string) {
 		output.Fail("Cannot connect: " + err.Error())
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
+	conn.SetReadLimit(-1)
 
 	output.Success("Connected to peer")
 
@@ -263,47 +281,45 @@ func syncPull(args []string) {
 
 	// Step 1: Pull from remote
 	output.Info("Pulling remote data...")
-	pullReq, _ := json.Marshal(map[string]string{"method": "GET", "path": "/sync/pull"})
-	conn.Write(ctx, websocket.MessageText, pullReq)
-
-	_, pullResp, err := conn.Read(ctx)
-	if err != nil {
+	pullReq, _ := json.Marshal(map[string]any{
+		"method": "GET",
+		"path":   "/sync/pull",
+		"body":   map[string]int{"batch_size": defaultBatchSize},
+	})
+	if err := conn.Write(ctx, websocket.MessageText, pullReq); err != nil {
+		output.Fail("Pull request failed: " + err.Error())
+	}
+	if result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving"); err != nil {
 		output.Fail("Pull failed: " + err.Error())
+	} else {
+		output.Success("Merged remote → local: " + result)
 	}
-
-	var pullResult struct {
-		Status int             `json:"status"`
-		Body   json.RawMessage `json:"body"`
-	}
-	json.Unmarshal(pullResp, &pullResult)
-
-	// Merge remote data into local
-	tmpFile := dataDir + "/.sync_incoming.json"
-	os.WriteFile(tmpFile, pullResult.Body, 0644)
-	mergeOut, _ := runner.RunCapture(venvPython, "-c", syncImportScript(projectDir, dataDir, tmpFile))
-	os.Remove(tmpFile)
-	output.Success("Merged remote → local: " + mergeOut)
 
 	// Step 2: Push local data to remote
 	output.Info("Pushing local data...")
-	localData, _ := runner.RunCapture(venvPython, "-c", syncExportScript(projectDir, dataDir))
 	pushReq, _ := json.Marshal(map[string]any{
 		"method": "POST",
 		"path":   "/sync/push",
-		"body":   json.RawMessage(localData),
+		"body":   map[string]int{"batch_size": defaultBatchSize},
 	})
-	conn.Write(ctx, websocket.MessageText, pushReq)
+	if err := conn.Write(ctx, websocket.MessageText, pushReq); err != nil {
+		output.Fail("Push request failed: " + err.Error())
+	}
+	if err := streamExport(ctx, conn, venvPython, projectDir, dataDir, nil, "Sending"); err != nil {
+		output.Warn("Push send failed: " + err.Error())
+	}
 
-	_, pushResp, err := conn.Read(ctx)
+	// Final ack from provider
+	_, ack, err := conn.Read(ctx)
 	if err != nil {
-		output.Warn("Push failed: " + err.Error())
+		output.Warn("Push ack failed: " + err.Error())
 	} else {
-		var pushResult struct {
+		var ackResp struct {
 			Status int             `json:"status"`
 			Body   json.RawMessage `json:"body"`
 		}
-		json.Unmarshal(pushResp, &pushResult)
-		output.Success("Pushed local → remote: " + string(pushResult.Body))
+		json.Unmarshal(ack, &ackResp)
+		output.Success("Pushed local → remote: " + string(ackResp.Body))
 	}
 
 	fmt.Println()
@@ -311,75 +327,426 @@ func syncPull(args []string) {
 	fmt.Println()
 }
 
-func syncExportScript(projectDir, dataDir string) string {
-	return fmt.Sprintf(`
-import os, sys, json
-sys.path.insert(0, %q)
-os.environ["IMPRINT_DATA_DIR"] = %q
-from imprint import config, vectorstore as vs
+// -----------------------------------------------------------------------------
+// Streaming helpers
+// -----------------------------------------------------------------------------
 
-client, coll = vs._ensure_collection()
-info = client.get_collection(coll)
-if (info.points_count or 0) == 0:
-    print("[]")
-    sys.exit(0)
-
-records = []
-for pl in vs._scroll_all([
-    "_mid", "content", "project", "type", "tags", "source",
-    "chunk_index", "source_mtime", "timestamp",
-]):
-    records.append({
-        "id": pl.get("_mid", ""),
-        "content": pl.get("content", ""),
-        "project": pl.get("project", ""),
-        "type": pl.get("type", ""),
-        "tags": pl.get("tags", {}),
-        "source": pl.get("source", ""),
-        "chunk_index": pl.get("chunk_index", 0),
-        "source_mtime": pl.get("source_mtime", 0),
-        "timestamp": pl.get("timestamp", 0),
-    })
-
-print(json.dumps(records))
-`, projectDir, dataDir)
+// writeEnvelope sends {"status":N,"body":<raw>} on the WS.
+func writeEnvelope(ctx context.Context, conn *websocket.Conn, status int, body []byte) error {
+	if len(body) == 0 {
+		body = []byte("null")
+	}
+	out, _ := json.Marshal(map[string]any{
+		"status": status,
+		"body":   json.RawMessage(body),
+	})
+	return conn.Write(ctx, websocket.MessageText, out)
 }
 
-func syncImportScript(projectDir, dataDir, tmpFile string) string {
+// streamExport runs the Python exporter and forwards each newline-delimited
+// JSON line as a WebSocket message. Shows a per-dataset progress counter.
+// reqBody may carry {"batch_size":N}; defaults to defaultBatchSize.
+func streamExport(
+	ctx context.Context,
+	conn *websocket.Conn,
+	venvPython, projectDir, dataDir string,
+	reqBody json.RawMessage,
+	label string,
+) error {
+	batchSize := defaultBatchSize
+	if len(reqBody) > 0 {
+		var opts struct {
+			BatchSize int `json:"batch_size"`
+		}
+		_ = json.Unmarshal(reqBody, &opts)
+		if opts.BatchSize > 0 {
+			batchSize = opts.BatchSize
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, venvPython, "-c", syncExportStreamScript(projectDir, dataDir, batchSize))
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start exporter: %w", err)
+	}
+
+	prog := newProgress(label)
+	sent := map[string]int{}
+	totals := map[string]int{}
+
+	scanner := bufio.NewScanner(stdout)
+	// Allow very large lines (one batch = up to ~batchSize * record_size).
+	scanner.Buffer(make([]byte, 64*1024), 512*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Copy because we forward async and scanner reuses the buffer.
+		payload := make([]byte, len(line))
+		copy(payload, line)
+
+		if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return fmt.Errorf("ws write: %w", err)
+		}
+
+		var m streamMsg
+		if err := json.Unmarshal(payload, &m); err != nil {
+			continue
+		}
+		switch m.Kind {
+		case "meta":
+			for ds, n := range m.Datasets {
+				totals[ds] = n
+			}
+			prog.Meta(totals)
+		case "batch":
+			sent[m.Dataset] += len(m.Records)
+			prog.Update(m.Dataset, sent[m.Dataset], totals[m.Dataset])
+		case "done":
+			prog.Finish(sent, totals)
+		case "error":
+			prog.Finish(sent, totals)
+			_ = cmd.Wait()
+			return fmt.Errorf("exporter error: %s", m.Message)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		_ = cmd.Wait()
+		return fmt.Errorf("scan: %w", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("exporter exit: %w", err)
+	}
+	return nil
+}
+
+// streamImport reads WS messages until {"kind":"done"} and pipes each batch
+// to the Python importer over stdin. Returns the importer's final JSON summary.
+func streamImport(
+	ctx context.Context,
+	conn *websocket.Conn,
+	venvPython, projectDir, dataDir string,
+	label string,
+) (string, error) {
+	cmd := exec.CommandContext(ctx, venvPython, "-c", syncImportStreamScript(projectDir, dataDir))
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start importer: %w", err)
+	}
+
+	prog := newProgress(label)
+	received := map[string]int{}
+	totals := map[string]int{}
+
+loop:
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+			return "", fmt.Errorf("ws read: %w", err)
+		}
+		if _, err := stdin.Write(append(data, '\n')); err != nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+			return "", fmt.Errorf("importer stdin: %w", err)
+		}
+
+		var m streamMsg
+		if err := json.Unmarshal(data, &m); err != nil {
+			continue
+		}
+		switch m.Kind {
+		case "meta":
+			for ds, n := range m.Datasets {
+				totals[ds] = n
+			}
+			prog.Meta(totals)
+		case "batch":
+			received[m.Dataset] += len(m.Records)
+			prog.Update(m.Dataset, received[m.Dataset], totals[m.Dataset])
+		case "done":
+			prog.Finish(received, totals)
+			break loop
+		case "error":
+			prog.Finish(received, totals)
+			_ = stdin.Close()
+			_ = cmd.Wait()
+			return "", fmt.Errorf("peer error: %s", m.Message)
+		}
+	}
+
+	if err := stdin.Close(); err != nil {
+		return "", fmt.Errorf("close importer stdin: %w", err)
+	}
+
+	summary, _ := io.ReadAll(stdout)
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("importer exit: %w (output: %s)", err, string(summary))
+	}
+	return strings.TrimSpace(string(summary)), nil
+}
+
+// -----------------------------------------------------------------------------
+// Progress UX
+// -----------------------------------------------------------------------------
+
+type progressCtx struct {
+	label string
+	tty   bool
+	start time.Time
+}
+
+func newProgress(label string) *progressCtx {
+	info, err := os.Stdout.Stat()
+	tty := err == nil && (info.Mode()&os.ModeCharDevice) != 0
+	return &progressCtx{label: label, tty: tty, start: time.Now()}
+}
+
+// Meta prints the up-front totals line.
+func (p *progressCtx) Meta(totals map[string]int) {
+	parts := []string{}
+	for _, ds := range []string{"memories", "facts"} {
+		if n, ok := totals[ds]; ok {
+			parts = append(parts, fmt.Sprintf("%d %s", n, ds))
+		}
+	}
+	if len(parts) == 0 {
+		return
+	}
+	output.Info(fmt.Sprintf("%s: %s", p.label, strings.Join(parts, ", ")))
+}
+
+// Update prints or overwrites the progress line for a dataset.
+func (p *progressCtx) Update(dataset string, current, total int) {
+	if total <= 0 {
+		return
+	}
+	msg := fmt.Sprintf("  %s %s: %d/%d", p.label, dataset, current, total)
+	if p.tty {
+		fmt.Printf("\r\033[K%s", msg)
+	} else {
+		fmt.Println(msg)
+	}
+}
+
+// Finish closes out the progress (newline on TTY) and prints a summary.
+func (p *progressCtx) Finish(done, totals map[string]int) {
+	if p.tty {
+		fmt.Print("\r\033[K")
+	}
+	dur := time.Since(p.start).Round(time.Millisecond)
+	parts := []string{}
+	for _, ds := range []string{"memories", "facts"} {
+		if t, ok := totals[ds]; ok && t > 0 {
+			parts = append(parts, fmt.Sprintf("%d/%d %s", done[ds], t, ds))
+		}
+	}
+	if len(parts) == 0 {
+		output.Success(fmt.Sprintf("%s complete (%s)", p.label, dur))
+		return
+	}
+	output.Success(fmt.Sprintf("%s complete: %s (%s)", p.label, strings.Join(parts, ", "), dur))
+}
+
+// -----------------------------------------------------------------------------
+// Python scripts
+// -----------------------------------------------------------------------------
+
+// syncExportStreamScript emits newline-delimited JSON:
+//   {"kind":"meta","datasets":{"memories":N,"facts":M}}
+//   {"kind":"batch","dataset":"memories","seq":i,"records":[...]}   (xN/BATCH)
+//   {"kind":"batch","dataset":"facts","seq":i,"records":[...]}       (xM/BATCH)
+//   {"kind":"done"}
+func syncExportStreamScript(projectDir, dataDir string, batchSize int) string {
 	return fmt.Sprintf(`
 import os, sys, json
 sys.path.insert(0, %q)
 os.environ["IMPRINT_DATA_DIR"] = %q
 from imprint import vectorstore as vs
+try:
+    from imprint import imprint_graph as kg
+except Exception:
+    kg = None
 
-with open(%q) as f:
-    records = json.load(f)
+BATCH = %d
 
-if not records:
-    print(json.dumps({"inserted": 0, "skipped": 0}))
-    sys.exit(0)
+def emit(obj):
+    sys.stdout.write(json.dumps(obj, separators=(",", ":")))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
-inserted = 0
-skipped = 0
+# Counts
+client, coll = vs._ensure_collection()
+info = client.get_collection(coll)
+mem_total = int(info.points_count or 0)
 
-# store_batch chunks by default flush size, so pass everything in at once.
-ins, sk = vs.store_batch([
-    {
-        "content": r["content"],
-        "project": r.get("project", ""),
-        "type": r.get("type", ""),
-        "tags": r.get("tags", {}),
-        "source": r.get("source", ""),
-        "chunk_index": r.get("chunk_index", 0),
-        "source_mtime": r.get("source_mtime", 0),
-    }
-    for r in records
-])
-inserted = ins
-skipped = sk
+fact_total = 0
+if kg is not None:
+    try:
+        conn = kg._get_conn()
+        fact_total = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+    except Exception:
+        fact_total = 0
 
-print(json.dumps({"inserted": inserted, "skipped": skipped, "total": len(records)}))
-`, projectDir, dataDir, tmpFile)
+emit({"kind": "meta", "datasets": {"memories": mem_total, "facts": fact_total}})
+
+# Stream memories
+if mem_total > 0:
+    buf = []
+    seq = 0
+    for pl in vs._scroll_all([
+        "_mid", "content", "project", "type", "tags", "source",
+        "chunk_index", "source_mtime", "timestamp",
+    ]):
+        buf.append({
+            "id": pl.get("_mid", ""),
+            "content": pl.get("content", ""),
+            "project": pl.get("project", ""),
+            "type": pl.get("type", ""),
+            "tags": pl.get("tags", {}),
+            "source": pl.get("source", ""),
+            "chunk_index": pl.get("chunk_index", 0),
+            "source_mtime": pl.get("source_mtime", 0),
+            "timestamp": pl.get("timestamp", 0),
+        })
+        if len(buf) >= BATCH:
+            seq += 1
+            emit({"kind": "batch", "dataset": "memories", "seq": seq, "records": buf})
+            buf = []
+    if buf:
+        seq += 1
+        emit({"kind": "batch", "dataset": "memories", "seq": seq, "records": buf})
+
+# Stream facts (knowledge graph)
+if fact_total > 0 and kg is not None:
+    conn = kg._get_conn()
+    rows = conn.execute(
+        "SELECT subject, predicate, object, valid_from, ended, source FROM facts"
+    ).fetchall()
+    records = [
+        {
+            "subject": r["subject"],
+            "predicate": r["predicate"],
+            "object": r["object"],
+            "valid_from": r["valid_from"],
+            "ended": r["ended"],
+            "source": r["source"] or "",
+        }
+        for r in rows
+    ]
+    for i in range(0, len(records), BATCH):
+        seq = i // BATCH + 1
+        emit({"kind": "batch", "dataset": "facts", "seq": seq, "records": records[i:i + BATCH]})
+
+emit({"kind": "done"})
+`, projectDir, dataDir, batchSize)
+}
+
+// syncImportStreamScript reads newline-delimited JSON from stdin, dispatches
+// batches to store_batch / facts-insert, and prints a final summary to stdout.
+func syncImportStreamScript(projectDir, dataDir string) string {
+	return fmt.Sprintf(`
+import os, sys, json
+sys.path.insert(0, %q)
+os.environ["IMPRINT_DATA_DIR"] = %q
+from imprint import vectorstore as vs
+try:
+    from imprint import imprint_graph as kg
+except Exception:
+    kg = None
+
+stats = {
+    "memories": {"inserted": 0, "skipped": 0},
+    "facts": {"inserted": 0, "skipped": 0},
+}
+
+def import_memories(records):
+    if not records:
+        return
+    ins, sk = vs.store_batch([
+        {
+            "content": r.get("content", ""),
+            "project": r.get("project", ""),
+            "type": r.get("type", ""),
+            "tags": r.get("tags", {}),
+            "source": r.get("source", ""),
+            "chunk_index": r.get("chunk_index", 0),
+            "source_mtime": r.get("source_mtime", 0),
+        }
+        for r in records
+    ])
+    stats["memories"]["inserted"] += int(ins)
+    stats["memories"]["skipped"] += int(sk)
+
+def import_facts(records):
+    if not records or kg is None:
+        if records and kg is None:
+            stats["facts"]["skipped"] += len(records)
+        return
+    conn = kg._get_conn()
+    ins = 0
+    sk = 0
+    for r in records:
+        row = conn.execute(
+            "SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?",
+            (r.get("subject", ""), r.get("predicate", ""), r.get("object", ""), r.get("valid_from", 0)),
+        ).fetchone()
+        if row:
+            sk += 1
+            continue
+        conn.execute(
+            "INSERT INTO facts (subject, predicate, object, valid_from, ended, source) VALUES (?,?,?,?,?,?)",
+            (
+                r.get("subject", ""),
+                r.get("predicate", ""),
+                r.get("object", ""),
+                r.get("valid_from", 0),
+                r.get("ended"),
+                r.get("source", "") or "",
+            ),
+        )
+        ins += 1
+    conn.commit()
+    stats["facts"]["inserted"] += ins
+    stats["facts"]["skipped"] += sk
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    kind = msg.get("kind")
+    if kind == "done":
+        break
+    if kind != "batch":
+        continue
+    dataset = msg.get("dataset", "memories")
+    records = msg.get("records") or []
+    if dataset == "memories":
+        import_memories(records)
+    elif dataset == "facts":
+        import_facts(records)
+
+sys.stdout.write(json.dumps(stats))
+sys.stdout.flush()
+`, projectDir, dataDir)
 }
 
 func syncStatusScript(projectDir, dataDir string) string {

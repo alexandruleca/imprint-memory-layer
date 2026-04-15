@@ -20,22 +20,40 @@ sequenceDiagram
     A-->>R: status 200 / 403
     R-->>B: forward response
 
-    B->>R: GET /sync/pull
+    B->>R: GET /sync/pull {batch_size:500}
     R->>A: forward request
-    A-->>R: scroll Qdrant payload (JSON, no vectors)
-    R-->>B: forward response
-    Note over B: store_batch — re-embed locally, dedup by content hash
+    A-->>R: meta {memories:N, facts:M}
+    R-->>B: forward meta
+    loop for each batch
+        A-->>R: batch {dataset, seq, records}
+        R-->>B: forward batch
+        Note over B: store_batch or insert facts<br/>dedup by content hash / (s,p,o,valid_from)
+    end
+    A-->>R: done
+    R-->>B: forward done
 
-    B->>R: POST /sync/push (local-only records)
-    R->>A: forward request
-    Note over A: store_batch + dedup
-    A-->>R: merge stats
-    R-->>B: done
+    B->>R: POST /sync/push {batch_size:500}
+    loop streamed local batches
+        B->>R: batch {dataset, seq, records}
+        R->>A: forward batch
+        Note over A: store_batch + dedup
+    end
+    B->>R: done
+    A-->>R: final stats
+    R-->>B: stats
 
-    Note over A,B: Both machines now have the same memories<br/>(re-embedded locally so model swap is safe)
+    Note over A,B: Both machines now have the same memories + facts<br/>(vectors re-embedded locally so model swap is safe)
 ```
 
-The relay server is a stateless WebSocket forwarder. A public relay is hosted at `wss://imprint.alexandruleca.com` and used by default — pass `--relay` to point at your own. Room IDs expire after 1 hour. Vectors are **not** transferred over the wire — peers re-embed content locally, which means machines using different models or devices can sync without vector-format compatibility headaches.
+The relay server is a stateless WebSocket forwarder. A public relay is hosted at `wss://imprint.alexandruleca.com` and used by default — pass `--relay` to point at your own. Room IDs expire after 1 hour.
+
+**What transfers:**
+
+- Qdrant payloads (content + metadata) — streamed in batches, deduped on import via SHA-256 content hash (`project:source:content[:200]`).
+- Knowledge graph facts (SQLite `facts` table) — streamed in batches, deduped by `(subject, predicate, object, valid_from)`.
+- **Not** transferred: vectors (peers re-embed locally so different models/devices stay compatible), WAL, config, trust list, other workspaces.
+
+**Payload framing:** messages are newline-delimited JSON — `{"kind":"meta",...}`, `{"kind":"batch","dataset":"memories"|"facts","seq":N,"records":[...]}`, `{"kind":"done"}`. Default batch size is 500 records; override with `batch_size` in the request body. All three WS sockets (provider, consumer, relay) disable the nhooyr 32 KiB read cap so multi-MB batches flow without truncation.
 
 ### Choosing a relay
 
