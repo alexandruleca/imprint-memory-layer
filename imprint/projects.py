@@ -78,7 +78,26 @@ def find_projects(root_dir: str, max_depth: int = 4) -> list[dict]:
             pass
 
     _walk(root, 0)
+
+    # Fallback: no manifest-based projects found (e.g. a docs / data export
+    # folder like a ChatGPT JSON dump). Treat the root itself as a single
+    # project so the user can still ingest it. The scanner will gate which
+    # files actually get indexed.
+    if not projects:
+        projects.append({
+            "name": _sanitize_name(root.name) or "data",
+            "path": str(root),
+            "manifest": "",
+            "type": "data",
+        })
+
     return projects
+
+
+def _sanitize_name(name: str) -> str:
+    """Lowercase, strip leading dots, replace spaces with hyphens."""
+    name = (name or "").strip().lstrip(".")
+    return re.sub(r"\s+", "-", name)
 
 
 def _extract_name(manifest_path: Path, manifest: str, project_dir: Path) -> str:
