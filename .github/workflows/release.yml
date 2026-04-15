@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Force version bump (overrides commit analysis)"
+        required: false
+        default: "auto"
+        type: choice
+        options: [auto, patch, minor, major]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/alexandruleca/imprint-relay
+
+jobs:
+  analyze:
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      bump: ${{ steps.compute.outputs.bump }}
+      major_minor: ${{ steps.compute.outputs.major_minor }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: compute
+        env:
+          FORCE_BUMP: ${{ github.event.inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          LAST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+
+          if [ -z "$LAST" ]; then
+            LAST_SEMVER="0.0.0"
+            RANGE_ARGS=()
+          else
+            LAST_SEMVER="${LAST#v}"
+            RANGE_ARGS=("${LAST}..HEAD")
+          fi
+
+          HAS_MAJOR=0; HAS_MINOR=0; HAS_PATCH=0
+
+          # Iterate commit messages (subject + body per commit, NUL-separated)
+          while IFS= read -r -d '' commit; do
+            [ -z "$commit" ] && continue
+            SUBJECT=$(printf '%s' "$commit" | head -n1)
+            # Breaking change: "feat!:", "fix(scope)!:", or "BREAKING CHANGE:" in body
+            if printf '%s\n' "$SUBJECT" | grep -qE '^[a-z]+(\([^)]+\))?!:'; then
+              HAS_MAJOR=1; continue
+            fi
+            if printf '%s\n' "$commit" | grep -qE '^BREAKING[ -]CHANGE:'; then
+              HAS_MAJOR=1; continue
+            fi
+            # feat → minor
+            if printf '%s\n' "$SUBJECT" | grep -qE '^feat(\([^)]+\))?:'; then
+              HAS_MINOR=1; continue
+            fi
+            # fix, perf → patch
+            if printf '%s\n' "$SUBJECT" | grep -qE '^(fix|perf)(\([^)]+\))?:'; then
+              HAS_PATCH=1; continue
+            fi
+          done < <(git log "${RANGE_ARGS[@]}" --pretty=format:'%B%x00')
+
+          if [ "${FORCE_BUMP:-auto}" != "auto" ] && [ -n "${FORCE_BUMP:-}" ]; then
+            BUMP="$FORCE_BUMP"
+          elif [ "$HAS_MAJOR" = 1 ]; then
+            BUMP=major
+          elif [ "$HAS_MINOR" = 1 ]; then
+            BUMP=minor
+          elif [ "$HAS_PATCH" = 1 ]; then
+            BUMP=patch
+          else
+            BUMP=none
+          fi
+
+          IFS='.' read -r MAJ MIN PAT <<< "$LAST_SEMVER"
+
+          if [ -z "$LAST" ] && [ "$BUMP" != "none" ]; then
+            NEW="0.1.0"
+          else
+            case "$BUMP" in
+              major) NEW="$((MAJ+1)).0.0" ;;
+              minor) NEW="${MAJ}.$((MIN+1)).0" ;;
+              patch) NEW="${MAJ}.${MIN}.$((PAT+1))" ;;
+              none)  NEW="" ;;
+            esac
+          fi
+
+          echo "Analysis: last=$LAST bump=$BUMP next=${NEW:-<skip>}"
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$NEW" ]; then
+            IFS='.' read -r NM NN _ <<< "$NEW"
+            echo "version=v$NEW" >> "$GITHUB_OUTPUT"
+            echo "major_minor=v${NM}.${NN}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "major_minor=" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: analyze
+    if: needs.analyze.outputs.version != ''
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Create and push git tag
+        env:
+          VERSION: ${{ needs.analyze.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build all platforms
+        env:
+          VERSION: ${{ needs.analyze.outputs.version }}
+        run: make all
+
+      - name: Generate checksums
+        working-directory: bin
+        run: sha256sum imprint-* > SHA256SUMS
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.analyze.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            bin/imprint-linux-amd64 \
+            bin/imprint-linux-arm64 \
+            bin/imprint-darwin-amd64 \
+            bin/imprint-darwin-arm64 \
+            bin/imprint-windows-amd64.exe \
+            bin/SHA256SUMS
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push relay image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.analyze.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ needs.analyze.outputs.version }}
+            ${{ env.IMAGE }}:${{ needs.analyze.outputs.major_minor }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
