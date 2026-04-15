@@ -62,6 +62,26 @@ SETTINGS: list[Setting] = [
     Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "claude-haiku-4-5", str, "LLM tagger model name"),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
 
+    # ── Ingest (docs + urls) ──────────────────────────────────
+    Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),
+    Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               False,       bool, "OCR for scanned PDFs + images (needs tesseract)"),
+    Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "Tesseract language codes (e.g. 'eng+fra')"),
+    Setting("ingest.max_doc_size_mb",   "IMPRINT_INGEST_MAX_DOC_MB",        25,          int,  "Per-file byte cap for document extraction"),
+    Setting("ingest.url_timeout_sec",   "IMPRINT_INGEST_URL_TIMEOUT",       30,          int,  "HTTP timeout for URL fetch (seconds)"),
+    Setting("ingest.url_user_agent",    "IMPRINT_INGEST_URL_USER_AGENT",    "imprint/1.0", str, "HTTP User-Agent header for URL fetch"),
+    Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs"),
+
+    # ── Chat (local Gemma agent in viz) ───────────────────────
+    Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable in-viz chat panel"),
+    Setting("chat.model_repo",     "IMPRINT_CHAT_MODEL_REPO",     "unsloth/gemma-4-E4B-it-GGUF",    str,   "HF repo for GGUF auto-download"),
+    Setting("chat.model_file",     "IMPRINT_CHAT_MODEL_FILE",     "gemma-4-E4B-it-Q4_K_M.gguf",     str,   "GGUF filename within repo"),
+    Setting("chat.model_path",     "IMPRINT_CHAT_MODEL_PATH",     "",                               str,   "Absolute path to GGUF (overrides repo/file)"),
+    Setting("chat.n_ctx",          "IMPRINT_CHAT_N_CTX",          8192,                             int,   "Chat context window tokens"),
+    Setting("chat.n_gpu_layers",   "IMPRINT_CHAT_N_GPU_LAYERS",   -1,                               int,   "GPU layers to offload (-1 = all)"),
+    Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
+    Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
+    Setting("chat.max_tool_iters", "IMPRINT_CHAT_MAX_TOOL_ITERS", 6,                                int,   "Max tool-call iterations per chat turn"),
+
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),
 ]

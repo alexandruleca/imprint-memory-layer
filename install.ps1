@@ -57,11 +57,12 @@ if ($Version) {
     Write-Info "Channel: stable (latest)"
 }
 
-# Release asset URL
+# Release archive URL
+$ArchiveName = "imprint-windows-amd64.zip"
 if ($TargetTag) {
-    $ReleaseUrl = "https://github.com/$Repo/releases/download/$TargetTag/imprint-windows-amd64.exe"
+    $ArchiveUrl = "https://github.com/$Repo/releases/download/$TargetTag/$ArchiveName"
 } else {
-    $ReleaseUrl = "https://github.com/$Repo/releases/latest/download/imprint-windows-amd64.exe"
+    $ArchiveUrl = "https://github.com/$Repo/releases/latest/download/$ArchiveName"
 }
 
 # --- Check prerequisites ---
@@ -71,52 +72,34 @@ try {
     Write-Fail "Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code/overview"
 }
 
-# --- Clone or update repo ---
-Write-Info "Setting up imprint repository..."
-if (Test-Path (Join-Path $InstallDir ".git")) {
-    Write-Info "Updating existing installation..."
-    git -C $InstallDir fetch --tags --quiet origin 2>$null
-    if ($TargetTag) {
-        git -C $InstallDir checkout --quiet $TargetTag 2>$null
-        if ($LASTEXITCODE -ne 0) { Write-Fail "Could not checkout tag $TargetTag" }
-    } else {
-        git -C $InstallDir checkout --quiet main 2>$null
-        git -C $InstallDir pull --quiet 2>$null
-    }
-} else {
-    if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
-    if ($TargetTag) {
-        git clone --quiet --branch $TargetTag --depth 1 "https://github.com/$Repo.git" $InstallDir
-        if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to clone at tag $TargetTag" }
-    } else {
-        git clone --quiet "https://github.com/$Repo.git" $InstallDir
-    }
-}
-
-# --- Acquire binary: bundled → build → download ---
-$BundledBin = Join-Path $InstallDir "bin\imprint-windows-amd64.exe"
-$ImprintBin = Join-Path $InstallDir "build\imprint.exe"
-
-if (Test-Path $BundledBin) {
-    $ImprintBin = $BundledBin
-    Write-Info "Using bundled binary: $ImprintBin"
-} else {
+# --- Download and extract release archive ---
+Write-Info "Downloading release archive: $ArchiveUrl"
+$Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("imprint-install-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
+try {
+    $Zip = Join-Path $Tmp $ArchiveName
     try {
-        $null = Get-Command go -ErrorAction Stop
-        Write-Info "Bundled binary not found. Go found - building from source..."
-        Push-Location $InstallDir
-        $LdVer = if ($TargetTag) { $TargetTag } else { "dev" }
-        go build -ldflags "-s -w -X main.version=$LdVer" -o "build\imprint.exe" . 2>$null
-        Pop-Location
+        Invoke-WebRequest -Uri $ArchiveUrl -OutFile $Zip -UseBasicParsing
     } catch {
-        Write-Info "Downloading pre-built binary from: $ReleaseUrl"
-        New-Item -ItemType Directory -Path (Join-Path $InstallDir "build") -Force | Out-Null
-        try {
-            Invoke-WebRequest -Uri $ReleaseUrl -OutFile $ImprintBin -UseBasicParsing
-        } catch {
-            Write-Fail "Download failed: $ReleaseUrl"
-        }
+        Write-Fail "Download failed: $ArchiveUrl"
     }
+
+    Write-Info "Extracting to $InstallDir (preserving data\ and .venv\)..."
+    Expand-Archive -Path $Zip -DestinationPath $Tmp -Force
+    $Extracted = Join-Path $Tmp "imprint-windows-amd64"
+    if (-not (Test-Path $Extracted)) { Write-Fail "Unexpected archive layout: $Extracted not found" }
+
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    # Copy extracted tree over $InstallDir, skipping data\ and .venv\ so user state survives.
+    Get-ChildItem -Path $Extracted -Force | ForEach-Object {
+        if ($_.Name -in @("data", ".venv")) { return }
+        Copy-Item -Path $_.FullName -Destination $InstallDir -Recurse -Force
+    }
+
+    $ImprintBin = Join-Path $InstallDir "bin\imprint.exe"
+    if (-not (Test-Path $ImprintBin)) { Write-Fail "Binary missing after extract: $ImprintBin" }
+} finally {
+    Remove-Item -Recurse -Force $Tmp -ErrorAction SilentlyContinue
 }
 
 Write-Success "Binary ready at $ImprintBin"

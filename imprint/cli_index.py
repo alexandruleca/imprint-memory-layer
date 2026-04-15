@@ -17,6 +17,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import tagger, vectorstore as vs
+from imprint import extractors
 
 # Files worth indexing — code with logic, not styling/config/generated
 EXTENSIONS = {
@@ -32,11 +33,44 @@ EXTENSIONS = {
     '.sql', '.graphql', '.proto',                       # Schema/query
     '.sh',                                              # Scripts
 }
+# Document formats are gated by `ingest.doc_formats` config; the scanner
+# merges them into the effective allow-list at walk time. Set the config
+# key to an empty string to index only code + prose.
+
+
+def _enabled_doc_formats() -> set[str]:
+    """Resolve ingest.doc_formats into a set of extensions, honoring user
+    config. Returns the set to include under EXTENSIONS at scan time."""
+    try:
+        from imprint.config_schema import resolve
+        raw = str(resolve("ingest.doc_formats")[0])
+    except Exception:
+        raw = "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json"
+    base = {"pdf": [".pdf"], "docx": [".docx"], "pptx": [".pptx"],
+            "xlsx": [".xlsx"], "csv": [".csv", ".tsv"], "epub": [".epub"],
+            "rtf": [".rtf"], "html": [".html", ".htm"],
+            "eml": [".eml", ".mbox"], "json": [".json"]}
+    out: set[str] = set()
+    for name in (x.strip().lower() for x in raw.split(",") if x.strip()):
+        out.update(base.get(name, []))
+    return out
+
+
+def _ocr_image_exts() -> set[str]:
+    try:
+        from imprint.config_schema import resolve
+        if bool(resolve("ingest.ocr_enabled")[0]):
+            return {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
+    except Exception:
+        pass
+    return set()
+
 
 # Skip these — low value for memory context
 SKIP_EXTENSIONS = {
     '.css', '.scss', '.sass', '.less', '.styl',         # Styling
-    '.svg', '.png', '.jpg', '.jpeg', '.gif', '.ico',    # Assets
+    '.svg', '.ico',                                     # Vector + favicons
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp',  # Bitmaps (gated back in when OCR enabled)
     '.lock', '.map', '.min.js', '.min.css',             # Generated
     '.d.ts',                                            # Type declarations
     '.snap',                                            # Test snapshots
@@ -181,6 +215,13 @@ def _is_low_value(content: str, rel_path: str) -> bool:
 
 def scan_dir(dir_path):
     """Walk a directory and return list of (rel_path, full_path) for indexable files."""
+    # Resolve doc/image gates once per scan — avoids reloading config per file.
+    doc_exts = _enabled_doc_formats()
+    ocr_imgs = _ocr_image_exts()
+    effective_exts = EXTENSIONS | doc_exts | ocr_imgs
+    # Image exts are in SKIP_EXTENSIONS by default; lift that gate when OCR on.
+    skip_exts = SKIP_EXTENSIONS - ocr_imgs
+
     files = []
     for root, subdirs, fnames in os.walk(dir_path):
         subdirs[:] = [d for d in subdirs if not d.startswith('.') and d not in SKIP_DIRS]
@@ -188,9 +229,9 @@ def scan_dir(dir_path):
             if fname in SKIP_FILES:
                 continue
             ext = os.path.splitext(fname)[1].lower()
-            if ext in SKIP_EXTENSIONS:
+            if ext in skip_exts:
                 continue
-            if ext not in EXTENSIONS:
+            if ext not in effective_exts:
                 continue
             fpath = os.path.join(root, fname)
             rel = os.path.relpath(fpath, dir_path)
@@ -407,25 +448,62 @@ def main():
     enable_llm = resolve("tagger.llm")[0]
     enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
 
+    from imprint.config_schema import resolve as _cfg_resolve
+    max_doc_bytes = int(_cfg_resolve("ingest.max_doc_size_mb")[0]) * 1024 * 1024
+
     def read_and_chunk(args):
         """Read a file and chunk it. Returns list of record dicts or None.
 
         Each chunk gets its own structured tag payload derived by the tagger
         (deterministic lang/layer/kind + keyword-matched domain tags).
+
+        Documents (pdf/docx/etc) route through imprint.extractors; the
+        extractor returns extracted plain text + metadata, then we chunk
+        the text via the standard pipeline.
         """
         project, rel, fpath = args
         try:
-            with open(fpath, 'r', errors='ignore') as f:
-                content = f.read()
-            if len(content.strip()) < 10 or len(content) > 50000:
-                return None
-            if _is_low_value(content, rel):
-                return None
-            chunks = chunk_file(content, rel)
+            ext = os.path.splitext(rel)[1].lower()
+            is_doc = extractors.is_doc_extension(ext)
+
+            doc_meta: dict = {}
+            chunk_mode: str | None = None
+
+            if is_doc:
+                # Byte-size gate for documents (legacy 50k-char cap is for text).
+                try:
+                    if os.path.getsize(fpath) > max_doc_bytes:
+                        return None
+                except OSError:
+                    return None
+                try:
+                    extracted = extractors.dispatch_by_ext(fpath)
+                except extractors.ExtractorUnavailable as e:
+                    # Silent skip — user can install the dep later and re-run.
+                    print(f"\n  [skip] {rel}: {e}", file=sys.stderr)
+                    return None
+                except extractors.ExtractionError as e:
+                    print(f"\n  [skip] {rel}: {e}", file=sys.stderr)
+                    return None
+                content = extracted.text
+                doc_meta = dict(extracted.metadata or {})
+                chunk_mode = extracted.chunk_mode or "prose"
+                if len(content.strip()) < 10:
+                    return None
+            else:
+                with open(fpath, 'r', errors='ignore') as f:
+                    content = f.read()
+                if len(content.strip()) < 10 or len(content) > 50000:
+                    return None
+                if _is_low_value(content, rel):
+                    return None
+
+            chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
             if not chunks:
                 return None
             mtime = os.path.getmtime(fpath)
             source_key = f"{project}/{rel}"
+            source_type = "file" if not doc_meta.get("ocr") else "ocr"
             records = []
             for chunk_text, chunk_idx in chunks:
                 tags = tagger.build_payload_tags(
@@ -440,11 +518,14 @@ def main():
                     "type": "architecture",
                     "tags": tags,
                     "source": source_key,
+                    "source_type": source_type,
+                    "doc_metadata": doc_meta,
                     "chunk_index": chunk_idx,
                     "source_mtime": mtime,
                 })
             return records
-        except Exception:
+        except Exception as e:
+            print(f"\n  [error] {rel}: {e}", file=sys.stderr)
             return None
 
     # Build flat list of (project, rel, fpath) for all files

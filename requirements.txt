@@ -9,3 +9,32 @@ model2vec>=0.3.0
 tree-sitter-language-pack>=0.10.0
 anthropic>=0.40.0
 openai>=1.50.0
+
+# ── Document ingestion ────────────────────────────────────────
+# Each extractor self-detects its dep at call time; missing deps are
+# skipped with a warning, not fatal. Listed here so `pip install -r` on
+# a fresh setup enables the full doc catalog by default.
+pypdf>=4.0                 # .pdf
+python-docx>=1.0           # .docx
+python-pptx>=1.0           # .pptx
+openpyxl>=3.1              # .xlsx
+ebooklib>=0.18             # .epub
+striprtf>=0.0.27           # .rtf
+beautifulsoup4>=4.12       # .epub/.html fallback
+
+# ── URL ingestion ─────────────────────────────────────────────
+httpx>=0.27                # http fetch for `imprint ingest-url`
+trafilatura>=1.10          # readability-style html extraction
+
+# ── Image / scanned-PDF OCR (optional) ────────────────────────
+# Requires system packages: `tesseract`, `poppler-utils` (for pdf2image).
+# Uncomment to enable; then `imprint config set ingest.ocr_enabled true`.
+# pillow>=10
+# pytesseract>=0.3
+# pdf2image>=1.17
+
+# ── Local chat (for `imprint viz` chat panel) ─────────────────
+# Runs Gemma 3 4B locally via llama.cpp bindings. Enabled by default.
+# First chat message auto-downloads the GGUF into data/models/.
+# Disable with: imprint config set chat.enabled false
+llama-cpp-python>=0.3.0

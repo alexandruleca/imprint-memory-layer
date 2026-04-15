@@ -114,10 +114,15 @@ def _get_semantic_chunker():
 
 
 # ── Public API ─────────────────────────────────────────────────
-def chunk_file(content: str, rel_path: str) -> list[tuple[str, int]]:
+def chunk_file(content: str, rel_path: str, chunk_mode: str | None = None) -> list[tuple[str, int]]:
     """Split file into chunks. Returns list of (chunk_text, chunk_index).
 
     Each chunk is prefixed with `[rel_path]\\n` so embedding sees context.
+
+    ``chunk_mode`` overrides ext-based dispatch. Use "prose" to force the
+    SemanticChunker (e.g. for extracted PDF/DOCX text where the extension
+    isn't recognized as prose) or "code" for code-like content. ``None``
+    keeps the legacy ext-based routing.
     """
     content = content.strip()
     if not content or len(content) < MIN_SIZE:
@@ -127,13 +132,19 @@ def chunk_file(content: str, rel_path: str) -> list[tuple[str, int]]:
 
     raw: list[str] = []
 
-    is_code = ext in _CODE_LANG
-    if is_code:
-        raw = _chunk_code(content, _CODE_LANG[ext])
-    elif ext in _PROSE_EXTS:
+    if chunk_mode == "prose":
         raw = _chunk_prose(content)
+    elif chunk_mode == "code":
+        lang = _CODE_LANG.get(ext, "python")
+        raw = _chunk_code(content, lang)
     else:
-        raw = []
+        is_code = ext in _CODE_LANG
+        if is_code:
+            raw = _chunk_code(content, _CODE_LANG[ext])
+        elif ext in _PROSE_EXTS:
+            raw = _chunk_prose(content)
+        else:
+            raw = []
 
     # Fallbacks — if chonkie failed or ext unknown.
     if not raw:

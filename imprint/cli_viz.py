@@ -25,6 +25,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import config, vectorstore as vs, imprint_graph as kg
+from imprint import chat as chat_mod, chat_store
 from qdrant_client import models as qm
 
 DEFAULT_PORT = 8420
@@ -830,6 +831,127 @@ body { background: var(--bg-primary); color: var(--text-primary); font-family: -
 }
 #theme-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
 
+/* Chat toggle + panel */
+#chat-toggle {
+  background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-secondary); cursor: pointer; padding: 4px 10px; font-size: 13px;
+  line-height: 1; transition: all 0.15s; display: none;
+}
+#chat-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
+#chat-toggle.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+#chat-toggle.has-dot::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+
+#chat-panel {
+  position: absolute; top: 0; right: -560px; width: 560px; height: 100%;
+  background: var(--bg-secondary); border-left: 1px solid var(--border);
+  z-index: 22; display: flex; flex-direction: row;
+  transition: right 0.25s ease;
+}
+#chat-panel.open { right: 0; }
+#chat-sessions {
+  width: 160px; min-width: 160px; border-right: 1px solid var(--border);
+  background: var(--bg-primary); display: flex; flex-direction: column;
+}
+#chat-sessions-header {
+  padding: 10px; border-bottom: 1px solid var(--border); display: flex; gap: 6px;
+}
+#chat-new-btn {
+  flex: 1; background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 6px; padding: 5px 8px; font-size: 11px; font-weight: 600; cursor: pointer;
+  transition: all 0.15s;
+}
+#chat-new-btn:hover { background: var(--accent); color: var(--bg-primary); }
+#chat-sessions-list { flex: 1; overflow-y: auto; padding: 6px; }
+.chat-session-item {
+  padding: 7px 9px; border-radius: 5px; cursor: pointer; font-size: 12px;
+  color: var(--text-secondary); margin-bottom: 3px; position: relative;
+  border: 1px solid transparent; display: flex; align-items: center; gap: 4px;
+}
+.chat-session-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.chat-session-item.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.chat-session-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-session-del {
+  background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer;
+  padding: 0 4px; display: none; line-height: 1;
+}
+.chat-session-item:hover .chat-session-del { display: inline; }
+.chat-session-del:hover { color: #ff6b6b; }
+
+#chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#chat-header {
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+#chat-title {
+  flex: 1; font-size: 13px; color: var(--text-primary); font-weight: 600;
+  cursor: text; padding: 2px 4px; border-radius: 4px; outline: none;
+}
+#chat-title:focus { background: var(--bg-tertiary); }
+#chat-workspace-badge {
+  font-size: 10px; padding: 2px 7px; background: var(--bg-tertiary); border-radius: 8px;
+  color: var(--text-secondary);
+}
+#chat-close {
+  background: none; border: none; color: var(--text-secondary); cursor: pointer;
+  font-size: 18px; line-height: 1;
+}
+#chat-close:hover { color: var(--text-primary); }
+
+#chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.chat-msg { display: flex; flex-direction: column; gap: 3px; max-width: 100%; }
+.chat-msg-role { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.chat-msg-body {
+  padding: 9px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  color: var(--text-primary); white-space: pre-wrap; word-wrap: break-word;
+}
+.chat-msg.user .chat-msg-body { background: var(--accent-bg); border: 1px solid var(--accent-semi); align-self: flex-end; max-width: 85%; }
+.chat-msg.assistant .chat-msg-body { background: var(--bg-primary); border: 1px solid var(--border); }
+.chat-msg.tool { opacity: 0.88; }
+.chat-tool-head {
+  font-size: 11px; color: var(--text-secondary); background: var(--bg-tertiary);
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: 'SF Mono', 'Fira Code', monospace;
+  border: 1px solid var(--border);
+}
+.chat-tool-head:hover { border-color: var(--accent); color: var(--text-primary); }
+.chat-tool-head::before { content: '▸ '; color: var(--accent); }
+.chat-tool-head.open::before { content: '▾ '; }
+.chat-tool-body {
+  display: none; margin-top: 4px; padding: 8px 10px; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: 6px; font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace; white-space: pre-wrap;
+  color: var(--text-content); max-height: 220px; overflow-y: auto;
+}
+.chat-tool-head.open + .chat-tool-body { display: block; }
+
+#chat-input-row {
+  display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border);
+}
+#chat-input {
+  flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border-focus); border-radius: 6px;
+  padding: 7px 10px; color: var(--text-primary); font-size: 13px; outline: none;
+  resize: none; font-family: inherit; min-height: 36px; max-height: 120px;
+}
+#chat-input:focus { border-color: var(--accent); }
+#chat-send {
+  background: var(--accent); color: var(--bg-primary); border: none; border-radius: 6px;
+  padding: 0 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+#chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
+#chat-status {
+  font-size: 10px; color: var(--text-muted); padding: 4px 12px 8px;
+  display: flex; align-items: center; gap: 6px; min-height: 18px;
+}
+.chat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+#chat-empty {
+  text-align: center; color: var(--text-muted); padding: 32px 16px; font-size: 13px;
+}
+#chat-empty h3 { color: var(--text-secondary); font-size: 14px; margin-bottom: 8px; }
+#chat-empty code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+
 /* Tooltip */
 .g6-tooltip {
   background: color-mix(in srgb, var(--bg-secondary) 93%, transparent) !important; border: 1px solid var(--accent) !important;
@@ -893,6 +1015,7 @@ body { background: var(--bg-primary); color: var(--text-primary); font-family: -
       <button class="layout-btn" data-layout="radial" title="Radial layout">Radial</button>
       <button class="layout-btn" data-layout="grid" title="Grid layout">Grid</button>
     </span>
+    <button id="chat-toggle" title="Toggle chat (Ctrl+K)">&#128172; Chat</button>
     <button id="theme-toggle" title="Toggle theme">&#9790;</button>
   </div>
   <div id="graph-container">
@@ -902,6 +1025,32 @@ body { background: var(--bg-primary); color: var(--text-primary); font-family: -
     <div id="detail">
       <button id="detail-close">&times;</button>
       <div id="detail-body"></div>
+    </div>
+    <div id="chat-panel">
+      <div id="chat-sessions">
+        <div id="chat-sessions-header">
+          <button id="chat-new-btn" title="New chat (Ctrl+Shift+O)">+ New</button>
+        </div>
+        <div id="chat-sessions-list"></div>
+      </div>
+      <div id="chat-main">
+        <div id="chat-header">
+          <div id="chat-title" contenteditable="true" spellcheck="false">New chat</div>
+          <span id="chat-workspace-badge">default</span>
+          <button id="chat-close" title="Close (Esc)">&times;</button>
+        </div>
+        <div id="chat-messages">
+          <div id="chat-empty">
+            <h3>Ask your memory anything</h3>
+            <p>Runs <code>gemma-4-E4B</code> locally. Has access to <code>search</code>, <code>kg_query</code>, <code>status</code>, <code>wake_up</code>.</p>
+          </div>
+        </div>
+        <div id="chat-input-row">
+          <textarea id="chat-input" placeholder="Ask about your memory..." rows="1"></textarea>
+          <button id="chat-send">Send</button>
+        </div>
+        <div id="chat-status"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -2231,6 +2380,398 @@ document.getElementById('workspace-select').addEventListener('change', async (e)
   await loadOverview();
 });
 
+// ── Chat panel ──
+const chatState = {
+  enabled: false,
+  modelReady: false,
+  sessionId: null,
+  sessions: [],
+  streaming: false,
+  pendingAssistant: '',
+  pendingToolCall: null,
+};
+
+async function chatFetchStatus() {
+  try {
+    const s = await fetch('/api/chat/status').then(r => r.json());
+    chatState.enabled = !!s.enabled;
+    chatState.installed = !!s.installed;
+    chatState.modelReady = !!s.model_ready;
+    chatState.statusRaw = s;
+    const btn = document.getElementById('chat-toggle');
+    if (chatState.enabled) btn.style.display = 'inline-block';
+    else btn.style.display = 'none';
+    return s;
+  } catch (_) { return null; }
+}
+
+async function chatLoadSessions() {
+  const r = await fetch('/api/chat/sessions').then(x => x.json()).catch(() => ({sessions:[]}));
+  chatState.sessions = r.sessions || [];
+  chatRenderSessions();
+}
+
+function chatRenderSessions() {
+  const list = document.getElementById('chat-sessions-list');
+  if (!chatState.sessions.length) {
+    list.innerHTML = '<div style="padding:10px;color:var(--text-muted);font-size:11px">No chats yet</div>';
+    return;
+  }
+  list.innerHTML = chatState.sessions.map(s => `
+    <div class="chat-session-item ${s.id === chatState.sessionId ? 'active' : ''}" data-id="${escHtml(s.id)}">
+      <span class="chat-session-title" title="${escHtml(s.title)}">${escHtml(s.title)}</span>
+      <button class="chat-session-del" title="Delete" data-del="${escHtml(s.id)}">&times;</button>
+    </div>
+  `).join('');
+  list.querySelectorAll('.chat-session-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('chat-session-del')) return;
+      chatSelectSession(el.dataset.id);
+    });
+  });
+  list.querySelectorAll('.chat-session-del').forEach(el => {
+    el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this chat?')) return;
+      await fetch(`/api/chat/sessions/${encodeURIComponent(el.dataset.del)}`, {method: 'DELETE'});
+      if (chatState.sessionId === el.dataset.del) {
+        chatState.sessionId = null;
+        document.getElementById('chat-messages').innerHTML = '<div id="chat-empty"><h3>Ask your memory anything</h3></div>';
+        document.getElementById('chat-title').textContent = 'New chat';
+      }
+      chatLoadSessions();
+    });
+  });
+}
+
+async function chatNewSession() {
+  const r = await fetch('/api/chat/sessions', {method: 'POST'}).then(x => x.json());
+  if (!r || !r.id) return;
+  await chatLoadSessions();
+  chatSelectSession(r.id);
+}
+
+async function chatSelectSession(id) {
+  chatState.sessionId = id;
+  const r = await fetch(`/api/chat/sessions/${encodeURIComponent(id)}`).then(x => x.json()).catch(() => null);
+  if (!r) return;
+  document.getElementById('chat-title').textContent = r.title || 'New chat';
+  const box = document.getElementById('chat-messages');
+  box.innerHTML = '';
+  for (const m of (r.messages || [])) chatAppendSavedMessage(m);
+  box.scrollTop = box.scrollHeight;
+  chatRenderSessions();
+}
+
+function chatAppendSavedMessage(m) {
+  if (m.role === 'user') chatAppendUserBubble(m.content);
+  else if (m.role === 'assistant') chatAppendAssistantBubble(m.content);
+  else if (m.role === 'tool') {
+    const argsStr = m.tool_args ? JSON.stringify(m.tool_args) : '';
+    chatAppendToolBubble(m.tool_name || 'tool', argsStr, m.content || '');
+  }
+}
+
+function chatAppendUserBubble(text) {
+  const box = document.getElementById('chat-messages');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+  const el = document.createElement('div');
+  el.className = 'chat-msg user';
+  el.innerHTML = `<span class="chat-msg-role">You</span><div class="chat-msg-body"></div>`;
+  el.querySelector('.chat-msg-body').textContent = text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function chatAppendAssistantBubble(text) {
+  const box = document.getElementById('chat-messages');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+  const el = document.createElement('div');
+  el.className = 'chat-msg assistant';
+  el.innerHTML = `<span class="chat-msg-role">Imprint</span><div class="chat-msg-body"></div>`;
+  el.querySelector('.chat-msg-body').textContent = text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el.querySelector('.chat-msg-body');
+}
+
+function chatAppendToolBubble(name, argsStr, resultText) {
+  const box = document.getElementById('chat-messages');
+  const el = document.createElement('div');
+  el.className = 'chat-msg tool';
+  const head = document.createElement('div');
+  head.className = 'chat-tool-head';
+  head.textContent = `${name}(${argsStr || ''})`;
+  const body = document.createElement('div');
+  body.className = 'chat-tool-body';
+  body.textContent = resultText || '…';
+  head.addEventListener('click', () => head.classList.toggle('open'));
+  el.appendChild(head);
+  el.appendChild(body);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return body;
+}
+
+function chatSetStatus(text, spinning = false) {
+  const s = document.getElementById('chat-status');
+  s.innerHTML = (spinning ? '<span class="chat-dot"></span>' : '') + escHtml(text || '');
+}
+
+async function chatSend() {
+  if (chatState.streaming) return;
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  if (!chatState.sessionId) {
+    const r = await fetch('/api/chat/sessions', {method: 'POST'}).then(x => x.json());
+    chatState.sessionId = r.id;
+    await chatLoadSessions();
+  }
+
+  chatAppendUserBubble(text);
+  input.value = '';
+  input.style.height = 'auto';
+  chatState.streaming = true;
+  chatState.pendingAssistant = '';
+  chatState.pendingToolCall = null;
+  document.getElementById('chat-send').disabled = true;
+  chatSetStatus('Thinking…', true);
+
+  let liveBubble = null;
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: chatState.sessionId, message: text}),
+    });
+    if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let streamDone = false;
+    while (!streamDone) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        for (const line of frame.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const json = line.slice(5).trim();
+          if (!json) continue;
+          let ev;
+          try { ev = JSON.parse(json); } catch { continue; }
+          chatHandleEvent(ev, (b) => { liveBubble = b; }, () => liveBubble);
+          if (ev.type === 'done') streamDone = true;
+        }
+      }
+    }
+    try { await reader.cancel(); } catch (_) {}
+  } catch (e) {
+    chatSetStatus(`Error: ${e.message || e}`);
+  } finally {
+    chatState.streaming = false;
+    document.getElementById('chat-send').disabled = false;
+    chatLoadSessions();
+  }
+}
+
+function chatFmtBytes(n) {
+  if (!n || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+function chatEnsureDownloadBubble() {
+  let el = document.getElementById('chat-download-bubble');
+  if (el) return el;
+  const box = document.getElementById('chat-messages');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+  el = document.createElement('div');
+  el.id = 'chat-download-bubble';
+  el.className = 'chat-msg assistant';
+  el.innerHTML = `
+    <span class="chat-msg-role">Imprint</span>
+    <div class="chat-msg-body">
+      <div id="chat-dl-title" style="margin-bottom:8px;font-size:12px;color:var(--text-secondary)">Preparing model…</div>
+      <div style="background:var(--bg-tertiary);border-radius:6px;height:8px;overflow:hidden">
+        <div id="chat-dl-bar" style="background:var(--accent);height:100%;width:0%;transition:width 0.2s"></div>
+      </div>
+      <div id="chat-dl-meta" style="margin-top:6px;font-size:11px;color:var(--text-muted);font-family:'SF Mono','Fira Code',monospace"></div>
+    </div>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+function chatRemoveDownloadBubble() {
+  const el = document.getElementById('chat-download-bubble');
+  if (el) el.remove();
+}
+
+function chatHandleEvent(ev, setLive, getLive) {
+  if (ev.type === 'download_start') {
+    chatEnsureDownloadBubble();
+    document.getElementById('chat-dl-title').textContent =
+      `Downloading ${ev.file || 'model'} from ${ev.repo || 'Hugging Face'}…`;
+    chatSetStatus('Downloading model…', true);
+    return;
+  } else if (ev.type === 'download_progress') {
+    chatEnsureDownloadBubble();
+    const pct = ev.total ? (ev.downloaded / ev.total * 100) : 0;
+    document.getElementById('chat-dl-bar').style.width = pct.toFixed(1) + '%';
+    const meta = ev.total
+      ? `${chatFmtBytes(ev.downloaded)} / ${chatFmtBytes(ev.total)}  (${pct.toFixed(1)}%)`
+      : `${chatFmtBytes(ev.downloaded)} downloaded`;
+    document.getElementById('chat-dl-meta').textContent = meta;
+    return;
+  } else if (ev.type === 'download_complete') {
+    chatRemoveDownloadBubble();
+    chatSetStatus('Loading model…', true);
+    return;
+  }
+  if (ev.type === 'token') {
+    if (chatState.pendingToolCall) return;  // swallow tokens inside tool-call
+    chatState.pendingAssistant += ev.text;
+    let bubble = getLive();
+    if (!bubble) { bubble = chatAppendAssistantBubble(''); setLive(bubble); }
+    // Avoid showing raw <tool_call> markup mid-stream
+    const safe = chatState.pendingAssistant.split('<tool_call>')[0];
+    bubble.textContent = safe;
+    const box = document.getElementById('chat-messages');
+    box.scrollTop = box.scrollHeight;
+  } else if (ev.type === 'tool_call') {
+    // Finalize any prose that came before
+    const live = getLive();
+    if (live) {
+      const safe = chatState.pendingAssistant.split('<tool_call>')[0].trim();
+      live.textContent = safe;
+      if (!safe) live.parentElement.remove();
+    }
+    setLive(null);
+    chatState.pendingAssistant = '';
+    chatState.pendingToolCall = ev;
+    const argsStr = JSON.stringify(ev.args || {});
+    const body = chatAppendToolBubble(ev.name, argsStr, 'running…');
+    chatState.pendingToolCall._bodyEl = body;
+    chatSetStatus(`Calling ${ev.name}…`, true);
+  } else if (ev.type === 'tool_result') {
+    if (chatState.pendingToolCall && chatState.pendingToolCall._bodyEl) {
+      chatState.pendingToolCall._bodyEl.textContent = ev.result || '';
+    }
+    chatState.pendingToolCall = null;
+    chatSetStatus('Thinking…', true);
+  } else if (ev.type === 'assistant_message') {
+    // Final cleaned assistant text from backend — replace any live bubble
+    const live = getLive();
+    if (live) live.textContent = ev.text;
+    else chatAppendAssistantBubble(ev.text);
+    setLive(null);
+    chatState.pendingAssistant = '';
+  } else if (ev.type === 'error') {
+    chatAppendAssistantBubble(`[error] ${ev.error || 'unknown error'}`);
+    setLive(null);
+  } else if (ev.type === 'done') {
+    chatSetStatus('');
+  }
+}
+
+function chatToggle() {
+  const panel = document.getElementById('chat-panel');
+  const btn = document.getElementById('chat-toggle');
+  const open = panel.classList.toggle('open');
+  btn.classList.toggle('active', open);
+  if (open) {
+    chatLoadSessions();
+    document.getElementById('chat-workspace-badge').textContent = document.getElementById('workspace-select').value || 'default';
+    setTimeout(() => document.getElementById('chat-input').focus(), 260);
+  }
+}
+
+async function initChat() {
+  const s = await chatFetchStatus();
+  if (!s || !s.enabled) return;
+
+  document.getElementById('chat-toggle').addEventListener('click', chatToggle);
+  document.getElementById('chat-close').addEventListener('click', chatToggle);
+  document.getElementById('chat-new-btn').addEventListener('click', chatNewSession);
+  document.getElementById('chat-send').addEventListener('click', chatSend);
+
+  const input = document.getElementById('chat-input');
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(120, input.scrollHeight) + 'px';
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); }
+  });
+
+  const title = document.getElementById('chat-title');
+  title.addEventListener('blur', async () => {
+    if (!chatState.sessionId) return;
+    const newTitle = title.textContent.trim() || 'New chat';
+    await fetch(`/api/chat/sessions/${encodeURIComponent(chatState.sessionId)}/rename`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({title: newTitle}),
+    });
+    chatLoadSessions();
+  });
+  title.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); title.blur(); }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === 'k') {
+      e.preventDefault(); chatToggle();
+    } else if (ctrl && e.shiftKey && e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      if (document.getElementById('chat-panel').classList.contains('open')) chatNewSession();
+    } else if (e.key === 'Escape' && document.getElementById('chat-panel').classList.contains('open')) {
+      if (document.activeElement === document.getElementById('chat-input')) return;
+      chatToggle();
+    }
+  });
+
+  if (!s.installed) {
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = `<div id="chat-empty">
+      <h3>llama-cpp-python not installed</h3>
+      <p style="margin-bottom:6px">Re-run <code>imprint setup</code>, or:</p>
+      <p><code>pip install llama-cpp-python</code></p>
+      <p style="margin-top:8px;color:var(--text-muted);font-size:11px">${escHtml(s.error || '')}</p>
+    </div>`;
+    document.getElementById('chat-input').disabled = true;
+    document.getElementById('chat-send').disabled = true;
+  } else if (!s.model_ready) {
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = `<div id="chat-empty">
+      <h3>Model not cached yet</h3>
+      <p>First send will auto-download <code>${escHtml(s.model_file || 'the GGUF')}</code> from <code>${escHtml(s.model_repo || '')}</code>.</p>
+      <p style="margin-top:8px;color:var(--text-muted);font-size:11px">Or set <code>chat.model_path</code> via <code>imprint config set</code>.</p>
+    </div>`;
+  }
+}
+
+// Refresh workspace badge + sessions when workspace switches
+const _origWsChange = document.getElementById('workspace-select');
+_origWsChange.addEventListener('change', () => {
+  chatState.sessionId = null;
+  document.getElementById('chat-workspace-badge').textContent = _origWsChange.value || 'default';
+  if (chatState.enabled) chatLoadSessions();
+});
+
 // ── Boot ──
 async function boot() {
   initTheme();
@@ -2239,6 +2780,7 @@ async function boot() {
   loadStats();
   await restoreFromHash();
   connectSSE();
+  initChat();
 }
 
 boot();
@@ -2359,6 +2901,23 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
                 "workspaces": config.get_known_workspaces(),
             })
 
+        elif path == "/api/chat/status":
+            self._json(chat_mod.status())
+
+        elif path == "/api/chat/sessions":
+            self._json({"sessions": chat_store.list_sessions()})
+
+        elif path.startswith("/api/chat/sessions/"):
+            from urllib.parse import unquote
+            sid = unquote(path[len("/api/chat/sessions/"):])
+            sess = chat_store.get_session(sid)
+            if not sess:
+                self.send_response(404)
+                self.end_headers()
+            else:
+                sess["messages"] = chat_store.get_messages(sid)
+                self._json(sess)
+
         elif path == "/api/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -2413,9 +2972,104 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
             _last_wal_size = 0
             _last_row_count = 0
             self._json({"ok": True, "active": config.get_active_workspace()})
+
+        elif path == "/api/chat/sessions":
+            sid = chat_store.create_session()
+            sess = chat_store.get_session(sid)
+            self._json(sess or {"id": sid})
+
+        elif path.endswith("/rename") and path.startswith("/api/chat/sessions/"):
+            from urllib.parse import unquote
+            sid = unquote(path[len("/api/chat/sessions/"):-len("/rename")])
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            title = (body.get("title") or "").strip() or "New chat"
+            ok = chat_store.rename_session(sid, title)
+            self._json({"ok": ok})
+
+        elif path == "/api/chat":
+            self._handle_chat_stream()
+
         else:
             self.send_response(404)
             self.end_headers()
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        if path.startswith("/api/chat/sessions/"):
+            from urllib.parse import unquote
+            sid = unquote(path[len("/api/chat/sessions/"):])
+            ok = chat_store.delete_session(sid)
+            self._json({"ok": ok})
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def _handle_chat_stream(self):
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(length)) if length else {}
+        except json.JSONDecodeError:
+            self.send_response(400)
+            self.end_headers()
+            return
+        sid = body.get("session_id") or ""
+        user_msg = body.get("message") or ""
+        if not sid or not user_msg.strip():
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        sess = chat_store.get_session(sid)
+        if not sess:
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        prior = chat_store.get_messages(sid)
+        chat_store.append_message(sid, role="user", content=user_msg)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.close_connection = True
+
+        workspace = config.get_active_workspace()
+        pending_tool: dict | None = None
+        try:
+            for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace):
+                etype = ev.get("type")
+                if etype == "tool_call":
+                    pending_tool = ev
+                elif etype == "tool_result" and pending_tool:
+                    chat_store.append_message(
+                        sid,
+                        role="tool",
+                        content=ev.get("result", ""),
+                        tool_name=pending_tool.get("name"),
+                        tool_args=pending_tool.get("args"),
+                    )
+                    pending_tool = None
+                elif etype == "assistant_message":
+                    chat_store.append_message(
+                        sid, role="assistant", content=ev.get("text", ""),
+                    )
+                try:
+                    self.wfile.write(f"data: {json.dumps(ev)}\n\n".encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+        except Exception as e:
+            try:
+                err = json.dumps({"type": "error", "error": str(e)})
+                self.wfile.write(f"data: {err}\n\n".encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def _json(self, data):
         body = json.dumps(data).encode()

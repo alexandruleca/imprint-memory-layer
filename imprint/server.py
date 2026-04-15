@@ -387,6 +387,75 @@ def kg_invalidate(fact_id: int, workspace: str = "") -> str:
 
 
 @mcp.tool()
+def ingest_url(url: str, project: str = "urls", force: bool = False, workspace: str = "") -> str:
+    """Fetch a URL, extract its content (html/pdf/image OCR/etc), chunk,
+    and store as memories. Re-run on the same URL skips when ETag /
+    Last-Modified hasn't changed (unless ``force=True``).
+
+    Args:
+        url: http(s) URL to ingest
+        project: Project label for the resulting memories (default: "urls")
+        force: Re-fetch even if HEAD says content is unchanged
+        workspace: Target a specific workspace instead of the active one
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
+    from .cli_ingest_url import ingest_one
+    known = vs.get_url_sources(workspace=ws)
+    n, status = ingest_one(url, project, known, force=force)
+    if status == "stored":
+        return f"Stored {n} chunks from {url} (project={project})"
+    if status == "skipped-unchanged":
+        return f"Unchanged — skipped {url}"
+    return f"Failed {url}: {status}"
+
+
+@mcp.tool()
+def refresh_urls(project: str = "", workspace: str = "") -> str:
+    """Re-check every stored URL via HEAD request. Re-fetches and re-indexes
+    any whose ETag or Last-Modified header has changed.
+
+    Args:
+        project: Restrict to one project (optional)
+        workspace: Target a specific workspace (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
+    from .cli_ingest_url import ingest_one
+    from .extractors import url as url_ext
+    from . import extractors as _ext
+
+    known = vs.get_url_sources(workspace=ws)
+    if project:
+        known = {u: v for u, v in known.items() if v.get("project") == project}
+    if not known:
+        return "No URL sources stored yet."
+
+    updated = unchanged = errors = 0
+    for url, info in known.items():
+        try:
+            head = url_ext.head_check(url)
+        except _ext.ExtractorUnavailable as e:
+            return f"URL refresh needs httpx: {e}"
+        same_etag = head.get("etag") and head["etag"] == info.get("etag")
+        same_mod = head.get("last_modified") and head["last_modified"] == info.get("last_modified")
+        if head and (same_etag or same_mod):
+            unchanged += 1
+            continue
+        proj = info.get("project") or "urls"
+        _, status = ingest_one(url, proj, known, force=True)
+        if status == "stored":
+            updated += 1
+        else:
+            errors += 1
+    return f"URL refresh: updated={updated} unchanged={unchanged} errors={errors}"
+
+
+@mcp.tool()
 def status(workspace: str = "") -> str:
     """Imprint memory overview.
 

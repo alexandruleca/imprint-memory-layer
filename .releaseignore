@@ -1,0 +1,33 @@
+# Files excluded from release archives (rsync --exclude-from)
+# Each pattern is matched by rsync against the source root.
+
+# VCS + CI
+.git/
+.github/
+.gitignore
+
+# Local dev + user state
+.venv/
+.claude/
+data/
+build/
+dist/
+
+# Test artifacts + benchmark results
+benchmark/results/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/
+
+# Cross-platform binaries (the staging step re-adds only this platform's)
+bin/imprint-*
+bin/qdrant-*
+
+# Private notes
+MEMORY.md
+.releaseignore
