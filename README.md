@@ -1,5 +1,11 @@
 # Imprint Memory Layer
 
+[![CI](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml)
+[![Release](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/release.yml)
+[![Dev Release](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/dev-release.yml/badge.svg?branch=dev)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/dev-release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/alexandruleca/imprint-memory-layer?sort=semver&display_name=tag)](https://github.com/alexandruleca/imprint-memory-layer/releases/latest)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 AI memory system MCP. Gives Claude/Cursor/Other persistent memory across sessions — it remembers your projects, decisions, patterns, and conversations so you don't have to re-explain context every time.
 
 ```mermaid
