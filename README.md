@@ -1,3 +1,5 @@
+![Imprint](screenshots/hero.png)
+
 # Imprint Memory Layer
 
 [![CI](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml)
