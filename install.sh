@@ -77,66 +77,48 @@ else
     info "Channel: stable (latest)"
 fi
 
-# Release asset URL for this platform
+# Release archive URL for this platform
+ARCHIVE_NAME="imprint-${PLATFORM}-${ARCH}.tar.gz"
 if [ -n "$TARGET_TAG" ]; then
-    RELEASE_URL="https://github.com/$REPO/releases/download/${TARGET_TAG}/imprint-${PLATFORM}-${ARCH}"
+    ARCHIVE_URL="https://github.com/$REPO/releases/download/${TARGET_TAG}/${ARCHIVE_NAME}"
 else
-    RELEASE_URL="https://github.com/$REPO/releases/latest/download/imprint-${PLATFORM}-${ARCH}"
+    ARCHIVE_URL="https://github.com/$REPO/releases/latest/download/${ARCHIVE_NAME}"
 fi
 
 # --- Check prerequisites ---
 if ! command -v claude &>/dev/null; then
     fail "Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code/overview"
 fi
-
-# --- Clone or update repo ---
-info "Setting up imprint repository..."
-if [ -d "$INSTALL_DIR/.git" ]; then
-    info "Updating existing installation..."
-    git -C "$INSTALL_DIR" fetch --tags --quiet origin 2>/dev/null || true
-    if [ -n "$TARGET_TAG" ]; then
-        git -C "$INSTALL_DIR" checkout --quiet "$TARGET_TAG" 2>/dev/null \
-            || fail "Could not checkout tag $TARGET_TAG in $INSTALL_DIR"
-    else
-        git -C "$INSTALL_DIR" checkout --quiet main 2>/dev/null || true
-        git -C "$INSTALL_DIR" pull --quiet 2>/dev/null || true
-    fi
-else
-    rm -rf "$INSTALL_DIR"
-    if [ -n "$TARGET_TAG" ]; then
-        git clone --quiet --branch "$TARGET_TAG" --depth 1 "https://github.com/$REPO.git" "$INSTALL_DIR" \
-            || fail "Failed to clone at tag $TARGET_TAG"
-    else
-        git clone --quiet "https://github.com/$REPO.git" "$INSTALL_DIR"
-    fi
+command -v tar &>/dev/null || fail "tar is required but not found"
+command -v rsync &>/dev/null || fail "rsync is required but not found"
+DOWNLOADER=""
+if command -v curl &>/dev/null; then DOWNLOADER="curl"
+elif command -v wget &>/dev/null; then DOWNLOADER="wget"
+else fail "Neither curl nor wget found"
 fi
 
-# --- Acquire binary: bundled → build → download ---
-BUNDLED_BIN="$INSTALL_DIR/bin/imprint-${PLATFORM}-${ARCH}"
-if [ -f "$BUNDLED_BIN" ]; then
-    IMPRINT_BIN="$BUNDLED_BIN"
-    chmod +x "$IMPRINT_BIN"
-    info "Using bundled binary: $IMPRINT_BIN"
-elif command -v go &>/dev/null; then
-    info "Bundled binary not found for ${PLATFORM}/${ARCH}. Go found — building from source..."
-    cd "$INSTALL_DIR"
-    LDVER="${TARGET_TAG:-dev}"
-    go build -ldflags "-s -w -X main.version=${LDVER}" -o build/imprint . 2>/dev/null
-    IMPRINT_BIN="$INSTALL_DIR/build/imprint"
+# --- Download and extract release archive ---
+info "Downloading release archive: $ARCHIVE_URL"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+TARBALL="$TMP/$ARCHIVE_NAME"
+if [ "$DOWNLOADER" = "curl" ]; then
+    curl -fsSL "$ARCHIVE_URL" -o "$TARBALL" || fail "Download failed: $ARCHIVE_URL"
 else
-    info "Downloading pre-built binary from: $RELEASE_URL"
-    mkdir -p "$INSTALL_DIR/build"
-    IMPRINT_BIN="$INSTALL_DIR/build/imprint"
-    if command -v curl &>/dev/null; then
-        curl -fsSL "$RELEASE_URL" -o "$IMPRINT_BIN" 2>/dev/null || fail "Download failed: $RELEASE_URL"
-    elif command -v wget &>/dev/null; then
-        wget -q "$RELEASE_URL" -O "$IMPRINT_BIN" 2>/dev/null || fail "Download failed: $RELEASE_URL"
-    else
-        fail "Neither curl nor wget found. Install Go and run again to build from source."
-    fi
-    chmod +x "$IMPRINT_BIN"
+    wget -q "$ARCHIVE_URL" -O "$TARBALL" || fail "Download failed: $ARCHIVE_URL"
 fi
 
+info "Extracting to $INSTALL_DIR (preserving data/ and .venv/)..."
+tar -xzf "$TARBALL" -C "$TMP" || fail "Failed to extract $TARBALL"
+EXTRACTED="$TMP/imprint-${PLATFORM}-${ARCH}"
+[ -d "$EXTRACTED" ] || fail "Unexpected archive layout: $EXTRACTED not found"
+mkdir -p "$INSTALL_DIR"
+# rsync over-top: upgrades code files, leaves data/ and .venv/ alone.
+rsync -a --exclude data/ --exclude .venv/ "$EXTRACTED/" "$INSTALL_DIR/"
+
+IMPRINT_BIN="$INSTALL_DIR/bin/imprint"
+[ -f "$IMPRINT_BIN" ] || fail "Binary missing after extract: $IMPRINT_BIN"
+chmod +x "$IMPRINT_BIN"
 success "Binary ready at $IMPRINT_BIN"
 
 # --- Set up Python venv and dependencies ---
