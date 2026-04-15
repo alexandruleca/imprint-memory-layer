@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "imprint": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "imprint"],
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}

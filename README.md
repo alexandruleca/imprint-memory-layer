@@ -727,6 +727,17 @@ graph LR
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `ingest`, `refresh`, `server`, `workspace`, `wipe`, `sync`, `relay`, `viz` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync |
 
+## Benchmarks
+
+Imprint reduces Claude Code's token consumption by serving focused semantic search results instead of requiring full file reads. See [BENCHMARK.md](BENCHMARK.md) for methodology and detailed results.
+
+| Category | Avg Token Savings | Avg Cost Savings |
+|----------|------------------|------------------|
+| Information prompts | _pending_ | _pending_ |
+| Creation tasks | _pending_ | _pending_ |
+
+> Reproduce: `bash benchmark/run.sh` — see [BENCHMARK.md](BENCHMARK.md) for details.
+
 ## Building from Source
 
 ```bash

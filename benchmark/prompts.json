@@ -1,0 +1,50 @@
+[
+  {
+    "id": "info-1",
+    "category": "information",
+    "name": "Chunking system",
+    "prompt": "How does the chunking system work in this project? Explain the dispatch logic, what chunker is used for code vs prose, and the overlap strategy."
+  },
+  {
+    "id": "info-2",
+    "category": "information",
+    "name": "Embedding model",
+    "prompt": "What embedding model does Imprint use and how is the ONNX session configured? Include details about memory safeguards and GPU support."
+  },
+  {
+    "id": "info-3",
+    "category": "information",
+    "name": "Workspace isolation",
+    "prompt": "Explain the workspace isolation architecture. How does each workspace get its own collection, SQLite DB, and WAL? How does the MCP server detect workspace switches?"
+  },
+  {
+    "id": "info-4",
+    "category": "information",
+    "name": "Metadata tagging",
+    "prompt": "How does the metadata tagging system work? Walk me through the four tag sources from deterministic to LLM, including the zero-shot approach."
+  },
+  {
+    "id": "info-5",
+    "category": "information",
+    "name": "Qdrant lifecycle",
+    "prompt": "How does the auto-spawned Qdrant server work? Why is server mode used instead of embedded mode? How does qdrant_runner.py handle lifecycle?"
+  },
+  {
+    "id": "create-1",
+    "category": "creation",
+    "name": "Qdrant connectivity test",
+    "prompt": "Write a Python script called test_qdrant_connectivity.py that connects to the local Qdrant server at the configured host:port, checks if it's reachable, lists collections, and prints memory counts per collection. Use the same Qdrant client library this project uses."
+  },
+  {
+    "id": "create-2",
+    "category": "creation",
+    "name": "Memory count utility",
+    "prompt": "Write a Python utility function called count_memories_by_project() that queries the Qdrant collection and returns a dict of {project_name: count}. Use the same facet-based approach this project already uses in the MCP server."
+  },
+  {
+    "id": "create-3",
+    "category": "creation",
+    "name": "Embed speed benchmark",
+    "prompt": "Write a shell script called benchmark_embed_speed.sh that times how long it takes to embed 100 chunks of text using the project's embedding pipeline. It should use the project's Python venv and import from the imprint package."
+  }
+]

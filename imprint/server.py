@@ -23,6 +23,9 @@ RECENT_MAX_ENTRIES = 8
 RECENT_MAX_CHARS = 800  # ~200 tokens — recent activity
 
 
+_session_woken = False
+
+
 def _validate_ws(workspace: str) -> tuple[str | None, str | None]:
     """Resolve and validate workspace parameter.
     Returns (resolved_workspace_or_None, error_message_or_None)."""
@@ -40,11 +43,15 @@ def _validate_ws(workspace: str) -> tuple[str | None, str | None]:
 @mcp.tool()
 def wake_up(workspace: str = "") -> str:
     """Load prior context at the start of a conversation.
-    Call this FIRST in every session. Returns project overview, essential decisions/patterns, and active facts.
+    Returns project overview, essential decisions/patterns, and active facts.
+    Note: search() auto-calls this on its first invocation, so calling wake_up
+    explicitly is optional — just go straight to search().
 
     Args:
         workspace: Target a specific workspace instead of the active one (optional)
     """
+    global _session_woken
+    _session_woken = True
     ws, err = _validate_ws(workspace)
     if err:
         return err
@@ -183,6 +190,7 @@ def search(
     """Semantic search across stored memories.
     Check this BEFORE reading files — the answer may already be here.
     Returns relevant code chunks, decisions, and patterns.
+    Automatically loads session context (wake_up) on the first call.
 
     Args:
         query: What to search for (natural language)
@@ -216,15 +224,28 @@ def search(
         tag_filters=tag_filters or None, workspace=ws,
     )
 
+    # ── Auto-wake: prepend session context on first search call ──
+    prefix = ""
+    if not _session_woken:
+        prefix = wake_up(workspace=workspace) + "\n\n---\n\n"
+
     if not results:
-        return "No results. Try reading the relevant files directly."
+        return prefix + "No results. Try reading the relevant files directly."
 
     # Filter by similarity threshold
     relevant = [r for r in results if r["similarity"] >= RELEVANCE_THRESHOLD]
     if not relevant:
-        return "No relevant matches found. Try reading the relevant files directly."
+        return prefix + "No relevant matches found. Try reading the relevant files directly."
 
     lines = []
+
+    # ── Confidence-based guidance ──
+    avg_sim = sum(r["similarity"] for r in relevant) / len(relevant)
+    if avg_sim >= 0.6:
+        lines.append("High-confidence results — answer from these without reading files.\n")
+    elif avg_sim < 0.35:
+        lines.append("Low-confidence matches — consider reading files for accuracy.\n")
+
     for i, r in enumerate(relevant, 1):
         meta = []
         if r["project"]:
@@ -250,7 +271,7 @@ def search(
         lines.append(r["content"])
         lines.append("")
 
-    return "\n".join(lines)
+    return prefix + "\n".join(lines)
 
 
 @mcp.tool()

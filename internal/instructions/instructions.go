@@ -8,10 +8,12 @@ const ImprintBase = `# Imprint Memory — Check Memory First
 An Imprint MCP server is registered globally. It contains indexed code chunks, decisions, patterns, and project knowledge from past sessions.
 
 ## Every conversation
-1. Call mcp__imprint__wake_up at the start to load prior context
-2. Before answering questions about code, architecture, or project context — call mcp__imprint__search first
-3. If search returns relevant results, use them to answer. The imprint memory contains actual code chunks — often enough for explanations without reading files
-4. If the context from search isn't enough, or you need exact current file content for edits, read the files as needed
+1. Call mcp__imprint__search with your first question — it auto-loads session context (wake_up) on the first call
+2. Trust search results when confidence is high:
+   - "High-confidence results" → answer directly, do NOT read files
+   - No prefix → results are adequate, read files only if answer is incomplete
+   - "Low-confidence matches" → search was insufficient, fall back to Read/Grep
+3. Only fall back to Read/Grep when search returns no results, you need exact current content for edits, or the user asks
 
 ## During conversation — store what you learn
 - Architectural decisions and WHY they were made

@@ -4,11 +4,17 @@ Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + Embedd
 
 ## IMPORTANT: Use Imprint Before Reading Files
 
-**At the start of every conversation**, call `mcp__imprint__wake_up` to load prior context.
+**At the start of every conversation**, call `mcp__imprint__search` with your first question.
+It auto-loads session context (wake_up) on the first call — no need to call `wake_up` separately.
 
-**Before reading files for context**, call `mcp__imprint__search` first. If the imprint memory has the answer, use it — don't re-read source files. Only fall back to Read/Grep when:
-- The imprint memory returns no results
-- You need the *current* content of a specific file
+**Trust search results when confidence is high.** Search results include confidence guidance:
+- "High-confidence results" → answer directly, do NOT read files
+- No prefix → results are adequate, read files only if answer is incomplete
+- "Low-confidence matches" → search was insufficient, fall back to Read/Grep
+
+**Only fall back to Read/Grep when:**
+- Search returns no results or low-confidence matches
+- You need *exact current content* for making edits (not for understanding)
 - The user explicitly asks you to read a file
 
 **During conversation**, store important findings:
