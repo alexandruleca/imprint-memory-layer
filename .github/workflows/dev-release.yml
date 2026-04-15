@@ -56,9 +56,14 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: make all
 
+      - name: Package per-platform archives
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: make package
+
       - name: Generate checksums
-        working-directory: bin
-        run: sha256sum imprint-* > SHA256SUMS
+        working-directory: dist
+        run: sha256sum imprint-*.tar.gz imprint-*.zip > SHA256SUMS
 
       - name: Create GitHub prerelease
         env:
@@ -70,12 +75,12 @@ jobs:
             --prerelease \
             --title "$VERSION" \
             --notes "Automated dev build from commit ${{ github.sha }}." \
-            bin/imprint-linux-amd64 \
-            bin/imprint-linux-arm64 \
-            bin/imprint-darwin-amd64 \
-            bin/imprint-darwin-arm64 \
-            bin/imprint-windows-amd64.exe \
-            bin/SHA256SUMS
+            dist/imprint-linux-amd64.tar.gz \
+            dist/imprint-linux-arm64.tar.gz \
+            dist/imprint-darwin-amd64.tar.gz \
+            dist/imprint-darwin-arm64.tar.gz \
+            dist/imprint-windows-amd64.zip \
+            dist/SHA256SUMS
 
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
