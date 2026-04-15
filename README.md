@@ -77,8 +77,8 @@ imprint workspace switch <name>  # switch to workspace (creates if new)
 imprint workspace delete <name>  # delete a workspace and its data
 imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
-imprint sync serve --relay <host>  # expose KB for peer syncing
-imprint sync <host>/<id>   # bidirectional sync with a peer
+imprint sync serve [--relay <host>]      # expose KB for peer syncing (default: imprint.alexandruleca.com)
+imprint sync <id> --pin <pin>            # sync via default relay (or <host>/<id> / wss://<host>/<id>)
 imprint relay              # run the sync relay server
 imprint viz                # 3D brain cluster visualization
 imprint version            # print version
