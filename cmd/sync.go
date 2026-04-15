@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"os"
 	"os/exec"
@@ -56,12 +55,15 @@ type helloRequest struct {
 // streamMsg is the wire format for streamed pull/push payloads.
 // Newline-delimited JSON of this shape flows over the WS and to/from Python.
 type streamMsg struct {
-	Kind     string             `json:"kind"`              // "meta" | "batch" | "done" | "error"
-	Datasets map[string]int     `json:"datasets,omitempty"` // on meta: dataset name → total count
-	Dataset  string             `json:"dataset,omitempty"`  // on batch: "memories" | "facts"
-	Seq      int                `json:"seq,omitempty"`
-	Records  []json.RawMessage  `json:"records,omitempty"`
-	Message  string             `json:"message,omitempty"`  // on error
+	Kind     string            `json:"kind"`               // "meta" | "batch" | "done" | "error" | "progress" | "summary"
+	Datasets map[string]int    `json:"datasets,omitempty"` // on meta: dataset name → total count
+	Dataset  string            `json:"dataset,omitempty"`  // on batch/progress: "memories" | "facts"
+	Seq      int               `json:"seq,omitempty"`
+	Records  []json.RawMessage `json:"records,omitempty"`
+	Message  string            `json:"message,omitempty"` // on error
+	Done     int               `json:"done,omitempty"`    // on progress
+	Total    int               `json:"total,omitempty"`   // on progress
+	Stats    json.RawMessage   `json:"stats,omitempty"`   // on summary
 }
 
 func Sync(args []string) {
@@ -427,42 +429,47 @@ func streamExport(
 
 // streamImport reads WS messages until {"kind":"done"} and pipes each batch
 // to the Python importer over stdin. Returns the importer's final JSON summary.
+// streamImport runs in two clearly separated phases so the user always knows
+// what's happening:
+//
+//  1. RECEIVE — read every WS message into a temp file. Progress reflects
+//     bytes/records actually pulled off the wire. The peer can disconnect as
+//     soon as it finishes sending; nothing is blocked on local processing.
+//
+//  2. PROCESS — pre-warm the embedding model (with feedback), then spawn the
+//     Python importer pointed at the temp file. The importer emits progress
+//     messages per batch so the second progress bar reflects real local work
+//     (embed + upsert), not network receive.
+//
+// Returns the importer's final JSON summary (memories/facts inserted+skipped).
 func streamImport(
 	ctx context.Context,
 	conn *websocket.Conn,
 	venvPython, projectDir, dataDir string,
 	label string,
 ) (string, error) {
-	cmd := exec.CommandContext(ctx, venvPython, "-c", syncImportStreamScript(projectDir, dataDir))
-	stdin, err := cmd.StdinPipe()
+	// ── Phase 1: receive everything to disk ────────────────────────────────
+	tmp, err := os.CreateTemp("", "imprint-sync-*.jsonl")
 	if err != nil {
-		return "", fmt.Errorf("stdin pipe: %w", err)
+		return "", fmt.Errorf("temp file: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("stdout pipe: %w", err)
-	}
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("start importer: %w", err)
-	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
 
 	prog := newProgress(label)
 	received := map[string]int{}
 	totals := map[string]int{}
 
-loop:
+receiveLoop:
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
-			_ = stdin.Close()
-			_ = cmd.Wait()
+			_ = tmp.Close()
 			return "", fmt.Errorf("ws read: %w", err)
 		}
-		if _, err := stdin.Write(append(data, '\n')); err != nil {
-			_ = stdin.Close()
-			_ = cmd.Wait()
-			return "", fmt.Errorf("importer stdin: %w", err)
+		if _, err := tmp.Write(append(data, '\n')); err != nil {
+			_ = tmp.Close()
+			return "", fmt.Errorf("buffer write: %w", err)
 		}
 
 		var m streamMsg
@@ -480,24 +487,92 @@ loop:
 			prog.Update(m.Dataset, received[m.Dataset], totals[m.Dataset])
 		case "done":
 			prog.Finish(received, totals)
-			break loop
+			break receiveLoop
 		case "error":
 			prog.Finish(received, totals)
-			_ = stdin.Close()
-			_ = cmd.Wait()
+			_ = tmp.Close()
 			return "", fmt.Errorf("peer error: %s", m.Message)
 		}
 	}
-
-	if err := stdin.Close(); err != nil {
-		return "", fmt.Errorf("close importer stdin: %w", err)
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close temp file: %w", err)
 	}
 
-	summary, _ := io.ReadAll(stdout)
+	// Nothing inbound? Skip the expensive model warmup entirely.
+	if totals["memories"] == 0 && totals["facts"] == 0 {
+		return `{"memories":{"inserted":0,"skipped":0},"facts":{"inserted":0,"skipped":0}}`, nil
+	}
+
+	// ── Phase 2a: warm the embedding model with explicit UX ────────────────
+	if totals["memories"] > 0 {
+		if err := warmupEmbeddings(ctx, venvPython, projectDir, dataDir); err != nil {
+			return "", fmt.Errorf("load embedding model: %w", err)
+		}
+	}
+
+	// ── Phase 2b: process buffered batches with per-batch progress ─────────
+	cmd := exec.CommandContext(ctx, venvPython, "-c", syncImportStreamScript(projectDir, dataDir), tmpPath)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe: %w", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start importer: %w", err)
+	}
+
+	prog2 := newProgress("Storing")
+	prog2.Meta(totals)
+	processed := map[string]int{}
+	var summary string
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var m streamMsg
+		if err := json.Unmarshal(line, &m); err != nil {
+			continue
+		}
+		switch m.Kind {
+		case "progress":
+			processed[m.Dataset] = m.Done
+			prog2.Update(m.Dataset, m.Done, m.Total)
+		case "summary":
+			summary = string(m.Stats)
+		case "error":
+			prog2.Finish(processed, totals)
+			_ = cmd.Wait()
+			return "", fmt.Errorf("importer error: %s", m.Message)
+		}
+	}
+	prog2.Finish(processed, totals)
+	if err := scanner.Err(); err != nil {
+		_ = cmd.Wait()
+		return "", fmt.Errorf("importer scan: %w", err)
+	}
 	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("importer exit: %w (output: %s)", err, string(summary))
+		return "", fmt.Errorf("importer exit: %w", err)
 	}
-	return strings.TrimSpace(string(summary)), nil
+	if summary == "" {
+		return "", fmt.Errorf("importer produced no summary")
+	}
+	return summary, nil
+}
+
+// warmupEmbeddings loads the embedding model so the user gets clear UX
+// feedback ("Loading embedding model...") rather than a silent ~30s pause
+// inside the importer when the first batch hits store_batch().
+func warmupEmbeddings(ctx context.Context, venvPython, projectDir, dataDir string) error {
+	output.Info("Loading embedding model (one-time download if not cached, ~500MB)...")
+	cmd := exec.CommandContext(ctx, venvPython, "-c", syncEmbeddingWarmupScript(projectDir, dataDir))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	output.Success("Embedding model ready")
+	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -656,8 +731,32 @@ emit({"kind": "done"})
 `, projectDir, dataDir, batchSize)
 }
 
-// syncImportStreamScript reads newline-delimited JSON from stdin, dispatches
-// batches to store_batch / facts-insert, and prints a final summary to stdout.
+// syncEmbeddingWarmupScript loads the embedding model so the first call to
+// store_batch in the importer doesn't pay the download/load cost mid-stream.
+// On a cold cache the HF library will print its own download progress; on a
+// warm cache this returns in ~1s.
+func syncEmbeddingWarmupScript(projectDir, dataDir string) string {
+	return fmt.Sprintf(`
+import os, sys
+sys.path.insert(0, %q)
+os.environ["IMPRINT_DATA_DIR"] = %q
+from imprint import embeddings
+embeddings._load()
+# Tiny dummy embed forces ORT graph init so the first real batch is fast.
+embeddings._embed_raw(["warmup"])
+`, projectDir, dataDir)
+}
+
+// syncImportStreamScript reads newline-delimited JSON from a file (path
+// passed as argv[1]), dispatches batches to store_batch / facts-insert, and
+// emits per-batch progress + a final summary to stdout. Reading from a file
+// (rather than stdin) lets the caller decouple network receive from local
+// processing — the user gets two separate, accurate progress bars.
+//
+// Wire format on stdout (newline-delimited JSON):
+//
+//	{"kind":"progress","dataset":"memories","done":N,"total":T}
+//	{"kind":"summary","stats":{...}}
 func syncImportStreamScript(projectDir, dataDir string) string {
 	return fmt.Sprintf(`
 import os, sys, json
@@ -669,10 +768,26 @@ try:
 except Exception:
     kg = None
 
+if len(sys.argv) < 2:
+    sys.stderr.write("importer: missing input file path\n")
+    sys.exit(2)
+
+src_path = sys.argv[1]
+
 stats = {
     "memories": {"inserted": 0, "skipped": 0},
     "facts": {"inserted": 0, "skipped": 0},
 }
+totals = {"memories": 0, "facts": 0}
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj, separators=(",", ":")))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+def progress(dataset):
+    done = stats[dataset]["inserted"] + stats[dataset]["skipped"]
+    emit({"kind": "progress", "dataset": dataset, "done": done, "total": totals.get(dataset, 0)})
 
 def import_memories(records):
     if not records:
@@ -691,11 +806,14 @@ def import_memories(records):
     ])
     stats["memories"]["inserted"] += int(ins)
     stats["memories"]["skipped"] += int(sk)
+    progress("memories")
 
 def import_facts(records):
-    if not records or kg is None:
-        if records and kg is None:
-            stats["facts"]["skipped"] += len(records)
+    if not records:
+        return
+    if kg is None:
+        stats["facts"]["skipped"] += len(records)
+        progress("facts")
         return
     conn = kg._get_conn()
     ins = 0
@@ -723,29 +841,39 @@ def import_facts(records):
     conn.commit()
     stats["facts"]["inserted"] += ins
     stats["facts"]["skipped"] += sk
+    progress("facts")
 
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except Exception:
-        continue
-    kind = msg.get("kind")
-    if kind == "done":
-        break
-    if kind != "batch":
-        continue
-    dataset = msg.get("dataset", "memories")
-    records = msg.get("records") or []
-    if dataset == "memories":
-        import_memories(records)
-    elif dataset == "facts":
-        import_facts(records)
+try:
+    with open(src_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except Exception:
+                continue
+            kind = msg.get("kind")
+            if kind == "meta":
+                ds = msg.get("datasets") or {}
+                for k, v in ds.items():
+                    totals[k] = int(v)
+                continue
+            if kind == "done":
+                break
+            if kind != "batch":
+                continue
+            dataset = msg.get("dataset", "memories")
+            records = msg.get("records") or []
+            if dataset == "memories":
+                import_memories(records)
+            elif dataset == "facts":
+                import_facts(records)
+except Exception as exc:
+    emit({"kind": "error", "message": str(exc)})
+    sys.exit(1)
 
-sys.stdout.write(json.dumps(stats))
-sys.stdout.flush()
+emit({"kind": "summary", "stats": stats})
 `, projectDir, dataDir)
 }
 
