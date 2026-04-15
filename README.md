@@ -143,9 +143,9 @@ Imprint reduces Claude Code's token consumption by serving focused semantic sear
 - [ ] Local Auto Back-up
 - [ ] External Qdrant Instance instead of local db
 - [ ] BackUp/Sync to another Qdrant Remote Instance Server
-- [ ] Document (pdf, doc, odt, ...etc) ingestion capability
+- [x] Document (pdf, doc, odt, ...etc) ingestion capability
 - [ ] Video / Audio ingestion capability
-- [ ] URL ingestion capability
+- [x] URL ingestion capability
 
 ## License
 

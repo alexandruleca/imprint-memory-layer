@@ -62,6 +62,15 @@ SETTINGS: list[Setting] = [
     Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "claude-haiku-4-5", str, "LLM tagger model name"),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
 
+    # ── Ingest (docs + urls) ──────────────────────────────────
+    Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml", str,  "Comma-separated doc formats enabled for file walker"),
+    Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               False,       bool, "OCR for scanned PDFs + images (needs tesseract)"),
+    Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "Tesseract language codes (e.g. 'eng+fra')"),
+    Setting("ingest.max_doc_size_mb",   "IMPRINT_INGEST_MAX_DOC_MB",        25,          int,  "Per-file byte cap for document extraction"),
+    Setting("ingest.url_timeout_sec",   "IMPRINT_INGEST_URL_TIMEOUT",       30,          int,  "HTTP timeout for URL fetch (seconds)"),
+    Setting("ingest.url_user_agent",    "IMPRINT_INGEST_URL_USER_AGENT",    "imprint/1.0", str, "HTTP User-Agent header for URL fetch"),
+    Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs"),
+
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),
 ]

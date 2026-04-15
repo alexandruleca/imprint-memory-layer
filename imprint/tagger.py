@@ -47,7 +47,18 @@ _EXT_LANG = {
     ".yaml": "yaml", ".yml": "yaml",
     ".toml": "toml",
     ".json": "json",
-    ".html": "html", ".css": "css",
+    ".html": "html", ".htm": "html", ".css": "css",
+    # Document formats (routed through imprint.extractors).
+    ".pdf": "pdf",
+    ".docx": "docx", ".doc": "doc",
+    ".pptx": "pptx",
+    ".xlsx": "xlsx", ".csv": "csv", ".tsv": "csv",
+    ".epub": "epub",
+    ".rtf": "rtf",
+    ".eml": "email", ".mbox": "email",
+    ".png": "image", ".jpg": "image", ".jpeg": "image",
+    ".gif": "image", ".bmp": "image", ".tiff": "image",
+    ".tif": "image", ".webp": "image",
 }
 
 _LAYER_PATTERNS = [
@@ -64,9 +75,21 @@ _LAYER_PATTERNS = [
 _LAYER_RES = [(name, [re.compile(p, re.IGNORECASE) for p in pats]) for name, pats in _LAYER_PATTERNS]
 
 
+_DOC_EXTS = {".pdf", ".docx", ".doc", ".pptx", ".xlsx", ".csv", ".tsv",
+             ".epub", ".rtf", ".html", ".htm", ".eml", ".mbox"}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
+
+
 def _derive_kind(rel_path: str) -> str:
     name = os.path.basename(rel_path).lower()
-    stem = os.path.splitext(name)[0]
+    stem, ext = os.path.splitext(name)
+    # URL sources (prefixed with http:// or https://) → web.
+    if rel_path.startswith(("http://", "https://")):
+        return "web"
+    if ext in _IMAGE_EXTS:
+        return "ocr"
+    if ext in _DOC_EXTS:
+        return "document"
     if stem.startswith("test_") or stem.endswith("_test") or ".test." in name or ".spec." in name:
         return "test"
     if stem.startswith("migration_") or "migrate" in stem:
@@ -81,8 +104,17 @@ def _derive_kind(rel_path: str) -> str:
 
 
 def derive_deterministic(rel_path: str) -> dict:
-    ext = os.path.splitext(rel_path)[1].lower()
-    lang = _EXT_LANG.get(ext, "")
+    is_url = rel_path.startswith(("http://", "https://"))
+    ext = os.path.splitext(rel_path)[1].lower() if not is_url else ""
+    if is_url:
+        # URL path may or may not carry an ext; guess lang from URL ext
+        # when present, otherwise default to html.
+        from urllib.parse import urlparse
+        path_part = urlparse(rel_path).path
+        url_ext = os.path.splitext(path_part)[1].lower()
+        lang = _EXT_LANG.get(url_ext, "html")
+    else:
+        lang = _EXT_LANG.get(ext, "")
     layer = ""
     p = rel_path.replace("\\", "/")
     for name, regs in _LAYER_RES:

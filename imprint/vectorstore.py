@@ -174,6 +174,8 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
         ("project", qm.PayloadSchemaType.KEYWORD),
         ("type", qm.PayloadSchemaType.KEYWORD),
         ("source", qm.PayloadSchemaType.KEYWORD),
+        ("source_type", qm.PayloadSchemaType.KEYWORD),
+        ("source_url", qm.PayloadSchemaType.KEYWORD),
         ("source_mtime", qm.PayloadSchemaType.FLOAT),
         ("tags.lang", qm.PayloadSchemaType.KEYWORD),
         ("tags.layer", qm.PayloadSchemaType.KEYWORD),
@@ -287,9 +289,21 @@ def store(
     source: str = "",
     chunk_index: int = 0,
     source_mtime: float = 0.0,
+    source_type: str = "",
+    source_url: str = "",
+    doc_metadata: dict | None = None,
+    etag: str = "",
+    last_modified: str = "",
     workspace: str | None = None,
 ) -> str:
-    """Store a single memory. Returns the 16-hex logical id."""
+    """Store a single memory. Returns the 16-hex logical id.
+
+    New optional fields for document/URL ingestion:
+        source_type: "file" | "url" | "ocr" | "" (legacy)
+        source_url:  original URL when ingested from http(s)
+        doc_metadata: flat dict (title/author/page_count/etc)
+        etag / last_modified: HTTP cache headers for URL refresh
+    """
     client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
     if memory_id in _get_existing_ids(workspace):
@@ -305,6 +319,11 @@ def store(
         "type": type,
         "tags": _normalize_tags(tags),
         "source": source,
+        "source_type": source_type,
+        "source_url": source_url,
+        "doc_metadata": dict(doc_metadata) if doc_metadata else {},
+        "etag": etag,
+        "last_modified": last_modified,
         "chunk_index": chunk_index,
         "source_mtime": source_mtime,
         "timestamp": time.time(),
@@ -356,6 +375,11 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
             "type": r.get("type", ""),
             "tags": _normalize_tags(r.get("tags")),
             "source": r.get("source", ""),
+            "source_type": r.get("source_type", ""),
+            "source_url": r.get("source_url", ""),
+            "doc_metadata": dict(r.get("doc_metadata") or {}),
+            "etag": r.get("etag", ""),
+            "last_modified": r.get("last_modified", ""),
             "chunk_index": r.get("chunk_index", 0),
             "source_mtime": r.get("source_mtime", 0.0),
             "timestamp": now,
@@ -462,6 +486,9 @@ def search(
             "type": pl.get("type", ""),
             "tags": pl.get("tags", {}),
             "source": pl.get("source", ""),
+            "source_type": pl.get("source_type", ""),
+            "source_url": pl.get("source_url", ""),
+            "doc_metadata": pl.get("doc_metadata", {}),
             "chunk_index": pl.get("chunk_index", 0),
             # cosine distance → similarity is already the score in Qdrant
             "similarity": round(max(0.0, float(h.score)), 3),
@@ -531,6 +558,35 @@ def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:
             m = pl.get("source_mtime")
             if s and m:
                 out[s] = m
+    except Exception:
+        pass
+    return out
+
+
+def get_url_sources(workspace: str | None = None) -> dict[str, dict]:
+    """Return {source_url: {etag, last_modified, source, project}} for URL refresh.
+
+    Only includes records with source_type == "url". Deduplicates on
+    source_url (picks first hit per URL — all chunks of one URL share
+    the same etag/last_modified).
+    """
+    out: dict[str, dict] = {}
+    try:
+        for pl in _scroll_all(
+            ["source", "source_url", "source_type", "etag", "last_modified", "project"],
+            workspace=workspace,
+        ):
+            if pl.get("source_type") != "url":
+                continue
+            url = pl.get("source_url") or pl.get("source")
+            if not url or url in out:
+                continue
+            out[url] = {
+                "etag": pl.get("etag", "") or "",
+                "last_modified": pl.get("last_modified", "") or "",
+                "source": pl.get("source", "") or url,
+                "project": pl.get("project", "") or "",
+            }
     except Exception:
         pass
     return out

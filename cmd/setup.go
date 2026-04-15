@@ -112,16 +112,51 @@ func setupBackend() backendPaths {
 	if !platform.FileExists(requirementsFile) {
 		output.Fail("requirements.txt not found at " + requirementsFile + " — is the project directory correct?")
 	}
-	if out, err := runner.RunCapture(venvPip, "show", "fastmcp"); err == nil {
-		ver := parsePackageVersion(out)
-		output.Skip("Dependencies installed (fastmcp " + ver + ")")
+	// Probe a representative set — core runtime + document extractors + URL
+	// fetch. Missing any = re-run `pip install -r requirements.txt`. Catches
+	// the common case where an older imprint install predates the doc
+	// ingestion feature: fastmcp is present but pypdf/httpx/trafilatura
+	// aren't.
+	requiredPkgs := []string{
+		"fastmcp",       // MCP runtime
+		"qdrant_client", // vector store
+		"onnxruntime",   // embeddings
+		"chonkie",       // chunker
+		"pypdf",         // .pdf extractor
+		"docx",          // .docx (python-docx exposes `docx`)
+		"pptx",          // .pptx (python-pptx exposes `pptx`)
+		"openpyxl",      // .xlsx
+		"ebooklib",      // .epub
+		"striprtf",      // .rtf
+		"bs4",           // html/epub fallback
+		"httpx",         // URL fetch
+		"trafilatura",   // html readability
+	}
+	missing := checkPythonImports(venvPython, requiredPkgs)
+	if len(missing) == 0 {
+		if out, err := runner.RunCapture(venvPip, "show", "fastmcp"); err == nil {
+			output.Skip("Dependencies installed (fastmcp " + parsePackageVersion(out) + ")")
+		} else {
+			output.Skip("Dependencies installed")
+		}
 	} else {
-		output.Info("Installing dependencies (this may take a minute)...")
+		output.Info(fmt.Sprintf("Installing dependencies (missing: %s)...", strings.Join(missing, ", ")))
 		if err := runner.Run(venvPip, "install", "-r", requirementsFile, "--quiet"); err != nil {
 			output.Fail("Failed to install dependencies: " + err.Error())
 		}
-		output.Success("Dependencies installed")
+		// Re-verify after install. If still missing, something in
+		// requirements.txt couldn't be resolved for this Python/platform.
+		stillMissing := checkPythonImports(venvPython, requiredPkgs)
+		if len(stillMissing) > 0 {
+			output.Warn("After install still missing: " + strings.Join(stillMissing, ", ") +
+				" — some doc formats will be skipped at ingest time")
+		} else {
+			output.Success("Dependencies installed")
+		}
 	}
+
+	// Extractor self-check — surfaces config + OCR prereqs clearly.
+	reportExtractorHealth(venvPython, projectDir, dataDir)
 
 	output.Info("Checking data directory...")
 	if platform.DirExists(dataDir) {
@@ -256,6 +291,97 @@ func findPython() pythonSearchResult {
 	}
 
 	return result
+}
+
+// checkPythonImports probes each package via `python -c "import X"`.
+// Returns the list that could NOT be imported. Cheap way to detect a
+// partial/outdated install without walking requirements.txt.
+func checkPythonImports(venvPython string, pkgs []string) []string {
+	var missing []string
+	for _, pkg := range pkgs {
+		if _, err := runner.RunCapture(venvPython, "-c", "import "+pkg); err != nil {
+			missing = append(missing, pkg)
+		}
+	}
+	return missing
+}
+
+// reportExtractorHealth prints a human summary of which document formats
+// are available after setup, and surfaces OCR prereqs (system tesseract
+// binary + pillow/pytesseract) when ingest.ocr_enabled is true.
+func reportExtractorHealth(venvPython, projectDir, dataDir string) {
+	script := `
+import sys
+sys.path.insert(0, r'` + projectDir + `')
+import importlib
+checks = [
+    ('pdf',  'pypdf',       '.pdf'),
+    ('docx', 'docx',        '.docx'),
+    ('pptx', 'pptx',        '.pptx'),
+    ('xlsx', 'openpyxl',    '.xlsx'),
+    ('epub', 'ebooklib',    '.epub'),
+    ('rtf',  'striprtf',    '.rtf'),
+    ('html', 'trafilatura', '.html/.htm'),
+    ('url',  'httpx',       '<url>'),
+]
+ok, missing = [], []
+for name, mod, ext in checks:
+    try:
+        importlib.import_module(mod)
+        ok.append(f"{name} ({ext})")
+    except Exception:
+        missing.append(f"{name} ({ext}) — pip install {mod}")
+print("OK:", ", ".join(ok) if ok else "none")
+if missing:
+    print("MISSING:")
+    for m in missing:
+        print("  -", m)
+
+# OCR prereqs (optional)
+from imprint.config_schema import resolve
+ocr = bool(resolve("ingest.ocr_enabled")[0])
+if ocr:
+    try:
+        import pytesseract, PIL  # noqa
+        import shutil as _sh
+        tess = _sh.which("tesseract")
+        if tess:
+            print(f"OCR: enabled (tesseract at {tess})")
+        else:
+            print("OCR: enabled BUT system tesseract binary missing — install via your package manager")
+    except Exception as e:
+        print(f"OCR: enabled BUT python deps missing ({e}) — pip install pillow pytesseract pdf2image")
+else:
+    print("OCR: disabled (imprint config set ingest.ocr_enabled true to enable)")
+`
+	output.Info("Checking extractor health...")
+	out, err := runner.RunCaptureEnv(venvPython,
+		[]string{"PYTHONPATH=" + projectDir, "IMPRINT_DATA_DIR=" + dataDir},
+		"-c", script,
+	)
+	if err != nil {
+		output.Warn("Could not verify extractors: " + err.Error())
+		return
+	}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "OK:"):
+			output.Success(line)
+		case strings.HasPrefix(line, "MISSING:"):
+			output.Warn(line)
+		case strings.HasPrefix(line, "  -"):
+			fmt.Println("    " + line)
+		case strings.HasPrefix(line, "OCR: enabled BUT"):
+			output.Warn(line)
+		case strings.HasPrefix(line, "OCR:"):
+			output.Info(line)
+		default:
+			fmt.Println("  " + line)
+		}
+	}
 }
 
 func parsePackageVersion(pipShowOutput string) string {

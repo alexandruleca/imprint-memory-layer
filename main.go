@@ -36,8 +36,12 @@ func main() {
 		}
 	case "ingest":
 		cmd.Ingest(os.Args[2:])
+	case "ingest-url":
+		cmd.IngestURL(os.Args[2:])
 	case "refresh":
 		cmd.Refresh(os.Args[2:])
+	case "refresh-urls":
+		cmd.RefreshURLs(os.Args[2:])
 	case "sync":
 		cmd.Sync(os.Args[2:])
 	case "relay":
@@ -73,7 +77,9 @@ Usage:
   imprint setup [target]     Install deps, register MCP server, configure host AI tool
                                target: claude-code (default) | cursor
   imprint ingest [dir]       Import memories + conversations [+ index project files]
+  imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)
   imprint refresh <dir>      Re-index only files that changed since last index
+  imprint refresh-urls       Re-check stored URLs (ETag/Last-Modified) and re-index changed
   imprint sync serve --relay <host>  Expose KB for syncing via relay
   imprint sync <host>/<id>   Pull + push to a remote peer
   imprint relay              Run the sync relay server

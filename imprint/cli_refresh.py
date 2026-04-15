@@ -12,7 +12,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from imprint import tagger, vectorstore as vs
+from imprint import tagger, vectorstore as vs, extractors
 from imprint.chunker import chunk_file
 from imprint.cli_index import (
     EXTENSIONS,
@@ -104,6 +104,9 @@ def main():
     enable_llm = resolve("tagger.llm")[0]
     enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
 
+    from imprint.config_schema import resolve as _cfg_resolve
+    max_doc_bytes = int(_cfg_resolve("ingest.max_doc_size_mb")[0]) * 1024 * 1024
+
     stored = 0
     skipped = 0
     t_start = time.time()
@@ -115,11 +118,37 @@ def main():
             elapsed = time.time() - t_start
             print_bar(i + 1, total, elapsed, rel)
             try:
-                with open(fpath, "r", errors="ignore") as f:
-                    content = f.read()
-                if len(content.strip()) < 10 or len(content) > 50000:
-                    skipped += 1
-                    continue
+                ext = os.path.splitext(rel)[1].lower()
+                is_doc = extractors.is_doc_extension(ext)
+
+                doc_meta: dict = {}
+                chunk_mode: str | None = None
+
+                if is_doc:
+                    try:
+                        if os.path.getsize(fpath) > max_doc_bytes:
+                            skipped += 1
+                            continue
+                    except OSError:
+                        skipped += 1
+                        continue
+                    try:
+                        extracted = extractors.dispatch_by_ext(fpath)
+                    except (extractors.ExtractorUnavailable, extractors.ExtractionError):
+                        skipped += 1
+                        continue
+                    content = extracted.text
+                    doc_meta = dict(extracted.metadata or {})
+                    chunk_mode = extracted.chunk_mode or "prose"
+                    if len(content.strip()) < 10:
+                        skipped += 1
+                        continue
+                else:
+                    with open(fpath, "r", errors="ignore") as f:
+                        content = f.read()
+                    if len(content.strip()) < 10 or len(content) > 50000:
+                        skipped += 1
+                        continue
 
                 source_key = f"{project}/{rel}"
                 # Delete old chunks for this source before re-chunking so we
@@ -127,12 +156,13 @@ def main():
                 if source_key in stored_sources:
                     vs.delete_by_source(source_key)
 
-                chunks = chunk_file(content, rel)
+                chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
                 if not chunks:
                     skipped += 1
                     continue
 
                 mtime = os.path.getmtime(fpath)
+                source_type = "file" if not doc_meta.get("ocr") else "ocr"
                 records = []
                 for chunk_text, chunk_idx in chunks:
                     tags = tagger.build_payload_tags(
@@ -145,6 +175,8 @@ def main():
                         "type": "architecture",
                         "tags": tags,
                         "source": source_key,
+                        "source_type": source_type,
+                        "doc_metadata": doc_meta,
                         "chunk_index": chunk_idx,
                         "source_mtime": mtime,
                     })
