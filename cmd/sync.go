@@ -511,7 +511,9 @@ receiveLoop:
 	}
 
 	// ── Phase 2b: process buffered batches with per-batch progress ─────────
-	cmd := exec.CommandContext(ctx, venvPython, "-c", syncImportStreamScript(projectDir, dataDir), tmpPath)
+	// `-u` forces unbuffered stdout so progress messages reach Go immediately
+	// even though the importer's stdout is a pipe (block-buffered by default).
+	cmd := exec.CommandContext(ctx, venvPython, "-u", "-c", syncImportStreamScript(projectDir, dataDir), tmpPath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("stdout pipe: %w", err)
@@ -605,17 +607,48 @@ func (p *progressCtx) Meta(totals map[string]int) {
 	output.Info(fmt.Sprintf("%s: %s", p.label, strings.Join(parts, ", ")))
 }
 
-// Update prints or overwrites the progress line for a dataset.
+// Update prints or overwrites the progress line for a dataset, including
+// elapsed time and an ETA derived from the current rate. ETA only appears
+// once a few records are done so we don't divide by zero or print wild
+// estimates from the first sample.
 func (p *progressCtx) Update(dataset string, current, total int) {
 	if total <= 0 {
 		return
 	}
-	msg := fmt.Sprintf("  %s %s: %d/%d", p.label, dataset, current, total)
+	elapsed := time.Since(p.start)
+	suffix := fmt.Sprintf(" [%s]", formatDur(elapsed))
+	if current > 0 && current < total {
+		rate := float64(current) / elapsed.Seconds()
+		if rate > 0 {
+			remaining := time.Duration(float64(total-current)/rate) * time.Second
+			suffix = fmt.Sprintf(" [%s elapsed, ~%s left]", formatDur(elapsed), formatDur(remaining))
+		}
+	}
+	msg := fmt.Sprintf("  %s %s: %d/%d%s", p.label, dataset, current, total, suffix)
 	if p.tty {
 		fmt.Printf("\r\033[K%s", msg)
 	} else {
 		fmt.Println(msg)
 	}
+}
+
+// formatDur renders a duration as Hh M m or Mm S s, dropping the leading
+// units when zero so the progress line stays compact.
+func formatDur(d time.Duration) string {
+	if d < time.Second {
+		return "0s"
+	}
+	total := int(d.Seconds())
+	h := total / 3600
+	m := (total % 3600) / 60
+	s := total % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 // Finish closes out the progress (newline on TTY) and prints a summary.
@@ -774,11 +807,18 @@ if len(sys.argv) < 2:
 
 src_path = sys.argv[1]
 
+# Sub-batch each 500-record sync batch into smaller chunks so the user sees
+# progress every few seconds instead of every ~90s. The internal embed batch
+# is 16 (CPU) / 2 (GPU); 32 keeps overhead low while updating the progress
+# bar 16x more often than processing the full sync batch in one shot.
+EMBED_CHUNK = 32
+
 stats = {
     "memories": {"inserted": 0, "skipped": 0},
     "facts": {"inserted": 0, "skipped": 0},
 }
 totals = {"memories": 0, "facts": 0}
+initial_emitted = {"memories": False, "facts": False}
 
 def emit(obj):
     sys.stdout.write(json.dumps(obj, separators=(",", ":")))
@@ -789,10 +829,20 @@ def progress(dataset):
     done = stats[dataset]["inserted"] + stats[dataset]["skipped"]
     emit({"kind": "progress", "dataset": dataset, "done": done, "total": totals.get(dataset, 0)})
 
+def ensure_initial(dataset):
+    # Emit a 0/total progress as soon as we know we're about to work on a
+    # dataset, so the user sees the bar immediately even if the first chunk
+    # takes a while.
+    if initial_emitted[dataset]:
+        return
+    initial_emitted[dataset] = True
+    progress(dataset)
+
 def import_memories(records):
     if not records:
         return
-    ins, sk = vs.store_batch([
+    ensure_initial("memories")
+    payloads = [
         {
             "content": r.get("content", ""),
             "project": r.get("project", ""),
@@ -803,14 +853,17 @@ def import_memories(records):
             "source_mtime": r.get("source_mtime", 0),
         }
         for r in records
-    ])
-    stats["memories"]["inserted"] += int(ins)
-    stats["memories"]["skipped"] += int(sk)
-    progress("memories")
+    ]
+    for i in range(0, len(payloads), EMBED_CHUNK):
+        ins, sk = vs.store_batch(payloads[i:i + EMBED_CHUNK])
+        stats["memories"]["inserted"] += int(ins)
+        stats["memories"]["skipped"] += int(sk)
+        progress("memories")
 
 def import_facts(records):
     if not records:
         return
+    ensure_initial("facts")
     if kg is None:
         stats["facts"]["skipped"] += len(records)
         progress("facts")
