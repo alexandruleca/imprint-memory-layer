@@ -69,12 +69,15 @@ type streamMsg struct {
 func Sync(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, `Usage:
-  imprint sync serve --relay <host>    Expose this machine's KB via relay
-  imprint sync <relay-url>/<id>        Pull from + push to remote machine
+  imprint sync serve --relay <host>           Expose this machine's KB via relay
+  imprint sync <relay-url>/<id> --pin <pin>   Pull from + push to remote machine
+                                              Add --fresh to discard any saved
+                                              resume buffer and re-download.
 
 Examples:
   imprint sync serve --relay sync.example.com
-  imprint sync sync.example.com/abc123
+  imprint sync sync.example.com/abc123 --pin 1A2b3C
+  imprint sync abc123 --pin 1A2b3C --fresh    # ignore saved buffer
 `)
 		os.Exit(1)
 	}
@@ -195,7 +198,9 @@ func syncServe(args []string) {
 
 		case "/sync/push":
 			output.Info("Peer pushing data...")
-			result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving")
+			// Server side uses ephemeral buffer — each connecting peer is
+			// independent; cross-run resume has no clear semantics here.
+			result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving", "")
 			if err != nil {
 				writeEnvelope(ctx, conn, 500, []byte(fmt.Sprintf("%q", err.Error())))
 				output.Warn("Import failed: " + err.Error())
@@ -223,9 +228,16 @@ func syncPull(args []string) {
 	target := args[0]
 
 	pin := ""
+	forceFresh := false
 	for i, arg := range args {
-		if arg == "--pin" && i+1 < len(args) {
-			pin = args[i+1]
+		switch arg {
+		case "--pin":
+			if i+1 < len(args) {
+				pin = args[i+1]
+			}
+		case "--fresh":
+			// Discard any existing resume buffer and re-download from scratch.
+			forceFresh = true
 		}
 	}
 	if pin == "" {
@@ -281,17 +293,33 @@ func syncPull(args []string) {
 	}
 	output.Success("Handshake accepted")
 
-	// Step 1: Pull from remote
-	output.Info("Pulling remote data...")
-	pullReq, _ := json.Marshal(map[string]any{
-		"method": "GET",
-		"path":   "/sync/pull",
-		"body":   map[string]int{"batch_size": defaultBatchSize},
-	})
-	if err := conn.Write(ctx, websocket.MessageText, pullReq); err != nil {
-		output.Fail("Pull request failed: " + err.Error())
+	// Step 1: Pull from remote (with resume support)
+	//
+	// If a complete buffer from a prior interrupted sync exists, we skip the
+	// pull request entirely — the data is already on disk, we just need to
+	// finish processing it. Sending a pull request in resume mode would make
+	// the peer stream all 50k+ records into the void and desync the protocol.
+	bufPath := syncBufferPath(dataDir, roomID)
+	if forceFresh && fileExists(bufPath) {
+		_ = os.Remove(bufPath)
+		output.Info("--fresh: discarded existing buffer, will re-download")
 	}
-	if result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving"); err != nil {
+	resuming := !forceFresh && fileExists(bufPath)
+
+	if resuming {
+		output.Info("Skipping download (resuming from local buffer)")
+	} else {
+		output.Info("Pulling remote data...")
+		pullReq, _ := json.Marshal(map[string]any{
+			"method": "GET",
+			"path":   "/sync/pull",
+			"body":   map[string]int{"batch_size": defaultBatchSize},
+		})
+		if err := conn.Write(ctx, websocket.MessageText, pullReq); err != nil {
+			output.Fail("Pull request failed: " + err.Error())
+		}
+	}
+	if result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving", bufPath); err != nil {
 		output.Fail("Pull failed: " + err.Error())
 	} else {
 		output.Success("Merged remote → local: " + result)
@@ -427,19 +455,28 @@ func streamExport(
 	return nil
 }
 
-// streamImport reads WS messages until {"kind":"done"} and pipes each batch
-// to the Python importer over stdin. Returns the importer's final JSON summary.
 // streamImport runs in two clearly separated phases so the user always knows
 // what's happening:
 //
-//  1. RECEIVE — read every WS message into a temp file. Progress reflects
+//  1. RECEIVE — read every WS message into a buffer file. Progress reflects
 //     bytes/records actually pulled off the wire. The peer can disconnect as
 //     soon as it finishes sending; nothing is blocked on local processing.
 //
 //  2. PROCESS — pre-warm the embedding model (with feedback), then spawn the
-//     Python importer pointed at the temp file. The importer emits progress
+//     Python importer pointed at the buffer. The importer emits progress
 //     messages per batch so the second progress bar reflects real local work
 //     (embed + upsert), not network receive.
+//
+// bufPath controls buffer persistence:
+//   - ""   → ephemeral temp file (deleted on success or failure). Suited for
+//            server-side push receives where each peer is independent and
+//            resume across runs has no meaning.
+//   - path → stable, resume-capable buffer. If `path` already exists, RECEIVE
+//            is skipped entirely and the existing file is processed (resume).
+//            On success the file is deleted; on failure it is preserved so the
+//            next invocation can resume. The caller MUST also skip the
+//            corresponding pull request to the peer when resuming, otherwise
+//            the peer streams data into the void and the protocol desyncs.
 //
 // Returns the importer's final JSON summary (memories/facts inserted+skipped).
 func streamImport(
@@ -447,59 +484,111 @@ func streamImport(
 	conn *websocket.Conn,
 	venvPython, projectDir, dataDir string,
 	label string,
+	bufPath string,
 ) (string, error) {
-	// ── Phase 1: receive everything to disk ────────────────────────────────
-	tmp, err := os.CreateTemp("", "imprint-sync-*.jsonl")
-	if err != nil {
-		return "", fmt.Errorf("temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	useStableBuffer := bufPath != ""
+	resuming := useStableBuffer && fileExists(bufPath)
 
-	prog := newProgress(label)
-	received := map[string]int{}
+	var path string
 	totals := map[string]int{}
+	received := map[string]int{}
 
-receiveLoop:
-	for {
-		_, data, err := conn.Read(ctx)
+	if resuming {
+		// Skip RECEIVE — buffer already complete from a prior run.
+		path = bufPath
+		summary, err := summarizeBuffer(path)
 		if err != nil {
-			_ = tmp.Close()
-			return "", fmt.Errorf("ws read: %w", err)
+			return "", fmt.Errorf("read buffer: %w", err)
 		}
-		if _, err := tmp.Write(append(data, '\n')); err != nil {
-			_ = tmp.Close()
-			return "", fmt.Errorf("buffer write: %w", err)
+		totals["memories"] = summary.Memories
+		totals["facts"] = summary.Facts
+		output.Info(fmt.Sprintf(
+			"Resuming from existing buffer: %d memories, %d facts (skipping download)",
+			summary.Memories, summary.Facts,
+		))
+	} else {
+		// ── Phase 1: receive everything to disk ────────────────────────────
+		var partialPath string
+		if useStableBuffer {
+			path = bufPath
+			partialPath = bufPath + ".tmp"
+			if err := os.MkdirAll(filepath.Dir(bufPath), 0755); err != nil {
+				return "", fmt.Errorf("buffer dir: %w", err)
+			}
+			// Stale partial from a previous interrupted RECEIVE — discard.
+			_ = os.Remove(partialPath)
+		} else {
+			tmp, err := os.CreateTemp("", "imprint-sync-*.jsonl")
+			if err != nil {
+				return "", fmt.Errorf("temp file: %w", err)
+			}
+			path = tmp.Name()
+			partialPath = path
+			tmp.Close()
+			defer os.Remove(path)
 		}
 
-		var m streamMsg
-		if err := json.Unmarshal(data, &m); err != nil {
-			continue
+		f, err := os.Create(partialPath)
+		if err != nil {
+			return "", fmt.Errorf("buffer create: %w", err)
 		}
-		switch m.Kind {
-		case "meta":
-			for ds, n := range m.Datasets {
-				totals[ds] = n
+
+		prog := newProgress(label)
+
+	receiveLoop:
+		for {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
+				_ = f.Close()
+				return "", fmt.Errorf("ws read: %w", err)
 			}
-			prog.Meta(totals)
-		case "batch":
-			received[m.Dataset] += len(m.Records)
-			prog.Update(m.Dataset, received[m.Dataset], totals[m.Dataset])
-		case "done":
-			prog.Finish(received, totals)
-			break receiveLoop
-		case "error":
-			prog.Finish(received, totals)
-			_ = tmp.Close()
-			return "", fmt.Errorf("peer error: %s", m.Message)
+			if _, err := f.Write(append(data, '\n')); err != nil {
+				_ = f.Close()
+				return "", fmt.Errorf("buffer write: %w", err)
+			}
+
+			var m streamMsg
+			if err := json.Unmarshal(data, &m); err != nil {
+				continue
+			}
+			switch m.Kind {
+			case "meta":
+				for ds, n := range m.Datasets {
+					totals[ds] = n
+				}
+				prog.Meta(totals)
+			case "batch":
+				received[m.Dataset] += len(m.Records)
+				prog.Update(m.Dataset, received[m.Dataset], totals[m.Dataset])
+			case "done":
+				prog.Finish(received, totals)
+				break receiveLoop
+			case "error":
+				prog.Finish(received, totals)
+				_ = f.Close()
+				return "", fmt.Errorf("peer error: %s", m.Message)
+			}
 		}
-	}
-	if err := tmp.Close(); err != nil {
-		return "", fmt.Errorf("close temp file: %w", err)
+		if err := f.Close(); err != nil {
+			return "", fmt.Errorf("close buffer: %w", err)
+		}
+
+		// Atomic rename: only finalize once the full stream (incl. "done") is
+		// safely on disk. A buffer that exists at `path` is therefore always
+		// guaranteed-complete and safe to resume.
+		if useStableBuffer && partialPath != path {
+			if err := os.Rename(partialPath, path); err != nil {
+				return "", fmt.Errorf("buffer finalize: %w", err)
+			}
+			output.Info("Buffer saved: " + path)
+		}
 	}
 
 	// Nothing inbound? Skip the expensive model warmup entirely.
 	if totals["memories"] == 0 && totals["facts"] == 0 {
+		if useStableBuffer {
+			_ = os.Remove(path)
+		}
 		return `{"memories":{"inserted":0,"skipped":0},"facts":{"inserted":0,"skipped":0}}`, nil
 	}
 
@@ -513,7 +602,7 @@ receiveLoop:
 	// ── Phase 2b: process buffered batches with per-batch progress ─────────
 	// `-u` forces unbuffered stdout so progress messages reach Go immediately
 	// even though the importer's stdout is a pipe (block-buffered by default).
-	cmd := exec.CommandContext(ctx, venvPython, "-u", "-c", syncImportStreamScript(projectDir, dataDir), tmpPath)
+	cmd := exec.CommandContext(ctx, venvPython, "-u", "-c", syncImportStreamScript(projectDir, dataDir), path)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("stdout pipe: %w", err)
@@ -559,7 +648,75 @@ receiveLoop:
 	if summary == "" {
 		return "", fmt.Errorf("importer produced no summary")
 	}
+	// Successful processing — delete the resume buffer so the next sync
+	// starts fresh. On any earlier error we return without reaching this
+	// line, so the buffer is preserved for the next attempt.
+	if useStableBuffer {
+		_ = os.Remove(path)
+	}
 	return summary, nil
+}
+
+// fileExists is a tiny convenience wrapper so the resume check stays readable.
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// bufferSummary is the meta-line snapshot we surface to the caller before
+// processing — used for the "Resuming N memories, M facts" log line.
+type bufferSummary struct {
+	Memories int
+	Facts    int
+}
+
+// summarizeBuffer reads the first non-empty line of a buffer file, which by
+// protocol must be the {"kind":"meta",...} envelope, and returns the
+// per-dataset totals. Errors if the file is empty, unreadable, or doesn't
+// start with a meta line.
+func summarizeBuffer(path string) (bufferSummary, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return bufferSummary{}, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var m streamMsg
+		if err := json.Unmarshal(line, &m); err != nil {
+			return bufferSummary{}, fmt.Errorf("parse meta: %w", err)
+		}
+		if m.Kind != "meta" {
+			return bufferSummary{}, fmt.Errorf("first line is %q, expected meta", m.Kind)
+		}
+		return bufferSummary{
+			Memories: m.Datasets["memories"],
+			Facts:    m.Datasets["facts"],
+		}, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return bufferSummary{}, err
+	}
+	return bufferSummary{}, fmt.Errorf("empty buffer")
+}
+
+// syncBufferPath returns the stable, per-room buffer path. Keying by room ID
+// prevents two syncs from different peers from clobbering each other, and
+// lets the user see at a glance which buffer belongs to which session.
+func syncBufferPath(dataDir, roomID string) string {
+	safe := roomID
+	for _, ch := range []string{"/", "\\", ":", "..", " "} {
+		safe = strings.ReplaceAll(safe, ch, "_")
+	}
+	if safe == "" {
+		safe = "default"
+	}
+	return filepath.Join(dataDir, "sync-buffers", safe+".jsonl")
 }
 
 // warmupEmbeddings loads the embedding model so the user gets clear UX
