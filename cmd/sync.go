@@ -240,10 +240,6 @@ func syncPull(args []string) {
 			forceFresh = true
 		}
 	}
-	if pin == "" {
-		output.Fail("--pin <pin> is required (shown on the provider machine)")
-	}
-
 	scheme, host, roomID := parseSyncTarget(target)
 	if roomID == "" {
 		output.Fail("Missing room ID. Expected: <room-id> or <host>/<room-id>")
@@ -257,6 +253,64 @@ func syncPull(args []string) {
 		output.Fail("Run 'imprint setup' first")
 	}
 
+	ctx := context.Background()
+
+	// ── Buffer check FIRST ────────────────────────────────────────────────
+	// If a completed buffer from a prior interrupted sync exists, we do
+	// local-only processing and skip the WebSocket entirely. The peer's
+	// room closes as soon as it finishes sending, so reconnect is futile —
+	// and processing doesn't need the network anyway.
+	bufPath := syncBufferPath(dataDir)
+	if forceFresh {
+		// Nuke everything buffer-related: completed buffer, partial
+		// download, and the legacy per-room dir. Anything we'd otherwise
+		// resume from is gone, and the upcoming download starts clean.
+		clearSyncBuffers(dataDir, bufPath)
+	} else if !fileExists(bufPath) {
+		migrateLegacyBuffer(dataDir, bufPath)
+	}
+	resuming := !forceFresh && fileExists(bufPath)
+
+	fmt.Println()
+	output.Header("═══ Imprint Sync ═══")
+
+	if resuming {
+		// ── Local-only resume path ────────────────────────────────────────
+		if info, err := os.Stat(bufPath); err == nil {
+			if sum, err := summarizeBuffer(bufPath); err == nil {
+				output.Info(fmt.Sprintf(
+					"Found local buffer: %d memories, %d facts (downloaded %s ago, %s)",
+					sum.Memories, sum.Facts,
+					formatDur(time.Since(info.ModTime())),
+					formatBytes(info.Size()),
+				))
+			}
+		}
+		output.Info("Resuming local processing — peer not needed (run with --fresh to redownload)")
+
+		sum, err := summarizeBuffer(bufPath)
+		if err != nil {
+			output.Fail("Cannot read buffer: " + err.Error())
+		}
+		totals := map[string]int{"memories": sum.Memories, "facts": sum.Facts}
+		if result, err := processBuffer(ctx, venvPython, projectDir, dataDir, bufPath, totals, true); err != nil {
+			output.Fail("Resume failed: " + err.Error())
+		} else {
+			output.Success("Local processing complete: " + result)
+		}
+
+		fmt.Println()
+		output.Header("═══ Resume Complete ═══")
+		output.Info("To push local changes back to a peer, run `imprint sync <id> --pin <pin>` again when a peer is serving.")
+		fmt.Println()
+		return
+	}
+
+	// ── Fresh sync path: needs the network, which needs the PIN ───────────
+	if pin == "" {
+		output.Fail("--pin <pin> is required for a fresh sync (shown on the provider machine)")
+	}
+
 	fingerprint := loadOrCreateFingerprint(dataDir)
 	hostname, _ := os.Hostname()
 	user := os.Getenv("USER")
@@ -266,11 +320,8 @@ func syncPull(args []string) {
 
 	wsURL := fmt.Sprintf("%s://%s/%s?role=consumer", scheme, host, roomID)
 
-	fmt.Println()
-	output.Header("═══ Imprint Sync ═══")
 	output.Info("Connecting to " + scheme + "://" + host + "/" + roomID + "...")
 
-	ctx := context.Background()
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
 		output.Fail("Cannot connect: " + err.Error())
@@ -293,31 +344,14 @@ func syncPull(args []string) {
 	}
 	output.Success("Handshake accepted")
 
-	// Step 1: Pull from remote (with resume support)
-	//
-	// If a complete buffer from a prior interrupted sync exists, we skip the
-	// pull request entirely — the data is already on disk, we just need to
-	// finish processing it. Sending a pull request in resume mode would make
-	// the peer stream all 50k+ records into the void and desync the protocol.
-	bufPath := syncBufferPath(dataDir, roomID)
-	if forceFresh && fileExists(bufPath) {
-		_ = os.Remove(bufPath)
-		output.Info("--fresh: discarded existing buffer, will re-download")
-	}
-	resuming := !forceFresh && fileExists(bufPath)
-
-	if resuming {
-		output.Info("Skipping download (resuming from local buffer)")
-	} else {
-		output.Info("Pulling remote data...")
-		pullReq, _ := json.Marshal(map[string]any{
-			"method": "GET",
-			"path":   "/sync/pull",
-			"body":   map[string]int{"batch_size": defaultBatchSize},
-		})
-		if err := conn.Write(ctx, websocket.MessageText, pullReq); err != nil {
-			output.Fail("Pull request failed: " + err.Error())
-		}
+	output.Info("Pulling remote data...")
+	pullReq, _ := json.Marshal(map[string]any{
+		"method": "GET",
+		"path":   "/sync/pull",
+		"body":   map[string]int{"batch_size": defaultBatchSize},
+	})
+	if err := conn.Write(ctx, websocket.MessageText, pullReq); err != nil {
+		output.Fail("Pull request failed: " + err.Error())
 	}
 	if result, err := streamImport(ctx, conn, venvPython, projectDir, dataDir, "Receiving", bufPath); err != nil {
 		output.Fail("Pull failed: " + err.Error())
@@ -584,10 +618,27 @@ func streamImport(
 		}
 	}
 
+	return processBuffer(ctx, venvPython, projectDir, dataDir, path, totals, useStableBuffer)
+}
+
+// processBuffer runs the model warmup + importer against a completed buffer
+// file and streams per-batch progress to the terminal. Factored out of
+// streamImport so the consumer can resume processing without a live
+// WebSocket (the peer's room closes after transfer, so reconnect is futile).
+//
+// deleteOnSuccess: when true, the buffer file is removed on a clean run so
+// the next sync starts fresh; on any error the buffer is preserved for the
+// next retry.
+func processBuffer(
+	ctx context.Context,
+	venvPython, projectDir, dataDir, bufPath string,
+	totals map[string]int,
+	deleteOnSuccess bool,
+) (string, error) {
 	// Nothing inbound? Skip the expensive model warmup entirely.
 	if totals["memories"] == 0 && totals["facts"] == 0 {
-		if useStableBuffer {
-			_ = os.Remove(path)
+		if deleteOnSuccess {
+			_ = os.Remove(bufPath)
 		}
 		return `{"memories":{"inserted":0,"skipped":0},"facts":{"inserted":0,"skipped":0}}`, nil
 	}
@@ -602,7 +653,7 @@ func streamImport(
 	// ── Phase 2b: process buffered batches with per-batch progress ─────────
 	// `-u` forces unbuffered stdout so progress messages reach Go immediately
 	// even though the importer's stdout is a pipe (block-buffered by default).
-	cmd := exec.CommandContext(ctx, venvPython, "-u", "-c", syncImportStreamScript(projectDir, dataDir), path)
+	cmd := exec.CommandContext(ctx, venvPython, "-u", "-c", syncImportStreamScript(projectDir, dataDir), bufPath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", fmt.Errorf("stdout pipe: %w", err)
@@ -651,8 +702,8 @@ func streamImport(
 	// Successful processing — delete the resume buffer so the next sync
 	// starts fresh. On any earlier error we return without reaching this
 	// line, so the buffer is preserved for the next attempt.
-	if useStableBuffer {
-		_ = os.Remove(path)
+	if deleteOnSuccess {
+		_ = os.Remove(bufPath)
 	}
 	return summary, nil
 }
@@ -705,18 +756,86 @@ func summarizeBuffer(path string) (bufferSummary, error) {
 	return bufferSummary{}, fmt.Errorf("empty buffer")
 }
 
-// syncBufferPath returns the stable, per-room buffer path. Keying by room ID
-// prevents two syncs from different peers from clobbering each other, and
-// lets the user see at a glance which buffer belongs to which session.
-func syncBufferPath(dataDir, roomID string) string {
-	safe := roomID
-	for _, ch := range []string{"/", "\\", ":", "..", " "} {
-		safe = strings.ReplaceAll(safe, ch, "_")
+// syncBufferPath returns the stable buffer path. A single location (not
+// keyed by room ID) is the right call here: `imprint sync serve` rotates
+// the room ID on every invocation, so keying by room would orphan a 150MB
+// buffer every time the user restarts the peer. Multi-peer conflicts are a
+// rare edge case handled by `--fresh`.
+func syncBufferPath(dataDir string) string {
+	return filepath.Join(dataDir, "sync-buffer.jsonl")
+}
+
+// clearSyncBuffers removes every file we might otherwise resume from: the
+// current single buffer, a half-finished download (.tmp sidecar), and the
+// whole legacy per-room directory. Best-effort — missing files are fine.
+// Prints one summary line per item actually removed so the user can see
+// what `--fresh` nuked.
+func clearSyncBuffers(dataDir, bufPath string) {
+	removed := []string{}
+	for _, p := range []string{bufPath, bufPath + ".tmp"} {
+		if fileExists(p) {
+			if err := os.Remove(p); err == nil {
+				removed = append(removed, p)
+			}
+		}
 	}
-	if safe == "" {
-		safe = "default"
+	legacyDir := filepath.Join(dataDir, "sync-buffers")
+	if _, err := os.Stat(legacyDir); err == nil {
+		if err := os.RemoveAll(legacyDir); err == nil {
+			removed = append(removed, legacyDir+"/")
+		}
 	}
-	return filepath.Join(dataDir, "sync-buffers", safe+".jsonl")
+	if len(removed) == 0 {
+		output.Info("--fresh: no buffer to clear, will download fresh")
+		return
+	}
+	output.Info("--fresh: cleared " + strings.Join(removed, ", "))
+}
+
+// migrateLegacyBuffer promotes the most recent file in the old per-room
+// layout (data/sync-buffers/<roomid>.jsonl) to the new single-buffer path,
+// so users who already downloaded 150MB under the old scheme don't have to
+// redownload. Picks the newest by mtime. Best-effort: on any error we
+// silently fall through to a fresh download.
+func migrateLegacyBuffer(dataDir, newPath string) {
+	legacyDir := filepath.Join(dataDir, "sync-buffers")
+	entries, err := os.ReadDir(legacyDir)
+	if err != nil {
+		return
+	}
+	var newest string
+	var newestMod time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(newestMod) {
+			newest = filepath.Join(legacyDir, e.Name())
+			newestMod = info.ModTime()
+		}
+	}
+	if newest == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
+		return
+	}
+	if err := os.Rename(newest, newPath); err != nil {
+		return
+	}
+	output.Info("Migrated sync buffer: " + newest + " → " + newPath)
+	// Best-effort: remove other leftover per-room files so they don't
+	// accumulate. We keep the directory — next release may remove it.
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		_ = os.Remove(filepath.Join(legacyDir, e.Name()))
+	}
 }
 
 // warmupEmbeddings loads the embedding model so the user gets clear UX
@@ -787,6 +906,22 @@ func (p *progressCtx) Update(dataset string, current, total int) {
 	} else {
 		fmt.Println(msg)
 	}
+}
+
+// formatBytes renders a byte count as a human-readable size (KB/MB/GB).
+// Used in the resume-info line so users know the buffer's footprint at
+// a glance.
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%dB", n)
+	}
+	div, exp := int64(unit), 0
+	for n/div >= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 // formatDur renders a duration as Hh M m or Mm S s, dropping the leading
