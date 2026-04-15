@@ -45,11 +45,11 @@ def _enabled_doc_formats() -> set[str]:
         from imprint.config_schema import resolve
         raw = str(resolve("ingest.doc_formats")[0])
     except Exception:
-        raw = "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml"
+        raw = "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json"
     base = {"pdf": [".pdf"], "docx": [".docx"], "pptx": [".pptx"],
             "xlsx": [".xlsx"], "csv": [".csv", ".tsv"], "epub": [".epub"],
             "rtf": [".rtf"], "html": [".html", ".htm"],
-            "eml": [".eml", ".mbox"]}
+            "eml": [".eml", ".mbox"], "json": [".json"]}
     out: set[str] = set()
     for name in (x.strip().lower() for x in raw.split(",") if x.strip()):
         out.update(base.get(name, []))

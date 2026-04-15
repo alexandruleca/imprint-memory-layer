@@ -131,6 +131,7 @@ func setupBackend() backendPaths {
 		"bs4",           // html/epub fallback
 		"httpx",         // URL fetch
 		"trafilatura",   // html readability
+		"llama_cpp",     // local Gemma chat in viz
 	}
 	missing := checkPythonImports(venvPython, requiredPkgs)
 	if len(missing) == 0 {

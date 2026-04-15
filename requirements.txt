@@ -32,3 +32,9 @@ trafilatura>=1.10          # readability-style html extraction
 # pillow>=10
 # pytesseract>=0.3
 # pdf2image>=1.17
+
+# ── Local chat (for `imprint viz` chat panel) ─────────────────
+# Runs Gemma 3 4B locally via llama.cpp bindings. Enabled by default.
+# First chat message auto-downloads the GGUF into data/models/.
+# Disable with: imprint config set chat.enabled false
+llama-cpp-python>=0.3.0

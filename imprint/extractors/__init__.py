@@ -70,6 +70,7 @@ DOC_EXTENSIONS: set[str] = {
     ".epub", ".rtf",
     ".html", ".htm",
     ".eml", ".mbox",
+    ".json",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
 }
 
@@ -119,7 +120,8 @@ _TEXT_EXTS = {
     ".py", ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php",
     ".sql", ".graphql", ".gql", ".proto", ".sh", ".bash", ".zsh",
     ".vue", ".svelte", ".cs", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp",
-    ".scala", ".lua", ".yaml", ".yml", ".toml", ".json",
+    ".scala", ".lua", ".yaml", ".yml", ".toml",
+    # .json handled by json_doc.py with ChatGPT-export auto-detect
 }
 
 _PROSE_TEXT_EXTS = {".md", ".txt", ".rst", ".mdx"}
@@ -149,6 +151,7 @@ from . import rtf as _rtf       # noqa: E402,F401
 from . import html as _html     # noqa: E402,F401
 from . import email as _email   # noqa: E402,F401
 from . import image as _image   # noqa: E402,F401
+from . import json_doc as _json_doc  # noqa: E402,F401
 
 # url extractor is callable directly, not via by-ext dispatch.
 from . import url as _url       # noqa: E402,F401
