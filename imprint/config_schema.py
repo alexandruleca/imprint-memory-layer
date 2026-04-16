@@ -39,6 +39,7 @@ SETTINGS: list[Setting] = [
     Setting("model.threads",    "IMPRINT_ONNX_THREADS",     4,                int,   "CPU intra-op threads for ONNX"),
     Setting("model.gpu_mem_mb", "IMPRINT_GPU_MEM_MB",       2048,             int,   "VRAM cap for ORT CUDA arena (MB)"),
     Setting("model.gpu_device", "IMPRINT_GPU_DEVICE",       0,                int,   "CUDA device ID"),
+    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = auto: 32 GPU, 16 CPU)"),
     Setting("model.pooling",    "IMPRINT_POOLING",          "auto",           str,   "Pooling strategy: auto / cls / mean / last"),
 
     # ── Qdrant ────────────────────────────────────────────────
@@ -61,6 +62,13 @@ SETTINGS: list[Setting] = [
     Setting("tagger.llm_provider", "IMPRINT_LLM_TAGGER_PROVIDER",   "anthropic", str,  "LLM provider: anthropic / openai / ollama / vllm / gemini"),
     Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "claude-haiku-4-5", str, "LLM tagger model name"),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
+
+    # ── Tagger local model (llama-cpp) ───────────────────────
+    Setting("tagger.local.model_repo",   "IMPRINT_TAGGER_MODEL_REPO",       "unsloth/gemma-3-4b-it-GGUF",   str,  "HF repo for local tagger GGUF"),
+    Setting("tagger.local.model_file",   "IMPRINT_TAGGER_MODEL_FILE",       "gemma-3-4b-it-Q4_K_M.gguf",    str,  "GGUF filename within repo"),
+    Setting("tagger.local.model_path",   "IMPRINT_TAGGER_MODEL_PATH",       "",                              str,  "Absolute path to GGUF (overrides repo/file)"),
+    Setting("tagger.local.n_ctx",        "IMPRINT_TAGGER_N_CTX",            2048,                            int,  "Tagger model context window tokens"),
+    Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)"),
 
     # ── Ingest (docs + urls) ──────────────────────────────────
     Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),

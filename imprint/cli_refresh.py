@@ -164,10 +164,14 @@ def main():
                 mtime = os.path.getmtime(fpath)
                 source_type = "file" if not doc_meta.get("ocr") else "ocr"
                 records = []
-                for chunk_text, chunk_idx in chunks:
+                for i, (chunk_text, chunk_idx) in enumerate(chunks):
+                    prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
+                    next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
+                    neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
                     tags = tagger.build_payload_tags(
                         chunk_text, rel_path=rel,
                         zero_shot=enable_zero_shot, llm=enable_llm,
+                        neighbor_context=neighbor_ctx, project_hint=project,
                     )
                     records.append({
                         "content": chunk_text,

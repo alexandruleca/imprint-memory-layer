@@ -215,9 +215,13 @@ def embed_query(text: str) -> list[float]:
 
 
 def embed_documents_batch(texts: list[str], batch_size: int | None = None) -> list[list[float]]:
-    """batch_size None → auto: 2 on GPU (VRAM-safe for WSL2/2GB caps), 16 on CPU."""
+    """batch_size None → auto from config (default: 32 GPU, 16 CPU)."""
     if batch_size is None:
-        batch_size = 2 if config.DEVICE != "cpu" else 16
+        cfg_bs = config.BATCH_SIZE
+        if cfg_bs > 0:
+            batch_size = cfg_bs
+        else:
+            batch_size = 32 if config.DEVICE != "cpu" else 16
     return _embed_documents_batch(texts, batch_size)
 
 

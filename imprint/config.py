@@ -87,6 +87,7 @@ CHUNK_SEMANTIC_THRESHOLD = _get("chunker.semantic_threshold")
 ONNX_THREADS = _get("model.threads")
 GPU_MEM_MB = _get("model.gpu_mem_mb")
 GPU_DEVICE = _get("model.gpu_device")
+BATCH_SIZE = _get("model.batch_size")  # 0 = auto
 
 # ── Workspaces ─────────────────────────────────────────────────
 WORKSPACE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')

@@ -408,15 +408,27 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
     texts = [r["content"] for r in new_records]
     vectors = embeddings.embed_documents_batch(texts)
 
+    # Zero-shot fallback: backfill empty topics using computed vectors.
+    from . import tagger as _tagger
+
     points: list[qm.PointStruct] = []
     now = time.time()
     for r, vec in zip(new_records, vectors):
+        tags = _normalize_tags(r.get("tags"))
+        # If topics are empty and zero-shot is available, fill from vector.
+        if isinstance(tags, dict) and not tags.get("topics"):
+            try:
+                zs = _tagger.derive_zero_shot(vec)
+                if zs:
+                    tags["topics"] = zs
+            except Exception:
+                pass
         payload = {
             "_mid": r["_mid"],
             "content": r["content"],
             "project": r.get("project", ""),
             "type": r.get("type", ""),
-            "tags": _normalize_tags(r.get("tags")),
+            "tags": tags,
             "source": r.get("source", ""),
             "source_type": r.get("source_type", ""),
             "source_url": r.get("source_url", ""),
@@ -444,6 +456,68 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
 
     inserted = len(points)
     del points, vectors, texts, new_records
+    gc.collect()
+
+    _maybe_compact(inserted)
+    return inserted, len(records) - inserted
+
+
+def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
+    """Store records that already carry vectors — skip embedding entirely.
+
+    Each record: {content, vector, project?, type?, tags?, source?,
+                  chunk_index?, source_mtime?}.
+    Returns (inserted, skipped).
+    """
+    client, coll = _ensure_collection(workspace)
+    existing = _get_existing_ids(workspace)
+
+    new_records = []
+    for r in records:
+        mid = _make_id(r["content"], r.get("project", ""), r.get("source", ""))
+        if mid not in existing:
+            r["_mid"] = mid
+            new_records.append(r)
+
+    if not new_records:
+        return 0, len(records)
+
+    points: list[qm.PointStruct] = []
+    now = time.time()
+    for r in new_records:
+        payload = {
+            "_mid": r["_mid"],
+            "content": r["content"],
+            "project": r.get("project", ""),
+            "type": r.get("type", ""),
+            "tags": _normalize_tags(r.get("tags")),
+            "source": r.get("source", ""),
+            "source_type": r.get("source_type", ""),
+            "source_url": r.get("source_url", ""),
+            "doc_metadata": dict(r.get("doc_metadata") or {}),
+            "etag": r.get("etag", ""),
+            "last_modified": r.get("last_modified", ""),
+            "chunk_index": r.get("chunk_index", 0),
+            "source_mtime": r.get("source_mtime", 0.0),
+            "timestamp": now,
+        }
+        points.append(
+            qm.PointStruct(
+                id=_point_uuid(r["_mid"]),
+                vector={config.QDRANT_VECTOR_NAME: r["vector"]},
+                payload=payload,
+            )
+        )
+
+    _upsert_chunked(client, coll, points)
+
+    for r in new_records:
+        existing.add(r["_mid"])
+
+    _wal_log("store_batch_precomputed", workspace=workspace, count=len(points))
+
+    inserted = len(points)
+    del points, new_records
     gc.collect()
 
     _maybe_compact(inserted)
@@ -575,7 +649,7 @@ def delete_by_source(source: str, workspace: str | None = None) -> bool:
 
 
 # ── bulk reads ─────────────────────────────────────────────────
-def _scroll_all(fields: list[str], workspace: str | None = None) -> Iterable[dict]:
+def _scroll_all(fields: list[str], workspace: str | None = None, with_vectors: bool = False) -> Iterable[dict]:
     client, coll = _ensure_collection(workspace)
     offset = None
     while True:
@@ -584,10 +658,16 @@ def _scroll_all(fields: list[str], workspace: str | None = None) -> Iterable[dic
             limit=_SCAN_BATCH,
             offset=offset,
             with_payload=fields,
-            with_vectors=False,
+            with_vectors=with_vectors,
         )
         for p in points:
-            yield p.payload or {}
+            rec = p.payload or {}
+            if with_vectors and p.vector:
+                vec = p.vector
+                if isinstance(vec, dict):
+                    vec = vec.get(config.QDRANT_VECTOR_NAME, next(iter(vec.values()), None))
+                rec["_vector"] = vec
+            yield rec
         if offset is None:
             break
 
@@ -633,6 +713,185 @@ def get_url_sources(workspace: str | None = None) -> dict[str, dict]:
     except Exception:
         pass
     return out
+
+
+# ── file retrieval ────────────────────────────────────────────
+def list_sources(
+    project: str = "",
+    lang: str = "",
+    layer: str = "",
+    limit: int = 50,
+    workspace: str | None = None,
+) -> list[tuple[str, int]]:
+    """List indexed source files with chunk counts via Qdrant facet API.
+
+    Returns [(source_path, chunk_count)] sorted by count descending.
+    """
+    client, coll = _ensure_collection(workspace)
+    tag_filters: dict = {}
+    if lang:
+        tag_filters["lang"] = lang
+    if layer:
+        tag_filters["layer"] = layer
+    flt = _build_filter(project=project, tag_filters=tag_filters or None)
+    try:
+        resp = client.facet(
+            collection_name=coll,
+            key="source",
+            facet_filter=flt,
+            limit=limit,
+        )
+        return [(hit.value, hit.count) for hit in resp.hits]
+    except Exception:
+        return []
+
+
+def get_source_summary(
+    source: str,
+    project: str = "",
+    workspace: str | None = None,
+) -> dict | None:
+    """Return metadata summary for a single source file.
+
+    Returns dict with keys: source, project, type, tags, source_type,
+    source_mtime, chunk_count, first_chunk_preview.
+    Returns None if source not found.
+    """
+    client, coll = _ensure_collection(workspace)
+    must = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
+    if project:
+        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+    flt = qm.Filter(must=must)
+
+    all_points = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=coll,
+            scroll_filter=flt,
+            limit=_SCAN_BATCH,
+            offset=offset,
+            with_payload=["content", "project", "type", "tags", "source_type",
+                          "source_mtime", "chunk_index"],
+            with_vectors=False,
+        )
+        all_points.extend(points)
+        if offset is None:
+            break
+
+    if not all_points:
+        return None
+
+    # Sort by chunk_index to find first chunk
+    all_points.sort(key=lambda p: (p.payload or {}).get("chunk_index", 0))
+    first = all_points[0].payload or {}
+
+    # Aggregate tags from all chunks
+    all_domains: list[str] = []
+    all_topics: list[str] = []
+    max_mtime = 0.0
+    for p in all_points:
+        pl = p.payload or {}
+        tags = pl.get("tags") or {}
+        if isinstance(tags, dict):
+            all_domains.extend(tags.get("domain") or [])
+            all_topics.extend(tags.get("topics") or [])
+        mt = pl.get("source_mtime") or 0.0
+        if mt > max_mtime:
+            max_mtime = mt
+
+    first_tags = first.get("tags") or {}
+    # Union of domains/topics, deduped
+    seen_d: set[str] = set()
+    domains = [d for d in all_domains if not (d in seen_d or seen_d.add(d))]
+    seen_t: set[str] = set()
+    topics = [t for t in all_topics if not (t in seen_t or seen_t.add(t))]
+
+    # First chunk preview: strip [path] prefix, truncate
+    preview = first.get("content", "")
+    if preview.startswith("["):
+        nl = preview.find("\n")
+        if nl != -1:
+            preview = preview[nl + 1:]
+    preview = preview[:200]
+
+    return {
+        "source": source,
+        "project": first.get("project", ""),
+        "type": first.get("type", ""),
+        "source_type": first.get("source_type", ""),
+        "source_mtime": max_mtime,
+        "chunk_count": len(all_points),
+        "tags": {
+            "lang": first_tags.get("lang", "") if isinstance(first_tags, dict) else "",
+            "layer": first_tags.get("layer", "") if isinstance(first_tags, dict) else "",
+            "kind": first_tags.get("kind", "") if isinstance(first_tags, dict) else "",
+            "domain": domains[:10],
+            "topics": topics[:15],
+        },
+        "first_chunk_preview": preview,
+    }
+
+
+def get_chunks_by_source(
+    source: str,
+    start: int = 0,
+    end: int | None = None,
+    project: str = "",
+    workspace: str | None = None,
+) -> list[dict]:
+    """Return chunks for a source file, ordered by chunk_index.
+
+    Args:
+        source: Source file path (exact match).
+        start: First chunk index to include (0-based, inclusive).
+        end: Last chunk index to include (inclusive). None = all from start.
+        project: Filter by project (optional).
+
+    Returns list of dicts: {chunk_index, content, tags}.
+    """
+    client, coll = _ensure_collection(workspace)
+    must = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
+    if project:
+        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+    flt = qm.Filter(must=must)
+
+    all_points = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=coll,
+            scroll_filter=flt,
+            limit=_SCAN_BATCH,
+            offset=offset,
+            with_payload=["content", "chunk_index", "tags"],
+            with_vectors=False,
+        )
+        all_points.extend(points)
+        if offset is None:
+            break
+
+    if not all_points:
+        return []
+
+    # Sort by chunk_index
+    all_points.sort(key=lambda p: (p.payload or {}).get("chunk_index", 0))
+
+    results = []
+    for p in all_points:
+        pl = p.payload or {}
+        idx = pl.get("chunk_index", 0)
+        if idx < start:
+            continue
+        if end is not None and idx > end:
+            continue
+        results.append({
+            "chunk_index": idx,
+            "content": pl.get("content", ""),
+            "tags": pl.get("tags", {}),
+        })
+
+    return results
 
 
 def recent(limit: int = 15, types: list[str] | None = None, workspace: str | None = None) -> list[dict]:

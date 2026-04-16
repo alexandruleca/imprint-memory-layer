@@ -57,6 +57,7 @@ type helloRequest struct {
 type streamMsg struct {
 	Kind     string            `json:"kind"`               // "meta" | "batch" | "done" | "error" | "progress" | "summary"
 	Datasets map[string]int    `json:"datasets,omitempty"` // on meta: dataset name → total count
+	Vectors  bool              `json:"vectors,omitempty"`  // on meta: records include pre-computed vectors
 	Dataset  string            `json:"dataset,omitempty"`  // on batch/progress: "memories" | "facts"
 	Seq      int               `json:"seq,omitempty"`
 	Records  []json.RawMessage `json:"records,omitempty"`
@@ -82,11 +83,38 @@ Examples:
 		os.Exit(1)
 	}
 
-	if args[0] == "serve" {
+	switch args[0] {
+	case "serve":
 		syncServe(args[1:])
-	} else {
+	case "export":
+		syncExportImport("export", args[1:])
+	case "import":
+		syncExportImport("import", args[1:])
+	default:
 		syncPull(args)
 	}
+}
+
+func syncExportImport(action string, args []string) {
+	projectDir := platform.FindProjectDir()
+	venvPython := platform.VenvPython(projectDir)
+	dataDir := platform.DataDir(projectDir)
+
+	if !platform.FileExists(venvPython) {
+		output.Fail("Run 'imprint setup' first")
+	}
+
+	pyArgs := []string{"-m", "imprint.cli_sync", action}
+	pyArgs = append(pyArgs, args...)
+
+	cmd := runner.CommandWithEnv(venvPython, pyArgs,
+		"PYTHONPATH="+projectDir,
+		"IMPRINT_DATA_DIR="+dataDir,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	cmd.Run()
 }
 
 func syncServe(args []string) {
@@ -293,7 +321,7 @@ func syncPull(args []string) {
 			output.Fail("Cannot read buffer: " + err.Error())
 		}
 		totals := map[string]int{"memories": sum.Memories, "facts": sum.Facts}
-		if result, err := processBuffer(ctx, venvPython, projectDir, dataDir, bufPath, totals, true); err != nil {
+		if result, err := processBuffer(ctx, venvPython, projectDir, dataDir, bufPath, totals, true, sum.Vectors); err != nil {
 			output.Fail("Resume failed: " + err.Error())
 		} else {
 			output.Success("Local processing complete: " + result)
@@ -526,6 +554,7 @@ func streamImport(
 	var path string
 	totals := map[string]int{}
 	received := map[string]int{}
+	hasVectors := false
 
 	if resuming {
 		// Skip RECEIVE — buffer already complete from a prior run.
@@ -536,6 +565,7 @@ func streamImport(
 		}
 		totals["memories"] = summary.Memories
 		totals["facts"] = summary.Facts
+		hasVectors = summary.Vectors
 		output.Info(fmt.Sprintf(
 			"Resuming from existing buffer: %d memories, %d facts (skipping download)",
 			summary.Memories, summary.Facts,
@@ -590,6 +620,7 @@ func streamImport(
 				for ds, n := range m.Datasets {
 					totals[ds] = n
 				}
+				hasVectors = m.Vectors
 				prog.Meta(totals)
 			case "batch":
 				received[m.Dataset] += len(m.Records)
@@ -618,7 +649,7 @@ func streamImport(
 		}
 	}
 
-	return processBuffer(ctx, venvPython, projectDir, dataDir, path, totals, useStableBuffer)
+	return processBuffer(ctx, venvPython, projectDir, dataDir, path, totals, useStableBuffer, hasVectors)
 }
 
 // processBuffer runs the model warmup + importer against a completed buffer
@@ -634,7 +665,10 @@ func processBuffer(
 	venvPython, projectDir, dataDir, bufPath string,
 	totals map[string]int,
 	deleteOnSuccess bool,
+	hasVectors ...bool,
 ) (string, error) {
+	vectorsIncluded := len(hasVectors) > 0 && hasVectors[0]
+
 	// Nothing inbound? Skip the expensive model warmup entirely.
 	if totals["memories"] == 0 && totals["facts"] == 0 {
 		if deleteOnSuccess {
@@ -644,10 +678,13 @@ func processBuffer(
 	}
 
 	// ── Phase 2a: warm the embedding model with explicit UX ────────────────
-	if totals["memories"] > 0 {
+	// Skip when vectors are already included — no embedding needed.
+	if totals["memories"] > 0 && !vectorsIncluded {
 		if err := warmupEmbeddings(ctx, venvPython, projectDir, dataDir); err != nil {
 			return "", fmt.Errorf("load embedding model: %w", err)
 		}
+	} else if totals["memories"] > 0 {
+		output.Info("Vectors included — skipping embedding model load")
 	}
 
 	// ── Phase 2b: process buffered batches with per-batch progress ─────────
@@ -719,6 +756,7 @@ func fileExists(p string) bool {
 type bufferSummary struct {
 	Memories int
 	Facts    int
+	Vectors  bool
 }
 
 // summarizeBuffer reads the first non-empty line of a buffer file, which by
@@ -748,6 +786,7 @@ func summarizeBuffer(path string) (bufferSummary, error) {
 		return bufferSummary{
 			Memories: m.Datasets["memories"],
 			Facts:    m.Datasets["facts"],
+			Vectors:  m.Vectors,
 		}, nil
 	}
 	if err := scanner.Err(); err != nil {
@@ -1002,17 +1041,17 @@ if kg is not None:
     except Exception:
         fact_total = 0
 
-emit({"kind": "meta", "datasets": {"memories": mem_total, "facts": fact_total}})
+emit({"kind": "meta", "datasets": {"memories": mem_total, "facts": fact_total}, "vectors": True})
 
-# Stream memories
+# Stream memories with vectors
 if mem_total > 0:
     buf = []
     seq = 0
     for pl in vs._scroll_all([
         "_mid", "content", "project", "type", "tags", "source",
         "chunk_index", "source_mtime", "timestamp",
-    ]):
-        buf.append({
+    ], with_vectors=True):
+        rec = {
             "id": pl.get("_mid", ""),
             "content": pl.get("content", ""),
             "project": pl.get("project", ""),
@@ -1022,7 +1061,11 @@ if mem_total > 0:
             "chunk_index": pl.get("chunk_index", 0),
             "source_mtime": pl.get("source_mtime", 0),
             "timestamp": pl.get("timestamp", 0),
-        })
+        }
+        vec = pl.get("_vector")
+        if vec is not None:
+            rec["vector"] = vec
+        buf.append(rec)
         if len(buf) >= BATCH:
             seq += 1
             emit({"kind": "batch", "dataset": "memories", "seq": seq, "records": buf})
@@ -1104,6 +1147,8 @@ src_path = sys.argv[1]
 # is 16 (CPU) / 2 (GPU); 32 keeps overhead low while updating the progress
 # bar 16x more often than processing the full sync batch in one shot.
 EMBED_CHUNK = 32
+# When True, records carry pre-computed vectors — skip embedding entirely.
+has_vectors = False
 
 stats = {
     "memories": {"inserted": 0, "skipped": 0},
@@ -1134,8 +1179,11 @@ def import_memories(records):
     if not records:
         return
     ensure_initial("memories")
-    payloads = [
-        {
+    # Check if first record carries a vector — if so, use precomputed path
+    use_precomputed = has_vectors and records[0].get("vector") is not None
+    payloads = []
+    for r in records:
+        p = {
             "content": r.get("content", ""),
             "project": r.get("project", ""),
             "type": r.get("type", ""),
@@ -1144,10 +1192,13 @@ def import_memories(records):
             "chunk_index": r.get("chunk_index", 0),
             "source_mtime": r.get("source_mtime", 0),
         }
-        for r in records
-    ]
-    for i in range(0, len(payloads), EMBED_CHUNK):
-        ins, sk = vs.store_batch(payloads[i:i + EMBED_CHUNK])
+        if use_precomputed:
+            p["vector"] = r["vector"]
+        payloads.append(p)
+    chunk = len(payloads) if use_precomputed else EMBED_CHUNK
+    store_fn = vs.store_batch_precomputed if use_precomputed else vs.store_batch
+    for i in range(0, len(payloads), chunk):
+        ins, sk = store_fn(payloads[i:i + chunk])
         stats["memories"]["inserted"] += int(ins)
         stats["memories"]["skipped"] += int(sk)
         progress("memories")
@@ -1203,6 +1254,8 @@ try:
                 ds = msg.get("datasets") or {}
                 for k, v in ds.items():
                     totals[k] = int(v)
+                if msg.get("vectors"):
+                    has_vectors = True
                 continue
             if kind == "done":
                 break

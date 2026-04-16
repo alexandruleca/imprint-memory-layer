@@ -505,12 +505,18 @@ def main():
             source_key = f"{project}/{rel}"
             source_type = "file" if not doc_meta.get("ocr") else "ocr"
             records = []
-            for chunk_text, chunk_idx in chunks:
+            for i, (chunk_text, chunk_idx) in enumerate(chunks):
+                # Build neighbor context from surrounding chunks
+                prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
+                next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
+                neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
                 tags = tagger.build_payload_tags(
                     chunk_text,
                     rel_path=rel,
                     llm=enable_llm,
                     zero_shot=enable_zero_shot,
+                    neighbor_context=neighbor_ctx,
+                    project_hint=project,
                 )
                 records.append({
                     "content": chunk_text,
@@ -534,12 +540,28 @@ def main():
         for rel, fpath in files:
             all_files.append((project, rel, fpath))
 
-    # Pre-filter: skip files whose content+mtime already in DB. Saves the
-    # read+chunk+tokenize work on re-runs (content-hash dedup downstream
-    # would catch them anyway, but only after reading + chunking + embedding).
+    # Pre-filter unchanged files + clean up stale/modified sources.
+    #
+    # Three cases for each source already in the DB:
+    #   unchanged (same mtime) → skip entirely
+    #   modified  (different mtime) → delete old chunks, re-index
+    #   deleted   (file gone from disk) → delete old chunks
     known_mtimes = vs.get_source_mtimes()
     pre_skipped = 0
+    stale_sources: list[str] = []
+
+    # Build set of all current on-disk sources for projects we're indexing
+    all_disk_sources = {f"{p}/{r}" for p, files in project_files.items() for r, _ in files}
+
     if known_mtimes:
+        # Detect deleted files: in DB for a project we're indexing, but gone from disk
+        indexing_projects = {p for p, _ in pairs}
+        for src in known_mtimes:
+            proj = src.split("/", 1)[0]
+            if proj in indexing_projects and src not in all_disk_sources:
+                stale_sources.append(src)
+
+        # Filter unchanged, mark modified for cleanup
         filtered = []
         for project, rel, fpath in all_files:
             source_key = f"{project}/{rel}"
@@ -551,9 +573,17 @@ def main():
             if stored_mtime and abs(stored_mtime - fmtime) < 1.0:
                 pre_skipped += 1
                 continue
+            if stored_mtime:
+                stale_sources.append(source_key)
             filtered.append((project, rel, fpath))
         all_files = filtered
 
+    # Delete old chunks for modified + deleted files
+    if stale_sources:
+        for src in stale_sources:
+            vs.delete_by_source(src)
+
+    cleaned = len(stale_sources)
     stored = 0
     skipped = pre_skipped
     processed = pre_skipped
@@ -611,6 +641,8 @@ def main():
         print(f"  {C_GREEN}═══ Indexing Complete ═══{C_RESET}")
     print(f"  Stored:   {stored}")
     print(f"  Skipped:  {skipped}")
+    if cleaned:
+        print(f"  Cleaned:  {cleaned} stale sources")
     print(f"  Time:     {elapsed:.1f}s")
     if cancelled:
         print(f"  {C_DIM}Re-run to index remaining files (duplicates are skipped automatically){C_RESET}")

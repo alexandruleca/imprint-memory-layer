@@ -1,6 +1,6 @@
 fastmcp>=2.0.0
 qdrant-client>=1.12.0
-onnxruntime>=1.20.0
+onnxruntime>=1.20.0             # setup auto-upgrades to onnxruntime-gpu if NVIDIA GPU detected
 tokenizers>=0.22.0
 huggingface-hub>=0.30.0
 numpy>=2.0.0
@@ -33,8 +33,12 @@ trafilatura>=1.10          # readability-style html extraction
 # pytesseract>=0.3
 # pdf2image>=1.17
 
-# ── Local chat (for `imprint viz` chat panel) ─────────────────
-# Runs Gemma 3 4B locally via llama.cpp bindings. Enabled by default.
-# First chat message auto-downloads the GGUF into data/models/.
+# ── Dashboard UI (FastAPI backend) ────────────────────────────
+fastapi>=0.120.0
+uvicorn>=0.30.0
+
+# ── Local chat + tagger ──────────────────────────────────────
+# Runs Gemma 4 E4B (chat) and Gemma 3 1B (tagger) locally via
+# llama.cpp bindings. First use auto-downloads the GGUF into data/models/.
 # Disable with: imprint config set chat.enabled false
 llama-cpp-python>=0.3.0

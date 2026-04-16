@@ -1,17 +1,21 @@
 """Metadata tag derivation for chunks.
 
-Four layered sources, ordered from cheap+reliable to rich+expensive:
+Five layered sources, ordered from cheap+reliable to rich+expensive:
 
   1. derive_deterministic(rel_path) → {lang, layer, kind} from file metadata.
   2. derive_keywords(content)       → domain:[...] via hand-rolled keyword dict.
   3. derive_zero_shot(vector)       → topics:[...] by cosine against label
                                        prototypes (on by default; opt-out via
                                        IMPRINT_ZERO_SHOT_TAGS=0).
-  4. derive_llm(content)            → topics:[...] via LLM API (opt-in via
-                                       IMPRINT_LLM_TAGS=1). Supports multiple
-                                       providers: anthropic, openai, ollama,
-                                       vllm, gemini. When enabled, replaces
-                                       zero-shot.
+  4. derive_llm(content)            → topics:[...] via LLM (opt-in via
+                                       IMPRINT_LLM_TAGS=1, or auto-enabled
+                                       for the ``local`` provider). Supports:
+                                       anthropic, openai, ollama, vllm,
+                                       gemini, local. Replaces zero-shot.
+
+  The ``local`` provider runs Gemma 3 1B via llama-cpp-python — no API key,
+  no network.  Auto-selected when llama_cpp is importable and the user hasn't
+  explicitly set a different provider.
 
 `build_payload_tags` is the orchestrator — always runs (1) and (2), runs (3)
 by default unless (4) is enabled. When LLM tagging is on, it replaces
@@ -23,7 +27,10 @@ from __future__ import annotations
 
 import os
 import re
+import sys
+import threading
 from pathlib import Path
+from typing import Any
 
 # ── 1. Deterministic (ext + path) ──────────────────────────────
 _EXT_LANG = {
@@ -286,9 +293,10 @@ def derive_zero_shot(vector: list[float], threshold: float = 0.35, top_k: int = 
 # ── 4. LLM-assisted topic tags (opt-in) ────────────────────────
 _LLM_PROMPT = (
     "Classify this code/text chunk with 1-4 short lowercase topic tags. "
-    "Tags should be nouns or noun-phrases suitable for filtering in a "
-    "search index (e.g. 'auth', 'redis-cache', 'webgl-shader'). Return "
-    "only a comma-separated list, no explanation.\n\n"
+    "Tags must be descriptive nouns or noun-phrases for a search index "
+    "(e.g. 'auth', 'redis-cache', 'webgl-shader'). "
+    "Never output numbers, single characters, or content copied from the text. "
+    "Return only a comma-separated list, no explanation.\n\n"
 )
 
 # Provider configs: default model + API key env var + base URL.
@@ -299,12 +307,22 @@ _PROVIDER_DEFAULTS: dict[str, dict] = {
     "gemini":    {"model": "gemini-2.0-flash",  "key_env": "GOOGLE_API_KEY", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
     "ollama":    {"model": "llama3.2",          "key_env": None, "base_url": "http://localhost:11434/v1"},
     "vllm":      {"model": "default",           "key_env": None, "base_url": "http://localhost:8000/v1"},
+    "local":     {"model": "gemma-3-4b-it",     "key_env": None},
 }
 
 
 def _get_llm_provider() -> str:
     from .config_schema import resolve
-    return str(resolve("tagger.llm_provider")[0]).lower()
+    val, source = resolve("tagger.llm_provider")
+    provider = str(val).lower()
+    if source != "default":
+        return provider
+    # Auto-detect: prefer local when llama_cpp is available
+    try:
+        import llama_cpp  # type: ignore  # noqa: F401
+        return "local"
+    except ImportError:
+        return provider
 
 
 def _get_llm_model() -> str:
@@ -322,11 +340,16 @@ def _sanitize_tags(text: str) -> list[str]:
     """Parse comma-separated LLM response into sanitized tag list."""
     tags = [t.strip().lower() for t in text.split(",") if t.strip()]
     tags = [re.sub(r"[^a-z0-9\-]+", "-", t).strip("-") for t in tags]
-    tags = [t for t in tags if 1 <= len(t) <= 32]
+    # Min 2 chars, max 32, must contain at least one letter (reject "1", "2", pure numbers)
+    tags = [t for t in tags if 2 <= len(t) <= 32 and re.search(r"[a-z]", t)]
     return tags[:4]
 
 
 def _derive_llm_anthropic(content: str, max_chars: int) -> list[str]:
+    return _derive_llm_anthropic_raw(_LLM_PROMPT + content[:max_chars])
+
+
+def _derive_llm_anthropic_raw(full_input: str) -> list[str]:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return []
@@ -338,7 +361,7 @@ def _derive_llm_anthropic(content: str, max_chars: int) -> list[str]:
     resp = client.messages.create(
         model=_get_llm_model(),
         max_tokens=60,
-        messages=[{"role": "user", "content": _LLM_PROMPT + content[:max_chars]}],
+        messages=[{"role": "user", "content": full_input}],
     )
     text = resp.content[0].text if resp.content else ""
     return _sanitize_tags(text)
@@ -346,6 +369,11 @@ def _derive_llm_anthropic(content: str, max_chars: int) -> list[str]:
 
 def _derive_llm_openai_compat(content: str, max_chars: int) -> list[str]:
     """OpenAI-compatible provider (openai, ollama, vllm, gemini)."""
+    return _derive_llm_openai_compat_raw(_LLM_PROMPT + content[:max_chars])
+
+
+def _derive_llm_openai_compat_raw(full_input: str) -> list[str]:
+    """OpenAI-compatible provider (openai, ollama, vllm, gemini) — raw input."""
     provider = _get_llm_provider()
     defaults = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["openai"])
 
@@ -370,25 +398,207 @@ def _derive_llm_openai_compat(content: str, max_chars: int) -> list[str]:
         model=_get_llm_model(),
         max_tokens=60,
         messages=[
-            {"role": "user", "content": _LLM_PROMPT + content[:max_chars]},
+            {"role": "user", "content": full_input},
         ],
     )
     text = resp.choices[0].message.content or "" if resp.choices else ""
     return _sanitize_tags(text)
 
 
-def derive_llm(content: str, max_chars: int = 3000) -> list[str]:
+
+# ── 4b. Local LLM tagger (llama-cpp, Gemma 3 1B) ─────────────
+
+_tagger_llm: Any = None
+_tagger_llm_lock = threading.Lock()
+_tagger_inference_lock = threading.Lock()
+
+
+def _tagger_cfg(key: str) -> Any:
+    from .config_schema import resolve
+    return resolve(key)[0]
+
+
+def _tagger_models_dir() -> Path:
+    from . import config as _cfg
+    d = _cfg.get_data_dir() / "models"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _resolve_tagger_model_path() -> tuple[Path | None, str | None]:
+    """Where the tagger GGUF should live (may not exist yet)."""
+    explicit = _tagger_cfg("tagger.local.model_path")
+    if explicit:
+        return Path(explicit), None
+    fname = _tagger_cfg("tagger.local.model_file")
+    if not fname:
+        return None, "tagger.local.model_file is empty"
+    return _tagger_models_dir() / fname, None
+
+
+def _download_tagger_model() -> tuple[Path | None, str | None]:
+    """Download tagger GGUF from HuggingFace.  Atomic .part rename."""
+    target, err = _resolve_tagger_model_path()
+    if err or target is None:
+        return None, err
+    if target.exists():
+        return target, None
+
+    fname = _tagger_cfg("tagger.local.model_file")
+    repo = _tagger_cfg("tagger.local.model_repo")
+    if not repo:
+        return None, "tagger.local.model_repo is empty"
+
+    try:
+        import httpx  # type: ignore
+    except ImportError as e:
+        return None, f"httpx required for model download ({e})"
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".part")
+    url = f"https://huggingface.co/{repo}/resolve/main/{fname}"
+
+    print(f"  Downloading tagger model {fname} …", file=sys.stderr, flush=True)
+    try:
+        with httpx.stream(
+            "GET", url, follow_redirects=True,
+            timeout=httpx.Timeout(60.0, read=300.0),
+        ) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            with open(tmp, "wb") as f:
+                for chunk in resp.iter_bytes(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    done += len(chunk)
+                    if total:
+                        pct = done * 100 // total
+                        print(
+                            f"\r  Downloading tagger model … {pct}%"
+                            f" ({done // (1024*1024)}/{total // (1024*1024)} MB)",
+                            end="", file=sys.stderr, flush=True,
+                        )
+            print(file=sys.stderr)  # newline after progress
+        tmp.rename(target)
+        return target, None
+    except Exception as e:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return None, f"tagger model download failed: {e}"
+
+
+def _load_tagger_model() -> tuple[Any, str | None]:
+    """Lazy-load local tagger model.  Thread-safe singleton."""
+    global _tagger_llm
+    if _tagger_llm is not None:
+        return _tagger_llm, None
+
+    try:
+        import llama_cpp  # type: ignore
+    except ImportError as e:
+        return None, f"llama-cpp-python not installed ({e})"
+
+    with _tagger_llm_lock:
+        if _tagger_llm is not None:
+            return _tagger_llm, None
+
+        path, err = _resolve_tagger_model_path()
+        if err or path is None:
+            return None, err or "could not resolve tagger model path"
+        if not path.exists():
+            path, err = _download_tagger_model()
+            if err or path is None:
+                return None, err or "download failed"
+
+        n_ctx = int(_tagger_cfg("tagger.local.n_ctx"))
+        n_gpu = int(_tagger_cfg("tagger.local.n_gpu_layers"))
+
+        try:
+            # Suppress C++ layer warnings (e.g. "n_ctx_seq < n_ctx_train")
+            # that verbose=False doesn't catch.
+            _stderr = os.dup(2)
+            _devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(_devnull, 2)
+            try:
+                _tagger_llm = llama_cpp.Llama(
+                    model_path=str(path),
+                    n_ctx=n_ctx,
+                    n_gpu_layers=n_gpu,
+                    verbose=False,
+                )
+            finally:
+                os.dup2(_stderr, 2)
+                os.close(_stderr)
+                os.close(_devnull)
+        except Exception as e:
+            return None, f"tagger model load failed: {e}"
+
+    return _tagger_llm, None
+
+
+def _derive_llm_local(content: str, max_chars: int) -> list[str]:
+    """Classify content using local Gemma 3 4B model."""
+    return _derive_llm_local_raw(_LLM_PROMPT + content[:max_chars])
+
+
+def _derive_llm_local_raw(full_input: str) -> list[str]:
+    """Classify using local Gemma 3 4B model — raw input."""
+    llm, err = _load_tagger_model()
+    if err or llm is None:
+        return []
+    with _tagger_inference_lock:
+        try:
+            resp = llm.create_chat_completion(
+                messages=[{"role": "user", "content": full_input}],
+                max_tokens=60,
+                temperature=0.1,
+            )
+            text = (resp["choices"][0]["message"]["content"]
+                    if resp.get("choices") else "")
+            return _sanitize_tags(text)
+        except Exception:
+            return []
+
+
+def derive_llm(
+    content: str,
+    max_chars: int = 3000,
+    neighbor_context: str = "",
+    project_hint: str = "",
+    rel_path: str = "",
+) -> list[str]:
     """Opt-in: ask an LLM for topic tags.
 
     Provider controlled by IMPRINT_LLM_TAGGER_PROVIDER (default: anthropic).
     Model controlled by IMPRINT_LLM_TAGGER_MODEL (default per provider).
     Base URL override: IMPRINT_LLM_TAGGER_BASE_URL.
+    The ``local`` provider runs Gemma 3 4B via llama-cpp-python.
     """
+    # Build context-aware prompt
+    prompt = _LLM_PROMPT
+    ctx_parts = []
+    if project_hint:
+        ctx_parts.append(f"Project: {project_hint}")
+    if rel_path:
+        ctx_parts.append(f"File: {rel_path}")
+    if neighbor_context:
+        ctx_parts.append(f"Surrounding context (for reference only, do NOT tag this):\n{neighbor_context[:500]}")
+    if ctx_parts:
+        prompt = "\n".join(ctx_parts) + "\n\n" + prompt
+
+    full_input = prompt + content[:max_chars]
+
     try:
         provider = _get_llm_provider()
+        if provider == "local":
+            return _derive_llm_local_raw(full_input)
         if provider == "anthropic":
-            return _derive_llm_anthropic(content, max_chars)
-        return _derive_llm_openai_compat(content, max_chars)
+            return _derive_llm_anthropic_raw(full_input)
+        return _derive_llm_openai_compat_raw(full_input)
     except Exception:
         return []
 
@@ -401,20 +611,41 @@ def build_payload_tags(
     vector: list[float] | None = None,
     zero_shot: bool = True,
     llm: bool = False,
+    neighbor_context: str = "",
+    project_hint: str = "",
 ) -> dict:
-    """Combine all four tag sources into the canonical payload shape.
+    """Combine all tag sources into the canonical payload shape.
 
     When ``llm=True``, LLM tagging replaces zero-shot (no point running both).
     Zero-shot is on by default (opt-out via ``zero_shot=False``).
+
+    When the resolved provider is ``local`` and the user hasn't explicitly
+    disabled LLM tagging, it auto-enables — callers don't need changes.
+
+    ``neighbor_context`` and ``project_hint`` provide surrounding context
+    to the LLM tagger for more accurate topic classification.
     """
     d = derive_deterministic(rel_path) if rel_path else {"lang": "", "layer": "", "kind": ""}
     domain = derive_keywords(content)
     topics: list[str] = []
 
+    # Auto-enable LLM tagging when local provider is available and user
+    # hasn't explicitly set tagger.llm=false.
+    if not llm and _get_llm_provider() == "local":
+        from .config_schema import resolve
+        _, llm_source = resolve("tagger.llm")
+        if llm_source == "default":
+            llm = True
+
     if llm:
         # LLM tagging replaces zero-shot
         try:
-            topics.extend(derive_llm(content))
+            topics.extend(derive_llm(
+                content,
+                neighbor_context=neighbor_context,
+                project_hint=project_hint,
+                rel_path=rel_path,
+            ))
         except Exception:
             pass
     elif zero_shot and vector is not None:

@@ -20,6 +20,83 @@ import numpy as np
 
 from . import config
 
+# ── GPU-backed embedding adapter for Chonkie ──────────────────
+# Wraps our ONNX GPU embeddings so SemanticChunker uses the same
+# accelerated model instead of its own CPU-only model2vec.
+
+_OnnxChonkieEmbeddings = None  # built lazily to avoid top-level import
+
+
+def _get_adapter_class():
+    """Build adapter class that inherits from Chonkie's BaseEmbeddings."""
+    global _OnnxChonkieEmbeddings
+    if _OnnxChonkieEmbeddings is not None:
+        return _OnnxChonkieEmbeddings
+
+    from chonkie.embeddings.base import BaseEmbeddings
+
+    class OnnxChonkieEmbeddings(BaseEmbeddings):
+        """Adapts imprint.embeddings (GPU ONNX) to Chonkie's BaseEmbeddings."""
+
+        _is_available = staticmethod(lambda: True)
+
+        def __init__(self):
+            self._emb = None
+            self._dim = config.EMBEDDING_DIM
+
+        def _ensure_loaded(self):
+            if self._emb is None:
+                from . import embeddings as _emb
+                self._emb = _emb
+
+        @property
+        def dimension(self) -> int:
+            return self._dim
+
+        def embed(self, text: str) -> np.ndarray:
+            self._ensure_loaded()
+            return self._emb._embed_raw([text])[0]
+
+        def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
+            if not texts:
+                return []
+            self._ensure_loaded()
+            mat = self._emb._embed_raw(texts)
+            return [mat[i] for i in range(len(texts))]
+
+        def similarity(self, u: np.ndarray, v: np.ndarray) -> np.float32:
+            denom = np.linalg.norm(u) * np.linalg.norm(v)
+            if denom == 0:
+                return np.float32(0.0)
+            return np.divide(np.dot(u, v), denom, dtype=np.float32)
+
+        def get_tokenizer(self):
+            self._ensure_loaded()
+            self._emb._load()
+            return self._emb._tokenizer
+
+        async def aembed(self, text: str) -> np.ndarray:
+            return self.embed(text)
+
+        async def aembed_batch(self, texts: list[str]) -> list[np.ndarray]:
+            return self.embed_batch(texts)
+
+    _OnnxChonkieEmbeddings = OnnxChonkieEmbeddings
+    return _OnnxChonkieEmbeddings
+
+
+def _make_chonkie_embeddings():
+    """Create GPU-backed embeddings for Chonkie, fall back to default CPU model."""
+    try:
+        cls = _get_adapter_class()
+        adapter = cls()
+        # Force model load to verify it works
+        adapter.embed("test")
+        return adapter
+    except Exception:
+        return None  # Chonkie will use its default model2vec
+
+
 # ── Language map for CodeChunker ───────────────────────────────
 # Chonkie CodeChunker takes a language name; map our file extensions.
 _CODE_LANG = {
@@ -90,20 +167,23 @@ def _get_semantic_chunker():
         return _semantic_chunker
     try:
         from chonkie import SemanticChunker
-        # Lower threshold = more aggressive topic-shift splitting. Smaller
-        # min_characters_per_sentence catches short transitional sentences
-        # that often mark topic boundaries.
-        _semantic_chunker = SemanticChunker(
+        # Use GPU-backed ONNX embeddings when available; falls back to
+        # Chonkie's default CPU model2vec if GPU init fails.
+        gpu_emb = _make_chonkie_embeddings()
+        kwargs = dict(
             threshold=SEMANTIC_THRESHOLD,
             chunk_size=TARGET_SIZE_PROSE,
             min_characters_per_sentence=16,
             similarity_window=3,
             skip_window=1,
         )
+        if gpu_emb is not None:
+            kwargs["embedding_model"] = gpu_emb
+        _semantic_chunker = SemanticChunker(**kwargs)
         # Patch: chonkie's Model2VecEmbeddings.similarity divides by zero
         # when a sentence embeds to a zero vector (empty/whitespace input).
-        # Replace with a safe version that returns 0.0 for zero-norm vectors.
-        if hasattr(_semantic_chunker, 'embedding_model'):
+        # Our adapter already handles this; only patch if using default model.
+        if gpu_emb is None and hasattr(_semantic_chunker, 'embedding_model'):
             _semantic_chunker.embedding_model.similarity = (
                 _safe_similarity.__get__(_semantic_chunker.embedding_model)
             )

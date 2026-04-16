@@ -62,36 +62,17 @@ func Ingest(args []string) {
 		"IMPRINT_DATA_DIR=" + dataDir,
 	}
 
+	if len(args) == 0 {
+		output.Fail("Usage: imprint ingest <dir> [--batch-size N]\n  Tip: run 'imprint learn' to index conversations + memory files")
+	}
+
 	fmt.Println()
 	output.Header("═══ Imprint Ingest ═══")
 	fmt.Println()
 
-	// Step 1: Migrate Claude Code auto-memory files
-	output.Info("Step 1/3: Migrating Claude Code memory files...")
-	runPython(venvPython, envVars, migrateScript(projectDir, dataDir))
-	fmt.Println()
-
-	// Step 2: Index conversations
-	output.Info("Step 2/3: Indexing conversation transcripts...")
-	cmd := runner.CommandWithEnv(venvPython,
-		[]string{"-m", "imprint.cli_conversations", "--all"},
-		envVars...,
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	cmd.Run()
-	fmt.Println()
-
-	// Step 3: Index project directories if provided
-	if len(args) > 0 {
-		output.Info("Step 3/3: Indexing project files...")
-		targetDir, _ := filepath.Abs(args[0])
-		indexDir(venvPython, envVars, targetDir, projectDir, dataDir, batchSize)
-	} else {
-		output.Info("Step 3/3: Skipped — no directory provided")
-		fmt.Println("  Tip: run 'imprint ingest [--batch-size N] ~/code' to also index project files")
-	}
+	output.Info("Indexing project files...")
+	targetDir, _ := filepath.Abs(args[0])
+	indexDir(venvPython, envVars, targetDir, projectDir, dataDir, batchSize)
 
 	fmt.Println()
 	output.Header("═══ Ingest Complete ═══")
