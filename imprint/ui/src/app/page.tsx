@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getStats, getOverview } from "@/lib/api";
 import { DashboardSkeleton } from "@/components/loaders";
+import { IngestionProgress } from "@/components/ingestion-progress";
 import { Database, FolderOpen, Code, Tags } from "lucide-react";
 import type { StatsData, OverviewData } from "@/lib/types";
 
@@ -114,6 +115,8 @@ export default function DashboardPage() {
         <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
         <p className="text-sm text-muted-foreground mt-1">Overview of your AI memory store</p>
       </div>
+
+      <IngestionProgress />
 
       <div className="grid grid-cols-4 gap-5">
         <StatCard label="Total Memories" value={stats.total} icon={Database} accentColor="#60a5fa" />

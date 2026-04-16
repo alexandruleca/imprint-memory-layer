@@ -45,7 +45,7 @@ def retag(
     updated = 0
     scanned = 0
     offset = None
-    batch_updates: list[tuple[str, dict]] = []  # (point_id, new_tags)
+    batch_updates: list[tuple[str, dict, str]] = []  # (point_id, new_tags, new_type)
 
     t0 = time.time()
 
@@ -64,7 +64,7 @@ def retag(
             content = pt.payload.get("content", "")
             source = pt.payload.get("source", "")
 
-            # Re-derive tags with LLM enabled
+            # Re-derive tags with LLM enabled (unified classification)
             proj_hint = source.split("/", 1)[0] if "/" in source else ""
             new_tags = tagger.build_payload_tags(
                 content,
@@ -72,8 +72,9 @@ def retag(
                 llm=True,
                 project_hint=proj_hint,
             )
+            new_type = new_tags.pop("_llm_type", "")
 
-            batch_updates.append((pt.id, new_tags))
+            batch_updates.append((pt.id, new_tags, new_type))
 
             if len(batch_updates) >= batch_size:
                 if not dry_run:
@@ -108,13 +109,16 @@ def retag(
 
 
 def _flush_updates(
-    client, coll: str, updates: list[tuple[str, dict]]
+    client, coll: str, updates: list[tuple[str, dict, str]]
 ) -> None:
-    """Batch-update tags payloads via set_payload."""
-    for point_id, new_tags in updates:
+    """Batch-update tags + type payloads via set_payload."""
+    for point_id, new_tags, new_type in updates:
+        payload: dict = {"tags": new_tags}
+        if new_type:
+            payload["type"] = new_type
         client.set_payload(
             collection_name=coll,
-            payload={"tags": new_tags},
+            payload=payload,
             points=[point_id],
         )
 

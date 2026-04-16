@@ -32,7 +32,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 border-r border-border bg-card flex flex-col shrink-0 h-screen sticky top-0 overflow-y-auto">
+    <aside className="w-56 border-r border-border bg-card flex flex-col shrink-0 h-screen sticky top-0 overflow-y-auto z-30">
       <div className="p-4 border-b border-border">
         <h1 className="text-lg font-bold tracking-tight">Imprint</h1>
         <p className="text-xs text-muted-foreground">AI Memory Dashboard</p>

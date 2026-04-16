@@ -203,12 +203,12 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
             skipped += 1
             continue
 
+        # Conversation tags: deterministic only (LLM deferred to phase 2).
+        tags = tagger.build_payload_tags(ex["text"], llm=False)
+        tags.pop("_llm_type", "")
         mem_type, confidence = classify(ex["text"])
         if confidence < 0.2:
             mem_type = "finding"
-
-        # Conversation tags: always-on lang/layer/kind + keyword domains.
-        tags = tagger.build_payload_tags(ex["text"])
         tags["lang"] = "conversation"
         tags["layer"] = "session"
         tags["kind"] = "qa"
@@ -342,9 +342,40 @@ def main():
     bar = "█" * bar_width
     print(f"\r  {bar}{stats}{' ' * 10}")
 
+    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
+    llm_tagged = 0
+    from imprint.config_schema import resolve as _resolve
+    _enable_llm = _resolve("tagger.llm")[0]
+    if not _enable_llm and tagger._get_llm_provider() == "local":
+        _, _llm_source = _resolve("tagger.llm")
+        if _llm_source == "default":
+            _enable_llm = True
+
+    if _enable_llm and total_stored > 0:
+        from .cli_index import _llm_tag_recent
+        print()
+        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
+
+        def _convo_print_bar(done, total, elapsed, current_file=""):
+            pct = done / total if total else 1
+            eta = elapsed / pct * (1 - pct) if pct < 1 else 0
+            stats = f" {int(pct*100):3d}% {done}/{total} eta {int(eta)}s"
+            bar_width = max(10, cols - len(stats) - 3)
+            filled = int(bar_width * pct)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            print(f"\r  {bar}{stats}", end="", flush=True)
+
+        llm_tagged = _llm_tag_recent(
+            ingest_start_ts=t_start,
+            total_hint=total_stored,
+            print_bar=_convo_print_bar,
+        )
+
     print()
     print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")
     print(f"  Stored:   {total_stored} exchanges")
+    if llm_tagged:
+        print(f"  Tagged:   {llm_tagged} (LLM)")
     if pre_skipped:
         print(f"  Unchanged:{pre_skipped} transcripts (skipped)")
     if stale_sources:

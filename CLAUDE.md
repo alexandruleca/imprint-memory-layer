@@ -26,7 +26,7 @@ It auto-loads session context (wake_up) on the first call — no need to call `w
 | Tool | Purpose |
 |------|---------|
 | `wake_up` | Load summary context at session start |
-| `search` | Semantic search with optional project/type/lang/layer/kind/domain filters |
+| `search` | Semantic search with optional filters and offset-based pagination |
 | `store` | Store a memory with metadata |
 | `delete` | Remove a memory by ID |
 | `kg_query` | Query temporal facts |

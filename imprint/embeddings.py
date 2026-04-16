@@ -18,6 +18,7 @@ from . import config
 _session = None
 _cpu_session = None  # Lazy CPU fallback for GPU OOM on single items
 _tokenizer = None
+_gpu_retries = 0  # Count of batch reductions (reported after progress bar)
 
 _PRETRIM_CHARS = max(2048, config.MAX_SEQ_LENGTH * 8)
 
@@ -225,13 +226,16 @@ def embed_documents_batch(texts: list[str], batch_size: int | None = None) -> li
     return _embed_documents_batch(texts, batch_size)
 
 
-def _is_oom_error(exc: Exception) -> bool:
-    """Detect ORT CUDA OOM. Matches arena exhaustion + cudaMalloc failures."""
+def _is_gpu_error(exc: Exception) -> bool:
+    """Detect CUDA/GPU errors — OOM, driver faults, async copy failures."""
     msg = str(exc)
     return (
         "Available memory" in msg
         or "out of memory" in msg.lower()
         or "CUDA_ERROR_OUT_OF_MEMORY" in msg
+        or "CUDA failure" in msg
+        or "cuda error" in msg.lower()
+        or "cudaMemcpy" in msg
     )
 
 
@@ -245,26 +249,30 @@ def _embed_batch_with_oom_retry(batch: list[str], batch_size: int) -> np.ndarray
     try:
         return _embed_raw(batch)
     except Exception as exc:
-        if not _is_oom_error(exc):
+        if not _is_gpu_error(exc):
             raise
         import sys
         gc.collect()
+        global _gpu_retries
+        _gpu_retries += 1
         if batch_size <= 1:
-            print(
-                "[embeddings] chunk too large for GPU, using CPU fallback",
-                file=sys.stderr,
-            )
             return _embed_raw_cpu(batch)
         new_size = max(1, batch_size // 2)
-        print(
-            f"[embeddings] reducing batch {batch_size} → {new_size} (GPU memory pressure)",
-            file=sys.stderr,
-        )
         parts: list[np.ndarray] = []
         for i in range(0, len(batch), new_size):
             sub = batch[i:i + new_size]
             parts.append(_embed_batch_with_oom_retry(sub, new_size))
         return np.concatenate(parts, axis=0)
+
+
+def get_gpu_retries() -> int:
+    """Return count of GPU batch reductions since last reset."""
+    return _gpu_retries
+
+
+def reset_gpu_retries() -> None:
+    global _gpu_retries
+    _gpu_retries = 0
 
 
 def _embed_documents_batch(texts: list[str], batch_size: int) -> list[list[float]]:

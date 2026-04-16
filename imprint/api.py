@@ -13,15 +13,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,6 +63,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -327,18 +333,72 @@ async def api_chat(request: Request):
 
 # ── SSE live updates ───────────────────────────────────────────
 
+_shutdown_event = threading.Event()
+
+
 @app.get("/api/stream")
 def api_stream():
     def event_stream():
         version = 0
-        while True:
+        while not _shutdown_event.is_set():
             if check_for_changes():
                 from .cli_viz import _data_version
                 version = _data_version
                 yield f"event: update\ndata: {json.dumps({'version': version})}\n\n"
-            time.sleep(2)
+            _shutdown_event.wait(2)  # interruptible sleep
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ── UI heartbeat / auto-shutdown ──────────────────────────────
+
+_last_ui_ping: float = 0.0
+_auto_shutdown = False
+_SHUTDOWN_GRACE = 15  # seconds without ping before shutdown
+
+
+@app.get("/api/ping")
+def api_ping():
+    global _last_ui_ping
+    _last_ui_ping = time.time()
+    return {"ok": True}
+
+
+def _auto_shutdown_watcher():
+    """Background thread: shuts down server when UI disconnects."""
+    while not _shutdown_event.is_set():
+        _shutdown_event.wait(5)
+        if _last_ui_ping and time.time() - _last_ui_ping > _SHUTDOWN_GRACE:
+            _shutdown_event.set()
+            os.kill(os.getpid(), signal.SIGINT)
+            break
+
+
+# ── Jobs (ingestion progress) ─────────────────────────────────
+
+@app.get("/api/jobs")
+def api_jobs():
+    """Return active ingestion/refresh jobs."""
+    from .progress import read_progress
+    progress = read_progress()
+    if progress is None:
+        return {"jobs": []}
+
+    elapsed = time.time() - progress["started_at"]
+    total = progress["total"]
+    processed = progress["processed"]
+    pct = processed / total if total > 0 else 0
+    eta = None
+    if 0 < pct < 1:
+        eta = elapsed / pct * (1 - pct)
+
+    job = {
+        **progress,
+        "elapsed": round(elapsed, 1),
+        "percent": round(pct * 100, 1),
+        "eta_seconds": round(eta, 1) if eta is not None else None,
+    }
+    return {"jobs": [job]}
 
 
 # ── Config ─────────────────────────────────────────────────────
@@ -376,6 +436,31 @@ async def api_config_set(key: str, request: Request):
 
 
 # ── CLI command execution ──────────────────────────────────────
+
+
+def _reset_after_wipe():
+    """Clear all in-memory caches after a wipe so the dashboard reflects empty state."""
+    # Reset vectorstore client (Qdrant was restarted, old connection is stale)
+    vs._client = None
+    # Reset knowledge graph connections (stale after DB files deleted)
+    for conn in kg._conns.values():
+        try:
+            conn.close()
+        except Exception:
+            pass
+    kg._conns.clear()
+    # Clear dashboard caches if cli_viz is loaded
+    try:
+        from . import cli_viz
+        cli_viz._overview_cache = None
+        cli_viz._project_cache.clear()
+        cli_viz._cross_project_cache = None
+        cli_viz._last_wal_size = 0
+        cli_viz._last_row_count = -1
+        cli_viz._data_version = 0
+    except Exception:
+        pass
+
 
 # Allowed commands — just run the `imprint` binary directly.
 _ALLOWED_COMMANDS = {
@@ -431,6 +516,9 @@ async def api_run_command(command: str, request: Request):
             for line in proc.stdout:
                 yield f"data: {json.dumps({'type': 'output', 'text': line})}\n\n"
             proc.wait()
+            # After wipe, reset in-memory caches so dashboard reflects empty state
+            if command == "wipe" and proc.returncode == 0:
+                _reset_after_wipe()
             yield f"data: {json.dumps({'type': 'done', 'exit_code': proc.returncode})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
@@ -503,6 +591,128 @@ async def api_sync_import(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+# ── Sync: file download / upload ──────────────────────────────
+
+@app.get("/api/sync/export/download")
+async def api_sync_export_download():
+    """Create snapshot bundle, zip it, and stream as browser download."""
+    from .cli_sync import export_snapshot
+
+    try:
+        bundle = export_snapshot()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    zip_path = tempfile.mktemp(suffix=".zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in bundle.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(bundle.parent))
+
+    filename = bundle.name + ".zip"
+
+    def _iter_zip():
+        try:
+            with open(zip_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    yield chunk
+        finally:
+            try:
+                os.unlink(zip_path)
+            except OSError:
+                pass
+
+    return StreamingResponse(
+        _iter_zip(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/sync/import/upload")
+async def api_sync_import_upload(file: UploadFile = File(...)):
+    """Accept a zip upload, extract, and restore the snapshot bundle."""
+    tmp_zip = tempfile.mktemp(suffix=".zip")
+    try:
+        with open(tmp_zip, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                f.write(chunk)
+
+        extract_dir = tempfile.mkdtemp()
+        with zipfile.ZipFile(tmp_zip) as zf:
+            zf.extractall(extract_dir)
+        os.unlink(tmp_zip)
+        tmp_zip = ""
+
+        # Find the bundle dir (contains manifest.json)
+        bundle = None
+        for root, _dirs, files in os.walk(extract_dir):
+            if "manifest.json" in files:
+                bundle = Path(root)
+                break
+        if bundle is None:
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            return JSONResponse({"error": "No manifest.json found in archive"}, status_code=400)
+
+        from .cli_sync import import_snapshot
+        import_snapshot(bundle_path=bundle)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        return {"ok": True}
+
+    except Exception as e:
+        if tmp_zip:
+            try:
+                os.unlink(tmp_zip)
+            except OSError:
+                pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ── Sync: live relay sessions (SSE) ──────────────────────────
+
+@app.get("/api/sync/serve")
+async def api_sync_serve():
+    """SSE stream for provider (serve) mode. Connects to relay, yields events."""
+    from .sync_ws import serve_session
+
+    async def event_stream():
+        async for event in serve_session():
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/sync/receive")
+async def api_sync_receive(request: Request):
+    """SSE stream for consumer (receive) mode. Needs room_id and pin."""
+    body = await request.json()
+    room_id = body.get("room_id", "").strip()
+    pin = body.get("pin", "").strip()
+    if not room_id or not pin:
+        return JSONResponse({"error": "room_id and pin required"}, status_code=400)
+
+    from .sync_ws import receive_session
+
+    async def event_stream():
+        async for event in receive_session(room_id, pin):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/sync/cancel")
+async def api_sync_cancel(request: Request):
+    """Cancel an active sync session by session_id."""
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    if not session_id:
+        return JSONResponse({"error": "session_id required"}, status_code=400)
+
+    from .sync_ws import cancel_session
+    cancel_session(session_id)
+    return {"ok": True}
+
+
 # ── Static file serving ───────────────────────────────────────
 
 _UI_DIR = Path(__file__).parent / "ui" / "out"
@@ -571,12 +781,16 @@ def _launch_browser(url: str):
 # ── Entry point ───────────────────────────────────────────────
 
 def main():
+    global _auto_shutdown, _last_ui_ping
+
     import argparse
     parser = argparse.ArgumentParser(description="Imprint API server")
     parser.add_argument("--port", type=int, default=8420, help="Port to listen on")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--dev", action="store_true", help="Development mode (no static mount)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
+    parser.add_argument("--auto-shutdown", action="store_true",
+                        help="Shut down when the UI disconnects (used by `imprint ui`)")
     args = parser.parse_args()
 
     if not args.dev:
@@ -585,6 +799,28 @@ def main():
     url = f"http://{args.host}:{args.port}"
     print(f"\n  \033[0;33m\u2726 Imprint Dashboard at {url}\033[0m")
     print(f"  \033[2mPress Ctrl+C to stop\033[0m\n")
+
+    if args.auto_shutdown:
+        _auto_shutdown = True
+        _last_ui_ping = time.time()  # grace period for initial page load
+        t = threading.Thread(target=_auto_shutdown_watcher, daemon=True)
+        t.start()
+
+    # Set shutdown event on SIGINT/SIGTERM so SSE generators exit promptly.
+    # Store original handlers — uvicorn installs its own, but ours fires first
+    # to unblock any sleeping threads.
+    _orig_sigint = signal.getsignal(signal.SIGINT)
+    _orig_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _on_shutdown(signum, frame):
+        _shutdown_event.set()
+        # Restore and re-raise so uvicorn's handler runs
+        signal.signal(signal.SIGINT, _orig_sigint)
+        signal.signal(signal.SIGTERM, _orig_sigterm)
+        os.kill(os.getpid(), signum)
+
+    signal.signal(signal.SIGINT, _on_shutdown)
+    signal.signal(signal.SIGTERM, _on_shutdown)
 
     if not args.no_browser:
         threading.Timer(0.8, lambda: _launch_browser(url)).start()

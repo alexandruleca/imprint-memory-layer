@@ -148,6 +148,7 @@ def wake_up(workspace: str = "") -> str:
     lang_facets = vs.facet_counts("tags.lang", limit=8, workspace=ws)
     domain_facets = vs.facet_counts("tags.domain", limit=10, workspace=ws)
     layer_facets = vs.facet_counts("tags.layer", limit=6, workspace=ws)
+    type_facets = vs.facet_counts("type", limit=10, workspace=ws)
 
     coverage_parts = []
     if lang_facets:
@@ -162,6 +163,10 @@ def wake_up(workspace: str = "") -> str:
         layers = ", ".join(f"{v}({c})" for v, c in layer_facets if v)
         if layers:
             coverage_parts.append(f"  Layers: {layers}")
+    if type_facets:
+        types = ", ".join(f"{v}({c})" for v, c in type_facets if v)
+        if types:
+            coverage_parts.append(f"  Types: {types}")
 
     if coverage_parts:
         lines.append("\nKnowledge coverage (searchable with filters):")
@@ -189,6 +194,7 @@ def search(
     kind: str = "",
     domain: str = "",
     limit: int = 10,
+    offset: int = 0,
     workspace: str = "",
 ) -> str:
     """Semantic search across stored memories.
@@ -199,17 +205,20 @@ def search(
     Args:
         query: What to search for (natural language)
         project: Filter by project name (optional)
-        type: Filter by type: decision, pattern, finding, preference, bug, architecture (optional)
-        lang: Filter by language tag (python, typescript, go, php, markdown, conversation, ...)
-        layer: Filter by layer (api, ui, tests, infra, config, migrations, docs, scripts, cli, session)
-        kind: Filter by file kind (source, test, migration, readme, types, module, qa, auto-extract)
-        domain: Filter by domain tag, comma-separated for multi-match (auth, db, api, math, rendering, ui, testing, infra, ml, perf, security, build, payments)
+        type: Filter by memory type (e.g. decision, pattern, finding, bug, architecture). Dynamic — use wake_up to see available types. (optional)
+        lang: Filter by language tag (e.g. python, typescript, go, markdown, conversation)
+        layer: Filter by layer (e.g. api, ui, tests, infra, config, docs, cli, session)
+        kind: Filter by file kind (e.g. source, test, migration, readme, types, module, auto-extract)
+        domain: Filter by domain tag, comma-separated for multi-match (e.g. auth, db, api, ml). Dynamic — use wake_up to see available domains. (optional)
         limit: Max results (default 10)
+        offset: Skip first N results for pagination (default 0). Use when previous search indicated more results available.
         workspace: Target a specific workspace instead of the active one (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
         return err
+
+    limit = max(1, min(limit, 50))
 
     tag_filters: dict = {}
     if lang:
@@ -224,7 +233,7 @@ def search(
             tag_filters["domain"] = doms
 
     results = vs.search(
-        query, limit=limit, project=project, type=type,
+        query, limit=limit, offset=offset, project=project, type=type,
         tag_filters=tag_filters or None, workspace=ws,
     )
 
@@ -242,6 +251,9 @@ def search(
         return prefix + "No relevant matches found. Try reading the relevant files directly."
 
     lines = []
+
+    if offset > 0:
+        lines.append(f"(Showing results {offset + 1}–{offset + len(relevant)})\n")
 
     # ── Confidence-based guidance ──
     avg_sim = sum(r["similarity"] for r in relevant) / len(relevant)
@@ -276,13 +288,24 @@ def search(
             lines.append(f"  [cross-project pattern from {r.get('project', '?')}]")
         content = r["content"]
         if len(content) > SEARCH_MAX_CONTENT_CHARS:
-            content = content[:SEARCH_MAX_CONTENT_CHARS] + "\n  … [truncated]"
+            source = r.get("source", "")
+            hint = f'\n  … [truncated — use file_chunks(source="{source}") for full content]' if source else "\n  … [truncated]"
+            content = content[:SEARCH_MAX_CONTENT_CHARS] + hint
         lines.append(content)
         lines.append("")
 
+    # Hint about more results when we hit the limit
+    if len(relevant) == limit:
+        next_offset = offset + limit
+        lines.append(f"({len(relevant)} results shown. More may exist — use offset={next_offset} to continue.)")
+
     output = prefix + "\n".join(lines)
     if len(output) > SEARCH_MAX_TOTAL_CHARS:
-        output = output[:SEARCH_MAX_TOTAL_CHARS] + "\n\n… [output truncated — refine query with filters]"
+        next_offset = offset + limit
+        output = output[:SEARCH_MAX_TOTAL_CHARS] + (
+            f"\n\n… [output truncated — {len(relevant)} results matched. "
+            f"Use offset={next_offset} to see more, or add filters to narrow results]"
+        )
     return output
 
 
@@ -301,7 +324,7 @@ def store(
     Args:
         content: The memory to store — be specific, include reasoning
         project: Project this relates to (e.g. 'my-web-app', 'api-server')
-        type: One of: decision, pattern, finding, preference, bug, architecture, milestone
+        type: Memory type (e.g. decision, pattern, finding, bug, architecture, milestone). Auto-classified if omitted.
         tags: Comma-separated tags (e.g. 'cors,security')
         source: Where this came from (e.g. file path, conversation topic)
         workspace: Target a specific workspace instead of the active one (optional)
@@ -312,8 +335,13 @@ def store(
 
     # Auto-classify type if not provided
     if not type:
-        from . import classifier
-        type, _ = classifier.classify(content)
+        from . import classifier, tagger
+        tags = tagger.build_payload_tags(content, workspace=ws)
+        llm_type = tags.pop("_llm_type", "")
+        if llm_type:
+            type = llm_type
+        else:
+            type, _ = classifier.classify(content)
 
     memory_id = vs.store(
         content=content, project=project, type=type, tags=tags, source=source,

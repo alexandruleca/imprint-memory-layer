@@ -188,8 +188,9 @@ def main():
     candidates.sort(key=lambda x: -x[0])
     stored = 0
     for _, text in candidates[:MAX_MESSAGES]:
-        mem_type = classify_type(text)
         tags = tagger.build_payload_tags(text)
+        llm_type = tags.pop("_llm_type", "")
+        mem_type = llm_type or classify_type(text)
         tags["lang"] = "conversation"
         tags["layer"] = "session"
         tags["kind"] = "auto-extract"

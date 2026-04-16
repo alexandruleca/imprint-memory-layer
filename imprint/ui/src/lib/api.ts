@@ -27,6 +27,7 @@ import type {
   ConfigSetting,
   ChatSession,
   MemoryNode,
+  IngestionJob,
 } from "./types";
 
 export async function getOverview(filters?: Record<string, string[]>): Promise<OverviewData> {
@@ -69,6 +70,10 @@ export async function getNeighbors(id: string, k = 10) {
 
 export async function getStats(): Promise<StatsData> {
   return fetchAPI("/api/stats");
+}
+
+export async function getJobs(): Promise<{ jobs: IngestionJob[] }> {
+  return fetchAPI("/api/jobs");
 }
 
 export async function getMemory(id: string) {

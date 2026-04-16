@@ -89,7 +89,7 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
                 return 0, "skipped-unchanged"
 
     try:
-        extracted = url_ext.fetch(url)
+        doc_list = url_ext.fetch(url)
     except extractors.ExtractorUnavailable as e:
         return 0, f"error: {e}"
     except extractors.ExtractionError as e:
@@ -97,7 +97,9 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
     except Exception as e:
         return 0, f"error: {e}"
 
-    if not extracted.text or len(extracted.text.strip()) < 10:
+    # Filter out empty docs
+    doc_list = [d for d in doc_list if d.text and len(d.text.strip()) >= 10]
+    if not doc_list:
         return 0, "error: empty content"
 
     # Delete prior chunks for this URL so we replace, not accumulate.
@@ -105,45 +107,56 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
     if existing:
         vs.delete_by_source(source_key)
 
-    chunks = chunk_file(extracted.text, url, chunk_mode=extracted.chunk_mode or "prose")
-    if not chunks:
-        return 0, "error: no chunks"
-
     from imprint.config_schema import resolve
     enable_llm = resolve("tagger.llm")[0]
+    if not enable_llm and tagger._get_llm_provider() == "local":
+        _, _llm_source = resolve("tagger.llm")
+        if _llm_source == "default":
+            enable_llm = True
     enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
-
-    meta = extracted.metadata or {}
-    etag = meta.get("etag", "")
-    last_mod = meta.get("last_modified", "")
-    doc_meta = {k: v for k, v in meta.items()
-                if k not in ("etag", "last_modified", "source_url", "original_url", "status_code", "content_type")}
 
     records = []
     now = time.time()
-    for i, (chunk_text, chunk_idx) in enumerate(chunks):
-        prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
-        next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
-        neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
-        tags = tagger.build_payload_tags(
-            chunk_text, rel_path=url,
-            llm=enable_llm, zero_shot=enable_zero_shot,
-            neighbor_context=neighbor_ctx, project_hint=project,
-        )
-        records.append({
-            "content": chunk_text,
-            "project": project,
-            "type": "architecture",
-            "tags": tags,
-            "source": source_key,
-            "source_type": "url",
-            "source_url": url,
-            "etag": etag,
-            "last_modified": last_mod,
-            "doc_metadata": doc_meta,
-            "chunk_index": chunk_idx,
-            "source_mtime": now,
-        })
+    for extracted in doc_list:
+        chunks = chunk_file(extracted.text, url, chunk_mode=extracted.chunk_mode or "prose")
+        if not chunks:
+            continue
+
+        meta = extracted.metadata or {}
+        etag = meta.get("etag", "")
+        last_mod = meta.get("last_modified", "")
+        doc_meta = {k: v for k, v in meta.items()
+                    if k not in ("etag", "last_modified", "source_url", "original_url", "status_code", "content_type")}
+
+        for i, (chunk_text, chunk_idx) in enumerate(chunks):
+            prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
+            next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
+            neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
+            # Phase 1: deterministic + keyword tags only (LLM deferred to phase 2)
+            tags = tagger.build_payload_tags(
+                chunk_text, rel_path=url,
+                llm=False, zero_shot=enable_zero_shot,
+                neighbor_context=neighbor_ctx, project_hint=project,
+            )
+            tags.pop("_llm_type", "")
+            mem_type = "architecture"
+            records.append({
+                "content": chunk_text,
+                "project": project,
+                "type": mem_type,
+                "tags": tags,
+                "source": source_key,
+                "source_type": "url",
+                "source_url": url,
+                "etag": etag,
+                "last_modified": last_mod,
+                "doc_metadata": doc_meta,
+                "chunk_index": chunk_idx,
+                "source_mtime": now,
+            })
+
+    if not records:
+        return 0, "error: no chunks"
 
     inserted, _ = vs.store_batch(records)
     return inserted, "stored"
@@ -180,10 +193,31 @@ def main():
             total_errors += 1
             print(f"  {C_YELLOW}! {url}  ({status}){C_RESET}")
 
+    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
+    from imprint.config_schema import resolve
+    _enable_llm = resolve("tagger.llm")[0]
+    if not _enable_llm and tagger._get_llm_provider() == "local":
+        _, _llm_source = resolve("tagger.llm")
+        if _llm_source == "default":
+            _enable_llm = True
+
+    llm_tagged = 0
+    if _enable_llm and total_stored > 0:
+        from .cli_index import _llm_tag_recent, print_bar as _idx_print_bar
+        print()
+        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
+        llm_tagged = _llm_tag_recent(
+            ingest_start_ts=t_start,
+            total_hint=total_stored,
+            print_bar=_idx_print_bar,
+        )
+
     elapsed = time.time() - t_start
     print()
     print(f"  {C_GREEN}═══ URL Ingest Complete ═══{C_RESET}")
     print(f"  Stored:   {total_stored} chunks")
+    if llm_tagged:
+        print(f"  Tagged:   {llm_tagged} (LLM)")
     print(f"  Skipped:  {total_skipped} url(s)")
     print(f"  Errors:   {total_errors}")
     print(f"  Time:     {elapsed:.1f}s")

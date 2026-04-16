@@ -123,3 +123,61 @@ export interface ChatMessage {
   tool_name?: string;
   tool_args?: Record<string, unknown>;
 }
+
+export interface IngestionJob {
+  pid: number;
+  command: string;
+  processed: number;
+  total: number;
+  stored: number;
+  skipped: number;
+  started_at: number;
+  updated_at: number;
+  projects: string[];
+  elapsed: number;
+  percent: number;
+  eta_seconds: number | null;
+}
+
+// ── Sync types ─────────────────────────────────────────────────
+
+export interface SyncEvent {
+  type:
+    | "room"
+    | "session"
+    | "status"
+    | "peer_connected"
+    | "progress"
+    | "pull_complete"
+    | "push_complete"
+    | "done"
+    | "cancelled"
+    | "error";
+  room_id?: string;
+  pin?: string;
+  session_id?: string;
+  status?: string;
+  hostname?: string;
+  user?: string;
+  os?: string;
+  fingerprint?: string;
+  phase?: string;
+  dataset?: string;
+  done?: number;
+  total?: number;
+  stats?: SyncStats;
+  pull_stats?: SyncStats;
+  push_stats?: SyncStats;
+  message?: string;
+}
+
+export interface SyncStats {
+  memories: { inserted: number; skipped: number };
+  facts: { inserted: number; skipped: number };
+}
+
+export interface DatasetProgress {
+  dataset: string;
+  done: number;
+  total: number;
+}

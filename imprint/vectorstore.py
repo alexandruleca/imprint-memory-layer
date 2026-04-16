@@ -566,6 +566,7 @@ def _build_filter(
 def search(
     query: str,
     limit: int = 10,
+    offset: int = 0,
     project: str = "",
     type: str = "",
     tag_filters: dict | None = None,
@@ -590,6 +591,7 @@ def search(
         using=config.QDRANT_VECTOR_NAME,
         query_filter=flt,
         limit=limit,
+        offset=offset or None,
         with_payload=True,
     ).points
 

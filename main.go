@@ -80,7 +80,7 @@ func printUsage() {
 Usage:
   imprint setup [target]     Install deps, register MCP server, configure host AI tool
                                target: claude-code (default) | cursor
-  imprint ingest <dir>       Index project source files
+  imprint ingest <path>      Index project source files (directory or single file)
   imprint learn              Index Claude Code conversations + memory files
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)
   imprint refresh <dir>      Re-index only files that changed since last index

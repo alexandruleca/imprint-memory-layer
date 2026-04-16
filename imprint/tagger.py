@@ -12,19 +12,25 @@ Five layered sources, ordered from cheap+reliable to rich+expensive:
                                        for the ``local`` provider). Supports:
                                        anthropic, openai, ollama, vllm,
                                        gemini, local. Replaces zero-shot.
+  5. derive_llm_classify(content)   → {type, domains[], topics[]} via single
+                                       LLM call. Replaces keyword domains +
+                                       classifier.py regex when LLM is on.
+                                       Uses dynamic taxonomy registry to
+                                       prefer existing labels while allowing
+                                       new ones to emerge.
 
   The ``local`` provider runs Gemma 3 1B via llama-cpp-python — no API key,
   no network.  Auto-selected when llama_cpp is importable and the user hasn't
   explicitly set a different provider.
 
-`build_payload_tags` is the orchestrator — always runs (1) and (2), runs (3)
-by default unless (4) is enabled. When LLM tagging is on, it replaces
-zero-shot. Merges results into a single structured dict that matches the
-vectorstore payload schema.
+`build_payload_tags` is the orchestrator — always runs (1) and (2) when LLM
+is off, or (1) and (5) when LLM is on. Merges results into a single
+structured dict that matches the vectorstore payload schema.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -603,6 +609,195 @@ def derive_llm(
         return []
 
 
+# ── 5. Unified LLM classification (type + domains + topics) ───
+
+_LLM_CLASSIFY_PROMPT = (
+    "Classify this code/text chunk. Return a JSON object with exactly these keys:\n"
+    '- "type": one string — the memory/content type\n'
+    '- "domains": 1-5 short domain tags for the technical area\n'
+    '- "topics": 1-4 short topic tags for search indexing\n'
+    "\n"
+    "Existing taxonomy (prefer these, but propose new values if none fit):\n"
+    "  Types: {types}\n"
+    "  Domains: {domains}\n"
+    "\n"
+    "Rules:\n"
+    "- All values lowercase, short noun-phrases (e.g. 'auth', 'redis-cache')\n"
+    "- Never return numbers, single characters, or content copied verbatim\n"
+    "- Return ONLY the JSON object, no explanation\n\n"
+)
+
+_CLASSIFY_FALLBACK = {"type": "finding", "domains": [], "topics": []}
+
+
+def _call_llm_raw_text(full_input: str) -> str:
+    """Call the configured LLM provider and return raw response text."""
+    provider = _get_llm_provider()
+
+    if provider == "local":
+        llm, err = _load_tagger_model()
+        if err or llm is None:
+            return ""
+        with _tagger_inference_lock:
+            resp = llm.create_chat_completion(
+                messages=[{"role": "user", "content": full_input}],
+                max_tokens=200,
+                temperature=0.1,
+            )
+            return (resp["choices"][0]["message"]["content"]
+                    if resp.get("choices") else "")
+
+    if provider == "anthropic":
+        key = os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            return ""
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+        resp = client.messages.create(
+            model=_get_llm_model(),
+            max_tokens=200,
+            messages=[{"role": "user", "content": full_input}],
+        )
+        return resp.content[0].text if resp.content else ""
+
+    # OpenAI-compatible (openai, ollama, vllm, gemini)
+    defaults = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["openai"])
+    key_env = defaults.get("key_env")
+    api_key = (os.environ.get(key_env) if key_env
+               else os.environ.get("IMPRINT_LLM_TAGGER_API_KEY", "no-key-needed"))
+    if key_env and not api_key:
+        return ""
+    from .config_schema import resolve
+    configured_url = resolve("tagger.llm_base_url")[0]
+    base_url = configured_url if configured_url else defaults.get("base_url")
+    import openai
+    kwargs: dict = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = openai.OpenAI(**kwargs)
+    resp = client.chat.completions.create(
+        model=_get_llm_model(),
+        max_tokens=200,
+        messages=[{"role": "user", "content": full_input}],
+    )
+    return resp.choices[0].message.content or "" if resp.choices else ""
+
+
+def _parse_llm_classification(text: str) -> dict:
+    """Parse structured JSON from LLM response.  Multi-strategy fallback.
+
+    Returns {"type": str, "domains": list[str], "topics": list[str]}.
+    """
+    if not text or not text.strip():
+        return dict(_CLASSIFY_FALLBACK)
+
+    # Strategy 1: direct json.loads
+    try:
+        obj = json.loads(text.strip())
+        if isinstance(obj, dict):
+            return _validate_classification(obj)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Strategy 2: extract {...} block from surrounding text
+    m = re.search(r"\{[^{}]*\}", text, re.DOTALL)
+    if m:
+        try:
+            obj = json.loads(m.group())
+            if isinstance(obj, dict):
+                return _validate_classification(obj)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Strategy 3: comma-separated fallback (legacy compat — topics only)
+    tags = _sanitize_tags(text)
+    return {"type": "finding", "domains": [], "topics": tags}
+
+
+def _validate_classification(obj: dict) -> dict:
+    """Normalize and sanitize a parsed classification dict."""
+    mem_type = str(obj.get("type", "finding")).strip().lower()
+    mem_type = re.sub(r"[^a-z0-9\-]+", "-", mem_type).strip("-")
+    if not mem_type or len(mem_type) < 2:
+        mem_type = "finding"
+
+    raw_domains = obj.get("domains", [])
+    if isinstance(raw_domains, str):
+        raw_domains = [d.strip() for d in raw_domains.split(",") if d.strip()]
+    domains = _sanitize_tags(",".join(raw_domains) if raw_domains else "")
+    domains = domains[:5]
+
+    raw_topics = obj.get("topics", [])
+    if isinstance(raw_topics, str):
+        raw_topics = [t.strip() for t in raw_topics.split(",") if t.strip()]
+    topics = _sanitize_tags(",".join(raw_topics) if raw_topics else "")
+    topics = topics[:4]
+
+    return {"type": mem_type, "domains": domains, "topics": topics}
+
+
+def derive_llm_classify(
+    content: str,
+    max_chars: int = 3000,
+    neighbor_context: str = "",
+    project_hint: str = "",
+    rel_path: str = "",
+    workspace: str | None = None,
+) -> dict:
+    """Unified LLM classification: type + domains + topics in one call.
+
+    Uses the dynamic taxonomy registry to guide the LLM toward existing
+    labels while allowing new ones to emerge.
+
+    Returns {"type": str, "domains": list[str], "topics": list[str]}.
+    Falls back to {"type": "finding", "domains": [], "topics": []}.
+    """
+    from . import taxonomy
+
+    # Build taxonomy-aware prompt
+    type_values = taxonomy.get_all_values("type", workspace)
+    domain_values = taxonomy.get_all_values("domain", workspace)
+    prompt = _LLM_CLASSIFY_PROMPT.format(
+        types=", ".join(type_values) if type_values else "(none yet)",
+        domains=", ".join(domain_values) if domain_values else "(none yet)",
+    )
+
+    # Add context metadata
+    ctx_parts = []
+    if project_hint:
+        ctx_parts.append(f"Project: {project_hint}")
+    if rel_path:
+        ctx_parts.append(f"File: {rel_path}")
+    if neighbor_context:
+        ctx_parts.append(
+            f"Surrounding context (for reference only, do NOT tag this):\n"
+            f"{neighbor_context[:500]}"
+        )
+    if ctx_parts:
+        prompt = "\n".join(ctx_parts) + "\n\n" + prompt
+
+    full_input = prompt + content[:max_chars]
+
+    try:
+        raw_text = _call_llm_raw_text(full_input)
+        result = _parse_llm_classification(raw_text)
+    except Exception:
+        result = dict(_CLASSIFY_FALLBACK)
+
+    # Record new values in taxonomy registry
+    try:
+        if result["type"]:
+            taxonomy.record_usage("type", [result["type"]], workspace)
+        if result["domains"]:
+            taxonomy.record_usage("domain", result["domains"], workspace)
+        if result["topics"]:
+            taxonomy.record_usage("topic", result["topics"], workspace)
+    except Exception:
+        pass
+
+    return result
+
+
 # ── Orchestrator ───────────────────────────────────────────────
 def build_payload_tags(
     content: str,
@@ -610,52 +805,66 @@ def build_payload_tags(
     *,
     vector: list[float] | None = None,
     zero_shot: bool = True,
-    llm: bool = False,
+    llm: bool | None = None,
     neighbor_context: str = "",
     project_hint: str = "",
+    workspace: str | None = None,
 ) -> dict:
     """Combine all tag sources into the canonical payload shape.
 
-    When ``llm=True``, LLM tagging replaces zero-shot (no point running both).
-    Zero-shot is on by default (opt-out via ``zero_shot=False``).
+    When ``llm=True``, uses unified LLM classification that returns type,
+    domains, and topics in a single call — replacing keyword domains,
+    zero-shot topics, and the separate classifier.py regex.  The LLM-derived
+    type is returned as ``_llm_type`` (transient key for callers to consume).
+
+    When ``llm=False``, falls back to keyword domains + zero-shot topics
+    (existing behavior, unchanged).
 
     When the resolved provider is ``local`` and the user hasn't explicitly
     disabled LLM tagging, it auto-enables — callers don't need changes.
-
-    ``neighbor_context`` and ``project_hint`` provide surrounding context
-    to the LLM tagger for more accurate topic classification.
     """
     d = derive_deterministic(rel_path) if rel_path else {"lang": "", "layer": "", "kind": ""}
-    domain = derive_keywords(content)
-    topics: list[str] = []
 
     # Auto-enable LLM tagging when local provider is available and user
     # hasn't explicitly set tagger.llm=false.
-    if not llm and _get_llm_provider() == "local":
+    # llm=None means "use config default"; llm=True/False is an explicit override.
+    if llm is None:
         from .config_schema import resolve
-        _, llm_source = resolve("tagger.llm")
-        if llm_source == "default":
-            llm = True
+        llm = bool(resolve("tagger.llm")[0])
+        if not llm and _get_llm_provider() == "local":
+            _, llm_source = resolve("tagger.llm")
+            if llm_source == "default":
+                llm = True
+
+    llm_type = ""
 
     if llm:
-        # LLM tagging replaces zero-shot
+        # Unified LLM classification: type + domains + topics in one call
         try:
-            topics.extend(derive_llm(
+            result = derive_llm_classify(
                 content,
                 neighbor_context=neighbor_context,
                 project_hint=project_hint,
                 rel_path=rel_path,
-            ))
+                workspace=workspace,
+            )
+            domain = result["domains"]
+            topics = result["topics"]
+            llm_type = result["type"]
         except Exception:
-            pass
-    elif zero_shot and vector is not None:
-        try:
-            topics.extend(derive_zero_shot(vector))
-        except Exception:
-            pass
+            domain = derive_keywords(content)
+            topics = []
+    else:
+        domain = derive_keywords(content)
+        topics = []
+        if zero_shot and vector is not None:
+            try:
+                topics.extend(derive_zero_shot(vector))
+            except Exception:
+                pass
 
     # Dedup while preserving order
-    seen = set()
+    seen: set[str] = set()
     topics = [t for t in topics if not (t in seen or seen.add(t))]
 
     return {
@@ -664,4 +873,5 @@ def build_payload_tags(
         "kind": d["kind"],
         "domain": domain,
         "topics": topics,
+        "_llm_type": llm_type,
     }

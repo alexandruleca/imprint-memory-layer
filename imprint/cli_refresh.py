@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import tagger, vectorstore as vs, extractors
 from imprint.chunker import chunk_file
+from imprint.progress import write_progress, clear_progress
 from imprint.cli_index import (
     EXTENSIONS,
     SKIP_DIRS,
@@ -98,14 +99,19 @@ def main():
         print()
         return
 
+    _progress_projects = list(project_files.keys())
+    write_progress("refresh", 0, len(changed), 0, 0, time.time(), _progress_projects)
+    _last_progress_write = time.time()
+
     # ── Phase 3: Re-index changed files ────────────────────────
-    # Zero-shot on by default; LLM opt-in replaces zero-shot.
+    # Zero-shot on by default; LLM deferred to phase 2 (after embedding).
     from imprint.config_schema import resolve
     enable_llm = resolve("tagger.llm")[0]
-    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
-
-    from imprint.config_schema import resolve as _cfg_resolve
-    max_doc_bytes = int(_cfg_resolve("ingest.max_doc_size_mb")[0]) * 1024 * 1024
+    if not enable_llm and tagger._get_llm_provider() == "local":
+        _, _llm_source = resolve("tagger.llm")
+        if _llm_source == "default":
+            enable_llm = True
+    enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     stored = 0
     skipped = 0
@@ -113,42 +119,47 @@ def main():
     total = len(changed)
     cancelled = False
 
+    def _build_records(chunks, project, rel, source_key, mtime, doc_meta):
+        source_type = "file" if not doc_meta.get("ocr") else "ocr"
+        records = []
+        for j, (chunk_text, chunk_idx) in enumerate(chunks):
+            prev_text = chunks[j - 1][0][-200:] if j > 0 else ""
+            next_text = chunks[j + 1][0][:200] if j < len(chunks) - 1 else ""
+            neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
+            # Phase 1: deterministic + keyword tags only (LLM deferred to phase 2)
+            tags = tagger.build_payload_tags(
+                chunk_text, rel_path=rel,
+                zero_shot=enable_zero_shot, llm=False,
+                neighbor_context=neighbor_ctx, project_hint=project,
+            )
+            tags.pop("_llm_type", "")
+            mem_type = "architecture"
+            records.append({
+                "content": chunk_text,
+                "project": project,
+                "type": mem_type,
+                "tags": tags,
+                "source": source_key,
+                "source_type": source_type,
+                "doc_metadata": doc_meta,
+                "chunk_index": chunk_idx,
+                "source_mtime": mtime,
+            })
+        return records
+
     try:
         for i, (project, rel, fpath) in enumerate(changed):
             elapsed = time.time() - t_start
             print_bar(i + 1, total, elapsed, rel)
+
+            now = time.time()
+            if now - _last_progress_write >= 1.0:
+                write_progress("refresh", i + 1, total, stored, skipped, t_start, _progress_projects)
+                _last_progress_write = now
+
             try:
                 ext = os.path.splitext(rel)[1].lower()
                 is_doc = extractors.is_doc_extension(ext)
-
-                doc_meta: dict = {}
-                chunk_mode: str | None = None
-
-                if is_doc:
-                    try:
-                        if os.path.getsize(fpath) > max_doc_bytes:
-                            skipped += 1
-                            continue
-                    except OSError:
-                        skipped += 1
-                        continue
-                    try:
-                        extracted = extractors.dispatch_by_ext(fpath)
-                    except (extractors.ExtractorUnavailable, extractors.ExtractionError):
-                        skipped += 1
-                        continue
-                    content = extracted.text
-                    doc_meta = dict(extracted.metadata or {})
-                    chunk_mode = extracted.chunk_mode or "prose"
-                    if len(content.strip()) < 10:
-                        skipped += 1
-                        continue
-                else:
-                    with open(fpath, "r", errors="ignore") as f:
-                        content = f.read()
-                    if len(content.strip()) < 10 or len(content) > 50000:
-                        skipped += 1
-                        continue
 
                 source_key = f"{project}/{rel}"
                 # Delete old chunks for this source before re-chunking so we
@@ -156,42 +167,55 @@ def main():
                 if source_key in stored_sources:
                     vs.delete_by_source(source_key)
 
-                chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
-                if not chunks:
-                    skipped += 1
-                    continue
+                if is_doc:
+                    try:
+                        doc_list = extractors.dispatch_by_ext(fpath)
+                    except (extractors.ExtractorUnavailable, extractors.ExtractionError):
+                        skipped += 1
+                        continue
 
-                mtime = os.path.getmtime(fpath)
-                source_type = "file" if not doc_meta.get("ocr") else "ocr"
-                records = []
-                for i, (chunk_text, chunk_idx) in enumerate(chunks):
-                    prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
-                    next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
-                    neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
-                    tags = tagger.build_payload_tags(
-                        chunk_text, rel_path=rel,
-                        zero_shot=enable_zero_shot, llm=enable_llm,
-                        neighbor_context=neighbor_ctx, project_hint=project,
+                    mtime = os.path.getmtime(fpath)
+                    all_records = []
+                    for extracted in doc_list:
+                        content = extracted.text
+                        if len(content.strip()) < 10:
+                            continue
+                        doc_meta = dict(extracted.metadata or {})
+                        chunk_mode = extracted.chunk_mode or "prose"
+                        chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
+                        if chunks:
+                            all_records.extend(_build_records(
+                                chunks, project, rel, source_key, mtime, doc_meta,
+                            ))
+                    if not all_records:
+                        skipped += 1
+                        continue
+                    inserted, _ = vs.store_batch(all_records)
+                    stored += inserted
+                else:
+                    with open(fpath, "r", errors="ignore") as f:
+                        content = f.read()
+                    if len(content.strip()) < 10 or len(content) > 50000:
+                        skipped += 1
+                        continue
+
+                    chunks = chunk_file(content, rel, chunk_mode=None)
+                    if not chunks:
+                        skipped += 1
+                        continue
+                    mtime = os.path.getmtime(fpath)
+                    records = _build_records(
+                        chunks, project, rel, source_key, mtime, {},
                     )
-                    records.append({
-                        "content": chunk_text,
-                        "project": project,
-                        "type": "architecture",
-                        "tags": tags,
-                        "source": source_key,
-                        "source_type": source_type,
-                        "doc_metadata": doc_meta,
-                        "chunk_index": chunk_idx,
-                        "source_mtime": mtime,
-                    })
-                inserted, _ = vs.store_batch(records)
-                stored += inserted
+                    inserted, _ = vs.store_batch(records)
+                    stored += inserted
             except KeyboardInterrupt:
                 raise
             except Exception:
                 skipped += 1
     except KeyboardInterrupt:
         cancelled = True
+        clear_progress()
         print()
         print()
         print(
@@ -202,6 +226,18 @@ def main():
         print_bar(total, total, time.time() - t_start)
         print()
 
+    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
+    llm_tagged = 0
+    if enable_llm and stored > 0 and not cancelled:
+        from .cli_index import _llm_tag_recent
+        print()
+        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
+        llm_tagged = _llm_tag_recent(
+            ingest_start_ts=t_start,
+            total_hint=stored,
+            print_bar=print_bar,
+        )
+
     # ── Summary ────────────────────────────────────────────────
     elapsed = time.time() - t_start
     print()
@@ -211,9 +247,13 @@ def main():
         print(f"  {C_GREEN}═══ Refresh Complete ═══{C_RESET}")
     print(f"  Updated:  {stored}")
     print(f"  Skipped:  {skipped}")
+    if llm_tagged:
+        print(f"  Tagged:   {llm_tagged} (LLM)")
     print(f"  Time:     {elapsed:.1f}s")
     if cancelled:
         print(f"  {C_DIM}Re-run to continue (unchanged files are skipped){C_RESET}")
+    else:
+        clear_progress()
     print()
 
 

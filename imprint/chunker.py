@@ -236,7 +236,8 @@ def chunk_file(content: str, rel_path: str, chunk_mode: str | None = None) -> li
     # non-AST boundaries within large functions.
     raw = _apply_overlap(raw)
 
-    raw = [_enforce_hard_max(c) for c in raw if len(c) >= MIN_SIZE]
+    raw = [c for c in raw if len(c) >= MIN_SIZE]
+    raw = _split_oversized(raw)
 
     return [(f"[{rel_path}]\n{c}", i) for i, c in enumerate(raw)]
 
@@ -249,7 +250,8 @@ def chunk_prose(content: str) -> list[str]:
         return []
     raw = _chunk_prose(content) or _split_by_size(content)
     raw = _apply_overlap(raw)
-    return [_enforce_hard_max(c) for c in raw if len(c) >= MIN_SIZE]
+    raw = [c for c in raw if len(c) >= MIN_SIZE]
+    return _split_oversized(raw)
 
 
 # ── Internals ──────────────────────────────────────────────────
@@ -329,6 +331,22 @@ def _enforce_hard_max(text: str) -> str:
     if cut > 0:
         return text[:cut]
     return text[:HARD_MAX]
+
+
+def _split_oversized(chunks: list[str]) -> list[str]:
+    """Sub-split any chunk exceeding HARD_MAX via size-based splitting.
+
+    Prevents silent truncation — large chunks (e.g. from a PDF where the
+    semantic chunker returned everything as one piece) get split at
+    paragraph/sentence boundaries instead of being cut off.
+    """
+    out = []
+    for c in chunks:
+        if len(c) <= HARD_MAX:
+            out.append(c)
+        else:
+            out.extend(_split_by_size(c))
+    return out
 
 
 def _semantic_subsplit(chunks: list[str]) -> list[str]:

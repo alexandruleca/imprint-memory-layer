@@ -1,6 +1,6 @@
 """URL fetcher.
 
-Single entry point: fetch(url, timeout=..., user_agent=...) → ExtractedDoc.
+Single entry point: fetch(url, timeout=..., user_agent=...) → list[ExtractedDoc].
 Content-Type on the response routes to the by-mime registry:
     text/html         → html extractor (trafilatura)
     application/pdf   → pdf extractor
@@ -33,18 +33,14 @@ def _get_config(key: str, default):
         return default
 
 
-def _httpx_client(timeout: float, user_agent: str):
+def _ensure_httpx():
     try:
         import httpx  # type: ignore
+        return httpx
     except ImportError as e:
         raise ExtractorUnavailable(
             "URL ingest needs httpx — `pip install httpx`"
         ) from e
-    return httpx.Client(
-        timeout=timeout,
-        follow_redirects=True,
-        headers={"User-Agent": user_agent},
-    )
 
 
 def _is_url(s: str) -> bool:
@@ -55,8 +51,12 @@ def _is_url(s: str) -> bool:
         return False
 
 
-def fetch(url: str) -> ExtractedDoc:
+def fetch(url: str) -> list[ExtractedDoc]:
     """Fetch a URL, dispatch by Content-Type, return ExtractedDoc.
+
+    Uses streaming download with split timeouts so large files (PDFs, etc.)
+    are fully received before parsing.  Verifies Content-Length when the
+    server provides it.
 
     Populates metadata with: source_url, final_url, etag, last_modified,
     status_code, content_type.
@@ -64,13 +64,29 @@ def fetch(url: str) -> ExtractedDoc:
     if not _is_url(url):
         raise ExtractionError(f"not an http(s) url: {url}")
 
-    timeout = float(_get_config("ingest.url_timeout_sec", 30))
+    httpx = _ensure_httpx()
+    import io
+
+    connect_timeout = float(_get_config("ingest.url_timeout_sec", 30))
+    read_timeout = float(_get_config("ingest.url_read_timeout_sec", 300))
     user_agent = str(_get_config("ingest.url_user_agent", "imprint/1.0"))
 
-    with _httpx_client(timeout, user_agent) as client:
-        resp = client.get(url)
+    with httpx.stream(
+        "GET", url,
+        follow_redirects=True,
+        timeout=httpx.Timeout(connect_timeout, read=read_timeout),
+        headers={"User-Agent": user_agent},
+    ) as resp:
         resp.raise_for_status()
-        data = resp.content
+        expected = int(resp.headers.get("content-length") or 0)
+        buf = io.BytesIO()
+        for chunk in resp.iter_bytes(chunk_size=1_048_576):
+            buf.write(chunk)
+        data = buf.getvalue()
+        if expected and len(data) < expected:
+            raise ExtractionError(
+                f"truncated download for {url}: got {len(data)} of {expected} bytes"
+            )
         mime = resp.headers.get("content-type", "")
         final_url = str(resp.url)
         etag = resp.headers.get("etag", "")
@@ -96,32 +112,38 @@ def fetch(url: str) -> ExtractedDoc:
             mime = "text/html"
 
     try:
-        doc = dispatch_by_mime(mime, data, source_url=final_url)
+        docs = dispatch_by_mime(mime, data, source_url=final_url)
     except ExtractorUnavailable:
         raise
     except Exception as e:
         raise ExtractionError(f"url extract failed for {url}: {e}") from e
 
-    # Stamp URL-specific metadata for refresh logic + payload.
-    doc.metadata.setdefault("source_url", final_url)
-    doc.metadata.setdefault("original_url", url)
-    if etag:
-        doc.metadata["etag"] = etag
-    if last_mod:
-        doc.metadata["last_modified"] = last_mod
-    doc.metadata["status_code"] = status
-    doc.metadata["content_type"] = mime
-    return doc
+    # Stamp URL-specific metadata on every returned doc.
+    for doc in docs:
+        doc.metadata.setdefault("source_url", final_url)
+        doc.metadata.setdefault("original_url", url)
+        if etag:
+            doc.metadata["etag"] = etag
+        if last_mod:
+            doc.metadata["last_modified"] = last_mod
+        doc.metadata["status_code"] = status
+        doc.metadata["content_type"] = mime
+    return docs
 
 
 def head_check(url: str) -> dict:
     """HEAD request — returns {etag, last_modified, status} for refresh
     dedupe. Empty dict on failure."""
+    httpx = _ensure_httpx()
     timeout = float(_get_config("ingest.url_timeout_sec", 30))
     user_agent = str(_get_config("ingest.url_user_agent", "imprint/1.0"))
     try:
-        with _httpx_client(timeout, user_agent) as client:
-            resp = client.head(url)
+        resp = httpx.head(
+            url,
+            follow_redirects=True,
+            timeout=httpx.Timeout(timeout),
+            headers={"User-Agent": user_agent},
+        )
         return {
             "etag": resp.headers.get("etag", ""),
             "last_modified": resp.headers.get("last-modified", ""),
