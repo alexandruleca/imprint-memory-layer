@@ -1,11 +1,11 @@
-"""Local Gemma chat agent for the `imprint viz` panel.
+"""Local Gemma chat agent for the Imprint dashboard chat panel.
 
 Runs a GGUF model in-process via llama-cpp-python and exposes an agentic tool
 loop backed by Imprint's read-only MCP tools (search / kg_query / status /
 wake_up). Fully offline after the model is cached.
 
 Structured so the import is cheap: we only try to import `llama_cpp` and
-`huggingface_hub` at call time via helpers; viz still works if they're missing.
+`huggingface_hub` at call time via helpers; the dashboard still works if they're missing.
 """
 
 from __future__ import annotations

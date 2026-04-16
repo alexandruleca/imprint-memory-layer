@@ -82,7 +82,6 @@ imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve [--relay <host>]      # expose KB for peer syncing (default: imprint.alexandruleca.com)
 imprint sync <id> --pin <pin>            # sync via default relay (or <host>/<id> / wss://<host>/<id>)
 imprint relay              # run the sync relay server
-imprint viz                # 3D brain cluster visualization
 imprint version            # print version
 ```
 
@@ -97,7 +96,7 @@ imprint version            # print version
 | Metadata tags, LLM providers, search filters | [docs/tagging.md](docs/tagging.md) |
 | Workspaces + project detection | [docs/workspaces.md](docs/workspaces.md) |
 | MCP tools + automatic updates | [docs/mcp.md](docs/mcp.md) |
-| Peer sync, relay server, visualization | [docs/sync.md](docs/sync.md) |
+| Peer sync, relay server, dashboard | [docs/sync.md](docs/sync.md) |
 | All settings (`imprint config`) | [docs/configuration.md](docs/configuration.md) |
 | Building from source + CI/release flow | [docs/building.md](docs/building.md) |
 | Benchmarks & token savings | [BENCHMARK.md](BENCHMARK.md) |

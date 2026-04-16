@@ -48,8 +48,6 @@ func main() {
 		cmd.Sync(os.Args[2:])
 	case "relay":
 		cmd.Relay(os.Args[2:])
-	case "viz":
-		cmd.Viz(os.Args[2:])
 	case "ui":
 		cmd.UI(os.Args[2:])
 	case "retag":
@@ -93,7 +91,6 @@ Usage:
   imprint sync import <dir>   Import snapshot bundle from another device
   imprint relay              Run the sync relay server
   imprint ui [--port N]      Dashboard UI (FastAPI + Next.js)
-  imprint viz                Legacy graph visualization
   imprint retag [--project]  Re-tag existing memories with LLM tagger
   imprint server <cmd>       Manage the local Qdrant server
                                cmd: start | stop | status | log
@@ -117,6 +114,5 @@ Examples:
   imprint ingest ~/code
   imprint sync serve --relay sync.example.com
   imprint sync sync.example.com/abc123
-  imprint viz
 `)
 }

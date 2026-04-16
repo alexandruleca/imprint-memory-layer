@@ -101,17 +101,10 @@ imprint sync wss://sync.yourdomain.com/abc123 --pin Ab3xY9Kq
 
 Prebuilt relay images are on GHCR — see [installation.md](./installation.md#run-the-relay-server-docker) for Docker run commands.
 
-## Visualization
+## Dashboard
 
 ```bash
-imprint viz
+imprint ui
 ```
 
-Opens an Obsidian-style force-directed graph in a Chrome app window:
-- Sigma.js WebGL renderer — handles 100k+ nodes at interactive framerates
-- ForceAtlas2 layout clusters same-project nodes together organically
-- Hover highlights node + direct neighbors (Obsidian-style dim/bright)
-- Click opens rich detail panel: tags, metadata, related nodes with similarity %, content preview
-- Search highlights matching nodes, filter by project via legend
-- Real-time updates via SSE when the imprint memory changes
-- Pan, zoom, drag nodes to rearrange
+Opens the Imprint dashboard (FastAPI + Next.js) with memory browsing, search, stats, and chat.

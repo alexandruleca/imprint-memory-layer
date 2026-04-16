@@ -79,8 +79,8 @@ SETTINGS: list[Setting] = [
     Setting("ingest.url_user_agent",    "IMPRINT_INGEST_URL_USER_AGENT",    "imprint/1.0", str, "HTTP User-Agent header for URL fetch"),
     Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs"),
 
-    # ── Chat (local Gemma agent in viz) ───────────────────────
-    Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable in-viz chat panel"),
+    # ── Chat (local Gemma agent in dashboard) ────────────────────
+    Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),
     Setting("chat.model_repo",     "IMPRINT_CHAT_MODEL_REPO",     "unsloth/gemma-4-E4B-it-GGUF",    str,   "HF repo for GGUF auto-download"),
     Setting("chat.model_file",     "IMPRINT_CHAT_MODEL_FILE",     "gemma-4-E4B-it-Q4_K_M.gguf",     str,   "GGUF filename within repo"),
     Setting("chat.model_path",     "IMPRINT_CHAT_MODEL_PATH",     "",                               str,   "Absolute path to GGUF (overrides repo/file)"),

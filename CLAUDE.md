@@ -121,6 +121,5 @@ imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve --relay <host>  # expose KB for syncing
 imprint sync <host>/<id>   # bidirectional sync with peer
-imprint viz                # graph visualization of memory clusters
 imprint version            # print version
 ```

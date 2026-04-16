@@ -1,7 +1,7 @@
 """FastAPI backend for Imprint dashboard.
 
-Exposes all API endpoints previously served by cli_viz.py's raw HTTP handler.
-Adds new endpoints for CLI command execution and config management.
+Exposes data endpoints for the Next.js UI.
+Adds endpoints for CLI command execution and config management.
 
 Usage:
     python -m imprint.api [--port 8420]
