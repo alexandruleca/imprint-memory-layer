@@ -297,6 +297,74 @@ func PythonInstallHint() string {
 	}
 }
 
+// CUDAInstallHint returns a multi-line string with distro-aware commands for
+// installing the CUDA Toolkit (nvcc + headers). Blackwell GPUs (sm_120) need
+// CUDA 12.8+, which is newer than most stock distro repos — the hint always
+// points at NVIDIA's official repo / installer to get a current release.
+func CUDAInstallHint() string {
+	switch runtime.GOOS {
+	case "linux":
+		switch linuxDistroID() {
+		case "ubuntu", "pop", "linuxmint", "neon", "elementary":
+			return strings.Join([]string{
+				"# Ubuntu / Debian-derivative — NVIDIA CUDA network repo",
+				"wget https://developer.download.nvidia.com/compute/cuda/repos/$(. /etc/os-release; echo $ID$VERSION_ID | tr -d .)/x86_64/cuda-keyring_1.1-1_all.deb",
+				"sudo dpkg -i cuda-keyring_1.1-1_all.deb",
+				"sudo apt update && sudo apt install -y cuda-toolkit-12-8",
+				"# then add to shell rc: export PATH=/usr/local/cuda/bin:$PATH",
+			}, "\n")
+		case "debian":
+			return strings.Join([]string{
+				"# Debian — NVIDIA CUDA network repo",
+				"wget https://developer.download.nvidia.com/compute/cuda/repos/debian$(. /etc/os-release; echo $VERSION_ID)/x86_64/cuda-keyring_1.1-1_all.deb",
+				"sudo dpkg -i cuda-keyring_1.1-1_all.deb",
+				"sudo apt update && sudo apt install -y cuda-toolkit-12-8",
+				"# then add to shell rc: export PATH=/usr/local/cuda/bin:$PATH",
+			}, "\n")
+		case "fedora", "rhel", "centos", "rocky", "almalinux":
+			return strings.Join([]string{
+				"# Fedora / RHEL-family — NVIDIA CUDA repo",
+				"sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/fedora$(. /etc/os-release; echo $VERSION_ID)/x86_64/cuda-fedora$(. /etc/os-release; echo $VERSION_ID).repo",
+				"sudo dnf install -y cuda-toolkit-12-8",
+				"# then add to shell rc: export PATH=/usr/local/cuda/bin:$PATH",
+			}, "\n")
+		case "arch", "manjaro", "endeavouros":
+			return "sudo pacman -S cuda   # then: export PATH=/opt/cuda/bin:$PATH"
+		case "opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles":
+			return strings.Join([]string{
+				"# openSUSE / SLES — NVIDIA CUDA zypper repo",
+				"sudo zypper ar https://developer.download.nvidia.com/compute/cuda/repos/sles15/x86_64/cuda-sles15.repo",
+				"sudo zypper install -y cuda-toolkit-12-8",
+				"# then add to shell rc: export PATH=/usr/local/cuda/bin:$PATH",
+			}, "\n")
+		default:
+			return "pick installer for your distro: https://developer.nvidia.com/cuda-12-8-0-download-archive"
+		}
+	case "windows":
+		return "download CUDA Toolkit 12.8+ installer: https://developer.nvidia.com/cuda-12-8-0-download-archive"
+	case "darwin":
+		return "CUDA on macOS is unsupported by NVIDIA — use a Linux or Windows host for GPU offload"
+	default:
+		return "see https://developer.nvidia.com/cuda-downloads"
+	}
+}
+
+// linuxDistroID reads /etc/os-release and returns the ID= value (e.g.
+// "ubuntu", "fedora", "arch"). Returns "" when the file is missing or
+// unparseable — callers should treat that as "unknown distro".
+func linuxDistroID() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if v, ok := strings.CutPrefix(line, "ID="); ok {
+			return strings.ToLower(strings.Trim(v, `"`))
+		}
+	}
+	return ""
+}
+
 func PipInstallHint() string {
 	switch runtime.GOOS {
 	case "linux":
