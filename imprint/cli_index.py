@@ -67,7 +67,9 @@ def _ocr_image_exts() -> set[str]:
     return set()
 
 
-# Skip these — low value for memory context
+# Skip these — low value for memory context.
+# Note: .env / .env.* files are handled by an explicit filename check in
+# scan_dir() since they're not true extensions (splitext('.env') → ('.env','')).
 SKIP_EXTENSIONS = {
     '.css', '.scss', '.sass', '.less', '.styl',         # Styling
     '.svg', '.ico',                                     # Vector + favicons
@@ -75,7 +77,6 @@ SKIP_EXTENSIONS = {
     '.lock', '.map', '.min.js', '.min.css',             # Generated
     '.d.ts',                                            # Type declarations
     '.snap',                                            # Test snapshots
-    '.env', '.env.local', '.env.example',               # Env files
 }
 
 # Skip files matching these names regardless of extension
@@ -91,8 +92,22 @@ SKIP_FILES = {
 }
 
 SKIP_DIRS = {
-    'node_modules', '__pycache__', '.venv', 'dist', 'build', '.git',
-    '.next', '.nuxt', 'vendor', 'coverage', '.cache', '.turbo',
+    # Dependency / package directories
+    'node_modules', 'vendor', 'bower_components', 'jspm_packages',
+    # Python virtual envs + caches
+    'venv', '.venv', 'env', '.env', 'virtualenv', '.tox',
+    '__pycache__', 'site-packages', 'Lib', 'Scripts',
+    '.pytest_cache', '.mypy_cache', '.ruff_cache', '.pyre',
+    # Build outputs
+    'dist', 'build', 'out', 'target', 'bin', 'obj',
+    '.next', '.nuxt', '.svelte-kit', '.astro', '.output',
+    # Caches
+    '.cache', '.turbo', '.parcel-cache', '.webpack', '.rollup.cache',
+    '.gradle', '.mvn',
+    # VCS + coverage
+    '.git', '.hg', '.svn', 'coverage', '.nyc_output',
+    # iOS/macOS
+    'Pods', 'DerivedData', 'xcuserdata',
 }
 
 BAR_WIDTH = 40
@@ -225,9 +240,16 @@ def scan_dir(dir_path):
 
     files = []
     for root, subdirs, fnames in os.walk(dir_path):
-        subdirs[:] = [d for d in subdirs if not d.startswith('.') and d not in SKIP_DIRS]
+        subdirs[:] = [
+            d for d in subdirs
+            if d not in SKIP_DIRS and not d.startswith('.')
+        ]
         for fname in fnames:
             if fname in SKIP_FILES:
+                continue
+            # Any .env* file (.env, .env.local, .env.production, etc.) —
+            # may contain secrets, never index.
+            if fname == '.env' or fname.startswith('.env.'):
                 continue
             ext = os.path.splitext(fname)[1].lower()
             if ext in skip_exts:
