@@ -191,6 +191,7 @@ export function migrateContent(
     to: string;
     project?: string;
     topic?: string;
+    source?: string;
     dryRun?: boolean;
   },
   onEvent: (ev: Record<string, unknown>) => void,
@@ -202,6 +203,7 @@ export function migrateContent(
       to: params.to,
       project: params.project,
       topic: params.topic,
+      source: params.source,
       dry_run: params.dryRun,
     },
     onEvent,

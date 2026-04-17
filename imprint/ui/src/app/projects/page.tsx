@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getOverview, getProjectDetail } from "@/lib/api";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MigrateDialog } from "@/components/migrate-dialog";
 import type { OverviewData, Project } from "@/lib/types";
 
 interface ProjectDetail {
@@ -30,6 +32,7 @@ export default function ProjectsPage() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [migrateOpen, setMigrateOpen] = useState(false);
 
   useEffect(() => {
     getOverview().then(setData).catch(console.error);
@@ -82,8 +85,11 @@ export default function ProjectsPage() {
           {detail ? (
             <div className="space-y-4">
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>{detail.project} ({detail.count.toLocaleString()})</CardTitle>
+                  <Button size="sm" variant="outline" onClick={() => setMigrateOpen(true)}>
+                    Migrate…
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-3 gap-4">
@@ -139,6 +145,15 @@ export default function ProjectsPage() {
           )}
         </div>
       </div>
+
+      {detail && (
+        <MigrateDialog
+          open={migrateOpen}
+          preset={{ mode: "project", value: detail.project }}
+          onClose={() => setMigrateOpen(false)}
+          onDone={() => setMigrateOpen(false)}
+        />
+      )}
     </div>
   );
 }

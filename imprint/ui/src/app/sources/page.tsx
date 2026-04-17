@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { listSources, getSourceSummary, getSourceLineage } from "@/lib/api";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MigrateDialog } from "@/components/migrate-dialog";
 import type { SourceEntry, SourceSummary, SourceLineage, MemoryNode } from "@/lib/types";
 
 export default function SourcesPage() {
@@ -19,6 +21,7 @@ export default function SourcesPage() {
   const [summary, setSummary] = useState<SourceSummary | null>(null);
   const [lineage, setLineage] = useState<SourceLineage | null>(null);
   const [expandedChunk, setExpandedChunk] = useState<string | null>(null);
+  const [migrateOpen, setMigrateOpen] = useState(false);
 
   useEffect(() => {
     listSources({ limit: 500 })
@@ -115,10 +118,18 @@ export default function SourcesPage() {
             <div className="space-y-4">
               {/* Summary card */}
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-mono">
+                <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
+                  <CardTitle className="text-sm font-mono truncate">
                     {summary.source}
                   </CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setMigrateOpen(true)}
+                    className="shrink-0"
+                  >
+                    Migrate…
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex gap-4 text-sm">
@@ -234,6 +245,15 @@ export default function SourcesPage() {
           )}
         </div>
       </div>
+
+      {summary && (
+        <MigrateDialog
+          open={migrateOpen}
+          preset={{ mode: "source", value: summary.source }}
+          onClose={() => setMigrateOpen(false)}
+          onDone={() => setMigrateOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -574,13 +574,14 @@ def _llm_tag_recent(
             limit=SCROLL_BATCH,
             offset=offset,
             scroll_filter=scroll_filter,
-            with_payload=["content", "source"],
+            with_payload=["content", "source", "tags"],
             with_vectors=False,
         )
 
         for pt in points:
             content = pt.payload.get("content", "")
             source = pt.payload.get("source", "")
+            existing_tags = pt.payload.get("tags") or {}
             proj_hint = source.split("/", 1)[0] if "/" in source else ""
 
             new_tags = tagger.build_payload_tags(
@@ -591,6 +592,12 @@ def _llm_tag_recent(
                 project_hint=proj_hint,
             )
             new_type = new_tags.pop("_llm_type", "")
+            # Preserve deterministic fields set at ingest (e.g. conversations
+            # set lang=conversation/layer=session/kind=qa). rel_path-based
+            # derivation returns blanks for non-file sources and would wipe them.
+            for k in ("lang", "layer", "kind"):
+                if existing_tags.get(k) and not new_tags.get(k):
+                    new_tags[k] = existing_tags[k]
             batch_updates.append((pt.id, new_tags, new_type))
 
             if len(batch_updates) >= FLUSH_SIZE:

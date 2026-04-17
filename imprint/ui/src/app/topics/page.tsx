@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getTopics, getTopicDetail } from "@/lib/api";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MigrateDialog } from "@/components/migrate-dialog";
 import type { Topic, TopicOverviewData, TopicDetailData, MemoryNode } from "@/lib/types";
 
 export default function TopicsPage() {
   const [data, setData] = useState<TopicOverviewData | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<TopicDetailData | null>(null);
+  const [migrateOpen, setMigrateOpen] = useState(false);
 
   useEffect(() => {
     getTopics().then(setData).catch(console.error);
@@ -75,8 +78,11 @@ export default function TopicsPage() {
           {detail ? (
             <div className="space-y-4">
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>{detail.topic} ({detail.total} memories)</CardTitle>
+                  <Button size="sm" variant="outline" onClick={() => setMigrateOpen(true)}>
+                    Migrate…
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   <div className="flex gap-2 flex-wrap mb-4">
@@ -112,6 +118,15 @@ export default function TopicsPage() {
           )}
         </div>
       </div>
+
+      {detail && (
+        <MigrateDialog
+          open={migrateOpen}
+          preset={{ mode: "topic", value: detail.topic }}
+          onClose={() => setMigrateOpen(false)}
+          onDone={() => setMigrateOpen(false)}
+        />
+      )}
     </div>
   );
 }
