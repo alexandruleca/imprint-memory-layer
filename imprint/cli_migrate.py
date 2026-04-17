@@ -1,13 +1,14 @@
-"""Move memories between workspaces — by project or by topic.
+"""Move memories between workspaces — by project, topic, or source.
 
 Scrolls points from source workspace's collection, upserts into target
 workspace's collection **preserving the existing vectors** (no re-embedding),
 then deletes from source.  Optionally migrates knowledge-graph facts that
-share the same project tag.
+share the same project tag or source key.
 
 Usage:
     python -m imprint.cli_migrate --from WS1 --to WS2 --project NAME [--dry-run]
     python -m imprint.cli_migrate --from WS1 --to WS2 --topic TOPIC [--dry-run]
+    python -m imprint.cli_migrate --from WS1 --to WS2 --source KEY [--dry-run]
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from . import config as _config, vectorstore
 _SCROLL_BATCH = 100
 
 
-def _build_filter(project: str, topic: str) -> qm.Filter:
+def _build_filter(project: str, topic: str, source: str) -> qm.Filter:
     must: list = []
     if project:
         must.append(qm.FieldCondition(
@@ -35,6 +36,10 @@ def _build_filter(project: str, topic: str) -> qm.Filter:
         must.append(qm.FieldCondition(
             key="tags.topics", match=qm.MatchValue(value=topic),
         ))
+    if source:
+        must.append(qm.FieldCondition(
+            key="source", match=qm.MatchValue(value=source),
+        ))
     return qm.Filter(must=must)
 
 
@@ -42,23 +47,36 @@ def _migrate_kg_facts(
     from_workspace: str,
     to_workspace: str,
     project: str,
+    source: str,
     dry_run: bool,
 ) -> int:
-    """Copy KG facts whose source starts with '<project>/' from one DB to another.
+    """Copy KG facts whose source matches from one DB to another.
+
+    - If `project` given: copies facts whose source starts with '<project>/'.
+    - If `source` given: copies facts whose source equals the exact key.
 
     Returns count of facts copied (or would-copy if dry_run).  Source rows are
     NOT deleted — facts are usually additive and safe to keep as historical.
     """
-    src = _config.graph_db_path(from_workspace)
-    if not src.exists():
+    src_db = _config.graph_db_path(from_workspace)
+    if not src_db.exists():
+        return 0
+
+    if source:
+        where_sql = "source = ?"
+        where_val: tuple = (source,)
+    elif project:
+        where_sql = "source LIKE ?"
+        where_val = (f"{project}/%",)
+    else:
         return 0
 
     try:
-        conn = sqlite3.connect(src)
+        conn = sqlite3.connect(src_db)
         cur = conn.execute(
             "SELECT subject, predicate, object, valid_from, ended, source "
-            "FROM facts WHERE source LIKE ?",
-            (f"{project}/%",),
+            f"FROM facts WHERE {where_sql}",
+            where_val,
         )
         rows = cur.fetchall()
         conn.close()
@@ -99,6 +117,7 @@ def migrate(
     to_workspace: str,
     project: str = "",
     topic: str = "",
+    source: str = "",
     batch_size: int = 200,
     dry_run: bool = False,
 ) -> tuple[int, int, int]:
@@ -106,14 +125,14 @@ def migrate(
 
     Returns (moved, scanned, kg_facts_copied).
     """
-    if not project and not topic:
-        raise ValueError("migrate requires --project or --topic")
+    if not project and not topic and not source:
+        raise ValueError("migrate requires --project, --topic, or --source")
     if from_workspace == to_workspace:
         raise ValueError("from_workspace and to_workspace must differ")
 
     src_client, src_coll = vectorstore._ensure_collection(from_workspace)
     tgt_client, tgt_coll = vectorstore._ensure_collection(to_workspace)
-    flt = _build_filter(project, topic)
+    flt = _build_filter(project, topic, source)
 
     moved = 0
     scanned = 0
@@ -175,10 +194,12 @@ def migrate(
             )
         moved += len(pending_points)
 
-    # KG facts — only for project migration (topics aren't tracked in KG)
+    # KG facts — for project or source migration (topics aren't tracked in KG)
     kg_copied = 0
-    if project:
-        kg_copied = _migrate_kg_facts(from_workspace, to_workspace, project, dry_run)
+    if project or source:
+        kg_copied = _migrate_kg_facts(
+            from_workspace, to_workspace, project, source, dry_run,
+        )
 
     elapsed = time.time() - t0
     print(file=sys.stderr)
@@ -201,17 +222,23 @@ def main():
                         help="Target workspace")
     parser.add_argument("--project", default="", help="Filter by project name")
     parser.add_argument("--topic", default="", help="Filter by topic tag")
+    parser.add_argument("--source", default="", help="Filter by exact source key")
     parser.add_argument("--batch-size", type=int, default=200,
                         help="Points per upsert/delete batch")
     parser.add_argument("--dry-run", action="store_true",
                         help="Scan but don't move anything")
     args = parser.parse_args()
 
-    if not args.project and not args.topic:
-        print("error: must provide --project or --topic", file=sys.stderr)
+    if not args.project and not args.topic and not args.source:
+        print("error: must provide --project, --topic, or --source", file=sys.stderr)
         sys.exit(2)
 
-    what = f"project={args.project}" if args.project else f"topic={args.topic}"
+    if args.project:
+        what = f"project={args.project}"
+    elif args.topic:
+        what = f"topic={args.topic}"
+    else:
+        what = f"source={args.source}"
     print(
         f"\n  Migrating {what}: {args.from_ws} → {args.to_ws}",
         file=sys.stderr,
@@ -222,6 +249,7 @@ def main():
         to_workspace=args.to_ws,
         project=args.project,
         topic=args.topic,
+        source=args.source,
         batch_size=args.batch_size,
         dry_run=args.dry_run,
     )
