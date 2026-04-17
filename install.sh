@@ -21,12 +21,14 @@ BIN_DIR="$HOME/.local/bin"
 # --- Parse args ---
 VERSION="${IMPRINT_VERSION:-}"
 CHANNEL="${IMPRINT_CHANNEL:-stable}"
+ASSUME_YES="${IMPRINT_ASSUME_YES:-0}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --version) VERSION="$2"; shift 2 ;;
         --version=*) VERSION="${1#--version=}"; shift ;;
         --dev) CHANNEL="dev"; shift ;;
         --stable) CHANNEL="stable"; shift ;;
+        -y|--yes) ASSUME_YES=1; shift ;;
         -h|--help)
             sed -n '3,16p' "$0" 2>/dev/null || echo "See script header for usage."
             exit 0 ;;
@@ -108,13 +110,41 @@ else
     wget -q "$ARCHIVE_URL" -O "$TARBALL" || fail "Download failed: $ARCHIVE_URL"
 fi
 
+# Existing install? Warn and require an explicit yes before overwriting the
+# source tree (data/ and .venv/ are still preserved regardless). When stdin
+# is piped from curl, require IMPRINT_ASSUME_YES=1 or `-s -- --yes`.
+EXISTING_INSTALL=0
+if [ -f "$INSTALL_DIR/bin/imprint" ]; then
+    EXISTING_INSTALL=1
+    info "Existing install detected at $INSTALL_DIR"
+    info "Will replace code; preserves data/ (workspaces, qdrant, sqlite, config, gpu_state) and .venv/"
+    if [ "$ASSUME_YES" != "1" ]; then
+        if [ -t 0 ]; then
+            printf "\033[0;36m[?]\033[0m Upgrade existing install? [y/N] "
+            read -r REPLY
+            case "$REPLY" in
+                y|Y|yes|YES) ;;
+                *) info "Aborted."; exit 0 ;;
+            esac
+        else
+            fail "stdin is not a TTY — re-run with IMPRINT_ASSUME_YES=1 or 'bash -s -- --yes' to confirm upgrade"
+        fi
+    fi
+fi
+
 info "Extracting to $INSTALL_DIR (preserving data/ and .venv/)..."
 tar -xzf "$TARBALL" -C "$TMP" || fail "Failed to extract $TARBALL"
 EXTRACTED="$TMP/imprint-${PLATFORM}-${ARCH}"
 [ -d "$EXTRACTED" ] || fail "Unexpected archive layout: $EXTRACTED not found"
 mkdir -p "$INSTALL_DIR"
 # rsync over-top: upgrades code files, leaves data/ and .venv/ alone.
-rsync -a --exclude data/ --exclude .venv/ "$EXTRACTED/" "$INSTALL_DIR/"
+# --delete-during drops stale files from the previous release (e.g. renamed
+# scripts) but never descends into the excluded dirs.
+RSYNC_FLAGS="-a --exclude data/ --exclude .venv/"
+if [ "$EXISTING_INSTALL" = "1" ]; then
+    RSYNC_FLAGS="$RSYNC_FLAGS --delete-during"
+fi
+rsync $RSYNC_FLAGS "$EXTRACTED/" "$INSTALL_DIR/"
 
 IMPRINT_BIN="$INSTALL_DIR/bin/imprint"
 [ -f "$IMPRINT_BIN" ] || fail "Binary missing after extract: $IMPRINT_BIN"
@@ -159,4 +189,9 @@ success "Symlinked $BIN_DIR/imprint → $IMPRINT_BIN"
 info "Running imprint setup..."
 "$IMPRINT_BIN" setup
 
-success "Installation complete! Restart your terminal to use the 'imprint' command."
+if [ "$EXISTING_INSTALL" = "1" ]; then
+    success "Update complete. Preserved: data/ (workspaces, qdrant, sqlite, config, gpu_state.json), .venv/"
+    info "Future updates can use 'imprint update' directly — no curl required."
+else
+    success "Installation complete! Restart your terminal to use the 'imprint' command."
+fi

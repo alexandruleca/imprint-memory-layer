@@ -21,9 +21,17 @@ func main() {
 		// `imprint setup <target>`     → dispatch to a single handler
 		// `imprint setup all`          → run every handler; each self-skips
 		//                                  if its host tool isn't installed.
+		// `imprint setup [--retry-gpu] [target]` → clear sticky GPU
+		//   failure state before running so doomed ORT/llama-cpp CUDA
+		//   installs get another shot (useful after the user upgrades nvcc).
 		target := "claude-code"
-		if len(os.Args) >= 3 {
-			target = os.Args[2]
+		for _, a := range os.Args[2:] {
+			switch a {
+			case "--retry-gpu":
+				cmd.SetRetryGPU(true)
+			default:
+				target = a
+			}
 		}
 		fmt.Fprintf(os.Stderr, "\n→ imprint setup target: %s\n\n", target)
 		if !cmd.DispatchSetup(target) {
@@ -64,6 +72,8 @@ func main() {
 		cmd.Workspace(os.Args[2:])
 	case "wipe":
 		cmd.Wipe(os.Args[2:])
+	case "update":
+		cmd.Update(os.Args[2:], version)
 	case "version", "--version":
 		fmt.Printf("imprint %s\n", version)
 	default:
@@ -105,6 +115,8 @@ Usage:
   imprint workspace switch <n>  Switch to workspace (create if new)
   imprint workspace delete <n>  Delete a workspace and its data
   imprint wipe [--force]     Wipe active workspace (--all for everything)
+  imprint update [--version vX.Y.Z] [--dev] [-y] [--check]
+                             Upgrade imprint in place. Preserves data/ and .venv/.
   imprint version            Print version
 
 Examples:
