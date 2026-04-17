@@ -66,6 +66,43 @@ irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/in
 
 Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > default stable. The installer `git checkout`s the matching tag so the repo source tree aligns with the binary version.
 
+## Updating an existing install
+
+Once installed, upgrade in place with the CLI — no curl pipe, no sudo, and no chance of clobbering your indexed memory:
+
+```bash
+imprint update                 # latest stable (asks for confirmation)
+imprint update --dev           # latest prerelease
+imprint update --version v0.3.1
+imprint update --check         # prints current + latest and exits
+imprint update -y              # skip confirmation, for scripts / CI
+```
+
+**What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `gpu_state.json`) and `.venv/` (Python virtual environment). Everything else under the install dir (`~/.local/share/imprint/` by default) is replaced with the new release's tree; stale files from the previous release are removed (`rsync --delete-during`). The previous binary is kept at `bin/imprint.prev` in case you need to roll back manually.
+
+Re-running `install.sh` against an existing install also still works, but it now requires confirmation:
+
+```bash
+# Interactive (TTY): prompts "Upgrade existing install? [y/N]"
+bash install.sh
+
+# Non-interactive (curl | bash): must opt in explicitly
+IMPRINT_ASSUME_YES=1 curl -fsSL .../install.sh | bash
+curl -fsSL .../install.sh | bash -s -- --yes
+```
+
+### Sticky GPU failure handling
+
+`imprint setup` probes your GPU stack every run. When `onnxruntime-gpu` / `llama-cpp-python` fail to produce a working CUDA build (for example: Blackwell `sm_120` with an older `nvcc`, or `libcublasLt.so.12` missing when ORT ships CUDA 12 wheels against a CUDA 13 host), the failure is recorded in `data/gpu_state.json` keyed on `{gpu, nvcc, compute_cap, driver}`. Subsequent `imprint setup` runs skip the broken path silently so you don't see the same multi-minute rebuild warning on every invocation.
+
+After you upgrade your CUDA toolkit or driver, force a retry:
+
+```bash
+imprint setup --retry-gpu
+```
+
+The setup also auto-installs the `nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cufft-cu12`, and `nvidia-curand-cu12` pip wheels into the venv when a smoke test detects a missing CUDA runtime library — so the common "ORT lists `CUDAExecutionProvider` but sessions can't be created" case is fixed without manual intervention.
+
 ## Run the relay server (Docker)
 
 Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release:

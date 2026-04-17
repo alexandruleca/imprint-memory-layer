@@ -10,12 +10,21 @@ import (
 
 	"runtime"
 
+	"github.com/hunter/imprint/internal/gpustate"
 	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
 	"github.com/hunter/imprint/internal/runner"
 )
+
+// retryGPU is set by main.go when the user passes --retry-gpu. When true,
+// setupBackend clears data/gpu_state.json before the GPU helpers run so
+// previously-sticky failures are retried.
+var retryGPU bool
+
+// SetRetryGPU lets main.go toggle the retry-on-failure flag.
+func SetRetryGPU(v bool) { retryGPU = v }
 
 // backendPaths holds the resolved local paths produced by setupBackend.
 // Every target (Claude Code, Cursor, ...) reuses these so the venv, data
@@ -163,13 +172,21 @@ func setupBackend() backendPaths {
 	}
 
 	// ── GPU acceleration ────────────────────────────────────────
+	// If the user passed --retry-gpu, forget previous sticky failures so
+	// this run re-attempts every CUDA install path.
+	if retryGPU {
+		if err := gpustate.Clear(dataDir); err == nil {
+			output.Info("--retry-gpu: cleared sticky GPU failure state")
+		}
+	}
+
 	// If an NVIDIA GPU is present, swap onnxruntime (CPU) for onnxruntime-gpu.
 	// They conflict — can't have both installed.
-	ensureOrtGPU(venvPython, venvPip)
+	ensureOrtGPU(venvPython, venvPip, dataDir)
 
 	// If an NVIDIA GPU is present, rebuild llama-cpp-python with CUDA
 	// support so the local tagger + chat use GPU offload.
-	ensureLlamaCppGPU(venvPython, venvPip, projectDir)
+	ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir)
 
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
 	reportExtractorHealth(venvPython, projectDir, dataDir)
@@ -412,88 +429,287 @@ else:
 	}
 }
 
+// ortSmokeScript builds a 1-op ONNX model in memory and tries to run it on
+// CUDA. Writes "OK" on success or "ERR:<first line>" on failure. Used to
+// detect the "provider listed but runtime libs missing" case that the
+// static `get_available_providers()` check can't catch (e.g. libcublasLt.so.12
+// missing when onnxruntime-gpu links CUDA 12 but the host runs CUDA 13).
+const ortSmokeScript = `
+import sys
+try:
+    from imprint.embeddings import _preload_cuda_libs
+    _preload_cuda_libs()
+except Exception:
+    pass
+try:
+    import onnxruntime as ort
+    import numpy as np
+    from onnx import helper, TensorProto
+    x = helper.make_tensor_value_info('x', TensorProto.FLOAT, [1])
+    y = helper.make_tensor_value_info('y', TensorProto.FLOAT, [1])
+    n = helper.make_node('Identity', ['x'], ['y'])
+    g = helper.make_graph([n], 'g', [x], [y])
+    m = helper.make_model(g, opset_imports=[helper.make_opsetid('', 13)])
+    so = ort.SessionOptions(); so.log_severity_level = 4
+    sess = ort.InferenceSession(m.SerializeToString(), sess_options=so, providers=['CUDAExecutionProvider'])
+    sess.run(None, {'x': np.zeros(1, dtype=np.float32)})
+    print('OK')
+except Exception as e:
+    line = str(e).splitlines()[0] if str(e) else type(e).__name__
+    print('ERR:' + line)
+    sys.exit(1)
+`
+
+// ortSmokeTest runs the smoke script and returns (ok, firstErrorLine). A
+// missing `onnx` package counts as a smoke failure whose error text will
+// start with "No module named 'onnx'" — callers install it alongside the
+// cu12 wheels.
+func ortSmokeTest(venvPython, projectDir string) (bool, string) {
+	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir},
+		"-c", ortSmokeScript)
+	if err == nil && strings.Contains(out, "OK") {
+		return true, ""
+	}
+	// Pick the last ERR: line (there may be ORT log noise before it).
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ERR:") {
+			return false, strings.TrimPrefix(line, "ERR:")
+		}
+	}
+	if out != "" {
+		return false, strings.Split(strings.TrimSpace(out), "\n")[0]
+	}
+	if err != nil {
+		return false, err.Error()
+	}
+	return false, "unknown"
+}
+
+// cudaRuntimeMissing reports whether the smoke error string is one of the
+// well-known "missing runtime library" cases that `_preload_cuda_libs`
+// can fix by installing the matching cu12 pip wheels.
+func cudaRuntimeMissing(errLine string) bool {
+	needles := []string{
+		"libcublasLt", "libcublas", "libcudart",
+		"libcudnn", "libcufft", "libcurand",
+	}
+	for _, n := range needles {
+		if strings.Contains(errLine, n) {
+			return true
+		}
+	}
+	return false
+}
+
+// ortHostEnv fingerprints the host for the sticky-failure cache so a stored
+// "broken" verdict is discarded when the GPU or driver changes.
+func ortHostEnv() gpustate.Env {
+	env := gpustate.Env{}
+	if nvsmi, ok := runner.Exists("nvidia-smi"); ok {
+		if name, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader"); err == nil {
+			env.GPU = strings.Split(strings.TrimSpace(name), "\n")[0]
+		}
+		if drv, err := runner.RunCapture(nvsmi, "--query-gpu=driver_version", "--format=csv,noheader"); err == nil {
+			env.Driver = strings.Split(strings.TrimSpace(drv), "\n")[0]
+		}
+	}
+	return env
+}
+
 // ensureOrtGPU checks for an NVIDIA GPU and swaps onnxruntime (CPU) for
-// onnxruntime-gpu if needed. The two packages conflict — having both
-// installed causes the CPU provider to shadow the GPU one.
-func ensureOrtGPU(venvPython, venvPip string) {
-	// Check if CUDAExecutionProvider is already available AND module is healthy.
-	// A broken onnxruntime-gpu install may load but lack SessionOptions entirely.
+// onnxruntime-gpu if needed. On top of the swap it runs an end-to-end smoke
+// test (CUDAExecutionProvider can actually construct a session), installs
+// the cu12 pip wheels if the first failure looks like a missing runtime
+// lib, and caches "broken" verdicts in data/gpu_state.json so repeat setup
+// runs stay silent instead of reinstalling every time.
+func ensureOrtGPU(venvPython, venvPip, dataDir string) {
+	state := gpustate.Load(dataDir)
+	hostEnv := ortHostEnv()
+
+	// Skip re-work if a previous run already proved this env is broken.
+	if state.OrtGPU == "broken" && gpustate.SameEnv(state.OrtGPUEnv, hostEnv) && hostEnv.GPU != "" {
+		output.Skip("ORT GPU previously unhealthy on this host — using CPU (run `imprint setup --retry-gpu` to retry)")
+		return
+	}
+
+	// Fast path: provider registered AND smoke test passes = nothing to do.
 	hasCuda, cudaErr := runner.RunCapture(venvPython, "-c",
 		"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'broken'; print('CUDAExecutionProvider' in ort.get_available_providers())")
 	if cudaErr == nil && strings.TrimSpace(hasCuda) == "True" {
-		output.Skip("GPU acceleration active (CUDA)")
-		return
+		projectDir := platform.FindProjectDir()
+		if ok, _ := ortSmokeTest(venvPython, projectDir); ok {
+			output.Skip("GPU acceleration active (CUDA)")
+			state.OrtGPU = "ok"
+			state.OrtGPUEnv = hostEnv
+			_ = gpustate.Save(dataDir, state)
+			return
+		}
+		// Provider lists CUDA but can't actually create a session — fall
+		// through so we install cu12 wheels and retry below.
 	}
-	// If the module is broken (e.g. onnxruntime-gpu without CUDA libs), fix it now.
+
+	// If the module won't even import, reinstall CPU version and continue.
 	if cudaErr != nil {
 		output.Warn("onnxruntime module is broken — reinstalling CPU version...")
 		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "onnxruntime", "-y", "--quiet")
 		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
 	}
 
-	// Check for NVIDIA GPU via nvidia-smi
+	// No GPU? CPU is fine.
 	nvsmi, hasNvsmi := runner.Exists("nvidia-smi")
-	if !hasNvsmi {
+	if !hasNvsmi || hostEnv.GPU == "" {
 		output.Skip("No NVIDIA GPU detected — using CPU for embeddings")
 		return
 	}
-	gpuName, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader")
-	if err != nil || strings.TrimSpace(gpuName) == "" {
-		output.Skip("No NVIDIA GPU detected — using CPU for embeddings")
-		return
-	}
-	gpuShort := strings.Split(strings.TrimSpace(gpuName), "\n")[0]
+	_ = nvsmi
 
-	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — installing onnxruntime-gpu...", gpuShort))
+	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — installing onnxruntime-gpu...", hostEnv.GPU))
 
-	// Uninstall CPU-only onnxruntime, install GPU version
 	_ = runner.Run(venvPip, "uninstall", "onnxruntime", "-y", "--quiet")
-	if err := runner.Run(venvPip, "install", "onnxruntime-gpu", "--quiet"); err != nil {
+	if err := runner.Run(venvPip, "install", "onnxruntime-gpu", "onnx", "--quiet"); err != nil {
 		output.Warn("Failed to install onnxruntime-gpu: " + err.Error() + " — falling back to CPU")
-		// Reinstall CPU version so nothing is broken
 		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+		state.OrtGPU = "broken"
+		state.OrtGPUReason = err.Error()
+		state.OrtGPUEnv = hostEnv
+		_ = gpustate.Save(dataDir, state)
 		return
 	}
 
-	// Verify the module actually works (not an empty shell) AND has CUDA provider.
-	// onnxruntime-gpu can install but leave a broken namespace package if CUDA
-	// libraries are missing — SessionOptions won't exist, nothing works.
-	check, checkErr := runner.RunCapture(venvPython, "-c",
-		"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'broken'; print('CUDAExecutionProvider' in ort.get_available_providers())")
-	if checkErr != nil {
-		output.Warn("onnxruntime-gpu installed but module is broken — falling back to CPU")
-		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
-		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+	projectDir := platform.FindProjectDir()
+	ok, errLine := ortSmokeTest(venvPython, projectDir)
+	if !ok && cudaRuntimeMissing(errLine) {
+		output.Info("Missing CUDA runtime libs — installing cu12 pip wheels...")
+		_ = runner.Run(venvPip, "install", "--quiet",
+			"nvidia-cuda-runtime-cu12", "nvidia-cublas-cu12", "nvidia-cudnn-cu12",
+			"nvidia-cufft-cu12", "nvidia-curand-cu12")
+		ok, errLine = ortSmokeTest(venvPython, projectDir)
+	}
+
+	if ok {
+		output.Success("GPU acceleration enabled (CUDA) — " + hostEnv.GPU)
+		state.OrtGPU = "ok"
+		state.OrtGPUReason = ""
+		state.OrtGPUEnv = hostEnv
+		_ = gpustate.Save(dataDir, state)
 		return
 	}
-	if strings.TrimSpace(check) == "True" {
-		output.Success("GPU acceleration enabled (CUDA) — " + gpuShort)
-	} else {
-		output.Warn("onnxruntime-gpu installed but CUDA provider not available — falling back to CPU")
-		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
-		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
-	}
+
+	output.Warn("onnxruntime-gpu smoke test failed (" + errLine + ") — falling back to CPU")
+	_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
+	_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+	state.OrtGPU = "broken"
+	state.OrtGPUReason = errLine
+	state.OrtGPUEnv = hostEnv
+	_ = gpustate.Save(dataDir, state)
 }
 
-// ensureLlamaCppGPU checks whether llama-cpp-python has GPU offload support.
-// If an NVIDIA GPU is present but llama-cpp was built CPU-only, rebuild it
-// from source with CUDA enabled. This enables the local tagger and chat
-// models to run on GPU.
-func ensureLlamaCppGPU(venvPython, venvPip, projectDir string) {
+// nvccVersion returns the major.minor of the installed nvcc, or "" if nvcc
+// isn't on PATH. Example outputs: "12.6", "13.0".
+func nvccVersion() string {
+	nvcc, ok := runner.Exists("nvcc")
+	if !ok {
+		return ""
+	}
+	out, err := runner.RunCapture(nvcc, "--version")
+	if err != nil {
+		return ""
+	}
+	re := regexp.MustCompile(`release (\d+)\.(\d+)`)
+	m := re.FindStringSubmatch(out)
+	if m == nil {
+		return ""
+	}
+	return m[1] + "." + m[2]
+}
+
+// cudaPath returns the CUDA toolkit root (parent of bin/nvcc), falling back
+// to /usr/local/cuda for Linux defaults.
+func cudaPath() string {
+	if nvcc, ok := runner.Exists("nvcc"); ok {
+		if resolved, err := filepath.EvalSymlinks(nvcc); err == nil {
+			return filepath.Dir(filepath.Dir(resolved))
+		}
+		return filepath.Dir(filepath.Dir(nvcc))
+	}
+	return "/usr/local/cuda"
+}
+
+// computeCap returns the reported compute capability of GPU 0, e.g. "12.0"
+// (Blackwell) or "8.6" (Ampere). Empty string on failure.
+func computeCap() string {
+	nvsmi, ok := runner.Exists("nvidia-smi")
+	if !ok {
+		return ""
+	}
+	out, err := runner.RunCapture(nvsmi, "--query-gpu=compute_cap", "--format=csv,noheader")
+	if err != nil {
+		return ""
+	}
+	return strings.Split(strings.TrimSpace(out), "\n")[0]
+}
+
+// archFlagFor turns a compute_cap like "12.0" into the CMAKE_CUDA_ARCHITECTURES
+// value ("120") the CMake CUDA backend expects. Returns a broad fallback list
+// if the cap can't be parsed, so older/unknown GPUs still build.
+func archFlagFor(cap string) string {
+	cap = strings.TrimSpace(cap)
+	if cap == "" {
+		return "75;80;86;89;90"
+	}
+	parts := strings.Split(cap, ".")
+	if len(parts) != 2 {
+		return "75;80;86;89;90"
+	}
+	return parts[0] + parts[1]
+}
+
+// nvccSupportsCap reports whether the installed nvcc can generate SASS for
+// the given compute capability. Blackwell (sm_120) needs nvcc 12.8+. Unknown
+// versions get the benefit of the doubt — we let the rebuild try and fail.
+func nvccSupportsCap(nvcc, cap string) bool {
+	if nvcc == "" || cap == "" {
+		return true
+	}
+	var nvMajor, nvMinor int
+	if _, err := fmt.Sscanf(nvcc, "%d.%d", &nvMajor, &nvMinor); err != nil {
+		return true
+	}
+	var capMajor, capMinor int
+	if _, err := fmt.Sscanf(cap, "%d.%d", &capMajor, &capMinor); err != nil {
+		return true
+	}
+	// Blackwell: needs nvcc >= 12.8
+	if capMajor >= 12 {
+		return nvMajor > 12 || (nvMajor == 12 && nvMinor >= 8)
+	}
+	// Hopper sm_90: nvcc 12.x ok. Older: anything reasonable.
+	return true
+}
+
+// ensureLlamaCppGPU rebuilds llama-cpp-python with CUDA offload when a
+// compatible NVIDIA GPU + toolchain is present. Remembers failures per
+// {gpu, nvcc, compute_cap} in gpu_state.json so repeat setup runs don't
+// spam the same retry-and-fail cycle.
+func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 	// Quick check: is llama_cpp even installed?
 	if _, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
-		return // not installed, nothing to do
-	}
-
-	// Check if GPU offload is already supported
-	hasGPU, _ := runner.RunCapture(venvPython, "-c",
-		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
-	if strings.TrimSpace(hasGPU) == "True" {
-		output.Skip("llama-cpp-python has GPU offload (CUDA)")
 		return
 	}
 
-	// No GPU offload — check if we even have an NVIDIA GPU
+	// Already has GPU offload? Clear any stale sentinel and move on.
+	if hasGPU, _ := runner.RunCapture(venvPython, "-c",
+		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())"); strings.TrimSpace(hasGPU) == "True" {
+		output.Skip("llama-cpp-python has GPU offload (CUDA)")
+		if st := gpustate.Load(dataDir); st.LlamaCudaFailed != nil {
+			st.LlamaCudaFailed = nil
+			_ = gpustate.Save(dataDir, st)
+		}
+		return
+	}
+
+	// No NVIDIA GPU → CPU is fine.
 	nvsmi, hasNvsmi := runner.Exists("nvidia-smi")
 	if !hasNvsmi {
 		output.Skip("llama-cpp-python using CPU (no NVIDIA GPU)")
@@ -505,35 +721,66 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir string) {
 		return
 	}
 	gpuShort := strings.Split(strings.TrimSpace(gpuName), "\n")[0]
+	cap := computeCap()
+	nvcc := nvccVersion()
+	currentEnv := gpustate.Env{GPU: gpuShort, Nvcc: nvcc, ComputeCap: cap}
 
-	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — rebuilding llama-cpp-python with CUDA...", gpuShort))
+	// Sticky skip: same env already failed once.
+	state := gpustate.Load(dataDir)
+	if state.LlamaCudaFailed != nil && gpustate.SameEnv(state.LlamaCudaFailed.Env, currentEnv) {
+		output.Skip("llama-cpp CUDA rebuild skipped — previous attempt failed for this GPU/nvcc combo (imprint setup --retry-gpu to retry)")
+		return
+	}
 
-	// Rebuild from source with CUDA. CMAKE_ARGS tells the build system
-	// to compile with GGML_CUDA. This can take a few minutes.
+	// Nvcc too old for this compute cap? Warn once and bail instead of
+	// burning minutes on a rebuild that cannot produce valid SASS.
+	if !nvccSupportsCap(nvcc, cap) {
+		output.Warn(fmt.Sprintf(
+			"llama-cpp CUDA rebuild skipped — %s (sm_%s) requires nvcc 12.8+, found %s",
+			gpuShort, archFlagFor(cap), nvcc,
+		))
+		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
+		_ = gpustate.Save(dataDir, state)
+		return
+	}
+
+	arch := archFlagFor(cap)
+	cudaRoot := cudaPath()
+	output.Info(fmt.Sprintf("NVIDIA GPU found: %s (sm_%s) — rebuilding llama-cpp-python with CUDA (nvcc %s, %s)...",
+		gpuShort, arch, nvcc, cudaRoot))
+
 	env := []string{
-		"CMAKE_ARGS=-DGGML_CUDA=on",
-		"CUDA_PATH=/usr/local/cuda",
+		fmt.Sprintf("CMAKE_ARGS=-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=%s", arch),
+		"CUDA_PATH=" + cudaRoot,
 	}
 	if _, err := runner.RunCaptureEnv(venvPip, env,
 		"install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet"); err != nil {
 		output.Warn("Failed to rebuild llama-cpp-python with CUDA: " + err.Error() + " — using CPU")
+		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
+		_ = gpustate.Save(dataDir, state)
+		// Try to restore a working CPU build so the tagger still loads.
+		_ = runner.Run(venvPip, "install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet")
 		return
 	}
 
-	// Verify GPU offload works after rebuild. Also check the module actually
-	// loads — a CUDA-linked build that can't find libcudart will fail to import.
 	check, checkErr := runner.RunCapture(venvPython, "-c",
 		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
 	if checkErr != nil {
 		output.Warn("llama-cpp-python CUDA build broken (can't import) — reinstalling CPU version")
 		_ = runner.Run(venvPip, "install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet")
+		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
+		_ = gpustate.Save(dataDir, state)
 		return
 	}
 	if strings.TrimSpace(check) == "True" {
 		output.Success("llama-cpp-python rebuilt with CUDA — " + gpuShort)
-	} else {
-		output.Warn("llama-cpp-python rebuilt but GPU offload still unavailable — check CUDA toolkit")
+		state.LlamaCudaFailed = nil
+		_ = gpustate.Save(dataDir, state)
+		return
 	}
+	output.Warn("llama-cpp-python rebuilt but GPU offload still unavailable — check CUDA toolkit")
+	state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
+	_ = gpustate.Save(dataDir, state)
 }
 
 func parsePackageVersion(pipShowOutput string) string {
