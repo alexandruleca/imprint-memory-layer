@@ -9,6 +9,7 @@ import (
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
 	"github.com/hunter/imprint/internal/runner"
+	"github.com/hunter/imprint/internal/tomlutil"
 )
 
 // Disable tears down everything Imprint wired into the system: stops the
@@ -72,6 +73,49 @@ func Disable(args []string) {
 		output.Success(fmt.Sprintf("Removed %d hook(s) from %s", removed, settings))
 	}
 
+	// 4. Tear down MCP registration from the other supported hosts. Each
+	//    step is best-effort: skip silently if the config file is absent.
+	removeJSONServer := func(path, rootKey, label string) {
+		if path == "" || !platform.FileExists(path) {
+			output.Skip(label + " not present (" + path + ")")
+			return
+		}
+		ok, err := jsonutil.RemoveMCPServer(path, rootKey, "imprint")
+		if err != nil {
+			output.Warn(label + " update failed: " + err.Error())
+		} else if ok {
+			output.Success("Removed imprint from " + path)
+		} else {
+			output.Skip("imprint not registered in " + path)
+		}
+	}
+
+	// Cursor (mcpServers).
+	removeJSONServer(platform.CursorMCPPath(), "mcpServers", "Cursor MCP config")
+
+	// Copilot user-global mcp.json (servers).
+	removeJSONServer(platform.CopilotMCPPath(), "servers", "Copilot MCP config")
+
+	// Cline extension (mcpServers).
+	removeJSONServer(platform.ClineExtSettingsPath(), "mcpServers", "Cline extension MCP config")
+
+	// Cline CLI (mcpServers).
+	removeJSONServer(platform.ClineCLISettingsPath(), "mcpServers", "Cline CLI MCP config")
+
+	// Codex TOML.
+	codexPath := platform.CodexConfigPath()
+	if platform.FileExists(codexPath) {
+		if ok, err := tomlutil.RemoveMCPServer(codexPath, "imprint"); err != nil {
+			output.Warn("Codex config update failed: " + err.Error())
+		} else if ok {
+			output.Success("Removed imprint from " + codexPath)
+		} else {
+			output.Skip("imprint not registered in " + codexPath)
+		}
+	} else {
+		output.Skip("Codex config not present (" + codexPath + ")")
+	}
+
 	fmt.Println()
 	output.Header("═══ Disabled ═══")
 	fmt.Println()
@@ -94,13 +138,8 @@ func Enable(args []string) {
 	fmt.Printf("  Target: %s\n", target)
 	fmt.Println()
 
-	switch target {
-	case "claude-code", "claude":
-		SetupClaudeCode()
-	case "cursor":
-		SetupCursor()
-	default:
-		output.Fail("unknown target: " + target + " (expected: claude-code | cursor)")
+	if !DispatchSetup(target) {
+		output.Fail("unknown target: " + target + " (expected: claude-code | cursor | codex | copilot | cline | all)")
 	}
 
 	// Pre-warm the Qdrant server so the next MCP call doesn't pay the

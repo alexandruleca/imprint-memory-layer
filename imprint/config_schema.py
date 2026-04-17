@@ -64,10 +64,10 @@ SETTINGS: list[Setting] = [
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
 
     # ── Tagger local model (llama-cpp) ───────────────────────
-    Setting("tagger.local.model_repo",   "IMPRINT_TAGGER_MODEL_REPO",       "unsloth/gemma-3-4b-it-GGUF",   str,  "HF repo for local tagger GGUF"),
-    Setting("tagger.local.model_file",   "IMPRINT_TAGGER_MODEL_FILE",       "gemma-3-4b-it-Q4_K_M.gguf",    str,  "GGUF filename within repo"),
+    Setting("tagger.local.model_repo",   "IMPRINT_TAGGER_MODEL_REPO",       "unsloth/Qwen3-1.7B-GGUF",      str,  "HF repo for local tagger GGUF"),
+    Setting("tagger.local.model_file",   "IMPRINT_TAGGER_MODEL_FILE",       "Qwen3-1.7B-Q4_K_M.gguf",       str,  "GGUF filename within repo"),
     Setting("tagger.local.model_path",   "IMPRINT_TAGGER_MODEL_PATH",       "",                              str,  "Absolute path to GGUF (overrides repo/file)"),
-    Setting("tagger.local.n_ctx",        "IMPRINT_TAGGER_N_CTX",            2048,                            int,  "Tagger model context window tokens"),
+    Setting("tagger.local.n_ctx",        "IMPRINT_TAGGER_N_CTX",            8192,                            int,  "Tagger model context window tokens"),
     Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)"),
 
     # ── Ingest (docs + urls) ──────────────────────────────────

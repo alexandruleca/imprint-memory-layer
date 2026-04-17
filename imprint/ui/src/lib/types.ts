@@ -127,6 +127,7 @@ export interface ChatMessage {
 export interface IngestionJob {
   pid: number;
   command: string;
+  phase?: "embedding" | "llm_tagging";
   processed: number;
   total: number;
   stored: number;

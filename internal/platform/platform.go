@@ -113,6 +113,74 @@ func CursorRulesDir() string {
 	return filepath.Join(CursorConfigDir(), "rules")
 }
 
+// CodexConfigPath returns the user-global Codex CLI config (~/.codex/config.toml).
+func CodexConfigPath() string {
+	return filepath.Join(HomeDir(), ".codex", "config.toml")
+}
+
+// VSCodeUserDir returns the first existing VSCode user-profile directory:
+// `Code/User` first, falling back to `Code - Insiders/User`. Empty string if
+// neither is present. Used to resolve Copilot and Cline-extension paths.
+func VSCodeUserDir() string {
+	home := HomeDir()
+	var roots []string
+	switch runtime.GOOS {
+	case "darwin":
+		base := filepath.Join(home, "Library", "Application Support")
+		roots = []string{
+			filepath.Join(base, "Code", "User"),
+			filepath.Join(base, "Code - Insiders", "User"),
+		}
+	case "windows":
+		appData := os.Getenv("APPDATA")
+		if appData == "" {
+			appData = filepath.Join(home, "AppData", "Roaming")
+		}
+		roots = []string{
+			filepath.Join(appData, "Code", "User"),
+			filepath.Join(appData, "Code - Insiders", "User"),
+		}
+	default:
+		base := filepath.Join(home, ".config")
+		roots = []string{
+			filepath.Join(base, "Code", "User"),
+			filepath.Join(base, "Code - Insiders", "User"),
+		}
+	}
+	for _, r := range roots {
+		if DirExists(r) {
+			return r
+		}
+	}
+	return ""
+}
+
+// CopilotMCPPath returns the user-global VSCode MCP file (`<userDir>/mcp.json`).
+// Returns empty string if no VSCode install is detected.
+func CopilotMCPPath() string {
+	d := VSCodeUserDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "mcp.json")
+}
+
+// ClineExtSettingsPath returns the Cline VSCode-extension MCP settings file
+// (under globalStorage for saoudrizwan.claude-dev). Empty if no VSCode install.
+func ClineExtSettingsPath() string {
+	d := VSCodeUserDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")
+}
+
+// ClineCLISettingsPath returns the Cline standalone-CLI MCP settings file
+// (~/.cline/data/settings/cline_mcp_settings.json).
+func ClineCLISettingsPath() string {
+	return filepath.Join(HomeDir(), ".cline", "data", "settings", "cline_mcp_settings.json")
+}
+
 func PalaceConfigPath() string {
 	return filepath.Join(HomeDir(), ".mempalace", "config.json")
 }

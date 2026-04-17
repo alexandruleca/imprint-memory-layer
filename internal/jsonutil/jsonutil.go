@@ -283,13 +283,21 @@ func RemoveHooksMatching(settingsPath string, needles []string) (int, error) {
 // Returns true if the entry was added or updated, false if already identical.
 // Creates the file (and parent dir) if missing.
 func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
+	return EnsureMCPServerAtKey(path, "mcpServers", name, spec)
+}
+
+// EnsureMCPServerAtKey is the root-key-aware variant of EnsureMCPServer. Pass
+// "mcpServers" for Cursor/Cline; pass "servers" for VSCode's user mcp.json
+// (GitHub Copilot agent mode). Returns true if the entry was added or updated,
+// false if already identical. Creates the file (and parent dir) if missing.
+func EnsureMCPServerAtKey(path, rootKey, name string, spec map[string]any) (bool, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return false, fmt.Errorf("creating directory %s: %w", dir, err)
 		}
 		data := map[string]any{
-			"mcpServers": map[string]any{name: spec},
+			rootKey: map[string]any{name: spec},
 		}
 		return true, WriteJSON(path, data)
 	}
@@ -299,10 +307,10 @@ func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
 		return false, err
 	}
 
-	servers, ok := data["mcpServers"].(map[string]any)
+	servers, ok := data[rootKey].(map[string]any)
 	if !ok {
 		servers = map[string]any{}
-		data["mcpServers"] = servers
+		data[rootKey] = servers
 	}
 
 	if existing, ok := servers[name].(map[string]any); ok {
@@ -311,6 +319,29 @@ func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
 		}
 	}
 	servers[name] = spec
+	return true, WriteJSON(path, data)
+}
+
+// RemoveMCPServer removes a named server entry from the given root-key object
+// in a JSON config file. Returns true if it was removed, false if absent or
+// the file doesn't exist. Empty server maps are preserved so we don't alter
+// the caller's unrelated keys.
+func RemoveMCPServer(path, rootKey, name string) (bool, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false, nil
+	}
+	data, err := ReadJSON(path)
+	if err != nil {
+		return false, err
+	}
+	servers, ok := data[rootKey].(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	if _, present := servers[name]; !present {
+		return false, nil
+	}
+	delete(servers, name)
 	return true, WriteJSON(path, data)
 }
 

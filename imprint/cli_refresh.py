@@ -236,6 +236,8 @@ def main():
             ingest_start_ts=t_start,
             total_hint=stored,
             print_bar=print_bar,
+            command="refresh",
+            projects=_progress_projects,
         )
 
     # ── Summary ────────────────────────────────────────────────

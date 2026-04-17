@@ -365,11 +365,17 @@ def main():
             bar = "█" * filled + "░" * (bar_width - filled)
             print(f"\r  {bar}{stats}", end="", flush=True)
 
-        llm_tagged = _llm_tag_recent(
-            ingest_start_ts=t_start,
-            total_hint=total_stored,
-            print_bar=_convo_print_bar,
-        )
+        from .progress import clear_progress
+        try:
+            llm_tagged = _llm_tag_recent(
+                ingest_start_ts=t_start,
+                total_hint=total_stored,
+                print_bar=_convo_print_bar,
+                command="learn",
+                projects=[],
+            )
+        finally:
+            clear_progress()
 
     print()
     print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")

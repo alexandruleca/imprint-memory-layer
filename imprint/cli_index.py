@@ -514,6 +514,8 @@ def _llm_tag_recent(
     ingest_start_ts: float,
     total_hint: int = 0,
     print_bar=None,
+    command: str = "ingest",
+    projects: list[str] | None = None,
 ) -> int:
     """Phase 2: LLM-tag chunks that were just ingested (by timestamp).
 
@@ -536,6 +538,9 @@ def _llm_tag_recent(
     batch_updates: list[tuple[str, dict, str]] = []
     SCROLL_BATCH = 100
     FLUSH_SIZE = 20
+
+    projects = projects or []
+    write_progress(command, 0, total_hint, 0, 0, t0, projects, phase="llm_tagging")
 
     while True:
         points, offset = client.scroll(
@@ -578,6 +583,7 @@ def _llm_tag_recent(
                 if print_bar and total_hint:
                     elapsed = time.time() - t0
                     print_bar(tagged, total_hint, elapsed)
+                write_progress(command, tagged, total_hint, tagged, 0, t0, projects, phase="llm_tagging")
 
         if offset is None:
             break
@@ -597,6 +603,7 @@ def _llm_tag_recent(
     if print_bar and total_hint:
         print_bar(tagged, total_hint, time.time() - t0)
         print()
+    write_progress(command, tagged, total_hint or tagged, tagged, 0, t0, projects, phase="llm_tagging")
 
     return tagged
 
@@ -920,6 +927,8 @@ def main():
             ingest_start_ts=t_start,
             total_hint=stored,
             print_bar=print_bar,
+            command="ingest",
+            projects=_progress_projects,
         )
 
     # ── Summary ────────────────────────────────────────────────

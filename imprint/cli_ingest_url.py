@@ -204,13 +204,19 @@ def main():
     llm_tagged = 0
     if _enable_llm and total_stored > 0:
         from .cli_index import _llm_tag_recent, print_bar as _idx_print_bar
+        from .progress import clear_progress
         print()
         print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
-        llm_tagged = _llm_tag_recent(
-            ingest_start_ts=t_start,
-            total_hint=total_stored,
-            print_bar=_idx_print_bar,
-        )
+        try:
+            llm_tagged = _llm_tag_recent(
+                ingest_start_ts=t_start,
+                total_hint=total_stored,
+                print_bar=_idx_print_bar,
+                command="ingest-url",
+                projects=[],
+            )
+        finally:
+            clear_progress()
 
     elapsed = time.time() - t_start
     print()

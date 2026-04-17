@@ -18,20 +18,16 @@ func main() {
 	switch os.Args[1] {
 	case "setup":
 		// `imprint setup`              → claude-code (back-compat default)
-		// `imprint setup claude-code`  → SetupClaudeCode
-		// `imprint setup cursor`       → SetupCursor
+		// `imprint setup <target>`     → dispatch to a single handler
+		// `imprint setup all`          → run every handler; each self-skips
+		//                                  if its host tool isn't installed.
 		target := "claude-code"
 		if len(os.Args) >= 3 {
 			target = os.Args[2]
 		}
 		fmt.Fprintf(os.Stderr, "\n→ imprint setup target: %s\n\n", target)
-		switch target {
-		case "claude-code", "claude":
-			cmd.SetupClaudeCode()
-		case "cursor":
-			cmd.SetupCursor()
-		default:
-			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | cursor)\n", target)
+		if !cmd.DispatchSetup(target) {
+			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | cursor | codex | copilot | cline | all)\n", target)
 			os.Exit(1)
 		}
 	case "ingest":
@@ -79,7 +75,7 @@ func printUsage() {
 
 Usage:
   imprint setup [target]     Install deps, register MCP server, configure host AI tool
-                               target: claude-code (default) | cursor
+                               target: claude-code (default) | cursor | codex | copilot | cline | all
   imprint ingest <path>      Index project source files (directory or single file)
   imprint learn              Index Claude Code conversations + memory files
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)
@@ -100,7 +96,7 @@ Usage:
   imprint config reset <key> Remove override, revert to default
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Stop server, unregister MCP, strip hooks (data preserved)
-  imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor)
+  imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor | codex | copilot | cline | all)
   imprint workspace          List workspaces and show active
   imprint workspace switch <n>  Switch to workspace (create if new)
   imprint workspace delete <n>  Delete a workspace and its data
@@ -110,6 +106,10 @@ Usage:
 Examples:
   imprint setup
   imprint setup cursor
+  imprint setup codex
+  imprint setup copilot
+  imprint setup cline
+  imprint setup all
   imprint learn
   imprint ingest ~/code
   imprint sync serve --relay sync.example.com

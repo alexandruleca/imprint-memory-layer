@@ -219,7 +219,8 @@ func SetupClaudeCode() {
 	if claudePath, ok := runner.Exists("claude"); ok {
 		output.Success("Claude Code CLI found: " + claudePath)
 	} else {
-		output.Fail("Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code/overview")
+		output.Warn("Claude Code CLI not found — install it first: https://docs.anthropic.com/en/docs/claude-code/overview. Skipping.")
+		return
 	}
 
 	bp := setupBackend()

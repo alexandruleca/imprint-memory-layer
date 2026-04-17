@@ -28,11 +28,13 @@ def write_progress(
     skipped: int,
     started_at: float,
     projects: list[str],
+    phase: str = "embedding",
 ) -> None:
     """Atomically write progress JSON.  Caller should throttle to ~1 call/sec."""
     data = {
         "pid": os.getpid(),
         "command": command,
+        "phase": phase,
         "processed": processed,
         "total": total,
         "stored": stored,

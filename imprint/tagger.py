@@ -313,7 +313,7 @@ _PROVIDER_DEFAULTS: dict[str, dict] = {
     "gemini":    {"model": "gemini-2.0-flash",  "key_env": "GOOGLE_API_KEY", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
     "ollama":    {"model": "llama3.2",          "key_env": None, "base_url": "http://localhost:11434/v1"},
     "vllm":      {"model": "default",           "key_env": None, "base_url": "http://localhost:8000/v1"},
-    "local":     {"model": "gemma-3-4b-it",     "key_env": None},
+    "local":     {"model": "qwen3-1.7b",        "key_env": None},
 }
 
 
@@ -342,8 +342,83 @@ def _get_llm_model() -> str:
     return defaults["model"]
 
 
+# Reasoning-content fields emitted by OpenAI-compat servers that parse
+# thinking-model output server-side (vLLM --reasoning-parser, Ollama think=true,
+# DeepSeek API, OpenRouter). When any of these is populated on the response
+# message, `content` is already free of <think> tokens.
+_REASONING_FIELDS: tuple[str, ...] = ("reasoning_content", "reasoning", "thinking")
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_OPEN_RE = re.compile(r"<think>.*", re.DOTALL)
+
+
+def _strip_think(text: str) -> str:
+    """Remove <think>…</think> blocks + any unterminated opening tag.
+
+    Fallback for servers that do not split reasoning from content. Called
+    defensively even after _extract_openai_content — no-op on already-clean
+    text. Safe to call on empty/None-coerced strings.
+    """
+    if not text:
+        return ""
+    text = _THINK_BLOCK_RE.sub("", text)
+    text = _THINK_OPEN_RE.sub("", text)
+    return text.strip()
+
+
+def _extract_openai_content(resp: Any) -> str:
+    """Pull final content from an OpenAI-compat ChatCompletion response.
+
+    Handles server-side reasoning parsers (vLLM, Ollama think=true,
+    DeepSeek, OpenRouter) which expose the thinking trace in a separate
+    `reasoning_content` / `reasoning` / `thinking` field and leave `content`
+    clean. Falls back to regex strip when no reasoning field is present.
+
+    Stable across SDK shapes: tries pydantic v2 model_dump, then v1 dict(),
+    then attribute access. Returns "" on any structural anomaly.
+    """
+    try:
+        choices = getattr(resp, "choices", None)
+        if not choices:
+            return ""
+        msg = choices[0].message
+
+        # Serialize to plain dict so extra fields (vLLM adds these outside the
+        # typed schema) are visible. model_dump is pydantic v2; dict() is v1.
+        as_dict: dict = {}
+        if hasattr(msg, "model_dump"):
+            try:
+                as_dict = msg.model_dump() or {}
+            except Exception:
+                as_dict = {}
+        if not as_dict and hasattr(msg, "dict"):
+            try:
+                as_dict = msg.dict() or {}
+            except Exception:
+                as_dict = {}
+
+        content = as_dict.get("content")
+        if content is None:
+            content = getattr(msg, "content", None)
+        content = content or ""
+
+        # If any reasoning field is populated, server already split — trust content.
+        server_parsed = any(
+            (as_dict.get(f) or "").strip() for f in _REASONING_FIELDS
+        )
+        if server_parsed:
+            return content
+
+        # No server-side split: strip inline <think> defensively.
+        return _strip_think(content)
+    except Exception:
+        return ""
+
+
 def _sanitize_tags(text: str) -> list[str]:
     """Parse comma-separated LLM response into sanitized tag list."""
+    # Defensive strip — no-op if upstream already removed reasoning.
+    text = _strip_think(text)
     tags = [t.strip().lower() for t in text.split(",") if t.strip()]
     tags = [re.sub(r"[^a-z0-9\-]+", "-", t).strip("-") for t in tags]
     # Min 2 chars, max 32, must contain at least one letter (reject "1", "2", pure numbers)
@@ -407,12 +482,11 @@ def _derive_llm_openai_compat_raw(full_input: str) -> list[str]:
             {"role": "user", "content": full_input},
         ],
     )
-    text = resp.choices[0].message.content or "" if resp.choices else ""
-    return _sanitize_tags(text)
+    return _sanitize_tags(_extract_openai_content(resp))
 
 
 
-# ── 4b. Local LLM tagger (llama-cpp, Gemma 3 1B) ─────────────
+# ── 4b. Local LLM tagger (llama-cpp, Qwen3 1.7B) ─────────────
 
 _tagger_llm: Any = None
 _tagger_llm_lock = threading.Lock()
@@ -547,19 +621,19 @@ def _load_tagger_model() -> tuple[Any, str | None]:
 
 
 def _derive_llm_local(content: str, max_chars: int) -> list[str]:
-    """Classify content using local Gemma 3 4B model."""
+    """Classify content using local Qwen3 1.7B model."""
     return _derive_llm_local_raw(_LLM_PROMPT + content[:max_chars])
 
 
 def _derive_llm_local_raw(full_input: str) -> list[str]:
-    """Classify using local Gemma 3 4B model — raw input."""
+    """Classify using local Qwen3 1.7B model — raw input."""
     llm, err = _load_tagger_model()
     if err or llm is None:
         return []
     with _tagger_inference_lock:
         try:
             resp = llm.create_chat_completion(
-                messages=[{"role": "user", "content": full_input}],
+                messages=[{"role": "user", "content": "/no_think\n" + full_input}],
                 max_tokens=60,
                 temperature=0.1,
             )
@@ -582,7 +656,7 @@ def derive_llm(
     Provider controlled by IMPRINT_LLM_TAGGER_PROVIDER (default: anthropic).
     Model controlled by IMPRINT_LLM_TAGGER_MODEL (default per provider).
     Base URL override: IMPRINT_LLM_TAGGER_BASE_URL.
-    The ``local`` provider runs Gemma 3 4B via llama-cpp-python.
+    The ``local`` provider runs Qwen3 1.7B via llama-cpp-python.
     """
     # Build context-aware prompt
     prompt = _LLM_PROMPT
@@ -640,7 +714,7 @@ def _call_llm_raw_text(full_input: str) -> str:
             return ""
         with _tagger_inference_lock:
             resp = llm.create_chat_completion(
-                messages=[{"role": "user", "content": full_input}],
+                messages=[{"role": "user", "content": "/no_think\n" + full_input}],
                 max_tokens=200,
                 temperature=0.1,
             )
@@ -680,7 +754,7 @@ def _call_llm_raw_text(full_input: str) -> str:
         max_tokens=200,
         messages=[{"role": "user", "content": full_input}],
     )
-    return resp.choices[0].message.content or "" if resp.choices else ""
+    return _extract_openai_content(resp)
 
 
 def _parse_llm_classification(text: str) -> dict:
@@ -689,6 +763,11 @@ def _parse_llm_classification(text: str) -> dict:
     Returns {"type": str, "domains": list[str], "topics": list[str]}.
     """
     if not text or not text.strip():
+        return dict(_CLASSIFY_FALLBACK)
+
+    # Defensive strip — no-op if upstream already removed reasoning.
+    text = _strip_think(text)
+    if not text:
         return dict(_CLASSIFY_FALLBACK)
 
     # Strategy 1: direct json.loads
