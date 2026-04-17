@@ -72,6 +72,10 @@ export async function getStats(): Promise<StatsData> {
   return fetchAPI("/api/stats");
 }
 
+export async function getVersion(): Promise<{ version: string }> {
+  return fetchAPI("/api/version");
+}
+
 export async function getJobs(): Promise<{ jobs: IngestionJob[] }> {
   return fetchAPI("/api/jobs");
 }

@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs, extractors
 from imprint.chunker import chunk_file
 from imprint.extractors import url as url_ext
+from imprint.progress import write_progress, clear_progress
 
 C_RESET = "\033[0m"
 C_CYAN = "\033[0;36m"
@@ -132,14 +133,13 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
             prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
             next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
             neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
-            # Phase 1: deterministic + keyword tags only (LLM deferred to phase 2)
             tags = tagger.build_payload_tags(
                 chunk_text, rel_path=url,
-                llm=False, zero_shot=enable_zero_shot,
+                llm=None, zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx, project_hint=project,
             )
-            tags.pop("_llm_type", "")
-            mem_type = "architecture"
+            llm_type = tags.pop("_llm_type", "")
+            mem_type = llm_type or "architecture"
             records.append({
                 "content": chunk_text,
                 "project": project,
@@ -180,8 +180,14 @@ def main():
     total_skipped = 0
     total_errors = 0
     t_start = time.time()
+    progress_projects = [project] if project else []
+    total_urls = len(urls)
 
-    for url in urls:
+    write_progress(
+        "ingest-url", 0, total_urls, 0, 0, t_start, progress_projects,
+    )
+
+    for idx, url in enumerate(urls):
         n, status = ingest_one(url, project, known, force=force)
         if status == "stored":
             total_stored += n
@@ -192,6 +198,10 @@ def main():
         else:
             total_errors += 1
             print(f"  {C_YELLOW}! {url}  ({status}){C_RESET}")
+        write_progress(
+            "ingest-url", idx + 1, total_urls, total_stored, total_skipped,
+            t_start, progress_projects,
+        )
 
     # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
     from imprint.config_schema import resolve
@@ -204,7 +214,6 @@ def main():
     llm_tagged = 0
     if _enable_llm and total_stored > 0:
         from .cli_index import _llm_tag_recent, print_bar as _idx_print_bar
-        from .progress import clear_progress
         print()
         print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
         try:
@@ -217,6 +226,8 @@ def main():
             )
         finally:
             clear_progress()
+    else:
+        clear_progress()
 
     elapsed = time.time() - t_start
     print()

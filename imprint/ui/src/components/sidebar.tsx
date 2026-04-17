@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Network,
@@ -14,6 +15,7 @@ import {
   Settings,
   Terminal,
 } from "lucide-react";
+import { getVersion } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -30,6 +32,13 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [version, setVersion] = useState<string>("");
+
+  useEffect(() => {
+    getVersion()
+      .then((d) => setVersion(d.version))
+      .catch(() => setVersion(""));
+  }, []);
 
   return (
     <aside className="w-56 border-r border-border bg-card flex flex-col shrink-0 h-screen sticky top-0 overflow-y-auto z-30">
@@ -58,7 +67,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-3 border-t border-border text-xs text-muted-foreground">
-        Imprint v1.0
+        Imprint {version ? version : "…"}
       </div>
     </aside>
   );

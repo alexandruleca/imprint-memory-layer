@@ -126,14 +126,13 @@ def main():
             prev_text = chunks[j - 1][0][-200:] if j > 0 else ""
             next_text = chunks[j + 1][0][:200] if j < len(chunks) - 1 else ""
             neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
-            # Phase 1: deterministic + keyword tags only (LLM deferred to phase 2)
             tags = tagger.build_payload_tags(
                 chunk_text, rel_path=rel,
-                zero_shot=enable_zero_shot, llm=False,
+                zero_shot=enable_zero_shot, llm=None,
                 neighbor_context=neighbor_ctx, project_hint=project,
             )
-            tags.pop("_llm_type", "")
-            mem_type = "architecture"
+            llm_type = tags.pop("_llm_type", "")
+            mem_type = llm_type or "architecture"
             records.append({
                 "content": chunk_text,
                 "project": project,

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { getStats, getOverview } from "@/lib/api";
 import { DashboardSkeleton } from "@/components/loaders";
 import { IngestionProgress } from "@/components/ingestion-progress";
+import { QuickIngest } from "@/components/quick-ingest";
 import { Database, FolderOpen, Code, Tags } from "lucide-react";
 import type { StatsData, OverviewData } from "@/lib/types";
 
@@ -116,6 +117,7 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground mt-1">Overview of your AI memory store</p>
       </div>
 
+      <QuickIngest />
       <IngestionProgress />
 
       <div className="grid grid-cols-4 gap-5">

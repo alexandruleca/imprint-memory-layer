@@ -22,6 +22,7 @@ from qdrant_client import models as qm
 
 from . import tagger, vectorstore
 from .config_schema import resolve
+from .progress import write_progress, clear_progress
 
 
 _SCROLL_BATCH = 100
@@ -61,12 +62,26 @@ def retag(
     client, coll = vectorstore._ensure_collection(workspace)
     scroll_filter = _build_scroll_filter(project, include_tagged=all_tagged)
 
+    # Pre-count so the dashboard progress bar has a denominator. Approximate
+    # count is fine — we refine against scanned if it ends up higher.
+    try:
+        total = client.count(
+            collection_name=coll, count_filter=scroll_filter, exact=False,
+        ).count
+    except Exception:
+        total = 0
+
     updated = 0
     scanned = 0
     offset = None
     batch_updates: list[tuple[str, dict, str]] = []  # (point_id, new_tags, new_type)
 
     t0 = time.time()
+    progress_projects = [project] if project else []
+    last_progress_ts = 0.0
+    write_progress(
+        "retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging",
+    )
 
     while True:
         points, offset = client.scroll(
@@ -82,6 +97,7 @@ def retag(
             scanned += 1
             content = pt.payload.get("content", "")
             source = pt.payload.get("source", "")
+            existing_tags = pt.payload.get("tags") or {}
 
             # Re-derive tags with LLM enabled (unified classification)
             proj_hint = source.split("/", 1)[0] if "/" in source else ""
@@ -92,6 +108,12 @@ def retag(
                 project_hint=proj_hint,
             )
             new_type = new_tags.pop("_llm_type", "")
+            # Preserve deterministic fields set at ingest time when the
+            # re-derivation returns blanks — e.g. file sources that no
+            # longer exist, or any scheme not handled by derive_deterministic.
+            for k in ("lang", "layer", "kind"):
+                if existing_tags.get(k) and not new_tags.get(k):
+                    new_tags[k] = existing_tags[k]
 
             batch_updates.append((pt.id, new_tags, new_type))
 
@@ -107,6 +129,13 @@ def retag(
                     end="", file=sys.stderr, flush=True,
                 )
                 batch_updates = []
+                now_ts = time.time()
+                if now_ts - last_progress_ts >= 1.0:
+                    last_progress_ts = now_ts
+                    write_progress(
+                        "retag", scanned, max(total, scanned),
+                        updated, 0, t0, progress_projects, phase="llm_tagging",
+                    )
 
         if offset is None:
             break
@@ -116,6 +145,13 @@ def retag(
         if not dry_run:
             _flush_updates(client, coll, batch_updates)
         updated += len(batch_updates)
+
+    final_total = max(total, scanned)
+    write_progress(
+        "retag", scanned, final_total, updated, 0, t0,
+        progress_projects, phase="llm_tagging",
+    )
+    clear_progress()
 
     elapsed = time.time() - t0
     print(file=sys.stderr)  # newline

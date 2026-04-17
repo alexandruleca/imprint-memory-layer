@@ -203,12 +203,16 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
             skipped += 1
             continue
 
-        # Conversation tags: deterministic only (LLM deferred to phase 2).
-        tags = tagger.build_payload_tags(ex["text"], llm=False)
-        tags.pop("_llm_type", "")
-        mem_type, confidence = classify(ex["text"])
-        if confidence < 0.2:
-            mem_type = "finding"
+        # llm=None → auto-enable when a local LLM tagger is available;
+        # falls back to deterministic + regex classify when off.
+        tags = tagger.build_payload_tags(ex["text"], llm=None)
+        llm_type = tags.pop("_llm_type", "")
+        if llm_type:
+            mem_type = llm_type
+        else:
+            mem_type, confidence = classify(ex["text"])
+            if confidence < 0.2:
+                mem_type = "finding"
         tags["lang"] = "conversation"
         tags["layer"] = "session"
         tags["kind"] = "qa"

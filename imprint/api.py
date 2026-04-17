@@ -146,6 +146,31 @@ def api_stats():
     return build_stats()
 
 
+@app.get("/api/version")
+def api_version():
+    """Return the installed imprint CLI version.
+
+    Shells out to ``imprint version`` once per process and caches the result.
+    Falls back to ``"unknown"`` when the binary can't be located or invoked.
+    """
+    global _CACHED_VERSION
+    if _CACHED_VERSION is not None:
+        return {"version": _CACHED_VERSION}
+    try:
+        out = subprocess.check_output(
+            [_find_imprint_binary(), "version"],
+            stderr=subprocess.STDOUT, timeout=5, text=True,
+        ).strip()
+        # Output is "imprint <version>"; strip the prefix if present.
+        _CACHED_VERSION = out.split(" ", 1)[1] if out.startswith("imprint ") else out
+    except Exception:
+        _CACHED_VERSION = "unknown"
+    return {"version": _CACHED_VERSION}
+
+
+_CACHED_VERSION: str | None = None
+
+
 @app.get("/api/cross-project")
 def api_cross_project():
     return build_cross_project_similarity()
@@ -483,7 +508,7 @@ def _reset_after_wipe():
 
 # Allowed commands — just run the `imprint` binary directly.
 _ALLOWED_COMMANDS = {
-    "status", "ingest", "refresh", "refresh-urls", "retag",
+    "status", "ingest", "ingest-url", "refresh", "refresh-urls", "retag",
     "config", "wipe", "sync", "migrate", "workspace",
 }
 
@@ -551,6 +576,14 @@ def _build_command_args(command: str, body: dict) -> list[str]:
     if command == "ingest":
         if body.get("dir"):
             args.append(body["dir"])
+    elif command == "ingest-url":
+        url = body.get("url", "")
+        if url:
+            args.append(url)
+        if body.get("project"):
+            args.extend(["--project", body["project"]])
+        if body.get("force"):
+            args.append("--force")
     elif command == "refresh":
         if body.get("dir"):
             args.append(body["dir"])
