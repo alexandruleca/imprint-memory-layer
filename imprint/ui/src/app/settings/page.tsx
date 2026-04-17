@@ -4,23 +4,22 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { getConfig, setConfigValue, getWorkspaces, switchWorkspace } from "@/lib/api";
+import { getConfig, setConfigValue } from "@/lib/api";
 import { SettingsSkeleton } from "@/components/loaders";
+import { WorkspaceManager } from "@/components/workspace-manager";
 import type { ConfigSetting } from "@/lib/types";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ConfigSetting[]>([]);
-  const [workspaces, setWorkspaces] = useState<{ active: string; workspaces: string[] }>({ active: "", workspaces: [] });
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      getConfig().then((d) => setSettings(d.settings)),
-      getWorkspaces().then(setWorkspaces),
-    ]).finally(() => setLoading(false));
+    getConfig()
+      .then((d) => setSettings(d.settings))
+      .finally(() => setLoading(false));
   }, []);
 
   async function saveValue(key: string) {
@@ -33,12 +32,6 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
-  }
-
-  async function doSwitchWorkspace(name: string) {
-    await switchWorkspace(name);
-    const ws = await getWorkspaces();
-    setWorkspaces(ws);
   }
 
   const groups: Record<string, ConfigSetting[]> = {};
@@ -54,23 +47,9 @@ export default function SettingsPage() {
       <h2 className="text-2xl font-bold">Settings</h2>
 
       <Card>
-        <CardHeader><CardTitle className="text-sm">Workspace</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-sm">Workspaces</CardTitle></CardHeader>
         <CardContent>
-          <div className="flex gap-2 flex-wrap">
-            {workspaces.workspaces.map((ws) => (
-              <button
-                key={ws}
-                className={`px-3 py-1 rounded text-sm ${
-                  ws === workspaces.active
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted hover:bg-muted/80"
-                }`}
-                onClick={() => doSwitchWorkspace(ws)}
-              >
-                {ws}
-              </button>
-            ))}
-          </div>
+          <WorkspaceManager />
         </CardContent>
       </Card>
 

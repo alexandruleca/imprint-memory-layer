@@ -1,5 +1,9 @@
 """Imprint MCP Server — lightweight memory for Claude Code."""
 
+import sys
+import threading
+import traceback
+
 from fastmcp import FastMCP
 
 from . import config
@@ -309,6 +313,54 @@ def search(
     return output
 
 
+def _store_background(
+    content: str,
+    project: str,
+    type_hint: str,
+    source: str,
+    workspace: str | None,
+) -> None:
+    """Run the slow parts of store (embed + LLM tag + upsert) off-thread.
+
+    Runs the full LLM tagging pipeline (same as refresh's phase 2) and stamps
+    ``llm_tagged: True`` so a subsequent ``retag`` won't re-run the LLM on
+    this point.  Exceptions are logged to stderr — the MCP tool already
+    returned, so we can't surface the error to the caller.
+    """
+    try:
+        from . import tagger
+        new_tags = tagger.build_payload_tags(
+            content,
+            rel_path=source,
+            llm=True,
+            project_hint=project,
+            workspace=workspace,
+        )
+        llm_type = new_tags.pop("_llm_type", "")
+        mem_type = type_hint or llm_type or "architecture"
+
+        vs.store(
+            content=content,
+            project=project,
+            type=mem_type,
+            tags=new_tags,
+            source=source,
+            workspace=workspace,
+        )
+
+        if llm_type:
+            client, coll = vs._ensure_collection(workspace)
+            memory_id = vs._make_id(content, project, source)
+            client.set_payload(
+                collection_name=coll,
+                payload={"llm_tagged": True},
+                points=[vs._point_uuid(memory_id)],
+            )
+    except Exception as e:
+        print(f"imprint store background error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
+
 @mcp.tool()
 def store(
     content: str,
@@ -321,11 +373,15 @@ def store(
     """Store a memory. Write it as a self-contained note that will make sense
     months from now without additional context. Include the WHY, not just the WHAT.
 
+    Returns immediately with the memory id — embedding and LLM tagging happen
+    in a background thread (same pipeline refresh's phase 2 uses).  The point
+    is marked ``llm_tagged: True`` on success so future ``retag`` runs skip it.
+
     Args:
         content: The memory to store — be specific, include reasoning
         project: Project this relates to (e.g. 'my-web-app', 'api-server')
         type: Memory type (e.g. decision, pattern, finding, bug, architecture, milestone). Auto-classified if omitted.
-        tags: Comma-separated tags (e.g. 'cors,security')
+        tags: Comma-separated tags (e.g. 'cors,security') — ignored; the LLM tagger derives topics
         source: Where this came from (e.g. file path, conversation topic)
         workspace: Target a specific workspace instead of the active one (optional)
     """
@@ -333,21 +389,16 @@ def store(
     if err:
         return err
 
-    # Auto-classify type if not provided
-    if not type:
-        from . import classifier, tagger
-        tags = tagger.build_payload_tags(content, workspace=ws)
-        llm_type = tags.pop("_llm_type", "")
-        if llm_type:
-            type = llm_type
-        else:
-            type, _ = classifier.classify(content)
+    memory_id = vs._make_id(content, project, source)
 
-    memory_id = vs.store(
-        content=content, project=project, type=type, tags=tags, source=source,
-        workspace=ws,
-    )
-    return f"Stored [{memory_id}] as {type}"
+    threading.Thread(
+        target=_store_background,
+        args=(content, project, type, source, ws),
+        daemon=True,
+    ).start()
+
+    suffix = f" as {type}" if type else " — tagging in background"
+    return f"Queued [{memory_id}]{suffix}"
 
 
 @mcp.tool()

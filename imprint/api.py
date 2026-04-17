@@ -245,7 +245,26 @@ async def api_workspace_switch(request: Request):
         return {"error": err}
     config.switch_workspace(name)
     vs._client = None
+    _reset_after_wipe()
     return {"ok": True, "active": config.get_active_workspace()}
+
+
+@app.post("/api/workspace/create")
+async def api_workspace_create(request: Request):
+    body = await request.json()
+    name = (body.get("name") or body.get("workspace") or "").strip()
+    if not name:
+        return JSONResponse({"error": "workspace name required"}, status_code=400)
+    err = config.validate_workspace_name(name)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    created = config.register_workspace(name)
+    return {
+        "ok": True,
+        "created": created,
+        "active": config.get_active_workspace(),
+        "workspaces": config.get_known_workspaces(),
+    }
 
 
 # ── Chat ───────────────────────────────────────────────────────
@@ -465,7 +484,7 @@ def _reset_after_wipe():
 # Allowed commands — just run the `imprint` binary directly.
 _ALLOWED_COMMANDS = {
     "status", "ingest", "refresh", "refresh-urls", "retag",
-    "config", "wipe", "sync",
+    "config", "wipe", "sync", "migrate", "workspace",
 }
 
 
@@ -516,8 +535,8 @@ async def api_run_command(command: str, request: Request):
             for line in proc.stdout:
                 yield f"data: {json.dumps({'type': 'output', 'text': line})}\n\n"
             proc.wait()
-            # After wipe, reset in-memory caches so dashboard reflects empty state
-            if command == "wipe" and proc.returncode == 0:
+            # Reset caches after any command that mutates collections/workspaces
+            if proc.returncode == 0 and command in ("wipe", "migrate", "workspace", "retag"):
                 _reset_after_wipe()
             yield f"data: {json.dumps({'type': 'done', 'exit_code': proc.returncode})}\n\n"
         except Exception as e:
@@ -540,6 +559,8 @@ def _build_command_args(command: str, body: dict) -> list[str]:
             args.extend(["--project", body["project"]])
         if body.get("dry_run"):
             args.append("--dry-run")
+        if body.get("all"):
+            args.append("--all")
     elif command == "config":
         # Support `config`, `config get <key>`, `config set <key> <val>`
         action = body.get("action", "")
@@ -558,6 +579,24 @@ def _build_command_args(command: str, body: dict) -> list[str]:
         action = body.get("action", "")
         if action:
             args.append(action)
+    elif command == "migrate":
+        if body.get("from"):
+            args.extend(["--from", body["from"]])
+        if body.get("to"):
+            args.extend(["--to", body["to"]])
+        if body.get("project"):
+            args.extend(["--project", body["project"]])
+        if body.get("topic"):
+            args.extend(["--topic", body["topic"]])
+        if body.get("dry_run"):
+            args.append("--dry-run")
+    elif command == "workspace":
+        # `workspace switch <name>` / `workspace delete <name>` / `workspace list`
+        action = body.get("action", "")
+        if action:
+            args.append(action)
+        if body.get("name"):
+            args.append(body["name"])
     return args
 
 

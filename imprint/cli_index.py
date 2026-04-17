@@ -67,7 +67,9 @@ def _ocr_image_exts() -> set[str]:
     return set()
 
 
-# Skip these — low value for memory context
+# Skip these — low value for memory context.
+# Note: .env / .env.* files are handled by an explicit filename check in
+# scan_dir() since they're not true extensions (splitext('.env') → ('.env','')).
 SKIP_EXTENSIONS = {
     '.css', '.scss', '.sass', '.less', '.styl',         # Styling
     '.svg', '.ico',                                     # Vector + favicons
@@ -75,7 +77,6 @@ SKIP_EXTENSIONS = {
     '.lock', '.map', '.min.js', '.min.css',             # Generated
     '.d.ts',                                            # Type declarations
     '.snap',                                            # Test snapshots
-    '.env', '.env.local', '.env.example',               # Env files
 }
 
 # Skip files matching these names regardless of extension
@@ -91,8 +92,22 @@ SKIP_FILES = {
 }
 
 SKIP_DIRS = {
-    'node_modules', '__pycache__', '.venv', 'dist', 'build', '.git',
-    '.next', '.nuxt', 'vendor', 'coverage', '.cache', '.turbo',
+    # Dependency / package directories
+    'node_modules', 'vendor', 'bower_components', 'jspm_packages',
+    # Python virtual envs + caches
+    'venv', '.venv', 'env', '.env', 'virtualenv', '.tox',
+    '__pycache__', 'site-packages', 'Lib', 'Scripts',
+    '.pytest_cache', '.mypy_cache', '.ruff_cache', '.pyre',
+    # Build outputs
+    'dist', 'build', 'out', 'target', 'bin', 'obj',
+    '.next', '.nuxt', '.svelte-kit', '.astro', '.output',
+    # Caches
+    '.cache', '.turbo', '.parcel-cache', '.webpack', '.rollup.cache',
+    '.gradle', '.mvn',
+    # VCS + coverage
+    '.git', '.hg', '.svn', 'coverage', '.nyc_output',
+    # iOS/macOS
+    'Pods', 'DerivedData', 'xcuserdata',
 }
 
 BAR_WIDTH = 40
@@ -225,9 +240,16 @@ def scan_dir(dir_path):
 
     files = []
     for root, subdirs, fnames in os.walk(dir_path):
-        subdirs[:] = [d for d in subdirs if not d.startswith('.') and d not in SKIP_DIRS]
+        subdirs[:] = [
+            d for d in subdirs
+            if d not in SKIP_DIRS and not d.startswith('.')
+        ]
         for fname in fnames:
             if fname in SKIP_FILES:
+                continue
+            # Any .env* file (.env, .env.local, .env.production, etc.) —
+            # may contain secrets, never index.
+            if fname == '.env' or fname.startswith('.env.'):
                 continue
             ext = os.path.splitext(fname)[1].lower()
             if ext in skip_exts:
@@ -448,7 +470,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                     llm=enable_llm, zero_shot=enable_zero_shot,
                     neighbor_context=neighbor_ctx, project_hint=project,
                 )
-                mem_type = tags.pop("_llm_type", "") or "architecture"
+                llm_type = tags.pop("_llm_type", "")
+                mem_type = llm_type or "architecture"
                 records.append({
                     "content": chunk_text,
                     "project": project,
@@ -459,6 +482,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                     "doc_metadata": doc_meta,
                     "chunk_index": chunk_idx,
                     "source_mtime": mtime,
+                    "llm_tagged": bool(llm_type),
                 })
     else:
         with open(file_path, 'r', errors='ignore') as f:
@@ -479,7 +503,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                 llm=enable_llm, zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx, project_hint=project,
             )
-            mem_type = tags.pop("_llm_type", "") or "architecture"
+            llm_type = tags.pop("_llm_type", "")
+            mem_type = llm_type or "architecture"
             records.append({
                 "content": chunk_text,
                 "project": project,
@@ -490,6 +515,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                 "doc_metadata": {},
                 "chunk_index": chunk_idx,
                 "source_mtime": mtime,
+                "llm_tagged": bool(llm_type),
             })
 
     if not records:
@@ -572,6 +598,7 @@ def _llm_tag_recent(
                     payload: dict = {"tags": tags}
                     if typ:
                         payload["type"] = typ
+                        payload["llm_tagged"] = True
                     client.set_payload(
                         collection_name=coll,
                         payload=payload,
@@ -593,6 +620,7 @@ def _llm_tag_recent(
         payload = {"tags": tags}
         if typ:
             payload["type"] = typ
+            payload["llm_tagged"] = True
         client.set_payload(
             collection_name=coll,
             payload=payload,
