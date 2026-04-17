@@ -72,6 +72,26 @@ irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/in
 
 Pin a specific version, pick the dev channel, or use prebuilt Docker images — see [docs/installation.md](docs/installation.md).
 
+## Updating
+
+Once installed, use the built-in updater — no curl, no sudo. `data/` (workspaces, Qdrant storage, SQLite graphs, config, `gpu_state.json`) and `.venv/` are always preserved; only the code tree is replaced.
+
+```bash
+imprint update              # latest stable, asks for confirmation
+imprint update --dev        # latest prerelease
+imprint update --version v0.3.1
+imprint update --check      # show current + latest release and exit
+imprint update -y           # skip confirmation (CI / scripts)
+```
+
+Re-running `install.sh` also works and now prompts before overwriting an existing install. For non-interactive upgrades pass `--yes` or set `IMPRINT_ASSUME_YES=1`.
+
+**If GPU setup fails once** (e.g. Blackwell + old nvcc, or CUDA runtime mismatch) the failure is remembered in `data/gpu_state.json` so future `imprint setup` runs skip the broken path silently. After you upgrade the toolchain, force a retry with:
+
+```bash
+imprint setup --retry-gpu
+```
+
 ## Supported hosts
 
 `imprint setup <target>` auto-wires the MCP server into each supported AI coding tool. Run `imprint setup all` to configure every host that's installed on your machine; missing tools are skipped with a warning, not an error.
@@ -91,6 +111,9 @@ Pin a specific version, pick the dev channel, or use prebuilt Docker images — 
 ```bash
 imprint setup [target]     # install deps, register MCP, configure the chosen host tool
                            #   target: claude-code (default) | cursor | codex | copilot | cline | all
+                           # add --retry-gpu to forget a sticky GPU failure and retry ORT / llama-cpp CUDA
+imprint update [--version v0.3.1] [--dev] [-y] [--check]
+                           # upgrade imprint in place; preserves data/ and .venv/
 imprint status             # is everything wired? show enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
                            #   target: claude-code | cursor | codex | copilot | cline | all
