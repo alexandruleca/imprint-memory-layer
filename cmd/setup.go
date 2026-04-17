@@ -871,8 +871,8 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 	// compile that produces a bare "exit status 1" and no diagnostic.
 	if nvcc == "" {
 		output.Warn(fmt.Sprintf(
-			"llama-cpp CUDA rebuild skipped — nvcc not found on PATH, CUDA_HOME, or standard install dirs. Install CUDA Toolkit 12.8+ (or set CUDA_HOME) to enable GPU offload for %s (sm_%s).",
-			gpuShort, archFlagFor(cap),
+			"llama-cpp CUDA rebuild skipped — nvcc not found on PATH, CUDA_HOME, or standard install dirs. Install CUDA Toolkit 12.8+ to enable GPU offload for %s (sm_%s):\n%s",
+			gpuShort, archFlagFor(cap), platform.CUDAInstallHint(),
 		))
 		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
 		_ = gpustate.Save(dataDir, state)
@@ -883,8 +883,8 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 	// burning minutes on a rebuild that cannot produce valid SASS.
 	if !nvccSupportsCap(nvcc, cap) {
 		output.Warn(fmt.Sprintf(
-			"llama-cpp CUDA rebuild skipped — %s (sm_%s) requires nvcc 12.8+, found %s",
-			gpuShort, archFlagFor(cap), nvcc,
+			"llama-cpp CUDA rebuild skipped — %s (sm_%s) requires nvcc 12.8+, found %s. Upgrade:\n%s",
+			gpuShort, archFlagFor(cap), nvcc, platform.CUDAInstallHint(),
 		))
 		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
 		_ = gpustate.Save(dataDir, state)
