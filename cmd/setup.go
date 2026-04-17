@@ -663,11 +663,87 @@ func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 	_ = gpustate.Save(dataDir, state)
 }
 
+// findNvcc locates the nvcc binary. Checks PATH first, then falls back to
+// CUDA_HOME / CUDA_PATH / CUDA_ROOT env vars and common install locations
+// (Linux: /usr/local/cuda*, /opt/cuda*; Windows: NVIDIA GPU Computing
+// Toolkit). Returns absolute path, or "" if nvcc can't be found.
+// When multiple versioned installs exist, picks the highest version.
+func findNvcc() string {
+	if p, ok := runner.Exists("nvcc"); ok {
+		return p
+	}
+	bin := "nvcc"
+	if runtime.GOOS == "windows" {
+		bin = "nvcc.exe"
+	}
+	for _, key := range []string{"CUDA_HOME", "CUDA_PATH", "CUDA_ROOT"} {
+		if root := os.Getenv(key); root != "" {
+			cand := filepath.Join(root, "bin", bin)
+			if _, err := os.Stat(cand); err == nil {
+				return cand
+			}
+		}
+	}
+	var patterns []string
+	switch runtime.GOOS {
+	case "windows":
+		patterns = []string{
+			`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin\nvcc.exe`,
+		}
+	case "darwin":
+		patterns = []string{
+			"/usr/local/cuda/bin/nvcc",
+			"/usr/local/cuda-*/bin/nvcc",
+			"/Developer/NVIDIA/CUDA-*/bin/nvcc",
+		}
+	default:
+		patterns = []string{
+			"/usr/local/cuda/bin/nvcc",
+			"/usr/local/cuda-*/bin/nvcc",
+			"/opt/cuda/bin/nvcc",
+			"/opt/cuda-*/bin/nvcc",
+			"/usr/lib/cuda/bin/nvcc",
+		}
+	}
+	var best string
+	var bestMajor, bestMinor int
+	for _, pat := range patterns {
+		matches, _ := filepath.Glob(pat)
+		for _, m := range matches {
+			if _, err := os.Stat(m); err != nil {
+				continue
+			}
+			major, minor := cudaVersionFromPath(m)
+			if best == "" || major > bestMajor || (major == bestMajor && minor > bestMinor) {
+				best = m
+				bestMajor, bestMinor = major, minor
+			}
+		}
+	}
+	return best
+}
+
+// cudaVersionFromPath extracts a (major, minor) version from a CUDA install
+// path like "/usr/local/cuda-12.8/bin/nvcc" or ".../CUDA/v12.8/bin/nvcc.exe".
+// Returns (0, 0) when the path carries no version hint (e.g. the unversioned
+// /usr/local/cuda symlink) so versioned installs are preferred over it.
+var cudaVersionRe = regexp.MustCompile(`(?:cuda[-/]?|CUDA[\\/]v)(\d+)\.(\d+)`)
+
+func cudaVersionFromPath(p string) (int, int) {
+	m := cudaVersionRe.FindStringSubmatch(p)
+	if m == nil {
+		return 0, 0
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	return major, minor
+}
+
 // nvccVersion returns the major.minor of the installed nvcc, or "" if nvcc
-// isn't on PATH. Example outputs: "12.6", "13.0".
+// can't be found. Example outputs: "12.6", "13.0".
 func nvccVersion() string {
-	nvcc, ok := runner.Exists("nvcc")
-	if !ok {
+	nvcc := findNvcc()
+	if nvcc == "" {
 		return ""
 	}
 	out, err := runner.RunCapture(nvcc, "--version")
@@ -685,7 +761,7 @@ func nvccVersion() string {
 // cudaPath returns the CUDA toolkit root (parent of bin/nvcc), falling back
 // to /usr/local/cuda for Linux defaults.
 func cudaPath() string {
-	if nvcc, ok := runner.Exists("nvcc"); ok {
+	if nvcc := findNvcc(); nvcc != "" {
 		if resolved, err := filepath.EvalSymlinks(nvcc); err == nil {
 			return filepath.Dir(filepath.Dir(resolved))
 		}
@@ -790,12 +866,12 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 		return
 	}
 
-	// No nvcc on PATH → can't rebuild with CUDA. Warn with actionable hint
-	// instead of attempting a doomed compile (which produces a bare
-	// "exit status 1" and no useful diagnostic).
+	// nvcc not found anywhere (PATH, CUDA_HOME/PATH/ROOT, or common install
+	// dirs). Warn with an actionable hint instead of attempting a doomed
+	// compile that produces a bare "exit status 1" and no diagnostic.
 	if nvcc == "" {
 		output.Warn(fmt.Sprintf(
-			"llama-cpp CUDA rebuild skipped — nvcc not on PATH. Install CUDA Toolkit 12.8+ (or add its bin dir to PATH) to enable GPU offload for %s (sm_%s).",
+			"llama-cpp CUDA rebuild skipped — nvcc not found on PATH, CUDA_HOME, or standard install dirs. Install CUDA Toolkit 12.8+ (or set CUDA_HOME) to enable GPU offload for %s (sm_%s).",
 			gpuShort, archFlagFor(cap),
 		))
 		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
@@ -817,12 +893,28 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 
 	arch := archFlagFor(cap)
 	cudaRoot := cudaPath()
+	nvccPath := findNvcc()
 	output.Info(fmt.Sprintf("NVIDIA GPU found: %s (sm_%s) — rebuilding llama-cpp-python with CUDA (nvcc %s, %s)...",
 		gpuShort, arch, nvcc, cudaRoot))
 
 	env := []string{
 		fmt.Sprintf("CMAKE_ARGS=-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=%s", arch),
 		"CUDA_PATH=" + cudaRoot,
+		"CUDA_HOME=" + cudaRoot,
+	}
+	// If nvcc was found off-PATH (CUDA_HOME or glob fallback), prepend its
+	// bin dir so the cmake invocation inside pip can locate nvcc during the
+	// build.
+	if nvccPath != "" {
+		if _, onPath := runner.Exists("nvcc"); !onPath {
+			nvccBin := filepath.Dir(nvccPath)
+			sep := ":"
+			if runtime.GOOS == "windows" {
+				sep = ";"
+			}
+			env = append(env, "PATH="+nvccBin+sep+os.Getenv("PATH"))
+			output.Info("nvcc not on PATH — using " + nvccPath + " for build")
+		}
 	}
 	if out, err := runner.RunCaptureEnv(venvPip, env,
 		"install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir"); err != nil {
