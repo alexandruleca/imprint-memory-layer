@@ -22,6 +22,10 @@ L1_MAX_CHARS = 2400   # ~600 tokens — essential decisions/patterns
 RECENT_MAX_ENTRIES = 8
 RECENT_MAX_CHARS = 800  # ~200 tokens — recent activity
 
+# Search output budget
+SEARCH_MAX_CONTENT_CHARS = 1500  # per-result content truncation
+SEARCH_MAX_TOTAL_CHARS = 12000   # hard cap on full search output
+
 
 _session_woken = False
 
@@ -144,6 +148,7 @@ def wake_up(workspace: str = "") -> str:
     lang_facets = vs.facet_counts("tags.lang", limit=8, workspace=ws)
     domain_facets = vs.facet_counts("tags.domain", limit=10, workspace=ws)
     layer_facets = vs.facet_counts("tags.layer", limit=6, workspace=ws)
+    type_facets = vs.facet_counts("type", limit=10, workspace=ws)
 
     coverage_parts = []
     if lang_facets:
@@ -158,6 +163,10 @@ def wake_up(workspace: str = "") -> str:
         layers = ", ".join(f"{v}({c})" for v, c in layer_facets if v)
         if layers:
             coverage_parts.append(f"  Layers: {layers}")
+    if type_facets:
+        types = ", ".join(f"{v}({c})" for v, c in type_facets if v)
+        if types:
+            coverage_parts.append(f"  Types: {types}")
 
     if coverage_parts:
         lines.append("\nKnowledge coverage (searchable with filters):")
@@ -185,6 +194,7 @@ def search(
     kind: str = "",
     domain: str = "",
     limit: int = 10,
+    offset: int = 0,
     workspace: str = "",
 ) -> str:
     """Semantic search across stored memories.
@@ -195,17 +205,20 @@ def search(
     Args:
         query: What to search for (natural language)
         project: Filter by project name (optional)
-        type: Filter by type: decision, pattern, finding, preference, bug, architecture (optional)
-        lang: Filter by language tag (python, typescript, go, php, markdown, conversation, ...)
-        layer: Filter by layer (api, ui, tests, infra, config, migrations, docs, scripts, cli, session)
-        kind: Filter by file kind (source, test, migration, readme, types, module, qa, auto-extract)
-        domain: Filter by domain tag, comma-separated for multi-match (auth, db, api, math, rendering, ui, testing, infra, ml, perf, security, build, payments)
+        type: Filter by memory type (e.g. decision, pattern, finding, bug, architecture). Dynamic — use wake_up to see available types. (optional)
+        lang: Filter by language tag (e.g. python, typescript, go, markdown, conversation)
+        layer: Filter by layer (e.g. api, ui, tests, infra, config, docs, cli, session)
+        kind: Filter by file kind (e.g. source, test, migration, readme, types, module, auto-extract)
+        domain: Filter by domain tag, comma-separated for multi-match (e.g. auth, db, api, ml). Dynamic — use wake_up to see available domains. (optional)
         limit: Max results (default 10)
+        offset: Skip first N results for pagination (default 0). Use when previous search indicated more results available.
         workspace: Target a specific workspace instead of the active one (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
         return err
+
+    limit = max(1, min(limit, 50))
 
     tag_filters: dict = {}
     if lang:
@@ -220,7 +233,7 @@ def search(
             tag_filters["domain"] = doms
 
     results = vs.search(
-        query, limit=limit, project=project, type=type,
+        query, limit=limit, offset=offset, project=project, type=type,
         tag_filters=tag_filters or None, workspace=ws,
     )
 
@@ -238,6 +251,9 @@ def search(
         return prefix + "No relevant matches found. Try reading the relevant files directly."
 
     lines = []
+
+    if offset > 0:
+        lines.append(f"(Showing results {offset + 1}–{offset + len(relevant)})\n")
 
     # ── Confidence-based guidance ──
     avg_sim = sum(r["similarity"] for r in relevant) / len(relevant)
@@ -268,10 +284,29 @@ def search(
         meta_str = " | ".join(meta) if meta else ""
 
         lines.append(f"[{i}] {meta_str}  (similarity: {r['similarity']:.3f})")
-        lines.append(r["content"])
+        if r.get("type") == "pattern":
+            lines.append(f"  [cross-project pattern from {r.get('project', '?')}]")
+        content = r["content"]
+        if len(content) > SEARCH_MAX_CONTENT_CHARS:
+            source = r.get("source", "")
+            hint = f'\n  … [truncated — use file_chunks(source="{source}") for full content]' if source else "\n  … [truncated]"
+            content = content[:SEARCH_MAX_CONTENT_CHARS] + hint
+        lines.append(content)
         lines.append("")
 
-    return prefix + "\n".join(lines)
+    # Hint about more results when we hit the limit
+    if len(relevant) == limit:
+        next_offset = offset + limit
+        lines.append(f"({len(relevant)} results shown. More may exist — use offset={next_offset} to continue.)")
+
+    output = prefix + "\n".join(lines)
+    if len(output) > SEARCH_MAX_TOTAL_CHARS:
+        next_offset = offset + limit
+        output = output[:SEARCH_MAX_TOTAL_CHARS] + (
+            f"\n\n… [output truncated — {len(relevant)} results matched. "
+            f"Use offset={next_offset} to see more, or add filters to narrow results]"
+        )
+    return output
 
 
 @mcp.tool()
@@ -289,7 +324,7 @@ def store(
     Args:
         content: The memory to store — be specific, include reasoning
         project: Project this relates to (e.g. 'my-web-app', 'api-server')
-        type: One of: decision, pattern, finding, preference, bug, architecture, milestone
+        type: Memory type (e.g. decision, pattern, finding, bug, architecture, milestone). Auto-classified if omitted.
         tags: Comma-separated tags (e.g. 'cors,security')
         source: Where this came from (e.g. file path, conversation topic)
         workspace: Target a specific workspace instead of the active one (optional)
@@ -300,8 +335,13 @@ def store(
 
     # Auto-classify type if not provided
     if not type:
-        from . import classifier
-        type, _ = classifier.classify(content)
+        from . import classifier, tagger
+        tags = tagger.build_payload_tags(content, workspace=ws)
+        llm_type = tags.pop("_llm_type", "")
+        if llm_type:
+            type = llm_type
+        else:
+            type, _ = classifier.classify(content)
 
     memory_id = vs.store(
         content=content, project=project, type=type, tags=tags, source=source,
@@ -479,6 +519,142 @@ def status(workspace: str = "") -> str:
             f"{p}({c})" for p, c in sorted(stats["by_project"].items(), key=lambda x: -x[1])
         )
         lines.append(f"Projects: {projects}")
+
+    return "\n".join(lines)
+
+
+# ── file retrieval tools ──────────────────────────────────────
+
+@mcp.tool()
+def list_sources(
+    project: str = "",
+    lang: str = "",
+    layer: str = "",
+    limit: int = 50,
+    workspace: str = "",
+) -> str:
+    """List all indexed source files in the KB with chunk counts.
+    Helps discover what's available before using file_summary or file_chunks.
+
+    Args:
+        project: Filter by project name (optional)
+        lang: Filter by language tag (python, typescript, go, etc.)
+        layer: Filter by layer (api, ui, tests, infra, config, docs, etc.)
+        limit: Max number of sources to return (default 50)
+        workspace: Target a specific workspace (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
+    sources = vs.list_sources(
+        project=project, lang=lang, layer=layer, limit=limit, workspace=ws,
+    )
+
+    if not sources:
+        return "No indexed sources found. Use 'imprint ingest <dir>' to index a project."
+
+    lines = [f"Indexed sources ({len(sources)} shown):"]
+    lines.append("")
+    for path, count in sources:
+        lines.append(f"  {count:>4} chunks  {path}")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def file_summary(
+    source: str,
+    project: str = "",
+    workspace: str = "",
+) -> str:
+    """Quick overview of an indexed file — call BEFORE deciding to Read a file.
+    Returns chunk count, tags, modification time, and a preview of the first chunk.
+
+    Args:
+        source: Source file path as stored in the KB (usually project/relative-path)
+        project: Filter by project name (optional, for disambiguation)
+        workspace: Target a specific workspace (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
+    summary = vs.get_source_summary(source, project=project, workspace=ws)
+    if summary is None:
+        return f"Source not found in KB: {source}\nUse list_sources to discover indexed files."
+
+    from datetime import datetime
+    tags = summary.get("tags") or {}
+    mtime = summary.get("source_mtime", 0)
+    mtime_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else "unknown"
+
+    lines = [
+        f"Source: {summary['source']}",
+        f"Project: {summary.get('project', '?')}  |  Chunks: {summary['chunk_count']}  |  Modified: {mtime_str}",
+    ]
+
+    tag_parts = []
+    if tags.get("lang"):
+        tag_parts.append(f"lang={tags['lang']}")
+    if tags.get("layer"):
+        tag_parts.append(f"layer={tags['layer']}")
+    if tags.get("kind"):
+        tag_parts.append(f"kind={tags['kind']}")
+    if tags.get("domain"):
+        tag_parts.append(f"domains={tags['domain']}")
+    if tags.get("topics"):
+        tag_parts.append(f"topics={tags['topics']}")
+    if tag_parts:
+        lines.append(f"Tags: {', '.join(tag_parts)}")
+
+    preview = summary.get("first_chunk_preview", "")
+    if preview:
+        lines.append(f"\nPreview (chunk 0):\n{preview}...")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def file_chunks(
+    source: str,
+    start: int = 0,
+    end: int = -1,
+    project: str = "",
+    workspace: str = "",
+) -> str:
+    """Retrieve indexed chunks of a file by chunk index range.
+    Use file_summary first to see how many chunks a file has.
+
+    Args:
+        source: Source file path as stored in the KB
+        start: First chunk index (0-based, inclusive, default 0)
+        end: Last chunk index (inclusive, -1 = all remaining chunks)
+        project: Filter by project (optional)
+        workspace: Target a specific workspace (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+
+    end_val = None if end < 0 else end
+
+    chunks = vs.get_chunks_by_source(
+        source, start=start, end=end_val, project=project, workspace=ws,
+    )
+
+    if not chunks:
+        return f"No chunks found for: {source}\nUse list_sources to discover indexed files."
+
+    first_idx = chunks[0]["chunk_index"]
+    last_idx = chunks[-1]["chunk_index"]
+    lines = [f"[{source}] — chunks {first_idx}-{last_idx} ({len(chunks)} total)"]
+    lines.append("")
+
+    for c in chunks:
+        lines.append(f"--- chunk {c['chunk_index']} ---")
+        lines.append(c["content"])
+        lines.append("")
 
     return "\n".join(lines)
 

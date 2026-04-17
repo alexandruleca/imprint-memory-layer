@@ -53,13 +53,6 @@ func setupBackend() backendPaths {
 	}
 	output.Success(fmt.Sprintf("Found Python %s (%s)", py.Version, py.Cmd))
 
-	output.Info("Checking for pip...")
-	pipArgs := append(append([]string{}, py.ExtraArgs...), "-m", "pip", "--version")
-	if _, err := runner.RunCapture(py.Cmd, pipArgs...); err != nil {
-		output.Fail("pip not found. Install with: " + platform.PipInstallHint())
-	}
-	output.Success("pip available")
-
 	venvPython := platform.VenvPython(projectDir)
 	venvPip := platform.VenvBin(projectDir, "pip")
 
@@ -94,6 +87,17 @@ func setupBackend() backendPaths {
 		}
 	}
 	if !venvHealthy {
+		// Only need system pip/venv when creating a fresh venv
+		output.Info("Checking for pip...")
+		pipArgs := append(append([]string{}, py.ExtraArgs...), "-m", "pip", "--version")
+		if _, err := runner.RunCapture(py.Cmd, pipArgs...); err != nil {
+			// Try ensurepip as fallback before giving up
+			ensureArgs := append(append([]string{}, py.ExtraArgs...), "-m", "ensurepip", "--default-pip")
+			if err2 := runner.Run(py.Cmd, ensureArgs...); err2 != nil {
+				output.Fail("pip not found. Install with: " + platform.PipInstallHint())
+			}
+		}
+
 		venvArgs := append(append([]string{}, py.ExtraArgs...), "-m", "venv", venvDir)
 		if err := runner.Run(py.Cmd, venvArgs...); err != nil {
 			output.Fail("Failed to create virtual environment: " + err.Error())
@@ -131,7 +135,9 @@ func setupBackend() backendPaths {
 		"bs4",           // html/epub fallback
 		"httpx",         // URL fetch
 		"trafilatura",   // html readability
-		"llama_cpp",     // local Gemma chat in viz
+		"llama_cpp",     // local Gemma chat + tagger
+		"fastapi",       // dashboard API server
+		"uvicorn",       // ASGI server for FastAPI
 	}
 	missing := checkPythonImports(venvPython, requiredPkgs)
 	if len(missing) == 0 {
@@ -156,6 +162,15 @@ func setupBackend() backendPaths {
 		}
 	}
 
+	// ── GPU acceleration ────────────────────────────────────────
+	// If an NVIDIA GPU is present, swap onnxruntime (CPU) for onnxruntime-gpu.
+	// They conflict — can't have both installed.
+	ensureOrtGPU(venvPython, venvPip)
+
+	// If an NVIDIA GPU is present, rebuild llama-cpp-python with CUDA
+	// support so the local tagger + chat use GPU offload.
+	ensureLlamaCppGPU(venvPython, venvPip, projectDir)
+
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
 	reportExtractorHealth(venvPython, projectDir, dataDir)
 
@@ -177,6 +192,17 @@ func setupBackend() backendPaths {
 	}
 	setupShellAlias("imprint", imprintBin)
 
+	// ── Dashboard UI (pre-built static export) ─────────────────
+	// The Next.js dashboard is pre-built and shipped as static HTML/CSS/JS
+	// in imprint/ui/out/. No Node.js or npm needed at runtime.
+	// Developers rebuild with: cd imprint/ui && npm install && npm run build
+	uiOut := filepath.Join(projectDir, "imprint", "ui", "out")
+	if platform.DirExists(uiOut) {
+		output.Skip("Dashboard UI bundled (static)")
+	} else {
+		output.Warn("Dashboard UI not found at imprint/ui/out/ — run `cd imprint/ui && npm install && npm run build` to rebuild")
+	}
+
 	return backendPaths{
 		ProjectDir: projectDir,
 		VenvPython: venvPython,
@@ -193,7 +219,8 @@ func SetupClaudeCode() {
 	if claudePath, ok := runner.Exists("claude"); ok {
 		output.Success("Claude Code CLI found: " + claudePath)
 	} else {
-		output.Fail("Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code/overview")
+		output.Warn("Claude Code CLI not found — install it first: https://docs.anthropic.com/en/docs/claude-code/overview. Skipping.")
+		return
 	}
 
 	bp := setupBackend()
@@ -382,6 +409,130 @@ else:
 		default:
 			fmt.Println("  " + line)
 		}
+	}
+}
+
+// ensureOrtGPU checks for an NVIDIA GPU and swaps onnxruntime (CPU) for
+// onnxruntime-gpu if needed. The two packages conflict — having both
+// installed causes the CPU provider to shadow the GPU one.
+func ensureOrtGPU(venvPython, venvPip string) {
+	// Check if CUDAExecutionProvider is already available AND module is healthy.
+	// A broken onnxruntime-gpu install may load but lack SessionOptions entirely.
+	hasCuda, cudaErr := runner.RunCapture(venvPython, "-c",
+		"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'broken'; print('CUDAExecutionProvider' in ort.get_available_providers())")
+	if cudaErr == nil && strings.TrimSpace(hasCuda) == "True" {
+		output.Skip("GPU acceleration active (CUDA)")
+		return
+	}
+	// If the module is broken (e.g. onnxruntime-gpu without CUDA libs), fix it now.
+	if cudaErr != nil {
+		output.Warn("onnxruntime module is broken — reinstalling CPU version...")
+		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "onnxruntime", "-y", "--quiet")
+		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+	}
+
+	// Check for NVIDIA GPU via nvidia-smi
+	nvsmi, hasNvsmi := runner.Exists("nvidia-smi")
+	if !hasNvsmi {
+		output.Skip("No NVIDIA GPU detected — using CPU for embeddings")
+		return
+	}
+	gpuName, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader")
+	if err != nil || strings.TrimSpace(gpuName) == "" {
+		output.Skip("No NVIDIA GPU detected — using CPU for embeddings")
+		return
+	}
+	gpuShort := strings.Split(strings.TrimSpace(gpuName), "\n")[0]
+
+	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — installing onnxruntime-gpu...", gpuShort))
+
+	// Uninstall CPU-only onnxruntime, install GPU version
+	_ = runner.Run(venvPip, "uninstall", "onnxruntime", "-y", "--quiet")
+	if err := runner.Run(venvPip, "install", "onnxruntime-gpu", "--quiet"); err != nil {
+		output.Warn("Failed to install onnxruntime-gpu: " + err.Error() + " — falling back to CPU")
+		// Reinstall CPU version so nothing is broken
+		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+		return
+	}
+
+	// Verify the module actually works (not an empty shell) AND has CUDA provider.
+	// onnxruntime-gpu can install but leave a broken namespace package if CUDA
+	// libraries are missing — SessionOptions won't exist, nothing works.
+	check, checkErr := runner.RunCapture(venvPython, "-c",
+		"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'broken'; print('CUDAExecutionProvider' in ort.get_available_providers())")
+	if checkErr != nil {
+		output.Warn("onnxruntime-gpu installed but module is broken — falling back to CPU")
+		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
+		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+		return
+	}
+	if strings.TrimSpace(check) == "True" {
+		output.Success("GPU acceleration enabled (CUDA) — " + gpuShort)
+	} else {
+		output.Warn("onnxruntime-gpu installed but CUDA provider not available — falling back to CPU")
+		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
+		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+	}
+}
+
+// ensureLlamaCppGPU checks whether llama-cpp-python has GPU offload support.
+// If an NVIDIA GPU is present but llama-cpp was built CPU-only, rebuild it
+// from source with CUDA enabled. This enables the local tagger and chat
+// models to run on GPU.
+func ensureLlamaCppGPU(venvPython, venvPip, projectDir string) {
+	// Quick check: is llama_cpp even installed?
+	if _, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
+		return // not installed, nothing to do
+	}
+
+	// Check if GPU offload is already supported
+	hasGPU, _ := runner.RunCapture(venvPython, "-c",
+		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
+	if strings.TrimSpace(hasGPU) == "True" {
+		output.Skip("llama-cpp-python has GPU offload (CUDA)")
+		return
+	}
+
+	// No GPU offload — check if we even have an NVIDIA GPU
+	nvsmi, hasNvsmi := runner.Exists("nvidia-smi")
+	if !hasNvsmi {
+		output.Skip("llama-cpp-python using CPU (no NVIDIA GPU)")
+		return
+	}
+	gpuName, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader")
+	if err != nil || strings.TrimSpace(gpuName) == "" {
+		output.Skip("llama-cpp-python using CPU (no NVIDIA GPU)")
+		return
+	}
+	gpuShort := strings.Split(strings.TrimSpace(gpuName), "\n")[0]
+
+	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — rebuilding llama-cpp-python with CUDA...", gpuShort))
+
+	// Rebuild from source with CUDA. CMAKE_ARGS tells the build system
+	// to compile with GGML_CUDA. This can take a few minutes.
+	env := []string{
+		"CMAKE_ARGS=-DGGML_CUDA=on",
+		"CUDA_PATH=/usr/local/cuda",
+	}
+	if _, err := runner.RunCaptureEnv(venvPip, env,
+		"install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet"); err != nil {
+		output.Warn("Failed to rebuild llama-cpp-python with CUDA: " + err.Error() + " — using CPU")
+		return
+	}
+
+	// Verify GPU offload works after rebuild. Also check the module actually
+	// loads — a CUDA-linked build that can't find libcudart will fail to import.
+	check, checkErr := runner.RunCapture(venvPython, "-c",
+		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
+	if checkErr != nil {
+		output.Warn("llama-cpp-python CUDA build broken (can't import) — reinstalling CPU version")
+		_ = runner.Run(venvPip, "install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet")
+		return
+	}
+	if strings.TrimSpace(check) == "True" {
+		output.Success("llama-cpp-python rebuilt with CUDA — " + gpuShort)
+	} else {
+		output.Warn("llama-cpp-python rebuilt but GPU offload still unavailable — check CUDA toolkit")
 	}
 }
 

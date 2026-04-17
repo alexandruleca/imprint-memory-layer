@@ -13,7 +13,7 @@ graph LR
         SERVER[server start/stop]
         SYNC[sync]
         RELAY[relay]
-        VIZ[viz]
+        UI[ui]
     end
 
     subgraph "Python (imprint/)"
@@ -76,7 +76,7 @@ graph LR
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
 | MCP server | FastMCP (Python) | 8 tools — connects to Qdrant via HTTP |
-| CLI | Go | `setup`, `status`, `enable`, `disable`, `ingest`, `refresh`, `server`, `workspace`, `wipe`, `sync`, `relay`, `viz` |
+| CLI | Go | `setup`, `status`, `enable`, `disable`, `ingest`, `refresh`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync |
 
 ## Data Flow
@@ -166,7 +166,7 @@ sequenceDiagram
 | `IMPRINT_QDRANT_BIN` | (auto) | Override binary path (e.g. system-installed qdrant) |
 | `IMPRINT_QDRANT_NO_SPAWN` | `0` | Set `1` to disable auto-spawn — connect to your own managed server |
 
-**Why server mode and not embedded?** Embedded mode pins a filesystem lock and rejects any second client — this conflicts with Claude Code (always-on MCP) running alongside `imprint ingest`, hooks writing decisions, and tools like `imprint viz` reading the collection. Server mode supports unlimited concurrent connections at the cost of a single ~50 MB binary in your data dir and a ~50 MB resident process. Worth it.
+**Why server mode and not embedded?** Embedded mode pins a filesystem lock and rejects any second client — this conflicts with Claude Code (always-on MCP) running alongside `imprint ingest`, hooks writing decisions, and tools like `imprint ui` reading the collection. Server mode supports unlimited concurrent connections at the cost of a single ~50 MB binary in your data dir and a ~50 MB resident process. Worth it.
 
 **Bring your own server**: set `IMPRINT_QDRANT_NO_SPAWN=1` and point `IMPRINT_QDRANT_HOST` at a Docker (`docker run -p 6333:6333 qdrant/qdrant`) or remote Qdrant. Auto-spawn is disabled and the runner connects directly.
 

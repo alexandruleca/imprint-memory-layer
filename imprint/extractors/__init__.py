@@ -40,20 +40,25 @@ class ExtractedDoc:
     chunk_mode: str | None = None
 
 
+# Extractors may return a single doc or a list (e.g. one per conversation
+# in a ChatGPT export).  Callers should normalise via _normalize_result().
+ExtractorResult = ExtractedDoc | list[ExtractedDoc]
+
+
 # ── Extractor registry ─────────────────────────────────────────
-# Each callable: (path: str) -> ExtractedDoc. Registered on import of
+# Each callable: (path: str) -> ExtractorResult. Registered on import of
 # the submodule. Kept as a plain dict so unavailable extractors can be
 # registered lazily (stub raises ExtractorUnavailable at call time).
 
-_BY_EXT: dict[str, Callable[[str], ExtractedDoc]] = {}
-_BY_MIME: dict[str, Callable[[bytes, str], ExtractedDoc]] = {}
+_BY_EXT: dict[str, Callable[[str], ExtractorResult]] = {}
+_BY_MIME: dict[str, Callable[[bytes, str], ExtractorResult]] = {}
 
 
-def register_ext(ext: str, fn: Callable[[str], ExtractedDoc]) -> None:
+def register_ext(ext: str, fn: Callable[[str], ExtractorResult]) -> None:
     _BY_EXT[ext.lower()] = fn
 
 
-def register_mime(mime: str, fn: Callable[[bytes, str], ExtractedDoc]) -> None:
+def register_mime(mime: str, fn: Callable[[bytes, str], ExtractorResult]) -> None:
     _BY_MIME[mime.lower()] = fn
 
 
@@ -79,21 +84,34 @@ def is_doc_extension(ext: str) -> bool:
     return ext.lower() in DOC_EXTENSIONS
 
 
-def dispatch_by_ext(path: str) -> ExtractedDoc:
+def _normalize_result(result: ExtractorResult) -> list[ExtractedDoc]:
+    """Ensure extractor output is always a list."""
+    if isinstance(result, list):
+        return result
+    return [result]
+
+
+def dispatch_by_ext(path: str) -> list[ExtractedDoc]:
     """Route a file path to the matching extractor. Raises
-    ExtractorUnavailable if the extractor's optional dep is missing."""
+    ExtractorUnavailable if the extractor's optional dep is missing.
+
+    Always returns a list — extractors that split large files into
+    logical pieces (e.g. one doc per conversation) produce multiple items.
+    """
     ext = os.path.splitext(path)[1].lower()
     fn = _BY_EXT.get(ext)
     if fn is None:
         raise ExtractorUnavailable(f"no extractor registered for {ext!r}")
-    return fn(path)
+    return _normalize_result(fn(path))
 
 
-def dispatch_by_mime(mime: str, data: bytes, source_url: str = "") -> ExtractedDoc:
+def dispatch_by_mime(mime: str, data: bytes, source_url: str = "") -> list[ExtractedDoc]:
     """Route raw bytes (e.g. HTTP body) to an extractor by Content-Type.
 
     `mime` may include params (e.g. 'text/html; charset=utf-8'); we strip
     those and match on the bare type.
+
+    Always returns a list.
     """
     base = mime.split(";", 1)[0].strip().lower()
     fn = _BY_MIME.get(base)
@@ -105,7 +123,7 @@ def dispatch_by_mime(mime: str, data: bytes, source_url: str = "") -> ExtractedD
             fn = _BY_MIME.get("image/*")
     if fn is None:
         raise ExtractorUnavailable(f"no extractor registered for mime {base!r}")
-    return fn(data, source_url)
+    return _normalize_result(fn(data, source_url))
 
 
 # ── Plain-text extractor (always available) ────────────────────
@@ -159,6 +177,7 @@ from . import url as _url       # noqa: E402,F401
 
 __all__ = [
     "ExtractedDoc",
+    "ExtractorResult",
     "ExtractorUnavailable",
     "ExtractionError",
     "register_ext",

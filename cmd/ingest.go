@@ -62,35 +62,28 @@ func Ingest(args []string) {
 		"IMPRINT_DATA_DIR=" + dataDir,
 	}
 
+	if len(args) == 0 {
+		output.Fail("Usage: imprint ingest <path> [--batch-size N]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
+	}
+
 	fmt.Println()
 	output.Header("═══ Imprint Ingest ═══")
 	fmt.Println()
 
-	// Step 1: Migrate Claude Code auto-memory files
-	output.Info("Step 1/3: Migrating Claude Code memory files...")
-	runPython(venvPython, envVars, migrateScript(projectDir, dataDir))
-	fmt.Println()
+	target, _ := filepath.Abs(args[0])
 
-	// Step 2: Index conversations
-	output.Info("Step 2/3: Indexing conversation transcripts...")
-	cmd := runner.CommandWithEnv(venvPython,
-		[]string{"-m", "imprint.cli_conversations", "--all"},
-		envVars...,
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	cmd.Run()
-	fmt.Println()
+	// Detect file vs directory
+	info, err := os.Stat(target)
+	if err != nil {
+		output.Fail("Path not found: " + target)
+	}
 
-	// Step 3: Index project directories if provided
-	if len(args) > 0 {
-		output.Info("Step 3/3: Indexing project files...")
-		targetDir, _ := filepath.Abs(args[0])
-		indexDir(venvPython, envVars, targetDir, projectDir, dataDir, batchSize)
+	if info.IsDir() {
+		output.Info("Indexing project files...")
+		indexDir(venvPython, envVars, target, projectDir, dataDir, batchSize)
 	} else {
-		output.Info("Step 3/3: Skipped — no directory provided")
-		fmt.Println("  Tip: run 'imprint ingest [--batch-size N] ~/code' to also index project files")
+		output.Info("Indexing single file...")
+		indexFile(venvPython, envVars, target, projectDir, batchSize)
 	}
 
 	fmt.Println()
@@ -159,6 +152,41 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 	pyArgs = append(pyArgs, targetDir)
 	for _, p := range projects {
 		pyArgs = append(pyArgs, p.Path+":"+p.Name)
+	}
+
+	cmd := runner.CommandWithEnv(venvPython, pyArgs, envVars...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	cmd.Run()
+}
+
+func indexFile(venvPython string, envVars []string, filePath, projectDir string, batchSize int) {
+	// Detect project from the file's parent directory
+	parentDir := filepath.Dir(filePath)
+	detectScript := fmt.Sprintf(`
+import sys, json
+sys.path.insert(0, %q)
+from imprint.projects import find_projects
+projects = find_projects(%q, max_depth=0)
+print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
+`, projectDir, parentDir)
+
+	projectName := filepath.Base(parentDir) // fallback
+	out, err := runner.RunCapture(venvPython, "-c", detectScript)
+	if err == nil {
+		var projects []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(out), &projects) == nil && len(projects) > 0 {
+			projectName = projects[0].Name
+		}
+	}
+
+	pyArgs := []string{"-m", "imprint.cli_index", "--file", filePath, "--project", projectName}
+	if batchSize > 0 {
+		pyArgs = append(pyArgs, "--batch-size", strconv.Itoa(batchSize))
 	}
 
 	cmd := runner.CommandWithEnv(venvPython, pyArgs, envVars...)

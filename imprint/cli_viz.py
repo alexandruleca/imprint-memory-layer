@@ -367,11 +367,12 @@ def build_stats() -> dict:
     except Exception:
         total = 0
 
-    stats = {"total": total, "types": [], "langs": [], "domains": [], "layers": [], "timeline": []}
+    stats = {"total": total, "types": [], "langs": [], "domains": [], "layers": [], "topics": [], "timeline": []}
 
     try:
         for key, target in [("project", None), ("type", "types"), ("tags.lang", "langs"),
-                            ("tags.domain", "domains"), ("tags.layer", "layers")]:
+                            ("tags.domain", "domains"), ("tags.layer", "layers"),
+                            ("tags.topics", "topics")]:
             facet_result = client.facet(coll, key, limit=20)
             items = [(h.value, h.count) for h in facet_result.hits]
             if target:
@@ -590,6 +591,118 @@ def build_kg_data(subject: str = "", limit: int = 200) -> dict:
 # ── Change detection + caching ──────────────────────────────────
 
 _last_wal_size = 0
+# ── Source lineage (chunk siblings) ───────────────────────────────
+
+def build_source_lineage(source_key: str) -> dict:
+    """Return all chunks sharing the same source, ordered by chunk_index."""
+    client, coll = vs._ensure_collection()
+    filt = qm.Filter(must=[
+        qm.FieldCondition(key="source", match=qm.MatchValue(value=source_key)),
+    ])
+    points, _ = client.scroll(
+        coll, scroll_filter=filt, limit=500,
+        with_payload=True, with_vectors=False,
+    )
+    chunks = []
+    for p in points:
+        pay = p.payload or {}
+        tags = pay.get("tags", {})
+        chunks.append({
+            "id": pay.get("_mid", str(p.id)),
+            "chunk_index": pay.get("chunk_index", 0),
+            "content": (pay.get("content") or "")[:500],
+            "label": _extract_label(pay.get("content", ""), pay.get("source", "")),
+            "project": pay.get("project", ""),
+            "type": pay.get("type", ""),
+            "tags": tags,
+            "timestamp": pay.get("timestamp", 0),
+        })
+    chunks.sort(key=lambda c: c["chunk_index"])
+    return {
+        "source": source_key,
+        "total": len(chunks),
+        "chunks": chunks,
+    }
+
+
+# ── Topic overview ─────────────────────────────────────────────────
+
+def build_topic_overview(filters: dict | None = None) -> dict:
+    """Topic-level aggregation.  Returns bubble data grouped by topics."""
+    client, coll = vs._ensure_collection()
+    filt = _build_global_filter(filters) if filters else None
+
+    # Facet by topics
+    topic_facets = _facet("tags.topics", 100, filt)
+    if not topic_facets:
+        return {"topics": [], "total": 0, "facets": {}}
+
+    topics = []
+    for name, count in topic_facets:
+        if not name:
+            continue
+        # Per-topic sub-facets
+        topic_filter = qm.Filter(must=[
+            qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=name)),
+        ])
+        proj_facets = _facet("project", 5, topic_filter)
+        lang_facets = _facet("tags.lang", 3, topic_filter)
+        topics.append({
+            "id": f"topic_{name}",
+            "name": name,
+            "count": count,
+            "topProjects": [p for p, _ in proj_facets],
+            "topLangs": [l for l, _ in lang_facets],
+            "color": _project_color(name),
+        })
+
+    # Global facets
+    facets = {
+        "projects": _facet("project", 50, filt),
+        "langs": _facet("tags.lang", 30, filt),
+        "domains": _facet("tags.domain", 50, filt),
+    }
+
+    total = sum(t["count"] for t in topics)
+    return {"topics": topics, "total": total, "facets": facets}
+
+
+def build_topic_detail(topic_name: str) -> dict:
+    """Chunks within a topic, grouped/colored by project."""
+    client, coll = vs._ensure_collection()
+    filt = qm.Filter(must=[
+        qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic_name)),
+    ])
+    points, _ = client.scroll(
+        coll, scroll_filter=filt, limit=200,
+        with_payload=True, with_vectors=False,
+    )
+    nodes = []
+    for p in points:
+        pay = p.payload or {}
+        tags = pay.get("tags", {})
+        mid = pay.get("_mid", str(p.id))
+        nodes.append({
+            "id": mid,
+            "label": _extract_label(pay.get("content", ""), pay.get("source", "")),
+            "project": pay.get("project", ""),
+            "type": pay.get("type", ""),
+            "source": pay.get("source", ""),
+            "chunk_index": pay.get("chunk_index", 0),
+            "tags": tags,
+            "content": (pay.get("content") or "")[:500],
+        })
+
+    # Project distribution within this topic
+    proj_facets = _facet("project", 20, filt)
+    return {
+        "topic": topic_name,
+        "total": len(nodes),
+        "nodes": nodes,
+        "projects": proj_facets,
+    }
+
+
 _last_row_count = -1
 _data_version = 0
 _overview_cache = None
@@ -2893,6 +3006,24 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
             from urllib.parse import unquote
             entity = unquote(entity)
             data = build_kg_data(subject=entity, limit=50)
+            self._json(data)
+
+        elif path.startswith("/api/source/"):
+            source_key = path[len("/api/source/"):]
+            from urllib.parse import unquote
+            source_key = unquote(source_key)
+            data = build_source_lineage(source_key)
+            self._json(data)
+
+        elif path == "/api/topics":
+            data = build_topic_overview(filters_from_qs())
+            self._json(data)
+
+        elif path.startswith("/api/topic/"):
+            topic_name = path[len("/api/topic/"):]
+            from urllib.parse import unquote
+            topic_name = unquote(topic_name)
+            data = build_topic_detail(topic_name)
             self._json(data)
 
         elif path == "/api/workspaces":

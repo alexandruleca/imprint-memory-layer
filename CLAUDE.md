@@ -21,25 +21,45 @@ It auto-loads session context (wake_up) on the first call — no need to call `w
 - `mcp__imprint__store` — decisions, patterns, findings, preferences, bugs
 - `mcp__imprint__kg_add` — structured facts (subject → predicate → object)
 
-## MCP Tools (8 total)
+## MCP Tools (11 total)
 
 | Tool | Purpose |
 |------|---------|
 | `wake_up` | Load summary context at session start |
-| `search` | Semantic search with optional project/type/lang/layer/kind/domain filters |
+| `search` | Semantic search with optional filters and offset-based pagination |
 | `store` | Store a memory with metadata |
 | `delete` | Remove a memory by ID |
 | `kg_query` | Query temporal facts |
 | `kg_add` | Add a structured fact |
 | `kg_invalidate` | Mark a fact as ended |
 | `status` | Show overview stats |
+| `list_sources` | List indexed source files with chunk counts |
+| `file_summary` | Quick overview of an indexed file (chunks, tags, preview) |
+| `file_chunks` | Retrieve specific chunks of a file by index range |
+
+## File Retrieval Workflow
+
+When you need file content, prefer the KB over filesystem reads:
+
+1. `list_sources` — discover what files are indexed (filter by project/lang/layer)
+2. `file_summary` — check if a specific file is indexed, see chunk count and preview
+3. `file_chunks` — retrieve the actual content by chunk range
+4. Only fall back to `Read`/`Grep` if the file is not indexed or you need exact byte-level content for edits
+
+This avoids redundant filesystem reads for files already in the knowledge base.
+
+## Cross-Project Knowledge
+
+When implementing common architecture (auth, caching, DB access, API patterns), search **without** a project filter to find existing patterns from other projects. The same architectural approach often applies across languages and codebases.
+
+Store reusable patterns with `type: "pattern"` so they surface in cross-project searches.
 
 ## Architecture
 
 - **Vector store**: Qdrant server, auto-spawned local daemon on `127.0.0.1:6333` via [`qdrant_runner.py`](imprint/qdrant_runner.py). HTTP client = unlimited concurrent readers/writers. Int8 scalar quantization, on-disk payload, payload indexes on `project`/`type`/`source`/`tags.*`
 - **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (768-dim, 2048 ctx). Any HF ONNX model supported — configure via `imprint config set model.name/dim/pooling`. Auto-picks GPU if `CUDAExecutionProvider` available, else CPU
 - **Chunker**: Chonkie hybrid — `CodeChunker` (tree-sitter, language-aware) for code, `SemanticChunker` for prose. Sliding overlap on top
-- **Tagger**: structured payload `{lang, layer, kind, domain[], topics[]}`. Always-on deterministic + keyword dict; zero-shot on by default (opt-out `IMPRINT_ZERO_SHOT_TAGS=0`); LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`, replaces zero-shot). LLM providers: anthropic, openai, ollama, vllm, gemini — set via `IMPRINT_LLM_TAGGER_PROVIDER`
+- **Tagger**: structured payload `{lang, layer, kind, domain[], topics[]}`. Always-on deterministic + keyword dict; zero-shot on by default (opt-out `IMPRINT_ZERO_SHOT_TAGS=0`), now also used as fallback when LLM topics are empty; LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`, replaces zero-shot). Context-aware: LLM tagger receives neighboring chunk text + project name for better topic accuracy. LLM providers: anthropic, openai, ollama, vllm, gemini — set via `IMPRINT_LLM_TAGGER_PROVIDER`. Default local model: Qwen3 1.7B (Q4_K_M, 8K ctx)
 - **Imprint graph**: SQLite with temporal facts (per workspace)
 - **Workspaces**: isolated memory environments — each gets its own Qdrant collection, SQLite DB, and WAL. Config in `data/workspace.json`. Default workspace uses `memories` collection + `imprint_graph.sqlite3` (backward compat). Named workspaces use `memories_{name}` + `imprint_graph_{name}.sqlite3` + `wal_{name}.jsonl`
 - **MCP framework**: FastMCP
@@ -86,7 +106,8 @@ imprint setup              # install deps, register MCP, configure Claude Code
 imprint status             # enabled/disabled? server pid? memory stats?
 imprint enable [target]    # re-wire MCP + hooks + start server
 imprint disable            # stop server, unregister MCP, strip hooks
-imprint ingest <dir>       # detect projects + ingest into imprint memory
+imprint ingest <dir>       # index project source files
+imprint learn              # index Claude Code conversations + memory files
 imprint refresh <dir>      # re-index only changed files
 imprint config             # show all settings with current values
 imprint config set <k> <v> # persist a setting
@@ -100,6 +121,5 @@ imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve --relay <host>  # expose KB for syncing
 imprint sync <host>/<id>   # bidirectional sync with peer
-imprint viz                # graph visualization of memory clusters
 imprint version            # print version
 ```

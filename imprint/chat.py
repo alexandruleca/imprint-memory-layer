@@ -1,11 +1,14 @@
-"""Local Gemma chat agent for the `imprint viz` panel.
+"""Chat agent for the Imprint dashboard chat panel.
 
-Runs a GGUF model in-process via llama-cpp-python and exposes an agentic tool
-loop backed by Imprint's read-only MCP tools (search / kg_query / status /
-wake_up). Fully offline after the model is cached.
+Supports multiple providers:
+- **local**: Runs a GGUF model in-process via llama-cpp-python (fully offline)
+- **vllm / openai / ollama / gemini / anthropic**: Remote via OpenAI-compat API
+
+All providers share the same agentic tool loop backed by Imprint's read-only
+MCP tools (search / kg_query / status / wake_up).
 
 Structured so the import is cheap: we only try to import `llama_cpp` and
-`huggingface_hub` at call time via helpers; viz still works if they're missing.
+`huggingface_hub` at call time via helpers; the dashboard still works if they're missing.
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from . import server as _mcp_server
 
 # ── Optional deps ────────────────────────────────────────────
 
+import os
+
 try:  # pragma: no cover - import-time feature detection
     import llama_cpp  # type: ignore
     LLAMA_AVAILABLE = True
@@ -35,9 +40,45 @@ except Exception as e:  # pragma: no cover
     _LLAMA_IMPORT_ERROR = str(e)
 
 
-# ── Tool registry (read-only subset of MCP tools) ────────────
+# ── Provider config ─────────────────────────────────────────
+
+_CHAT_PROVIDER_DEFAULTS: dict[str, dict] = {
+    "anthropic": {"model": "claude-haiku-4-5",  "key_env": "ANTHROPIC_API_KEY"},
+    "openai":    {"model": "gpt-4o-mini",       "key_env": "OPENAI_API_KEY"},
+    "gemini":    {"model": "gemini-2.0-flash",   "key_env": "GOOGLE_API_KEY",  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
+    "ollama":    {"model": "llama3.2",           "key_env": None, "base_url": "http://localhost:11434/v1"},
+    "vllm":      {"model": "default",            "key_env": None, "base_url": "http://localhost:8000/v1"},
+}
+
+
+def _get_chat_provider() -> str:
+    val, _ = config_schema.resolve("chat.provider")
+    return str(val).lower()
+
+
+def _get_chat_model() -> str:
+    """Resolve chat model name: explicit config > provider default."""
+    val, source = config_schema.resolve("chat.model")
+    if source != "default" and val:
+        return str(val)
+    provider = _get_chat_provider()
+    defaults = _CHAT_PROVIDER_DEFAULTS.get(provider, {})
+    return defaults.get("model", "default")
+
+
+def _is_remote_provider() -> bool:
+    return _get_chat_provider() != "local"
+
+
+# ── Tool registry ───────────────────────────────────────────
 
 def _tool_search(query: str, workspace: str = "", **kwargs: Any) -> str:
+    # Skip the auto-wake preamble that search() prepends on first call.
+    # The chat agent has limited context (16k) — the full wake_up output
+    # (project stats, essential context, facets) easily eats 3-4k chars,
+    # leaving little room for actual results. The agent can call wake_up
+    # or status explicitly when it needs an overview.
+    _mcp_server._session_woken = True
     allowed = {"project", "type", "lang", "layer", "kind", "domain", "limit"}
     filtered = {k: v for k, v in kwargs.items() if k in allowed}
     return _mcp_server.search(query=query, workspace=workspace, **filtered)
@@ -59,33 +100,113 @@ def _tool_wake_up(workspace: str = "") -> str:
     return _mcp_server.wake_up(workspace=workspace)
 
 
+def _tool_list_sources(workspace: str = "", **kwargs: Any) -> str:
+    allowed = {"project", "lang", "layer", "limit"}
+    filtered = {k: v for k, v in kwargs.items() if k in allowed}
+    return _mcp_server.list_sources(workspace=workspace, **filtered)
+
+
+def _tool_file_summary(source: str, workspace: str = "", **kwargs: Any) -> str:
+    return _mcp_server.file_summary(
+        source=source, project=kwargs.get("project", ""), workspace=workspace,
+    )
+
+
+def _tool_file_chunks(source: str, workspace: str = "", **kwargs: Any) -> str:
+    return _mcp_server.file_chunks(
+        source=source,
+        start=int(kwargs.get("start", 0)),
+        end=int(kwargs.get("end", -1)),
+        project=kwargs.get("project", ""),
+        workspace=workspace,
+    )
+
+
+def _tool_store(content: str, workspace: str = "", **kwargs: Any) -> str:
+    allowed = {"project", "type", "tags", "source"}
+    filtered = {k: v for k, v in kwargs.items() if k in allowed}
+    return _mcp_server.store(content=content, workspace=workspace, **filtered)
+
+
+def _tool_kg_add(
+    subject: str, predicate: str, object: str, workspace: str = "", **kwargs: Any,
+) -> str:
+    return _mcp_server.kg_add(
+        subject=subject, predicate=predicate, object=object,
+        source=kwargs.get("source", ""), workspace=workspace,
+    )
+
+
+def _tool_kg_invalidate(fact_id: int, workspace: str = "") -> str:
+    return _mcp_server.kg_invalidate(fact_id=fact_id, workspace=workspace)
+
+
+def _tool_ingest_url(url: str, workspace: str = "", **kwargs: Any) -> str:
+    return _mcp_server.ingest_url(
+        url=url,
+        project=kwargs.get("project", "urls"),
+        force=bool(kwargs.get("force", False)),
+        workspace=workspace,
+    )
+
+
 TOOLS: dict[str, Callable[..., str]] = {
     "search": _tool_search,
     "kg_query": _tool_kg_query,
     "status": _tool_status,
     "wake_up": _tool_wake_up,
+    "list_sources": _tool_list_sources,
+    "file_summary": _tool_file_summary,
+    "file_chunks": _tool_file_chunks,
+    "store": _tool_store,
+    "kg_add": _tool_kg_add,
+    "kg_invalidate": _tool_kg_invalidate,
+    "ingest_url": _tool_ingest_url,
 }
 
 
-SYSTEM_PROMPT = """You are Imprint, a local memory assistant. The user is exploring their Imprint memory store — a semantic index of code, decisions, patterns, and conversations. You have OFFLINE access to it via tools.
+SYSTEM_PROMPT = """You are Imprint, a local AI memory assistant. You help users explore, query, and manage their Imprint knowledge base — a semantic index of code, decisions, patterns, conversations, and structured facts. Everything runs locally and offline.
 
-When you need information, emit exactly one tool call per turn, then wait for the [TOOL RESULT]. Only answer directly when you already have enough context.
+# Tool calling
 
-Tool call format (emit the block on its own line, no commentary around it):
-<tool_call>{"name": "search", "args": {"query": "auth middleware", "limit": 5}}</tool_call>
+When you need information or want to perform an action, emit exactly ONE tool call per turn inside <tool_call> tags, then STOP and wait for the [TOOL RESULT]. Never emit two tool calls in one turn. Only answer directly when you already have enough context.
 
-Available tools:
-- search(query, project?, type?, domain?, lang?, layer?, kind?, limit?) — semantic search across stored memories. Best first stop.
-- kg_query(subject?, predicate?, limit?) — query the temporal knowledge graph of structured facts.
-- status() — memory store stats (projects, counts).
-- wake_up() — full context summary: projects, essential decisions, recent activity, active facts.
+Format (on its own line, no surrounding commentary):
+<tool_call>{"name": "tool_name", "args": {"key": "value"}}</tool_call>
 
-Guidance:
-- Prefer `search` for "what do we know about X". Use a short, keyword-rich query.
-- Use `wake_up` only when asked for a broad overview of the memory.
-- Cite memory hits using their source or project name when helpful.
-- Be concise. Don't repeat tool output back verbatim — summarise.
-- If no tool is needed, answer directly without emitting a <tool_call> block."""
+# Available tools
+
+## Searching & discovery
+- **search**(query, project?, type?, domain?, lang?, layer?, kind?, limit?) — Semantic search across all stored memories. This is your primary tool. Use short, keyword-rich queries. Filters narrow results: type can be decision/pattern/finding/preference/bug/architecture; lang can be python/typescript/go/etc; layer can be api/ui/tests/infra/cli/docs; domain can be auth/db/api/ml/perf/security/etc.
+- **kg_query**(subject?, predicate?, limit?) — Query the temporal knowledge graph for structured facts (entity → relationship → value). Use for "what does X use?", "what was decided about Y?", relationship lookups.
+- **status**() — Quick stats: total memories, active facts, projects breakdown.
+- **wake_up**() — Full session context: all projects, essential decisions, recent activity, active facts. Use when the user asks for a broad overview or "what's in memory".
+
+## File retrieval (read indexed code without filesystem access)
+- **list_sources**(project?, lang?, layer?, limit?) — List all indexed source files with chunk counts. Start here to discover what code is in the KB.
+- **file_summary**(source, project?) — Overview of one indexed file: chunk count, tags, modification date, and a preview. Use before reading chunks to see if the file has what you need.
+- **file_chunks**(source, start?, end?, project?) — Retrieve actual content of a file by chunk index range (0-based, inclusive). Use file_summary first to know how many chunks exist.
+
+## Writing & managing memories
+- **store**(content, project?, type?, tags?, source?) — Store a new memory. Write it as a self-contained note that makes sense months later. Include the WHY, not just the WHAT. type: decision/pattern/finding/preference/bug/architecture/milestone. tags: comma-separated keywords.
+- **kg_add**(subject, predicate, object, source?) — Add a structured fact to the knowledge graph. Use for relationships: "api-server uses NestJS", "auth decided JWT over sessions".
+- **kg_invalidate**(fact_id) — Mark a fact as ended/no longer true. Get the fact_id from kg_query results.
+
+## Ingesting external content
+- **ingest_url**(url, project?, force?) — Fetch a URL (webpage, PDF, etc), extract content, chunk it, and store as memories. Deduplicates by ETag/Last-Modified unless force=true.
+
+# Strategy guide
+
+1. **Start with search** for most questions. Use 2-4 keyword queries, not full sentences. Example: "auth middleware cors" not "what do we know about the authentication middleware and CORS configuration".
+2. **Use filters** to narrow results when you know the domain. Searching for a Python bug? Add lang="python", type="bug".
+3. **Drill into files** with the 3-step flow: list_sources → file_summary → file_chunks. Don't jump to file_chunks without knowing the source path.
+4. **Cross-reference** search results with kg_query when you need to understand relationships between entities.
+5. **Store findings** when the user shares a decision, discovers a pattern, or resolves a bug. Good memories are specific, self-contained, and explain WHY.
+6. **Cite sources** — mention project names, file paths, or fact IDs so the user can trace your answers.
+7. **Be concise** — summarize tool results, don't parrot them back. Pull out the key insight.
+8. **Chain tools** across turns when needed. Example: search finds a pattern → file_summary gets context → file_chunks reads the actual code. You have up to 6 tool turns per message.
+9. If the user asks you to remember or save something, use store or kg_add. If they say something is no longer true, use kg_invalidate.
+10. If no tool is needed, answer directly without a <tool_call> block."""
 
 
 # ── Model loader ─────────────────────────────────────────────
@@ -212,10 +333,29 @@ def load_model() -> tuple[Any, str | None]:
 def status() -> dict:
     """Reportable status for /api/chat/status without forcing a load."""
     enabled = bool(_cfg("chat.enabled"))
+    provider = _get_chat_provider()
+
+    if provider != "local":
+        # Remote provider — always "ready" (no local model needed)
+        defaults = _CHAT_PROVIDER_DEFAULTS.get(provider, {})
+        key_env = defaults.get("key_env")
+        missing_key = key_env and not os.environ.get(key_env)
+        return {
+            "enabled": enabled,
+            "installed": True,
+            "provider": provider,
+            "model": _get_chat_model(),
+            "model_ready": not missing_key,
+            "model_path": "",
+            "error": f"{key_env} not set" if missing_key else None,
+        }
+
+    # Local provider
     if not LLAMA_AVAILABLE:
         return {
             "enabled": enabled,
             "installed": False,
+            "provider": "local",
             "model_ready": False,
             "model_path": "",
             "error": f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR})",
@@ -227,6 +367,7 @@ def status() -> dict:
         return {
             "enabled": enabled,
             "installed": True,
+            "provider": "local",
             "model_ready": p.exists() or _llm is not None,
             "model_path": str(p),
             "error": None if p.exists() else f"model_path does not exist: {p}",
@@ -237,6 +378,7 @@ def status() -> dict:
     return {
         "enabled": enabled,
         "installed": True,
+        "provider": "local",
         "model_ready": (local is not None and local.exists()) or _llm is not None,
         "model_path": str(local) if local else "",
         "model_repo": _cfg("chat.model_repo"),
@@ -276,6 +418,75 @@ def _trim_tool_result(result: str, max_chars: int = 4000) -> str:
     return result[:max_chars] + f"\n\n[...truncated {len(result) - max_chars} chars...]"
 
 
+# ── Remote provider (OpenAI-compat) streaming ───────────────
+
+def _get_openai_client():
+    """Build an OpenAI client for the configured remote provider."""
+    import openai
+    provider = _get_chat_provider()
+    defaults = _CHAT_PROVIDER_DEFAULTS.get(provider, _CHAT_PROVIDER_DEFAULTS["openai"])
+
+    key_env = defaults.get("key_env")
+    api_key = (os.environ.get(key_env) if key_env
+               else os.environ.get("IMPRINT_CHAT_API_KEY", "no-key-needed"))
+
+    configured_url, _ = config_schema.resolve("chat.base_url")
+    base_url = configured_url if configured_url else defaults.get("base_url")
+
+    kwargs: dict = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return openai.OpenAI(**kwargs)
+
+
+def _stream_remote(messages: list[dict], max_tokens: int, temperature: float,
+                   ) -> Generator[str, None, str | None]:
+    """Stream tokens from a remote OpenAI-compat provider.
+
+    Yields token strings. Returns the finish_reason via GeneratorExit is not
+    applicable here — instead the caller collects the buffer.
+    """
+    client = _get_openai_client()
+    model = _get_chat_model()
+
+    stream = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        stream=True,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stop=[_TOOL_CLOSE],
+    )
+    for chunk in stream:
+        choices = chunk.choices or []
+        if not choices:
+            continue
+        delta = choices[0].delta
+        text = delta.content or ""
+        if text:
+            yield text
+
+
+def _stream_local(llm: Any, messages: list[dict], max_tokens: int,
+                  temperature: float) -> Generator[str, None, None]:
+    """Stream tokens from local llama-cpp model. Yields token strings."""
+    stream = llm.create_chat_completion(
+        messages=messages,
+        stream=True,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stop=[_TOOL_CLOSE],
+    )
+    for chunk in stream:
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta") or {}
+        text = delta.get("content") or ""
+        if text:
+            yield text
+
+
 # ── Streaming tool loop ──────────────────────────────────────
 
 def stream_reply(
@@ -293,66 +504,80 @@ def stream_reply(
       {"type": "error", "error": str}
       {"type": "done"}
     """
-    # ── Auto-download with progress events if model is missing ──
-    local_path, perr = _resolve_local_model_path()
-    if not perr and local_path is not None and not local_path.exists() \
-            and not _cfg("chat.model_path"):
-        repo = _cfg("chat.model_repo")
-        fname = _cfg("chat.model_file")
-        yield {
-            "type": "download_start",
-            "file": fname, "repo": repo,
-            "path": str(local_path),
-        }
+    remote = _is_remote_provider()
+    llm = None
 
-        q: queue.Queue = queue.Queue()
-        def _cb(done: int, total: int) -> None:
-            q.put(("progress", done, total))
+    if remote:
+        # Validate remote provider connectivity
+        provider = _get_chat_provider()
+        defaults = _CHAT_PROVIDER_DEFAULTS.get(provider)
+        if not defaults:
+            yield {"type": "error", "error": f"unknown chat provider: {provider}"}
+            yield {"type": "done"}
+            return
+        key_env = defaults.get("key_env")
+        if key_env and not os.environ.get(key_env):
+            yield {"type": "error", "error": f"{key_env} not set for provider '{provider}'"}
+            yield {"type": "done"}
+            return
+    else:
+        # ── Local: auto-download model if missing ──
+        local_path, perr = _resolve_local_model_path()
+        if not perr and local_path is not None and not local_path.exists() \
+                and not _cfg("chat.model_path"):
+            repo = _cfg("chat.model_repo")
+            fname = _cfg("chat.model_file")
+            yield {
+                "type": "download_start",
+                "file": fname, "repo": repo,
+                "path": str(local_path),
+            }
 
-        result: dict = {}
-        def _worker() -> None:
-            p, e = download_model(progress_cb=_cb)
-            q.put(("done", p, e))
+            q: queue.Queue = queue.Queue()
+            def _cb(done: int, total: int) -> None:
+                q.put(("progress", done, total))
 
-        threading.Thread(target=_worker, daemon=True).start()
+            result: dict = {}
+            def _worker() -> None:
+                p, e = download_model(progress_cb=_cb)
+                q.put(("done", p, e))
 
-        last_emit = 0.0
-        while True:
-            ev = q.get()
-            kind = ev[0]
-            if kind == "progress":
-                _, done, total = ev
-                now = time.time()
-                # Throttle: emit at most ~5/s, plus always at completion
-                if now - last_emit > 0.2 or (total and done >= total):
-                    last_emit = now
-                    yield {
-                        "type": "download_progress",
-                        "downloaded": done, "total": total,
-                    }
-            else:  # "done"
-                _, p, e = ev
-                if e or p is None:
-                    yield {"type": "error", "error": e or "download failed"}
-                    yield {"type": "done"}
-                    return
-                yield {"type": "download_complete", "path": str(p)}
-                break
+            threading.Thread(target=_worker, daemon=True).start()
 
-    llm, err = load_model()
-    if err or llm is None:
-        yield {"type": "error", "error": err or "model unavailable"}
-        yield {"type": "done"}
-        return
+            last_emit = 0.0
+            while True:
+                ev = q.get()
+                kind = ev[0]
+                if kind == "progress":
+                    _, done, total = ev
+                    now = time.time()
+                    if now - last_emit > 0.2 or (total and done >= total):
+                        last_emit = now
+                        yield {
+                            "type": "download_progress",
+                            "downloaded": done, "total": total,
+                        }
+                else:  # "done"
+                    _, p, e = ev
+                    if e or p is None:
+                        yield {"type": "error", "error": e or "download failed"}
+                        yield {"type": "done"}
+                        return
+                    yield {"type": "download_complete", "path": str(p)}
+                    break
 
-    # Build llama-style message list
+        llm, err = load_model()
+        if err or llm is None:
+            yield {"type": "error", "error": err or "model unavailable"}
+            yield {"type": "done"}
+            return
+
+    # Build message list
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in prior_messages:
         role = m.get("role")
         content = m.get("content", "")
         if role == "tool":
-            # Represent historical tool calls/results as assistant + user pair
-            # so the chat template stays happy with only user/assistant/system.
             tname = m.get("tool_name") or "tool"
             messages.append({
                 "role": "assistant",
@@ -373,38 +598,27 @@ def stream_reply(
     for _iter in range(max_iters):
         buffer = ""
         try:
-            stream = llm.create_chat_completion(
-                messages=messages,
-                stream=True,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=[_TOOL_CLOSE],
-            )
+            if remote:
+                token_stream = _stream_remote(messages, max_tokens, temperature)
+            else:
+                token_stream = _stream_local(llm, messages, max_tokens, temperature)
         except Exception as e:
             yield {"type": "error", "error": f"generation failed: {e}"}
             yield {"type": "done"}
             return
 
-        finish_reason: str | None = None
-        stop_hit = False
-        for chunk in stream:
-            choices = chunk.get("choices") or []
-            if not choices:
-                continue
-            delta = choices[0].get("delta") or {}
-            text = delta.get("content") or ""
-            if text:
+        try:
+            for text in token_stream:
                 buffer += text
                 yield {"type": "token", "text": text}
-            fr = choices[0].get("finish_reason")
-            if fr:
-                finish_reason = fr
+        except Exception as e:
+            yield {"type": "error", "error": f"generation failed: {e}"}
+            yield {"type": "done"}
+            return
 
-        # llama-cpp's `stop` strips the stop string before emitting, so if
-        # finish_reason == "stop" and <tool_call> was opened we re-append close.
+        # Stop token strips the close tag — re-append if tool_call was opened
         if _TOOL_OPEN in buffer and _TOOL_CLOSE not in buffer:
             buffer += _TOOL_CLOSE
-            stop_hit = True
 
         call = _parse_tool_call(buffer)
         if call is None:

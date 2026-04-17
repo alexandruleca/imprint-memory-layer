@@ -1,8 +1,8 @@
-"""SQLite persistence for in-viz chat sessions.
+"""SQLite persistence for dashboard chat sessions.
 
 Per-workspace database (`chat.sqlite3` or `chat_{ws}.sqlite3`) sitting in the
 imprint data directory. Stores session metadata and full message transcripts so
-conversations survive viz restart.
+conversations survive dashboard restart.
 """
 
 from __future__ import annotations

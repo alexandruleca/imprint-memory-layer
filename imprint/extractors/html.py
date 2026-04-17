@@ -7,6 +7,10 @@ Fallback: beautifulsoup4 get_text() when trafilatura is unavailable.
 
 Last-resort fallback: raw byte decode with tag stripping (no deps). We'd
 rather return rough text than crash the ingest.
+
+Large HTML files: extracted text is split into sections (by headings or
+paragraph boundaries) and returned as multiple ExtractedDocs so we don't
+blow up the chunker/embedder with a single huge document.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from __future__ import annotations
 import os
 import re
 
-from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, register_ext, register_mime
+from . import ExtractedDoc, ExtractorResult, ExtractionError, register_ext, register_mime
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -98,10 +102,67 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     )
 
 
-def extract(path: str) -> ExtractedDoc:
+# ── Large-text splitter ───────────────────────────────────────
+# When extracted text exceeds this threshold, split into multiple docs
+# so the chunker processes manageable pieces.
+_SPLIT_THRESHOLD = 200_000  # ~200KB of text
+
+_HEADING_RE = re.compile(r"(?m)^(?=#{1,3} )")  # markdown-style headings
+_PARA_RE = re.compile(r"\n{2,}")                 # paragraph breaks
+
+
+def _split_large_text(text: str, meta: dict) -> list[ExtractedDoc]:
+    """Split large extracted text into sections, each under _SPLIT_THRESHOLD."""
+    # Try heading splits first, fall back to paragraph splits
+    parts = _HEADING_RE.split(text)
+    if len(parts) < 2:
+        parts = _PARA_RE.split(text)
+
+    docs: list[ExtractedDoc] = []
+    current: list[str] = []
+    current_len = 0
+    part_idx = 0
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if current_len + len(part) > _SPLIT_THRESHOLD and current:
+            part_idx += 1
+            docs.append(ExtractedDoc(
+                text="\n\n".join(current),
+                mime="text/html",
+                metadata={**meta, "split_part": part_idx},
+                chunk_mode="prose",
+            ))
+            current = []
+            current_len = 0
+        current.append(part)
+        current_len += len(part)
+
+    if current:
+        part_idx += 1
+        docs.append(ExtractedDoc(
+            text="\n\n".join(current),
+            mime="text/html",
+            metadata={**meta, "split_part": part_idx},
+            chunk_mode="prose",
+        ))
+
+    return docs if docs else [ExtractedDoc(
+        text=text, mime="text/html", metadata=meta, chunk_mode="prose",
+    )]
+
+
+def extract(path: str) -> ExtractorResult:
     with open(path, "rb") as f:
-        doc = _extract_bytes(f.read())
+        data = f.read()
+    doc = _extract_bytes(data)
+    del data  # free raw bytes early
     doc.metadata.setdefault("filename", os.path.basename(path))
+
+    if len(doc.text) > _SPLIT_THRESHOLD:
+        return _split_large_text(doc.text, doc.metadata)
     return doc
 
 

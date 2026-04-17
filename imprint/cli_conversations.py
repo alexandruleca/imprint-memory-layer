@@ -179,7 +179,7 @@ def find_all_transcripts() -> list[tuple[str, str]]:
     return results
 
 
-def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
+def index_transcript(transcript_path: str, project: str, source_mtime: float = 0.0) -> tuple[int, int]:
     """Index a single transcript. Returns (stored, skipped).
 
     Buffers all qualifying exchanges and flushes via vs.store_batch() so the
@@ -191,6 +191,11 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
     stored = 0
     skipped = 0
     session_id = Path(transcript_path).stem[:8]
+    if not source_mtime:
+        try:
+            source_mtime = os.path.getmtime(transcript_path)
+        except OSError:
+            pass
 
     records: list[dict] = []
     for ex in exchanges:
@@ -198,12 +203,12 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
             skipped += 1
             continue
 
+        # Conversation tags: deterministic only (LLM deferred to phase 2).
+        tags = tagger.build_payload_tags(ex["text"], llm=False)
+        tags.pop("_llm_type", "")
         mem_type, confidence = classify(ex["text"])
         if confidence < 0.2:
             mem_type = "finding"
-
-        # Conversation tags: always-on lang/layer/kind + keyword domains.
-        tags = tagger.build_payload_tags(ex["text"])
         tags["lang"] = "conversation"
         tags["layer"] = "session"
         tags["kind"] = "qa"
@@ -219,6 +224,7 @@ def index_transcript(transcript_path: str, project: str) -> tuple[int, int]:
                 "type": mem_type,
                 "source": f"conversation/{session_id}",
                 "chunk_index": ci,
+                "source_mtime": source_mtime,
                 "tags": tags,
             })
 
@@ -267,8 +273,33 @@ def main():
         print("  No transcripts found.")
         return
 
+    # Pre-filter unchanged transcripts via stored mtime (same logic as cli_index).
+    known_mtimes = vs.get_source_mtimes()
+    filtered = []
+    stale_sources: list[str] = []
+    pre_skipped = 0
+    for path, project in transcripts:
+        session_id = Path(path).stem[:8]
+        source_key = f"conversation/{session_id}"
+        try:
+            fmtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        stored_mtime = known_mtimes.get(source_key, 0)
+        if stored_mtime and abs(stored_mtime - fmtime) < 1.0:
+            pre_skipped += 1
+            continue
+        if stored_mtime:
+            stale_sources.append(source_key)
+        filtered.append((path, project, fmtime))
+
+    # Delete old chunks for modified transcripts before re-indexing.
+    for src in stale_sources:
+        vs.delete_by_source(src)
+
     print()
-    print(f"  {C_CYAN}Found {len(transcripts)} transcripts{C_RESET}")
+    print(f"  {C_CYAN}Found {len(transcripts)} transcripts"
+          f" ({pre_skipped} unchanged, {len(filtered)} to index){C_RESET}")
     print()
 
     total_stored = 0
@@ -280,11 +311,11 @@ def main():
     except (ValueError, OSError):
         cols = 80
 
-    for idx, (path, project) in enumerate(transcripts):
-        pct = (idx + 1) / len(transcripts)
+    for idx, (path, project, fmtime) in enumerate(filtered):
+        pct = (idx + 1) / len(filtered) if filtered else 1
         elapsed = time.time() - t_start
         eta = elapsed / pct * (1 - pct) if pct < 1 else 0
-        stats = f" {int(pct*100):3d}% {idx+1}/{len(transcripts)} eta {int(eta)}s"
+        stats = f" {int(pct*100):3d}% {idx+1}/{len(filtered)} eta {int(eta)}s"
         bar_width = max(10, cols - len(stats) - 3)
         filled = int(bar_width * pct)
         bar = "█" * filled + "░" * (bar_width - filled)
@@ -292,7 +323,7 @@ def main():
         print(f"\r{line[:cols]}", end="", flush=True)
 
         try:
-            stored, skipped = index_transcript(path, project)
+            stored, skipped = index_transcript(path, project, source_mtime=fmtime)
             total_stored += stored
             total_skipped += skipped
         except KeyboardInterrupt:
@@ -305,14 +336,56 @@ def main():
 
     # Final bar
     elapsed = time.time() - t_start
-    stats = f" 100% {len(transcripts)}/{len(transcripts)} {elapsed:.1f}s"
+    count = len(filtered) or 1
+    stats = f" 100% {count}/{count} {elapsed:.1f}s"
     bar_width = max(10, cols - len(stats) - 3)
     bar = "█" * bar_width
     print(f"\r  {bar}{stats}{' ' * 10}")
 
+    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
+    llm_tagged = 0
+    from imprint.config_schema import resolve as _resolve
+    _enable_llm = _resolve("tagger.llm")[0]
+    if not _enable_llm and tagger._get_llm_provider() == "local":
+        _, _llm_source = _resolve("tagger.llm")
+        if _llm_source == "default":
+            _enable_llm = True
+
+    if _enable_llm and total_stored > 0:
+        from .cli_index import _llm_tag_recent
+        print()
+        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
+
+        def _convo_print_bar(done, total, elapsed, current_file=""):
+            pct = done / total if total else 1
+            eta = elapsed / pct * (1 - pct) if pct < 1 else 0
+            stats = f" {int(pct*100):3d}% {done}/{total} eta {int(eta)}s"
+            bar_width = max(10, cols - len(stats) - 3)
+            filled = int(bar_width * pct)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            print(f"\r  {bar}{stats}", end="", flush=True)
+
+        from .progress import clear_progress
+        try:
+            llm_tagged = _llm_tag_recent(
+                ingest_start_ts=t_start,
+                total_hint=total_stored,
+                print_bar=_convo_print_bar,
+                command="learn",
+                projects=[],
+            )
+        finally:
+            clear_progress()
+
     print()
     print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")
     print(f"  Stored:   {total_stored} exchanges")
+    if llm_tagged:
+        print(f"  Tagged:   {llm_tagged} (LLM)")
+    if pre_skipped:
+        print(f"  Unchanged:{pre_skipped} transcripts (skipped)")
+    if stale_sources:
+        print(f"  Re-indexed:{len(stale_sources)} modified transcripts")
     print(f"  Skipped:  {total_skipped}")
     print(f"  Time:     {elapsed:.1f}s")
     print()

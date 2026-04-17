@@ -14,6 +14,7 @@ An Imprint MCP server is registered globally. It contains indexed code chunks, d
    - No prefix → results are adequate, read files only if answer is incomplete
    - "Low-confidence matches" → search was insufficient, fall back to Read/Grep
 3. Only fall back to Read/Grep when search returns no results, you need exact current content for edits, or the user asks
+4. Pagination: search defaults to 10 results. If output says "use offset=N", call search again with that offset. Increase limit for broader results. Use file_chunks to expand truncated content.
 
 ## During conversation — store what you learn
 - Architectural decisions and WHY they were made

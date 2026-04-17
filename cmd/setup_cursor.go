@@ -18,7 +18,8 @@ import (
 func SetupCursor() {
 	cursorDir := platform.CursorConfigDir()
 	if !platform.DirExists(cursorDir) {
-		output.Fail("Cursor config dir not found: " + cursorDir + " — install Cursor first (https://cursor.sh).")
+		output.Warn("Cursor config dir not found: " + cursorDir + " — install Cursor first (https://cursor.sh). Skipping.")
+		return
 	}
 	output.Success("Cursor config dir found: " + cursorDir)
 

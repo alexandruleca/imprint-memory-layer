@@ -8,7 +8,19 @@
 [![Latest Release](https://img.shields.io/github/v/release/alexandruleca/imprint-memory-layer?sort=semver&display_name=tag)](https://github.com/alexandruleca/imprint-memory-layer/releases/latest)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-AI memory system MCP. Gives Claude/Cursor/Other persistent memory across sessions — it remembers your projects, decisions, patterns, and conversations so you don't have to re-explain context every time.
+AI memory system MCP. Gives Claude Code, Cursor, Codex CLI, GitHub Copilot, and Cline persistent memory across sessions — it remembers your projects, decisions, patterns, and conversations so you don't have to re-explain context every time. One command wires the MCP server into whichever host tool you use.
+
+**Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
+
+- **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (GPU or CPU), no network calls, no per-token cost.
+- **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
+- **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
+- **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. No LLM call per chunk.
+- **Imprint graph**: SQLite on disk for temporal facts.
+
+The ingestion flow: scan dir → detect project → chunk files → embed chunks → tag (lang/layer/kind/domain/topics) → upsert into Qdrant. A Stop hook auto-extracts decisions from Claude transcripts; a PreCompact hook saves context before window compression. Search goes straight to the local vector DB — no round-trip to any provider.
+
+**Optional cloud LLM tagging** is opt-in only (`imprint config set tagger.llm true`) if you want more granular topics and are fine spending credits. Providers: Anthropic, OpenAI, Gemini, or fully-local Ollama / vLLM. Leave it off and nothing ever talks to a paid API.
 
 ```mermaid
 graph TB
@@ -60,13 +72,29 @@ irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/in
 
 Pin a specific version, pick the dev channel, or use prebuilt Docker images — see [docs/installation.md](docs/installation.md).
 
+## Supported hosts
+
+`imprint setup <target>` auto-wires the MCP server into each supported AI coding tool. Run `imprint setup all` to configure every host that's installed on your machine; missing tools are skipped with a warning, not an error.
+
+| Target        | Wired into                                         | Config file                                                                           | Enforcement         |
+|---------------|-----------------------------------------------------|----------------------------------------------------------------------------------------|---------------------|
+| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Hard (PreToolUse)   |
+| `cursor`      | Cursor IDE (MCP + always-on rule)                  | `~/.cursor/mcp.json` + `~/.cursor/rules/imprint.mdc`                                   | Text-only (rule)    |
+| `codex`       | OpenAI Codex CLI                                   | `~/.codex/config.toml` (`[mcp_servers.imprint]`)                                       | Text-only           |
+| `copilot`     | GitHub Copilot (VSCode agent mode), user-global    | `<VSCode user>/mcp.json` (`servers.imprint`)                                           | Text-only           |
+| `cline`       | Cline — VSCode extension + standalone CLI          | `<VSCode user>/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` and/or `~/.cline/data/settings/cline_mcp_settings.json` | Text-only |
+
+`imprint disable` is symmetric — it tears down the MCP entry from every config file above that still exists (the venv and data are always preserved so re-enabling is fast).
+
 ## Commands
 
 ```bash
-imprint setup              # install deps, register MCP, configure Claude Code
+imprint setup [target]     # install deps, register MCP, configure the chosen host tool
+                           #   target: claude-code (default) | cursor | codex | copilot | cline | all
 imprint status             # is everything wired? show enabled/disabled, server pid, memory stats
-imprint enable [target]    # re-wire MCP + hooks + start server (target: claude-code | cursor)
-imprint disable            # stop server, unregister MCP, strip hooks (data preserved)
+imprint enable [target]    # re-wire MCP + hooks + start server
+                           #   target: claude-code | cursor | codex | copilot | cline | all
+imprint disable            # stop server, unregister MCP from every host, strip Claude hooks (data preserved)
 imprint ingest [dir]       # import memories + conversations [+ index projects]
 imprint refresh <dir>      # re-index only changed files
 imprint config             # show all settings with current values
@@ -82,7 +110,6 @@ imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve [--relay <host>]      # expose KB for peer syncing (default: imprint.alexandruleca.com)
 imprint sync <id> --pin <pin>            # sync via default relay (or <host>/<id> / wss://<host>/<id>)
 imprint relay              # run the sync relay server
-imprint viz                # 3D brain cluster visualization
 imprint version            # print version
 ```
 
@@ -97,7 +124,7 @@ imprint version            # print version
 | Metadata tags, LLM providers, search filters | [docs/tagging.md](docs/tagging.md) |
 | Workspaces + project detection | [docs/workspaces.md](docs/workspaces.md) |
 | MCP tools + automatic updates | [docs/mcp.md](docs/mcp.md) |
-| Peer sync, relay server, visualization | [docs/sync.md](docs/sync.md) |
+| Peer sync, relay server, dashboard | [docs/sync.md](docs/sync.md) |
 | All settings (`imprint config`) | [docs/configuration.md](docs/configuration.md) |
 | Building from source + CI/release flow | [docs/building.md](docs/building.md) |
 | Benchmarks & token savings | [BENCHMARK.md](BENCHMARK.md) |
