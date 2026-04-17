@@ -3,8 +3,10 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 type PythonCandidate struct {
@@ -19,6 +21,73 @@ func OSName() string {
 	default:
 		return runtime.GOOS
 	}
+}
+
+// ── WSL2 detection + path translation ──────────────────────────
+
+// isWSLOverride is test-only. nil means "use the real detector".
+var isWSLOverride *bool
+
+var (
+	isWSLOnce   sync.Once
+	isWSLCached bool
+)
+
+// IsWSL reports whether we're running inside a WSL1/WSL2 guest. Cached after
+// the first call. Detection mirrors what imprint/api.py uses: a "microsoft"
+// or "wsl" substring in /proc/version (case-insensitive).
+func IsWSL() bool {
+	if isWSLOverride != nil {
+		return *isWSLOverride
+	}
+	isWSLOnce.Do(func() {
+		if runtime.GOOS != "linux" {
+			return
+		}
+		data, err := os.ReadFile("/proc/version")
+		if err != nil {
+			return
+		}
+		s := strings.ToLower(string(data))
+		isWSLCached = strings.Contains(s, "microsoft") || strings.Contains(s, "wsl")
+	})
+	return isWSLCached
+}
+
+var (
+	// Drive-letter paths: `C:\...` or `C:/...`
+	winDriveRe = regexp.MustCompile(`^([A-Za-z]):[\\/](.*)$`)
+	// WSL UNC paths pasted from Windows Explorer: `\\wsl$\Distro\rest` or
+	// `\\wsl.localhost\Distro\rest`. We strip the prefix and distro name
+	// since we're already inside the distro.
+	wslUNCRe = regexp.MustCompile(`^\\\\wsl(?:\$|\.localhost)\\[^\\]+\\(.*)$`)
+)
+
+// TranslateWSLPath converts a Windows-style absolute path to its WSL mount
+// equivalent when running inside WSL. Returns the input unchanged on non-WSL
+// hosts or when the input isn't a Windows path.
+//
+// Examples (WSL only):
+//
+//	C:\Users\alex       → /mnt/c/Users/alex
+//	c:/Users/alex       → /mnt/c/Users/alex
+//	\\wsl$\Ubuntu\home  → /home
+//	/home/alex          → /home/alex   (unchanged)
+//	relative/thing      → relative/thing   (unchanged)
+func TranslateWSLPath(p string) string {
+	if p == "" || !IsWSL() {
+		return p
+	}
+	if m := winDriveRe.FindStringSubmatch(p); m != nil {
+		drive := strings.ToLower(m[1])
+		rest := strings.ReplaceAll(m[2], `\`, "/")
+		return "/mnt/" + drive + "/" + rest
+	}
+	if m := wslUNCRe.FindStringSubmatch(p); m != nil {
+		rest := strings.ReplaceAll(m[1], `\`, "/")
+		return "/" + rest
+	}
+	return p
 }
 
 func PythonCandidates() []PythonCandidate {

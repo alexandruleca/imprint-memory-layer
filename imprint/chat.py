@@ -32,6 +32,8 @@ import os
 
 try:  # pragma: no cover - import-time feature detection
     import llama_cpp  # type: ignore
+    from imprint import _llama_compat
+    _llama_compat.apply()
     LLAMA_AVAILABLE = True
     _LLAMA_IMPORT_ERROR: str | None = None
 except Exception as e:  # pragma: no cover

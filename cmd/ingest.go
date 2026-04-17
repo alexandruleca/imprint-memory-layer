@@ -70,7 +70,7 @@ func Ingest(args []string) {
 	output.Header("═══ Imprint Ingest ═══")
 	fmt.Println()
 
-	target, _ := filepath.Abs(args[0])
+	target, _ := filepath.Abs(platform.TranslateWSLPath(args[0]))
 
 	// Detect file vs directory
 	info, err := os.Stat(target)

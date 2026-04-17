@@ -74,6 +74,12 @@ _EXT_LANG = {
     ".tif": "image", ".webp": "image",
 }
 
+# Lang values that are "prose-ish" — the LLM is allowed to refine these with
+# a natural-language name (english, romanian, …) since the extension alone
+# can't distinguish the spoken language of the text. For anything else the
+# extension-derived coding language wins.
+_PROSE_LANGS = {"", "markdown", "text", "conversation", "html", "rtf"}
+
 _LAYER_PATTERNS = [
     ("api",       [r"(?:^|/)api(?:/|$)", r"(?:^|/)backend(?:/|$)", r"(?:^|/)server(?:/|$)"]),
     ("ui",        [r"(?:^|/)ui(?:/|$)", r"(?:^|/)frontend(?:/|$)", r"(?:^|/)components?(?:/|$)", r"(?:^|/)views?(?:/|$)", r"(?:^|/)pages?(?:/|$)"]),
@@ -117,6 +123,14 @@ def _derive_kind(rel_path: str) -> str:
 
 
 def derive_deterministic(rel_path: str) -> dict:
+    # Non-file source schemes used internally: conversation transcripts,
+    # auto-extracted chat memories. These have no file extension, so
+    # without the explicit check retag would wipe lang/layer/kind.
+    if rel_path.startswith("conversation/"):
+        return {"lang": "conversation", "layer": "session", "kind": "qa"}
+    if rel_path == "auto-extract" or rel_path.startswith("auto-extract/"):
+        return {"lang": "conversation", "layer": "session", "kind": "auto-extract"}
+
     is_url = rel_path.startswith(("http://", "https://"))
     ext = os.path.splitext(rel_path)[1].lower() if not is_url else ""
     if is_url:
@@ -491,6 +505,7 @@ def _derive_llm_openai_compat_raw(full_input: str) -> list[str]:
 _tagger_llm: Any = None
 _tagger_llm_lock = threading.Lock()
 _tagger_inference_lock = threading.Lock()
+_tagger_load_error_logged = False
 
 
 def _tagger_cfg(key: str) -> Any:
@@ -579,6 +594,8 @@ def _load_tagger_model() -> tuple[Any, str | None]:
 
     try:
         import llama_cpp  # type: ignore
+        from imprint import _llama_compat
+        _llama_compat.apply()
     except ImportError as e:
         return None, f"llama-cpp-python not installed ({e})"
 
@@ -627,8 +644,16 @@ def _derive_llm_local(content: str, max_chars: int) -> list[str]:
 
 def _derive_llm_local_raw(full_input: str) -> list[str]:
     """Classify using local Qwen3 1.7B model — raw input."""
+    global _tagger_load_error_logged
     llm, err = _load_tagger_model()
     if err or llm is None:
+        if err and not _tagger_load_error_logged:
+            _tagger_load_error_logged = True
+            sys.stderr.write(
+                f"[warn] local LLM tagger unavailable — {err}. "
+                "Falling back to zero-shot tagging.\n"
+            )
+            sys.stderr.flush()
         return []
     with _tagger_inference_lock:
         try:
@@ -690,18 +715,30 @@ _LLM_CLASSIFY_PROMPT = (
     '- "type": one string — the memory/content type\n'
     '- "domains": 1-5 short domain tags for the technical area\n'
     '- "topics": 1-4 short topic tags for search indexing\n'
+    '- "lang": one string — the primary language of the content\n'
+    '- "layer": one string — the architectural layer\n'
+    '- "kind": one string — the content kind\n'
     "\n"
     "Existing taxonomy (prefer these, but propose new values if none fit):\n"
     "  Types: {types}\n"
     "  Domains: {domains}\n"
+    "  Langs (code): python, typescript, javascript, go, rust, java, kotlin, swift, ruby, php, csharp, cpp, c, sql, graphql, protobuf, shell, markdown, yaml, toml, json, html, css\n"
+    "  Langs (natural, for prose/docs/conversation): english, romanian, german, spanish, french, italian, portuguese, dutch, polish, russian, ukrainian, chinese, japanese, korean, arabic, hebrew, turkish, hindi\n"
+    "  Layers: api, ui, tests, infra, config, migrations, docs, scripts, cli, session\n"
+    "  Kinds: source, test, migration, readme, types, module, document, web, qa, auto-extract\n"
     "\n"
     "Rules:\n"
     "- All values lowercase, short noun-phrases (e.g. 'auth', 'redis-cache')\n"
     "- Never return numbers, single characters, or content copied verbatim\n"
+    "- lang/layer/kind must each be a single token from the taxonomy when possible\n"
+    "- lang: for code chunks use a programming language (python, go, …). For prose, documentation, conversation, or comment-only chunks use the natural language the text is written in (english, romanian, german, …). Never pick a programming language when the chunk is not code; if you are unsure of the natural language, use 'english'.\n"
     "- Return ONLY the JSON object, no explanation\n\n"
 )
 
-_CLASSIFY_FALLBACK = {"type": "finding", "domains": [], "topics": []}
+_CLASSIFY_FALLBACK = {
+    "type": "finding", "domains": [], "topics": [],
+    "lang": "", "layer": "", "kind": "",
+}
 
 
 def _call_llm_raw_text(full_input: str) -> str:
@@ -790,7 +827,10 @@ def _parse_llm_classification(text: str) -> dict:
 
     # Strategy 3: comma-separated fallback (legacy compat — topics only)
     tags = _sanitize_tags(text)
-    return {"type": "finding", "domains": [], "topics": tags}
+    return {
+        "type": "finding", "domains": [], "topics": tags,
+        "lang": "", "layer": "", "kind": "",
+    }
 
 
 def _validate_classification(obj: dict) -> dict:
@@ -812,7 +852,28 @@ def _validate_classification(obj: dict) -> dict:
     topics = _sanitize_tags(",".join(raw_topics) if raw_topics else "")
     topics = topics[:4]
 
-    return {"type": mem_type, "domains": domains, "topics": topics}
+    return {
+        "type": mem_type,
+        "domains": domains,
+        "topics": topics,
+        "lang": _clean_token(obj.get("lang")),
+        "layer": _clean_token(obj.get("layer")),
+        "kind": _clean_token(obj.get("kind")),
+    }
+
+
+def _clean_token(v) -> str:
+    """Normalize a single-token taxonomy value (lang/layer/kind).
+
+    Lowercases, strips non-[a-z0-9-] chars, rejects empty or 1-char values.
+    """
+    if not v:
+        return ""
+    s = str(v).strip().lower()
+    s = re.sub(r"[^a-z0-9\-]+", "-", s).strip("-")
+    if len(s) < 2:
+        return ""
+    return s
 
 
 def derive_llm_classify(
@@ -918,7 +979,7 @@ def build_payload_tags(
     llm_type = ""
 
     if llm:
-        # Unified LLM classification: type + domains + topics in one call
+        # Unified LLM classification: type + domains + topics + lang/layer/kind
         try:
             result = derive_llm_classify(
                 content,
@@ -930,6 +991,19 @@ def build_payload_tags(
             domain = result["domains"]
             topics = result["topics"]
             llm_type = result["type"]
+            # LLM wins for lang/layer/kind when it produced a value —
+            # it sees the actual content, while deterministic only sees
+            # the path. Exception: for `lang`, a confident coding-language
+            # derived from the file extension (e.g. .py → python) is not
+            # overwritten by an LLM natural-language guess (e.g. "english"
+            # for a long docstring inside the .py file).
+            for k in ("lang", "layer", "kind"):
+                new_val = result.get(k)
+                if not new_val:
+                    continue
+                if k == "lang" and d.get("lang") not in _PROSE_LANGS:
+                    continue
+                d[k] = new_val
         except Exception:
             domain = derive_keywords(content)
             topics = []

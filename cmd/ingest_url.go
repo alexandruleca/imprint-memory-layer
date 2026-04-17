@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
@@ -31,6 +32,11 @@ func IngestURL(args []string) {
 		os.Exit(1)
 	}
 
+	// Translate the --from-file value when running under WSL2 and the user
+	// pasted a Windows path. URL args are left alone — TranslateWSLPath
+	// is a no-op for http(s):// strings.
+	args = translateFromFileArg(args)
+
 	pyArgs := append([]string{"-m", "imprint.cli_ingest_url"}, args...)
 	cmd := runner.CommandWithEnv(venvPython, pyArgs, envVars...)
 	cmd.Stdout = os.Stdout
@@ -39,6 +45,28 @@ func IngestURL(args []string) {
 	if err := cmd.Run(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// translateFromFileArg walks args and passes the value that follows
+// --from-file (either space-separated or --from-file=VALUE) through
+// platform.TranslateWSLPath. Other args are untouched.
+func translateFromFileArg(args []string) []string {
+	out := make([]string, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--from-file" && i+1 < len(args) {
+			out[i] = a
+			out[i+1] = platform.TranslateWSLPath(args[i+1])
+			i++
+			continue
+		}
+		if v, ok := strings.CutPrefix(a, "--from-file="); ok {
+			out[i] = "--from-file=" + platform.TranslateWSLPath(v)
+			continue
+		}
+		out[i] = a
+	}
+	return out
 }
 
 // RefreshURLs re-checks stored URLs via HEAD and re-indexes changed ones.

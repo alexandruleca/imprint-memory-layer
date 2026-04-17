@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { streamCommand, getConfig } from "@/lib/api";
 import { Spinner } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -113,10 +114,9 @@ export default function CommandsPage() {
                 <div key={f.key} className="flex items-center gap-2">
                   <label className="text-sm w-36 text-muted-foreground">{f.label}</label>
                   {f.type === "checkbox" ? (
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={!!params[f.key]}
-                      onChange={(e) => setParams({ ...params, [f.key]: e.target.checked })}
+                      onCheckedChange={(checked: boolean) => setParams({ ...params, [f.key]: checked })}
                     />
                   ) : (
                     <Input

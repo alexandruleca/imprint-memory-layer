@@ -24,7 +24,7 @@ Examples:
 		os.Exit(1)
 	}
 
-	targetDir, err := filepath.Abs(args[0])
+	targetDir, err := filepath.Abs(platform.TranslateWSLPath(args[0]))
 	if err != nil {
 		output.Fail("Invalid path: " + args[0])
 	}
