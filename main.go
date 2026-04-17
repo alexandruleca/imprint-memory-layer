@@ -48,6 +48,8 @@ func main() {
 		cmd.UI(os.Args[2:])
 	case "retag":
 		cmd.Retag(os.Args[2:])
+	case "migrate":
+		cmd.Migrate(os.Args[2:])
 	case "server":
 		cmd.Server(os.Args[2:])
 	case "enable":
@@ -87,7 +89,9 @@ Usage:
   imprint sync import <dir>   Import snapshot bundle from another device
   imprint relay              Run the sync relay server
   imprint ui [--port N]      Dashboard UI (FastAPI + Next.js)
-  imprint retag [--project]  Re-tag existing memories with LLM tagger
+  imprint retag [--project] [--all]  Re-tag existing memories (--all re-runs even already-tagged chunks)
+  imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG [--dry-run]
+                             Move memories between workspaces (preserves vectors)
   imprint server <cmd>       Manage the local Qdrant server
                                cmd: start | stop | status | log
   imprint config             Show all settings and current values

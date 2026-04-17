@@ -448,7 +448,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                     llm=enable_llm, zero_shot=enable_zero_shot,
                     neighbor_context=neighbor_ctx, project_hint=project,
                 )
-                mem_type = tags.pop("_llm_type", "") or "architecture"
+                llm_type = tags.pop("_llm_type", "")
+                mem_type = llm_type or "architecture"
                 records.append({
                     "content": chunk_text,
                     "project": project,
@@ -459,6 +460,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                     "doc_metadata": doc_meta,
                     "chunk_index": chunk_idx,
                     "source_mtime": mtime,
+                    "llm_tagged": bool(llm_type),
                 })
     else:
         with open(file_path, 'r', errors='ignore') as f:
@@ -479,7 +481,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                 llm=enable_llm, zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx, project_hint=project,
             )
-            mem_type = tags.pop("_llm_type", "") or "architecture"
+            llm_type = tags.pop("_llm_type", "")
+            mem_type = llm_type or "architecture"
             records.append({
                 "content": chunk_text,
                 "project": project,
@@ -490,6 +493,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                 "doc_metadata": {},
                 "chunk_index": chunk_idx,
                 "source_mtime": mtime,
+                "llm_tagged": bool(llm_type),
             })
 
     if not records:
@@ -572,6 +576,7 @@ def _llm_tag_recent(
                     payload: dict = {"tags": tags}
                     if typ:
                         payload["type"] = typ
+                        payload["llm_tagged"] = True
                     client.set_payload(
                         collection_name=coll,
                         payload=payload,
@@ -593,6 +598,7 @@ def _llm_tag_recent(
         payload = {"tags": tags}
         if typ:
             payload["type"] = typ
+            payload["llm_tagged"] = True
         client.set_payload(
             collection_name=coll,
             payload=payload,

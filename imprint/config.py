@@ -155,6 +155,17 @@ def switch_workspace(name: str) -> None:
     _write_workspace_config(cfg)
 
 
+def register_workspace(name: str) -> bool:
+    """Add name to known list without switching active. Returns True if newly added."""
+    cfg = _read_workspace_config()
+    known = cfg.setdefault("known", [])
+    if name in known:
+        return False
+    known.append(name)
+    _write_workspace_config(cfg)
+    return True
+
+
 def remove_workspace(name: str) -> None:
     cfg = _read_workspace_config()
     if name in cfg.get("known", []):

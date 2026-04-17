@@ -155,6 +155,74 @@ export async function switchWorkspace(name: string) {
   });
 }
 
+export async function createWorkspace(name: string) {
+  return fetchAPI<{
+    ok: boolean;
+    created: boolean;
+    active: string;
+    workspaces: string[];
+  }>("/api/workspace/create", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteWorkspace(
+  name: string,
+  onEvent: (ev: Record<string, unknown>) => void,
+): AbortController {
+  return streamCommand("workspace", { action: "delete", name }, onEvent);
+}
+
+export function wipeWorkspace(
+  name: string,
+  all: boolean,
+  onEvent: (ev: Record<string, unknown>) => void,
+): AbortController {
+  const body: Record<string, unknown> = { force: true };
+  if (all) body.all = true;
+  else body.workspace = name;
+  return streamCommand("wipe", body, onEvent);
+}
+
+export function migrateContent(
+  params: {
+    from: string;
+    to: string;
+    project?: string;
+    topic?: string;
+    dryRun?: boolean;
+  },
+  onEvent: (ev: Record<string, unknown>) => void,
+): AbortController {
+  return streamCommand(
+    "migrate",
+    {
+      from: params.from,
+      to: params.to,
+      project: params.project,
+      topic: params.topic,
+      dry_run: params.dryRun,
+    },
+    onEvent,
+  );
+}
+
+export function retagMemories(
+  params: { project?: string; all?: boolean; dryRun?: boolean },
+  onEvent: (ev: Record<string, unknown>) => void,
+): AbortController {
+  return streamCommand(
+    "retag",
+    {
+      project: params.project,
+      all: params.all,
+      dry_run: params.dryRun,
+    },
+    onEvent,
+  );
+}
+
 // ── Chat ────────────────────────────────────────────────────────
 
 export async function getChatStatus() {

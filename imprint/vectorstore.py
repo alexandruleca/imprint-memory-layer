@@ -438,6 +438,7 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
             "chunk_index": r.get("chunk_index", 0),
             "source_mtime": r.get("source_mtime", 0.0),
             "timestamp": now,
+            "llm_tagged": bool(r.get("llm_tagged", False)),
         }
         points.append(
             qm.PointStruct(
@@ -500,6 +501,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "chunk_index": r.get("chunk_index", 0),
             "source_mtime": r.get("source_mtime", 0.0),
             "timestamp": now,
+            "llm_tagged": bool(r.get("llm_tagged", False)),
         }
         points.append(
             qm.PointStruct(
