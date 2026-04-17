@@ -30,6 +30,7 @@ func SetupCline() {
 		output.Warn("Cline not detected — neither VSCode extension (saoudrizwan.claude-dev) nor Cline CLI (~/.cline) is installed. Skipping.")
 		return
 	}
+	setupHostsRan++
 
 	bp := setupBackend()
 	spec := map[string]any{

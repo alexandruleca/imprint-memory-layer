@@ -21,6 +21,7 @@ func SetupCodex() {
 		return
 	}
 	output.Success("Codex config dir found: " + codexDir)
+	setupHostsRan++
 
 	bp := setupBackend()
 

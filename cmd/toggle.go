@@ -128,7 +128,7 @@ func Disable(args []string) {
 // Enable re-runs setup — idempotent install path that re-registers the MCP
 // server, re-installs hooks, ensures venv + data dir, and starts Qdrant.
 func Enable(args []string) {
-	target := "claude-code"
+	target := "all"
 	if len(args) > 0 {
 		target = args[0]
 	}

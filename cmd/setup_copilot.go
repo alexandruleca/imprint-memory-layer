@@ -18,6 +18,7 @@ func SetupCopilot() {
 		return
 	}
 	output.Success("VSCode user directory found: " + userDir)
+	setupHostsRan++
 
 	bp := setupBackend()
 

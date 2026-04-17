@@ -239,6 +239,7 @@ func SetupClaudeCode() {
 		output.Warn("Claude Code CLI not found — install it first: https://docs.anthropic.com/en/docs/claude-code/overview. Skipping.")
 		return
 	}
+	setupHostsRan++
 
 	bp := setupBackend()
 
@@ -503,9 +504,10 @@ func cudaRuntimeMissing(errLine string) bool {
 }
 
 // ortHostEnv fingerprints the host for the sticky-failure cache so a stored
-// "broken" verdict is discarded when the GPU or driver changes.
-func ortHostEnv() gpustate.Env {
-	env := gpustate.Env{}
+// "broken" verdict is discarded when the GPU, driver, or Python version
+// changes.
+func ortHostEnv(venvPython string) gpustate.Env {
+	env := gpustate.Env{Python: pythonTag(venvPython)}
 	if nvsmi, ok := runner.Exists("nvidia-smi"); ok {
 		if name, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader"); err == nil {
 			env.GPU = strings.Split(strings.TrimSpace(name), "\n")[0]
@@ -517,6 +519,55 @@ func ortHostEnv() gpustate.Env {
 	return env
 }
 
+// pythonTag returns the major.minor Python version of the given interpreter
+// (e.g. "3.13"), or "" if the interpreter can't be queried. Used in the
+// gpustate fingerprint so cached verdicts invalidate across Python upgrades.
+func pythonTag(venvPython string) string {
+	if venvPython == "" {
+		return ""
+	}
+	out, err := runner.RunCapture(venvPython, "--version")
+	if err != nil {
+		return ""
+	}
+	m := pythonVersionRe.FindStringSubmatch(out)
+	if m == nil {
+		return ""
+	}
+	return m[1] + "." + m[2]
+}
+
+// ortStubWheelErr reports whether the smoke error looks like the broken
+// "empty-namespace" wheel case — onnxruntime-gpu installs a package with only
+// capi/ and no real Python bindings, so `import onnxruntime` succeeds but
+// `SessionOptions` / `InferenceSession` are missing. Observed on cp313 wheels
+// of onnxruntime-gpu 1.24.x.
+// lastNonBlankLines returns the last n non-blank lines of s, joined with
+// newlines and prefixed with two spaces for readable indent under a warn.
+// Used to surface compiler/pip error tails without flooding the console.
+func lastNonBlankLines(s string, n int) string {
+	if s == "" || n <= 0 {
+		return ""
+	}
+	raw := strings.Split(s, "\n")
+	var kept []string
+	for i := len(raw) - 1; i >= 0 && len(kept) < n; i-- {
+		line := strings.TrimRight(raw[i], " \t\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		kept = append([]string{"  " + line}, kept...)
+	}
+	return strings.Join(kept, "\n")
+}
+
+func ortStubWheelErr(errLine string) bool {
+	return strings.Contains(errLine, "has no attribute 'SessionOptions'") ||
+		strings.Contains(errLine, "has no attribute 'InferenceSession'") ||
+		strings.Contains(errLine, "has no attribute \"SessionOptions\"") ||
+		strings.Contains(errLine, "has no attribute \"InferenceSession\"")
+}
+
 // ensureOrtGPU checks for an NVIDIA GPU and swaps onnxruntime (CPU) for
 // onnxruntime-gpu if needed. On top of the swap it runs an end-to-end smoke
 // test (CUDAExecutionProvider can actually construct a session), installs
@@ -525,7 +576,7 @@ func ortHostEnv() gpustate.Env {
 // runs stay silent instead of reinstalling every time.
 func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 	state := gpustate.Load(dataDir)
-	hostEnv := ortHostEnv()
+	hostEnv := ortHostEnv(venvPython)
 
 	// Skip re-work if a previous run already proved this env is broken.
 	if state.OrtGPU == "broken" && gpustate.SameEnv(state.OrtGPUEnv, hostEnv) && hostEnv.GPU != "" {
@@ -596,7 +647,14 @@ func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 		return
 	}
 
-	output.Warn("onnxruntime-gpu smoke test failed (" + errLine + ") — falling back to CPU")
+	if ortStubWheelErr(errLine) {
+		output.Warn(fmt.Sprintf(
+			"onnxruntime-gpu wheel for Python %s ships no Python bindings (installs as empty namespace) — falling back to CPU. Use Python 3.12 for GPU acceleration until upstream ships a working cp%s wheel.",
+			hostEnv.Python, strings.ReplaceAll(hostEnv.Python, ".", ""),
+		))
+	} else {
+		output.Warn("onnxruntime-gpu smoke test failed (" + errLine + ") — falling back to CPU")
+	}
 	_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
 	_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
 	state.OrtGPU = "broken"
@@ -723,12 +781,25 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 	gpuShort := strings.Split(strings.TrimSpace(gpuName), "\n")[0]
 	cap := computeCap()
 	nvcc := nvccVersion()
-	currentEnv := gpustate.Env{GPU: gpuShort, Nvcc: nvcc, ComputeCap: cap}
+	currentEnv := gpustate.Env{GPU: gpuShort, Nvcc: nvcc, ComputeCap: cap, Python: pythonTag(venvPython)}
 
 	// Sticky skip: same env already failed once.
 	state := gpustate.Load(dataDir)
 	if state.LlamaCudaFailed != nil && gpustate.SameEnv(state.LlamaCudaFailed.Env, currentEnv) {
 		output.Skip("llama-cpp CUDA rebuild skipped — previous attempt failed for this GPU/nvcc combo (imprint setup --retry-gpu to retry)")
+		return
+	}
+
+	// No nvcc on PATH → can't rebuild with CUDA. Warn with actionable hint
+	// instead of attempting a doomed compile (which produces a bare
+	// "exit status 1" and no useful diagnostic).
+	if nvcc == "" {
+		output.Warn(fmt.Sprintf(
+			"llama-cpp CUDA rebuild skipped — nvcc not on PATH. Install CUDA Toolkit 12.8+ (or add its bin dir to PATH) to enable GPU offload for %s (sm_%s).",
+			gpuShort, archFlagFor(cap),
+		))
+		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
+		_ = gpustate.Save(dataDir, state)
 		return
 	}
 
@@ -753,9 +824,12 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 		fmt.Sprintf("CMAKE_ARGS=-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=%s", arch),
 		"CUDA_PATH=" + cudaRoot,
 	}
-	if _, err := runner.RunCaptureEnv(venvPip, env,
-		"install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet"); err != nil {
+	if out, err := runner.RunCaptureEnv(venvPip, env,
+		"install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir"); err != nil {
 		output.Warn("Failed to rebuild llama-cpp-python with CUDA: " + err.Error() + " — using CPU")
+		if tail := lastNonBlankLines(out, 5); tail != "" {
+			output.Warn("pip/compile tail:\n" + tail)
+		}
 		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
 		_ = gpustate.Save(dataDir, state)
 		// Try to restore a working CPU build so the tagger still loads.

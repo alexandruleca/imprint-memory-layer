@@ -23,12 +23,15 @@ type State struct {
 }
 
 // Env fingerprints the host so we only trust a sticky verdict when the
-// environment that produced it is still the same.
+// environment that produced it is still the same. Python is included so a
+// verdict from a 3.12 venv doesn't outlive a 3.13 upgrade (wheel availability
+// changes per minor version — e.g. onnxruntime-gpu 1.24.x stubs on cp313).
 type Env struct {
 	GPU        string `json:"gpu,omitempty"`
 	Driver     string `json:"driver,omitempty"`
 	Nvcc       string `json:"nvcc,omitempty"`
 	ComputeCap string `json:"compute_cap,omitempty"`
+	Python     string `json:"python,omitempty"`
 }
 
 // LlamaCudaFail records a failed llama-cpp CUDA rebuild.
@@ -104,6 +107,9 @@ func SameEnv(a, b Env) bool {
 		return false
 	}
 	if a.ComputeCap != "" && b.ComputeCap != "" && a.ComputeCap != b.ComputeCap {
+		return false
+	}
+	if a.Python != "" && b.Python != "" && a.Python != b.Python {
 		return false
 	}
 	return true

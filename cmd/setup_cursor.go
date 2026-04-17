@@ -22,6 +22,7 @@ func SetupCursor() {
 		return
 	}
 	output.Success("Cursor config dir found: " + cursorDir)
+	setupHostsRan++
 
 	bp := setupBackend()
 

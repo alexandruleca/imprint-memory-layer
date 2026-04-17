@@ -17,14 +17,14 @@ func main() {
 
 	switch os.Args[1] {
 	case "setup":
-		// `imprint setup`              → claude-code (back-compat default)
+		// `imprint setup`              → all (try every detected host)
 		// `imprint setup <target>`     → dispatch to a single handler
 		// `imprint setup all`          → run every handler; each self-skips
 		//                                  if its host tool isn't installed.
 		// `imprint setup [--retry-gpu] [target]` → clear sticky GPU
 		//   failure state before running so doomed ORT/llama-cpp CUDA
 		//   installs get another shot (useful after the user upgrades nvcc).
-		target := "claude-code"
+		target := "all"
 		for _, a := range os.Args[2:] {
 			switch a {
 			case "--retry-gpu":
@@ -64,6 +64,8 @@ func main() {
 		cmd.Enable(os.Args[2:])
 	case "disable":
 		cmd.Disable(os.Args[2:])
+	case "uninstall":
+		cmd.Uninstall(os.Args[2:])
 	case "status":
 		cmd.Status(os.Args[2:])
 	case "config":
@@ -111,6 +113,8 @@ Usage:
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Stop server, unregister MCP, strip hooks (data preserved)
   imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor | codex | copilot | cline | all)
+  imprint uninstall [-y] [--keep-data]
+                             Full removal: disable + strip CLAUDE.md block + drop alias/symlink + delete venv/data/install dir
   imprint workspace          List workspaces and show active
   imprint workspace switch <n>  Switch to workspace (create if new)
   imprint workspace delete <n>  Delete a workspace and its data
