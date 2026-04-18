@@ -183,14 +183,50 @@ Respond with EXACTLY this JSON format, nothing else:
         return {"quality_pct": 100, "assessment": f"LLM judge error: {e}"}
 
 
+CATEGORY_ORDER = ["information", "decision", "debug", "cross-project", "summary", "creation"]
+
+
+def _group_by_category(prompt_ids: list[str], prompts_meta: dict) -> dict[str, list[str]]:
+    """Group prompt IDs by their category field. Falls back to id-prefix heuristic
+    for any id not found in prompts_meta (e.g. stale raw files from removed prompts)."""
+    by_cat: dict[str, list[str]] = {}
+    for pid in prompt_ids:
+        cat = (prompts_meta.get(pid) or {}).get("category")
+        if not cat:
+            # Legacy fallback: info-* / create-* prefix
+            if pid.startswith("info-"):
+                cat = "information"
+            elif pid.startswith("create-"):
+                cat = "creation"
+            else:
+                cat = pid.split("-", 1)[0] if "-" in pid else "other"
+        by_cat.setdefault(cat, []).append(pid)
+    return by_cat
+
+
+def _category_title(cat: str) -> str:
+    return {
+        "information":   "Information Prompts",
+        "decision":      "Decision Recall Prompts",
+        "debug":         "Debugging Prompts",
+        "cross-project": "Cross-Project Prompts",
+        "summary":       "Session Summary Prompts",
+        "creation":      "Creation Prompts",
+    }.get(cat, cat.replace("-", " ").title() + " Prompts")
+
+
 def generate_markdown(groups: dict, prompts_meta: dict, use_llm: bool = False) -> str:
     """Generate the full markdown summary."""
     lines = []
 
-    # Collect prompt IDs
+    # Collect prompt IDs grouped by category (data-driven — adds new categories automatically)
     prompt_ids = sorted(set(pid for pid, _ in groups.keys()))
-    info_ids = [p for p in prompt_ids if p.startswith("info-")]
-    create_ids = [p for p in prompt_ids if p.startswith("create-")]
+    ids_by_cat = _group_by_category(prompt_ids, prompts_meta)
+    ordered_cats = [c for c in CATEGORY_ORDER if c in ids_by_cat]
+    # Append any unknown categories so nothing is dropped
+    for c in ids_by_cat:
+        if c not in ordered_cats:
+            ordered_cats.append(c)
 
     def make_table(ids: list[str]) -> list[str]:
         rows = []
@@ -311,21 +347,18 @@ def generate_markdown(groups: dict, prompts_meta: dict, use_llm: bool = False) -
 
         return rows
 
-    # Build output
-    if info_ids:
-        lines.append("### Information Prompts")
+    # Build output — one table per category, in canonical order
+    for cat in ordered_cats:
+        ids = ids_by_cat[cat]
+        if not ids:
+            continue
+        lines.append(f"### {_category_title(cat)}")
         lines.append("")
-        lines.extend(make_table(info_ids))
-        lines.append("")
-
-    if create_ids:
-        lines.append("### Creation Prompts")
-        lines.append("")
-        lines.extend(make_table(create_ids))
+        lines.extend(make_table(ids))
         lines.append("")
 
-    # Overall summary
-    all_ids = info_ids + create_ids
+    # Overall summary (flatten all categories)
+    all_ids = [pid for cat in ordered_cats for pid in ids_by_cat[cat]]
     if all_ids:
         total_off = 0
         total_on = 0
@@ -438,7 +471,7 @@ def generate_markdown(groups: dict, prompts_meta: dict, use_llm: bool = False) -
 
         return rows
 
-    if info_ids or create_ids:
+    if all_ids:
         lines.append("### Response Quality Comparison")
         lines.append("")
         if use_llm:
@@ -449,30 +482,25 @@ def generate_markdown(groups: dict, prompts_meta: dict, use_llm: bool = False) -
         lines.append("100% = equal quality, >100% = ON is better, <100% = OFF is better.")
         lines.append("")
 
-    if info_ids:
-        lines.extend(make_quality_section(info_ids, "Information Prompts"))
+    for cat in ordered_cats:
+        ids = ids_by_cat[cat]
+        if not ids:
+            continue
+        lines.extend(make_quality_section(ids, _category_title(cat)))
         lines.append("")
 
-    if create_ids:
-        lines.extend(make_quality_section(create_ids, "Creation Prompts"))
-        lines.append("")
-
-    # Quality summary
-    if (info_ids or create_ids) and use_llm:
-        info_qs = [_judge(p)["quality_pct"] for p in info_ids if (p, "off") in groups and (p, "on") in groups]
-        create_qs = [_judge(p)["quality_pct"] for p in create_ids if (p, "off") in groups and (p, "on") in groups]
-
+    # Quality summary — per-category averages
+    if all_ids and use_llm:
         lines.append("#### Key Observations")
         lines.append("")
-        if info_qs:
-            lines.append(f"- **Information prompts**: avg {sum(info_qs)/len(info_qs):.0f}% quality — "
-                         "ON responses are richer because Imprint returns pre-indexed knowledge "
-                         "spanning multiple files simultaneously")
-        if create_qs:
-            lines.append(f"- **Creation prompts**: avg {sum(create_qs)/len(create_qs):.0f}% quality — "
-                         "ON has better API awareness from semantic memory, but may over-scope")
+        for cat in ordered_cats:
+            ids = ids_by_cat[cat]
+            qs = [_judge(p)["quality_pct"] for p in ids if (p, "off") in groups and (p, "on") in groups]
+            if qs:
+                lines.append(f"- **{_category_title(cat)}**: avg {sum(qs)/len(qs):.0f}% quality "
+                             f"across {len(qs)} prompts")
         lines.append("- Without Imprint, Claude reads 1-2 files and answers from that narrower view. "
-                     "Imprint search pulls relevant chunks from many files in a single call")
+                     "Imprint search pulls relevant chunks from many files in a single call.")
         lines.append("")
 
     return "\n".join(lines)
@@ -509,7 +537,8 @@ def main():
         sys.exit(1)
 
     if use_llm:
-        print("▸ Running LLM quality judgments (8 prompts × 1 Haiku call each)...", file=sys.stderr)
+        unique_pids = len({pid for pid, _ in groups.keys()})
+        print(f"▸ Running LLM quality judgments ({unique_pids} prompts × 1 Haiku call each)...", file=sys.stderr)
 
     md = generate_markdown(groups, prompts_meta, use_llm=use_llm)
 

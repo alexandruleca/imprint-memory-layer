@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hunter/imprint/internal/hooks"
 	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
@@ -11,10 +12,13 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
-// SetupCursor wires the Imprint MCP server into Cursor. Cursor has no hook
-// system, so enforcement is text-only via an always-applied rule. The MCP
-// server itself is registered globally in ~/.cursor/mcp.json so tool calls
-// work the same way as in Claude Code.
+// SetupCursor wires the Imprint MCP server into Cursor. Cursor exposes a
+// hook system (version 1, ~/.cursor/hooks.json) as of 2026-04, so this
+// target gets parity with Claude Code wherever Cursor's events line up:
+// sessionStart, preCompact, preToolUse (Read|Grep gate), and postToolUse
+// (mcp__imprint__search sentinel). Stop/sessionEnd is skipped because
+// Cursor's payload omits transcript_path — the summarizer has nothing
+// to read.
 func SetupCursor() {
 	cursorDir := platform.CursorConfigDir()
 	if !platform.DirExists(cursorDir) {
@@ -65,6 +69,35 @@ func SetupCursor() {
 		}
 	}
 
+	// Step: wire hooks. Cursor's hooks.json schema: {version:1, hooks:{event:[{command, matcher?}]}}.
+	// MCP-tool matchers use "MCP:<tool_name>" syntax; we match on the unqualified tool
+	// name (`search`) since Cursor strips the server prefix.
+	hooksPath := platform.CursorHooksPath()
+	output.Info("Checking Cursor hooks...")
+	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
+	type cursorHook struct{ event, matcher, command string }
+	cursorHooks := []cursorHook{
+		{"sessionStart", "", hooks.SessionStartCommand()},
+		// Cursor's preCompact is observational (can't block); we emit
+		// `user_message` as a save-context nudge to the user.
+		{"preCompact", "", hooks.CursorPreCompactCommand()},
+		{"postToolUse", "MCP:search", hooks.PostSearchSentinelCommand(hp)},
+		{"preToolUse", "Read|Grep", hooks.PreReadGateCommand(hp)},
+	}
+	hooksOK := 0
+	for _, h := range cursorHooks {
+		if err := jsonutil.SetCursorHook(hooksPath, h.event, h.matcher, h.command); err != nil {
+			output.Warn("Could not set " + h.event + " hook: " + err.Error())
+		} else {
+			label := h.event
+			if h.matcher != "" {
+				label += "(" + h.matcher + ")"
+			}
+			output.Success("Configured " + label + " hook")
+			hooksOK++
+		}
+	}
+
 	output.Header("═══ Imprint → Cursor setup complete ═══")
 	venvPythonVer, _ := runner.RunCapture(bp.VenvPython, "--version")
 	if venvPythonVer != "" {
@@ -73,9 +106,11 @@ func SetupCursor() {
 	output.Info("Data:       " + bp.DataDir)
 	output.Info("MCP config: " + mcpPath)
 	output.Info("Rule:       " + rulePath)
-	output.Warn("Cursor has no hook system — enforcement is text-only via the always-on rule. For hard enforcement (PreToolUse block) use Claude Code.")
+	if hooksOK > 0 {
+		output.Info("Hooks:      " + hooksPath)
+	}
 	output.Info("Next steps:")
-	output.Info("  1. Restart Cursor to pick up the new MCP server")
+	output.Info("  1. Restart Cursor to pick up the new MCP server + hooks")
 	output.Info("  2. In Cursor settings, verify the 'imprint' MCP server is listed")
 	output.Info("  3. Use 'imprint ingest <dir>' to index your project directories")
 }

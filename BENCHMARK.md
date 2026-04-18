@@ -9,15 +9,21 @@ Empirical measurement of how Imprint reduces Claude Code's token consumption by 
 Claude Code CLI in print mode with JSON output:
 
 ```bash
-claude -p --output-format json --model <model> --bare --no-session-persistence "PROMPT"
+claude -p --output-format json --model <model> \
+  --setting-sources "" --no-session-persistence \
+  --allowedTools "<comma-list>" \
+  [--mcp-config benchmark/mcp_config.json --system-prompt "$(cat CLAUDE.md)"] \
+  -- "PROMPT"
 ```
+
+`--allowedTools` is passed explicitly in both modes. Without it, tool calls trigger permission prompts — each denial becomes an extra turn that re-sends the cached system prompt, inflating ON-mode cost artificially. The positional prompt is separated by `--` because `--allowedTools` is variadic.
 
 ### Modes
 
-| Mode | Description | Flags |
-|------|-------------|-------|
-| **OFF** (baseline) | No Imprint. Claude uses default tools (Read, Grep, Glob, Bash) to answer by reading source files directly. | `--setting-sources "" --no-session-persistence` |
-| **ON** | Imprint enabled. Claude can search semantic memory via MCP before reading files. CLAUDE.md injected as system prompt. | `--setting-sources "" --no-session-persistence --mcp-config benchmark/mcp_config.json --system-prompt "$(cat CLAUDE.md)"` |
+| Mode | Description | Added flags |
+|------|-------------|-------------|
+| **OFF** (baseline) | No Imprint. Only built-in tools. | `--allowedTools "Read,Write,Edit,Bash,Grep,Glob,Task,WebFetch,WebSearch"` |
+| **ON** | Imprint MCP exposed. CLAUDE.md injected as system prompt. | above list + `mcp__imprint__*`, plus `--mcp-config benchmark/mcp_config.json --system-prompt "$(cat CLAUDE.md)"` |
 
 Both modes use `--setting-sources ""` for hermetic isolation — no hooks, no auto-discovered CLAUDE.md, no shared state mutation. Auth credentials are preserved.
 
@@ -35,30 +41,51 @@ Both modes use `--setting-sources ""` for hermetic isolation — no hooks, no au
 
 **Important:** Metrics are summed from `modelUsage` across **all models**, not just the primary model's `usage` field. Without Imprint, Claude Code often spawns cheaper Haiku sub-agents for file reading — those tokens only appear in `modelUsage`. With Imprint, the primary model answers directly from semantic search, using fewer total tokens but all on the primary (more expensive) model.
 
-When multiple runs are performed, the **median** value is reported.
+When multiple runs are performed, the **median** value is reported per prompt/mode.
 
 ### Prompts
 
-Two categories, 8 prompts total:
+15 prompts across 6 categories. Defined in [benchmark/prompts.json](benchmark/prompts.json), each with `id`, `category`, `name`, `prompt`. `summarize.py` groups tables by category automatically — adding a new category only requires a new prompt entry.
 
-**Information prompts** (5) — questions about the Imprint codebase that require reading source files to answer:
+| Category | # | Purpose |
+|----------|---|---------|
+| **information** | 5 | Architecture/behavior questions that require reading source files |
+| **decision** | 2 | Recall of design rationale (why X over Y) |
+| **debug** | 2 | Diagnostic questions about known failure modes |
+| **cross-project** | 2 | Patterns that span multiple indexed projects |
+| **summary** | 1 | Recent-activity recall, memory-only (no git/file access) |
+| **creation** | 3 | Small code files that require codebase understanding |
 
-1. **Chunking system** — "How does the chunking system work? Explain dispatch logic, code vs prose chunkers, overlap strategy."
-2. **Embedding model** — "What embedding model does Imprint use? How is ONNX session configured? Include memory safeguards and GPU support."
-3. **Workspace isolation** — "Explain workspace isolation architecture. How does each workspace get its own collection, SQLite DB, WAL?"
-4. **Metadata tagging** — "How does metadata tagging work? Walk through four tag sources from deterministic to LLM, including zero-shot."
-5. **Qdrant lifecycle** — "How does the auto-spawned Qdrant server work? Why server mode over embedded? How does qdrant_runner.py handle lifecycle?"
+Prompt list:
 
-**Creation prompts** (3) — small file creation tasks that require understanding the codebase:
+| ID | Category | Name |
+|----|----------|------|
+| info-1 | information | Chunking system |
+| info-2 | information | Embedding model |
+| info-3 | information | Workspace isolation |
+| info-4 | information | Metadata tagging |
+| info-5 | information | Qdrant lifecycle |
+| decision-1 | decision | Qdrant vs embedded |
+| decision-2 | decision | LLM tagger default off |
+| debug-1 | debug | Search returns nothing |
+| debug-2 | debug | Slow embedding on first run |
+| cross-1 | cross-project | Async work pattern |
+| cross-2 | cross-project | Config precedence |
+| summary-1 | summary | Recent activity |
+| create-1 | creation | Qdrant connectivity test |
+| create-2 | creation | Memory count utility |
+| create-3 | creation | Workspace stats CLI |
 
-6. **Qdrant connectivity test** — "Write a Python script that connects to local Qdrant, checks reachability, lists collections, prints memory counts."
-7. **Memory count utility** — "Write a Python function count_memories_by_project() using the facet approach from the MCP server."
-8. **Embed speed benchmark** — "Write a shell script that times embedding 100 chunks using the project's embedding pipeline."
+`create-3` (Workspace stats CLI) replaced an earlier shell-script prompt that had behaved as a scope outlier. The current version asks for a helper that reuses existing imprint package functions, keeping it comparable in scope to `create-1`/`create-2`.
+
+### Results namespacing
+
+Runs are written to `benchmark/results/raw/<git-sha>/` where `<git-sha>` is the short SHA of the Imprint repo at run time (stamped by `run.sh`). Results from different Imprint versions never mix, so historical comparisons stay honest.
 
 ## Results
 
 <!-- Results are generated by benchmark/summarize.py — do not edit manually -->
-<!-- Run: bash benchmark/run.sh && python3 benchmark/summarize.py benchmark/results/raw -->
+<!-- Run: bash benchmark/run.sh && python3 benchmark/summarize.py benchmark/results/raw/<sha> -->
 
 _No results yet. Run `bash benchmark/run.sh` to generate._
 
@@ -67,26 +94,28 @@ _No results yet. Run `bash benchmark/run.sh` to generate._
 ```bash
 cd /path/to/knowledge
 
-# Full benchmark (3 runs per prompt per mode, ~48 API calls)
+# Full suite (15 prompts × 5 runs × 2 modes = 150 runs)
 bash benchmark/run.sh
 
-# Quick smoke test (1 run each)
+# Quick iteration preset — one prompt per category (6 prompts × 5 runs × 2 modes = 60 runs)
+bash benchmark/run.sh --subset
+
+# Filter by category (comma-separated: information,decision,debug,cross-project,summary,creation)
+bash benchmark/run.sh --category information,decision
+
+# Filter by prompt ID (comma-separated)
+bash benchmark/run.sh --prompt info-1,decision-1
+
+# Override runs / model
 bash benchmark/run.sh --runs 1
-
-# Single prompt
-bash benchmark/run.sh --prompt info-1
-
-# Different model
 bash benchmark/run.sh --model opus
 
-# With LLM quality judging (uses Haiku to compare response quality)
+# With LLM-as-judge quality scoring (adds ~15 Haiku calls)
 bash benchmark/run.sh --llm-quality
 
-# Regenerate summary from existing results
-python3 benchmark/summarize.py benchmark/results/raw
-
-# Regenerate with LLM quality judgments
-python3 benchmark/summarize.py benchmark/results/raw --llm-quality
+# Regenerate summary from existing results (use the git-sha directory for the run)
+python3 benchmark/summarize.py benchmark/results/raw/<git-sha>
+python3 benchmark/summarize.py benchmark/results/raw/<git-sha> --llm-quality
 ```
 
 **Prerequisites:**
@@ -95,7 +124,7 @@ python3 benchmark/summarize.py benchmark/results/raw --llm-quality
 - Imprint set up with ingested memories (`imprint setup && imprint ingest .`)
 - Qdrant server running (auto-started by the benchmark script)
 
-**Estimated cost:** ~$1.50–3.00 for full run with Sonnet (48 API calls).
+**Estimated cost (Sonnet):** ~$15–25 full suite, ~$6–10 `--subset`. Add a few cents per prompt for `--llm-quality`.
 
 ## How It Works
 
@@ -104,7 +133,7 @@ Without Imprint, Claude must read source files to answer questions:
 ```
 User: "How does chunking work?"
   → Claude calls Read(chunker.py)           # ~280 lines into context
-  → Claude calls Read(README.md, lines...)   # more lines into context
+  → Claude calls Read(README.md, lines...)  # more lines into context
   → Claude synthesizes answer
 ```
 
@@ -113,16 +142,14 @@ With Imprint, Claude searches semantic memory first:
 ```
 User: "How does chunking work?"
   → Claude calls mcp__imprint__search("chunking")  # ~5 relevant chunks returned
-  → Claude answers from memory                       # no file reads needed
+  → Claude answers from memory                     # no file reads needed
 ```
 
-The token savings come from replacing large file reads with focused semantic search results that contain only the relevant information.
+The token savings come from replacing large file reads with focused semantic search results that contain only the relevant information. The trade-off is turn count: ON-mode runs often take more LLM turns (search → maybe graph_scope → answer), and each extra turn re-sends the cached system prompt — so raw token savings don't always translate 1:1 to cost savings.
 
 ## Response Quality Analysis
 
-Beyond token counts, we compared the actual content quality of responses with Imprint ON vs OFF. Quality was assessed on: completeness (topics covered), structure (sections, tables, code blocks), technical depth, and cross-file knowledge synthesis.
-
-
+Beyond token counts, we compare the actual content of responses with Imprint ON vs OFF. Quality is assessed on completeness, accuracy, structure, specificity, and conciseness. With `--llm-quality`, Haiku reads both responses per prompt and emits a score + one-sentence verdict; without it, only the character-length ratio is shown.
 
 ### Changes made to `CLAUDE.md`:
 
@@ -136,60 +163,109 @@ Replaced "search before reading" with explicit confidence-based guidance:
 Record the environment when results were generated:
 
 ```
-OS:       (recorded at runtime)
-Python:   (recorded at runtime)
-Model:    (recorded at runtime)
-Imprint:  (recorded at runtime)
-Memories: (recorded at runtime)
+OS:       Ubuntu24.04
+Python:   3.11.5
+Model:    Sonnet + Haiku for OFF - Just Sonnet for ON
+Imprint:  0.4.0
+Memories: 4386
 ```
 
 ### Information Prompts
 
 | Prompt | OFF tokens | ON tokens | Savings | % | OFF cost | ON cost | Cost Δ |
 |--------|-----------|----------|---------|---|----------|---------|--------|
-| Chunking system | 288,622 | 185,886 | 102,736 | -35.6% | $0.1910 | $0.1453 | $-0.0457 |
-| Embedding model | 506,702 | 166,332 | 340,370 | -67.2% | $0.1825 | $0.1268 | $-0.0557 |
-| Workspace isolation | 663,273 | 949,879 | -286,606 | +43.2% | $0.1997 | $0.2519 | $0.0522 |
-| Metadata tagging | 519,477 | 130,268 | 389,209 | -74.9% | $0.1990 | $0.0980 | $-0.1011 |
-| Qdrant lifecycle | 822,872 | 99,088 | 723,784 | -88.0% | $0.2073 | $0.0836 | $-0.1236 |
+| Chunking system | 476,519 | 80,756 | 395,763 | -83.1% | $0.1436 | $0.0944 | $-0.0491 |
+| Embedding model | 528,073 | 75,131 | 452,942 | -85.8% | $0.1869 | $0.0728 | $-0.1141 |
+| Workspace isolation | 1,022,699 | 167,280 | 855,419 | -83.6% | $0.2516 | $0.1642 | $-0.0874 |
+| Metadata tagging | 530,077 | 74,819 | 455,258 | -85.9% | $0.1806 | $0.0725 | $-0.1080 |
+| Qdrant lifecycle | 70,052 | 90,729 | -20,677 | +29.5% | $0.0976 | $0.0784 | $-0.0191 |
 
-**Average**: -45.3% tokens, -28.0% cost
+**Average**: -81.4% tokens, -43.9% cost
+
+### Decision Recall Prompts
+
+| Prompt | OFF tokens | ON tokens | Savings | % | OFF cost | ON cost | Cost Δ |
+|--------|-----------|----------|---------|---|----------|---------|--------|
+| Qdrant vs embedded | 357,338 | 133,540 | 223,798 | -62.6% | $0.1380 | $0.1132 | $-0.0248 |
+| LLM tagger default off | 86,440 | 59,735 | 26,705 | -30.9% | $0.1042 | $0.0615 | $-0.0428 |
+
+**Average**: -56.4% tokens, -27.9% cost
+
+### Debugging Prompts
+
+| Prompt | OFF tokens | ON tokens | Savings | % | OFF cost | ON cost | Cost Δ |
+|--------|-----------|----------|---------|---|----------|---------|--------|
+| Search returns nothing | 933,603 | 13,814 | 919,789 | -98.5% | $0.2347 | $0.0252 | $-0.2095 |
+| Slow embedding on first run | 759,849 | 107,713 | 652,136 | -85.8% | $0.2217 | $0.1379 | $-0.0839 |
+
+**Average**: -92.8% tokens, -64.3% cost
+
+### Cross-Project Prompts
+
+| Prompt | OFF tokens | ON tokens | Savings | % | OFF cost | ON cost | Cost Δ |
+|--------|-----------|----------|---------|---|----------|---------|--------|
+| Async work pattern | 903,580 | 131,857 | 771,723 | -85.4% | $0.2470 | $0.1359 | $-0.1111 |
+| Config precedence | 329,221 | 98,990 | 230,231 | -69.9% | $0.1431 | $0.0961 | $-0.0470 |
+
+**Average**: -81.3% tokens, -40.5% cost
+
+### Session Summary Prompts
+
+| Prompt | OFF tokens | ON tokens | Savings | % | OFF cost | ON cost | Cost Δ |
+|--------|-----------|----------|---------|---|----------|---------|--------|
+| Recent activity | 38,167 | 122,146 | -83,979 | +220.0% | $0.0393 | $0.1048 | $0.0654 |
+
+**Average**: +220.0% tokens, +166.4% cost
 
 ### Creation Prompts
 
 | Prompt | OFF tokens | ON tokens | Savings | % | OFF cost | ON cost | Cost Δ |
 |--------|-----------|----------|---------|---|----------|---------|--------|
-| Qdrant connectivity test | 563,952 | 594,632 | -30,680 | +5.4% | $0.2463 | $0.4376 | $0.1913 |
-| Memory count utility | 866,588 | 778,184 | 88,404 | -10.2% | $0.2031 | $0.2230 | $0.0199 |
-| Embed speed benchmark | 364,365 | 0 | 364,365 | -100.0% | $0.1850 | $0.0000 | $-0.1850 |
+| Qdrant connectivity test | 565,732 | 657,928 | -92,196 | +16.3% | $0.2198 | $0.3030 | $0.0832 |
+| Memory count utility | 578,304 | 419,536 | 158,768 | -27.5% | $0.2189 | $0.1701 | $-0.0488 |
+| Workspace stats CLI | 700,440 | 700,987 | -547 | +0.1% | $0.2364 | $0.2301 | $-0.0063 |
 
-**Average**: -23.5% tokens, +4.1% cost
+**Average**: -3.6% tokens, +4.2% cost
 
 ### Overall
 
-- **Token savings**: -36.8% (4,595,851 → 2,904,269)
-- **Cost savings**: -15.3% ($1.6139 → $1.3663)
+- **Token savings**: -62.8% (7,880,094 → 2,934,961)
+- **Cost savings**: -30.2% ($2.6634 → $1.8602)
 
 ### Detailed Breakdown
 
 | Prompt | Mode | Input | Output | Cache Read | Cache Create | Total | Cost | Turns | Duration |
 |--------|------|-------|--------|------------|-------------|-------|------|-------|----------|
-| Chunking system | OFF | 724 | 4,649 | 242,115 | 40,308 | 288,622 | $0.1910 | 2 | 1.1m |
-| Chunking system | ON | 2,282 | 5,376 | 130,326 | 43,809 | 185,886 | $0.1453 | 7 | 1.2m |
-| Embedding model | OFF | 62 | 6,048 | 446,713 | 53,398 | 506,702 | $0.1825 | 2 | 1.2m |
-| Embedding model | ON | 16 | 2,412 | 151,258 | 9,802 | 166,332 | $0.1268 | 12 | 54.6s |
-| Workspace isolation | OFF | 1,398 | 7,139 | 597,740 | 60,653 | 663,273 | $0.1997 | 2 | 1.5m |
-| Workspace isolation | ON | 1,383 | 7,997 | 882,711 | 57,280 | 949,879 | $0.2519 | 4 | 2.0m |
-| Metadata tagging | OFF | 67 | 6,980 | 449,941 | 52,453 | 519,477 | $0.1990 | 2 | 1.4m |
-| Metadata tagging | ON | 13 | 2,125 | 119,959 | 8,446 | 130,268 | $0.0980 | 7 | 51.2s |
-| Qdrant lifecycle | OFF | 2,906 | 6,595 | 758,212 | 61,641 | 822,872 | $0.2073 | 2 | 1.4m |
-| Qdrant lifecycle | ON | 11 | 2,152 | 92,106 | 7,554 | 99,088 | $0.0836 | 8 | 44.7s |
-| Qdrant connectivity test | OFF | 2,056 | 7,544 | 509,081 | 43,812 | 563,952 | $0.2463 | 6 | 1.6m |
-| Qdrant connectivity test | ON | 89 | 15,352 | 516,880 | 61,734 | 594,632 | $0.4376 | 15 | 3.2m |
-| Memory count utility | OFF | 73 | 6,471 | 783,739 | 53,484 | 866,588 | $0.2031 | 4 | 1.4m |
-| Memory count utility | ON | 87 | 9,087 | 716,334 | 54,823 | 778,184 | $0.2230 | 6 | 1.9m |
-| Embed speed benchmark | OFF | 67 | 6,786 | 322,470 | 37,289 | 364,365 | $0.1850 | 5 | 1.4m |
-| Embed speed benchmark | ON | 0 | 0 | 0 | 0 | 0 | $0.0000 | 1 | 0.3s |
+| Chunking system | OFF | 56 | 4,888 | 398,396 | 36,651 | 476,519 | $0.1436 | 2 | 1.1m |
+| Chunking system | ON | 10 | 2,302 | 67,912 | 10,902 | 80,756 | $0.0944 | 6 | 53.4s |
+| Embedding model | OFF | 69 | 6,384 | 470,934 | 48,131 | 528,073 | $0.1869 | 2 | 1.3m |
+| Embedding model | ON | 11 | 1,934 | 67,673 | 6,232 | 75,131 | $0.0728 | 5 | 35.7s |
+| Workspace isolation | OFF | 100 | 7,484 | 943,031 | 70,864 | 1,022,699 | $0.2516 | 2 | 1.6m |
+| Workspace isolation | ON | 14 | 3,689 | 149,412 | 16,317 | 167,280 | $0.1642 | 13 | 1.1m |
+| Metadata tagging | OFF | 904 | 6,590 | 457,980 | 51,399 | 530,077 | $0.1806 | 2 | 1.4m |
+| Metadata tagging | ON | 11 | 1,973 | 67,149 | 6,023 | 74,819 | $0.0725 | 5 | 39.8s |
+| Qdrant lifecycle | OFF | 5 | 1,257 | 51,638 | 17,007 | 70,052 | $0.0976 | 5 | 27.9s |
+| Qdrant lifecycle | ON | 10 | 1,851 | 81,975 | 7,076 | 90,729 | $0.0784 | 6 | 45.5s |
+| Qdrant vs embedded | OFF | 1,146 | 4,865 | 306,944 | 42,550 | 357,338 | $0.1380 | 6 | 1.2m |
+| Qdrant vs embedded | ON | 14 | 2,058 | 119,056 | 13,308 | 133,540 | $0.1132 | 7 | 44.5s |
+| LLM tagger default off | OFF | 6 | 1,594 | 69,000 | 15,888 | 86,440 | $0.1042 | 6 | 33.9s |
+| LLM tagger default off | ON | 8 | 1,501 | 53,174 | 4,695 | 59,735 | $0.0615 | 4 | 32.2s |
+| Search returns nothing | OFF | 84 | 5,725 | 856,193 | 64,423 | 933,603 | $0.2347 | 2 | 1.6m |
+| Search returns nothing | ON | 3 | 1,435 | 12,376 | 0 | 13,814 | $0.0252 | 1 | 34.0s |
+| Slow embedding on first run | OFF | 102 | 7,119 | 678,844 | 66,811 | 759,849 | $0.2217 | 2 | 1.7m |
+| Slow embedding on first run | ON | 10 | 3,515 | 88,577 | 13,189 | 107,713 | $0.1379 | 9 | 1.2m |
+| Async work pattern | OFF | 112 | 7,854 | 836,687 | 69,684 | 903,580 | $0.2470 | 2 | 1.7m |
+| Async work pattern | ON | 11 | 3,691 | 114,512 | 13,177 | 131,857 | $0.1359 | 11 | 1.2m |
+| Config precedence | OFF | 49 | 4,040 | 280,632 | 50,316 | 329,221 | $0.1431 | 2 | 56.6s |
+| Config precedence | ON | 10 | 2,501 | 87,296 | 7,825 | 98,990 | $0.0961 | 8 | 51.3s |
+| Recent activity | OFF | 4 | 1,017 | 34,090 | 2,924 | 38,167 | $0.0393 | 6 | 21.2s |
+| Recent activity | ON | 11 | 2,396 | 107,083 | 9,533 | 122,146 | $0.1048 | 11 | 51.1s |
+| Qdrant connectivity test | OFF | 3,459 | 5,044 | 496,121 | 55,876 | 565,732 | $0.2198 | 5 | 1.3m |
+| Qdrant connectivity test | ON | 112 | 9,227 | 601,950 | 58,408 | 657,928 | $0.3030 | 14 | 2.1m |
+| Memory count utility | OFF | 2,513 | 6,588 | 488,207 | 74,865 | 578,304 | $0.2189 | 3 | 1.2m |
+| Memory count utility | ON | 3,912 | 5,546 | 352,144 | 53,794 | 419,536 | $0.1701 | 3 | 1.1m |
+| Workspace stats CLI | OFF | 78 | 6,819 | 613,536 | 63,640 | 700,440 | $0.2364 | 5 | 1.4m |
+| Workspace stats CLI | ON | 79 | 7,930 | 645,920 | 47,655 | 700,987 | $0.2301 | 9 | 1.5m |
 
 ### Per-Model Token Distribution
 
@@ -198,36 +274,53 @@ With Imprint, the primary model answers directly from semantic search — fewer 
 
 | Prompt | Mode | Model | Tokens | Cost |
 |--------|------|-------|--------|------|
-| Chunking system | OFF | haiku | 440,482 | $0.1186 |
-| Chunking system | OFF | sonnet | 37,827 | $0.0511 |
-| Chunking system | ON | haiku | 98,761 | $0.0728 |
-| Chunking system | ON | sonnet | 85,787 | $0.0725 |
-| Embedding model | OFF | haiku | 469,036 | $0.1249 |
-| Embedding model | OFF | sonnet | 37,666 | $0.0434 |
-| Embedding model | ON | sonnet | 166,332 | $0.1268 |
-| Workspace isolation | OFF | haiku | 624,853 | $0.1553 |
-| Workspace isolation | OFF | sonnet | 38,453 | $0.0481 |
-| Workspace isolation | ON | haiku | 846,490 | $0.1643 |
-| Workspace isolation | ON | sonnet | 45,351 | $0.0654 |
-| Metadata tagging | OFF | haiku | 415,654 | $0.1207 |
-| Metadata tagging | OFF | sonnet | 38,665 | $0.0611 |
-| Metadata tagging | ON | haiku | 387,321 | $0.1327 |
-| Metadata tagging | ON | sonnet | 89,022 | $0.0871 |
-| Qdrant lifecycle | OFF | haiku | 785,003 | $0.1666 |
-| Qdrant lifecycle | OFF | sonnet | 37,869 | $0.0454 |
-| Qdrant lifecycle | ON | sonnet | 99,088 | $0.0836 |
-| Qdrant connectivity test | OFF | haiku | 419,716 | $0.1062 |
-| Qdrant connectivity test | OFF | sonnet | 122,380 | $0.1184 |
-| Qdrant connectivity test | ON | haiku | 423,502 | $0.1009 |
-| Qdrant connectivity test | ON | sonnet | 387,318 | $0.4376 |
-| Memory count utility | OFF | haiku | 782,281 | $0.1483 |
-| Memory count utility | OFF | sonnet | 80,970 | $0.0573 |
-| Memory count utility | ON | haiku | 711,509 | $0.1511 |
-| Memory count utility | ON | sonnet | 83,210 | $0.0962 |
-| Embed speed benchmark | OFF | haiku | 275,500 | $0.0707 |
-| Embed speed benchmark | OFF | sonnet | 92,631 | $0.1176 |
-| Embed speed benchmark | ON | haiku | 579,471 | $0.1425 |
-| Embed speed benchmark | ON | sonnet | 88,117 | $0.1389 |
+| Chunking system | OFF | haiku | 439,010 | $0.1067 |
+| Chunking system | OFF | sonnet | 37,344 | $0.0368 |
+| Chunking system | ON | sonnet | 80,756 | $0.0944 |
+| Embedding model | OFF | haiku | 487,273 | $0.1346 |
+| Embedding model | OFF | sonnet | 39,100 | $0.0523 |
+| Embedding model | ON | sonnet | 75,131 | $0.0728 |
+| Workspace isolation | OFF | haiku | 985,453 | $0.2080 |
+| Workspace isolation | OFF | sonnet | 39,525 | $0.0646 |
+| Workspace isolation | ON | sonnet | 167,280 | $0.1642 |
+| Metadata tagging | OFF | haiku | 492,244 | $0.1286 |
+| Metadata tagging | OFF | sonnet | 39,544 | $0.0473 |
+| Metadata tagging | ON | sonnet | 74,819 | $0.0725 |
+| Qdrant lifecycle | OFF | haiku | 537,513 | $0.1430 |
+| Qdrant lifecycle | OFF | sonnet | 69,643 | $0.0973 |
+| Qdrant lifecycle | ON | sonnet | 90,729 | $0.0784 |
+| Qdrant vs embedded | OFF | haiku | 319,131 | $0.1005 |
+| Qdrant vs embedded | OFF | sonnet | 75,134 | $0.0534 |
+| Qdrant vs embedded | ON | haiku | 358,957 | $0.1024 |
+| Qdrant vs embedded | ON | sonnet | 95,622 | $0.1012 |
+| LLM tagger default off | OFF | sonnet | 86,440 | $0.1042 |
+| LLM tagger default off | ON | sonnet | 59,735 | $0.0615 |
+| Search returns nothing | OFF | haiku | 1,019,886 | $0.2048 |
+| Search returns nothing | OFF | sonnet | 39,142 | $0.0494 |
+| Search returns nothing | ON | sonnet | 13,814 | $0.0252 |
+| Slow embedding on first run | OFF | haiku | 721,394 | $0.1762 |
+| Slow embedding on first run | OFF | sonnet | 39,581 | $0.0501 |
+| Slow embedding on first run | ON | sonnet | 107,713 | $0.1379 |
+| Async work pattern | OFF | haiku | 864,230 | $0.2034 |
+| Async work pattern | OFF | sonnet | 38,950 | $0.0451 |
+| Async work pattern | ON | sonnet | 131,857 | $0.1359 |
+| Config precedence | OFF | haiku | 292,238 | $0.0946 |
+| Config precedence | OFF | sonnet | 37,423 | $0.0349 |
+| Config precedence | ON | sonnet | 98,990 | $0.0961 |
+| Recent activity | OFF | sonnet | 38,167 | $0.0393 |
+| Recent activity | ON | sonnet | 122,146 | $0.1048 |
+| Qdrant connectivity test | OFF | haiku | 381,096 | $0.1099 |
+| Qdrant connectivity test | OFF | sonnet | 114,348 | $0.0900 |
+| Qdrant connectivity test | ON | haiku | 435,975 | $0.1003 |
+| Qdrant connectivity test | ON | sonnet | 221,953 | $0.2028 |
+| Memory count utility | OFF | haiku | 514,711 | $0.1655 |
+| Memory count utility | OFF | sonnet | 61,497 | $0.0533 |
+| Memory count utility | ON | haiku | 373,874 | $0.1195 |
+| Memory count utility | ON | sonnet | 45,662 | $0.0506 |
+| Workspace stats CLI | OFF | haiku | 485,281 | $0.1453 |
+| Workspace stats CLI | OFF | sonnet | 104,827 | $0.0821 |
+| Workspace stats CLI | ON | haiku | 575,834 | $0.1423 |
+| Workspace stats CLI | ON | sonnet | 125,153 | $0.1043 |
 
 ### Response Quality Comparison
 
@@ -239,33 +332,65 @@ completeness, accuracy, structure, specificity, and conciseness.
 
 | Prompt | OFF chars | ON chars | ON/OFF | Quality assessment | ON quality % |
 |--------|----------|---------|--------|-------------------|-------------|
-| Chunking system | 2,424 | 4,286 | 1.8x | Response B provides superior explanation through pseudo-code, a full pipeline walkthrough, and environment variable mappings that clarify integration points; however, it omits the monkey-patch bug fix mentioned in A and loses specific line number references, making A more precise for deep code navigation despite being less complete in system understanding. | **130%** |
-| Embedding model | 3,151 | 4,195 | 1.3x | Response B is more comprehensive and better contextualized, covering length bucketing and L2-normalization that Response A omits, providing clearer reasoning for design choices, and organizing GPU support details in a more accessible table format—though Response A's precise line-number citations offer better code navigation. | **135%** |
-| Workspace isolation | 3,583 | 6,183 | 1.7x | Response B is superior because it includes actual code snippets, more complete coverage (viz UI switch path, workspace deletion, design choices table), better visual organization, and explicit call-flow diagrams—providing concrete, verifiable detail where A only references line numbers; the only drawback is Response B appears truncated at the end, which slightly diminishes its otherwise stronger execution. | **128%** |
-| Metadata tagging | 3,263 | 4,672 | 1.4x | Response B provides superior organization with tables and pseudocode, more thorough explanation of design rationale (why zero-shot is free, why LLM/zero-shot are mutually exclusive), concrete configuration examples, and a provider details table with auth methods—making it more pedagogically useful for understanding the system, though Response A's line-number references are useful for code navigation. | **118%** |
-| Qdrant lifecycle | 2,780 | 4,771 | 1.7x | Response B is more complete and specific: it includes line numbers for code references (enabling verification and navigation), covers the QDRANT_NO_SPAWN disable feature that A misses, quotes the actual module docstring rather than paraphrasing, shows code flow examples, and provides more granular design properties—while maintaining clear structure and staying focused on the three questions asked. | **118%** |
+| Chunking system | 2,267 | 4,165 | 1.8x | Response B is more complete and specific (explicit language list, ONNX adapter details, config knobs, post-processing pipeline), provides corrected threshold value (0.7 vs A's 0.5), and gives fuller context for understanding the chunking system, though it exceeds the strict scope of the three questions asked. | **135%** |
+| Embedding model | 2,947 | 3,078 | 1.0x | Response A is superior for this technical configuration question: it provides specific function names (_build_session_options, _is_gpu_error, _get_cpu_session) and a detailed session-options table showing each config with reasoning, directly answering 'how is ONNX configured'. Response B is more polished and broader (covering licensing, alternatives, performance metrics) but lacks implementation specificity—it describes what safeguards *accomplish* rather than *how they work*, making it less useful for developers reading the code. | **72%** |
+| Workspace isolation | 3,389 | 4,975 | 1.5x | Response B directly answers the core question 'how does the MCP server detect workspace switches' with the actual mechanism (per-call fresh file reads + atomic writes), provides concrete Python code snippets, and explains implementation details like the zero-migration guarantee and atomic rename pattern that Response A omits—justified extra length given technical depth of the question. | **135%** |
+| Metadata tagging | 3,550 | 3,254 | 0.9x | Response B has superior conceptual framing and design-philosophy explanation (cost-tiering, embedding reuse), but Response A is more complete (includes orchestration and config) and specific (line numbers, function names); Response B lists only 13 keyword domains vs Response A's 16, a measurable accuracy gap. | **102%** |
+| Qdrant lifecycle | 2,994 | 3,826 | 1.3x | Response A is more complete on the explicitly-asked lifecycle aspect, covering atexit cleanup and idle-close mechanisms that Response B omits; Response B has better visual formatting but misses critical lifecycle details. | **50%** |
 
-**Average ON quality: 126%** of OFF baseline
+**Average ON quality: 99%** of OFF baseline
+
+#### Decision Recall Prompts
+
+| Prompt | OFF chars | ON chars | ON/OFF | Quality assessment | ON quality % |
+|--------|----------|---------|--------|-------------------|-------------|
+| Qdrant vs embedded | 1,875 | 2,693 | 1.4x | Response B is more complete (includes implementation details of complexity management), better structured (clear sections and table format for concurrent writers), and more helpful for understanding how the trade-off was made practical, while Response A is more concise and better cited with specific line numbers. | **120%** |
+| LLM tagger default off | 1,730 | 1,709 | 1.0x | Response A is more technically rigorous with verifiable code references and covers the important local-provider exception case, while Response B offers better structure and naming (EmbeddingGemma-300M) but cites potentially stale documentation ('tagging.md chunk 3') without verification, which conflicts with the memory warning that benchmark docs have drifted. | **65%** |
+
+**Average ON quality: 92%** of OFF baseline
+
+#### Debugging Prompts
+
+| Prompt | OFF chars | ON chars | ON/OFF | Quality assessment | ON quality % |
+|--------|----------|---------|--------|-------------------|-------------|
+| Search returns nothing | 1,903 | 1,833 | 1.0x | Response B provides quantified probabilities and exact shell commands for sub-30s triage, directly matching the question's requirements for probability ordering and actionability; Response A offers deeper code line references but lacks explicit probability ranking and includes Qdrant daemon—the likely #1 real-world cause—only in B. | **132%** |
+| Slow embedding on first run | 3,519 | 5,620 | 1.6x | Response B excels by explaining the lazy-initialization design pattern upfront, providing code snippets, referencing model-specific details (600-700MB ONNX size), and offering more nuanced avoidability analysis that correctly distinguishes 'moving costs to startup' from 'eliminating costs'; Response A is accurate but misses this design context and suggests optimization-graph persistence over the more practical warm-up-call fix. | **135%** |
+
+**Average ON quality: 134%** of OFF baseline
+
+#### Cross-Project Prompts
+
+| Prompt | OFF chars | ON chars | ON/OFF | Quality assessment | ON quality % |
+|--------|----------|---------|--------|-------------------|-------------|
+| Async work pattern | 3,315 | 4,190 | 1.3x | Response B directly addresses the question's explicit scope (patterns across multiple indexed projects) while Response A analyzes only a single project's codebase; B also provides concrete file paths, known bugs, and cross-project comparisons that establish causality between projects. | **78%** |
+| Config precedence | 2,038 | 2,519 | 1.2x | Response B correctly interprets 'indexed projects' as multiple distinct projects and systematically compares their configuration patterns across tech stacks (Python, Go, Node.js), while Response A narrowly focuses on Imprint and platform integration differences, misaligning with the question's scope. | **128%** |
+
+**Average ON quality: 103%** of OFF baseline
+
+#### Session Summary Prompts
+
+| Prompt | OFF chars | ON chars | ON/OFF | Quality assessment | ON quality % |
+|--------|----------|---------|--------|-------------------|-------------|
+| Recent activity | 1,756 | 2,503 | 1.4x | Response B violates the explicit constraint to 'use memory only' by inferring UI work details (graph endpoint, file picker redesign, filesystem API) not present in the stored memories; Response A correctly grounds all three areas solely in the memory index, faithfully executing the task. | **70%** |
+
+**Average ON quality: 70%** of OFF baseline
 
 #### Creation Prompts
 
 | Prompt | OFF chars | ON chars | ON/OFF | Quality assessment | ON quality % |
 |--------|----------|---------|--------|-------------------|-------------|
-| Qdrant connectivity test | 2,880 | 6,178 | 2.1x | Response B makes technically superior design choices (standard /readyz health check endpoint instead of internal client API, more defensive config resolution with explicit fallback logic, explicit references to actual project code like qdrant_runner.is_running) and provides more actionable diagnostics, but slightly overengineers beyond the stated requirement by adding segments, status, and version info that weren't asked for. | **168%** |
-| Memory count utility | 94 | 2,150 | 22.9x | Response A defers delivery and asks for approval without providing code; Response B delivers the complete, production-ready function with correct implementation, precise file placement, comprehensive docstring, and design rationale explaining every decision. | **185%** |
-| Embed speed benchmark | 3,395 | 54 | 0.0x | Response B is a system error message stating a rate limit, providing no actual solution, while Response A delivers a complete, functional shell script with proper error handling, warm-up timing, and comprehensive metrics reporting. | **50%** |
+| Qdrant connectivity test | 549 | 1,285 | 2.3x | Response A directly solves the stated requirements (reachability check, collections list, memory counts) with appropriate scope and verifiable claims; Response B overengineers with unsolicited features (per-project faceting, workspace validation) and makes specific technical claims without showing actual code or output, violating the principle of focused delivery. | **72%** |
+| Memory count utility | 1,006 | 2,287 | 2.3x | Response B provides complete context (both helper and main function, implementation details, how-it-works explanation, and usage examples) versus Response A's brief pointer to the code with less educational value. | **135%** |
+| Workspace stats CLI | 1,020 | 1,653 | 1.6x | Response B is superior for presentation and completeness: it includes the full docstring (clarifying return values), uses a structured table for helper dependencies, provides a working import example, and specifies implementation details (SQL query, facet API method), whereas Response A is terse but omits the docstring and uses prose instead of structured formats. | **125%** |
 
-**Average ON quality: 134%** of OFF baseline
+**Average ON quality: 111%** of OFF baseline
 
 #### Key Observations
 
-- **Information prompts**: avg 126% quality — ON responses are richer because Imprint returns pre-indexed knowledge spanning multiple files simultaneously
-- **Creation prompts**: avg 134% quality — ON has better API awareness from semantic memory, but may over-scope
-- Without Imprint, Claude reads 1-2 files and answers from that narrower view. Imprint search pulls relevant chunks from many files in a single call
-
-### Notable findings from the new run data:
-
-- **create-3 ON** got rate-limited (54 chars, "rate limit" error) — that's an infrastructure fluke, not a quality signal. Excluding it, creation ON average would be 177%.
-- **create-2** is the most dramatic: OFF just asked for permission and returned 94 chars. ON delivered the complete function with placement instructions — 185%.
-
-Info prompts consistently 118-135% — ON adds cross-file synthesis, design rationale, code snippets. OFF has better line-number precision for navigation.
+- **Information Prompts**: avg 99% quality across 5 prompts
+- **Decision Recall Prompts**: avg 92% quality across 2 prompts
+- **Debugging Prompts**: avg 134% quality across 2 prompts
+- **Cross-Project Prompts**: avg 103% quality across 2 prompts
+- **Session Summary Prompts**: avg 70% quality across 1 prompts
+- **Creation Prompts**: avg 111% quality across 3 prompts
+- Without Imprint, Claude reads 1-2 files and answers from that narrower view. Imprint search pulls relevant chunks from many files in a single call.

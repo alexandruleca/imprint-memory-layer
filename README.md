@@ -114,12 +114,21 @@ imprint setup [target]     # install deps, register MCP, configure the chosen ho
                            # add --retry-gpu to forget a sticky GPU failure and retry ORT / llama-cpp CUDA
 imprint update [--version v0.3.1] [--dev] [-y] [--check]
                            # upgrade imprint in place; preserves data/ and .venv/
+imprint uninstall [-y] [--keep-data]
+                           # full removal: disable + strip CLAUDE.md + delete venv/data/install dir
 imprint status             # is everything wired? show enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
                            #   target: claude-code | cursor | codex | copilot | cline | all
 imprint disable            # stop server, unregister MCP from every host, strip Claude hooks (data preserved)
-imprint ingest [dir]       # import memories + conversations [+ index projects]
-imprint refresh <dir>      # re-index only changed files
+imprint ingest <path>      # index project source files (directory or single file)
+imprint learn              # index Claude Code conversations + memory files
+imprint ingest-url <url>   # fetch URL(s), extract content, and index (html/pdf/etc)
+imprint refresh <dir>      # re-index only changed files (mtime-based)
+imprint refresh-urls       # re-check stored URLs via ETag/Last-Modified and re-index changed
+imprint retag [--project] [--all]
+                           # re-run the tagger on existing memories (--all re-tags already-tagged chunks)
+imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG [--dry-run]
+                           # move memories between workspaces (preserves vectors)
 imprint config             # show all settings with current values
 imprint config set <k> <v> # persist a setting (e.g. model.name, qdrant.port)
 imprint config get <key>   # show one setting with source + default
@@ -132,7 +141,10 @@ imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve [--relay <host>]      # expose KB for peer syncing (default: imprint.alexandruleca.com)
 imprint sync <id> --pin <pin>            # sync via default relay (or <host>/<id> / wss://<host>/<id>)
+imprint sync export | import <dir>       # snapshot bundle, no re-embed on import
 imprint relay              # run the sync relay server
+imprint ui [start|stop|status|open|restart|log] [--port N]
+                           # dashboard (FastAPI + Next.js); bare `imprint ui` runs foreground
 imprint version            # print version
 ```
 
@@ -164,7 +176,7 @@ Terms used across the docs.
 | **Collection** | Qdrant's term for a named set of vectors. Each workspace has its own collection (e.g. `memories`, `memories_research`). |
 | **Workspace** | Isolated memory environment — dedicated Qdrant collection + SQLite DB + WAL. Lets you separate research/staging/prod memories. |
 | **Imprint Graph** | Temporal fact store (SQLite) for structured `subject → predicate → object` facts with `valid_from` / `ended` timestamps. |
-| **MCP** | Model Context Protocol — the open protocol Claude Code uses to call external tools. Imprint ships an MCP server with 8 tools. |
+| **MCP** | Model Context Protocol — the open protocol Claude Code uses to call external tools. Imprint ships an MCP server with 12 tools — see [docs/mcp.md](docs/mcp.md). |
 | **Project** | A codebase identified by a canonical name from its manifest (`package.json`, `go.mod`, etc.). Projects get the same identity across machines even if paths differ. |
 | **Layer** | Path-derived tag: `api`, `ui`, `tests`, `infra`, `config`, `migrations`, `docs`, `scripts`, `cli`. |
 | **Kind** | Filename-derived tag: `source`, `test`, `migration`, `readme`, `types`, `module`, `qa`, `auto-extract`. |

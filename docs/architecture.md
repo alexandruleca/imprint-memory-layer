@@ -17,7 +17,7 @@ graph LR
     end
 
     subgraph "Python (imprint/)"
-        MCP[FastMCP Server<br/><small>8 tools</small>]
+        MCP[FastMCP Server<br/><small>12 tools</small>]
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
         EMB[embeddings.py<br/><small>ONNX Runtime, GPU/CPU</small>]
@@ -75,8 +75,8 @@ graph LR
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
-| MCP server | FastMCP (Python) | 8 tools — connects to Qdrant via HTTP |
-| CLI | Go | `setup`, `status`, `enable`, `disable`, `ingest`, `refresh`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui` |
+| MCP server | FastMCP (Python) | 12 tools — `search`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks` for reads, `store`/`delete`/`ingest_url` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. |
+| CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync |
 
 ## Data Flow

@@ -94,6 +94,14 @@ SETTINGS: list[Setting] = [
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
     Setting("chat.max_tool_iters", "IMPRINT_CHAT_MAX_TOOL_ITERS", 6,                                int,   "Max tool-call iterations per chat turn"),
 
+    # ── Session summarizer (opt-in, local-first) ─────────────
+    Setting("summarizer.enabled",       "IMPRINT_SUMMARIZER_ENABLED",       False,              bool, "Enable LLM-based session summarizer (runs on Stop hook)"),
+    Setting("summarizer.provider",      "IMPRINT_SUMMARIZER_PROVIDER",      "ollama",           str,  "Provider: ollama / vllm / anthropic / openai / gemini. Default local."),
+    Setting("summarizer.model",         "IMPRINT_SUMMARIZER_MODEL",         "qwen3:1.7b",       str,  "Model name for chosen provider"),
+    Setting("summarizer.base_url",      "IMPRINT_SUMMARIZER_BASE_URL",      "",                 str,  "API base URL override"),
+    Setting("summarizer.min_messages",  "IMPRINT_SUMMARIZER_MIN_MSGS",      5,                  int,  "Skip sessions with fewer messages"),
+    Setting("summarizer.max_input_tokens","IMPRINT_SUMMARIZER_MAX_IN",      20000,              int,  "Truncate transcript to this many tokens before summarizing"),
+
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),
 ]

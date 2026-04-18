@@ -65,6 +65,7 @@ The runtime [`_preload_cuda_libs()`](../imprint/embeddings.py) dlopens the pip-i
 | `model.gpu_mem_mb` | `2048` | VRAM cap for ORT CUDA arena (WSL2-safe; raise on dedicated GPUs) |
 | `model.gpu_device` | `0` | CUDA device index |
 | `model.threads` | `4` | CPU intra-op threads |
+| `model.batch_size` | `0` (auto) | Embedding batch size. `0` = auto (32 on GPU, 16 on CPU). Raise on dedicated GPUs for faster ingest. |
 | `model.seq_length` | `2048` | Token truncation cap |
 | `model.name` | `onnx-community/embeddinggemma-300m-ONNX` | HF repo (any HuggingFace ONNX model) |
 | `model.dim` | `768` | Embedding dimension (must match model) |

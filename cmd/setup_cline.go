@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 
+	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
@@ -76,6 +78,22 @@ func SetupCline() {
 		output.Skip("Cline CLI not detected")
 	}
 
+	// Step: write the always-on rule. Cline reads every file under
+	// ~/.clinerules/ as a permanent instruction, so this is the text-only
+	// equivalent of the Claude Code CLAUDE.md.
+	rulePath := platform.ClineRulesPath()
+	output.Info("Checking Cline rule...")
+	if err := os.MkdirAll(filepath.Dir(rulePath), 0755); err != nil {
+		output.Warn("Could not create " + filepath.Dir(rulePath) + ": " + err.Error())
+	}
+	if existing, err := os.ReadFile(rulePath); err == nil && string(existing) == instructions.ClineRule {
+		output.Skip("Cline rule already up to date at " + rulePath)
+	} else if err := os.WriteFile(rulePath, []byte(instructions.ClineRule), 0644); err != nil {
+		output.Warn("Could not write " + rulePath + ": " + err.Error())
+	} else {
+		output.Success("Wrote Cline rule to " + rulePath)
+	}
+
 	output.Header("═══ Imprint → Cline setup complete ═══")
 	venvPythonVer, _ := runner.RunCapture(bp.VenvPython, "--version")
 	if venvPythonVer != "" {
@@ -88,7 +106,8 @@ func SetupCline() {
 	if wroteCLI {
 		output.Info("CLI:        " + cliPath)
 	}
-	output.Warn("Cline has no hook system — enforcement is text-only. Add guidance to .clinerules if you want the agent to check memory first.")
+	output.Info("Rule:       " + rulePath)
+	output.Warn("Cline has no hook system — enforcement is text-only via the rule file above. Session summarizer cannot auto-run.")
 	output.Info("Next steps:")
 	if wroteExt {
 		output.Info("  - Reload VSCode to pick up the extension's new MCP server")

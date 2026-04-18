@@ -50,6 +50,70 @@ func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
 	return true, writeAtomic(path, updated)
 }
 
+// SetBoolInSection upserts a `key = true|false` line inside `[section]`.
+// Creates the section if missing. Returns true if the file changed, false
+// if the line was already identical. Preserves unrelated keys in the
+// section and other sections.
+func SetBoolInSection(path, section, key string, value bool) (bool, error) {
+	var existing string
+	if data, err := os.ReadFile(path); err == nil {
+		existing = string(data)
+	} else if !os.IsNotExist(err) {
+		return false, err
+	} else {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return false, fmt.Errorf("creating directory: %w", err)
+		}
+	}
+
+	header := "[" + section + "]"
+	valStr := "false"
+	if value {
+		valStr = "true"
+	}
+	desired := key + " = " + valStr
+
+	start, end, found := findSection(existing, header)
+	if !found {
+		separator := "\n"
+		if existing == "" || strings.HasSuffix(existing, "\n\n") {
+			separator = ""
+		} else if !strings.HasSuffix(existing, "\n") {
+			separator = "\n\n"
+		}
+		updated := existing + separator + header + "\n" + desired + "\n"
+		if updated == existing {
+			return false, nil
+		}
+		return true, writeAtomic(path, updated)
+	}
+
+	// Section exists — scan its lines for an existing `key = ` entry.
+	section_body := existing[start:end]
+	lines := strings.Split(strings.TrimRight(section_body, "\n"), "\n")
+	replaced := false
+	for i, ln := range lines {
+		trim := strings.TrimSpace(ln)
+		if strings.HasPrefix(trim, key+" =") || strings.HasPrefix(trim, key+"=") {
+			if trim == desired {
+				return false, nil
+			}
+			lines[i] = desired
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		lines = append(lines, desired)
+	}
+	newBody := strings.Join(lines, "\n") + "\n"
+	updated := existing[:start] + newBody + existing[end:]
+	if updated == existing {
+		return false, nil
+	}
+	return true, writeAtomic(path, updated)
+}
+
 // RemoveMCPServer deletes the `[mcp_servers.<name>]` section from the file.
 // Returns true if removed, false if absent or file missing.
 func RemoveMCPServer(path, name string) (bool, error) {

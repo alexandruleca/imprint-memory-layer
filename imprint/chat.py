@@ -133,14 +133,14 @@ def _tool_store(content: str, workspace: str = "", **kwargs: Any) -> str:
 def _tool_kg_add(
     subject: str, predicate: str, object: str, workspace: str = "", **kwargs: Any,
 ) -> str:
-    return _mcp_server.kg_add(
-        subject=subject, predicate=predicate, object=object,
+    return _mcp_server.kg_edit(
+        op="add", subject=subject, predicate=predicate, object=object,
         source=kwargs.get("source", ""), workspace=workspace,
     )
 
 
 def _tool_kg_invalidate(fact_id: int, workspace: str = "") -> str:
-    return _mcp_server.kg_invalidate(fact_id=fact_id, workspace=workspace)
+    return _mcp_server.kg_edit(op="end", fact_id=fact_id, workspace=workspace)
 
 
 def _tool_ingest_url(url: str, workspace: str = "", **kwargs: Any) -> str:

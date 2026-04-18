@@ -27,8 +27,14 @@ RECENT_MAX_ENTRIES = 8
 RECENT_MAX_CHARS = 800  # ~200 tokens — recent activity
 
 # Search output budget
-SEARCH_MAX_CONTENT_CHARS = 1500  # per-result content truncation
+SEARCH_MAX_CONTENT_CHARS = 1500  # per-result full-body truncation when hydrated
 SEARCH_MAX_TOTAL_CHARS = 12000   # hard cap on full search output
+
+# Auto-hydrate: full body for top-N, preview for rest
+SEARCH_PREVIEW_CHARS = 180       # per-result preview length in index mode
+SEARCH_HYDRATE_BUDGET_CHARS = 2000  # stop hydrating once cumulative exceeds this
+SEARCH_HIGH_CONF_SIM = 0.60      # hydrate top-1 only above this
+SEARCH_LOW_CONF_SIM = 0.35       # hydrate top-3 below this for context
 
 
 _session_woken = False
@@ -48,12 +54,9 @@ def _validate_ws(workspace: str) -> tuple[str | None, str | None]:
     return workspace, None
 
 
-@mcp.tool()
 def wake_up(workspace: str = "") -> str:
-    """Load prior context at the start of a conversation.
-    Returns project overview, essential decisions/patterns, and active facts.
-    Note: search() auto-calls this on its first invocation, so calling wake_up
-    explicitly is optional — just go straight to search().
+    """Internal: build session-start context. Called automatically by search()
+    on first invocation; no longer exposed as an MCP tool to save schema bytes.
 
     Args:
         workspace: Target a specific workspace instead of the active one (optional)
@@ -201,32 +204,20 @@ def search(
     offset: int = 0,
     workspace: str = "",
 ) -> str:
-    """Semantic search across stored memories.
-    Check this BEFORE reading files — the answer may already be here.
-    Returns relevant code chunks, decisions, and patterns.
-    Automatically loads session context (wake_up) on the first call.
-
-    Iterate, do not stop at the first batch:
-      • If results are truncated, call again with `offset=` to paginate.
-      • If results feel narrow, rephrase the query or drop a filter.
-      • Use `graph_scope("project:X" | "topic:X" | "source:X")` to explore by
-        tag/structure instead of similarity.
-      • Use `neighbors(id=...)` on a promising result to pull semantic kin
-        across projects.
-      • Use `file_summary` / `file_chunks` when you need a full file rather
-        than isolated chunks.
+    """Semantic search across stored memories. Call BEFORE Read/Grep.
+    Returns top-1 fully hydrated, rest as previews. Similarity-budgeted.
 
     Args:
-        query: What to search for (natural language)
-        project: Filter by project name (optional)
-        type: Filter by memory type (e.g. decision, pattern, finding, bug, architecture). Dynamic — use wake_up to see available types. (optional)
-        lang: Filter by language tag (e.g. python, typescript, go, markdown, conversation)
-        layer: Filter by layer (e.g. api, ui, tests, infra, config, docs, cli, session)
-        kind: Filter by file kind (e.g. source, test, migration, readme, types, module, auto-extract)
-        domain: Filter by domain tag, comma-separated for multi-match (e.g. auth, db, api, ml). Dynamic — use wake_up to see available domains. (optional)
+        query: Natural-language query
+        project: Filter by project (optional)
+        type: Filter by type: decision, pattern, finding, bug, architecture (optional)
+        lang: Filter by lang tag: python, typescript, go, markdown (optional)
+        layer: Filter by layer: api, ui, tests, infra, config, docs (optional)
+        kind: Filter by kind: source, test, migration, readme (optional)
+        domain: Filter by domain(s), comma-separated (optional)
         limit: Max results (default 10)
-        offset: Skip first N results for pagination (default 0). Use when previous search indicated more results available.
-        workspace: Target a specific workspace instead of the active one (optional)
+        offset: Skip first N for pagination
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -269,21 +260,27 @@ def search(
     if offset > 0:
         lines.append(f"(Showing results {offset + 1}–{offset + len(relevant)})\n")
 
-    # ── Confidence-based guidance ──
-    avg_sim = sum(r["similarity"] for r in relevant) / len(relevant)
-    if avg_sim >= 0.6:
-        lines.append("High-confidence results — answer from these without reading files.\n")
-    elif avg_sim < 0.35:
-        lines.append("Low-confidence matches — consider reading files for accuracy.\n")
+    # ── Confidence + hydration policy ──
+    # High conf (top_sim >= HIGH): hydrate top-1 only. User can follow up by id.
+    # Low conf (top_sim < LOW): hydrate top-3 for extra context (likely need more).
+    # Mid: hydrate top-2. Always budget-cap at SEARCH_HYDRATE_BUDGET_CHARS cumulative.
+    top_sim = relevant[0]["similarity"] if relevant else 0.0
+    if top_sim >= SEARCH_HIGH_CONF_SIM:
+        hydrate_target = 1
+        lines.append("High-confidence — top result hydrated. Answer from it.\n")
+    elif top_sim < SEARCH_LOW_CONF_SIM:
+        hydrate_target = 3
+        lines.append("Low-confidence matches — top 3 hydrated. Consider Read/Grep via Explore subagent if still thin.\n")
+    else:
+        hydrate_target = 2
 
+    hydrated_chars = 0
     for i, r in enumerate(relevant, 1):
         meta = []
         if r["project"]:
             meta.append(r["project"])
         if r["source"]:
             meta.append(r["source"])
-        # Surface structured tags so the model can use them for follow-up
-        # filtering without calling search again.
         tags = r.get("tags") or {}
         tag_bits = []
         if isinstance(tags, dict):
@@ -297,15 +294,28 @@ def search(
             meta.append("#" + " #".join(tag_bits))
         meta_str = " | ".join(meta) if meta else ""
 
-        lines.append(f"[{i}] {meta_str}  (similarity: {r['similarity']:.3f})")
+        rid = r.get("id") or ""
+        header = f"[{i}] id:{rid}  {meta_str}  (sim: {r['similarity']:.3f})"
+        lines.append(header)
         if r.get("type") == "pattern":
             lines.append(f"  [cross-project pattern from {r.get('project', '?')}]")
+
         content = r["content"]
-        if len(content) > SEARCH_MAX_CONTENT_CHARS:
-            source = r.get("source", "")
-            hint = f'\n  … [truncated — use file_chunks(source="{source}") for full content]' if source else "\n  … [truncated]"
-            content = content[:SEARCH_MAX_CONTENT_CHARS] + hint
-        lines.append(content)
+        should_hydrate = (
+            i <= hydrate_target
+            and hydrated_chars + min(len(content), SEARCH_MAX_CONTENT_CHARS) <= SEARCH_HYDRATE_BUDGET_CHARS + SEARCH_MAX_CONTENT_CHARS
+        )
+        if should_hydrate:
+            if len(content) > SEARCH_MAX_CONTENT_CHARS:
+                source = r.get("source", "")
+                hint = f'\n  … [truncated — file_chunks(source="{source}") for full]' if source else "\n  … [truncated]"
+                content = content[:SEARCH_MAX_CONTENT_CHARS] + hint
+            lines.append(content)
+            hydrated_chars += len(content)
+        else:
+            # Index-only preview
+            preview = _first_meaningful_line(r["content"], max_len=SEARCH_PREVIEW_CHARS)
+            lines.append(f"  · {preview}")
         lines.append("")
 
     # Hint about more results when we hit the limit
@@ -408,20 +418,16 @@ def store(
     source: str = "",
     workspace: str = "",
 ) -> str:
-    """Store a memory. Write it as a self-contained note that will make sense
-    months from now without additional context. Include the WHY, not just the WHAT.
-
-    Returns immediately with the memory id — embedding and LLM tagging happen
-    in a background thread (same pipeline refresh's phase 2 uses).  The point
-    is marked ``llm_tagged: True`` on success so future ``retag`` runs skip it.
+    """Store a memory (decision/pattern/finding/bug). Include the WHY.
+    Returns immediately; embed + tag run in background.
 
     Args:
-        content: The memory to store — be specific, include reasoning
-        project: Project this relates to (e.g. 'my-web-app', 'api-server')
-        type: Memory type (e.g. decision, pattern, finding, bug, architecture, milestone). Auto-classified if omitted.
-        tags: Comma-separated tags (e.g. 'cors,security') — ignored; the LLM tagger derives topics
-        source: Where this came from (e.g. file path, conversation topic)
-        workspace: Target a specific workspace instead of the active one (optional)
+        content: The note — specific, reasoning included
+        project: Project name (optional)
+        type: decision, pattern, finding, bug, architecture, milestone (auto if blank)
+        tags: ignored (LLM tagger derives topics)
+        source: File path or conversation topic (optional)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -441,11 +447,11 @@ def store(
 
 @mcp.tool()
 def delete(memory_id: str, workspace: str = "") -> str:
-    """Delete a memory by its ID.
+    """Delete a memory by ID.
 
     Args:
-        memory_id: The memory ID from store or search results
-        workspace: Target a specific workspace instead of the active one (optional)
+        memory_id: Memory id from search or store output
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -457,13 +463,13 @@ def delete(memory_id: str, workspace: str = "") -> str:
 
 @mcp.tool()
 def kg_query(subject: str = "", predicate: str = "", limit: int = 20, workspace: str = "") -> str:
-    """Query temporal facts from the imprint graph.
+    """Query temporal facts (subject → predicate → object).
 
     Args:
-        subject: Entity to look up (partial match)
-        predicate: Relationship type (partial match)
+        subject: Entity (partial match)
+        predicate: Relationship (partial match)
         limit: Max results
-        workspace: Target a specific workspace instead of the active one (optional)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -482,50 +488,46 @@ def kg_query(subject: str = "", predicate: str = "", limit: int = 20, workspace:
 
 
 @mcp.tool()
-def kg_add(subject: str, predicate: str, object: str, source: str = "", workspace: str = "") -> str:
-    """Add a structured fact. Use for relationships that may change over time.
+def kg_edit(
+    op: str = "add",
+    subject: str = "",
+    predicate: str = "",
+    object: str = "",
+    fact_id: int = 0,
+    source: str = "",
+    workspace: str = "",
+) -> str:
+    """Add or end a structured fact.
 
     Args:
-        subject: The entity (e.g. 'api-server', 'auth-service')
-        predicate: The relationship (e.g. 'uses', 'decided', 'prefers')
-        object: The value (e.g. 'NestJS', 'wildcard CORS')
-        source: Where this fact came from
-        workspace: Target a specific workspace instead of the active one (optional)
+        op: "add" (default) or "end"
+        subject/predicate/object: Required for op=add
+        fact_id: Required for op=end (from kg_query)
+        source: Where fact came from (op=add only)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
         return err
-    fact_id = kg.add(subject=subject, predicate=predicate, object=object, source=source, workspace=ws)
-    return f"Fact [{fact_id}]: {subject} → {predicate} → {object}"
-
-
-@mcp.tool()
-def kg_invalidate(fact_id: int, workspace: str = "") -> str:
-    """Mark a fact as ended (no longer true).
-
-    Args:
-        fact_id: The fact ID from kg_query
-        workspace: Target a specific workspace instead of the active one (optional)
-    """
-    ws, err = _validate_ws(workspace)
-    if err:
-        return err
-    if kg.invalidate(fact_id, workspace=ws):
-        return f"Ended fact {fact_id}"
-    return f"Not found or already ended: {fact_id}"
+    if op == "end":
+        if kg.invalidate(fact_id, workspace=ws):
+            return f"Ended fact {fact_id}"
+        return f"Not found or already ended: {fact_id}"
+    if not (subject and predicate and object):
+        return "op=add requires subject, predicate, object"
+    fid = kg.add(subject=subject, predicate=predicate, object=object, source=source, workspace=ws)
+    return f"Fact [{fid}]: {subject} → {predicate} → {object}"
 
 
 @mcp.tool()
 def ingest_url(url: str, project: str = "urls", force: bool = False, workspace: str = "") -> str:
-    """Fetch a URL, extract its content (html/pdf/image OCR/etc), chunk,
-    and store as memories. Re-run on the same URL skips when ETag /
-    Last-Modified hasn't changed (unless ``force=True``).
+    """Fetch a URL, extract/chunk/store as memories. Skips unchanged ETag.
 
     Args:
-        url: http(s) URL to ingest
-        project: Project label for the resulting memories (default: "urls")
-        force: Re-fetch even if HEAD says content is unchanged
-        workspace: Target a specific workspace instead of the active one
+        url: http(s) URL
+        project: Project label (default "urls")
+        force: Re-fetch even if unchanged
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -541,15 +543,9 @@ def ingest_url(url: str, project: str = "urls", force: bool = False, workspace: 
     return f"Failed {url}: {status}"
 
 
-@mcp.tool()
 def refresh_urls(project: str = "", workspace: str = "") -> str:
-    """Re-check every stored URL via HEAD request. Re-fetches and re-indexes
-    any whose ETag or Last-Modified header has changed.
-
-    Args:
-        project: Restrict to one project (optional)
-        workspace: Target a specific workspace (optional)
-    """
+    """Internal: re-check stored URLs via HEAD, refetch changed.
+    Exposed via CLI (imprint refresh-urls), not MCP — admin task."""
     ws, err = _validate_ws(workspace)
     if err:
         return err
@@ -586,10 +582,10 @@ def refresh_urls(project: str = "", workspace: str = "") -> str:
 
 @mcp.tool()
 def status(workspace: str = "") -> str:
-    """Imprint memory overview.
+    """Memory overview: total count + per-project breakdown.
 
     Args:
-        workspace: Target a specific workspace instead of the active one (optional)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -622,15 +618,14 @@ def list_sources(
     limit: int = 50,
     workspace: str = "",
 ) -> str:
-    """List all indexed source files in the KB with chunk counts.
-    Helps discover what's available before using file_summary or file_chunks.
+    """List indexed source files with chunk counts.
 
     Args:
-        project: Filter by project name (optional)
-        lang: Filter by language tag (python, typescript, go, etc.)
-        layer: Filter by layer (api, ui, tests, infra, config, docs, etc.)
-        limit: Max number of sources to return (default 50)
-        workspace: Target a specific workspace (optional)
+        project: Filter by project (optional)
+        lang: Filter by lang (python/typescript/go) (optional)
+        layer: Filter by layer (api/ui/tests/infra/config/docs) (optional)
+        limit: Max sources (default 50)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -657,13 +652,12 @@ def file_summary(
     project: str = "",
     workspace: str = "",
 ) -> str:
-    """Quick overview of an indexed file — call BEFORE deciding to Read a file.
-    Returns chunk count, tags, modification time, and a preview of the first chunk.
+    """Overview of an indexed file: chunk count, tags, mtime, preview.
 
     Args:
-        source: Source file path as stored in the KB (usually project/relative-path)
-        project: Filter by project name (optional, for disambiguation)
-        workspace: Target a specific workspace (optional)
+        source: Source path as stored in KB
+        project: Disambiguate by project (optional)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -706,23 +700,12 @@ def file_summary(
 
 @mcp.tool()
 def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str:
-    """Explore the knowledge base as a graph — the same structure the UI shows.
-
-    Use this to navigate BY TOPIC/PROJECT/SOURCE instead of plain semantic
-    search. Call `graph_scope` when a search is too narrow, the user asks for
-    an overview, or you want to see what is related to a specific thing.
-
-    Typical exploration loop:
-      1) `search(query)` — pull the most relevant chunks
-      2) `graph_scope("project:<name>")` — see all topics and sources in that project
-      3) `graph_scope("topic:<name>")` — see every project/source that touches the topic
-      4) `graph_scope("source:<path>")` — list chunks in order, with topics for each
-      5) `graph_scope("chunk:<id>")` — fetch semantic neighbors for a specific chunk
-    Keep looping — do NOT stop after one search.
+    """Navigate KB as graph by project/topic/source/chunk. Use when search
+    is too narrow or for overview.
 
     Args:
-        scope: One of: `root`, `project:<name>`, `topic:<name>`, `source:<key>`, `chunk:<mid>`
-        depth: 1–3; higher pulls more nodes per scope (more topics/sources)
+        scope: root, project:<name>, topic:<name>, source:<path>, chunk:<id>
+        depth: 1–3, higher = more nodes
         workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
@@ -817,14 +800,10 @@ def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str
 
 @mcp.tool()
 def neighbors(id: str, k: int = 10, workspace: str = "") -> str:
-    """Find semantic neighbors of a specific memory by KNN over embeddings.
-
-    Use after `search` or `graph_scope` to expand a specific result into
-    related chunks, even when they don't share tags or projects. Great for
-    cross-project pattern discovery.
+    """KNN semantic neighbors of a memory. Use after search for cross-project kin.
 
     Args:
-        id: Memory id (without any `chunk:` prefix — from search / graph_scope output)
+        id: Memory id from search/graph_scope
         k: Max neighbors (default 10)
         workspace: Target workspace (optional)
     """
@@ -871,15 +850,14 @@ def file_chunks(
     project: str = "",
     workspace: str = "",
 ) -> str:
-    """Retrieve indexed chunks of a file by chunk index range.
-    Use file_summary first to see how many chunks a file has.
+    """Retrieve indexed chunks of a file by index range. Run file_summary first for count.
 
     Args:
-        source: Source file path as stored in the KB
-        start: First chunk index (0-based, inclusive, default 0)
-        end: Last chunk index (inclusive, -1 = all remaining chunks)
+        source: Source path as stored in KB
+        start: First chunk index (0-based, inclusive)
+        end: Last chunk index (inclusive, -1 = rest)
         project: Filter by project (optional)
-        workspace: Target a specific workspace (optional)
+        workspace: Target workspace (optional)
     """
     ws, err = _validate_ws(workspace)
     if err:

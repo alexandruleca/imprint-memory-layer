@@ -250,6 +250,38 @@ func ClineCLISettingsPath() string {
 	return filepath.Join(HomeDir(), ".cline", "data", "settings", "cline_mcp_settings.json")
 }
 
+// CursorHooksPath returns the user-global Cursor hooks config (~/.cursor/hooks.json).
+func CursorHooksPath() string {
+	return filepath.Join(CursorConfigDir(), "hooks.json")
+}
+
+// CodexHooksPath returns the user-global Codex hooks config (~/.codex/hooks.json).
+func CodexHooksPath() string {
+	return filepath.Join(HomeDir(), ".codex", "hooks.json")
+}
+
+// CodexAgentsPath returns the user-global Codex AGENTS.md (~/.codex/AGENTS.md).
+func CodexAgentsPath() string {
+	return filepath.Join(HomeDir(), ".codex", "AGENTS.md")
+}
+
+// ClineRulesPath returns the user-global Cline rules file (~/.clinerules/imprint.md).
+// Cline reads every file under ~/.clinerules/ as an always-on rule.
+func ClineRulesPath() string {
+	return filepath.Join(HomeDir(), ".clinerules", "imprint.md")
+}
+
+// CopilotInstructionsPath returns the user-global Copilot custom-instructions
+// file under VSCode's prompts dir. Returns empty if no VSCode install is
+// detected.
+func CopilotInstructionsPath() string {
+	d := VSCodeUserDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "prompts", "imprint.instructions.md")
+}
+
 func PalaceConfigPath() string {
 	return filepath.Join(HomeDir(), ".mempalace", "config.json")
 }

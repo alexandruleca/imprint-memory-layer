@@ -22,10 +22,16 @@ CLAUDE_MD="$REPO_DIR/CLAUDE.md"
 SUMMARIZE="$SCRIPT_DIR/summarize.py"
 
 # Defaults
-RUNS=3
+RUNS=5
 MODEL="sonnet"
 SINGLE_PROMPT=""
 LLM_QUALITY=""
+
+# Git SHA of imprint repo — stamped into every result for version tracking
+GIT_SHA="$(git -C "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.." rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+# Categories filter (empty = all)
+CATEGORIES=""
 
 # ── Parse args ──
 while [[ $# -gt 0 ]]; do
@@ -33,15 +39,25 @@ while [[ $# -gt 0 ]]; do
     --runs)          RUNS="$2";          shift 2 ;;
     --model)         MODEL="$2";         shift 2 ;;
     --prompt)        SINGLE_PROMPT="$2"; shift 2 ;;
+    --category)      CATEGORIES="$2";    shift 2 ;;
+    --subset)        # quick iteration preset: one prompt per category
+                     CATEGORIES="information,decision,debug,cross-project,summary,creation"
+                     SINGLE_PROMPT="info-1,decision-1,debug-1,cross-1,summary-1,create-2"
+                     shift ;;
     --llm-quality)   LLM_QUALITY="--llm-quality"; shift ;;
     --help|-h)
-      echo "Usage: bash benchmark/run.sh [--runs N] [--model MODEL] [--prompt ID] [--llm-quality]"
+      echo "Usage: bash benchmark/run.sh [--runs N] [--model MODEL] [--prompt ID|--category C|--subset] [--llm-quality]"
       echo ""
       echo "Options:"
-      echo "  --runs N        Number of runs per prompt per mode (default: 3)"
-      echo "  --model MODEL   Claude model to use (default: sonnet)"
-      echo "  --prompt ID     Run only this prompt ID (e.g. info-1, create-2)"
-      echo "  --llm-quality   Use Claude (haiku) to judge response quality ON vs OFF"
+      echo "  --runs N             Number of runs per prompt per mode (default: 5)"
+      echo "  --model MODEL        Claude model to use (default: sonnet)"
+      echo "  --prompt ID[,ID,..]  Only these prompt IDs (comma-separated)"
+      echo "  --category C[,C,..]  Only these categories (information, decision, debug, cross-project, summary, creation)"
+      echo "  --subset             Quick preset: one prompt per category (6 prompts)"
+      echo "  --llm-quality        Use Claude (haiku) to judge response quality ON vs OFF"
+      echo ""
+      echo "Full suite cost (~15 prompts × 5 runs × 2 modes = 150 runs): ~\$15–25 with Sonnet."
+      echo "Use --subset for iteration (~\$6–10) and reserve full runs for final measurement."
       exit 0 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -64,7 +80,7 @@ PROMPT_COUNT=$(python3 -c "import json; print(len(json.load(open('$PROMPTS_FILE'
 echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  Imprint Token Savings Benchmark"
-echo "  Model: $MODEL | Runs: $RUNS | Prompts: $PROMPT_COUNT"
+echo "  Model: $MODEL | Runs: $RUNS | Prompts: $PROMPT_COUNT | Imprint sha: $GIT_SHA"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
@@ -93,8 +109,19 @@ run_one() {
   local prompt_text="$2"
   local mode="$3"  # "off" or "on"
   local run_num="$4"
-  local outfile="$RESULTS_DIR/${prompt_id}_${mode}_${run_num}.json"
+  # Namespace by git sha so results from different imprint versions don't mix
+  local outdir="$RESULTS_DIR/$GIT_SHA"
+  mkdir -p "$outdir"
+  local outfile="$outdir/${prompt_id}_${mode}_${run_num}.json"
 
+  # Tools auto-allowed so the harness doesn't inflate turn count
+  # via permission denials (each denial = extra turn = extra cached-prompt cost).
+  # OFF: built-in tools only. ON: same + all Imprint MCP tools.
+  local allowed_off="Read,Write,Edit,Bash,Grep,Glob,Task,WebFetch,WebSearch"
+  local allowed_on="${allowed_off},mcp__imprint__*"
+
+  # `--allowedTools` is variadic (<tools...>), so the positional prompt MUST be
+  # separated by `--` or it gets consumed as extra tool names.
   if [[ "$mode" == "off" ]]; then
     # Mode A: Imprint OFF — no MCP, no hooks, no CLAUDE.md
     claude -p \
@@ -102,8 +129,9 @@ run_one() {
       --model "$MODEL" \
       --setting-sources "" \
       --no-session-persistence \
-      "$prompt_text" \
-      > "$outfile" 2>/dev/null
+      --allowedTools "$allowed_off" \
+      -- "$prompt_text" \
+      > "$outfile" 2>"$outfile.err"
   else
     # Mode B: Imprint ON — explicit MCP + CLAUDE.md system prompt
     claude -p \
@@ -111,11 +139,14 @@ run_one() {
       --model "$MODEL" \
       --setting-sources "" \
       --no-session-persistence \
+      --allowedTools "$allowed_on" \
       --mcp-config "$MCP_CONFIG" \
       --system-prompt "$(cat "$CLAUDE_MD")" \
-      "$prompt_text" \
-      > "$outfile" 2>/dev/null
+      -- "$prompt_text" \
+      > "$outfile" 2>"$outfile.err"
   fi
+  # Drop empty stderr files so they don't clutter the results dir
+  [[ -s "$outfile.err" ]] || rm -f "$outfile.err"
 
   echo "$outfile"
 }
@@ -130,9 +161,18 @@ for i in $(seq 0 $((PROMPT_COUNT - 1))); do
   PROMPT_NAME=$(python3 -c "import json; print(json.load(open('$PROMPTS_FILE'))[$i]['name'])")
   PROMPT_CAT=$(python3 -c "import json; print(json.load(open('$PROMPTS_FILE'))[$i]['category'])")
 
-  # Skip if --prompt filter set and doesn't match
-  if [[ -n "$SINGLE_PROMPT" && "$PROMPT_ID" != "$SINGLE_PROMPT" ]]; then
-    continue
+  # Skip if --prompt filter set and doesn't match (supports comma-separated list)
+  if [[ -n "$SINGLE_PROMPT" ]]; then
+    if [[ ",$SINGLE_PROMPT," != *",$PROMPT_ID,"* ]]; then
+      continue
+    fi
+  fi
+
+  # Skip if --category filter set and category doesn't match
+  if [[ -n "$CATEGORIES" ]]; then
+    if [[ ",$CATEGORIES," != *",$PROMPT_CAT,"* ]]; then
+      continue
+    fi
   fi
 
   echo "──────────────────────────────────────────────────────"
@@ -173,9 +213,9 @@ echo ""
 
 if [[ -f "$SUMMARIZE" && $TOTAL_RUNS -gt 0 ]]; then
   echo "▸ Generating summary..."
-  python3 "$SUMMARIZE" "$RESULTS_DIR" $LLM_QUALITY
+  python3 "$SUMMARIZE" "$RESULTS_DIR/$GIT_SHA" $LLM_QUALITY
   echo ""
-  echo "▸ Results in: $RESULTS_DIR"
-  echo "▸ Run 'python3 $SUMMARIZE $RESULTS_DIR' to regenerate summary"
-  echo "▸ Run 'python3 $SUMMARIZE $RESULTS_DIR --llm-quality' for AI quality judgments"
+  echo "▸ Results in: $RESULTS_DIR/$GIT_SHA"
+  echo "▸ Run 'python3 $SUMMARIZE $RESULTS_DIR/$GIT_SHA' to regenerate summary"
+  echo "▸ Run 'python3 $SUMMARIZE $RESULTS_DIR/$GIT_SHA --llm-quality' for AI quality judgments"
 fi
