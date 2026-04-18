@@ -11,6 +11,7 @@ import (
 	"runtime"
 
 	"github.com/hunter/imprint/internal/gpustate"
+	"github.com/hunter/imprint/internal/hooks"
 	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
@@ -1029,72 +1030,11 @@ func setupShellAlias(name, targetPath string) {
 //   - Stop:        async transcript ingest + decision extraction
 //   - PreCompact:  block + force a save before context compression
 //   - SessionStart: inject reminder telling Claude to call wake_up + search
-//   - PostToolUse(mcp__imprint__search|wake_up): mark per-session sentinel
+//   - PostToolUse(mcp__imprint__search): mark per-session sentinel
 //   - PreToolUse(Read|Grep|Glob): block until the session sentinel exists,
 //     forcing the model to call mcp__imprint__search first
 func setupHooks(settingsPath string, bp backendPaths) {
-	venvPython := bp.VenvPython
-	projectDir := bp.ProjectDir
-	dataDir := bp.DataDir
-
-	// Stop: index transcript + extract decisions (async, background).
-	stopCmd := fmt.Sprintf(
-		`PYTHONPATH=%s IMPRINT_DATA_DIR=%s %s -c "
-import json,sys,subprocess,os
-d=json.loads(sys.stdin.read())
-tp=d.get('transcript_path','')
-if tp:
-    subprocess.run([sys.executable,'-m','imprint.cli_conversations','--transcript',tp],env=os.environ)
-    subprocess.run([sys.executable,'-m','imprint.cli_extract',tp],env=os.environ)
-" 2>/dev/null`,
-		projectDir, dataDir, venvPython,
-	)
-
-	// PreCompact: tell Claude to flush before compression.
-	preCompactCmd := `echo '{"decision":"block","reason":"COMPACTION IMMINENT. Save ALL topics, decisions, and important context from this session using the imprint MCP tools (store, kg_add). Be thorough — after compaction, detailed context will be lost."}'`
-
-	// SessionStart: inject a system reminder so Claude sees the contract
-	// in fresh context (no CLAUDE.md drift after compaction).
-	sessionStartCmd := `echo '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Imprint MCP available. Call mcp__imprint__wake_up to load prior context. Call mcp__imprint__search BEFORE Read/Grep when answering context questions — Read/Grep will be blocked until you do."}}'`
-
-	// PostToolUse on imprint search/wake_up: write a per-session sentinel
-	// so the PreToolUse gate on Read/Grep stops blocking.
-	sentinelDir := filepath.Join(dataDir, ".sessions")
-	postSearchCmd := fmt.Sprintf(
-		`%s -c "
-import json,sys,os,pathlib
-try:
-    d=json.loads(sys.stdin.read())
-    sid=d.get('session_id','default')
-    p=pathlib.Path(r'%s'); p.mkdir(parents=True,exist_ok=True)
-    (p/sid).touch()
-except Exception:
-    pass
-" 2>/dev/null`,
-		venvPython, sentinelDir,
-	)
-
-	// PreToolUse on Read|Grep|Glob: block (exit 2) until the sentinel
-	// exists for this session_id. Once mcp__imprint__search or
-	// mcp__imprint__wake_up has run, Read/Grep flow normally.
-	preReadCmd := fmt.Sprintf(
-		`%s -c "
-import json,sys,os,pathlib
-try:
-    d=json.loads(sys.stdin.read())
-    sid=d.get('session_id','default')
-    p=pathlib.Path(r'%s')/sid
-    if p.exists():
-        sys.exit(0)
-    sys.stderr.write('Imprint MCP gate: call mcp__imprint__search (or mcp__imprint__wake_up) before Read/Grep/Glob. The knowledge base may already have the answer.\n')
-    sys.exit(2)
-except SystemExit:
-    raise
-except Exception:
-    sys.exit(0)
-"`,
-		venvPython, sentinelDir,
-	)
+	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
 
 	type hookSpec struct {
 		event   string
@@ -1104,15 +1044,15 @@ except Exception:
 		async   bool
 	}
 
-	hooks := []hookSpec{
-		{"Stop", "", stopCmd, 120, true},
-		{"PreCompact", "", preCompactCmd, 90, false},
-		{"SessionStart", "startup|resume", sessionStartCmd, 10, false},
-		{"PostToolUse", "mcp__imprint__search|mcp__imprint__wake_up", postSearchCmd, 10, true},
-		{"PreToolUse", "Read|Grep|Glob", preReadCmd, 10, false},
+	specs := []hookSpec{
+		{"Stop", "", hooks.StopCommand(hp), 120, true},
+		{"PreCompact", "", hooks.PreCompactCommand(), 90, false},
+		{"SessionStart", "startup|resume", hooks.SessionStartCommand(), 10, false},
+		{"PostToolUse", "mcp__imprint__search", hooks.PostSearchSentinelCommand(hp), 10, true},
+		{"PreToolUse", "Read|Grep|Glob", hooks.PreReadGateCommand(hp), 10, false},
 	}
 
-	for _, h := range hooks {
+	for _, h := range specs {
 		if err := jsonutil.SetHookWithMatcher(settingsPath, h.event, h.matcher, h.command, h.timeout, h.async); err != nil {
 			output.Warn("Could not set " + h.event + " hook: " + err.Error())
 		} else {
@@ -1144,7 +1084,7 @@ func setupGlobalClaudeMD() {
 		existing = string(data)
 	}
 
-	updated := replaceManagedSection(existing, managed)
+	updated := instructions.MergeManaged(existing, managed)
 	if updated == existing {
 		output.Skip("Global CLAUDE.md already up to date")
 		return
@@ -1157,25 +1097,9 @@ func setupGlobalClaudeMD() {
 	output.Success("Updated " + claudeMD)
 }
 
-// replaceManagedSection swaps the marker-bracketed block in `existing` with
-// `managed`. If no markers are present, appends the managed block (with a
-// blank-line separator) so prior content is preserved.
+// replaceManagedSection is preserved as a thin alias over
+// instructions.MergeManaged for backward source compatibility with older
+// callers in this package.
 func replaceManagedSection(existing, managed string) string {
-	startIdx := strings.Index(existing, instructions.MarkerStart)
-	endIdx := strings.Index(existing, instructions.MarkerEnd)
-	if startIdx >= 0 && endIdx > startIdx {
-		endIdx += len(instructions.MarkerEnd)
-		// Eat the trailing newline if present so we don't accumulate blanks.
-		if endIdx < len(existing) && existing[endIdx] == '\n' {
-			endIdx++
-		}
-		return existing[:startIdx] + managed + existing[endIdx:]
-	}
-	if existing == "" {
-		return managed
-	}
-	if !strings.HasSuffix(existing, "\n") {
-		existing += "\n"
-	}
-	return existing + "\n" + managed
+	return instructions.MergeManaged(existing, managed)
 }

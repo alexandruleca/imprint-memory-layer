@@ -127,3 +127,11 @@ def invalidate(fact_id: int, workspace: str | None = None) -> bool:
 def recent(limit: int = 5, workspace: str | None = None) -> list[dict]:
     """Get the most recent active facts."""
     return query(active_only=True, limit=limit, workspace=workspace)
+
+
+def count(active_only: bool = True, workspace: str | None = None) -> int:
+    """Return the total number of facts (active only by default)."""
+    conn = _get_conn(workspace)
+    where = " WHERE ended IS NULL" if active_only else ""
+    row = conn.execute(f"SELECT COUNT(*) FROM facts{where}").fetchone()
+    return row[0]

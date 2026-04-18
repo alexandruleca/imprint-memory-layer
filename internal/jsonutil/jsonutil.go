@@ -206,6 +206,69 @@ func SetHookWithMatcher(settingsPath, event, matcher, command string, timeout in
 	return WriteJSON(settingsPath, data)
 }
 
+// SetCursorHook upserts a hook entry in Cursor's hooks.json schema:
+//
+//	{
+//	  "version": 1,
+//	  "hooks": {
+//	    "<event>": [{"command": "...", "matcher": "..."}]
+//	  }
+//	}
+//
+// The group whose matcher equals `matcher` is replaced; other matchers on
+// the same event are preserved. Pass empty matcher for events without one.
+// Creates the file (and parent dir) if missing.
+func SetCursorHook(path, event, matcher, command string) error {
+	data, err := ReadJSON(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			data = map[string]any{}
+			dir := filepath.Dir(path)
+			if mkErr := os.MkdirAll(dir, 0755); mkErr != nil {
+				return fmt.Errorf("creating directory %s: %w", dir, mkErr)
+			}
+		} else {
+			return err
+		}
+	}
+
+	if _, ok := data["version"]; !ok {
+		data["version"] = 1
+	}
+
+	hooks, ok := data["hooks"].(map[string]any)
+	if !ok {
+		hooks = map[string]any{}
+		data["hooks"] = hooks
+	}
+
+	entry := map[string]any{"command": command}
+	if matcher != "" {
+		entry["matcher"] = matcher
+	}
+
+	existing, _ := hooks[event].([]any)
+	replaced := false
+	for i, e := range existing {
+		em, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		em_matcher, _ := em["matcher"].(string)
+		if em_matcher == matcher {
+			existing[i] = entry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		existing = append(existing, entry)
+	}
+	hooks[event] = existing
+
+	return WriteJSON(path, data)
+}
+
 // RemoveHooksMatching strips every hook whose command string contains any of
 // the given substrings. Empty groups are removed; events with no remaining
 // groups are deleted. Returns the count of hook entries removed.

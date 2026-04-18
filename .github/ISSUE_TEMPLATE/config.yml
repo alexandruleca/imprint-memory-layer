@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & ideas
+    url: https://github.com/alexandruleca/imprint-memory-layer/discussions
+    about: Ask how something works, compare setups, or brainstorm before filing a bug or feature.
+  - name: Installation & docs
+    url: https://github.com/alexandruleca/imprint-memory-layer/blob/main/docs/installation.md
+    about: Install channels, Docker, and updater behavior are documented here.

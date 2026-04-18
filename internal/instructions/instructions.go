@@ -1,5 +1,7 @@
 package instructions
 
+import "strings"
+
 // ImprintBase is the shared usage guidance installed for every supported
 // AI tool target (Claude Code CLAUDE.md, Cursor rules, etc.). One source of
 // truth so the contract stays consistent across tools.
@@ -40,9 +42,50 @@ alwaysApply: true
 
 ` + ImprintBase
 
-// MarkerStart and MarkerEnd delimit the managed Imprint section in
-// ~/.claude/CLAUDE.md so we can replace it without nuking unrelated content.
+// ClineRule is a plain-markdown rule file written under ~/.clinerules/.
+// Cline reads every .md file in that dir as an always-on rule, so no
+// frontmatter is needed — just a header to keep it distinguishable in
+// Cline's UI when multiple rule files are installed.
+const ClineRule = "# Imprint Memory\n\n" + ImprintBase
+
+// CodexRule is merged into ~/.codex/AGENTS.md via managed markers so
+// existing user-authored content is preserved. No frontmatter — AGENTS.md
+// is plain markdown consumed by Codex CLI.
+const CodexRule = ImprintBase
+
+// CopilotRule is merged into the user-scope Copilot custom-instructions
+// file via managed markers. GitHub Copilot reads the file as-is; no
+// frontmatter.
+const CopilotRule = ImprintBase
+
+// MarkerStart and MarkerEnd delimit the managed Imprint section in rule
+// files so re-running setup replaces only our block instead of clobbering
+// unrelated user content (used for ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md,
+// Copilot instructions).
 const (
 	MarkerStart = "<!-- imprint:begin -->"
 	MarkerEnd   = "<!-- imprint:end -->"
 )
+
+// MergeManaged swaps the marker-bracketed block in `existing` with
+// `managed`. If no markers are present, appends the managed block (with a
+// blank-line separator) so prior content is preserved. Caller is
+// responsible for wrapping `managed` in MarkerStart/MarkerEnd.
+func MergeManaged(existing, managed string) string {
+	startIdx := strings.Index(existing, MarkerStart)
+	endIdx := strings.Index(existing, MarkerEnd)
+	if startIdx >= 0 && endIdx > startIdx {
+		endIdx += len(MarkerEnd)
+		if endIdx < len(existing) && existing[endIdx] == '\n' {
+			endIdx++
+		}
+		return existing[:startIdx] + managed + existing[endIdx:]
+	}
+	if existing == "" {
+		return managed
+	}
+	if !strings.HasSuffix(existing, "\n") {
+		existing += "\n"
+	}
+	return existing + "\n" + managed
+}

@@ -30,6 +30,48 @@
     "prompt": "How does the auto-spawned Qdrant server work? Why is server mode used instead of embedded mode? How does qdrant_runner.py handle lifecycle?"
   },
   {
+    "id": "decision-1",
+    "category": "decision",
+    "name": "Qdrant vs embedded",
+    "prompt": "What were the reasons for choosing a Qdrant HTTP server over the embedded/in-process mode in Imprint? Cite the trade-offs considered."
+  },
+  {
+    "id": "decision-2",
+    "category": "decision",
+    "name": "LLM tagger default off",
+    "prompt": "Why is LLM tagging opt-in (IMPRINT_LLM_TAGS=0 by default) while zero-shot tagging is on by default? What problem does that default guard against?"
+  },
+  {
+    "id": "debug-1",
+    "category": "debug",
+    "name": "Search returns nothing",
+    "prompt": "If mcp__imprint__search returns zero results for a query that should match an indexed file, list the most likely root causes in order of probability, based on this project's known failure modes. Focus on what could be checked in under 30 seconds."
+  },
+  {
+    "id": "debug-2",
+    "category": "debug",
+    "name": "Slow embedding on first run",
+    "prompt": "A user reports the first embedding call on a fresh install takes 20+ seconds but subsequent calls are fast. Explain what's happening in the ONNX/embedding pipeline that causes this, and whether any of it is avoidable."
+  },
+  {
+    "id": "cross-1",
+    "category": "cross-project",
+    "name": "Async work pattern",
+    "prompt": "Across the indexed projects, how is background/async work typically structured (threads, goroutines, workers, queues)? Highlight patterns that appear in more than one project."
+  },
+  {
+    "id": "cross-2",
+    "category": "cross-project",
+    "name": "Config precedence",
+    "prompt": "How do the indexed projects handle configuration precedence (env var vs config file vs default)? Is there a common pattern, or do they differ?"
+  },
+  {
+    "id": "summary-1",
+    "category": "summary",
+    "name": "Recent activity",
+    "prompt": "What have been the main areas of change in the Imprint project over the most recent sessions? Name the top 3 areas and what drove the changes. Use memory only — do not read git history."
+  },
+  {
     "id": "create-1",
     "category": "creation",
     "name": "Qdrant connectivity test",
@@ -44,7 +86,7 @@
   {
     "id": "create-3",
     "category": "creation",
-    "name": "Embed speed benchmark",
-    "prompt": "Write a shell script called benchmark_embed_speed.sh that times how long it takes to embed 100 chunks of text using the project's embedding pipeline. It should use the project's Python venv and import from the imprint package."
+    "name": "Workspace stats CLI",
+    "prompt": "Write a small Python function named workspace_stats(workspace: str) -> dict that returns {'memories': int, 'facts': int, 'projects': list[str]} for a given Imprint workspace. Reuse existing helpers from the imprint package — do not re-implement Qdrant access or SQLite queries."
   }
 ]

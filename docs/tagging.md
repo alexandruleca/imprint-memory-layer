@@ -51,8 +51,9 @@ Set `IMPRINT_LLM_TAGS=1` and pick a provider:
 | Anthropic | `anthropic` (default) | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` | Uses native Anthropic SDK |
 | OpenAI | `openai` | `gpt-4o-mini` | `OPENAI_API_KEY` | OpenAI SDK |
 | Gemini | `gemini` | `gemini-2.0-flash` | `GOOGLE_API_KEY` | Via OpenAI-compatible endpoint |
-| Ollama | `ollama` | `llama3.2` | — | Local, no API key needed |
-| vLLM | `vllm` | `default` | — | Local, no API key needed |
+| Ollama | `ollama` | `llama3.2` | — | Local server, no API key needed |
+| vLLM | `vllm` | `default` | — | Local server, no API key needed |
+| Local (llama-cpp) | `local` | `qwen3-1.7b` (auto GGUF download) | — | In-process via `llama-cpp-python`, no server required. Tune via `tagger.local.model_repo`, `tagger.local.model_file`, `tagger.local.model_path`, `tagger.local.n_ctx`, `tagger.local.n_gpu_layers` |
 
 **Overrides:**
 
@@ -63,6 +64,8 @@ Set `IMPRINT_LLM_TAGS=1` and pick a provider:
 | `IMPRINT_LLM_TAGGER_API_KEY` | Fallback API key (for providers without a standard env var) | — |
 
 Ollama and vLLM use OpenAI-compatible APIs internally. Point `IMPRINT_LLM_TAGGER_BASE_URL` at any OpenAI-compatible server to use unlisted providers.
+
+**MCP `store` always LLM-tags.** When a memory is saved via the `store` MCP tool, the background job runs the LLM tagger regardless of the `tagger.llm` config flag and stamps `llm_tagged: true` on the point so a later `imprint retag` won't re-tag it. The global toggle still controls ingest/refresh passes over bulk files.
 
 ## Search Filters
 

@@ -31,7 +31,7 @@ from typing import Iterable
 from qdrant_client import QdrantClient, models as qm
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from . import config, embeddings, qdrant_runner
+from . import config, embeddings, imprint_graph, qdrant_runner
 
 _client: QdrantClient | None = None
 _collections_ready: set[str] = set()
@@ -972,6 +972,37 @@ def facet_counts(key: str, limit: int = 10, workspace: str | None = None) -> lis
         return [(hit.value, hit.count) for hit in resp.hits]
     except Exception:
         return []
+
+
+def count_memories_by_project(
+    limit: int = 200, workspace: str | None = None
+) -> dict[str, int]:
+    """Return {project_name: count} for every project in the collection.
+
+    Uses the Qdrant facet API against the indexed ``project`` keyword field —
+    no full scan required.  *limit* caps how many distinct projects are
+    returned; 200 is high enough to cover any realistic deployment.
+    """
+    pairs = facet_counts("project", limit=limit, workspace=workspace)
+    return dict(pairs)
+
+
+def workspace_stats(workspace: str) -> dict:
+    """Return summary stats for *workspace*.
+
+    Returns:
+        {
+            "memories": int,        # total vector-store points
+            "facts":    int,        # active facts in the knowledge graph
+            "projects": list[str],  # sorted project names with at least one memory
+        }
+    """
+    stat = status(workspace=workspace)
+    return {
+        "memories": stat["total_memories"],
+        "facts": imprint_graph.count(workspace=workspace),
+        "projects": sorted(stat["by_project"]),
+    }
 
 
 def recent_ordered(limit: int = 15, types: list[str] | None = None, workspace: str | None = None) -> list[dict]:

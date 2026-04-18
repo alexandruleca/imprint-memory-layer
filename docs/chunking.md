@@ -25,7 +25,7 @@ graph TB
 **[Chonkie](https://github.com/chonkie-inc/chonkie) hybrid dispatch** in [chunker.py](../imprint/chunker.py):
 
 - **`CodeChunker`** — tree-sitter parses the file into an AST and splits at function/class/method boundaries. Language-aware (Python, TypeScript, Go, Rust, Java, PHP, Ruby, Swift, C/C++, etc.) so it never cuts mid-function.
-- **`SemanticChunker`** — embeds sentences with a tiny [Model2Vec](https://github.com/MinishLab/model2vec) static embedder, computes cosine similarity over a sliding window, and splits where similarity drops below `threshold=0.7`. Dynamic chunk size: a coherent topic stays together; a topic shift triggers a split.
+- **`SemanticChunker`** — embeds sentences with a tiny [Model2Vec](https://github.com/MinishLab/model2vec) static embedder, computes cosine similarity over a sliding window, and splits where similarity drops below `chunker.semantic_threshold` (default `0.5`). Lower = sharper splits / more chunks, higher = fewer, broader chunks. Dynamic chunk size: a coherent topic stays together; a topic shift triggers a split.
 - **Sliding overlap** — `IMPRINT_CHUNK_OVERLAP=400` chars from the tail of each chunk prepended to the next. Preserves boundary context so retrieval doesn't miss signal sitting right at a split.
 - **Semantic subsplit for code** — oversized code chunks (>8000 chars) get secondary topic-shift splitting via SemanticChunker. Small focused functions stay whole; large functions split where the logic changes.
 

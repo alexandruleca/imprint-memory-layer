@@ -793,6 +793,110 @@ async def api_sync_cancel(request: Request):
     return {"ok": True}
 
 
+# ── Filesystem browser ────────────────────────────────────────
+
+def _is_wsl() -> bool:
+    try:
+        with open("/proc/version") as f:
+            return "microsoft" in f.read().lower()
+    except OSError:
+        return False
+
+
+@app.get("/api/fs/roots")
+def api_fs_roots():
+    """Return starting points the server can see (server-side paths)."""
+    import platform as _plat
+
+    roots: list[dict[str, str]] = [
+        {"label": "Home", "path": str(Path.home())},
+        {"label": "Working dir", "path": os.getcwd()},
+    ]
+    system = _plat.system()
+    if system == "Linux":
+        if _is_wsl() and os.path.isdir("/mnt"):
+            try:
+                for name in sorted(os.listdir("/mnt")):
+                    p = f"/mnt/{name}"
+                    if os.path.isdir(p):
+                        roots.append({"label": f"Windows {name.upper()}:", "path": p})
+            except OSError:
+                pass
+        roots.append({"label": "/", "path": "/"})
+    elif system == "Darwin":
+        roots.append({"label": "/", "path": "/"})
+        if os.path.isdir("/Volumes"):
+            roots.append({"label": "/Volumes", "path": "/Volumes"})
+    elif system == "Windows":
+        import string
+        for letter in string.ascii_uppercase:
+            drive = f"{letter}:\\"
+            if os.path.isdir(drive):
+                roots.append({"label": f"{letter}:", "path": drive})
+    return {"roots": roots, "platform": system, "wsl": system == "Linux" and _is_wsl()}
+
+
+@app.get("/api/fs/list")
+def api_fs_list(path: str = "", show_hidden: bool = False):
+    """List directory entries with absolute paths (resolved server-side).
+
+    Browser file inputs never expose absolute paths; this endpoint lets the UI
+    render a server-side picker that returns real paths the server can read.
+    """
+    target = path.strip() or str(Path.home())
+    try:
+        p = Path(target).expanduser()
+        # Only resolve if it exists — avoid resolving to cwd-relative garbage.
+        if p.exists():
+            p = p.resolve()
+    except (OSError, RuntimeError) as e:
+        return JSONResponse({"error": f"invalid path: {e}"}, status_code=400)
+
+    if not p.exists():
+        return JSONResponse({"error": f"path does not exist: {p}"}, status_code=404)
+
+    parent = str(p.parent) if p.parent != p else None
+
+    if p.is_file():
+        return {
+            "path": str(p),
+            "parent": parent,
+            "is_file": True,
+            "entries": [],
+        }
+
+    entries: list[dict[str, Any]] = []
+    try:
+        children = list(p.iterdir())
+    except PermissionError:
+        return JSONResponse({"error": f"permission denied: {p}"}, status_code=403)
+    except OSError as e:
+        return JSONResponse({"error": f"read failed: {e}"}, status_code=400)
+
+    for child in children:
+        name = child.name
+        if not show_hidden and name.startswith("."):
+            continue
+        try:
+            is_dir = child.is_dir()
+        except OSError:
+            continue
+        entries.append({
+            "name": name,
+            "is_dir": is_dir,
+            "abs_path": str(child),
+        })
+
+    entries.sort(key=lambda e: (not e["is_dir"], e["name"].lower()))
+
+    return {
+        "path": str(p),
+        "parent": parent,
+        "is_file": False,
+        "entries": entries,
+    }
+
+
 # ── Static file serving ───────────────────────────────────────
 
 _UI_DIR = Path(__file__).parent / "ui" / "out"
