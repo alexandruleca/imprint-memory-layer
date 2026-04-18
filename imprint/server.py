@@ -206,6 +206,16 @@ def search(
     Returns relevant code chunks, decisions, and patterns.
     Automatically loads session context (wake_up) on the first call.
 
+    Iterate, do not stop at the first batch:
+      • If results are truncated, call again with `offset=` to paginate.
+      • If results feel narrow, rephrase the query or drop a filter.
+      • Use `graph_scope("project:X" | "topic:X" | "source:X")` to explore by
+        tag/structure instead of similarity.
+      • Use `neighbors(id=...)` on a promising result to pull semantic kin
+        across projects.
+      • Use `file_summary` / `file_chunks` when you need a full file rather
+        than isolated chunks.
+
     Args:
         query: What to search for (natural language)
         project: Filter by project name (optional)
@@ -299,13 +309,41 @@ def search(
         lines.append("")
 
     # Hint about more results when we hit the limit
+    next_offset = offset + limit
     if len(relevant) == limit:
-        next_offset = offset + limit
-        lines.append(f"({len(relevant)} results shown. More may exist — use offset={next_offset} to continue.)")
+        lines.append(
+            f"({len(relevant)} results shown. More may exist — call again with offset={next_offset}.)"
+        )
+
+    # Follow-up hints so the model keeps exploring instead of stopping here.
+    top_projects: dict[str, int] = {}
+    top_topics: dict[str, int] = {}
+    for r in relevant:
+        p = r.get("project") or ""
+        if p:
+            top_projects[p] = top_projects.get(p, 0) + 1
+        for t in ((r.get("tags") or {}).get("topics") or [])[:3]:
+            if t:
+                top_topics[t] = top_topics.get(t, 0) + 1
+
+    followups: list[str] = []
+    if top_projects:
+        proj = max(top_projects, key=top_projects.get)
+        followups.append(f'graph_scope("project:{proj}")')
+    if top_topics:
+        topic = max(top_topics, key=top_topics.get)
+        followups.append(f'graph_scope("topic:{topic}")')
+    if relevant:
+        first_id = relevant[0].get("id") or ""
+        if first_id:
+            followups.append(f'neighbors(id="{first_id}")')
+
+    if followups:
+        lines.append("")
+        lines.append("Follow up if this is incomplete: " + "  |  ".join(followups))
 
     output = prefix + "\n".join(lines)
     if len(output) > SEARCH_MAX_TOTAL_CHARS:
-        next_offset = offset + limit
         output = output[:SEARCH_MAX_TOTAL_CHARS] + (
             f"\n\n… [output truncated — {len(relevant)} results matched. "
             f"Use offset={next_offset} to see more, or add filters to narrow results]"
@@ -663,6 +701,165 @@ def file_summary(
     if preview:
         lines.append(f"\nPreview (chunk 0):\n{preview}...")
 
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def graph_scope(scope: str = "root", depth: int = 1, workspace: str = "") -> str:
+    """Explore the knowledge base as a graph — the same structure the UI shows.
+
+    Use this to navigate BY TOPIC/PROJECT/SOURCE instead of plain semantic
+    search. Call `graph_scope` when a search is too narrow, the user asks for
+    an overview, or you want to see what is related to a specific thing.
+
+    Typical exploration loop:
+      1) `search(query)` — pull the most relevant chunks
+      2) `graph_scope("project:<name>")` — see all topics and sources in that project
+      3) `graph_scope("topic:<name>")` — see every project/source that touches the topic
+      4) `graph_scope("source:<path>")` — list chunks in order, with topics for each
+      5) `graph_scope("chunk:<id>")` — fetch semantic neighbors for a specific chunk
+    Keep looping — do NOT stop after one search.
+
+    Args:
+        scope: One of: `root`, `project:<name>`, `topic:<name>`, `source:<key>`, `chunk:<mid>`
+        depth: 1–3; higher pulls more nodes per scope (more topics/sources)
+        workspace: Target workspace (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    from .cli_viz import build_graph_scope
+
+    depth = max(1, min(int(depth or 1), 3))
+    data = build_graph_scope(scope or "root", depth=depth, workspace=ws)
+    nodes = data.get("nodes", [])
+    edges = data.get("edges", [])
+
+    by_kind: dict[str, list] = {"project": [], "topic": [], "source": [], "chunk": []}
+    for n in nodes:
+        by_kind.setdefault(n.get("kind", ""), []).append(n)
+
+    center = data.get("center", "") or ""
+    scope_str = data.get("scope", scope or "root")
+    lines = [
+        f"Scope: {scope_str} (depth={depth})",
+        f"Nodes: {len(nodes)}  |  Edges: {len(edges)}"
+        + (f"  |  Center: {center}" if center else ""),
+    ]
+
+    # Adjacency index (weight-sorted) for short edge hints
+    adj: dict[str, list[tuple[str, int, str]]] = {}
+    for e in edges:
+        adj.setdefault(e["source"], []).append((e["target"], e["weight"], e["kind"]))
+        adj.setdefault(e["target"], []).append((e["source"], e["weight"], e["kind"]))
+    for k in adj:
+        adj[k].sort(key=lambda t: -t[1])
+
+    def _peers(node_id: str, limit: int = 3) -> str:
+        peers = adj.get(node_id, [])[:limit]
+        return ", ".join(p.split(":", 1)[-1] for p, _, _ in peers) if peers else ""
+
+    for kind_label, items in [
+        ("Projects", by_kind.get("project", [])),
+        ("Topics", by_kind.get("topic", [])),
+        ("Sources", by_kind.get("source", [])),
+        ("Chunks", by_kind.get("chunk", [])),
+    ]:
+        if not items:
+            continue
+        shown = items[:20]
+        lines.append(f"\n{kind_label} ({len(shown)} of {len(items)}):")
+        for n in shown:
+            link = _peers(n["id"])
+            suffix = f"  → {link}" if link else ""
+            lines.append(f"  [{n['id']}] {n['label']}  ({n.get('count', 0)}){suffix}")
+        if len(items) > len(shown):
+            lines.append(f"  … +{len(items) - len(shown)} more (increase depth to see them)")
+
+    # Follow-up hint — always present so the model keeps exploring
+    suggestions: list[str] = []
+    if scope_str == "root" or scope_str.startswith("root"):
+        sample_proj = by_kind.get("project", [])
+        sample_topic = by_kind.get("topic", [])
+        if sample_proj:
+            suggestions.append(f'graph_scope("project:{sample_proj[0]["label"]}")')
+        if sample_topic:
+            suggestions.append(f'graph_scope("topic:{sample_topic[0]["label"]}")')
+    elif scope_str.startswith("project:"):
+        for t in by_kind.get("topic", [])[:2]:
+            suggestions.append(f'graph_scope("topic:{t["label"]}")')
+        for s in by_kind.get("source", [])[:1]:
+            full = s.get("fullPath") or s["label"]
+            suggestions.append(f'graph_scope("source:{full}")')
+    elif scope_str.startswith("topic:"):
+        for p in by_kind.get("project", [])[:2]:
+            suggestions.append(f'graph_scope("project:{p["label"]}")')
+        for s in by_kind.get("source", [])[:1]:
+            full = s.get("fullPath") or s["label"]
+            suggestions.append(f'graph_scope("source:{full}")')
+    elif scope_str.startswith("source:"):
+        for c in by_kind.get("chunk", [])[:1]:
+            mid = c["id"].split(":", 1)[-1]
+            suggestions.append(f'graph_scope("chunk:{mid}")')
+            suggestions.append(f"file_chunks(source=\"{scope_str.split(':', 1)[-1]}\", start=0, end=5)")
+    elif scope_str.startswith("chunk:"):
+        mid = scope_str.split(":", 1)[-1]
+        suggestions.append(f'neighbors(id="{mid}", k=10)')
+        suggestions.append(f'get_memory("{mid}")')
+
+    if suggestions:
+        lines.append("\nNext steps: " + "  |  ".join(suggestions))
+    lines.append(
+        "Don't stop here — iterate. Every node id is callable as a new scope."
+    )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def neighbors(id: str, k: int = 10, workspace: str = "") -> str:
+    """Find semantic neighbors of a specific memory by KNN over embeddings.
+
+    Use after `search` or `graph_scope` to expand a specific result into
+    related chunks, even when they don't share tags or projects. Great for
+    cross-project pattern discovery.
+
+    Args:
+        id: Memory id (without any `chunk:` prefix — from search / graph_scope output)
+        k: Max neighbors (default 10)
+        workspace: Target workspace (optional)
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    from .cli_viz import get_neighbors
+
+    mid = id.split(":", 1)[-1] if id.startswith("chunk:") else id
+    data = get_neighbors(mid, k=max(1, min(int(k or 10), 30)), workspace=ws)
+    nbs = (data or {}).get("neighbors", []) if isinstance(data, dict) else []
+    if not nbs:
+        return f"No neighbors for {mid}. Try `get_memory` to confirm the id exists."
+
+    lines = [f"Neighbors of {mid} (top {len(nbs)}):"]
+    for n in nbs:
+        meta = []
+        if n.get("project"):
+            meta.append(n["project"])
+        if n.get("type"):
+            meta.append(n["type"])
+        if n.get("source"):
+            meta.append(n["source"])
+        meta_str = " | ".join(meta)
+        lines.append(
+            f"[{n.get('similarity', 0):.3f}] {n.get('id', '')}  {meta_str}"
+        )
+        content = (n.get("content") or "").strip().splitlines()
+        preview = next((ln.strip() for ln in content if ln.strip()), "")
+        if preview:
+            lines.append(f"  {preview[:200]}")
+    lines.append(
+        "\nNext: `graph_scope(\"chunk:<id>\")` to see the cluster, "
+        "or `search(query, offset=N)` to keep paginating."
+    )
     return "\n".join(lines)
 
 

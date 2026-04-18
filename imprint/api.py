@@ -48,6 +48,7 @@ from .cli_viz import (
     build_source_lineage,
     build_topic_overview,
     build_topic_detail,
+    build_graph_scope,
     get_neighbors,
     get_memory,
     check_for_changes,
@@ -247,6 +248,11 @@ def api_topics(
 @app.get("/api/topic/{name:path}")
 def api_topic(name: str):
     return build_topic_detail(unquote(name))
+
+
+@app.get("/api/graph")
+def api_graph(scope: str = "root", depth: int = 1):
+    return build_graph_scope(unquote(scope), max(1, min(int(depth or 1), 3)))
 
 
 # ── Workspaces ─────────────────────────────────────────────────

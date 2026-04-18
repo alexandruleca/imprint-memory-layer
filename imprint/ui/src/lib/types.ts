@@ -140,6 +140,39 @@ export interface IngestionJob {
   eta_seconds: number | null;
 }
 
+// ── Graph (Obsidian-style) ─────────────────────────────────────
+
+export type GraphNodeKind = "project" | "topic" | "source" | "chunk";
+export type GraphEdgeKind = "contains" | "relates" | "sequence" | "similar";
+
+export interface GraphNode {
+  id: string;
+  kind: GraphNodeKind;
+  label: string;
+  count: number;
+  color: string;
+  focus?: boolean;
+  fullPath?: string;
+  project?: string;
+  content?: string;
+  chunk_index?: number;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  weight: number;
+  kind: GraphEdgeKind;
+}
+
+export interface GraphScopeData {
+  scope: string;
+  center: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 // ── Sync types ─────────────────────────────────────────────────
 
 export interface SyncEvent {

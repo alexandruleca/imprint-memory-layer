@@ -1,9 +1,9 @@
 1:"$Sreact.fragment"
-2:I[47257,["/_next/static/chunks/0jnnluwxuwe19.js","/_next/static/chunks/0d3shmwh5_nmn.js"],"ClientPageRoot"]
-3:I[37432,["/_next/static/chunks/0jnnluwxuwe19.js","/_next/static/chunks/0d3shmwh5_nmn.js","/_next/static/chunks/00.~044_9~ixf.js","/_next/static/chunks/0p~6j7m.2h~kq.js","/_next/static/chunks/0cies7_ziq5uh.js","/_next/static/chunks/0g3fuvuzpo4gf.js"],"default"]
-6:I[97367,["/_next/static/chunks/0jnnluwxuwe19.js","/_next/static/chunks/0d3shmwh5_nmn.js"],"OutletBoundary"]
+2:I[47257,["/_next/static/chunks/0ql0eol-wkzu_.js","/_next/static/chunks/0d3shmwh5_nmn.js"],"ClientPageRoot"]
+3:I[37432,["/_next/static/chunks/0ql0eol-wkzu_.js","/_next/static/chunks/0d3shmwh5_nmn.js","/_next/static/chunks/00.~044_9~ixf.js","/_next/static/chunks/12tvmoqk96pma.js","/_next/static/chunks/0dwl1sd-yv7b9.js"],"default"]
+6:I[97367,["/_next/static/chunks/0ql0eol-wkzu_.js","/_next/static/chunks/0d3shmwh5_nmn.js"],"OutletBoundary"]
 7:"$Sreact.suspense"
-0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],[["$","script","script-0",{"src":"/_next/static/chunks/00.~044_9~ixf.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/0p~6j7m.2h~kq.js","async":true}],["$","script","script-2",{"src":"/_next/static/chunks/0cies7_ziq5uh.js","async":true}],["$","script","script-3",{"src":"/_next/static/chunks/0g3fuvuzpo4gf.js","async":true}]],["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"cfiPerjL1bvvB0rc-lSiy"}
+0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],[["$","script","script-0",{"src":"/_next/static/chunks/00.~044_9~ixf.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/12tvmoqk96pma.js","async":true}],["$","script","script-2",{"src":"/_next/static/chunks/0dwl1sd-yv7b9.js","async":true}]],["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"tu-BlA5UO23x_bws6sHZ_"}
 4:{}
 5:"$0:rsc:props:children:0:props:serverProvidedParams:params"
 8:null
