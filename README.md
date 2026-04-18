@@ -10,6 +10,8 @@
 
 AI memory system MCP. Gives Claude Code, Cursor, Codex CLI, GitHub Copilot, and Cline persistent memory across sessions — it remembers your projects, decisions, patterns, and conversations so you don't have to re-explain context every time. One command wires the MCP server into whichever host tool you use.
 
+> **Measured impact (15 prompts × 5 runs × 2 modes, Sonnet):** Imprint cuts Claude Code's total token usage by **−62.8%** (7.88M → 2.93M) and cost by **−30.2%** ($2.66 → $1.86). Best categories: debugging **−92.8% tokens / −64.3% cost**, architecture Q&A **−81.4% / −43.9%**, cross-project recall **−81.3% / −40.5%**. Full methodology + raw results: [BENCHMARK.md](BENCHMARK.md).
+
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
 - **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (GPU or CPU), no network calls, no per-token cost.
@@ -193,14 +195,21 @@ Terms used across the docs.
 
 ## Benchmarks
 
-Imprint reduces Claude Code's token consumption by serving focused semantic search results instead of requiring full file reads. See [BENCHMARK.md](BENCHMARK.md) for methodology and detailed results.
+Imprint reduces Claude Code's token consumption by serving focused semantic search results instead of requiring full file reads. Measured across 15 prompts in 6 categories, 5 runs per prompt per mode, Sonnet primary model.
 
-| Category | Avg Token Savings | Avg Cost Savings |
-|----------|------------------|------------------|
-| Information prompts | _pending_ | _pending_ |
-| Creation tasks | _pending_ | _pending_ |
+| Category | Prompts | Δ Tokens | Δ Cost | Notes |
+|---|---|---|---|---|
+| **Debugging** | 2 | **−92.8%** | **−64.3%** | Imprint answers from indexed failure-mode patterns instead of reading the codebase |
+| **Architecture Q&A** | 5 | **−81.4%** | **−43.9%** | Questions like "how does chunking work?" served from semantic search |
+| **Cross-project recall** | 2 | **−81.3%** | **−40.5%** | Patterns spanning multiple indexed projects — impossible without memory |
+| **Decision recall** | 2 | **−56.4%** | **−27.9%** | Why-we-did-X questions served from stored decisions |
+| Creation tasks | 3 | −3.6% | +4.2% | Near parity — code generation still needs codebase context |
+| Session summary | 1 | +220% | +166% | Outlier: single prompt, ON went on a graph-exploration spree |
+| **Overall** | **15** | **−62.8%** (7.88M → 2.93M) | **−30.2%** ($2.66 → $1.86) | |
 
-> Reproduce: `bash benchmark/run.sh` — see [BENCHMARK.md](BENCHMARK.md) for details.
+Numbers are median per prompt, summed across categories. See [BENCHMARK.md](BENCHMARK.md) for per-prompt tables, per-model breakdown, response-quality analysis, and the exact flags used.
+
+> Reproduce: `bash benchmark/run.sh` (full suite, ~$15–25) or `bash benchmark/run.sh --subset` (one prompt per category, ~$6–10).
 
 ## Roadmap
 
