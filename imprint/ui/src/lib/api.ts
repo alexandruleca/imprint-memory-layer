@@ -28,6 +28,7 @@ import type {
   ChatSession,
   MemoryNode,
   IngestionJob,
+  GraphScopeData,
 } from "./types";
 
 export async function getOverview(filters?: Record<string, string[]>): Promise<OverviewData> {
@@ -106,6 +107,11 @@ export async function getTopics(filters?: Record<string, string[]>): Promise<Top
 
 export async function getTopicDetail(name: string): Promise<TopicDetailData> {
   return fetchAPI(`/api/topic/${encodeURIComponent(name)}`);
+}
+
+export async function getGraphScope(scope: string = "root", depth = 1): Promise<GraphScopeData> {
+  const qs = new URLSearchParams({ scope, depth: String(depth) });
+  return fetchAPI(`/api/graph?${qs}`);
 }
 
 // ── Sources ────────────────────────────────────────────────────

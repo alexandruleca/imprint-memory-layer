@@ -21,12 +21,31 @@ It auto-loads session context (wake_up) on the first call — no need to call `w
 - `mcp__imprint__store` — decisions, patterns, findings, preferences, bugs
 - `mcp__imprint__kg_add` — structured facts (subject → predicate → object)
 
-## MCP Tools (11 total)
+## Iterative Exploration — Keep Going
+
+Never stop after the first `search` call when a question is broad, incomplete, or ambiguous. The KB is large; one batch of 10 results is rarely the full picture. Loop through these tools until you have what you need:
+
+1. **`search`** — pull the most relevant chunks. Output ends with a `Follow up if this is incomplete: ...` line that names the exact next call to make.
+2. **`search` again** with `offset=` when the hint says "More may exist" — paginate until results become irrelevant.
+3. **`graph_scope(scope, depth)`** — navigate the graph instead of cosine similarity:
+   - `graph_scope("root")` — top projects + topics with co-occurrence edges
+   - `graph_scope("project:<name>")` — topics + sources inside that project
+   - `graph_scope("topic:<name>")` — every project/source that touches the topic
+   - `graph_scope("source:<path>")` — chunks in order + topics per chunk
+   - `graph_scope("chunk:<id>")` — semantic kin of a single chunk
+4. **`neighbors(id, k)`** — KNN over embeddings for a specific memory. Great for cross-project pattern discovery when tags don't line up.
+5. **`file_summary` → `file_chunks`** when you need a whole file, not isolated chunks.
+
+Every `graph_scope` call returns a `Next steps:` line. Treat those as concrete prompts — call one of them when the current scope didn't answer the question. Budget 3–6 exploration calls for broad questions. Stop when diminishing returns, not when the first batch arrives.
+
+## MCP Tools (13 total)
 
 | Tool | Purpose |
 |------|---------|
 | `wake_up` | Load summary context at session start |
 | `search` | Semantic search with optional filters and offset-based pagination |
+| `graph_scope` | Navigate projects/topics/sources/chunks as a graph (drill-down) |
+| `neighbors` | KNN over embeddings for a specific memory id |
 | `store` | Store a memory with metadata |
 | `delete` | Remove a memory by ID |
 | `kg_query` | Query temporal facts |
@@ -113,7 +132,14 @@ imprint config             # show all settings with current values
 imprint config set <k> <v> # persist a setting
 imprint config get <key>   # show one setting
 imprint config reset <key> # remove override, revert to default
-imprint server <cmd>       # daemon control: start | stop | status | log
+imprint server <cmd>       # Qdrant daemon: start | stop | status | log
+imprint ui                 # foreground dashboard (Ctrl+C to stop)
+imprint ui start [--port N]  # detached background daemon
+imprint ui stop            # stop background UI server
+imprint ui status          # pid + reachability
+imprint ui open [--port N]   # start if stopped, then open a browser window
+imprint ui restart         # stop + start
+imprint ui log             # UI log file path
 imprint workspace          # list workspaces and show active
 imprint workspace switch <name>  # switch to workspace (creates if new)
 imprint workspace delete <name>  # delete a workspace and its data

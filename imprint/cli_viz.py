@@ -59,9 +59,14 @@ def _extract_label(content: str, source: str = "", fallback: str = "") -> str:
 # ── Backend API functions ──────────────────────────────────────
 
 
-def _facet(key: str, limit: int = 100, filt: qm.Filter | None = None) -> list[tuple[str, int]]:
+def _facet(
+    key: str,
+    limit: int = 100,
+    filt: qm.Filter | None = None,
+    workspace: str | None = None,
+) -> list[tuple[str, int]]:
     """Facet counts with optional filter. Index-based, no scan."""
-    client, coll = vs._ensure_collection()
+    client, coll = vs._ensure_collection(workspace)
     try:
         resp = client.facet(
             collection_name=coll,
@@ -279,9 +284,9 @@ def search_nodes(query: str, project: str = "", type_: str = "",
     return {"nodes": results}
 
 
-def get_memory(node_id: str) -> dict:
+def get_memory(node_id: str, workspace: str | None = None) -> dict:
     """Get full memory content by ID (no truncation)."""
-    client, coll = vs._ensure_collection()
+    client, coll = vs._ensure_collection(workspace)
     try:
         points = client.retrieve(coll, ids=[node_id], with_payload=True, with_vectors=False)
         if not points:
@@ -303,9 +308,9 @@ def get_memory(node_id: str) -> dict:
         return {"error": "not found"}
 
 
-def get_neighbors(node_id: str, k: int = 10) -> dict:
+def get_neighbors(node_id: str, k: int = 10, workspace: str | None = None) -> dict:
     """On-demand KNN for a single node."""
-    client, coll = vs._ensure_collection()
+    client, coll = vs._ensure_collection(workspace)
     point_uuid = vs._point_uuid(node_id)
 
     try:
@@ -593,9 +598,9 @@ def build_kg_data(subject: str = "", limit: int = 200) -> dict:
 _last_wal_size = 0
 # ── Source lineage (chunk siblings) ───────────────────────────────
 
-def build_source_lineage(source_key: str) -> dict:
+def build_source_lineage(source_key: str, workspace: str | None = None) -> dict:
     """Return all chunks sharing the same source, ordered by chunk_index."""
-    client, coll = vs._ensure_collection()
+    client, coll = vs._ensure_collection(workspace)
     filt = qm.Filter(must=[
         qm.FieldCondition(key="source", match=qm.MatchValue(value=source_key)),
     ])
@@ -701,6 +706,290 @@ def build_topic_detail(topic_name: str) -> dict:
         "nodes": nodes,
         "projects": proj_facets,
     }
+
+
+TOPIC_COLOR = "#a78bfa"
+SOURCE_COLOR = "#94a3b8"
+CHUNK_COLOR = "#64748b"
+
+
+def _topic_color(name: str) -> str:
+    h = int(hashlib.md5(("topic:" + name).encode()).hexdigest(), 16)
+    palette = ["#a78bfa", "#f472b6", "#e879f9", "#fb7185", "#c084fc", "#818cf8"]
+    return palette[h % len(palette)]
+
+
+def build_graph_scope(
+    scope: str = "root",
+    depth: int = 1,
+    workspace: str | None = None,
+) -> dict:
+    """Obsidian-style unified graph. Returns nodes + edges for a scope.
+
+    scope ∈ {root, project:<name>, topic:<name>, source:<key>, chunk:<mid>}.
+    depth currently affects breadth only (top-K per facet).
+    """
+    scope = scope or "root"
+    ws = workspace
+    kind, _, val = scope.partition(":")
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+
+    def add(node_id: str, payload: dict):
+        if node_id not in nodes:
+            nodes[node_id] = payload
+        else:
+            nodes[node_id].update({k: v for k, v in payload.items() if v is not None})
+
+    def edge(s: str, t: str, weight: int, ekind: str):
+        edges.append({
+            "id": f"{ekind}:{s}->{t}",
+            "source": s,
+            "target": t,
+            "weight": max(1, weight),
+            "kind": ekind,
+        })
+
+    topic_cap = 20 + (depth - 1) * 10
+    source_cap = 15 + (depth - 1) * 10
+
+    if kind == "root":
+        proj_facets = _facet("project", 50, workspace=ws)
+        for name, count in proj_facets:
+            if not name:
+                continue
+            add(f"proj:{name}", {
+                "id": f"proj:{name}",
+                "kind": "project",
+                "label": name,
+                "count": count,
+                "color": _project_color(name),
+            })
+
+        topic_facets = _facet("tags.topics", 60, workspace=ws)
+        for tname, tcount in topic_facets:
+            if not tname:
+                continue
+            add(f"topic:{tname}", {
+                "id": f"topic:{tname}",
+                "kind": "topic",
+                "label": tname,
+                "count": tcount,
+                "color": _topic_color(tname),
+            })
+            tfilt = qm.Filter(must=[qm.FieldCondition(
+                key="tags.topics", match=qm.MatchValue(value=tname))])
+            for pname, pcount in _facet("project", 3, tfilt, workspace=ws):
+                if not pname or f"proj:{pname}" not in nodes:
+                    continue
+                edge(f"proj:{pname}", f"topic:{tname}", pcount, "relates")
+
+    elif kind == "project" and val:
+        pfilt = qm.Filter(must=[qm.FieldCondition(
+            key="project", match=qm.MatchValue(value=val))])
+        total = sum(c for _, c in _facet("type", 20, pfilt, workspace=ws))
+        add(f"proj:{val}", {
+            "id": f"proj:{val}",
+            "kind": "project",
+            "label": val,
+            "count": total,
+            "color": _project_color(val),
+            "focus": True,
+        })
+        for tname, tcount in _facet("tags.topics", topic_cap, pfilt, workspace=ws):
+            if not tname:
+                continue
+            add(f"topic:{tname}", {
+                "id": f"topic:{tname}",
+                "kind": "topic",
+                "label": tname,
+                "count": tcount,
+                "color": _topic_color(tname),
+            })
+            edge(f"proj:{val}", f"topic:{tname}", tcount, "contains")
+        for sname, scount in _facet("source", source_cap, pfilt, workspace=ws):
+            if not sname:
+                continue
+            add(f"src:{sname}", {
+                "id": f"src:{sname}",
+                "kind": "source",
+                "label": sname.rsplit("/", 1)[-1],
+                "fullPath": sname,
+                "count": scount,
+                "color": SOURCE_COLOR,
+            })
+            edge(f"proj:{val}", f"src:{sname}", scount, "contains")
+
+    elif kind == "topic" and val:
+        tfilt = qm.Filter(must=[qm.FieldCondition(
+            key="tags.topics", match=qm.MatchValue(value=val))])
+        total = sum(c for _, c in _facet("project", 50, tfilt, workspace=ws))
+        add(f"topic:{val}", {
+            "id": f"topic:{val}",
+            "kind": "topic",
+            "label": val,
+            "count": total,
+            "color": _topic_color(val),
+            "focus": True,
+        })
+        for pname, pcount in _facet("project", 20, tfilt, workspace=ws):
+            if not pname:
+                continue
+            add(f"proj:{pname}", {
+                "id": f"proj:{pname}",
+                "kind": "project",
+                "label": pname,
+                "count": pcount,
+                "color": _project_color(pname),
+            })
+            edge(f"proj:{pname}", f"topic:{val}", pcount, "relates")
+        for sname, scount in _facet("source", source_cap, tfilt, workspace=ws):
+            if not sname:
+                continue
+            add(f"src:{sname}", {
+                "id": f"src:{sname}",
+                "kind": "source",
+                "label": sname.rsplit("/", 1)[-1],
+                "fullPath": sname,
+                "count": scount,
+                "color": SOURCE_COLOR,
+            })
+            edge(f"src:{sname}", f"topic:{val}", scount, "relates")
+
+    elif kind == "source" and val:
+        lineage = build_source_lineage(val, workspace=ws)
+        chunks = lineage.get("chunks", [])[: 40 + (depth - 1) * 20]
+        proj_of_source = chunks[0]["project"] if chunks else ""
+        add(f"src:{val}", {
+            "id": f"src:{val}",
+            "kind": "source",
+            "label": val.rsplit("/", 1)[-1],
+            "fullPath": val,
+            "count": lineage.get("total", 0),
+            "color": SOURCE_COLOR,
+            "focus": True,
+        })
+        if proj_of_source:
+            add(f"proj:{proj_of_source}", {
+                "id": f"proj:{proj_of_source}",
+                "kind": "project",
+                "label": proj_of_source,
+                "count": 0,
+                "color": _project_color(proj_of_source),
+            })
+            edge(f"proj:{proj_of_source}", f"src:{val}", len(chunks), "contains")
+        prev_id = None
+        topic_seen: dict[str, int] = {}
+        for c in chunks:
+            cid = f"chunk:{c['id']}"
+            add(cid, {
+                "id": cid,
+                "kind": "chunk",
+                "label": c.get("label") or f"chunk {c.get('chunk_index', 0)}",
+                "count": 1,
+                "color": CHUNK_COLOR,
+                "chunk_index": c.get("chunk_index", 0),
+                "project": c.get("project", ""),
+                "content": c.get("content", ""),
+            })
+            edge(f"src:{val}", cid, 1, "contains")
+            if prev_id is not None:
+                edge(prev_id, cid, 1, "sequence")
+            prev_id = cid
+            for t in (c.get("tags") or {}).get("topics", []) or []:
+                if not t:
+                    continue
+                topic_seen[t] = topic_seen.get(t, 0) + 1
+        for tname, tcount in sorted(topic_seen.items(), key=lambda kv: -kv[1])[:10]:
+            add(f"topic:{tname}", {
+                "id": f"topic:{tname}",
+                "kind": "topic",
+                "label": tname,
+                "count": tcount,
+                "color": _topic_color(tname),
+            })
+            edge(f"src:{val}", f"topic:{tname}", tcount, "relates")
+
+    elif kind == "chunk" and val:
+        mem = get_memory(val, workspace=ws)
+        if mem:
+            add(f"chunk:{val}", {
+                "id": f"chunk:{val}",
+                "kind": "chunk",
+                "label": _extract_label(mem.get("content", ""), mem.get("source", "")),
+                "count": 1,
+                "color": CHUNK_COLOR,
+                "content": (mem.get("content") or "")[:500],
+                "project": mem.get("project", ""),
+                "focus": True,
+            })
+            src = mem.get("source", "")
+            if src:
+                add(f"src:{src}", {
+                    "id": f"src:{src}",
+                    "kind": "source",
+                    "label": src.rsplit("/", 1)[-1],
+                    "fullPath": src,
+                    "count": 0,
+                    "color": SOURCE_COLOR,
+                })
+                edge(f"src:{src}", f"chunk:{val}", 1, "contains")
+            proj = mem.get("project", "")
+            if proj:
+                add(f"proj:{proj}", {
+                    "id": f"proj:{proj}",
+                    "kind": "project",
+                    "label": proj,
+                    "count": 0,
+                    "color": _project_color(proj),
+                })
+            for t in ((mem.get("tags") or {}).get("topics") or []):
+                if not t:
+                    continue
+                add(f"topic:{t}", {
+                    "id": f"topic:{t}",
+                    "kind": "topic",
+                    "label": t,
+                    "count": 1,
+                    "color": _topic_color(t),
+                })
+                edge(f"chunk:{val}", f"topic:{t}", 1, "relates")
+        try:
+            for nb in (get_neighbors(val, k=8, workspace=ws) or {}).get("neighbors", []):
+                nb_id = nb.get("id") or ""
+                if not nb_id or nb_id == val:
+                    continue
+                nid = f"chunk:{nb_id}"
+                add(nid, {
+                    "id": nid,
+                    "kind": "chunk",
+                    "label": nb.get("label") or "chunk",
+                    "count": 1,
+                    "color": CHUNK_COLOR,
+                })
+                edge(f"chunk:{val}", nid, int(float(nb.get("similarity", 0.1)) * 10) or 1, "similar")
+        except Exception:
+            pass
+
+    return {
+        "scope": scope,
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "center": _center_id_for_scope(scope),
+    }
+
+
+def _center_id_for_scope(scope: str) -> str:
+    kind, _, val = (scope or "").partition(":")
+    if kind == "project" and val:
+        return f"proj:{val}"
+    if kind == "topic" and val:
+        return f"topic:{val}"
+    if kind == "source" and val:
+        return f"src:{val}"
+    if kind == "chunk" and val:
+        return f"chunk:{val}"
+    return ""
 
 
 _last_row_count = -1

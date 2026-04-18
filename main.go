@@ -100,7 +100,13 @@ Usage:
   imprint sync export         Export snapshot bundle (no re-embed on import)
   imprint sync import <dir>   Import snapshot bundle from another device
   imprint relay              Run the sync relay server
-  imprint ui [--port N]      Dashboard UI (FastAPI + Next.js)
+  imprint ui [--port N]      Dashboard UI foreground (FastAPI + Next.js; Ctrl+C to stop)
+  imprint ui start [--port N]  Start the UI server detached in the background
+  imprint ui stop            Stop the background UI server
+  imprint ui status          Show UI server pid + reachability
+  imprint ui open [--port N]  Ensure server is running, then open a browser window
+  imprint ui restart         Stop + start the background UI server
+  imprint ui log             Print the UI log file path (for tail -f)
   imprint retag [--project] [--all]  Re-tag existing memories (--all re-runs even already-tagged chunks)
   imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG [--dry-run]
                              Move memories between workspaces (preserves vectors)
