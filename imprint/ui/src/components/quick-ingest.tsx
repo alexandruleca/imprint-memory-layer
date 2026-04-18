@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/loaders";
 import { streamCommand } from "@/lib/api";
+import { PathBrowserDialog } from "@/components/path-browser-dialog";
 import { Globe, FolderOpen, RefreshCw, Tags, X, Play } from "lucide-react";
 
 type ActionKey = "ingest-url" | "ingest" | "refresh" | "retag";
@@ -86,6 +87,7 @@ export function QuickIngest() {
   const [runningKey, setRunningKey] = useState<ActionKey | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [browserMode, setBrowserMode] = useState<"dir" | "any" | null>(null);
 
   function selectAction(key: ActionKey) {
     if (active === key) {
@@ -95,38 +97,6 @@ export function QuickIngest() {
       setParams({});
       setOutput([]);
     }
-  }
-
-  function pickDirectory() {
-    // Non-standard but widely supported. Returns only file entries so we
-    // derive the directory from the first file's relative path. Works as a
-    // hint; users can also paste an absolute path directly.
-    const input = document.createElement("input");
-    input.type = "file";
-    (input as HTMLInputElement & { webkitdirectory?: boolean }).webkitdirectory = true;
-    input.onchange = () => {
-      const files = input.files;
-      if (!files || files.length === 0) return;
-      const first = files[0];
-      const rel = (first as File & { webkitRelativePath?: string }).webkitRelativePath || "";
-      const dirName = rel.split("/")[0] || "";
-      // Browsers don't expose absolute paths — surface the picked folder
-      // name so users can confirm, but they still need to paste the
-      // absolute path for the server to read it.
-      setParams((p) => ({ ...p, dir: p.dir ? String(p.dir) : dirName }));
-    };
-    input.click();
-  }
-
-  function pickFile() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.onchange = () => {
-      const files = input.files;
-      if (!files || files.length === 0) return;
-      setParams((p) => ({ ...p, dir: p.dir ? String(p.dir) : files[0].name }));
-    };
-    input.click();
   }
 
   function run() {
@@ -252,35 +222,40 @@ export function QuickIngest() {
                         placeholder={f.placeholder}
                         className="flex-1 h-8 text-sm"
                       />
-                      {activeAction.key === "ingest" && f.key === "dir" && (
-                        <>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={pickDirectory}
-                          >
-                            Pick dir
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={pickFile}
-                          >
-                            Pick file
-                          </Button>
-                        </>
-                      )}
+                      {(activeAction.key === "ingest" ||
+                        activeAction.key === "refresh") &&
+                        f.key === "dir" && (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setBrowserMode("dir")}
+                            >
+                              Pick dir
+                            </Button>
+                            {activeAction.key === "ingest" && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setBrowserMode("any")}
+                              >
+                                Pick file
+                              </Button>
+                            )}
+                          </>
+                        )}
                     </div>
                   )}
                 </div>
               ))}
-              {activeAction.key === "ingest" && (
+              {(activeAction.key === "ingest" ||
+                activeAction.key === "refresh") && (
                 <p className="text-[11px] text-muted-foreground pl-[152px]">
-                  Browser pickers suggest a folder/file name only — the server
-                  needs the absolute path. Paste the full path if the picker
-                  didn&apos;t supply it.
+                  Paths are resolved on the server (not in your browser). The
+                  picker browses the server&apos;s filesystem — on WSL2 that
+                  means WSL paths like <code>/mnt/c/...</code>.
                 </p>
               )}
             </div>
@@ -313,6 +288,16 @@ export function QuickIngest() {
           </div>
         )}
       </CardContent>
+      <PathBrowserDialog
+        open={browserMode !== null}
+        mode={browserMode ?? "dir"}
+        initialPath={(params.dir as string) || ""}
+        onCancel={() => setBrowserMode(null)}
+        onSelect={(abs) => {
+          setParams((p) => ({ ...p, dir: abs }));
+          setBrowserMode(null);
+        }}
+      />
     </Card>
   );
 }

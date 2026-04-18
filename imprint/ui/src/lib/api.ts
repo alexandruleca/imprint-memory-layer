@@ -365,6 +365,55 @@ export async function syncImport(path: string, workspace?: string) {
   });
 }
 
+// ── Filesystem browser ─────────────────────────────────────────
+
+export type FsEntry = {
+  name: string;
+  is_dir: boolean;
+  abs_path: string;
+};
+
+export type FsListing = {
+  path: string;
+  parent: string | null;
+  is_file: boolean;
+  entries: FsEntry[];
+  error?: string;
+};
+
+export type FsRoot = { label: string; path: string };
+
+export async function getFsRoots(): Promise<{
+  roots: FsRoot[];
+  platform: string;
+  wsl: boolean;
+}> {
+  return fetchAPI("/api/fs/roots");
+}
+
+export async function listFs(
+  path: string,
+  showHidden = false,
+): Promise<FsListing> {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  if (showHidden) params.set("show_hidden", "true");
+  const res = await fetch(`${API_BASE}/api/fs/list?${params}`);
+  const data = (await res.json().catch(() => ({ error: res.statusText }))) as
+    | FsListing
+    | { error: string };
+  if (!res.ok) {
+    return {
+      path,
+      parent: null,
+      is_file: false,
+      entries: [],
+      error: (data as { error: string }).error || res.statusText,
+    };
+  }
+  return data as FsListing;
+}
+
 // ── SSE stream ──────────────────────────────────────────────────
 
 export function connectSSE(onUpdate: (version: number) => void): EventSource {
