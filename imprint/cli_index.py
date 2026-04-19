@@ -19,6 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs
 from imprint import extractors
 from imprint.progress import write_progress, clear_progress
+from imprint._cli_signals import install as _install_signals
+
+_install_signals()
 
 # Files worth indexing — code with logic, not styling/config/generated
 EXTENSIONS = {

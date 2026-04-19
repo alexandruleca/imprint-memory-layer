@@ -1,23 +1,43 @@
-![Imprint](screenshots/hero.png)
+<p align="center">
+  <img src="screenshots/logo.svg" alt="Imprint" width="96" height="96" />
+</p>
 
-# Imprint Memory Layer
+<h1 align="center">Imprint</h1>
 
-[![CI](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml)
-[![Release](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/release.yml)
-[![Dev Release](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/dev-release.yml/badge.svg?branch=dev)](https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/dev-release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/alexandruleca/imprint-memory-layer?sort=semver&display_name=tag)](https://github.com/alexandruleca/imprint-memory-layer/releases/latest)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+<p align="center">
+  <strong>Persistent memory for AI coding tools. 100% local. Zero API cost.</strong>
+</p>
 
-AI memory system MCP. Gives Claude Code, Cursor, Codex CLI, GitHub Copilot, and Cline persistent memory across sessions — it remembers your projects, decisions, patterns, and conversations so you don't have to re-explain context every time. One command wires the MCP server into whichever host tool you use.
+<p align="center">
+  Give Claude Code, Cursor, Codex CLI, Copilot, and Cline a long-term memory.<br/>
+  Stop re-explaining your codebase every session.
+</p>
 
-> **Measured impact (15 prompts × 5 runs × 2 modes, Sonnet):** Imprint cuts Claude Code's total token usage by **−62.8%** (7.88M → 2.93M) and cost by **−30.2%** ($2.66 → $1.86). Best categories: debugging **−92.8% tokens / −64.3% cost**, architecture Q&A **−81.4% / −43.9%**, cross-project recall **−81.3% / −40.5%**. Full methodology + raw results: [BENCHMARK.md](BENCHMARK.md).
+<p align="center">
+  <a href="https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml"><img src="https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/alexandruleca/imprint-memory-layer/releases/latest"><img src="https://img.shields.io/github/v/release/alexandruleca/imprint-memory-layer?sort=semver&display_name=tag" alt="Latest Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <img src="https://img.shields.io/badge/tokens-−70.4%25-6366f1" alt="Tokens −70.4%">
+  <img src="https://img.shields.io/badge/cost-−31.7%25-8b5cf6" alt="Cost −31.7%">
+</p>
+
+---
+
+![Imprint UI](screenshots/hero.png)
+
+### Why Imprint
+
+- **Remembers what your AI forgets.** Decisions, patterns, bug fixes, and architectural choices persist across sessions — searched semantically, not grepped.
+- **−70.4% tokens, −31.7% cost.** Measured across 150 runs on Claude Code (Sonnet). Your AI searches memory instead of re-reading files. See [BENCHMARK.md](BENCHMARK.md) for raw numbers.
+- **Runs 100% locally by default.** EmbeddingGemma-300M via ONNX, Qdrant vector DB, Chonkie chunking — all on your machine. No API credits consumed unless you opt in.
+- **One command, any host.** Wires into Claude Code, Cursor, Codex CLI, Copilot, or Cline via MCP. Same memory, shared across tools.
 
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
 - **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (GPU or CPU), no network calls, no per-token cost.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
-- **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. No LLM call per chunk.
+- **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
 - **Imprint graph**: SQLite on disk for temporal facts.
 
 The ingestion flow: scan dir → detect project → chunk files → embed chunks → tag (lang/layer/kind/domain/topics) → upsert into Qdrant. A Stop hook auto-extracts decisions from Claude transcripts; a PreCompact hook saves context before window compression. Search goes straight to the local vector DB — no round-trip to any provider.
@@ -129,6 +149,9 @@ imprint refresh <dir>      # re-index only changed files (mtime-based)
 imprint refresh-urls       # re-check stored URLs via ETag/Last-Modified and re-index changed
 imprint retag [--project] [--all]
                            # re-run the tagger on existing memories (--all re-tags already-tagged chunks)
+# Heavy jobs (ingest/refresh/retag/ingest-url/refresh-urls) serialize via a
+# shared queue lock. If another job is already running the CLI exits with an
+# error — cancel it from /queue in the UI or kill the PID it reports.
 imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG [--dry-run]
                            # move memories between workspaces (preserves vectors)
 imprint config             # show all settings with current values
@@ -162,6 +185,7 @@ imprint version            # print version
 | Workspaces + project detection | [docs/workspaces.md](docs/workspaces.md) |
 | MCP tools + automatic updates | [docs/mcp.md](docs/mcp.md) |
 | Peer sync, relay server, dashboard | [docs/sync.md](docs/sync.md) |
+| Command queue + cancellation | [docs/queue.md](docs/queue.md) |
 | All settings (`imprint config`) | [docs/configuration.md](docs/configuration.md) |
 | Building from source + CI/release flow | [docs/building.md](docs/building.md) |
 | Benchmarks & token savings | [BENCHMARK.md](BENCHMARK.md) |
@@ -186,6 +210,7 @@ Terms used across the docs.
 | **Topics** | Free-form tags from zero-shot cosine similarity or (opt-in) LLM classification — more granular than `domain`. |
 | **Ingestion** | Scanning a directory, detecting projects, chunking files, embedding chunks, tagging, and upserting into Qdrant. |
 | **Refresh** | Incremental re-ingest — only re-chunks + re-embeds files whose mtime changed since last run. |
+| **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. UI at `/queue` lists active + queued + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
 | **Auto-extract** | Stop hook that parses conversation transcripts after each Claude response and stores Q+A exchanges + decision-like statements. |
 | **PreCompact hook** | Synchronous hook that fires before Claude's context window compresses — instructs Claude to save important context via MCP tools first. |
 | **Relay server** | Stateless WebSocket forwarder (`imprint relay`) that brokers peer sync between two machines. No vectors cross the wire — only raw content, re-embedded locally on the receiver. |
@@ -199,13 +224,13 @@ Imprint reduces Claude Code's token consumption by serving focused semantic sear
 
 | Category | Prompts | Δ Tokens | Δ Cost | Notes |
 |---|---|---|---|---|
-| **Debugging** | 2 | **−92.8%** | **−64.3%** | Imprint answers from indexed failure-mode patterns instead of reading the codebase |
-| **Architecture Q&A** | 5 | **−81.4%** | **−43.9%** | Questions like "how does chunking work?" served from semantic search |
-| **Cross-project recall** | 2 | **−81.3%** | **−40.5%** | Patterns spanning multiple indexed projects — impossible without memory |
-| **Decision recall** | 2 | **−56.4%** | **−27.9%** | Why-we-did-X questions served from stored decisions |
-| Creation tasks | 3 | −3.6% | +4.2% | Near parity — code generation still needs codebase context |
-| Session summary | 1 | +220% | +166% | Outlier: single prompt, ON went on a graph-exploration spree |
-| **Overall** | **15** | **−62.8%** (7.88M → 2.93M) | **−30.2%** ($2.66 → $1.86) | |
+| **Debugging** | 2 | **−94.2%** | **−68.3%** | Imprint answers from indexed failure-mode patterns instead of reading the codebase |
+| **Cross-project recall** | 2 | **−90.6%** | **−46.9%** | Patterns spanning multiple indexed projects — impossible without memory |
+| **Architecture Q&A** | 5 | **−87.2%** | **−42.6%** | Questions like "how does chunking work?" served from semantic search |
+| **Decision recall** | 2 | **−78.8%** | **−46.1%** | Why-we-did-X questions served from stored decisions |
+| Creation tasks | 3 | +9.9% | +15.1% | Near parity — code generation still needs codebase context |
+| Session summary | 1 | +179.6% | +204.1% | Outlier: single prompt, ON went on a graph-exploration spree |
+| **Overall** | **15** | **−70.4%** (10.28M → 3.05M) | **−31.7%** ($2.84 → $1.94) | |
 
 Numbers are median per prompt, summed across categories. See [BENCHMARK.md](BENCHMARK.md) for per-prompt tables, per-model breakdown, response-quality analysis, and the exact flags used.
 

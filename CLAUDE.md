@@ -47,6 +47,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 - **Chunker**: Chonkie hybrid — `CodeChunker` (tree-sitter) for code, `SemanticChunker` for prose. Sliding overlap.
 - **Tagger**: `{lang, layer, kind, domain[], topics[]}`. Deterministic + keyword dict always on; zero-shot on by default; LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`). Providers: anthropic/openai/ollama/vllm/gemini. Default local: Qwen3 1.7B Q4_K_M.
 - **Imprint graph**: SQLite temporal facts (per workspace)
+- **Command queue**: Single-slot FIFO in [`imprint/queue.py`](imprint/queue.py) backed by `data/queue.sqlite3`; a shared advisory flock on `data/queue.lock` (see [`queue_lock.py`](imprint/queue_lock.py) and Go-side [`internal/queuelock`](internal/queuelock/lock.go)) blocks concurrent ingest/refresh/retag/ingest-url starts across the CLI and the API. FastAPI dispatcher spawns subprocesses with `start_new_session=True`; cancel fires SIGTERM to the process group and escalates to SIGKILL after 3s, taking down the LLM tagger's httpx calls and llama-cpp threads alongside the parent. CLI callers exit nonzero with the current holder's PID when the lock is busy. Details: [docs/queue.md](docs/queue.md).
 - **Workspaces**: isolated — own collection (`memories_{name}`), DB (`imprint_graph_{name}.sqlite3`), WAL. Config in `data/workspace.json`.
 - **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph*.sqlite3` + `data/workspace.json` (gitignored)
 - **Lifecycle**: `imprint enable` / `disable` / `status`

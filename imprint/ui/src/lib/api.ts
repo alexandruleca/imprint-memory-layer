@@ -28,6 +28,8 @@ import type {
   ChatSession,
   MemoryNode,
   IngestionJob,
+  QueueJob,
+  QueueResponse,
   GraphScopeData,
 } from "./types";
 
@@ -313,38 +315,103 @@ export async function setConfigValue(key: string, value: unknown) {
   });
 }
 
-// ── Commands ────────────────────────────────────────────────────
+// ── Queue / Commands ───────────────────────────────────────────
 
+export async function enqueueCommand(
+  command: string,
+  body: Record<string, unknown>,
+): Promise<{ job_id: string; position: number }> {
+  return fetchAPI(`/api/commands/${command}`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function cancelJob(
+  jobId: string,
+): Promise<{ ok: boolean; was_running?: boolean; error?: string }> {
+  return fetchAPI(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function getQueue(recentLimit = 20): Promise<QueueResponse> {
+  return fetchAPI(`/api/queue?recent_limit=${recentLimit}`);
+}
+
+export async function getJobDetail(jobId: string): Promise<QueueJob> {
+  return fetchAPI(`/api/jobs/${encodeURIComponent(jobId)}`);
+}
+
+/** Attach an SSE stream for a job's live output.
+ *
+ * Returns an AbortController whose abort() closes the stream **without**
+ * cancelling the job itself. To cancel, call cancelJob(jobId) instead.
+ */
+export function tailJobStream(
+  jobId: string,
+  onEvent: (ev: Record<string, unknown>) => void,
+): AbortController {
+  const ctrl = new AbortController();
+  fetch(`${API_BASE}/api/jobs/${encodeURIComponent(jobId)}/stream`, {
+    signal: ctrl.signal,
+  })
+    .then(async (res) => {
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              onEvent(JSON.parse(line.slice(6)));
+            } catch {}
+          }
+        }
+      }
+    })
+    .catch(() => {
+      // stream closed or aborted — caller already has onEvent('done')
+    });
+  return ctrl;
+}
+
+/** Legacy helper — enqueues a command, streams its output, and returns an
+ *  AbortController whose abort() **cancels the job** (SIGTERM→SIGKILL the
+ *  whole process group, so any in-flight LLM tagger call dies with it).
+ */
 export function streamCommand(
   command: string,
   body: Record<string, unknown>,
   onEvent: (ev: Record<string, unknown>) => void,
 ): AbortController {
   const ctrl = new AbortController();
-  fetch(`${API_BASE}/api/commands/${command}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: ctrl.signal,
-  }).then(async (res) => {
-    const reader = res.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            onEvent(JSON.parse(line.slice(6)));
-          } catch {}
-        }
+  let jobId: string | null = null;
+  let tail: AbortController | null = null;
+
+  enqueueCommand(command, body)
+    .then(({ job_id }) => {
+      jobId = job_id;
+      if (ctrl.signal.aborted) {
+        cancelJob(job_id).catch(() => {});
+        return;
       }
-    }
+      tail = tailJobStream(job_id, onEvent);
+    })
+    .catch((err) => {
+      onEvent({ type: "error", error: String(err) });
+    });
+
+  ctrl.signal.addEventListener("abort", () => {
+    tail?.abort();
+    if (jobId) cancelJob(jobId).catch(() => {});
   });
   return ctrl;
 }

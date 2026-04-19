@@ -23,6 +23,9 @@ from qdrant_client import models as qm
 from . import tagger, vectorstore
 from .config_schema import resolve
 from .progress import write_progress, clear_progress
+from ._cli_signals import install as _install_signals
+
+_install_signals()
 
 
 _SCROLL_BATCH = 100
