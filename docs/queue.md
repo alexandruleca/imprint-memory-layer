@@ -1,3 +1,7 @@
+---
+title: Command Queue
+---
+
 # Command Queue
 
 Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant, and — when LLM tagging is on — hold a per-batch HTTP connection to the tagger provider. Running two in parallel on a workstation is the fastest way to OOM the box. Imprint serializes them with a shared single-slot queue.

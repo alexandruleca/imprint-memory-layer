@@ -13,6 +13,9 @@ data/
 build/
 dist/
 
+# Website (GitHub Pages site, built separately)
+site/
+
 # Test artifacts + benchmark results
 benchmark/results/
 __pycache__/

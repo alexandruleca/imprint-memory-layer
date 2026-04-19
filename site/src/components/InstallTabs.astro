@@ -1,0 +1,107 @@
+---
+const tabs = [
+  {
+    id: 'unix',
+    label: 'macOS / Linux',
+    command: 'curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash',
+  },
+  {
+    id: 'win',
+    label: 'Windows (PowerShell)',
+    command: 'irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex',
+  },
+  {
+    id: 'docker',
+    label: 'Docker',
+    command: 'docker pull ghcr.io/alexandruleca/imprint-memory-layer:latest',
+  },
+];
+---
+
+<section class="py-20 sm:py-24 border-t border-[color:var(--color-border)]/60">
+  <div class="max-w-4xl mx-auto px-6">
+    <div class="text-center max-w-2xl mx-auto">
+      <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">Install</div>
+      <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">30 seconds. No sudo. No system pollution.</h2>
+      <p class="mt-4 text-[color:var(--color-text-muted)]">
+        Self-contained <code class="font-mono text-sm">.venv</code>, auto-downloaded Qdrant binary, and every host configured in one run. <code class="font-mono text-sm">imprint disable</code> is symmetric.
+      </p>
+    </div>
+
+    <div class="mt-10 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] overflow-hidden">
+      <div class="flex border-b border-[color:var(--color-border)] overflow-x-auto" role="tablist">
+        {tabs.map((t, i) => (
+          <button
+            data-install-tab={t.id}
+            class={`px-5 py-3 text-sm font-medium whitespace-nowrap border-r border-[color:var(--color-border)] last:border-r-0 ${i === 0 ? 'bg-[color:var(--color-bg-elevated)] text-white' : 'text-[color:var(--color-text-muted)] hover:text-white'}`}
+            role="tab"
+            aria-selected={i === 0 ? 'true' : 'false'}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tabs.map((t, i) => (
+        <div
+          data-install-panel={t.id}
+          class={`p-5 sm:p-6 ${i === 0 ? '' : 'hidden'}`}
+          role="tabpanel"
+        >
+          <div class="flex items-start gap-3">
+            <pre class="flex-1 overflow-x-auto text-xs sm:text-sm font-mono bg-[color:var(--color-bg)] p-4 rounded-lg border border-[color:var(--color-border)]"><code>{t.command}</code></pre>
+            <button
+              data-install-copy={t.id}
+              class="shrink-0 px-3 py-2 text-xs rounded-lg border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white text-[color:var(--color-text-muted)]"
+            >
+              Copy
+            </button>
+          </div>
+          <div class="mt-4 text-xs text-[color:var(--color-text-muted)]">
+            Then: <code class="font-mono">imprint setup all</code> · <code class="font-mono">imprint ingest .</code>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<script>
+  type TabId = string;
+  const tabs = document.querySelectorAll<HTMLButtonElement>('[data-install-tab]');
+  const panels = document.querySelectorAll<HTMLElement>('[data-install-panel]');
+  const copyButtons = document.querySelectorAll<HTMLButtonElement>('[data-install-copy]');
+
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.installTab as TabId;
+      tabs.forEach((b) => {
+        const active = b.dataset.installTab === id;
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+        b.classList.toggle('bg-[color:var(--color-bg-elevated)]', active);
+        b.classList.toggle('text-white', active);
+        b.classList.toggle('text-[color:var(--color-text-muted)]', !active);
+      });
+      panels.forEach((p) => {
+        p.classList.toggle('hidden', p.dataset.installPanel !== id);
+      });
+    });
+  });
+
+  copyButtons.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.installCopy;
+      const panel = document.querySelector<HTMLElement>(`[data-install-panel="${id}"]`);
+      const code = panel?.querySelector('code')?.textContent ?? '';
+      try {
+        await navigator.clipboard.writeText(code);
+        const prev = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(() => {
+          btn.textContent = prev ?? 'Copy';
+        }, 1400);
+      } catch {
+        /* ignore */
+      }
+    });
+  });
+</script>

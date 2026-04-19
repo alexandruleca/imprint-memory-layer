@@ -1,0 +1,66 @@
+---
+const hosts = [
+  {
+    name: 'Claude Code',
+    config: '~/.claude/settings.json',
+    enforcement: 'Hard (PreToolUse)',
+    tag: 'claude-code',
+    tone: 'text-violet-300',
+  },
+  {
+    name: 'Cursor',
+    config: '~/.cursor/mcp.json + rules/imprint.mdc',
+    enforcement: 'Rule-driven',
+    tag: 'cursor',
+    tone: 'text-sky-300',
+  },
+  {
+    name: 'GitHub Copilot',
+    config: '<VSCode user>/mcp.json',
+    enforcement: 'Text-only',
+    tag: 'copilot',
+    tone: 'text-emerald-300',
+  },
+  {
+    name: 'Codex CLI',
+    config: '~/.codex/config.toml',
+    enforcement: 'Text-only',
+    tag: 'codex',
+    tone: 'text-amber-300',
+  },
+  {
+    name: 'Cline',
+    config: 'VSCode globalStorage / ~/.cline',
+    enforcement: 'Text-only',
+    tag: 'cline',
+    tone: 'text-pink-300',
+  },
+];
+---
+
+<section class="py-20 sm:py-24 border-t border-[color:var(--color-border)]/60">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="max-w-2xl">
+      <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">Any MCP agent</div>
+      <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">One memory. Every coding tool you use.</h2>
+      <p class="mt-4 text-[color:var(--color-text-muted)]">
+        <code class="font-mono text-sm">imprint setup all</code> auto-wires every supported host that's installed. Missing tools are skipped with a warning, never a failure.
+      </p>
+    </div>
+
+    <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {hosts.map((h) => (
+        <div class="rounded-xl p-5 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)]/60 transition">
+          <div class="flex items-center justify-between mb-3">
+            <div class={`font-semibold ${h.tone}`}>{h.name}</div>
+            <code class="text-[11px] font-mono px-2 py-0.5 rounded bg-[color:var(--color-bg-elevated)] text-[color:var(--color-text-muted)]">{h.tag}</code>
+          </div>
+          <div class="text-xs text-[color:var(--color-text-muted)] mb-1">Config</div>
+          <code class="block text-xs font-mono break-all text-[color:var(--color-text)]">{h.config}</code>
+          <div class="mt-3 text-xs text-[color:var(--color-text-muted)]">Enforcement</div>
+          <div class="text-xs font-medium">{h.enforcement}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

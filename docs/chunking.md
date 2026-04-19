@@ -1,3 +1,7 @@
+---
+title: Chunking
+---
+
 # Chunking
 
 Long files don't embed well as a single vector — the model has limited context, and one giant vector blurs together too many concepts. The chunker splits text into focused, retrieval-friendly pieces.

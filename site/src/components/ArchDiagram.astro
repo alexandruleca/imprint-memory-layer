@@ -1,0 +1,129 @@
+---
+// Hand-drawn SVG architecture diagram, not Mermaid. Focus: the dashed
+// "Your Machine" boundary that every security-conscious dev looks for.
+---
+
+<section id="architecture" class="relative py-20 sm:py-28 border-t border-[color:var(--color-border)]/60">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="max-w-2xl">
+      <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">How it works</div>
+      <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">
+        Everything in the dashed box runs on your machine.
+      </h2>
+      <p class="mt-4 text-[color:var(--color-text-muted)]">
+        Your AI agent speaks MCP to a local Imprint server. Imprint talks to a Qdrant daemon on <code class="font-mono text-sm">127.0.0.1:6333</code>, a SQLite fact graph, and an on-device ONNX embedding model. No API call leaves this box — unless you deliberately flip a switch.
+      </p>
+    </div>
+
+    <div class="mt-10 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-6 sm:p-10 overflow-x-auto">
+      <svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" class="w-full h-auto min-w-[760px]" role="img" aria-label="Imprint architecture diagram showing local-only data flow">
+        <defs>
+          <linearGradient id="boxGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#1a1c33" />
+            <stop offset="100%" stop-color="#14152a" />
+          </linearGradient>
+          <linearGradient id="accentGrad" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stop-color="#8b5cf6" />
+            <stop offset="100%" stop-color="#60a5fa" />
+          </linearGradient>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa" />
+          </marker>
+        </defs>
+
+        <!-- Your Machine boundary -->
+        <rect x="30" y="40" width="700" height="380" rx="20" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="6 6" opacity="0.7" />
+        <text x="50" y="30" font-family="Inter, sans-serif" font-size="13" font-weight="700" fill="#a78bfa" letter-spacing="2">YOUR MACHINE</text>
+
+        <!-- AI Agent (client) -->
+        <rect x="55" y="80" width="180" height="90" rx="10" fill="url(#boxGrad)" stroke="#60a5fa" stroke-width="1.5" />
+        <text x="145" y="110" text-anchor="middle" font-family="Inter" font-size="13" font-weight="700" fill="#e2e4f3">AI coding agent</text>
+        <text x="145" y="132" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">Claude Code · Cursor</text>
+        <text x="145" y="148" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">Copilot · Codex · Cline</text>
+
+        <!-- MCP arrow -->
+        <line x1="235" y1="125" x2="330" y2="125" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)" />
+        <text x="282" y="115" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#a78bfa">MCP (stdio)</text>
+
+        <!-- Imprint MCP server -->
+        <rect x="330" y="80" width="200" height="90" rx="10" fill="url(#boxGrad)" stroke="#a78bfa" stroke-width="2" />
+        <text x="430" y="110" text-anchor="middle" font-family="Inter" font-size="14" font-weight="800" fill="#e2e4f3">Imprint MCP server</text>
+        <text x="430" y="132" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">search · store · kg_query</text>
+        <text x="430" y="148" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">12 tools · Python + FastMCP</text>
+
+        <!-- to Qdrant -->
+        <line x1="430" y1="170" x2="330" y2="240" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)" />
+        <text x="348" y="200" font-family="JetBrains Mono" font-size="10" fill="#9aa0bf">HTTP 6333</text>
+        <!-- to SQLite -->
+        <line x1="460" y1="170" x2="520" y2="240" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)" />
+        <text x="485" y="200" font-family="JetBrains Mono" font-size="10" fill="#9aa0bf">facts</text>
+        <!-- to Embedder (top right of agent area) -->
+        <line x1="500" y1="100" x2="600" y2="100" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)" />
+
+        <!-- Embedder -->
+        <rect x="600" y="60" width="115" height="80" rx="10" fill="url(#boxGrad)" stroke="#fbbf24" stroke-width="1.5" />
+        <text x="657" y="88" text-anchor="middle" font-family="Inter" font-size="12" font-weight="700" fill="#fbbf24">ONNX</text>
+        <text x="657" y="106" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">EmbeddingGemma</text>
+        <text x="657" y="122" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">768-dim · GPU/CPU</text>
+
+        <!-- Qdrant -->
+        <rect x="230" y="240" width="200" height="100" rx="10" fill="url(#boxGrad)" stroke="#60a5fa" stroke-width="1.5" />
+        <text x="330" y="270" text-anchor="middle" font-family="Inter" font-size="13" font-weight="700" fill="#60a5fa">Qdrant (local daemon)</text>
+        <text x="330" y="292" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">127.0.0.1:6333</text>
+        <text x="330" y="310" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">int8 quantized · on-disk</text>
+        <text x="330" y="328" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">payload indexes</text>
+
+        <!-- SQLite graph -->
+        <rect x="460" y="240" width="200" height="100" rx="10" fill="url(#boxGrad)" stroke="#34d399" stroke-width="1.5" />
+        <text x="560" y="270" text-anchor="middle" font-family="Inter" font-size="13" font-weight="700" fill="#34d399">Imprint Graph (SQLite)</text>
+        <text x="560" y="292" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">subject → predicate → object</text>
+        <text x="560" y="310" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">temporal facts · per-workspace</text>
+        <text x="560" y="328" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">WAL journal</text>
+
+        <!-- hooks row -->
+        <rect x="55" y="240" width="155" height="100" rx="10" fill="url(#boxGrad)" stroke="#f472b6" stroke-width="1.5" />
+        <text x="132" y="270" text-anchor="middle" font-family="Inter" font-size="12" font-weight="700" fill="#f472b6">Hooks</text>
+        <text x="132" y="290" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">Stop → auto-extract</text>
+        <text x="132" y="306" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">PreCompact → save</text>
+        <text x="132" y="322" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">Chunker · Tagger</text>
+
+        <!-- Ingest flow label -->
+        <text x="400" y="380" text-anchor="middle" font-family="Inter" font-size="11" fill="#a78bfa">scan → chunk → embed → tag → upsert</text>
+        <text x="400" y="398" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#6b7091">ingestion flow</text>
+
+        <!-- OUTSIDE: optional cloud -->
+        <rect x="770" y="80" width="160" height="130" rx="10" fill="none" stroke="#3a3d5a" stroke-width="1.5" stroke-dasharray="4 4" />
+        <text x="850" y="105" text-anchor="middle" font-family="Inter" font-size="11" font-weight="700" fill="#6b7091">OPT-IN ONLY</text>
+        <text x="850" y="128" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">Optional cloud LLM</text>
+        <text x="850" y="146" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">tagging · Anthropic</text>
+        <text x="850" y="162" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">OpenAI · Gemini</text>
+        <text x="850" y="182" text-anchor="middle" font-family="Inter" font-size="10" fill="#6b7091">off by default</text>
+
+        <line x1="715" y1="100" x2="770" y2="120" stroke="#3a3d5a" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#arrow)" />
+
+        <!-- Sync -->
+        <rect x="770" y="260" width="160" height="100" rx="10" fill="none" stroke="#3a3d5a" stroke-width="1.5" stroke-dasharray="4 4" />
+        <text x="850" y="288" text-anchor="middle" font-family="Inter" font-size="11" font-weight="700" fill="#6b7091">OTHER MACHINE</text>
+        <text x="850" y="312" text-anchor="middle" font-family="Inter" font-size="11" fill="#9aa0bf">Imprint peer</text>
+        <text x="850" y="330" text-anchor="middle" font-family="Inter" font-size="10" fill="#9aa0bf">sync via relay</text>
+
+        <line x1="660" y1="290" x2="770" y2="310" stroke="#3a3d5a" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#arrow)" />
+      </svg>
+    </div>
+
+    <div class="mt-6 grid sm:grid-cols-3 gap-4 text-sm">
+      <div class="rounded-xl p-4 bg-[color:var(--color-bg-elevated)] border border-[color:var(--color-border)]">
+        <div class="font-semibold mb-1 text-[color:var(--color-success)]">Default posture</div>
+        <p class="text-[color:var(--color-text-muted)]">All storage, embeddings, and tagging stay on-device. Nothing crosses the dashed line.</p>
+      </div>
+      <div class="rounded-xl p-4 bg-[color:var(--color-bg-elevated)] border border-[color:var(--color-border)]">
+        <div class="font-semibold mb-1 text-[color:var(--color-warning)]">Opt-in cloud LLM tagging</div>
+        <p class="text-[color:var(--color-text-muted)]">A single <code class="font-mono text-xs">imprint config set tagger.llm true</code> enables LLM-quality topics. Off by default.</p>
+      </div>
+      <div class="rounded-xl p-4 bg-[color:var(--color-bg-elevated)] border border-[color:var(--color-border)]">
+        <div class="font-semibold mb-1 text-[color:var(--color-accent)]">Multi-machine sync</div>
+        <p class="text-[color:var(--color-text-muted)]">WebSocket relay lets a laptop and a VPS share memory while keeping the data plane peer-to-peer.</p>
+      </div>
+    </div>
+  </div>
+</section>

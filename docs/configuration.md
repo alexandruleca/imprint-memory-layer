@@ -1,3 +1,7 @@
+---
+title: Configuration
+---
+
 # Configuration
 
 All settings can be persisted via `imprint config` instead of setting environment variables. Settings are stored in `data/config.json` (gitignored).

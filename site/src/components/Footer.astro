@@ -1,0 +1,47 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="mt-24 border-t border-[color:var(--color-border)]/60">
+  <div class="max-w-6xl mx-auto px-6 py-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+    <div>
+      <div class="flex items-center gap-2 mb-3">
+        <img src="/logo.svg" alt="" width="22" height="22" />
+        <span class="font-semibold">Imprint</span>
+      </div>
+      <p class="text-[color:var(--color-text-muted)]">
+        Persistent memory for AI coding tools. 100% local. Zero API cost.
+      </p>
+    </div>
+    <div>
+      <div class="font-semibold mb-3">Product</div>
+      <ul class="space-y-2 text-[color:var(--color-text-muted)]">
+        <li><a href="/#benefits" class="hover:text-white">Why Imprint</a></li>
+        <li><a href="/#architecture" class="hover:text-white">Architecture</a></li>
+        <li><a href="/benchmarks" class="hover:text-white">Benchmarks</a></li>
+        <li><a href="/faq" class="hover:text-white">FAQ</a></li>
+      </ul>
+    </div>
+    <div>
+      <div class="font-semibold mb-3">Docs</div>
+      <ul class="space-y-2 text-[color:var(--color-text-muted)]">
+        <li><a href="/installation" class="hover:text-white">Installation</a></li>
+        <li><a href="/mcp" class="hover:text-white">MCP tools</a></li>
+        <li><a href="/architecture" class="hover:text-white">Architecture</a></li>
+        <li><a href="/configuration" class="hover:text-white">Configuration</a></li>
+      </ul>
+    </div>
+    <div>
+      <div class="font-semibold mb-3">Project</div>
+      <ul class="space-y-2 text-[color:var(--color-text-muted)]">
+        <li><a href="https://github.com/alexandruleca/imprint-memory-layer" class="hover:text-white">GitHub ↗</a></li>
+        <li><a href="https://github.com/alexandruleca/imprint-memory-layer/releases" class="hover:text-white">Releases ↗</a></li>
+        <li><a href="https://github.com/alexandruleca/imprint-memory-layer/blob/main/LICENSE" class="hover:text-white">License (Apache 2.0)</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="max-w-6xl mx-auto px-6 pb-8 text-xs text-[color:var(--color-text-muted)]">
+    © {year} Imprint contributors. Numbers on this page come from
+    <a href="/benchmarks" class="underline hover:text-white">reproducible benchmark runs</a>.
+  </div>
+</footer>

@@ -7,3 +7,7 @@ dist/
 data/
 benchmark/results/
 bin/qdrant-*
+site/node_modules/
+site/dist/
+site/.astro/
+site/src/data/benchmarks.json

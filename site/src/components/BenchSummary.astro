@@ -1,0 +1,80 @@
+---
+import benchmarks from '../data/benchmarks.json';
+
+type Cat = {
+  key: string;
+  label: string;
+  avgTokens?: string;
+  avgCost?: string;
+};
+
+const cats = (benchmarks.categories ?? []) as Cat[];
+
+function toPct(s?: string): number {
+  if (!s) return 0;
+  return parseFloat(s.replace('%', ''));
+}
+
+function barColor(pct: number) {
+  if (pct <= -80) return 'from-emerald-400 to-emerald-600';
+  if (pct <= -50) return 'from-indigo-400 to-violet-500';
+  if (pct < 0) return 'from-sky-400 to-indigo-400';
+  return 'from-amber-400 to-rose-500';
+}
+
+const rows = cats.map((c) => {
+  const pct = toPct(c.avgTokens);
+  const abs = Math.min(100, Math.abs(pct));
+  return { ...c, pct, abs, color: barColor(pct) };
+});
+---
+
+<section id="benchmarks" class="relative py-20 sm:py-28 border-t border-[color:var(--color-border)]/60">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+      <div class="max-w-2xl">
+        <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">Benchmarks</div>
+        <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">Real numbers, reproducible in one command.</h2>
+        <p class="mt-4 text-[color:var(--color-text-muted)]">
+          Every prompt runs 5 times in each mode. Medians are reported. Raw JSON per run is checked in. See
+          <a href="/benchmarks" class="underline hover:text-white">the full deep-dive</a> or
+          <a href="https://github.com/alexandruleca/imprint-memory-layer/blob/main/BENCHMARK.md" class="underline hover:text-white">BENCHMARK.md</a>
+          on GitHub.
+        </p>
+      </div>
+      <a
+        href="/benchmarks"
+        class="self-start md:self-end inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] text-sm"
+      >
+        See every prompt →
+      </a>
+    </div>
+
+    <div class="grid gap-4">
+      {rows.map((r) => (
+        <div class="grid grid-cols-12 items-center gap-4 p-4 rounded-xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+          <div class="col-span-12 sm:col-span-3 font-semibold">{r.label}</div>
+          <div class="col-span-10 sm:col-span-7">
+            <div class="relative h-3 rounded-full bg-[color:var(--color-bg-elevated)] overflow-hidden">
+              <div
+                class={`absolute inset-y-0 left-0 bg-gradient-to-r ${r.color}`}
+                style={`width: ${r.abs}%`}
+              ></div>
+            </div>
+          </div>
+          <div class="col-span-2 text-right font-mono text-sm tabular-nums">
+            <div class={r.pct < 0 ? 'text-[color:var(--color-success)]' : 'text-[color:var(--color-warning)]'}>
+              {r.avgTokens}
+            </div>
+            <div class="text-[11px] text-[color:var(--color-text-muted)]">{r.avgCost}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div class="mt-6 text-xs text-[color:var(--color-text-muted)]">
+      Token % first, cost % below. Both measured as ON vs OFF medians per category.
+      <span class="ml-2">Session Summary and Creation are honest losses — ON mode explored more context than it needed.</span>
+    </div>
+  </div>
+</section>

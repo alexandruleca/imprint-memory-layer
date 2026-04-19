@@ -1,3 +1,7 @@
+---
+title: Metadata Tagging
+---
+
 # Metadata Tagging
 
 Every chunk gets a structured tag payload stored in Qdrant:

@@ -1,3 +1,7 @@
+---
+title: Building & Releases
+---
+
 # Building & Releases
 
 ## Building from Source

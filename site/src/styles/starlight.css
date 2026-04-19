@@ -1,0 +1,24 @@
+/* Starlight theme overrides to match the landing page palette. */
+:root {
+  --sl-color-accent: #8b5cf6;
+  --sl-color-accent-high: #a78bfa;
+  --sl-color-accent-low: #3b2f6a;
+  --sl-color-white: #f8fafc;
+  --sl-color-gray-1: #e2e4f3;
+  --sl-color-gray-2: #c5c8dc;
+  --sl-color-gray-3: #9aa0bf;
+  --sl-color-gray-4: #6b7091;
+  --sl-color-gray-5: #3a3d5a;
+  --sl-color-gray-6: #22243b;
+  --sl-color-gray-7: #151627;
+  --sl-color-black: #07070d;
+
+  --sl-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-bg: #07070d;
+  --sl-color-bg-nav: #0f1020;
+  --sl-color-bg-sidebar: #0b0c19;
+}

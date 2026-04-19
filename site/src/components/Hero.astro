@@ -1,0 +1,70 @@
+---
+import benchmarks from '../data/benchmarks.json';
+
+const tokenPct = benchmarks.overall?.tokenPct ?? '−70.4%';
+const costPct = benchmarks.overall?.costPct ?? '−31.7%';
+const costOff = benchmarks.overall?.costOff?.toFixed(2) ?? '2.84';
+const costOn = benchmarks.overall?.costOn?.toFixed(2) ?? '1.94';
+---
+
+<section class="relative overflow-hidden">
+  <div class="absolute inset-0 dot-grid opacity-40 [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,black,transparent)]"></div>
+  <div class="relative max-w-6xl mx-auto px-6 pt-20 pb-16 sm:pt-28 sm:pb-24 text-center">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)]/60 text-xs font-medium text-[color:var(--color-text-muted)] mb-8">
+      <span class="w-1.5 h-1.5 rounded-full bg-[color:var(--color-success)] animate-pulse"></span>
+      MCP memory layer · works with Claude Code, Cursor, Copilot, Codex, Cline
+    </div>
+
+    <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.05] max-w-5xl mx-auto">
+      The context window is dying.
+      <span class="grad-text">Imprint replaces it.</span>
+    </h1>
+
+    <p class="mt-6 text-lg sm:text-xl text-[color:var(--color-text-muted)] max-w-2xl mx-auto">
+      Persistent, semantic memory for your AI coding tools.
+      <span class="text-white font-medium">{tokenPct} tokens, {costPct} cost</span>
+      across 150 benchmark runs. 100% local by default.
+    </p>
+
+    <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-center">
+      <a
+        href="/installation"
+        class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-semibold bg-gradient-to-r from-violet-500 to-indigo-500 text-white hover:from-violet-400 hover:to-indigo-400 transition shadow-[0_0_40px_-10px_rgba(139,92,246,0.7)]"
+      >
+        Install in 30 seconds
+        <span aria-hidden>→</span>
+      </a>
+      <a
+        href="/benchmarks"
+        class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-medium border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white text-[color:var(--color-text-muted)] transition"
+      >
+        See the benchmark numbers
+      </a>
+    </div>
+
+    <!-- Cost comparison card -->
+    <div class="mt-14 max-w-2xl mx-auto grad-border rounded-2xl p-6 sm:p-8">
+      <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)] mb-4">
+        Full benchmark suite · 150 runs · Claude Sonnet
+      </div>
+      <div class="grid grid-cols-3 items-center gap-4">
+        <div class="text-left">
+          <div class="text-xs text-[color:var(--color-text-muted)] mb-1">Without Imprint</div>
+          <div class="text-3xl sm:text-4xl font-bold font-mono text-[color:var(--color-danger)] line-through decoration-2">
+            ${costOff}
+          </div>
+        </div>
+        <div class="text-center text-3xl sm:text-4xl text-[color:var(--color-accent)]" aria-hidden>→</div>
+        <div class="text-right">
+          <div class="text-xs text-[color:var(--color-text-muted)] mb-1">With Imprint</div>
+          <div class="text-3xl sm:text-4xl font-bold font-mono text-[color:var(--color-success)]">
+            ${costOn}
+          </div>
+        </div>
+      </div>
+      <div class="mt-4 text-sm text-[color:var(--color-text-muted)]">
+        Same prompts. Same model. Memory-served answers replace raw file reads.
+      </div>
+    </div>
+  </div>
+</section>
