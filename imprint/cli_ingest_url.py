@@ -22,6 +22,9 @@ from imprint import tagger, vectorstore as vs, extractors
 from imprint.chunker import chunk_file
 from imprint.extractors import url as url_ext
 from imprint.progress import write_progress, clear_progress
+from imprint._cli_signals import install as _install_signals
+
+_install_signals()
 
 C_RESET = "\033[0m"
 C_CYAN = "\033[0;36m"

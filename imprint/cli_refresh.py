@@ -15,6 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs, extractors
 from imprint.chunker import chunk_file
 from imprint.progress import write_progress, clear_progress
+from imprint._cli_signals import install as _install_signals
+
+_install_signals()
 from imprint.cli_index import (
     EXTENSIONS,
     SKIP_DIRS,

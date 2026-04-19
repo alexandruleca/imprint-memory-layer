@@ -22,14 +22,17 @@ func IngestURL(args []string) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
-	envVars := []string{
-		"PYTHONPATH=" + projectDir,
-		"IMPRINT_DATA_DIR=" + dataDir,
-	}
-
 	if len(args) == 0 {
 		fmt.Println("Usage: imprint ingest-url <url> [<url>...] [--project NAME] [--from-file urls.txt] [--force]")
 		os.Exit(1)
+	}
+
+	lock := acquireOrEnqueue(dataDir, "ingest-url", args)
+	defer lock.Release()
+
+	envVars := []string{
+		"PYTHONPATH=" + projectDir,
+		"IMPRINT_DATA_DIR=" + dataDir,
 	}
 
 	// Translate the --from-file value when running under WSL2 and the user
@@ -78,6 +81,9 @@ func RefreshURLs(args []string) {
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
+
+	lock := acquireOrEnqueue(dataDir, "refresh-urls", args)
+	defer lock.Release()
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,

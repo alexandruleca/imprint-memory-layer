@@ -10,6 +10,8 @@ graph LR
         ENABLE[enable / disable]
         INGEST[ingest]
         REFRESH[refresh]
+        RETAG[retag]
+        IURL[ingest-url]
         SERVER[server start/stop]
         SYNC[sync]
         RELAY[relay]
@@ -26,6 +28,8 @@ graph LR
         TAG[tagger.py<br/><small>4-source metadata</small>]
         CLS[classifier.py<br/><small>type detection</small>]
         PRJ[projects.py<br/><small>manifest detection</small>]
+        QUEUE[queue.py<br/><small>single-slot FIFO<br/>+ dispatcher + cancel</small>]
+        API[api.py<br/><small>FastAPI dashboard</small>]
     end
 
     subgraph "Daemon"
@@ -39,6 +43,7 @@ graph LR
         WSCFG[workspace.json<br/><small>active + known</small>]
         PROTO[label_prototypes.npy<br/><small>zero-shot cache</small>]
         QBIN[qdrant-bin/<br/><small>downloaded binary</small>]
+        QDB[(queue.sqlite3<br/>+ queue.lock)]
     end
 
     MCP --> VS --> QSRV --> QSTORE
@@ -48,8 +53,14 @@ graph LR
     QR --> QSRV
     VS --> EMB
     VS --> WAL
-    INGEST --> CHK --> EMB
-    INGEST --> TAG
+    INGEST --> QUEUE
+    REFRESH --> QUEUE
+    RETAG --> QUEUE
+    IURL --> QUEUE
+    UI --> API --> QUEUE
+    QUEUE --> QDB
+    QUEUE --> CHK --> EMB
+    QUEUE --> TAG
     TAG --zero-shot--> EMB
     TAG --zero-shot--> PROTO
     TAG -.LLM opt-in.-> LLM_API[LLM API<br/><small>anthropic/openai/<br/>ollama/vllm/gemini</small>]
@@ -78,6 +89,7 @@ graph LR
 | MCP server | FastMCP (Python) | 12 tools — `search`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks` for reads, `store`/`delete`/`ingest_url` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. |
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync |
+| Command queue | `imprint/queue.py` + `imprint/queue_lock.py` + `internal/queuelock` | Single-slot FIFO (SQLite at `data/queue.sqlite3`, advisory flock at `data/queue.lock`). Serializes heavy jobs across the Go CLI and the FastAPI dispatcher; cancel sends SIGTERM → SIGKILL (3s) to the subprocess process group. See [queue.md](queue.md). |
 
 ## Data Flow
 
@@ -169,6 +181,19 @@ sequenceDiagram
 **Why server mode and not embedded?** Embedded mode pins a filesystem lock and rejects any second client — this conflicts with Claude Code (always-on MCP) running alongside `imprint ingest`, hooks writing decisions, and tools like `imprint ui` reading the collection. Server mode supports unlimited concurrent connections at the cost of a single ~50 MB binary in your data dir and a ~50 MB resident process. Worth it.
 
 **Bring your own server**: set `IMPRINT_QDRANT_NO_SPAWN=1` and point `IMPRINT_QDRANT_HOST` at a Docker (`docker run -p 6333:6333 qdrant/qdrant`) or remote Qdrant. Auto-spawn is disabled and the runner connects directly.
+
+## Concurrency: Command Queue (OOM guard)
+
+Ingest / refresh / retag / ingest-url each load the embedding model, scan Qdrant, and — when LLM tagging is enabled — hold a per-batch HTTP connection to the tagger provider. Two of them running in parallel on the same box easily exhaust RAM or VRAM, so they are serialized by a shared advisory lock.
+
+- **Lock file**: `data/queue.lock` guarded by `fcntl.flock(LOCK_EX|LOCK_NB)`. The Go CLI (`internal/queuelock`) and the Python dispatcher (`imprint/queue_lock.py`) agree on the path and the JSON body (`{pid, job_id, command, started_at}`), so whichever process acquires it first blocks the other.
+- **CLI semantics**: Direct invocations of `imprint ingest|refresh|retag|ingest-url|refresh-urls` try the lock non-blocking. If held, they exit nonzero and print the current holder's PID, command, and start time — the user cancels from the UI or `kill`s the PID.
+- **UI semantics**: `POST /api/commands/{cmd}` enqueues into `data/queue.sqlite3`; the FastAPI startup task (`queue.dispatcher_loop`) pops one queued row at a time, waits blocking on the lock, then `Popen`s the subprocess with `start_new_session=True` so the child owns its own process group.
+- **Cancel**: `POST /api/jobs/{id}/cancel` either marks a queued row `cancelled` (dispatcher skips it) or, for a running job, fires `killpg(pgid, SIGTERM)` followed 3 s later by `SIGKILL` if the group is still alive. Because the child runs in its own session, the escalation reaps the Python subprocess, its httpx worker threads (so the in-flight LLM tagger call drops), any `llama-cpp` inference thread, and any descendant `git ls-files` helpers — all together.
+- **Restart recovery**: `queue.recover_on_startup()` marks rows in `status='running'` whose PID is dead as `failed` (`error='api_restart'`) and clears stale lock files, so the dispatcher resumes cleanly after an API crash.
+- **Progress integration**: `imprint/progress.py` keeps its single-slot `ingest_progress.json`; `/api/queue` joins it with the active DB row so the UI still sees phase/processed/total/ETA while gaining queue/position/history.
+
+See [queue.md](queue.md) for endpoint reference, SQLite schema, and verification steps.
 
 ## Lifecycle Commands
 

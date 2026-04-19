@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Settings,
   Terminal,
+  ListOrdered,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
 
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { href: "/sync", label: "Sync", icon: RefreshCw },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/commands", label: "Commands", icon: Terminal },
+  { href: "/queue", label: "Queue", icon: ListOrdered },
 ];
 
 export function Sidebar() {

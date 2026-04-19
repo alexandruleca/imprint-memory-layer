@@ -9,9 +9,9 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/loaders";
 import { streamCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
-import { Globe, FolderOpen, RefreshCw, Tags, X, Play } from "lucide-react";
+import { Globe, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play } from "lucide-react";
 
-type ActionKey = "ingest-url" | "ingest" | "refresh" | "retag";
+type ActionKey = "ingest-url" | "ingest" | "refresh" | "retag" | "learn";
 
 type Field = {
   key: string;
@@ -76,6 +76,14 @@ const ACTIONS: Action[] = [
       { key: "all", label: "Include already-tagged (--all)", type: "checkbox" },
       { key: "dry_run", label: "Dry run", type: "checkbox" },
     ],
+  },
+  {
+    key: "learn",
+    label: "Learn",
+    desc: "Index Claude Code conversation transcripts + memory files",
+    icon: GraduationCap,
+    accent: "#34d399",
+    fields: [],
   },
 ];
 
@@ -153,7 +161,7 @@ export function QuickIngest() {
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           {ACTIONS.map((a) => {
             const Icon = a.icon;
             const isActive = active === a.key;

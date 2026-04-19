@@ -140,6 +140,38 @@ export interface IngestionJob {
   eta_seconds: number | null;
 }
 
+export type QueueJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+
+export interface QueueJob {
+  id: string;
+  command: string;
+  body: Record<string, unknown>;
+  status: QueueJobStatus;
+  pid: number | null;
+  pgid: number | null;
+  exit_code: number | null;
+  error: string | null;
+  created_at: number;
+  started_at: number | null;
+  ended_at: number | null;
+  // Present when status === "running" and the progress file matches this job.
+  phase?: "embedding" | "llm_tagging";
+  processed?: number;
+  total?: number;
+  stored?: number;
+  skipped?: number;
+  projects?: string[];
+  elapsed?: number;
+  percent?: number;
+  eta_seconds?: number | null;
+}
+
+export interface QueueResponse {
+  active: QueueJob | null;
+  queued: QueueJob[];
+  recent: QueueJob[];
+}
+
 // ── Graph (Obsidian-style) ─────────────────────────────────────
 
 export type GraphNodeKind = "project" | "topic" | "source" | "chunk";

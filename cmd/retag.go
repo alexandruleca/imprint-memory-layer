@@ -17,6 +17,9 @@ func Retag(args []string) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
+	lock := acquireOrEnqueue(dataDir, "retag", args)
+	defer lock.Release()
+
 	pyArgs := []string{"-m", "imprint.cli_retag"}
 	pyArgs = append(pyArgs, args...)
 

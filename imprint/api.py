@@ -36,6 +36,7 @@ from . import vectorstore as vs
 from . import imprint_graph as kg
 from . import chat as chat_mod
 from . import chat_store
+from . import queue as job_queue
 
 from .cli_viz import (
     build_overview,
@@ -66,6 +67,13 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.on_event("startup")
+async def _start_queue_dispatcher():
+    job_queue.recover_on_startup()
+    asyncio.create_task(job_queue.dispatcher_loop())
+    asyncio.create_task(job_queue.reaper_loop())
 
 
 # ── Filter helpers ─────────────────────────────────────────────
@@ -424,16 +432,9 @@ def _auto_shutdown_watcher():
             break
 
 
-# ── Jobs (ingestion progress) ─────────────────────────────────
+# ── Jobs (ingestion progress + queue) ─────────────────────────
 
-@app.get("/api/jobs")
-def api_jobs():
-    """Return active ingestion/refresh jobs."""
-    from .progress import read_progress
-    progress = read_progress()
-    if progress is None:
-        return {"jobs": []}
-
+def _merge_progress(job: dict, progress: dict) -> dict:
     elapsed = time.time() - progress["started_at"]
     total = progress["total"]
     processed = progress["processed"]
@@ -441,14 +442,202 @@ def api_jobs():
     eta = None
     if 0 < pct < 1:
         eta = elapsed / pct * (1 - pct)
-
-    job = {
-        **progress,
+    return {
+        **job,
+        "phase": progress.get("phase"),
+        "processed": processed,
+        "total": total,
+        "stored": progress.get("stored", 0),
+        "skipped": progress.get("skipped", 0),
+        "projects": progress.get("projects", []),
         "elapsed": round(elapsed, 1),
         "percent": round(pct * 100, 1),
         "eta_seconds": round(eta, 1) if eta is not None else None,
     }
-    return {"jobs": [job]}
+
+
+def _attach_progress(job: dict | None) -> dict | None:
+    """Enrich a running-job row with the live progress-file fields."""
+    if job is None:
+        return None
+    from .progress import read_progress
+    progress = read_progress()
+    if progress is None or progress.get("pid") != job.get("pid"):
+        return job
+    return _merge_progress(job, progress)
+
+
+def _active_from_any_source() -> dict | None:
+    """Return the currently running job — DB row or synthesized from the
+    queue lock. CLI-launched jobs don't have a DB row (they only hold the
+    flock), so we reconstruct one from lock metadata + progress file.
+
+    The progress file's PID is the Python subprocess, while the lock
+    holder's PID is the Go binary that spawned it — so we don't require
+    them to match. If a progress file exists and its PID is alive, we
+    merge it in.
+    """
+    db_active = job_queue.active_job()
+    if db_active is not None:
+        return _attach_progress(db_active)
+
+    from . import queue_lock
+    from .progress import read_progress
+    holder = queue_lock.read_holder()
+    progress = read_progress()
+    if holder is None and progress is None:
+        return None
+
+    if holder is not None:
+        synthetic = {
+            "id": holder.get("job_id") or f"cli-{holder.get('pid')}",
+            "command": holder.get("command", "unknown"),
+            "body": {},
+            "status": "running",
+            "pid": holder.get("pid"),
+            "pgid": None,
+            "exit_code": None,
+            "error": None,
+            "created_at": holder.get("started_at"),
+            "started_at": holder.get("started_at"),
+            "ended_at": None,
+            "source": "cli",
+        }
+    else:
+        # Progress file says a job is live but the lock was already released
+        # (e.g. the Go CLI exited but the Python progress writer lags by a
+        # tick). Show the python process as active.
+        synthetic = {
+            "id": f"cli-{progress.get('pid')}",
+            "command": progress.get("command", "unknown"),
+            "body": {},
+            "status": "running",
+            "pid": progress.get("pid"),
+            "pgid": None,
+            "exit_code": None,
+            "error": None,
+            "created_at": progress.get("started_at"),
+            "started_at": progress.get("started_at"),
+            "ended_at": None,
+            "source": "cli",
+        }
+
+    if progress is not None:
+        synthetic = _merge_progress(synthetic, progress)
+    return synthetic
+
+
+@app.get("/api/jobs")
+def api_jobs():
+    """Back-compat endpoint — returns the currently running job (if any) in the
+    legacy ``{"jobs": [...]}`` shape. New clients should prefer ``/api/queue``.
+    """
+    active = _active_from_any_source()
+    return {"jobs": [active] if active else []}
+
+
+@app.get("/api/queue")
+def api_queue(recent_limit: int = 20):
+    data = job_queue.list_queue(recent_limit=recent_limit)
+    data["active"] = _active_from_any_source()
+    return data
+
+
+@app.get("/api/jobs/{job_id}")
+def api_job_detail(job_id: str):
+    job = job_queue.get_job(job_id)
+    if not job:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if job.get("status") == "running":
+        job = _attach_progress(job)
+    return job
+
+
+@app.get("/api/jobs/{job_id}/stream")
+async def api_job_stream(job_id: str):
+    job = job_queue.get_job(job_id)
+    if not job:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    async def gen():
+        try:
+            async for line in job_queue.tail_output(job_id):
+                yield f"data: {json.dumps({'type': 'output', 'text': line})}\n\n"
+            final = job_queue.get_job(job_id) or {}
+            done_payload = {
+                "type": "done",
+                "exit_code": final.get("exit_code"),
+                "status": final.get("status"),
+            }
+            yield f"data: {json.dumps(done_payload)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def api_job_cancel(job_id: str):
+    # First try the SQLite queue (UI-launched jobs).
+    result = job_queue.cancel(job_id)
+    if result.get("ok"):
+        return result
+    # Fall back: maybe this is a CLI-launched job represented only by the
+    # lock file + progress file.
+    from . import queue_lock
+    from .progress import read_progress
+
+    holder = queue_lock.read_holder()
+    progress = read_progress()
+    if holder is None and progress is None:
+        return result
+
+    # Match the synthetic id the UI sent.
+    candidate_ids = set()
+    if holder:
+        candidate_ids.add(holder.get("job_id") or f"cli-{holder.get('pid')}")
+        candidate_ids.add(f"cli-{holder.get('pid')}")
+    if progress:
+        candidate_ids.add(f"cli-{progress.get('pid')}")
+    if job_id not in candidate_ids:
+        return result
+
+    # Kill the Python subprocess (does the actual work) first — its in-process
+    # httpx / llama-cpp threads die with it. If we only have the Go binary
+    # PID (holder.pid), kill that too so its cmd.Wait() returns and it
+    # releases the flock cleanly.
+    targets: list[int] = []
+    if progress and progress.get("pid"):
+        targets.append(int(progress["pid"]))
+    if holder and holder.get("pid") and holder["pid"] not in targets:
+        targets.append(int(holder["pid"]))
+
+    killed_any = False
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            killed_any = True
+        except ProcessLookupError:
+            pass
+
+    if not killed_any:
+        return {"ok": False, "error": "process already gone"}
+
+    def _escalate(pids: list[int]):
+        import time as _t
+        _t.sleep(3.0)
+        for p in pids:
+            try:
+                os.kill(p, 0)
+            except ProcessLookupError:
+                continue
+            try:
+                os.kill(p, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    threading.Thread(target=_escalate, args=(targets,), daemon=True).start()
+    return {"ok": True, "was_running": True, "source": "cli", "pids": targets}
 
 
 # ── Config ─────────────────────────────────────────────────────
@@ -515,7 +704,7 @@ def _reset_after_wipe():
 # Allowed commands — just run the `imprint` binary directly.
 _ALLOWED_COMMANDS = {
     "status", "ingest", "ingest-url", "refresh", "refresh-urls", "retag",
-    "config", "wipe", "sync", "migrate", "workspace",
+    "learn", "config", "wipe", "sync", "migrate", "workspace",
 }
 
 
@@ -540,6 +729,12 @@ def _find_imprint_binary() -> str:
 
 @app.post("/api/commands/{command}")
 async def api_run_command(command: str, request: Request):
+    """Enqueue a CLI command.
+
+    Returns ``{job_id, position}`` immediately. Clients should open
+    ``GET /api/jobs/{job_id}/stream`` for live output and call
+    ``POST /api/jobs/{job_id}/cancel`` to abort.
+    """
     body = {}
     if request.headers.get("content-type", "").startswith("application/json"):
         try:
@@ -550,95 +745,15 @@ async def api_run_command(command: str, request: Request):
     if command not in _ALLOWED_COMMANDS:
         return JSONResponse({"error": f"unknown command '{command}'"}, status_code=404)
 
-    # Build args: command + any flags from body
-    imprint_bin = _find_imprint_binary()
-    cmd_args = [imprint_bin, command]
-    cmd_args.extend(_build_command_args(command, body))
-
-    def stream():
-        try:
-            proc = subprocess.Popen(
-                cmd_args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            )
-            for line in proc.stdout:
-                yield f"data: {json.dumps({'type': 'output', 'text': line})}\n\n"
-            proc.wait()
-            # Reset caches after any command that mutates collections/workspaces
-            if proc.returncode == 0 and command in ("wipe", "migrate", "workspace", "retag"):
-                _reset_after_wipe()
-            yield f"data: {json.dumps({'type': 'done', 'exit_code': proc.returncode})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
-
-    return StreamingResponse(stream(), media_type="text/event-stream")
-
-
-def _build_command_args(command: str, body: dict) -> list[str]:
-    """Build CLI args from request body."""
-    args = []
-    if command == "ingest":
-        if body.get("dir"):
-            args.append(body["dir"])
-    elif command == "ingest-url":
-        url = body.get("url", "")
-        if url:
-            args.append(url)
-        if body.get("project"):
-            args.extend(["--project", body["project"]])
-        if body.get("force"):
-            args.append("--force")
-    elif command == "refresh":
-        if body.get("dir"):
-            args.append(body["dir"])
-    elif command == "retag":
-        if body.get("project"):
-            args.extend(["--project", body["project"]])
-        if body.get("dry_run"):
-            args.append("--dry-run")
-        if body.get("all"):
-            args.append("--all")
-    elif command == "config":
-        # Support `config`, `config get <key>`, `config set <key> <val>`
-        action = body.get("action", "")
-        if action:
-            args.append(action)
-        if body.get("key"):
-            args.append(body["key"])
-        if body.get("value") is not None:
-            args.append(str(body["value"]))
-    elif command == "wipe":
-        if body.get("force"):
-            args.append("--force")
-        if body.get("all"):
-            args.append("--all")
-    elif command == "sync":
-        action = body.get("action", "")
-        if action:
-            args.append(action)
-    elif command == "migrate":
-        if body.get("from"):
-            args.extend(["--from", body["from"]])
-        if body.get("to"):
-            args.extend(["--to", body["to"]])
-        if body.get("project"):
-            args.extend(["--project", body["project"]])
-        if body.get("topic"):
-            args.extend(["--topic", body["topic"]])
-        if body.get("source"):
-            args.extend(["--source", body["source"]])
-        if body.get("dry_run"):
-            args.append("--dry-run")
-    elif command == "workspace":
-        # `workspace switch <name>` / `workspace delete <name>` / `workspace list`
-        action = body.get("action", "")
-        if action:
-            args.append(action)
-        if body.get("name"):
-            args.append(body["name"])
-    return args
+    job_id = job_queue.enqueue(command, body)
+    snapshot = job_queue.list_queue(recent_limit=0)
+    position = 0
+    if snapshot["active"] and snapshot["active"]["id"] != job_id:
+        position = 1 + next(
+            (i for i, j in enumerate(snapshot["queued"]) if j["id"] == job_id),
+            len(snapshot["queued"]),
+        )
+    return {"job_id": job_id, "position": position}
 
 
 # ── Sync ───────────────────────────────────────────────────────

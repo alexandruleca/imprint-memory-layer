@@ -20,6 +20,9 @@ func Learn(args []string) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
+	lock := acquireOrEnqueue(dataDir, "learn", args)
+	defer lock.Release()
+
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
 		"IMPRINT_DATA_DIR=" + dataDir,

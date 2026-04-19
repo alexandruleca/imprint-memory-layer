@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { ChatSessionsSkeleton } from "@/components/loaders";
 import { ThinkingDots, ToolWorkingIndicator, TypingCursor } from "@/components/chat-indicators";
+import { Markdown } from "@/components/markdown";
 import type { ChatSession, ChatMessage } from "@/lib/types";
 
 export default function ChatPage() {
@@ -156,7 +157,11 @@ export default function ChatPage() {
                     ? "bg-muted text-xs font-mono"
                     : "bg-card border border-border"
                 }`}>
-                  <pre className="whitespace-pre-wrap font-sans">{m.content}</pre>
+                  {m.role === "tool" ? (
+                    <pre className="whitespace-pre-wrap font-sans">{m.content}</pre>
+                  ) : (
+                    <Markdown text={m.content} />
+                  )}
                 </div>
               </div>
             ))}
@@ -176,10 +181,8 @@ export default function ChatPage() {
             {streamText && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-lg p-3 text-sm bg-card border border-border">
-                  <pre className="whitespace-pre-wrap font-sans">
-                    {streamText}
-                    {streaming && <TypingCursor />}
-                  </pre>
+                  <Markdown text={streamText} />
+                  {streaming && <TypingCursor />}
                 </div>
               </div>
             )}

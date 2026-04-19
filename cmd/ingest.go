@@ -57,13 +57,16 @@ func Ingest(args []string) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
+	if len(args) == 0 {
+		output.Fail("Usage: imprint ingest <path> [--batch-size N]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
+	}
+
+	lock := acquireOrEnqueue(dataDir, "ingest", args)
+	defer lock.Release()
+
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
 		"IMPRINT_DATA_DIR=" + dataDir,
-	}
-
-	if len(args) == 0 {
-		output.Fail("Usage: imprint ingest <path> [--batch-size N]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
 	}
 
 	fmt.Println()

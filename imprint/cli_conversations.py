@@ -16,6 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import chunker, tagger, vectorstore as vs
 from imprint.classifier import classify
+from imprint._cli_signals import install as _install_signals
+
+_install_signals()
 
 C_RESET = "\033[0m"
 C_BOLD = "\033[1m"

@@ -18,6 +18,22 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Pages
+
+| Route | Purpose |
+|---|---|
+| `/` | Dashboard (overview, facets, quick ingest) |
+| `/graph` | Obsidian-style project/topic graph |
+| `/search` | Semantic search over indexed memories |
+| `/chat` | Chat against the memory layer |
+| `/topics` | Topic list + per-topic detail |
+| `/projects` | Project list + per-project detail |
+| `/sources` | Indexed files / URLs |
+| `/sync` | Peer sync (export/import/relay) |
+| `/commands` | Run imprint CLI commands + view config |
+| `/queue` | **Queue** — active + queued + history for ingest/refresh/retag jobs, with cancel |
+| `/settings` | Settings (`imprint config`) |
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
