@@ -229,8 +229,35 @@ def _is_low_value(content: str, rel_path: str) -> bool:
     return False
 
 
-def scan_dir(dir_path):
-    """Walk a directory and return list of (rel_path, full_path) for indexable files."""
+def _git_tracked_files(dir_path: str) -> set[str] | None:
+    """Files git considers tracked or untracked-but-not-ignored, as POSIX
+    paths relative to dir_path. Returns None if dir_path isn't in a git repo
+    (or git isn't installed), so callers fall back to the hardcoded filters.
+
+    This defers .gitignore / .git/info/exclude / global excludesFile handling
+    to git itself — no in-repo gitignore reimplementation.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["git", "-C", dir_path, "ls-files",
+             "--cached", "--others", "--exclude-standard"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return {ln for ln in proc.stdout.splitlines() if ln}
+
+
+def scan_dir(dir_path, exclude_paths=None):
+    """Walk a directory and return list of (rel_path, full_path) for indexable files.
+
+    exclude_paths: optional list of directories to skip entirely (e.g. sub-project
+    roots when scanning a root-fallback project so manifested children aren't
+    double-indexed).
+    """
     # Resolve doc/image gates once per scan — avoids reloading config per file.
     doc_exts = _enabled_doc_formats()
     ocr_imgs = _ocr_image_exts()
@@ -238,11 +265,20 @@ def scan_dir(dir_path):
     # Image exts are in SKIP_EXTENSIONS by default; lift that gate when OCR on.
     skip_exts = SKIP_EXTENSIONS - ocr_imgs
 
+    # Git-aware filter — if dir_path is a git repo, only index files git sees
+    # (tracked or untracked-but-not-ignored). Skips gitignored dirs like data/
+    # and benchmark/results/ without reimplementing gitignore semantics.
+    git_files = _git_tracked_files(dir_path)
+
+    exclude_resolved = {os.path.realpath(p) for p in (exclude_paths or [])}
+
     files = []
     for root, subdirs, fnames in os.walk(dir_path):
         subdirs[:] = [
             d for d in subdirs
-            if d not in SKIP_DIRS and not d.startswith('.')
+            if d not in SKIP_DIRS
+            and not d.startswith('.')
+            and os.path.realpath(os.path.join(root, d)) not in exclude_resolved
         ]
         for fname in fnames:
             if fname in SKIP_FILES:
@@ -258,6 +294,8 @@ def scan_dir(dir_path):
                 continue
             fpath = os.path.join(root, fname)
             rel = os.path.relpath(fpath, dir_path)
+            if git_files is not None and rel.replace(os.sep, "/") not in git_files:
+                continue
             files.append((rel, fpath))
     return files
 
@@ -666,6 +704,16 @@ def main():
         dir_path, project = arg.rsplit(":", 1)
         pairs.append((dir_path, project))
 
+    # Recover per-project exclude_paths (root-fallback projects need to skip
+    # manifested sub-project roots so files aren't double-indexed). The Go
+    # wire format only passes path:name, so re-invoke find_projects to get
+    # the exclude_paths field.
+    from imprint.projects import find_projects
+    _project_meta = {
+        os.path.realpath(p["path"]): p
+        for p in find_projects(target)
+    }
+
     # ── Phase 1: Scan ──────────────────────────────────────────
     print()
     print(f"  {C_CYAN}Scanning{C_RESET} {target} ...")
@@ -674,7 +722,9 @@ def main():
     project_files = {}
     grand_total = 0
     for dir_path, project in pairs:
-        files = scan_dir(dir_path)
+        meta = _project_meta.get(os.path.realpath(dir_path), {})
+        excl = meta.get("exclude_paths", [])
+        files = scan_dir(dir_path, exclude_paths=excl)
         project_files[project] = files
         grand_total += len(files)
 

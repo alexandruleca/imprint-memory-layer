@@ -5,6 +5,9 @@ Usage:
     python3 benchmark/summarize.py benchmark/results/raw
     python3 benchmark/summarize.py benchmark/results/raw --out BENCHMARK_RESULTS.md
     python3 benchmark/summarize.py benchmark/results/raw --llm-quality   # LLM-based quality scoring
+    python3 benchmark/summarize.py benchmark/results/raw --category summary
+    python3 benchmark/summarize.py benchmark/results/raw --category information,decision
+    python3 benchmark/summarize.py benchmark/results/raw --prompt summary-1
 """
 
 import json
@@ -140,15 +143,33 @@ QUESTION: {prompt_text}
 {on_response[:6000]}
 --- END RESPONSE B ---
 
-Compare the quality of Response B relative to Response A. Consider:
-- Completeness: does it cover all relevant aspects?
-- Accuracy: are the technical details correct?
-- Structure: is it well-organized with clear sections?
-- Specificity: does it reference concrete code, functions, file paths?
-- Conciseness: does it stay focused or overengineer beyond what was asked?
+IMPORTANT CONTEXT — read before judging:
+Response B had access to an Imprint semantic memory index. That index contains indexed code chunks from this repo AND related projects, plus past conversation transcripts, stored decisions, and patterns. You (the judge) cannot see the memory corpus.
 
-Respond with EXACTLY this JSON format, nothing else:
-{{"quality_pct": <integer 50-200 where 100=equal, >100=B is better, <100=A is better>, "assessment": "<one sentence explaining the key difference>"}}"""
+Because of this:
+- Specific citations in Response B (file paths, function names, cross-project examples, implementation details) should be treated as memory recall, NOT as evidence of unauthorized file reading or git access. Do not penalize B for being specific.
+- If the prompt says "use memory only", citing concrete details that came from memory is expected and correct — that is the memory working as intended, not a constraint violation.
+- Higher verbosity or broader scope in Response B often means memory surfaced more relevant context than Response A found by cold exploration. That is a feature, not overengineering.
+
+Compare the quality of Response B relative to Response A on:
+- Completeness: does it cover all relevant aspects?
+- Accuracy: are the technical details correct? (Only flag B's specifics as wrong if they are plainly inconsistent with the question or internally contradictory — you cannot verify them against the memory corpus.)
+- Structure: is it well-organized with clear sections?
+- Specificity: does it reference concrete code, functions, file paths? (Reward this in B; do not treat memory-sourced specifics as fabrication.)
+- Scope: did the response answer the question that was asked, or drift to a different one? Extra in-scope detail is NOT a penalty. Only penalize if B answers a different question than was asked.
+
+Before emitting JSON, write:
+
+REASONING: <one paragraph comparing A and B on each rubric item above — completeness, accuracy, structure, specificity, scope. State explicitly which response is stronger overall.>
+
+Then on a NEW line, emit the JSON. Your quality_pct MUST align with REASONING:
+- If REASONING says B is clearly stronger → score 120-160
+- If roughly equal → score 95-110
+- If A is clearly stronger → score 55-85
+- Reserve extremes (<60, >180) for outright failures by one side.
+
+JSON format (nothing after it):
+{{"quality_pct": <integer 50-200>, "assessment": "<one sentence explaining the key difference>"}}"""
 
     try:
         result = subprocess.run(
@@ -166,12 +187,14 @@ Respond with EXACTLY this JSON format, nothing else:
             return {"quality_pct": 100, "assessment": "LLM judge unavailable."}
 
         data = json.loads(result.stdout)
-        answer = data.get("result", "")
+        answer = data.get("result", "").strip()
 
-        # Extract JSON from the response (may have markdown wrapping)
-        answer = answer.strip()
-        if answer.startswith("```"):
-            answer = answer.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        # Judge emits a REASONING paragraph then the JSON on a new line.
+        # Grab the last balanced {...} block regardless of prose before it.
+        json_start = answer.rfind("{")
+        json_end = answer.rfind("}")
+        if json_start >= 0 and json_end > json_start:
+            answer = answer[json_start:json_end + 1]
 
         parsed = json.loads(answer)
         pct = int(parsed.get("quality_pct", 100))
@@ -476,7 +499,7 @@ def generate_markdown(groups: dict, prompts_meta: dict, use_llm: bool = False) -
         lines.append("")
         if use_llm:
             lines.append("Quality judged by Claude (LLM-as-judge). Each response pair is evaluated on:")
-            lines.append("completeness, accuracy, structure, specificity, and conciseness.")
+            lines.append("completeness, accuracy, structure, specificity, and scope fidelity.")
         else:
             lines.append("_Quality assessment requires `--llm-quality` flag (uses Claude as judge)._")
         lines.append("100% = equal quality, >100% = ON is better, <100% = OFF is better.")
@@ -506,25 +529,34 @@ def generate_markdown(groups: dict, prompts_meta: dict, use_llm: bool = False) -
     return "\n".join(lines)
 
 
+def _arg_value(argv: list[str], flag: str) -> str | None:
+    if flag in argv:
+        idx = argv.index(flag)
+        if idx + 1 < len(argv):
+            return argv[idx + 1]
+    return None
+
+
 def main():
     if len(sys.argv) < 2 or "--help" in sys.argv or "-h" in sys.argv:
-        print(f"Usage: {sys.argv[0]} <results_dir> [--out FILE] [--llm-quality]", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} <results_dir> [--out FILE] [--llm-quality] [--category C[,C,..]] [--prompt ID[,ID,..]]", file=sys.stderr)
         print("", file=sys.stderr)
         print("Options:", file=sys.stderr)
-        print("  --out FILE       Write markdown to file instead of stdout", file=sys.stderr)
-        print("  --llm-quality    Use Claude (haiku) as LLM judge for quality comparison", file=sys.stderr)
+        print("  --out FILE           Write markdown to file instead of stdout", file=sys.stderr)
+        print("  --llm-quality        Use Claude (haiku) as LLM judge for quality comparison", file=sys.stderr)
+        print("  --category C[,C,..]  Only summarize these categories (e.g. summary, information,decision)", file=sys.stderr)
+        print("  --prompt ID[,ID,..]  Only summarize these prompt IDs (e.g. summary-1,info-2)", file=sys.stderr)
         if "--help" in sys.argv or "-h" in sys.argv:
             sys.exit(0)
         sys.exit(1)
 
     results_dir = sys.argv[1]
-    out_file = None
     use_llm = "--llm-quality" in sys.argv
-
-    if "--out" in sys.argv:
-        idx = sys.argv.index("--out")
-        if idx + 1 < len(sys.argv):
-            out_file = sys.argv[idx + 1]
+    out_file = _arg_value(sys.argv, "--out")
+    cat_filter_raw = _arg_value(sys.argv, "--category")
+    prompt_filter_raw = _arg_value(sys.argv, "--prompt")
+    cat_filter = {c.strip() for c in cat_filter_raw.split(",")} if cat_filter_raw else None
+    prompt_filter = {p.strip() for p in prompt_filter_raw.split(",")} if prompt_filter_raw else None
 
     # Find prompts.json relative to this script
     script_dir = Path(__file__).parent
@@ -535,6 +567,32 @@ def main():
     if not groups:
         print("No results found.", file=sys.stderr)
         sys.exit(1)
+
+    # Apply filters
+    if prompt_filter or cat_filter:
+        def keep(pid: str) -> bool:
+            if prompt_filter and pid not in prompt_filter:
+                return False
+            if cat_filter:
+                cat = (prompts_meta.get(pid) or {}).get("category")
+                if not cat:
+                    if pid.startswith("info-"):
+                        cat = "information"
+                    elif pid.startswith("create-"):
+                        cat = "creation"
+                    else:
+                        cat = pid.split("-", 1)[0] if "-" in pid else "other"
+                if cat not in cat_filter:
+                    return False
+            return True
+
+        groups = {k: v for k, v in groups.items() if keep(k[0])}
+        if not groups:
+            label = f"category={cat_filter_raw}" if cat_filter_raw else ""
+            if prompt_filter_raw:
+                label = (label + " " if label else "") + f"prompt={prompt_filter_raw}"
+            print(f"No results match filter ({label}).", file=sys.stderr)
+            sys.exit(1)
 
     if use_llm:
         unique_pids = len({pid for pid, _ in groups.keys()})

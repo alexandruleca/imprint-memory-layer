@@ -79,16 +79,20 @@ def find_projects(root_dir: str, max_depth: int = 4) -> list[dict]:
 
     _walk(root, 0)
 
-    # Fallback: no manifest-based projects found (e.g. a docs / data export
-    # folder like a ChatGPT JSON dump). Treat the root itself as a single
-    # project so the user can still ingest it. The scanner will gate which
-    # files actually get indexed.
-    if not projects:
+    # Always register the root as a fallback project when it isn't already
+    # one (i.e. no manifest at root). This ensures manifest-less sibling
+    # directories — a folder of HTML files, a docs-only dir, a data export —
+    # still get indexed when ingesting a mixed parent directory. The root
+    # fallback scan excludes paths already claimed by manifested sub-projects
+    # via the `exclude_paths` field so files aren't double-indexed.
+    root_is_project = any(Path(p["path"]).resolve() == root for p in projects)
+    if not root_is_project:
         projects.append({
             "name": _sanitize_name(root.name) or "data",
             "path": str(root),
             "manifest": "",
             "type": "data",
+            "exclude_paths": [p["path"] for p in projects],
         })
 
     return projects
