@@ -1,0 +1,37 @@
+---
+const links = [
+  { href: '/#benefits', label: 'Why Imprint' },
+  { href: '/#architecture', label: 'How it works' },
+  { href: '/benchmarks', label: 'Benchmarks' },
+  { href: '/installation', label: 'Docs' },
+  { href: '/faq', label: 'FAQ' },
+];
+---
+
+<header class="sticky top-0 z-40 backdrop-blur bg-[color:var(--color-bg)]/70 border-b border-[color:var(--color-border)]/60">
+  <nav class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-2 font-semibold tracking-tight">
+      <img src="/logo.svg" alt="" width="28" height="28" class="glow" />
+      <span>Imprint</span>
+      <span class="text-xs font-normal text-[color:var(--color-text-muted)] hidden sm:inline">— MCP memory layer</span>
+    </a>
+    <div class="flex items-center gap-1 sm:gap-2">
+      <div class="hidden md:flex items-center gap-1">
+        {links.map((l) => (
+          <a
+            href={l.href}
+            class="px-3 py-1.5 text-sm text-[color:var(--color-text-muted)] hover:text-white transition"
+          >
+            {l.label}
+          </a>
+        ))}
+      </div>
+      <a
+        href="https://github.com/alexandruleca/imprint-memory-layer"
+        class="px-3 py-1.5 text-sm rounded-md border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white transition"
+      >
+        GitHub ↗
+      </a>
+    </div>
+  </nav>
+</header>

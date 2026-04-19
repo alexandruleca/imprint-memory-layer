@@ -1,0 +1,30 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Hero from '../components/Hero.astro';
+import Benefits from '../components/Benefits.astro';
+import ArchDiagram from '../components/ArchDiagram.astro';
+import BenchSummary from '../components/BenchSummary.astro';
+import HostMatrix from '../components/HostMatrix.astro';
+import InstallTabs from '../components/InstallTabs.astro';
+import CTA from '../components/CTA.astro';
+import Footer from '../components/Footer.astro';
+
+const title = 'Imprint — MCP Memory Layer for Claude Code, Cursor, Copilot';
+const description =
+  'Persistent, semantic memory for AI coding tools. Cuts Claude Code token use by 70.4% and cost by 31.7% across 150 benchmark runs. 100% local, MCP-native.';
+---
+
+<Landing title={title} description={description} pathname="/">
+  <Nav />
+  <main>
+    <Hero />
+    <Benefits />
+    <ArchDiagram />
+    <BenchSummary />
+    <HostMatrix />
+    <InstallTabs />
+    <CTA />
+  </main>
+  <Footer />
+</Landing>

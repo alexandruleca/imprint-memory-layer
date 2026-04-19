@@ -1,3 +1,7 @@
+---
+title: Peer Sync & Visualization
+---
+
 # Peer Sync & Visualization
 
 ## Peer Sync

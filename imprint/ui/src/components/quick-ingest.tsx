@@ -1,15 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/loaders";
-import { streamCommand } from "@/lib/api";
+import { enqueueCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
-import { Globe, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play } from "lucide-react";
+import { Globe, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play, CheckCircle2 } from "lucide-react";
 
 type ActionKey = "ingest-url" | "ingest" | "refresh" | "retag" | "learn";
 
@@ -87,14 +87,16 @@ const ACTIONS: Action[] = [
   },
 ];
 
+type Status =
+  | { kind: "idle" }
+  | { kind: "submitting" }
+  | { kind: "enqueued"; jobId: string; position: number }
+  | { kind: "error"; message: string };
+
 export function QuickIngest() {
   const [active, setActive] = useState<ActionKey | null>(null);
   const [params, setParams] = useState<Record<string, string | boolean>>({});
-  const [output, setOutput] = useState<string[]>([]);
-  const [running, setRunning] = useState(false);
-  const [runningKey, setRunningKey] = useState<ActionKey | null>(null);
-  const ctrlRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [browserMode, setBrowserMode] = useState<"dir" | "any" | null>(null);
 
   function selectAction(key: ActionKey) {
@@ -103,18 +105,18 @@ export function QuickIngest() {
     } else {
       setActive(key);
       setParams({});
-      setOutput([]);
+      setStatus({ kind: "idle" });
     }
   }
 
-  function run() {
-    if (!active || running) return;
+  async function run() {
+    if (!active || status.kind === "submitting") return;
     const action = ACTIONS.find((a) => a.key === active);
     if (!action) return;
 
     for (const r of action.required ?? []) {
       if (!params[r]) {
-        setOutput([`ERROR: ${r} is required\n`]);
+        setStatus({ kind: "error", message: `${r} is required` });
         return;
       }
     }
@@ -129,34 +131,20 @@ export function QuickIngest() {
       }
     }
 
-    setOutput([]);
-    setRunning(true);
-    setRunningKey(action.key);
-    ctrlRef.current = streamCommand(action.key, body, (ev) => {
-      if (ev.type === "output") {
-        setOutput((prev) => [...prev, ev.text as string]);
-      } else if (ev.type === "done") {
-        const code = ev.exit_code as number;
-        setOutput((prev) => [...prev, `\n--- Exit code: ${code} ---\n`]);
-        setRunning(false);
-        setRunningKey(null);
-      } else if (ev.type === "error") {
-        setOutput((prev) => [...prev, `ERROR: ${ev.error}\n`]);
-        setRunning(false);
-        setRunningKey(null);
-      }
-      scrollRef.current?.scrollIntoView({ block: "end" });
-    });
-  }
-
-  function cancel() {
-    ctrlRef.current?.abort();
-    setRunning(false);
-    setRunningKey(null);
-    setOutput((prev) => [...prev, "\n--- Cancelled ---\n"]);
+    setStatus({ kind: "submitting" });
+    try {
+      const { job_id, position } = await enqueueCommand(action.key, body);
+      setStatus({ kind: "enqueued", jobId: job_id, position });
+    } catch (e) {
+      setStatus({
+        kind: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   const activeAction = active ? ACTIONS.find((a) => a.key === active) ?? null : null;
+  const submitting = status.kind === "submitting";
 
   return (
     <Card>
@@ -165,7 +153,6 @@ export function QuickIngest() {
           {ACTIONS.map((a) => {
             const Icon = a.icon;
             const isActive = active === a.key;
-            const isRunning = runningKey === a.key;
             return (
               <button
                 key={a.key}
@@ -181,7 +168,7 @@ export function QuickIngest() {
                     className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${a.accent}22`, color: a.accent }}
                   >
-                    {isRunning ? <Spinner className="w-3.5 h-3.5" /> : <Icon className="w-4 h-4" />}
+                    <Icon className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{a.label}</p>
@@ -269,29 +256,41 @@ export function QuickIngest() {
             </div>
 
             <div className="flex items-center gap-2">
-              {!running ? (
-                <Button onClick={run} size="sm">
-                  <Play className="w-3.5 h-3.5" /> Run
-                </Button>
-              ) : (
-                <Button onClick={cancel} size="sm" variant="destructive">
-                  <X className="w-3.5 h-3.5" /> Cancel
-                </Button>
-              )}
-              {running && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Spinner className="w-3 h-3" /> streaming…
-                </span>
-              )}
+              <Button onClick={run} size="sm" disabled={submitting}>
+                {submitting ? (
+                  <Spinner className="w-3.5 h-3.5" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}{" "}
+                {submitting ? "Queuing…" : "Run"}
+              </Button>
             </div>
 
-            {output.length > 0 && (
-              <ScrollArea className="h-40">
-                <pre className="text-[11px] font-mono whitespace-pre-wrap bg-muted p-2.5 rounded">
-                  {output.join("")}
-                  <span ref={scrollRef} />
-                </pre>
-              </ScrollArea>
+            {status.kind === "enqueued" && (
+              <div className="flex items-center gap-2 text-xs rounded-md border border-emerald-500/30 bg-emerald-950/10 px-3 py-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="flex-1">
+                  {status.position > 0 ? (
+                    <>
+                      Queued at position <strong>{status.position}</strong> — will
+                      start when the current job finishes.
+                    </>
+                  ) : (
+                    <>Started now.</>
+                  )}
+                </span>
+                <Link
+                  href="/queue"
+                  className="text-emerald-400 underline-offset-2 hover:underline shrink-0"
+                >
+                  view queue
+                </Link>
+              </div>
+            )}
+            {status.kind === "error" && (
+              <div className="text-xs text-red-400 bg-red-950/20 border border-red-500/30 rounded-md px-3 py-2">
+                {status.message}
+              </div>
             )}
           </div>
         )}

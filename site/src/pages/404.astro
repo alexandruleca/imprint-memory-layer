@@ -1,0 +1,30 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+const title = 'Not found — Imprint';
+const description = 'That page is missing or moved.';
+---
+
+<Landing title={title} description={description} pathname="/404/">
+  <Nav />
+  <main class="min-h-[60vh] max-w-3xl mx-auto px-6 py-24 text-center">
+    <div class="text-sm font-mono text-[color:var(--color-accent)] uppercase tracking-widest">Error 404</div>
+    <h1 class="mt-4 text-5xl sm:text-6xl font-extrabold tracking-tight">
+      <span class="grad-text">Page not found.</span>
+    </h1>
+    <p class="mt-6 text-[color:var(--color-text-muted)]">
+      That page moved or your agent forgot where it was. Good thing memory is a solved problem now.
+    </p>
+    <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
+      <a href="/" class="px-5 py-3 rounded-lg font-semibold bg-gradient-to-r from-violet-500 to-indigo-500 text-white">
+        Back to overview
+      </a>
+      <a href="/installation" class="px-5 py-3 rounded-lg border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] text-[color:var(--color-text-muted)] hover:text-white">
+        Install Imprint
+      </a>
+    </div>
+  </main>
+  <Footer />
+</Landing>

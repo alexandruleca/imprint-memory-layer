@@ -1,0 +1,81 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+const title = 'FAQ — Imprint MCP Memory Layer';
+const description =
+  'What is an MCP memory layer? How is Imprint different from built-in IDE memory? Does my code leave my machine? Common questions answered.';
+
+const faqs = [
+  {
+    q: 'What is an MCP memory layer?',
+    a: 'MCP (Model Context Protocol) is the open standard Anthropic, OpenAI, and others use to expose tools to coding agents. An MCP memory layer is a server that speaks MCP and stores prior context — code chunks, decisions, bug fixes, architectural notes — so the agent can recall it instead of re-reading the whole repo every session. Imprint is a local-first implementation: vectors in Qdrant, facts in SQLite, embeddings via on-device ONNX.',
+  },
+  {
+    q: 'How is this different from Cursor or ChatGPT built-in memory?',
+    a: 'Built-in memories are provider-bound, shallow, and cross-session at best. Imprint is agent-agnostic, indexed per-project, semantically searchable, and structured (tags for language, layer, domain, topic). One memory store is shared across Claude Code, Cursor, Copilot, Codex CLI, and Cline — whatever you use today and whatever you switch to next.',
+  },
+  {
+    q: 'Does my code ever leave my machine?',
+    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from EmbeddingGemma-300M via ONNX Runtime — no network call. The knowledge graph is local SQLite. If you want LLM-powered topic tagging (better granularity, not required) you opt in explicitly with `imprint config set tagger.llm true` and pick a provider (Anthropic, OpenAI, Gemini, Ollama, vLLM).',
+  },
+  {
+    q: 'Why not just wait for bigger context windows?',
+    a: 'Bigger contexts still pay for every token at inference, still forget between sessions, and still degrade on long conversations. Imprint flips the problem: the context window stays tight, the agent pulls only the 5–10 chunks relevant to the current question. Our benchmark shows Claude Code dropping from 10.3M total tokens to 3.0M across the same 150-run suite — the agent simply did not need the rest.',
+  },
+  {
+    q: 'Which agents does it work with?',
+    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with hard enforcement via a PreToolUse hook), Cursor, Copilot (VSCode agent mode), Codex CLI, and Cline. Adding a new host is a config file and a CLI subcommand away.',
+  },
+  {
+    q: 'What about teams and multiple machines?',
+    a: 'Project identity is derived from the manifest (package.json, go.mod, pyproject.toml, etc.), so the same project on two laptops has the same identity. `imprint sync serve --relay <host>` runs a WebSocket forwarder and pushes memory deltas between peers. Per-workspace isolation keeps client projects separate.',
+  },
+  {
+    q: 'Will it slow my agent down?',
+    a: 'Search itself is tens of milliseconds against a local Qdrant. Net turn count can go up slightly (search → answer takes one extra call), but each turn carries a tiny fraction of the tokens. Across the benchmark, duration drops in parallel with cost on debug and cross-project questions, stays flat on creation.',
+  },
+  {
+    q: 'What does uninstalling look like?',
+    a: '`imprint disable` tears down every MCP entry from every host config it previously wrote, stops the Qdrant daemon, and preserves `data/` and `.venv/` so `imprint enable` brings everything back instantly. Full removal is one extra `imprint wipe` — everything is under `data/`.',
+  },
+];
+---
+
+<Landing title={title} description={description} pathname="/faq/">
+  <Nav />
+  <main class="max-w-4xl mx-auto px-6 py-16">
+    <a href="/" class="text-sm text-[color:var(--color-text-muted)] hover:text-white">← Back to overview</a>
+    <h1 class="mt-4 text-4xl sm:text-5xl font-extrabold tracking-tight">FAQ</h1>
+    <p class="mt-4 max-w-2xl text-[color:var(--color-text-muted)]">
+      Short answers to what developers usually ask before installing Imprint. Longer explanations live in the <a class="underline hover:text-white" href="/architecture">architecture</a> and <a class="underline hover:text-white" href="/mcp">MCP tools</a> docs.
+    </p>
+
+    <div class="mt-10 space-y-3">
+      {faqs.map((item) => (
+        <details class="group rounded-xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)] open:border-[color:var(--color-accent)]/60 transition">
+          <summary class="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4">
+            <span class="font-semibold">{item.q}</span>
+            <span class="text-[color:var(--color-text-muted)] group-open:rotate-45 transition-transform text-xl leading-none">+</span>
+          </summary>
+          <div class="px-5 pb-5 text-[color:var(--color-text-muted)] leading-relaxed">{item.a}</div>
+        </details>
+      ))}
+    </div>
+
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faqs.map((f) => ({
+          '@type': 'Question',
+          name: f.q,
+          acceptedAnswer: { '@type': 'Answer', text: f.a },
+        })),
+      })}
+    />
+  </main>
+  <Footer />
+</Landing>

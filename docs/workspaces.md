@@ -1,3 +1,7 @@
+---
+title: Workspaces & Projects
+---
+
 # Workspaces & Projects
 
 ## Project Detection

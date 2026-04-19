@@ -1,0 +1,82 @@
+---
+import benchmarks from '../data/benchmarks.json';
+
+const debugCat = benchmarks.categories?.find((c: any) => c.key === 'debug');
+const crossCat = benchmarks.categories?.find((c: any) => c.key === 'cross');
+
+const cards = [
+  {
+    label: 'Local-first',
+    title: 'Your code never leaves the box',
+    body: 'EmbeddingGemma runs on your CPU/GPU. Qdrant is a local daemon on 127.0.0.1. SQLite on disk. Nothing is sent to a paid API unless you explicitly opt in.',
+    accent: 'from-emerald-400/20 to-emerald-400/0',
+    ring: 'ring-emerald-400/30',
+  },
+  {
+    label: 'Cost',
+    title: `${benchmarks.overall?.costPct ?? '−31.7%'} cost across 150 runs`,
+    body: 'Debug queries alone drop by ' + (debugCat?.avgCost ?? '−68.3%') + ' cost because known failure modes are served from memory instead of re-read from disk.',
+    accent: 'from-violet-400/20 to-violet-400/0',
+    ring: 'ring-violet-400/30',
+  },
+  {
+    label: 'Tokens',
+    title: `${benchmarks.overall?.tokenPct ?? '−70.4%'} tokens end-to-end`,
+    body: 'Cross-project questions drop by ' + (crossCat?.avgTokens ?? '−90.6%') + ' tokens. Semantic search returns the 5 chunks that matter, not the 3 files that contain them.',
+    accent: 'from-indigo-400/20 to-indigo-400/0',
+    ring: 'ring-indigo-400/30',
+  },
+  {
+    label: 'Zero-config',
+    title: 'One command wires every host',
+    body: '`imprint setup all` auto-detects Claude Code, Cursor, Codex CLI, Copilot, and Cline. No sudo. Self-managed .venv. Qdrant auto-spawned. Nothing leaks into your system install.',
+    accent: 'from-amber-400/20 to-amber-400/0',
+    ring: 'ring-amber-400/30',
+  },
+  {
+    label: 'Same identity, any machine',
+    title: 'Project detection that survives renames',
+    body: 'Canonical project name from manifests (package.json, go.mod, pyproject.toml), not path. Sync memory between your laptop and a cloud VPS and everything lines up.',
+    accent: 'from-sky-400/20 to-sky-400/0',
+    ring: 'ring-sky-400/30',
+  },
+  {
+    label: 'Temporal graph',
+    title: 'Not just vectors — facts with a timeline',
+    body: 'A SQLite knowledge graph tracks subject → predicate → object with validity windows. Decisions, bug fixes, and patterns are recalled with the context of when they were true.',
+    accent: 'from-pink-400/20 to-pink-400/0',
+    ring: 'ring-pink-400/30',
+  },
+];
+---
+
+<section id="benefits" class="relative py-20 sm:py-28">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="max-w-2xl">
+      <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">Why Imprint</div>
+      <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">
+        Your agent keeps re-reading the same files. Fix that.
+      </h2>
+      <p class="mt-4 text-[color:var(--color-text-muted)]">
+        Every session starts blank. Claude Code reads <code class="font-mono text-sm">chunker.py</code> for the tenth time. Imprint gives every MCP-capable agent a semantic, local, persistent brain — searched, not grepped.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {cards.map((c) => (
+        <article
+          class={`relative rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)]/60 transition group overflow-hidden`}
+        >
+          <div class={`absolute inset-0 bg-gradient-to-br ${c.accent} opacity-0 group-hover:opacity-100 transition pointer-events-none`}></div>
+          <div class="relative">
+            <div class={`inline-block text-[11px] uppercase tracking-widest px-2 py-1 rounded-md ring-1 ${c.ring} text-white/90 mb-4`}>
+              {c.label}
+            </div>
+            <h3 class="text-lg font-semibold leading-snug">{c.title}</h3>
+            <p class="mt-3 text-sm text-[color:var(--color-text-muted)] leading-relaxed">{c.body}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

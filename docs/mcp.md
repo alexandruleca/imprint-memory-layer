@@ -1,3 +1,7 @@
+---
+title: MCP Tools & Automatic Updates
+---
+
 # MCP Tools & Automatic Updates
 
 ## MCP Tools

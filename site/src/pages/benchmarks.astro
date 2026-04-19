@@ -1,0 +1,142 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import benchmarks from '../data/benchmarks.json';
+
+const title = 'Benchmarks — Imprint MCP Memory Layer';
+const description =
+  'How Imprint cuts Claude Code token and cost by serving answers from local memory instead of raw file reads. 150 runs, 15 prompts, 6 categories.';
+
+const overall = benchmarks.overall;
+const env = benchmarks.env;
+const categories = benchmarks.categories ?? [];
+
+function pctClass(s?: string) {
+  if (!s) return '';
+  const v = parseFloat(s);
+  if (v < 0) return 'text-[color:var(--color-success)]';
+  if (v > 0) return 'text-[color:var(--color-warning)]';
+  return '';
+}
+
+function fmtTokens(n?: number) {
+  if (typeof n !== 'number') return '—';
+  return n.toLocaleString('en-US');
+}
+---
+
+<Landing title={title} description={description} pathname="/benchmarks/">
+  <Nav />
+  <main class="max-w-6xl mx-auto px-6 py-16">
+    <a href="/" class="text-sm text-[color:var(--color-text-muted)] hover:text-white">← Back to overview</a>
+    <h1 class="mt-4 text-4xl sm:text-5xl font-extrabold tracking-tight">Imprint token savings benchmark</h1>
+    <p class="mt-4 max-w-3xl text-[color:var(--color-text-muted)]">
+      Measured with Claude Code CLI in print mode. Both modes use identical prompts and tool permissions; the ON run adds the Imprint MCP server and injects the project's CLAUDE.md as the system prompt. Median across 5 runs per prompt. Raw JSON for every run is checked in at
+      <code class="font-mono text-sm">benchmark/results/raw/&lt;sha&gt;/</code>.
+    </p>
+
+    {overall && (
+      <section class="mt-10 grid gap-4 sm:grid-cols-3">
+        <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+          <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)]">Tokens</div>
+          <div class="mt-2 text-4xl font-bold font-mono text-[color:var(--color-success)]">{overall.tokenPct}</div>
+          <div class="mt-1 text-sm text-[color:var(--color-text-muted)] font-mono">
+            {fmtTokens(overall.tokensOff)} → {fmtTokens(overall.tokensOn)}
+          </div>
+        </div>
+        <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+          <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)]">Cost</div>
+          <div class="mt-2 text-4xl font-bold font-mono text-[color:var(--color-success)]">{overall.costPct}</div>
+          <div class="mt-1 text-sm text-[color:var(--color-text-muted)] font-mono">
+            ${overall.costOff?.toFixed(4)} → ${overall.costOn?.toFixed(4)}
+          </div>
+        </div>
+        <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+          <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)]">Environment</div>
+          <div class="mt-2 text-sm text-[color:var(--color-text)] font-mono leading-relaxed">
+            {env && (
+              <>
+                OS: {env.os}<br />
+                Python: {env.python}<br />
+                Model: {env.model}<br />
+                Imprint: {env.imprint}<br />
+                Memories: {env.memories.toLocaleString('en-US')}
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <section class="mt-16 space-y-10">
+      {categories.map((cat: any) => (
+        <div class="rounded-2xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)] overflow-hidden">
+          <div class="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[color:var(--color-border)]">
+            <h2 class="text-xl font-bold">{cat.label}</h2>
+            <div class="flex items-center gap-4 text-sm font-mono">
+              <span class={pctClass(cat.avgTokens)}>tokens {cat.avgTokens}</span>
+              <span class={pctClass(cat.avgCost)}>cost {cat.avgCost}</span>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="text-left text-xs uppercase tracking-wide text-[color:var(--color-text-muted)]">
+                <tr>
+                  <th class="px-6 py-3 font-medium">Prompt</th>
+                  <th class="px-4 py-3 font-medium text-right">OFF tokens</th>
+                  <th class="px-4 py-3 font-medium text-right">ON tokens</th>
+                  <th class="px-4 py-3 font-medium text-right">Δ %</th>
+                  <th class="px-4 py-3 font-medium text-right">OFF cost</th>
+                  <th class="px-4 py-3 font-medium text-right">ON cost</th>
+                  <th class="px-4 py-3 font-medium text-right">Δ $</th>
+                </tr>
+              </thead>
+              <tbody class="font-mono">
+                {(cat.rows ?? []).map((r: any) => (
+                  <tr class="border-t border-[color:var(--color-border)]/60">
+                    <td class="px-6 py-3 font-sans font-medium">{r.prompt}</td>
+                    <td class="px-4 py-3 text-right text-[color:var(--color-text-muted)]">{fmtTokens(r.offTokens)}</td>
+                    <td class="px-4 py-3 text-right">{fmtTokens(r.onTokens)}</td>
+                    <td class={`px-4 py-3 text-right ${pctClass(r.pct)}`}>{r.pct}</td>
+                    <td class="px-4 py-3 text-right text-[color:var(--color-text-muted)]">{r.offCost}</td>
+                    <td class="px-4 py-3 text-right">{r.onCost}</td>
+                    <td class={`px-4 py-3 text-right ${pctClass(r.costDelta)}`}>{r.costDelta}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </section>
+
+    <section class="mt-16 grid gap-6 lg:grid-cols-2">
+      <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+        <h3 class="text-lg font-semibold">How to reproduce</h3>
+        <pre class="mt-3 overflow-x-auto text-xs font-mono bg-[color:var(--color-bg)] p-4 rounded-lg border border-[color:var(--color-border)]"><code># Full suite: 15 prompts × 5 runs × 2 modes = 150 runs
+bash benchmark/run.sh
+
+# Subset (one prompt per category)
+bash benchmark/run.sh --subset
+
+# Filter by category or prompt
+bash benchmark/run.sh --category debug
+bash benchmark/run.sh --prompt info-1
+
+# Summarize existing results
+python3 benchmark/summarize.py benchmark/results/raw/&lt;sha&gt;</code></pre>
+      </div>
+      <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+        <h3 class="text-lg font-semibold">What we're measuring</h3>
+        <ul class="mt-3 space-y-2 text-sm text-[color:var(--color-text-muted)] list-disc pl-5">
+          <li>Total tokens: input + output + cache_read + cache_create, summed across <em>all</em> models (not just the primary Sonnet — Haiku sub-agents count).</li>
+          <li>Cost: <code class="font-mono">costUSD</code> from Claude Code's JSON output, summed across all models.</li>
+          <li>Turns: number of LLM turns per run. ON mode often takes <em>more</em> turns (search → answer) but with drastically smaller payloads.</li>
+          <li>Quality: optional LLM-as-judge (<code class="font-mono">--llm-quality</code>) scores ON vs OFF responses on completeness, accuracy, and structure.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Landing>

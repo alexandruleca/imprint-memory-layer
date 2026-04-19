@@ -457,12 +457,18 @@ def _merge_progress(job: dict, progress: dict) -> dict:
 
 
 def _attach_progress(job: dict | None) -> dict | None:
-    """Enrich a running-job row with the live progress-file fields."""
+    """Enrich a running-job row with the live progress-file fields.
+
+    The DB row stores the Go subprocess pid; the progress file is written
+    by the Python grandchild, so the pids don't match. Because only one
+    job runs at a time we just merge any live progress into the active
+    row.
+    """
     if job is None:
         return None
     from .progress import read_progress
     progress = read_progress()
-    if progress is None or progress.get("pid") != job.get("pid"):
+    if progress is None:
         return job
     return _merge_progress(job, progress)
 
