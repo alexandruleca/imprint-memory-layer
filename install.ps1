@@ -27,6 +27,7 @@ $BinDir = Join-Path $env:USERPROFILE ".local\bin"
 
 function Write-Info    { param($Msg) Write-Host "[*] $Msg" -ForegroundColor Cyan }
 function Write-Success { param($Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
+function Write-Warn    { param($Msg) Write-Host "[!] $Msg" -ForegroundColor Yellow }
 function Write-Fail    { param($Msg) Write-Host "[x] $Msg" -ForegroundColor Red; exit 1 }
 
 # --- Resolve target tag ---
@@ -66,10 +67,15 @@ if ($TargetTag) {
 }
 
 # --- Check prerequisites ---
+# Claude Code CLI is no longer required up-front: `imprint setup all` probes
+# every supported host (Claude Code, Cursor, Codex, Copilot, Cline, OpenClaw,
+# Claude/ChatGPT Desktop) and skips whichever aren't installed. Warn but
+# don't bail — the user can install Claude Code later and run
+# `imprint setup claude-code` to register on demand.
 try {
     $null = Get-Command claude -ErrorAction Stop
 } catch {
-    Write-Fail "Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code/overview"
+    Write-Warn "Claude Code CLI not found. Imprint will install and register with any other supported host; add Claude Code later from https://docs.anthropic.com/en/docs/claude-code/overview then run 'imprint setup claude-code'."
 }
 
 # --- Download and extract release archive ---

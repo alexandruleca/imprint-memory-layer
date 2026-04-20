@@ -9,6 +9,13 @@ on:
       - 'README.md'
       - 'BENCHMARK.md'
       - '.github/workflows/pages.yml'
+  # Rebuild + redeploy after a successful Release so the download page
+  # (site/scripts/build-releases.mjs) picks up the new tag's .tar.gz/.zip/
+  # .exe/.pkg assets without waiting on the GitHub Pages cache or a manual
+  # dispatch.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -22,6 +29,11 @@ concurrency:
 
 jobs:
   build:
+    # workflow_run fires on both success and failure; skip the deploy if
+    # the Release run failed (no new assets to publish). Push/dispatch
+    # triggers have no workflow_run context so `conclusion` is empty and
+    # the expression short-circuits to true.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
