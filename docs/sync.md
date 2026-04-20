@@ -103,7 +103,7 @@ imprint sync wss://sync.yourdomain.com/abc123 --pin Ab3xY9Kq
 # → on accept: bidirectional merge, done
 ```
 
-Prebuilt relay images are on GHCR — see [installation.md](./installation.md#run-the-relay-server-docker) for Docker run commands.
+Prebuilt relay images are on GHCR — see the [Docker deployment guide](./docker.md) for pinned tags, `docker compose`, and TLS termination.
 
 ## Dashboard
 

@@ -10,10 +10,6 @@ concurrency:
 
 permissions:
   contents: write
-  packages: write
-
-env:
-  IMAGE: ghcr.io/alexandruleca/imprint-relay
 
 jobs:
   release:
@@ -81,31 +77,5 @@ jobs:
             dist/imprint-darwin-arm64.tar.gz \
             dist/imprint-windows-amd64.zip \
             dist/SHA256SUMS
-
-      - name: Setup QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push relay image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            ${{ env.IMAGE }}:dev
-            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Relay container image is built by .github/workflows/image.yml,
+          # which fires on workflow_run after this workflow succeeds.

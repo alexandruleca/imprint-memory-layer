@@ -4,16 +4,19 @@ const tabs = [
     id: 'unix',
     label: 'macOS / Linux',
     command: 'curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash',
+    hint: 'Then: <code class="font-mono">imprint setup all</code> · <code class="font-mono">imprint ingest .</code>',
   },
   {
     id: 'win',
     label: 'Windows (PowerShell)',
     command: 'irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex',
+    hint: 'Then: <code class="font-mono">imprint setup all</code> · <code class="font-mono">imprint ingest .</code>',
   },
   {
     id: 'docker',
-    label: 'Docker',
-    command: 'docker pull ghcr.io/alexandruleca/imprint-memory-layer:latest',
+    label: 'Docker (relay)',
+    command: 'docker run -d -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:latest',
+    hint: 'Self-hosted sync relay only — the MCP memory server still installs locally via the scripts above. Full deploy guide: <a href="/docker" class="underline hover:text-white">Docker docs</a>.',
   },
 ];
 ---
@@ -56,9 +59,7 @@ const tabs = [
               Copy
             </button>
           </div>
-          <div class="mt-4 text-xs text-[color:var(--color-text-muted)]">
-            Then: <code class="font-mono">imprint setup all</code> · <code class="font-mono">imprint ingest .</code>
-          </div>
+          <div class="mt-4 text-xs text-[color:var(--color-text-muted)]" set:html={t.hint}></div>
         </div>
       ))}
     </div>

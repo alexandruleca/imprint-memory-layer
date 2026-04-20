@@ -65,6 +65,7 @@ export default defineConfig({
           label: 'Operate',
           items: [
             { label: 'Configuration', slug: 'configuration' },
+            { label: 'Docker (relay)', slug: 'docker' },
             { label: 'Building from source', slug: 'building' },
           ],
         },
