@@ -45,7 +45,7 @@ package:
 		mkdir -p "$$STAGE/bin"; \
 		cp "$$SRCBIN" "$$STAGE/bin/imprint$$EXT"; \
 		chmod +x "$$STAGE/bin/imprint$$EXT"; \
-		UV_VERSION=$(UV_VERSION) scripts/fetch-uv.sh $$OS $$ARCH "$$STAGE"; \
+		UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh $$OS $$ARCH "$$STAGE"; \
 		if [ "$$OS" = "windows" ]; then \
 			python3 -c "import shutil; shutil.make_archive('dist/$$NAME', 'zip', 'dist', '$$NAME')"; \
 			echo "  dist/$$NAME.zip"; \
@@ -82,7 +82,7 @@ installer-windows:
 # Usage: make fetch-uv OS=linux ARCH=amd64 DEST=dist/imprint-linux-amd64
 fetch-uv:
 	@[ -n "$$OS" ] && [ -n "$$ARCH" ] && [ -n "$$DEST" ] || { echo "usage: make fetch-uv OS=<os> ARCH=<arch> DEST=<dir>"; exit 1; }
-	UV_VERSION=$(UV_VERSION) scripts/fetch-uv.sh "$$OS" "$$ARCH" "$$DEST"
+	UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh "$$OS" "$$ARCH" "$$DEST"
 
 clean:
 	rm -rf build/ dist/
