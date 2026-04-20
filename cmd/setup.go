@@ -65,14 +65,28 @@ func provisionWithUv(uv, venvDir, venvPython, baseReqs string) {
 	}
 
 	// Fresh venv? Create it. uv venv is idempotent but re-runs always
-	// replace, so only invoke when the python binary is actually missing.
+	// replace, so only invoke when the python binary is actually missing
+	// OR broken (stale path from a previous install, host Python that got
+	// removed, etc.).
 	//
 	// --python-preference only-managed forces uv to use its own
 	// python-build-standalone interpreter (installed under
 	// UV_PYTHON_INSTALL_DIR set by setupBackend) and never reach for a
 	// stray /usr/bin/python3.12 on the host — keeps Imprint's Python
 	// 100% scoped to the install tree.
-	if !platform.FileExists(venvPython) {
+	needCreate := !platform.FileExists(venvPython)
+	if !needCreate {
+		// Existing venv — make sure its interpreter actually runs. A common
+		// wedge after upgrading from the pre-uv era: the venv's pyvenv.cfg
+		// points at a Homebrew Python that's been removed, so the symlink
+		// resolves but the executable is dead.
+		if _, err := runner.RunCapture(venvPython, "--version"); err != nil {
+			output.Warn("Existing venv at " + venvDir + " is broken (" + err.Error() + ") — recreating")
+			_ = os.RemoveAll(venvDir)
+			needCreate = true
+		}
+	}
+	if needCreate {
 		output.Info("Creating virtual environment at " + venvDir + " (uv will download Python " + bundledPythonVersion + " if needed)...")
 		if err := runner.Run(uv, "venv", venvDir,
 			"--python", bundledPythonVersion,
@@ -377,6 +391,14 @@ func setupBackend() backendPaths {
 	if !usedLegacyFallback {
 		saveProfile(projectDir, profileState{Profile: profile, WithLLM: llmOn})
 	}
+
+	// Write the first-run sentinel that the macOS launcher (and Windows
+	// shortcut) checks to decide whether to re-run bootstrap. Lives in the
+	// writable base so it survives a .pkg upgrade but is wiped by
+	// `imprint uninstall`.
+	sentinel := filepath.Join(platform.MutableBaseDir(projectDir), ".first-run.done")
+	_ = os.MkdirAll(filepath.Dir(sentinel), 0755)
+	_ = os.WriteFile(sentinel, []byte{}, 0644)
 
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
 	reportExtractorHealth(venvPython, projectDir, dataDir)

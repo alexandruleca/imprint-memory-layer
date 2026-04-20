@@ -80,7 +80,13 @@ if [ ! -x "$UV" ]; then
     exit 1
 fi
 
-if [ ! -f "$SENTINEL" ]; then
+# A stale sentinel (e.g. left over from a prior install whose venv got
+# wiped, or an aborted bootstrap that touched the sentinel too eagerly)
+# would otherwise send us straight to `ui open`, which then fails with
+# "venv not found". Gate the sentinel on the venv actually existing.
+VENV_PY="$WRITABLE_HOME/.venv/bin/python"
+if [ ! -f "$SENTINEL" ] || [ ! -x "$VENV_PY" ]; then
+    [ -f "$SENTINEL" ] && rm -f "$SENTINEL"
     IFS='|' read -r PROFILE WITH_LLM <<< "$(prompt_profile)"
     run_bootstrap_in_terminal "${PROFILE:-cpu}" "${WITH_LLM:-0}"
     # Exit immediately — user will re-launch from Dock after Terminal shows
