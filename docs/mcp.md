@@ -6,7 +6,7 @@ title: MCP Tools & Automatic Updates
 
 ## MCP Tools
 
-The imprint MCP server exposes **12 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation of a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
+The imprint MCP server exposes **13 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation of a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
 
 ### Search & retrieval
 
@@ -26,6 +26,7 @@ The imprint MCP server exposes **12 tools**. `wake_up` is internal now — `sear
 | `store` | Save a decision/pattern/finding/bug/architecture/milestone. Returns immediately; embed + LLM tagging + upsert run on a background thread. Stores from MCP always use the LLM tagger regardless of `tagger.llm` config — the assumption is that an explicit save deserves good topic tags. |
 | `delete` | Remove a memory by id (as returned from `search`/`store`). |
 | `ingest_url` | Fetch an http(s) URL, extract content, chunk + embed + store. Skips unchanged pages (HEAD check against stored ETag/Last-Modified). |
+| `ingest_content` | Chunk + embed + store an inline blob — text, markdown, CSV, JSON, or code (`format="code:python"` etc.). Dedup + replace keyed by `name`: re-sending the same `name` overwrites prior chunks. Designed for API uploads and external services pushing data into memory. |
 
 ### Knowledge graph
 

@@ -24,14 +24,15 @@ permissions:
   contents: read
   packages: write
 
-env:
-  IMAGE: ghcr.io/alexandruleca/imprint-relay
-
 jobs:
-  build:
+  resolve:
     # Skip if the triggering release run failed. Always run on manual dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, linux, x64]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major_minor: ${{ steps.version.outputs.major_minor }}
+      channel: ${{ steps.channel.outputs.channel }}
     steps:
       - name: Determine channel
         id: channel
@@ -79,25 +80,45 @@ jobs:
           fi
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
           if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
             echo "major_minor=v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
           fi
           echo "Resolved version: $VERSION"
 
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.version != ''
+    runs-on: [self-hosted, linux, x64]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Lightweight sync relay — Go binary only, stateless.
+          - name: relay
+            image: ghcr.io/alexandruleca/imprint-relay
+            dockerfile: Dockerfile
+          # Full Imprint runtime — Go CLI + Python + dashboard UI + auto-Qdrant.
+          - name: imprint
+            image: ghcr.io/alexandruleca/imprint
+            dockerfile: Dockerfile.imprint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Checkout source at tag
-        if: steps.version.outputs.version != ''
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: git checkout "$VERSION"
 
       - name: Compute image tags
         id: tags
-        if: steps.version.outputs.version != ''
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          MAJOR_MINOR: ${{ steps.version.outputs.major_minor }}
-          CHANNEL: ${{ steps.channel.outputs.channel }}
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
         run: |
           set -euo pipefail
           TAGS="${IMAGE}:${VERSION}"
@@ -116,31 +137,27 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Setup QEMU
-        if: steps.version.outputs.version != ''
         uses: docker/setup-qemu-action@v3
 
       - name: Setup Buildx
-        if: steps.version.outputs.version != ''
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
-        if: steps.version.outputs.version != ''
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push relay image
-        if: steps.version.outputs.version != ''
+      - name: Build and push ${{ matrix.name }} image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            VERSION=${{ steps.version.outputs.version }}
+            VERSION=${{ needs.resolve.outputs.version }}
           tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

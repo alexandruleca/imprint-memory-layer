@@ -1,0 +1,73 @@
+# All-in-one Imprint container: Go CLI + Python runtime + auto-spawned Qdrant
+# + dashboard UI/API on :8420. Embedding model and Qdrant binary download on
+# first use into the mounted /data volume so the image stays slim.
+#
+# Not the same as `Dockerfile` (the lightweight relay image). This one is for
+# users who want to run imprint itself in a container — browse memories,
+# ingest content via the MCP `ingest_content` tool or the API, and drive the
+# CLI via `docker exec`.
+
+# ── Stage 1: Go CLI binary ────────────────────────────────────────────
+FROM golang:1.25-alpine AS go-builder
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /out/imprint .
+
+# ── Stage 2: Python runtime ───────────────────────────────────────────
+FROM python:3.11-slim
+
+ARG VERSION=dev
+ENV IMPRINT_VERSION=${VERSION} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    IMPRINT_DATA_DIR=/data \
+    HF_HOME=/data/hf-cache \
+    XDG_CACHE_HOME=/data/cache
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl libgomp1 tini \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python deps. llama-cpp-python is stripped — it requires a C++ toolchain to
+# build and the `local` chat provider isn't the primary path inside the
+# container. Remote chat providers (openai/anthropic/ollama/vllm/gemini) still
+# work because chat.py imports llama_cpp lazily.
+COPY requirements.txt /tmp/requirements.txt
+RUN grep -v "^llama-cpp-python" /tmp/requirements.txt > /tmp/requirements.docker.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.docker.txt \
+    && rm /tmp/requirements.txt /tmp/requirements.docker.txt
+
+# Imprint Python package + Go binary + entrypoint.
+COPY imprint/ /app/imprint/
+COPY --from=go-builder /out/imprint /usr/local/bin/imprint
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/imprint /usr/local/bin/entrypoint.sh
+
+# Run as non-root. /data and /workspace are owned by this user so volume
+# mounts from the host Just Work (user overrides with -u if they prefer).
+RUN useradd --system --create-home --uid 1000 imprint \
+    && mkdir -p /data /workspace \
+    && chown -R imprint:imprint /data /workspace /app
+
+USER imprint
+WORKDIR /workspace
+
+EXPOSE 8420
+
+# /health is provided by the FastAPI app (status endpoint).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8420/api/version || exit 1
+
+# tini reaps Qdrant + uvicorn children cleanly on SIGTERM.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+CMD ["api"]

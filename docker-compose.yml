@@ -1,4 +1,29 @@
 services:
+  # Full Imprint runtime — dashboard UI on :8420, auto-spawned Qdrant,
+  # lazy model download. Bind-mount your project repo at /workspace so
+  # `docker exec imprint imprint ingest /workspace` indexes it in place.
+  imprint:
+    image: ghcr.io/alexandruleca/imprint:latest
+    restart: unless-stopped
+    ports:
+      - "8420:8420"
+    volumes:
+      - imprint-data:/data
+      # Uncomment to expose your project for in-container ingest:
+      # - ./:/workspace:ro
+    environment:
+      IMPRINT_DATA_DIR: /data
+      HF_HOME: /data/hf-cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8420/api/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Sync relay — stateless WebSocket forwarder for peer sync. Small and
+  # independent from the full runtime; run only if you want to self-host
+  # a sync relay.
   imprint-relay:
     image: ghcr.io/alexandruleca/imprint-relay:latest
     restart: unless-stopped
@@ -11,3 +36,7 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    profiles: ["relay"]
+
+volumes:
+  imprint-data:
