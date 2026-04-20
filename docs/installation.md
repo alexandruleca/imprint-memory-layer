@@ -31,6 +31,23 @@ irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/in
 
 This clones the repo, builds the binary, installs Python dependencies (including ONNX Runtime + Qdrant client + Chonkie), registers the MCP server, configures Claude Code hooks, and sets up shell aliases. One command, everything ready.
 
+## Supported hosts
+
+`imprint setup all` probes for each of the following and wires whichever it finds. Missing tools are skipped cleanly:
+
+| Target | Config path | Notes |
+|---|---|---|
+| `claude-code` | `~/.claude/` | Claude Code CLI (stdio MCP + hooks). |
+| `claude-desktop` | macOS `~/Library/Application Support/Claude/` · Windows `%APPDATA%\Claude\` or `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\` (MS Store install) | Anthropic's desktop app. Detects both the standalone and Microsoft Store (MSIX) install layouts. **WSL2-aware**: when run from a WSL shell, writes the config to the Windows-side `claude_desktop_config.json` and wires the command through `wsl.exe -d <distro> -- env <PYTHONPATH=...> <venv-python> -m imprint`, so the Windows app launches the Linux venv directly. No second Windows-side install needed. |
+| `chatgpt-desktop` | — | Detection-only. ChatGPT Desktop wires MCP via in-app hosted connectors (SSE), not a local stdio config, so `setup` reports the install and points at the `supergateway` reverse-proxy pattern. |
+| `cursor` | `~/.cursor/` | MCP + hooks + always-on rule. |
+| `codex` | `~/.codex/` | Codex CLI (TOML config). |
+| `copilot` | VS Code settings | Custom instructions + `mcp.json`. |
+| `cline` | `~/.clinerules/` + Cline extension + CLI | Rules file + MCP entries in both the VS Code extension and the Cline CLI. |
+| `openclaw` | `~/.openclaw/openclaw.json` | Also recognized as `clawdbot` / `moltbot`. Nested `mcp.servers` key. |
+
+Target a specific host with `imprint setup <target>` (e.g. `imprint setup claude-desktop`).
+
 ## Install a specific version or channel
 
 The default installer resolves `/releases/latest`, which GitHub maps to the most recent **stable** (non-prerelease) build. Two release channels are published:

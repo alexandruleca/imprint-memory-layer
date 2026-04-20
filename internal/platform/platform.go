@@ -2,6 +2,7 @@ package platform
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -263,6 +264,243 @@ func CodexHooksPath() string {
 // CodexAgentsPath returns the user-global Codex AGENTS.md (~/.codex/AGENTS.md).
 func CodexAgentsPath() string {
 	return filepath.Join(HomeDir(), ".codex", "AGENTS.md")
+}
+
+// ── Windows-side user profile (WSL-aware) ──────────────────────
+
+var (
+	winUserOnce    sync.Once
+	winUserProfile string
+)
+
+// WindowsUserProfile returns the Windows ``%USERPROFILE%`` as a WSL-mount
+// path (e.g. ``/mnt/c/Users/alex``) when running inside WSL. Returns the
+// empty string on non-WSL hosts or when the Windows user can't be resolved.
+// Cached after the first call.
+//
+// Resolution order:
+//  1. ``cmd.exe /C echo %USERPROFILE%`` — authoritative, reads the real
+//     Windows env.
+//  2. Scan ``/mnt/c/Users/`` and pick the only non-system entry (falls
+//     back when cmd.exe is absent from PATH, e.g. in some locked-down
+//     WSL configs).
+func WindowsUserProfile() string {
+	if !IsWSL() {
+		return ""
+	}
+	winUserOnce.Do(func() {
+		if p := resolveFromCmdExe(); p != "" {
+			winUserProfile = p
+			return
+		}
+		winUserProfile = resolveFromUsersDir()
+	})
+	return winUserProfile
+}
+
+func resolveFromCmdExe() string {
+	cmd := exec.Command("cmd.exe", "/C", "echo", "%USERPROFILE%")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	raw := strings.TrimSpace(string(out))
+	if raw == "" || raw == "%USERPROFILE%" {
+		return ""
+	}
+	translated := TranslateWSLPath(raw)
+	if translated == "" || translated == raw {
+		// Translation didn't produce a /mnt/... path — bail.
+		return ""
+	}
+	if _, err := os.Stat(translated); err != nil {
+		return ""
+	}
+	return translated
+}
+
+// resolveFromUsersDir scans /mnt/c/Users for the single non-system profile
+// directory. Works for typical single-user Windows installs without needing
+// cmd.exe on PATH.
+func resolveFromUsersDir() string {
+	base := "/mnt/c/Users"
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return ""
+	}
+	systemDirs := map[string]struct{}{
+		"Public": {}, "Default": {}, "Default User": {}, "All Users": {},
+		"WDAGUtilityAccount": {}, "desktop.ini": {},
+	}
+	var found string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if _, skip := systemDirs[name]; skip {
+			continue
+		}
+		if !e.IsDir() {
+			continue
+		}
+		if found != "" {
+			// Multiple profiles — ambiguous, caller should specify.
+			return ""
+		}
+		found = filepath.Join(base, name)
+	}
+	return found
+}
+
+// ── Desktop app MCP config paths ───────────────────────────────
+
+// ClaudeDesktopConfigPath returns the path where Imprint should write
+// Anthropic's Claude Desktop MCP config. WSL-aware and Microsoft-Store-
+// install aware.
+//
+// Windows (including WSL) supports two install flavours:
+//
+//  1. **Standalone installer** — config at ``%APPDATA%\Claude\claude_desktop_config.json``.
+//  2. **Microsoft Store** (MSIX) — the app is sandboxed and the ``%APPDATA%``
+//     virtualisation redirects the config under
+//     ``%LOCALAPPDATA%\Packages\Claude_<publisherHash>\LocalCache\Roaming\Claude\claude_desktop_config.json``.
+//     The publisher hash varies per vendor, so we glob ``Packages/Claude_*``.
+//
+// Resolution order:
+//  1. If a Store-install config dir already exists, return that path
+//     (even if the file itself hasn't been created yet).
+//  2. Else return the standalone path (create-on-write).
+//
+// Returns the empty string if the platform is unsupported or (on WSL) the
+// Windows profile can't be resolved.
+func ClaudeDesktopConfigPath() string {
+	candidates := claudeDesktopConfigCandidates()
+	if len(candidates) == 0 {
+		return ""
+	}
+	// Prefer a candidate whose parent directory already exists (app has run
+	// at least once), so Store installs win over the standalone fallback
+	// when both virtually exist.
+	for _, c := range candidates {
+		if DirExists(filepath.Dir(c)) {
+			return c
+		}
+	}
+	// None of the config dirs exist yet — return the first candidate so
+	// the writer can create it.
+	return candidates[0]
+}
+
+// claudeDesktopConfigCandidates returns every candidate config path for the
+// current host, ordered by preference (Store install before standalone).
+func claudeDesktopConfigCandidates() []string {
+	var winProfile string
+	isWin := runtime.GOOS == "windows"
+	if IsWSL() {
+		winProfile = WindowsUserProfile()
+		if winProfile == "" {
+			return nil
+		}
+	} else if isWin {
+		winProfile = HomeDir()
+	}
+
+	if winProfile != "" {
+		// Store install: %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude
+		localPackages := filepath.Join(winProfile, "AppData", "Local", "Packages")
+		matches, _ := filepath.Glob(filepath.Join(localPackages, "Claude_*", "LocalCache", "Roaming", "Claude"))
+		var out []string
+		for _, m := range matches {
+			out = append(out, filepath.Join(m, "claude_desktop_config.json"))
+		}
+		// Standalone: %APPDATA%\Claude (always appended as fallback).
+		roamingClaude := filepath.Join(winProfile, "AppData", "Roaming", "Claude", "claude_desktop_config.json")
+		out = append(out, roamingClaude)
+		return out
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		return []string{
+			filepath.Join(HomeDir(), "Library", "Application Support", "Claude", "claude_desktop_config.json"),
+		}
+	case "linux":
+		xdg := os.Getenv("XDG_CONFIG_HOME")
+		if xdg == "" {
+			xdg = filepath.Join(HomeDir(), ".config")
+		}
+		return []string{filepath.Join(xdg, "Claude", "claude_desktop_config.json")}
+	}
+	return nil
+}
+
+// ClaudeDesktopInstallMarker returns a path whose existence proves Claude
+// Desktop is installed on this host. Used by SetupClaudeDesktop for the
+// "is the app present?" check — the config file itself is created lazily
+// (first MCP edit), so we can't use it as a presence signal.
+//
+// Windows/WSL: uses the same candidate list as ClaudeDesktopConfigPath
+// and returns the first existing parent dir.
+func ClaudeDesktopInstallMarker() string {
+	if runtime.GOOS == "darwin" && !IsWSL() {
+		return "/Applications/Claude.app"
+	}
+	for _, c := range claudeDesktopConfigCandidates() {
+		if DirExists(filepath.Dir(c)) {
+			return filepath.Dir(c)
+		}
+	}
+	// Secondary Windows signals: Local/Claude (browser extension native host)
+	// or a Packages/Claude_* dir even without the LocalCache/Roaming path
+	// yet (e.g. app installed but never launched).
+	var winProfile string
+	if IsWSL() {
+		winProfile = WindowsUserProfile()
+	} else if runtime.GOOS == "windows" {
+		winProfile = HomeDir()
+	}
+	if winProfile != "" {
+		for _, p := range []string{
+			filepath.Join(winProfile, "AppData", "Local", "Claude"),
+		} {
+			if DirExists(p) {
+				return p
+			}
+		}
+		matches, _ := filepath.Glob(filepath.Join(winProfile, "AppData", "Local", "Packages", "Claude_*"))
+		if len(matches) > 0 {
+			return matches[0]
+		}
+	}
+	return ""
+}
+
+// ChatGPTDesktopInstallMarker returns a path that exists only when the
+// OpenAI ChatGPT Desktop app is installed. WSL-aware (checks the Windows
+// side of the mount). Used for detection only — ChatGPT Desktop does not
+// ship a local MCP config file; MCP connectors are wired in-app via
+// Settings → Connectors with a hosted (SSE) server, not a local stdio
+// server like Imprint. Returns the empty string on unsupported platforms.
+func ChatGPTDesktopInstallMarker() string {
+	if IsWSL() {
+		profile := WindowsUserProfile()
+		if profile == "" {
+			return ""
+		}
+		return filepath.Join(profile, "AppData", "Local", "Programs", "OpenAI", "ChatGPT")
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return "/Applications/ChatGPT.app"
+	case "windows":
+		local := os.Getenv("LOCALAPPDATA")
+		if local == "" {
+			local = filepath.Join(HomeDir(), "AppData", "Local")
+		}
+		return filepath.Join(local, "Programs", "OpenAI", "ChatGPT")
+	}
+	return ""
 }
 
 // OpenClawConfigDir returns the user-global OpenClaw config directory (~/.openclaw).

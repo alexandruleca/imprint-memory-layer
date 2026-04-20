@@ -90,6 +90,12 @@ func Disable(args []string) {
 		}
 	}
 
+	// Claude Desktop (mcpServers). WSL-aware — walks the Windows-side
+	// config (standalone or MS Store redirect) when running inside WSL.
+	if claudeDesktopPath := platform.ClaudeDesktopConfigPath(); claudeDesktopPath != "" {
+		removeJSONServer(claudeDesktopPath, "mcpServers", "Claude Desktop MCP config")
+	}
+
 	// Cursor (mcpServers).
 	removeJSONServer(platform.CursorMCPPath(), "mcpServers", "Cursor MCP config")
 
@@ -156,7 +162,7 @@ func Enable(args []string) {
 	fmt.Println()
 
 	if !DispatchSetup(target) {
-		output.Fail("unknown target: " + target + " (expected: claude-code | cursor | codex | copilot | cline | openclaw | all)")
+		output.Fail("unknown target: " + target + " (expected: claude-code | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all)")
 	}
 
 	// Pre-warm the Qdrant server so the next MCP call doesn't pay the

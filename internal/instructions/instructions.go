@@ -58,6 +58,21 @@ const CodexRule = ImprintBase
 // frontmatter.
 const CopilotRule = ImprintBase
 
+// DesktopProfileSnippet is the short, paste-friendly version for clients
+// that don't honor the MCP handshake ``instructions`` field — typically the
+// consumer desktop apps (Claude Desktop "Styles", ChatGPT Desktop "Custom
+// Instructions"). Kept tight (<700 chars) so it fits in per-profile input
+// boxes that clip long text.
+const DesktopProfileSnippet = `Imprint MCP is connected. It's a semantic memory index over my prior projects, decisions, bugs, and patterns.
+
+For any non-trivial question:
+1. Call ` + "`search`" + ` from the imprint server FIRST — before reading files or guessing.
+2. "High-confidence results" → answer from them directly. "Low-confidence" → fall back to other tools.
+3. Use ` + "`neighbors`" + ` or ` + "`graph_scope`" + ` to explore around a hit. Use ` + "`file_chunks`" + ` to expand truncated chunks.
+4. After the user accepts a decision/pattern/fix, call ` + "`store`" + ` (or ` + "`ingest_content`" + ` for bulkier payloads). Include the WHY, not just the WHAT.
+
+Never skip search "just to be safe" — that's the memory. Skipping defeats the point.`
+
 // MarkerStart and MarkerEnd delimit the managed Imprint section in rule
 // files so re-running setup replaces only our block instead of clobbering
 // unrelated user content (used for ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md,
