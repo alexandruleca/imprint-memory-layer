@@ -20,6 +20,14 @@ function pctClass(s?: string) {
   return '';
 }
 
+function qualityClass(s?: string) {
+  if (!s) return '';
+  const v = parseFloat(s);
+  if (v > 0) return 'text-[color:var(--color-success)]';
+  if (v < 0) return 'text-[color:var(--color-warning)]';
+  return '';
+}
+
 function fmtTokens(n?: number) {
   if (typeof n !== 'number') return '—';
   return n.toLocaleString('en-US');
@@ -37,7 +45,7 @@ function fmtTokens(n?: number) {
     </p>
 
     {overall && (
-      <section class="mt-10 grid gap-4 sm:grid-cols-3">
+      <section class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
           <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)]">Tokens</div>
           <div class="mt-2 text-4xl font-bold font-mono text-[color:var(--color-success)]">{overall.tokenPct}</div>
@@ -52,6 +60,16 @@ function fmtTokens(n?: number) {
             ${overall.costOff?.toFixed(4)} → ${overall.costOn?.toFixed(4)}
           </div>
         </div>
+        {overall.qualityPct && (
+          <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+            <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)]">Quality</div>
+            <div class="mt-2 text-4xl font-bold font-mono text-[color:var(--color-success)]">{overall.qualityPct}</div>
+            <div class="mt-1 text-sm text-[color:var(--color-text-muted)] font-mono">
+              weighted avg · LLM-as-judge<br />
+              vs OFF baseline (0% = tie)
+            </div>
+          </div>
+        )}
         <div class="rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
           <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)]">Environment</div>
           <div class="mt-2 text-sm text-[color:var(--color-text)] font-mono leading-relaxed">
@@ -69,14 +87,24 @@ function fmtTokens(n?: number) {
       </section>
     )}
 
+    <section class="mt-8 rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
+      <h3 class="text-lg font-semibold">Reading the numbers: cost vs. quality</h3>
+      <p class="mt-2 text-sm text-[color:var(--color-text-muted)] leading-relaxed">
+        The two categories where ON costs <em>more</em> — Session Summary and Creation — aren't regressions. They're the categories where Imprint returns substantially richer responses (+35% and +44% quality vs OFF, judged by Claude on completeness, accuracy, structure, specificity, and scope fidelity). ON pulls facts from many indexed sources in one go where OFF reads one or two files and paraphrases. The extra tokens buy a more complete first answer — and for creation prompts especially, a more complete first answer is what cuts the follow-up round trips that never show up in a single-prompt benchmark.
+      </p>
+    </section>
+
     <section class="mt-16 space-y-10">
       {categories.map((cat: any) => (
         <div class="rounded-2xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)] overflow-hidden">
           <div class="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[color:var(--color-border)]">
             <h2 class="text-xl font-bold">{cat.label}</h2>
-            <div class="flex items-center gap-4 text-sm font-mono">
+            <div class="flex flex-wrap items-center gap-4 text-sm font-mono">
               <span class={pctClass(cat.avgTokens)}>tokens {cat.avgTokens}</span>
               <span class={pctClass(cat.avgCost)}>cost {cat.avgCost}</span>
+              {cat.quality && (
+                <span class={qualityClass(cat.quality)}>quality {cat.quality}</span>
+              )}
             </div>
           </div>
           <div class="overflow-x-auto">
@@ -107,6 +135,17 @@ function fmtTokens(n?: number) {
               </tbody>
             </table>
           </div>
+          {cat.note && (
+            <div class="px-6 py-4 border-t border-[color:var(--color-border)]/60 bg-[color:var(--color-bg-elevated)]/40">
+              <div class="flex items-start gap-3">
+                <span class="mt-0.5 inline-flex h-6 px-2 items-center rounded-full text-[10px] uppercase tracking-widest font-semibold bg-[color:var(--color-accent)]/15 text-[color:var(--color-accent)] border border-[color:var(--color-accent)]/30">Why</span>
+                <div class="text-sm leading-relaxed">
+                  <div class="font-semibold text-[color:var(--color-text)]">{cat.note.headline}</div>
+                  <p class="mt-1 text-[color:var(--color-text-muted)]">{cat.note.body}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ))}
     </section>
