@@ -603,6 +603,36 @@
             },
             "description": "Resolve a pending provider-side approval after /api/sync/serve emits `approval_required`. `decision` must be one of `accept` (one-time), `trust` (accept + persist fingerprint), or `reject`. 404 if no approval is pending (already decided, cancelled, or auto-accepted because the peer fingerprint is already trusted)."
           }
+        },
+        {
+          "name": "Desktop exports history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/desktop-learn/history",
+              "host": ["{{base_url}}"],
+              "path": ["api", "desktop-learn", "history"]
+            },
+            "description": "Previously-indexed Claude Desktop / ChatGPT Desktop export zips, keyed by SHA. Used by the dashboard to render the 'Indexed exports' list."
+          }
+        },
+        {
+          "name": "Scan Downloads for desktop exports",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paths\": []\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/desktop-learn/scan",
+              "host": ["{{base_url}}"],
+              "path": ["api", "desktop-learn", "scan"]
+            },
+            "description": "One-shot scan of the user's Downloads folder(s) for Claude / ChatGPT Desktop conversation exports. WSL-aware — probes both the Linux home and /mnt/c/Users/<user>/Downloads. `paths` adds extra scan roots. Dedups by SHA-256, so re-runs are cheap."
+          }
         }
       ]
     },

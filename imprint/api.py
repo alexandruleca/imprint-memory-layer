@@ -914,6 +914,59 @@ async def api_sync_cancel(request: Request):
     return {"ok": True}
 
 
+@app.get("/api/desktop-learn/history")
+def api_desktop_learn_history():
+    """Return the tracker of previously-indexed desktop-export zips.
+
+    Shape: ``{"seen": {<sha>: {path, origin, indexed_at, chunks}}, "count": N}``.
+    Used by the dashboard's Sync page to show which Claude / ChatGPT
+    Desktop exports have been ingested.
+    """
+    from .cli_desktop_learn import load_history
+    return load_history()
+
+
+@app.post("/api/desktop-learn/scan")
+async def api_desktop_learn_scan(request: Request):
+    """Run a one-shot Downloads scan for Claude / ChatGPT Desktop exports.
+
+    Body (all optional): ``{"paths": ["/extra/dir", ...]}``. The scanner's
+    default roots (``~/Downloads`` + WSL Windows-side Downloads) are
+    always included.
+
+    Returns the structured scan result:
+
+        {
+          "roots": [...],
+          "scanned": int,
+          "skipped_seen": int,
+          "indexed_zips": int,
+          "inserted_chunks": int,
+          "indexed": [{path, origin, chunks, indexed_at}, ...]
+        }
+
+    Blocking — typical cost is a few ms when no new exports exist; one
+    new export takes as long as chunking + embedding its
+    ``conversations.json`` (seconds to minutes depending on size).
+    """
+    body: dict = {}
+    if request.headers.get("content-type", "").startswith("application/json"):
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+    paths = body.get("paths") or []
+    if not isinstance(paths, list):
+        return JSONResponse({"error": "paths must be an array"}, status_code=400)
+
+    from .cli_desktop_learn import scan_once_api
+    try:
+        result = await asyncio.to_thread(scan_once_api, [str(p) for p in paths])
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return result
+
+
 @app.post("/api/sync/approve")
 async def api_sync_approve(request: Request):
     """Resolve a pending provider-side approval prompt.

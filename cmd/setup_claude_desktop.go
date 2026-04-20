@@ -78,6 +78,7 @@ func SetupClaudeDesktop() {
 	output.Info("  1. Fully quit and relaunch Claude Desktop (tray → Quit, then reopen)")
 	output.Info("  2. Verify the 'imprint' server appears in Settings → Developer → MCP")
 	output.Info("  3. `imprint ingest <dir>` on the CLI to index your projects")
+	output.Info("  4. Auto-sync past conversations: request a data export in claude.ai (Settings → Privacy → Export), then run `imprint learn --desktop`. Re-runs are cheap — already-indexed zips are skipped.")
 }
 
 // buildClaudeDesktopSpec returns the MCP server spec appropriate for the

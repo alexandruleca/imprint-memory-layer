@@ -36,6 +36,7 @@ func SetupChatGPTDesktop() {
 	output.Info("To consume Imprint: expose it via a reverse proxy with SSE (e.g. `supergateway`) and add the public URL under Settings → Connectors.")
 	output.Info("Meanwhile, paste the following into Settings → Personalization → Custom Instructions so ChatGPT reaches for the imprint tools first:")
 	printIndentedBlock(instructions.DesktopProfileSnippet)
+	output.Info("Auto-sync past conversations: request a data export in chat.openai.com (Settings → Data controls → Export), then run `imprint learn --desktop`. The scanner picks up the zip from your Downloads folder.")
 }
 
 // printIndentedBlock writes a multi-line string indented two spaces so it
