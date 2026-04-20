@@ -16,6 +16,9 @@ dist/
 # Website (GitHub Pages site, built separately)
 site/
 
+# Installer sources (built on platform-specific runners, not needed inside archives)
+installers/
+
 # Test artifacts + benchmark results
 benchmark/results/
 __pycache__/

@@ -1,0 +1,223 @@
+---
+import releases from '../data/releases.json';
+
+interface Props {
+  className?: string;
+}
+const { className = '' } = Astro.props;
+
+const latest = releases.latestStable;
+const tag = latest?.tag ?? 'latest';
+const pubDate = latest?.publishedAt
+  ? new Date(latest.publishedAt).toLocaleDateString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric',
+    })
+  : '';
+
+const grouped = {
+  macos: (latest?.assets ?? []).filter((a) => a.os === 'macos'),
+  windows: (latest?.assets ?? []).filter((a) => a.os === 'windows'),
+  linux: (latest?.assets ?? []).filter((a) => a.os === 'linux'),
+};
+
+// macOS: prefer arm64 (Apple Silicon is the majority of active users today).
+// Windows/Linux: prefer amd64 (arm64 is still niche on both).
+function primary(list, os) {
+  if (!list.length) return null;
+  const installer = list.find((a) => a.kind === 'installer');
+  const archive   = list.find((a) => a.kind === 'archive');
+  const preferArch = os === 'macos' ? 'arm64' : 'amd64';
+  const byArch = (a) => a?.arch === preferArch ? 0 : 1;
+
+  const installers = list.filter((a) => a.kind === 'installer').sort((a, b) => byArch(a) - byArch(b));
+  if (installers.length) return installers[0];
+  const archives = list.filter((a) => a.kind === 'archive').sort((a, b) => byArch(a) - byArch(b));
+  return archives[0] || list[0] || null;
+}
+
+const cards = [
+  {
+    id: 'macos',
+    label: 'macOS',
+    icon: '',
+    assets: grouped.macos,
+    primary: primary(grouped.macos, 'macos'),
+    fallbackHint: 'Prefer the CLI? The <code class="font-mono">.tar.gz</code> below contains the same binary — extract and run <code class="font-mono">./bin/imprint setup</code>.',
+  },
+  {
+    id: 'windows',
+    label: 'Windows',
+    icon: '',
+    assets: grouped.windows,
+    primary: primary(grouped.windows, 'windows'),
+    fallbackHint: 'Prefer the CLI? The <code class="font-mono">.zip</code> below contains the same binary — unzip and run <code class="font-mono">bin\\imprint.exe setup</code>.',
+  },
+  {
+    id: 'linux',
+    label: 'Linux',
+    icon: '',
+    assets: grouped.linux,
+    primary: primary(grouped.linux, 'linux'),
+    fallbackHint: 'Extract the archive and run <code class="font-mono">./bin/imprint setup</code>.',
+  },
+];
+---
+
+<section class={`relative ${className}`}>
+  <div class="flex flex-wrap items-baseline justify-between gap-3 mb-6">
+    <div>
+      <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">
+        Download Imprint
+        <span class="ml-2 text-sm font-mono text-[color:var(--color-accent)]">{tag}</span>
+      </h2>
+      {pubDate && (
+        <p class="mt-1 text-sm text-[color:var(--color-text-muted)]">Released {pubDate}</p>
+      )}
+    </div>
+    <a
+      href={latest?.htmlUrl ?? `https://github.com/${releases.repo}/releases`}
+      class="text-sm text-[color:var(--color-text-muted)] hover:text-white underline"
+    >
+      Release notes ↗
+    </a>
+  </div>
+
+  <div class="grid gap-4 sm:grid-cols-3" data-download-grid>
+    {cards.map((c) => (
+      <div
+        data-download-card={c.id}
+        class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5 flex flex-col"
+      >
+        <div class="flex items-center justify-between">
+          <div class="text-lg font-semibold">{c.label}</div>
+          <span
+            data-download-detected={c.id}
+            class="hidden text-[10px] uppercase tracking-widest text-[color:var(--color-accent)] font-semibold"
+          >
+            Detected
+          </span>
+        </div>
+
+        {c.primary ? (
+          <>
+            <a
+              data-download-primary={c.id}
+              data-primary-amd64={c.assets.find((a) => a.arch === 'amd64' && a.kind === c.primary.kind)?.url ?? c.primary.url}
+              data-primary-arm64={c.assets.find((a) => a.arch === 'arm64' && a.kind === c.primary.kind)?.url ?? c.primary.url}
+              data-primary-name-amd64={c.assets.find((a) => a.arch === 'amd64' && a.kind === c.primary.kind)?.name ?? c.primary.name}
+              data-primary-name-arm64={c.assets.find((a) => a.arch === 'arm64' && a.kind === c.primary.kind)?.name ?? c.primary.name}
+              data-primary-size-amd64={c.assets.find((a) => a.arch === 'amd64' && a.kind === c.primary.kind)?.sizeLabel ?? c.primary.sizeLabel}
+              data-primary-size-arm64={c.assets.find((a) => a.arch === 'arm64' && a.kind === c.primary.kind)?.sizeLabel ?? c.primary.sizeLabel}
+              href={c.primary.url}
+              class="mt-4 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[color:var(--color-accent)] text-black font-semibold text-sm hover:brightness-110 transition"
+            >
+              Download {c.primary.kindLabel}
+            </a>
+            <div class="mt-2 text-xs font-mono text-[color:var(--color-text-muted)] truncate" data-download-filename={c.id} title={c.primary.name}>
+              {c.primary.name} · {c.primary.sizeLabel}
+            </div>
+          </>
+        ) : (
+          <div class="mt-4 text-sm text-[color:var(--color-text-muted)]">Not yet available for this release.</div>
+        )}
+
+        {c.assets.length > 1 && (
+          <div class="mt-4 pt-4 border-t border-[color:var(--color-border)]/60">
+            <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)] mb-2">Other builds</div>
+            <ul class="space-y-1.5 text-xs">
+              {c.assets.filter((a) => a !== c.primary).map((a) => (
+                <li>
+                  <a href={a.url} class="flex justify-between items-center gap-3 text-[color:var(--color-text-muted)] hover:text-white">
+                    <span class="truncate font-mono" title={a.name}>{a.name}</span>
+                    <span class="shrink-0">{a.sizeLabel}</span>
+                  </a>
+                  {a.archLabel && (
+                    <div class="text-[10px] text-[color:var(--color-text-muted)]/70">{a.archLabel} · {a.kindLabel}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div class="mt-4 text-[11px] text-[color:var(--color-text-muted)]/80" set:html={c.fallbackHint} />
+      </div>
+    ))}
+  </div>
+
+  <p class="mt-6 text-xs text-[color:var(--color-text-muted)]">
+    Prefer one command? The <a href="/#install" class="underline hover:text-white">curl / PowerShell installers</a> download the same archives and run <code class="font-mono">imprint setup</code> automatically.
+  </p>
+</section>
+
+<script>
+  type Os = 'macos' | 'windows' | 'linux';
+  type Arch = 'amd64' | 'arm64';
+
+  const ua = navigator.userAgent;
+  let detectedOs: Os | null = null;
+  if (/Mac OS X|Macintosh/i.test(ua)) detectedOs = 'macos';
+  else if (/Windows/i.test(ua)) detectedOs = 'windows';
+  else if (/Linux|X11/i.test(ua)) detectedOs = 'linux';
+
+  // Arch detection is best-effort:
+  //   - Chromium: navigator.userAgentData.getHighEntropyValues(['architecture'])
+  //   - macOS fallback: WebGL renderer string names the M-series chip
+  //   - Otherwise assume amd64 (still the common case on Win/Linux)
+  async function detectArch(os: Os): Promise<Arch> {
+    const nav = navigator as any;
+    try {
+      if (nav.userAgentData?.getHighEntropyValues) {
+        const hints = await nav.userAgentData.getHighEntropyValues(['architecture', 'bitness']);
+        if (hints?.architecture === 'arm') return 'arm64';
+        if (hints?.architecture === 'x86' && hints?.bitness === '64') return 'amd64';
+      }
+    } catch { /* ignore */ }
+
+    if (os === 'macos') {
+      try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') as WebGLRenderingContext | null;
+        if (gl) {
+          const ext = gl.getExtension('WEBGL_debug_renderer_info');
+          const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
+          if (typeof renderer === 'string' && /Apple (M\d|GPU)/i.test(renderer)) return 'arm64';
+          if (typeof renderer === 'string' && /Intel|AMD|NVIDIA/i.test(renderer)) return 'amd64';
+        }
+      } catch { /* ignore */ }
+      // Apple Silicon shipped Nov 2020 → sensible default for today's visitors.
+      return 'arm64';
+    }
+    return 'amd64';
+  }
+
+  function swapPrimary(os: Os, arch: Arch) {
+    const btn = document.querySelector<HTMLAnchorElement>(`[data-download-primary="${os}"]`);
+    const meta = document.querySelector<HTMLElement>(`[data-download-filename="${os}"]`);
+    if (!btn) return;
+    const url  = btn.getAttribute(`data-primary-${arch}`);
+    const name = btn.getAttribute(`data-primary-name-${arch}`);
+    const size = btn.getAttribute(`data-primary-size-${arch}`);
+    if (url) btn.href = url;
+    if (meta && name && size) {
+      meta.textContent = `${name} · ${size}`;
+      meta.title = name;
+    }
+  }
+
+  (async () => {
+    if (!detectedOs) return;
+
+    const card = document.querySelector<HTMLElement>(`[data-download-card="${detectedOs}"]`);
+    const badge = document.querySelector<HTMLElement>(`[data-download-detected="${detectedOs}"]`);
+    const grid = document.querySelector<HTMLElement>('[data-download-grid]');
+    if (card && grid) {
+      card.classList.add('ring-2', 'ring-[color:var(--color-accent)]', 'sm:order-first');
+      grid.prepend(card);
+    }
+    if (badge) badge.classList.remove('hidden');
+
+    const arch = await detectArch(detectedOs);
+    swapPrimary(detectedOs, arch);
+  })();
+</script>

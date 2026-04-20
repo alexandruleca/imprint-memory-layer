@@ -1,0 +1,82 @@
+#!/bin/bash
+# Runs once, as root, at the end of `imprint-darwin-<arch>.pkg` installation.
+#
+# Responsibilities:
+#   1. Strip the quarantine xattr so the unsigned .app opens from Launchpad
+#      without the "damaged and can't be opened" dialog.
+#   2. chmod +x the launcher + binary.
+#   3. Symlink /usr/local/bin/imprint for CLI access.
+#   4. Bootstrap the Python venv, install dependencies, and run `imprint
+#      setup` — as the *console user*, not root. The launcher just needs to
+#      start services + open the UI after this completes.
+set -eu
+
+APP="/Applications/Imprint.app"
+IMPRINT_HOME="$APP/Contents/Resources/imprint"
+SENTINEL="$IMPRINT_HOME/.first-run.done"
+
+/usr/bin/xattr -cr "$APP" 2>/dev/null || true
+
+chmod +x "$APP/Contents/MacOS/imprint-launcher" 2>/dev/null || true
+chmod +x "$IMPRINT_HOME/bin/imprint" 2>/dev/null || true
+
+mkdir -p /usr/local/bin
+ln -sf "$IMPRINT_HOME/bin/imprint" /usr/local/bin/imprint
+
+# --- First-run bootstrap as the console user ---
+TARGET_USER="$(stat -f "%Su" /dev/console 2>/dev/null || true)"
+if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+    # No interactive console user (headless install?). Skip — launcher will
+    # fall back to on-demand bootstrap the first time the user runs the app.
+    exit 0
+fi
+
+TARGET_HOME="$(/usr/bin/dscl . -read "/Users/$TARGET_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+[ -n "${TARGET_HOME:-}" ] || TARGET_HOME="/Users/$TARGET_USER"
+
+# Ownership: the installed tree is readable by everyone but only the target
+# user needs to write into .venv/ and data/.
+/usr/sbin/chown -R "$TARGET_USER" "$IMPRINT_HOME/.venv" "$IMPRINT_HOME/data" 2>/dev/null || true
+
+# Log bootstrap output to a file the user can inspect if setup fails silently.
+LOG="$IMPRINT_HOME/first-run.log"
+: > "$LOG"
+chown "$TARGET_USER" "$LOG" 2>/dev/null || true
+
+# Run bootstrap detached so the installer UI doesn't hang on pip install.
+# If any step fails we leave the sentinel absent and the launcher retries
+# on-demand with a user-visible error.
+/usr/bin/sudo -u "$TARGET_USER" -H /bin/bash -c "
+    set -e
+    export HOME='$TARGET_HOME'
+    export PATH=\"$IMPRINT_HOME/bin:/usr/local/bin:/usr/bin:/bin:\$PATH\"
+    cd '$IMPRINT_HOME'
+
+    PY=''
+    for c in python3 python; do
+        if command -v \"\$c\" >/dev/null 2>&1; then
+            if \"\$c\" --version 2>&1 | grep -qE 'Python 3\\.(9|1[0-9]|[2-9][0-9])'; then
+                PY=\"\$c\"; break
+            fi
+        fi
+    done
+    if [ -z \"\$PY\" ]; then
+        echo '[x] Python 3.9+ not found; launcher will retry on first run.' >> '$LOG'
+        exit 0
+    fi
+
+    if [ ! -d '$IMPRINT_HOME/.venv' ]; then
+        echo '[*] Creating venv...' >> '$LOG'
+        \"\$PY\" -m venv '$IMPRINT_HOME/.venv' >> '$LOG' 2>&1
+    fi
+    echo '[*] Installing Python dependencies...' >> '$LOG'
+    '$IMPRINT_HOME/.venv/bin/pip' install --disable-pip-version-check -q -r '$IMPRINT_HOME/requirements.txt' >> '$LOG' 2>&1
+
+    echo '[*] Running imprint setup...' >> '$LOG'
+    '$IMPRINT_HOME/bin/imprint' setup >> '$LOG' 2>&1
+
+    touch '$SENTINEL'
+    echo '[+] Setup complete.' >> '$LOG'
+" &
+
+exit 0

@@ -1,0 +1,170 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import DownloadPicker from '../components/DownloadPicker.astro';
+import releases from '../data/releases.json';
+
+const title = 'Download Imprint — installers, archives, all versions';
+const description =
+  'Native installers for macOS and Windows, portable archives for Linux, and every prior release. Downloads sourced directly from GitHub Releases.';
+
+const all = releases.releases ?? [];
+const stableOnly = all.filter((r) => !r.prerelease);
+const prereleaseOnly = all.filter((r) => r.prerelease);
+const historyStable = stableOnly.filter((r) => r.tag !== releases.latestStable?.tag).slice(0, 10);
+const historyDev = prereleaseOnly.slice(0, 5);
+
+function fmtDate(iso?: string) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+---
+
+<Landing title={title} description={description} pathname="/download/">
+  <Nav />
+  <main class="max-w-6xl mx-auto px-6 py-16">
+    <a href="/" class="text-sm text-[color:var(--color-text-muted)] hover:text-white">← Back to overview</a>
+    <h1 class="mt-4 text-4xl sm:text-5xl font-extrabold tracking-tight">Download Imprint</h1>
+    <p class="mt-4 max-w-3xl text-[color:var(--color-text-muted)]">
+      Pick the build for your OS. Native installers land in upcoming releases — today's builds ship as portable archives containing the <code class="font-mono text-sm">imprint</code> binary plus setup scripts.
+    </p>
+
+    <div class="mt-12">
+      <DownloadPicker />
+    </div>
+
+    {releases.latestStable?.bodyHtml && (
+      <section class="mt-16">
+        <div class="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+          <h2 class="text-xl sm:text-2xl font-bold tracking-tight">
+            What's new in <span class="font-mono text-[color:var(--color-accent)]">{releases.latestStable.tag}</span>
+          </h2>
+          <a href={releases.latestStable.htmlUrl} class="text-sm underline text-[color:var(--color-text-muted)] hover:text-white">Full notes ↗</a>
+        </div>
+        <details class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] overflow-hidden group">
+          <summary class="list-none cursor-pointer px-6 py-4 flex items-center justify-between text-sm text-[color:var(--color-text-muted)] hover:text-white">
+            <span>Show release notes</span>
+            <span class="transition-transform group-open:rotate-180">▾</span>
+          </summary>
+          <article class="px-6 pb-6 pt-2 prose-release" set:html={releases.latestStable.bodyHtml}></article>
+        </details>
+      </section>
+    )}
+
+    <section class="mt-20">
+      <div class="flex flex-wrap items-baseline justify-between gap-3 mb-6">
+        <div>
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Previous versions</h2>
+          <p class="mt-1 text-sm text-[color:var(--color-text-muted)]">
+            Last {historyStable.length} stable releases. <a href={`https://github.com/${releases.repo}/releases`} class="underline hover:text-white">All releases on GitHub ↗</a>
+          </p>
+        </div>
+        <button
+          data-history-toggle="dev"
+          class="px-3 py-1.5 text-xs rounded-md border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white text-[color:var(--color-text-muted)]"
+        >
+          Show dev prereleases
+        </button>
+      </div>
+
+      {historyStable.length === 0 ? (
+        <p class="text-[color:var(--color-text-muted)]">No additional stable releases cached yet.</p>
+      ) : (
+        <div class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)] bg-[color:var(--color-bg-elevated)]/60">
+              <tr>
+                <th class="text-left px-5 py-3 font-semibold">Version</th>
+                <th class="text-left px-5 py-3 font-semibold hidden sm:table-cell">Released</th>
+                <th class="text-left px-5 py-3 font-semibold">Downloads</th>
+                <th class="text-right px-5 py-3 font-semibold">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyStable.map((r) => (
+                <tr class="border-t border-[color:var(--color-border)]/60 align-top">
+                  <td class="px-5 py-4 font-mono text-[color:var(--color-accent)] whitespace-nowrap">{r.tag}</td>
+                  <td class="px-5 py-4 text-[color:var(--color-text-muted)] hidden sm:table-cell whitespace-nowrap">{fmtDate(r.publishedAt)}</td>
+                  <td class="px-5 py-4">
+                    {r.assets.length === 0 ? (
+                      <span class="text-[color:var(--color-text-muted)]">No assets</span>
+                    ) : (
+                      <ul class="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                        {r.assets.map((a) => (
+                          <li>
+                            <a href={a.url} class="text-[color:var(--color-text-muted)] hover:text-white whitespace-nowrap">
+                              <span class="font-mono">{a.osLabel}{a.archLabel ? ` ${a.arch}` : ''}</span>
+                              <span class="opacity-70"> ({a.sizeLabel})</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                  <td class="px-5 py-4 text-right">
+                    <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-white">Notes ↗</a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div data-history-pane="dev" class="hidden mt-8">
+        <h3 class="text-lg font-semibold">Dev prereleases</h3>
+        <p class="mt-1 text-sm text-[color:var(--color-text-muted)]">
+          Built from <code class="font-mono">dev</code> branch on every merge. Not recommended unless you know what you're testing.
+        </p>
+        {historyDev.length === 0 ? (
+          <p class="mt-3 text-[color:var(--color-text-muted)]">No dev releases cached.</p>
+        ) : (
+          <div class="mt-4 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] overflow-hidden">
+            <table class="w-full text-sm">
+              <tbody>
+                {historyDev.map((r) => (
+                  <tr class="border-t border-[color:var(--color-border)]/60 first:border-t-0 align-top">
+                    <td class="px-5 py-3 font-mono text-[color:var(--color-accent)] whitespace-nowrap">{r.tag}</td>
+                    <td class="px-5 py-3 text-[color:var(--color-text-muted)] whitespace-nowrap hidden sm:table-cell">{fmtDate(r.publishedAt)}</td>
+                    <td class="px-5 py-3 text-right">
+                      <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-white">Notes &amp; assets ↗</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+
+    <section class="mt-20 grid gap-6 sm:grid-cols-2">
+      <div class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-6">
+        <h3 class="text-lg font-semibold">One-line install</h3>
+        <p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Fetches the archive above, sets up Python venv, registers MCP, drops <code class="font-mono">imprint</code> on your PATH.</p>
+        <pre class="mt-4 overflow-x-auto text-xs sm:text-sm font-mono bg-[color:var(--color-bg)] p-4 rounded-lg border border-[color:var(--color-border)]"><code>curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash</code></pre>
+        <pre class="mt-3 overflow-x-auto text-xs sm:text-sm font-mono bg-[color:var(--color-bg)] p-4 rounded-lg border border-[color:var(--color-border)]"><code>irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex</code></pre>
+      </div>
+      <div class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-6">
+        <h3 class="text-lg font-semibold">Pin a version</h3>
+        <p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Same installer, any tag from the table above:</p>
+        <pre class="mt-4 overflow-x-auto text-xs sm:text-sm font-mono bg-[color:var(--color-bg)] p-4 rounded-lg border border-[color:var(--color-border)]"><code>IMPRINT_VERSION={releases.latestStable?.tag ?? 'v0.0.0'} curl -fsSL .../install.sh | bash</code></pre>
+        <p class="mt-4 text-sm text-[color:var(--color-text-muted)]">Or dev channel:</p>
+        <pre class="mt-2 overflow-x-auto text-xs sm:text-sm font-mono bg-[color:var(--color-bg)] p-4 rounded-lg border border-[color:var(--color-border)]"><code>IMPRINT_CHANNEL=dev curl -fsSL .../install.sh | bash</code></pre>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Landing>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>('[data-history-toggle="dev"]');
+  const pane = document.querySelector<HTMLElement>('[data-history-pane="dev"]');
+  if (toggle && pane) {
+    toggle.addEventListener('click', () => {
+      const hidden = pane.classList.toggle('hidden');
+      toggle.textContent = hidden ? 'Show dev prereleases' : 'Hide dev prereleases';
+    });
+  }
+</script>

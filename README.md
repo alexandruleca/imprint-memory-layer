@@ -148,6 +148,7 @@ imprint enable [target]    # re-wire MCP + hooks + start server
 imprint disable            # stop server, unregister MCP from every host, strip Claude hooks (data preserved)
 imprint ingest <path>      # index project source files (directory or single file)
 imprint learn              # index Claude Code conversations + memory files
+imprint learn --desktop    # also ingest Claude Desktop / ChatGPT Desktop export zips from Downloads
 imprint ingest-url <url>   # fetch URL(s), extract content, and index (html/pdf/etc)
 imprint refresh <dir>      # re-index only changed files (mtime-based)
 imprint refresh-urls       # re-check stored URLs via ETag/Last-Modified and re-index changed

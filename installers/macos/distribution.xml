@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  productbuild distribution definition for Imprint.
+  __VERSION__ and __ARCH__ are replaced by build-pkg.sh at build time.
+-->
+<installer-gui-script minSpecVersion="2">
+    <title>Imprint __VERSION__</title>
+    <organization>com.alexandruleca</organization>
+    <welcome    file="welcome.html"   mime-type="text/html"/>
+    <license    file="LICENSE.txt"    mime-type="text/plain"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+
+    <options customize="never" require-scripts="true" hostArchitectures="__ARCH__"/>
+
+    <os-version min="11.0"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.alexandruleca.imprint"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.alexandruleca.imprint" title="Imprint" visible="false">
+        <pkg-ref id="com.alexandruleca.imprint"/>
+    </choice>
+    <pkg-ref id="com.alexandruleca.imprint" version="__VERSION__" onConclusion="none">imprint-component.pkg</pkg-ref>
+</installer-gui-script>

@@ -10,7 +10,41 @@ from . import config
 from . import imprint_graph as kg
 from . import vectorstore as vs
 
-mcp = FastMCP("imprint")
+# MCP handshake ``instructions`` — injected into the system prompt by every
+# client that honors it (Claude Desktop, Claude Code, Cursor, etc.). This is
+# the primary nudge for "check memory first". Host-specific rule files
+# (CLAUDE.md, Cursor MDC, Cline rules) still exist as a belt-and-braces
+# fallback for clients that ignore handshake instructions or for per-project
+# overrides.
+_MCP_INSTRUCTIONS = """\
+Imprint is a semantic memory layer over this user's code, decisions, bugs,
+patterns, and prior conversations across every project they work on.
+
+How to use it well:
+1. For any non-trivial question that might touch prior work or cross-project
+   knowledge, call `search` BEFORE reaching for Read/Grep/Glob. Search
+   auto-loads a project overview on the first call each session — no need
+   to call wake_up.
+2. Trust high-confidence results. The server marks answers with:
+   - "High-confidence results" → answer directly, do not read files.
+   - No prefix → results are adequate; read files only if something is
+     missing.
+   - "Low-confidence matches" → fall back to Read/Grep.
+3. Pagination: if a response says "use offset=N", call `search` again with
+   that offset. Use `file_chunks` to expand truncated chunks and
+   `graph_scope` / `neighbors` to explore around a hit.
+4. Store findings as you work:
+   - `store` for decisions, patterns, findings, bugs, architecture notes.
+   - `kg_edit(op="add")` for temporal facts ("X became the default on Y").
+   - `ingest_content` for bulky inline payloads (docs, transcripts, CSV,
+     JSON). Re-sending the same `name` replaces prior chunks.
+   Do NOT store raw file contents (already indexed) or temporary debugging
+   state.
+5. Never Read a file just to confirm a search result. Trust the hydrated
+   top-1; if it's wrong, refine the query.
+"""
+
+mcp = FastMCP("imprint", instructions=_MCP_INSTRUCTIONS)
 
 # Release the embedded Qdrant lock after 30s of no MCP activity so
 # `imprint ingest` (a separate process) can grab it. Without this, the

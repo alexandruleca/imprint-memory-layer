@@ -2,7 +2,7 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "de
 LDFLAGS  := -s -w -X main.version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: build all package clean $(PLATFORMS)
+.PHONY: build all package installer-macos installer-windows clean $(PLATFORMS)
 
 # Build for current OS/arch (local dev)
 build:
@@ -53,6 +53,27 @@ package:
 		fi; \
 		rm -rf "$$STAGE"; \
 	done
+
+# Build the macOS .pkg installer for the current host arch.
+# Usage: make installer-macos [ARCH=arm64|amd64]
+# Requires: macOS host, `make package` has already produced dist/imprint-darwin-$ARCH/
+installer-macos:
+	@[ "$$(uname)" = "Darwin" ] || { echo "installer-macos requires macOS (pkgbuild/productbuild)"; exit 1; }
+	@ARCH=$${ARCH:-$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}; \
+	VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
+	SRC="dist/imprint-darwin-$$ARCH"; \
+	OUT="dist/imprint-darwin-$$ARCH.pkg"; \
+	[ -d "$$SRC" ] || { echo "Missing $$SRC — run 'make all && make package' first"; exit 1; }; \
+	./installers/macos/build-pkg.sh --version "$$VER" --arch "$$ARCH" --source "$$SRC" --out "$$OUT"
+
+# Build the Windows .exe installer.
+# Usage: make installer-windows (requires iscc / Inno Setup 6 on PATH, Windows host)
+installer-windows:
+	@command -v iscc >/dev/null || { echo "iscc (Inno Setup 6) not on PATH"; exit 1; }
+	@VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
+	SRC="$$(pwd)/dist/imprint-windows-amd64"; \
+	[ -d "$$SRC" ] || { echo "Missing $$SRC — run 'make all && make package' first"; exit 1; }; \
+	iscc /DImprintVersion=$$VER /DImprintSource="$$SRC" /O"$$(pwd)/dist" installers/windows/imprint.iss
 
 clean:
 	rm -rf build/ dist/

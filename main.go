@@ -35,7 +35,7 @@ func main() {
 		}
 		fmt.Fprintf(os.Stderr, "\n→ imprint setup target: %s\n\n", target)
 		if !cmd.DispatchSetup(target) {
-			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | cursor | codex | copilot | cline | all)\n", target)
+			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all)\n", target)
 			os.Exit(1)
 		}
 	case "ingest":
@@ -89,7 +89,7 @@ func printUsage() {
 
 Usage:
   imprint setup [target]     Install deps, register MCP server, configure host AI tool
-                               target: claude-code (default) | cursor | codex | copilot | cline | all
+                               target: claude-code (default) | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all
   imprint ingest <path>      Index project source files (directory or single file)
   imprint learn              Index Claude Code conversations + memory files
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)

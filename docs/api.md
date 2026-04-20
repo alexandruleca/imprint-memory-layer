@@ -158,6 +158,8 @@ dedup/replace by `name`, and avoids a trip through the job queue. See
 | POST | `/api/sync/import/upload` | Multipart upload of a zip bundle. |
 | POST | `/api/sync/cancel` | Cancel an active peer-sync session by `session_id`. |
 | POST | `/api/sync/approve` | Resolve the provider-side `[y/n/t]` prompt. Body: `{"session_id": "...", "decision": "accept" \| "trust" \| "reject"}`. |
+| GET | `/api/desktop-learn/history` | Previously-indexed Claude Desktop / ChatGPT Desktop export zips (SHA-keyed). |
+| POST | `/api/desktop-learn/scan` | One-shot Downloads scan for new desktop-app conversation exports. Body (optional): `{"paths": ["/extra/dir", ...]}`. Returns the structured scan result used by the dashboard. |
 
 Peer sync between two machines still uses the CLI's `imprint sync` command —
 see [sync](./sync.md). The HTTP endpoints above cover snapshot-based sync

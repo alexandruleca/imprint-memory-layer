@@ -17,6 +17,12 @@ import {
   approveSync,
   type SyncApprovalDecision,
 } from "@/lib/sync-api";
+import {
+  getDesktopHistory,
+  scanDesktopExports,
+  type DesktopExportEntry,
+  type DesktopScanResult,
+} from "@/lib/desktop-learn";
 import type { SyncEvent, SyncStats, DatasetProgress } from "@/lib/types";
 import {
   Download,
@@ -28,8 +34,12 @@ import {
   MonitorSmartphone,
   ShieldCheck,
   ShieldQuestionMark,
+  RefreshCw,
+  Inbox,
+  FileArchive,
   X,
 } from "lucide-react";
+import { useEffect } from "react";
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -795,6 +805,176 @@ function ReceivePanel() {
   );
 }
 
+// ── Desktop exports panel ──────────────────────────────────────
+
+function relativeTime(ts: number): string {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function originBadge(origin: string) {
+  const map: Record<string, string> = {
+    claude: "border-indigo-500/50 text-indigo-400",
+    chatgpt: "border-emerald-500/50 text-emerald-400",
+    unknown: "border-muted-foreground/40 text-muted-foreground",
+  };
+  return map[origin] || map.unknown;
+}
+
+function DesktopExportsCard() {
+  const [history, setHistory] = useState<DesktopExportEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [lastScan, setLastScan] = useState<DesktopScanResult | null>(null);
+  const [error, setError] = useState("");
+
+  const reloadHistory = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const h = await getDesktopHistory();
+      const entries = Object.values(h.seen).sort(
+        (a, b) => b.indexed_at - a.indexed_at,
+      );
+      setHistory(entries);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    reloadHistory();
+  }, [reloadHistory]);
+
+  async function scan() {
+    setScanning(true);
+    setError("");
+    try {
+      const res = await scanDesktopExports();
+      setLastScan(res);
+      await reloadHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Inbox className="w-4 h-4" /> Desktop App Exports
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Auto-ingest Claude Desktop / ChatGPT Desktop conversation exports from
+          your Downloads folder. Request an export in the vendor&apos;s app
+          (Settings → Export data), drop the zip in Downloads, then scan —
+          already-indexed zips are skipped by SHA.
+        </p>
+
+        <div className="flex items-center gap-2">
+          <Btn onClick={scan} disabled={scanning}>
+            {scanning ? (
+              <>
+                <Spinner className="w-4 h-4" /> Scanning…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" /> Scan Downloads now
+              </>
+            )}
+          </Btn>
+          <Btn variant="outline" onClick={reloadHistory} disabled={loading}>
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh history
+          </Btn>
+        </div>
+
+        {error && (
+          <p className="text-xs text-destructive">{error}</p>
+        )}
+
+        {lastScan && (
+          <div className="rounded-lg border border-muted-foreground/20 p-3 text-xs space-y-1 font-mono">
+            <div className="flex gap-3">
+              <span className="text-muted-foreground w-36">Roots scanned</span>
+              <span>{lastScan.roots.length}</span>
+            </div>
+            <div className="flex gap-3">
+              <span className="text-muted-foreground w-36">Candidates seen</span>
+              <span>{lastScan.scanned}</span>
+            </div>
+            <div className="flex gap-3">
+              <span className="text-muted-foreground w-36">Skipped (SHA match)</span>
+              <span>{lastScan.skipped_seen}</span>
+            </div>
+            <div className="flex gap-3">
+              <span className="text-muted-foreground w-36">Newly indexed</span>
+              <span className={lastScan.indexed_zips > 0 ? "text-green-400" : ""}>
+                {lastScan.indexed_zips}
+              </span>
+            </div>
+            <div className="flex gap-3">
+              <span className="text-muted-foreground w-36">Chunks stored</span>
+              <span>{lastScan.inserted_chunks}</span>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className="text-xs font-medium mb-2 flex items-center gap-2">
+            <FileArchive className="w-3.5 h-3.5" />
+            Indexed exports
+            <span className="text-muted-foreground">· {history.length}</span>
+          </div>
+          {loading && history.length === 0 ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner className="w-3 h-3" /> Loading…
+            </div>
+          ) : history.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              None yet. Export from claude.ai or chat.openai.com, then click
+              <span className="font-mono"> Scan Downloads now</span>.
+            </p>
+          ) : (
+            <ul className="space-y-1.5 max-h-64 overflow-y-auto">
+              {history.map((e) => {
+                const fileName = e.path.split("/").pop() || e.path;
+                return (
+                  <li
+                    key={e.path + e.indexed_at}
+                    className="flex items-center gap-2 text-xs rounded border border-muted-foreground/15 px-2 py-1.5"
+                  >
+                    <Badge variant="outline" className={originBadge(e.origin)}>
+                      {e.origin}
+                    </Badge>
+                    <span className="font-mono truncate flex-1" title={e.path}>
+                      {fileName}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {e.chunks} chunks
+                    </span>
+                    <span className="text-muted-foreground tabular-nums min-w-[52px] text-right">
+                      {relativeTime(e.indexed_at)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────
 
 export default function SyncPage() {
@@ -803,7 +983,9 @@ export default function SyncPage() {
       <div>
         <h2 className="text-2xl font-bold">Sync</h2>
         <p className="text-muted-foreground text-sm mt-1">
-          Export and import snapshots, or sync live with another device via relay.
+          Export and import snapshots, sync live with another device via relay,
+          or auto-ingest conversation exports from Claude Desktop / ChatGPT
+          Desktop.
         </p>
       </div>
 
@@ -835,6 +1017,10 @@ export default function SyncPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Separator />
+
+      <DesktopExportsCard />
     </div>
   );
 }

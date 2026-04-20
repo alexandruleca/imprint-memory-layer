@@ -82,3 +82,53 @@ code, pre, kbd, samp {
 .glow {
   animation: pulse-glow 3.2s ease-in-out infinite;
 }
+
+/* Lightweight typography for GitHub release notes rendered via marked. */
+.prose-release {
+  color: var(--color-text);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+.prose-release h1,
+.prose-release h2,
+.prose-release h3 {
+  font-weight: 600;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--color-text);
+}
+.prose-release h2 { font-size: 1.05rem; }
+.prose-release h3 { font-size: 0.95rem; }
+.prose-release p  { margin: 0.5rem 0; color: var(--color-text-muted); }
+.prose-release ul,
+.prose-release ol { margin: 0.5rem 0 0.75rem 1.25rem; color: var(--color-text-muted); }
+.prose-release li { margin: 0.15rem 0; }
+.prose-release li::marker { color: var(--color-accent); }
+.prose-release a  { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; }
+.prose-release a:hover { color: var(--color-text); }
+.prose-release code {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.85em;
+}
+.prose-release pre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+}
+.prose-release pre code { background: transparent; border: 0; padding: 0; }
+.prose-release blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+.prose-release hr {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 1rem 0;
+}
