@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/build-benchmarks.mjs && astro dev",
-    "build": "node scripts/build-benchmarks.mjs && astro build",
+    "dev": "node scripts/build-benchmarks.mjs && node scripts/build-releases.mjs && astro dev",
+    "build": "node scripts/build-benchmarks.mjs && node scripts/build-releases.mjs && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },

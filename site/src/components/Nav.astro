@@ -6,6 +6,7 @@ const links = [
   { href: '/installation', label: 'Docs' },
   { href: '/api', label: 'API' },
   { href: '/faq', label: 'FAQ' },
+  { href: '/download', label: 'Download', accent: true },
 ];
 ---
 
@@ -21,7 +22,11 @@ const links = [
         {links.map((l) => (
           <a
             href={l.href}
-            class="px-3 py-1.5 text-sm text-[color:var(--color-text-muted)] hover:text-white transition"
+            class={`px-3 py-1.5 text-sm transition ${
+              l.accent
+                ? 'text-[color:var(--color-accent)] hover:text-white font-semibold'
+                : 'text-[color:var(--color-text-muted)] hover:text-white'
+            }`}
           >
             {l.label}
           </a>
