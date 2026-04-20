@@ -83,6 +83,15 @@ Prompt options on the provider side:
 - `t` / `trust` — accept and remember the fingerprint
 - anything else — reject
 
+The dashboard UI (and the `/api/sync/serve` SSE stream) surfaces the same
+gate: after the PIN check, the server emits an `approval_required` event with
+the peer's hostname / user / os / fingerprint, and waits. The UI renders
+**Accept once** / **Trust & accept** / **Reject** buttons that POST
+`/api/sync/approve` with `{session_id, decision}`. Previously-trusted
+fingerprints auto-accept (emitting `auto_accepted` instead), matching the
+CLI. The trust list (`data/trusted_devices.json`) is shared between CLI and
+UI sessions.
+
 The relay sees neither the PIN nor the data — it only forwards opaque WebSocket frames between peers in a room.
 
 ```bash

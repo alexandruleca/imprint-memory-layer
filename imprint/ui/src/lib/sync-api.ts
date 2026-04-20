@@ -120,3 +120,20 @@ export async function cancelSync(sessionId: string): Promise<void> {
     body: JSON.stringify({ session_id: sessionId }),
   });
 }
+
+export type SyncApprovalDecision = "accept" | "trust" | "reject";
+
+export async function approveSync(
+  sessionId: string,
+  decision: SyncApprovalDecision,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/sync/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, decision }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Approval failed: ${res.status}`);
+  }
+}

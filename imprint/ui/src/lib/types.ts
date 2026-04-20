@@ -212,12 +212,15 @@ export interface SyncEvent {
     | "room"
     | "session"
     | "status"
+    | "approval_required"
+    | "auto_accepted"
     | "peer_connected"
     | "progress"
     | "pull_complete"
     | "push_complete"
     | "done"
     | "cancelled"
+    | "warning"
     | "error";
   room_id?: string;
   pin?: string;

@@ -14,6 +14,8 @@ import {
   streamSyncServe,
   streamSyncReceive,
   cancelSync,
+  approveSync,
+  type SyncApprovalDecision,
 } from "@/lib/sync-api";
 import type { SyncEvent, SyncStats, DatasetProgress } from "@/lib/types";
 import {
@@ -24,6 +26,8 @@ import {
   Radio,
   Plug,
   MonitorSmartphone,
+  ShieldCheck,
+  ShieldQuestionMark,
   X,
 } from "lucide-react";
 
@@ -260,10 +264,13 @@ function ImportCard() {
 
 // ── Serve panel ────────────────────────────────────────────────
 
+type Peer = { hostname: string; os: string; fingerprint: string; user: string };
+
 type ServeState =
   | { phase: "idle" }
   | { phase: "waiting"; roomId: string; pin: string; sessionId: string }
-  | { phase: "connected"; roomId: string; pin: string; sessionId: string; peer: { hostname: string; os: string; fingerprint: string } }
+  | { phase: "awaiting_approval"; roomId: string; pin: string; sessionId: string; peer: Peer; submitting: boolean }
+  | { phase: "connected"; roomId: string; pin: string; sessionId: string; peer: Peer }
   | { phase: "syncing"; sessionId: string; status: string; datasets: Record<string, DatasetProgress> }
   | { phase: "done"; pullStats?: SyncStats; pushStats?: SyncStats }
   | { phase: "error"; message: string };
@@ -277,7 +284,7 @@ function ServePanel() {
     let sessionId = "";
     let roomId = "";
     let pin = "";
-    let peer = { hostname: "", os: "", fingerprint: "" };
+    let peer: Peer = { hostname: "", os: "", fingerprint: "", user: "" };
     let pullStats: SyncStats | undefined;
     let pushStats: SyncStats | undefined;
 
@@ -296,13 +303,37 @@ function ServePanel() {
             setState({ phase: "syncing", sessionId, status: ev.status || "", datasets: { ...datasets } });
           }
           break;
+        case "approval_required":
+          peer = {
+            hostname: ev.hostname || "",
+            os: ev.os || "",
+            fingerprint: ev.fingerprint || "",
+            user: ev.user || "",
+          };
+          setState({ phase: "awaiting_approval", roomId, pin, sessionId, peer, submitting: false });
+          break;
+        case "auto_accepted":
+          peer = {
+            hostname: ev.hostname || "",
+            os: ev.os || "",
+            fingerprint: ev.fingerprint || "",
+            user: ev.user || "",
+          };
+          setState({ phase: "connected", roomId, pin, sessionId, peer });
+          break;
         case "peer_connected":
           peer = {
             hostname: ev.hostname || "",
             os: ev.os || "",
             fingerprint: ev.fingerprint || "",
+            user: ev.user || "",
           };
           setState({ phase: "connected", roomId, pin, sessionId, peer });
+          break;
+        case "warning":
+          // non-fatal; surfaced at the console for now.
+          // eslint-disable-next-line no-console
+          console.warn("sync warning:", ev.message);
           break;
         case "progress":
           datasets[ev.dataset || ""] = {
@@ -335,7 +366,12 @@ function ServePanel() {
   function stop() {
     ctrlRef.current?.abort();
     ctrlRef.current = null;
-    if (state.phase === "waiting" || state.phase === "connected" || state.phase === "syncing") {
+    if (
+      state.phase === "waiting" ||
+      state.phase === "awaiting_approval" ||
+      state.phase === "connected" ||
+      state.phase === "syncing"
+    ) {
       cancelSync((state as { sessionId: string }).sessionId);
     }
     setState({ phase: "idle" });
@@ -343,6 +379,18 @@ function ServePanel() {
 
   function reset() {
     setState({ phase: "idle" });
+  }
+
+  async function decide(decision: SyncApprovalDecision) {
+    if (state.phase !== "awaiting_approval" || state.submitting) return;
+    const { sessionId } = state;
+    setState({ ...state, submitting: true });
+    try {
+      await approveSync(sessionId, decision);
+      // Server will emit peer_connected (or error on reject) via SSE.
+    } catch (e) {
+      setState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   return (
@@ -386,6 +434,61 @@ function ServePanel() {
             <Btn variant="outline" onClick={stop}>
               <X className="w-4 h-4" /> Stop
             </Btn>
+          </>
+        )}
+
+        {state.phase === "awaiting_approval" && (
+          <>
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldQuestionMark className="w-4 h-4 text-amber-400" />
+              <Badge variant="outline" className="border-amber-500/50 text-amber-400">
+                Incoming Sync Request
+              </Badge>
+            </div>
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <MonitorSmartphone className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{state.peer.hostname || "Unknown device"}</span>
+                {state.peer.user && (
+                  <span className="text-xs text-muted-foreground">· {state.peer.user}</span>
+                )}
+                <span className="text-xs text-muted-foreground">· {state.peer.os}</span>
+              </div>
+              <p className="text-xs text-muted-foreground font-mono pl-6">
+                fingerprint: {state.peer.fingerprint || "unknown"}
+              </p>
+              <p className="text-xs text-muted-foreground pl-6">
+                PIN was verified. Approve to let this device read + write your memories.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Btn
+                onClick={() => decide("accept")}
+                disabled={state.submitting}
+              >
+                <Check className="w-4 h-4" /> Accept once
+              </Btn>
+              <Btn
+                variant="outline"
+                onClick={() => decide("trust")}
+                disabled={state.submitting}
+              >
+                <ShieldCheck className="w-4 h-4" /> Trust & accept
+              </Btn>
+              <Btn
+                variant="outline"
+                onClick={() => decide("reject")}
+                disabled={state.submitting}
+                className="text-destructive"
+              >
+                <X className="w-4 h-4" /> Reject
+              </Btn>
+            </div>
+            {state.submitting && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Spinner className="w-3 h-3" /> Sending decision…
+              </div>
+            )}
           </>
         )}
 
