@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css';
 import Analytics from '../components/Analytics.astro';
+import MermaidInit from '../components/MermaidInit.astro';
 
 interface Props {
   title: string;
@@ -62,5 +63,6 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://imprintmcp.alexandrule
   </head>
   <body class="min-h-screen starry">
     <slot />
+    <MermaidInit />
   </body>
 </html>
