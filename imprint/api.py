@@ -914,6 +914,36 @@ async def api_sync_cancel(request: Request):
     return {"ok": True}
 
 
+@app.post("/api/sync/approve")
+async def api_sync_approve(request: Request):
+    """Resolve a pending provider-side approval prompt.
+
+    Mirrors the CLI's ``[y/n/t]`` prompt: ``decision`` must be one of
+    ``accept`` (one-time), ``trust`` (accept + persist fingerprint), or
+    ``reject``. The server streams an ``approval_required`` SSE event on
+    ``/api/sync/serve`` when a non-trusted peer completes the PIN check;
+    the UI then POSTs here with the session_id and the user's choice.
+    """
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    decision = (body.get("decision") or "").lower()
+    if not session_id:
+        return JSONResponse({"error": "session_id required"}, status_code=400)
+    if decision not in ("accept", "trust", "reject"):
+        return JSONResponse(
+            {"error": "decision must be 'accept', 'trust', or 'reject'"},
+            status_code=400,
+        )
+
+    from .sync_ws import submit_approval
+    if not submit_approval(session_id, decision):
+        return JSONResponse(
+            {"error": "no pending approval for this session (already decided, cancelled, or expired)"},
+            status_code=404,
+        )
+    return {"ok": True, "decision": decision}
+
+
 # ── Filesystem browser ────────────────────────────────────────
 
 def _is_wsl() -> bool:

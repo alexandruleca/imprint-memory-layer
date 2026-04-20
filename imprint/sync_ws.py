@@ -37,6 +37,12 @@ PIN_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 # gets set when cancellation is requested.
 _sessions: dict[str, asyncio.Event] = {}
 
+# Pending approvals keyed by session_id. Resolved by submit_approval() with
+# one of: "accept" | "trust" | "reject". The serve_session generator awaits
+# this before sending 200 OK to the consumer. Mirrors the CLI's [y/n/t]
+# TTY prompt (cmd/sync.go promptAccept).
+_approvals: dict[str, asyncio.Future] = {}
+
 
 # ── Helpers ───────────────────────────────────────────────────────
 
@@ -54,6 +60,67 @@ def pin_equal(a: str, b: str) -> bool:
 
 def _session_id() -> str:
     return secrets.token_hex(8)
+
+
+# ── Trusted-device registry (Go-compatible on-disk format) ───────
+
+def load_trusted_devices() -> dict[str, dict]:
+    """Read ``data/trusted_devices.json`` written by the Go CLI.
+
+    Go format: JSON array of objects with ``Fingerprint`` / ``Hostname`` /
+    ``Added`` (unix seconds). Returned as a dict keyed by fingerprint for
+    O(1) lookups.
+    """
+    path = config.get_data_dir() / "trusted_devices.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, list):
+        return {}
+    out: dict[str, dict] = {}
+    for d in data:
+        if isinstance(d, dict) and d.get("Fingerprint"):
+            out[d["Fingerprint"]] = d
+    return out
+
+
+def save_trusted_device(hello: dict) -> None:
+    """Append or refresh a device in the shared trust list.
+
+    Writes the same shape as the Go CLI so CLI and UI-driven sessions
+    share the same file.
+    """
+    fp = hello.get("fingerprint")
+    if not fp:
+        return
+    data_dir = config.get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    existing = load_trusted_devices()
+    existing[fp] = {
+        "Fingerprint": fp,
+        "Hostname": hello.get("hostname", ""),
+        "Added": int(time.time()),
+    }
+    (data_dir / "trusted_devices.json").write_text(
+        json.dumps(list(existing.values()), indent=2)
+    )
+
+
+def submit_approval(session_id: str, decision: str) -> bool:
+    """Resolve a pending approval. Returns True if a future was waiting.
+
+    ``decision`` is one of ``"accept"`` (one-time), ``"trust"`` (accept +
+    persist fingerprint), or ``"reject"``. Unknown values are coerced to
+    ``"reject"`` on the receiving end.
+    """
+    fut = _approvals.get(session_id)
+    if fut is None or fut.done():
+        return False
+    fut.set_result(decision)
+    return True
 
 
 def get_device_identity() -> dict:
@@ -332,15 +399,57 @@ async def serve_session() -> AsyncGenerator[dict, None]:
                 yield {"type": "error", "message": "Invalid PIN from peer"}
                 return
 
-            # Accept
-            await ws.send(json.dumps({"status": 200, "body": "ok"}))
-            yield {
-                "type": "peer_connected",
+            # Fingerprint trust check. Auto-accept previously-trusted
+            # devices (matches CLI behavior in cmd/sync.go decide()).
+            fp = hello.get("fingerprint", "")
+            trusted = load_trusted_devices()
+            peer_info = {
                 "hostname": hello.get("hostname", ""),
                 "os": hello.get("os", ""),
-                "fingerprint": hello.get("fingerprint", ""),
+                "fingerprint": fp,
                 "user": hello.get("user", ""),
             }
+
+            if fp and fp in trusted:
+                yield {"type": "auto_accepted", **peer_info}
+            else:
+                # Ask the caller (TTY via CLI, UI via /api/sync/approve)
+                # to decide. Block here until a decision arrives or the
+                # session is cancelled.
+                loop = asyncio.get_running_loop()
+                approval_fut = loop.create_future()
+                _approvals[sid] = approval_fut
+                yield {"type": "approval_required", **peer_info}
+
+                cancel_task = asyncio.create_task(cancel.wait())
+                try:
+                    done, _ = await asyncio.wait(
+                        {approval_fut, cancel_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    cancel_task.cancel()
+                    _approvals.pop(sid, None)
+
+                if approval_fut not in done:
+                    await ws.send(json.dumps({"status": 408, "body": "cancelled"}))
+                    _check_cancel(cancel)  # raises CancelledError
+                    return
+
+                decision = approval_fut.result()
+                if decision == "reject":
+                    await ws.send(json.dumps({"status": 403, "body": "rejected by provider"}))
+                    yield {"type": "error", "message": "Rejected by provider"}
+                    return
+                if decision == "trust":
+                    try:
+                        save_trusted_device(hello)
+                    except Exception as exc:
+                        yield {"type": "warning", "message": f"Could not persist trust: {exc}"}
+
+            # Accept
+            await ws.send(json.dumps({"status": 200, "body": "ok"}))
+            yield {"type": "peer_connected", **peer_info}
 
             # Request loop
             while True:
