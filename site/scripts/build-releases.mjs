@@ -14,6 +14,9 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { marked } from 'marked';
+
+marked.setOptions({ gfm: true, breaks: false });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.IMPRINT_REPO || 'alexandruleca/imprint-memory-layer';
@@ -135,13 +138,15 @@ function normalize(releases) {
         return a.name.localeCompare(b.name);
       });
 
+    const body = r.body || '';
     return {
       tag: r.tag_name,
       name: r.name || r.tag_name,
       publishedAt: r.published_at,
       prerelease: !!r.prerelease,
       htmlUrl: r.html_url,
-      body: r.body || '',
+      body,
+      bodyHtml: body ? marked.parse(body) : '',
       assets,
     };
   });

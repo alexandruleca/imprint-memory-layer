@@ -14,6 +14,8 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, linux, x64]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,3 +81,127 @@ jobs:
             dist/SHA256SUMS
           # Relay container image is built by .github/workflows/image.yml,
           # which fires on workflow_run after this workflow succeeds.
+          # Native installers (.exe / .pkg) are attached by the
+          # package-windows / package-macos jobs below.
+
+  package-windows:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Download release archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'imprint-windows-amd64.zip' \
+            --dir dist
+
+      - name: Extract release archive
+        shell: pwsh
+        run: Expand-Archive -Path dist\imprint-windows-amd64.zip -DestinationPath dist -Force
+
+      - name: Install ImageMagick (for icon rendering)
+        shell: pwsh
+        run: choco install imagemagick --no-progress -y
+
+      - name: Generate .ico from site logo
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path installers\windows\assets -Force | Out-Null
+          & magick -background none site\public\logo.svg `
+              -define icon:auto-resize=16,24,32,48,64,128,256 `
+              installers\windows\assets\imprint.ico
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path installers\windows\assets\imprint.ico)) {
+              Write-Warning "Icon generation failed; Inno will fall back to the exe icon."
+          }
+
+      - name: Build installer
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          $ver = $env:VERSION.TrimStart('v')
+          $src = Resolve-Path dist\imprint-windows-amd64
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+              /DImprintVersion=$ver `
+              /DImprintSource=$src `
+              /O"$(Resolve-Path dist)" `
+              installers\windows\imprint.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with $LASTEXITCODE" }
+
+      - name: Upload installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          INSTALLER="imprint-windows-amd64-setup.exe"
+          [ -f "$INSTALLER" ] || { echo "installer missing: $INSTALLER"; ls -la; exit 1; }
+          gh release upload "$VERSION" "$INSTALLER" --clobber
+
+  package-macos:
+    needs: release
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "imprint-darwin-${ARCH}.tar.gz" \
+            --dir dist
+          tar -xzf "dist/imprint-darwin-${ARCH}.tar.gz" -C dist
+
+      - name: Install librsvg (for icon rendering)
+        run: brew install librsvg
+
+      - name: Build .pkg
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          VER="${VERSION#v}"
+          ./installers/macos/build-pkg.sh \
+            --version "$VER" \
+            --arch "$ARCH" \
+            --source "dist/imprint-darwin-${ARCH}" \
+            --out    "dist/imprint-darwin-${ARCH}.pkg"
+
+      - name: Upload installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd dist
+          PKG="imprint-darwin-${ARCH}.pkg"
+          [ -f "$PKG" ] || { echo "pkg missing: $PKG"; ls -la; exit 1; }
+          gh release upload "$VERSION" "$PKG" --clobber

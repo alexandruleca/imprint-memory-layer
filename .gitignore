@@ -11,3 +11,6 @@ site/node_modules/
 site/dist/
 site/.astro/
 site/src/data/benchmarks.json
+
+# CI-generated installer icon (built from site/public/logo.svg at release time)
+installers/windows/assets/

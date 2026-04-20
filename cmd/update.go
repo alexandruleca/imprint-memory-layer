@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bufio"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/hunter/imprint/internal/output"
@@ -101,14 +105,14 @@ func Update(args []string, currentVersion string) {
 	}
 	defer os.RemoveAll(tmp)
 
-	tarball := filepath.Join(tmp, asset.Name)
+	archivePath := filepath.Join(tmp, asset.Name)
 	output.Info("Downloading " + asset.BrowserDownloadURL)
-	if err := downloadTo(tarball, asset.BrowserDownloadURL); err != nil {
+	if err := downloadTo(archivePath, asset.BrowserDownloadURL); err != nil {
 		output.Fail(err.Error())
 	}
 
 	output.Info("Extracting archive...")
-	if err := runner.Run("tar", "-xzf", tarball, "-C", tmp); err != nil {
+	if err := extractArchive(archivePath, tmp); err != nil {
 		output.Fail("Failed to extract archive: " + err.Error())
 	}
 	extracted := filepath.Join(tmp, release.ArchiveDirName())
@@ -116,21 +120,25 @@ func Update(args []string, currentVersion string) {
 		output.Fail("Unexpected archive layout: " + extracted + " not found")
 	}
 
+	binName := "imprint"
+	if runtime.GOOS == "windows" {
+		binName = "imprint.exe"
+	}
+	binPath := filepath.Join(installDir, "bin", binName)
 	// Back up the current binary so the user can roll back manually if the
-	// rsync breaks something weird. A single slot is enough — we don't want
-	// to accumulate backups indefinitely.
-	binPath := filepath.Join(installDir, "bin", "imprint")
+	// overlay breaks something weird. A single slot is enough.
 	if platform.FileExists(binPath) {
 		_ = os.Rename(binPath, binPath+".prev")
 	}
 
+	installedVia := detectInstallMethod(installDir)
+	if installedVia != "" {
+		output.Info("Detected install layout: " + installedVia)
+	}
+
 	output.Info("Updating files in " + installDir + " (preserving data/ + .venv/)...")
-	// --delete-during drops stale files from the previous release; excluded
-	// paths still survive because rsync never descends into them.
-	if err := runner.Run("rsync", "-a", "--delete-during",
-		"--exclude", "data/", "--exclude", ".venv/",
-		extracted+"/", installDir+"/"); err != nil {
-		output.Fail("rsync failed: " + err.Error() + " (previous binary at " + binPath + ".prev)")
+	if err := overlayCopy(extracted, installDir, []string{"data", ".venv"}); err != nil {
+		output.Fail("overlay copy failed: " + err.Error() + " (previous binary at " + binPath + ".prev)")
 	}
 
 	if platform.FileExists(binPath) {
@@ -271,4 +279,227 @@ func downloadTo(path, url string) error {
 	}
 	defer f.Close()
 	return release.Download(url, f)
+}
+
+// extractArchive unpacks either a .zip (Windows releases) or a .tar.gz
+// (Linux/macOS releases) into destDir. Uses the Go stdlib so we don't
+// depend on `tar` / `unzip` being on PATH.
+func extractArchive(archive, destDir string) error {
+	if release.ArchiveIsZip() || strings.HasSuffix(strings.ToLower(archive), ".zip") {
+		return extractZip(archive, destDir)
+	}
+	return extractTarGz(archive, destDir)
+}
+
+func extractZip(archive, destDir string) error {
+	r, err := zip.OpenReader(archive)
+	if err != nil {
+		return fmt.Errorf("open zip: %w", err)
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		target, err := safeJoin(destDir, f.Name)
+		if err != nil {
+			return err
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := f.Open()
+		if err != nil {
+			return err
+		}
+		mode := f.Mode()
+		if mode == 0 {
+			mode = 0o644
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		if err != nil {
+			in.Close()
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			in.Close()
+			out.Close()
+			return err
+		}
+		in.Close()
+		out.Close()
+	}
+	return nil
+}
+
+func extractTarGz(archive, destDir string) error {
+	f, err := os.Open(archive)
+	if err != nil {
+		return fmt.Errorf("open tar.gz: %w", err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("gzip reader: %w", err)
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		target, err := safeJoin(destDir, h.Name)
+		if err != nil {
+			return err
+		}
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(h.Mode)&0o777); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			mode := os.FileMode(h.Mode) & 0o777
+			if mode == 0 {
+				mode = 0o644
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			out.Close()
+		case tar.TypeSymlink:
+			_ = os.Remove(target)
+			if err := os.Symlink(h.Linkname, target); err != nil {
+				return err
+			}
+		default:
+			// Skip other entry types (xattrs, hardlinks from macOS tar, etc.)
+		}
+	}
+	return nil
+}
+
+// safeJoin prevents zip/tar slip — reject paths that escape the destination.
+func safeJoin(base, rel string) (string, error) {
+	cleaned := filepath.Clean("/" + rel)
+	joined := filepath.Join(base, cleaned)
+	// Make sure joined is under base.
+	baseAbs, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	targetAbs, err := filepath.Abs(joined)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(targetAbs+string(filepath.Separator), baseAbs+string(filepath.Separator)) {
+		return "", fmt.Errorf("archive entry escapes destination: %s", rel)
+	}
+	return joined, nil
+}
+
+// overlayCopy walks src and copies every file into dst, creating parent dirs
+// as needed. Directory names that match any entry in skipDirs (checked at
+// the top level only) are left completely untouched — this is how we
+// preserve the user's data/ and .venv/ directories across updates.
+//
+// Unlike rsync --delete-during, this does NOT prune stale files. Matches
+// the install.ps1 (Expand-Archive -Force) semantics and is good enough
+// for overlay updates; stale files from prior releases linger but don't
+// break anything.
+func overlayCopy(src, dst string, skipDirs []string) error {
+	skip := make(map[string]bool, len(skipDirs))
+	for _, d := range skipDirs {
+		skip[d] = true
+	}
+
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		// Skip top-level directories we want to preserve in dst.
+		parts := strings.Split(rel, string(filepath.Separator))
+		if len(parts) > 0 && skip[parts[0]] {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode()&0o777)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			_ = os.Remove(target)
+			return os.Symlink(link, target)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		mode := info.Mode() & 0o777
+		if mode == 0 {
+			mode = 0o644
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	})
+}
+
+// detectInstallMethod returns a short label describing how imprint appears
+// to have been installed, or "" if we can't tell. Used only for user-facing
+// messaging — the overlay update path is identical for all layouts.
+func detectInstallMethod(installDir string) string {
+	switch runtime.GOOS {
+	case "darwin":
+		if strings.Contains(installDir, "/Applications/Imprint.app/") {
+			return "macOS .pkg (/Applications/Imprint.app)"
+		}
+	case "windows":
+		lower := strings.ToLower(installDir)
+		if strings.Contains(lower, `\programs\imprint`) || strings.Contains(lower, "/programs/imprint") {
+			return "Windows installer (%LOCALAPPDATA%\\Programs\\Imprint)"
+		}
+	}
+	if strings.Contains(installDir, ".local/share/imprint") || strings.Contains(installDir, `.local\share\imprint`) {
+		return "curl/PowerShell installer (~/.local/share/imprint)"
+	}
+	return ""
 }

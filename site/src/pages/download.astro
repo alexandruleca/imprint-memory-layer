@@ -34,6 +34,24 @@ function fmtDate(iso?: string) {
       <DownloadPicker />
     </div>
 
+    {releases.latestStable?.bodyHtml && (
+      <section class="mt-16">
+        <div class="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+          <h2 class="text-xl sm:text-2xl font-bold tracking-tight">
+            What's new in <span class="font-mono text-[color:var(--color-accent)]">{releases.latestStable.tag}</span>
+          </h2>
+          <a href={releases.latestStable.htmlUrl} class="text-sm underline text-[color:var(--color-text-muted)] hover:text-white">Full notes ↗</a>
+        </div>
+        <details class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] overflow-hidden group">
+          <summary class="list-none cursor-pointer px-6 py-4 flex items-center justify-between text-sm text-[color:var(--color-text-muted)] hover:text-white">
+            <span>Show release notes</span>
+            <span class="transition-transform group-open:rotate-180">▾</span>
+          </summary>
+          <article class="px-6 pb-6 pt-2 prose-release" set:html={releases.latestStable.bodyHtml}></article>
+        </details>
+      </section>
+    )}
+
     <section class="mt-20">
       <div class="flex flex-wrap items-baseline justify-between gap-3 mb-6">
         <div>

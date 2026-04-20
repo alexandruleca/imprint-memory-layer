@@ -42,20 +42,29 @@ type ReleaseAsset struct {
 }
 
 // ArchiveName returns the platform/arch-specific archive name, matching
-// install.sh's naming convention.
+// install.sh / install.ps1's naming convention. Windows ships as .zip;
+// Linux/macOS as .tar.gz.
 func ArchiveName() string {
 	osn := runtime.GOOS
-	if osn == "darwin" {
-		osn = "darwin"
-	}
 	arch := runtime.GOARCH // amd64 | arm64
-	return fmt.Sprintf("imprint-%s-%s.tar.gz", osn, arch)
+	ext := ".tar.gz"
+	if osn == "windows" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("imprint-%s-%s%s", osn, arch, ext)
 }
 
-// ArchiveDirName returns the directory name the tarball expands into —
+// ArchiveIsZip reports whether the current platform's archive is a .zip
+// (Windows) rather than a .tar.gz.
+func ArchiveIsZip() bool { return runtime.GOOS == "windows" }
+
+// ArchiveDirName returns the directory name the archive expands into —
 // same stem as ArchiveName, no extension. Matches the release packager.
 func ArchiveDirName() string {
-	return strings.TrimSuffix(ArchiveName(), ".tar.gz")
+	n := ArchiveName()
+	n = strings.TrimSuffix(n, ".tar.gz")
+	n = strings.TrimSuffix(n, ".zip")
+	return n
 }
 
 // ResolveLatest hits the GitHub API and returns the newest release for the

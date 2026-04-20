@@ -1,0 +1,70 @@
+#!/bin/bash
+# Shortcut target for /Applications/Imprint.app.
+#
+# Responsibility: start Imprint's services and open the web UI. That's it.
+# First-run setup (venv creation, pip install, `imprint setup`) happens in the
+# .pkg's postinstall script, which runs as the console user when the installer
+# finishes. The launcher only falls back to bootstrap if the postinstall
+# sentinel is missing (rare — manual tarball install, corrupted state).
+set -uo pipefail
+
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INSTALL_DIR="$APP_DIR/Resources/imprint"
+SENTINEL="$INSTALL_DIR/.first-run.done"
+VENV_DIR="$INSTALL_DIR/.venv"
+BIN="$INSTALL_DIR/bin/imprint"
+REQS="$INSTALL_DIR/requirements.txt"
+
+show_error() {
+    local title="$1"; shift
+    local msg="$*"
+    osascript -e "display dialog \"$msg\" with title \"Imprint — $title\" buttons {\"OK\"} default button \"OK\" with icon stop" >/dev/null 2>&1 || true
+    echo "[x] $title: $msg" >&2
+}
+
+find_python() {
+    for c in python3 python; do
+        if command -v "$c" >/dev/null 2>&1; then
+            if "$c" --version 2>&1 | grep -qE 'Python 3\.(9|1[0-9]|[2-9][0-9])'; then
+                echo "$c"; return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+bootstrap_silent() {
+    local py
+    py=$(find_python) || return 1
+    [ -d "$VENV_DIR" ] || "$py" -m venv "$VENV_DIR" >/dev/null 2>&1 || return 1
+    "$VENV_DIR/bin/pip" install --disable-pip-version-check -q -r "$REQS" >/dev/null 2>&1 || return 1
+    "$BIN" setup >/dev/null 2>&1 || return 1
+    touch "$SENTINEL"
+    return 0
+}
+
+if [ ! -x "$BIN" ]; then
+    show_error "Missing binary" "Imprint binary not found at $BIN. Reinstall from https://imprintmcp.alexandruleca.com/download."
+    exit 1
+fi
+
+# Fallback bootstrap when postinstall didn't run (e.g. manual copy of .app).
+# Shown as a non-blocking "please wait" dialog so the user isn't staring at
+# a frozen Dock icon.
+if [ ! -f "$SENTINEL" ]; then
+    osascript -e 'display notification "Finishing first-time setup..." with title "Imprint"' >/dev/null 2>&1 || true
+    if ! bootstrap_silent; then
+        show_error "Setup required" "Imprint could not finish first-time setup automatically. Open Terminal and run:
+
+  $BIN setup
+
+Then re-launch Imprint."
+        exit 1
+    fi
+fi
+
+# `imprint ui open` boots the Qdrant daemon + UI server and opens the
+# browser. The launcher itself exits immediately — services keep running.
+"$BIN" ui open >/dev/null 2>&1 &
+disown 2>/dev/null || true
+exit 0
