@@ -1,5 +1,6 @@
 ---
 title: Command Queue
+description: How Imprint serializes long-running CLI jobs (ingest, retag, wipe, sync) through a single-slot FIFO queue with advisory file locking, SIGTERM-safe cancellation, and SSE streaming.
 ---
 
 # Command Queue

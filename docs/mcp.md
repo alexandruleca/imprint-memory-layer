@@ -1,5 +1,6 @@
 ---
 title: MCP Tools & Automatic Updates
+description: The 13 MCP tools Imprint exposes to coding agents — semantic search, graph navigation, knowledge-graph queries, inline content ingestion, and more.
 ---
 
 # MCP Tools & Automatic Updates

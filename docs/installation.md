@@ -1,5 +1,6 @@
 ---
 title: Installation
+description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-line installer, version pinning, update command, Docker alternative, and upgrade safety.
 ---
 
 # Installation

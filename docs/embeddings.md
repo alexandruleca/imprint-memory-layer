@@ -1,5 +1,6 @@
 ---
 title: Embeddings
+description: Imprint's local ONNX-powered embeddings — EmbeddingGemma-300M by default, optional GPU acceleration via onnxruntime-gpu, and how to swap models safely.
 ---
 
 # Embeddings

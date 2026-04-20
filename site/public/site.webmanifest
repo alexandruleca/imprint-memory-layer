@@ -1,0 +1,24 @@
+{
+  "name": "Imprint — MCP Memory Layer",
+  "short_name": "Imprint",
+  "description": "Persistent, semantic memory for AI coding tools. Cuts Claude Code token use by 70.4% and cost by 31.7% across 150 benchmark runs. 100% local, MCP-native.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07070d",
+  "theme_color": "#0f1020",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

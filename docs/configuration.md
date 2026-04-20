@@ -1,5 +1,6 @@
 ---
 title: Configuration
+description: Tune Imprint — model, chunker, tagger, Qdrant, and queue settings via `imprint config set`, with environment-variable overrides and precedence rules.
 ---
 
 # Configuration
