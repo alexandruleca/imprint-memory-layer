@@ -104,7 +104,11 @@ fi
 
 # --- Check prerequisites ---
 if ! command -v claude &>/dev/null; then
-    fail "Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code/overview"
+    # Not fatal: `imprint setup all` probes every supported host (Claude
+    # Code, Cursor, Codex, Copilot, Cline, OpenClaw, Claude/ChatGPT
+    # Desktop) and skips the ones that aren't installed. User can add
+    # Claude Code later then run `imprint setup claude-code`.
+    info "Claude Code CLI not found on PATH — skipping. Install from https://docs.anthropic.com/en/docs/claude-code/overview and run 'imprint setup claude-code' later."
 fi
 command -v tar &>/dev/null || fail "tar is required but not found"
 command -v rsync &>/dev/null || fail "rsync is required but not found"
