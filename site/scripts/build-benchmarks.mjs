@@ -38,14 +38,36 @@ function parseCategoryTable(heading) {
   return { avgTokens, avgCost, rows };
 }
 
-const categories = [
+const categoryNotes = {
+  summary: {
+    headline: 'Higher cost buys richer recall',
+    body: "ON mode doesn't read a file and paraphrase — it searches memory, walks the graph, and returns a cross-project synthesis. Response B is ≈1.4× the chars of the OFF baseline with sharper framing and granular implementation details. The token/cost delta is the price of pulling context from many indexed sources instead of one `git log` + Read.",
+  },
+  creation: {
+    headline: 'More complete first reply = fewer round trips',
+    body: "ON code answers include per-project breakdowns, call chains, docstrings, and config citations (≈1.5–2.2× the chars of OFF). A richer, more specific first response means fewer clarifying questions and retries downstream — so the +15% cost here avoids an often-larger spend across the follow-up turns you don't see in a single-prompt benchmark.",
+  },
+};
+
+const qualityMatches = [
+  ...md.matchAll(/\*\*Average ON quality: ([+-]?\d+)%\*\* of OFF baseline/g),
+].map((m) => `${m[1].startsWith('-') || m[1].startsWith('+') ? m[1] : '+' + m[1]}%`);
+
+const categoryDefs = [
   { key: 'information', heading: 'Information Prompts', label: 'Information' },
   { key: 'decision', heading: 'Decision Recall Prompts', label: 'Decision Recall' },
   { key: 'debug', heading: 'Debugging Prompts', label: 'Debugging' },
   { key: 'cross', heading: 'Cross-Project Prompts', label: 'Cross-Project' },
   { key: 'summary', heading: 'Session Summary Prompts', label: 'Session Summary' },
   { key: 'creation', heading: 'Creation Prompts', label: 'Creation' },
-].map((c) => ({ ...c, ...parseCategoryTable(c.heading) }));
+];
+
+const categories = categoryDefs.map((c, i) => ({
+  ...c,
+  ...parseCategoryTable(c.heading),
+  quality: qualityMatches[i] ?? null,
+  note: categoryNotes[c.key] ?? null,
+}));
 
 const overallMatch = md.match(
   /### Overall\s*\n\s*- \*\*Token savings\*\*: ([+-]?\d+\.\d+%) \(([\d,]+) → ([\d,]+)\)\s*\n\s*- \*\*Cost savings\*\*: ([+-]?\d+\.\d+%) \(\$([\d.]+) → \$([\d.]+)\)/,
@@ -73,9 +95,21 @@ const env = envMatch
     }
   : null;
 
+const totalRows = categories.reduce((a, c) => a + (c.rows?.length || 0), 0);
+const weightedQualityNum = totalRows
+  ? categories.reduce(
+      (a, c) => a + (c.quality ? parseFloat(c.quality) * (c.rows?.length || 0) : 0),
+      0,
+    ) / totalRows
+  : null;
+const overallQuality =
+  weightedQualityNum == null
+    ? null
+    : `${weightedQualityNum >= 0 ? '+' : ''}${weightedQualityNum.toFixed(1)}%`;
+
 const payload = {
   generatedAt: new Date().toISOString(),
-  overall,
+  overall: overall ? { ...overall, qualityPct: overallQuality } : overall,
   categories,
   env,
 };

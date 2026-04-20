@@ -40,6 +40,8 @@ jobs:
 
       - name: Build site
         working-directory: site
+        env:
+          PUBLIC_GA4_ID: G-ZPW1M6BCC7
         run: npm run build
 
       - name: Upload Pages artifact
