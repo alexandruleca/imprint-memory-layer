@@ -35,6 +35,8 @@ func Uninstall(args []string) {
 	projectDir := platform.FindProjectDir()
 	dataDir := platform.DataDir(projectDir)
 	venvDir := platform.VenvDir(projectDir)
+	pyDir := platform.UvPythonInstallDir(projectDir)
+	uvCacheDir := platform.UvCacheDir(projectDir)
 	installDir := filepath.Join(platform.HomeDir(), ".local", "share", "imprint")
 
 	fmt.Println()
@@ -45,10 +47,12 @@ func Uninstall(args []string) {
 	fmt.Println("    - strip the managed block from ~/.claude/CLAUDE.md")
 	fmt.Println("    - remove the shell alias and ~/.local/bin/imprint symlink")
 	if keepData {
-		fmt.Println("    - remove .venv/  (keeping data at " + dataDir + ")")
+		fmt.Println("    - remove .venv/ + bundled Python + uv cache  (keeping data at " + dataDir + ")")
 	} else {
 		fmt.Println("    - DELETE data/ at " + dataDir + " (all memories + configs)")
 		fmt.Println("    - DELETE .venv/ at " + venvDir)
+		fmt.Println("    - DELETE bundled Python at " + pyDir)
+		fmt.Println("    - DELETE uv cache at " + uvCacheDir)
 		if platform.DirExists(installDir) {
 			fmt.Println("    - DELETE install dir at " + installDir)
 		}
@@ -80,14 +84,18 @@ func Uninstall(args []string) {
 	// 5. Remove the ~/.local/bin/imprint symlink created by install.sh.
 	removeSymlinkIfLink(filepath.Join(platform.HomeDir(), ".local", "bin", "imprint"))
 
-	// 6. Delete venv + data + install dir.
+	// 6. Delete venv + bundled Python + uv cache + data + install dir.
 	removeDirReport(venvDir, ".venv")
+	removeDirReport(pyDir, "bundled Python (uv-managed)")
+	removeDirReport(uvCacheDir, "uv wheel cache")
 	if !keepData {
 		removeDirReport(dataDir, "data dir")
 		if installDir != projectDir && platform.DirExists(installDir) {
 			// Separate install dir (user has both a source checkout and a
 			// release install). Wipe its own venv + data too.
 			removeDirReport(filepath.Join(installDir, ".venv"), "install .venv")
+			removeDirReport(filepath.Join(installDir, "python"), "install bundled Python")
+			removeDirReport(filepath.Join(installDir, ".uv-cache"), "install uv cache")
 			removeDirReport(filepath.Join(installDir, "data"), "install data dir")
 			removeDirReport(installDir, "install dir")
 		} else if installDir == projectDir {

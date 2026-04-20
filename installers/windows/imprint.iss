@@ -75,7 +75,7 @@ Source: "{#ImprintSource}\*"; DestDir: "{app}"; Flags: recursesubdirs createalls
 ; Our custom launcher + installer-time setup helper live alongside the binary.
 Source: "imprint-launcher.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "imprint-setup.ps1";    DestDir: "{app}"; Flags: ignoreversion
-; App icon. Optional — the CI build generates this from site/public/logo.svg;
+; App icon. Optional - the CI build generates this from site/public/logo.svg;
 ; the #ifexist guard below keeps local `iscc` invocations working without it.
 #ifexist "assets\imprint.ico"
 Source: "assets\imprint.ico";   DestDir: "{app}\assets"; Flags: ignoreversion
@@ -100,7 +100,7 @@ Name: "{userdesktop}\{#AppName}";     Filename: "powershell.exe"; Parameters: "-
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" -Profile {code:SelectedProfile} {code:WithLlmFlag} -PauseOnFinish"; \
     WorkingDir: "{app}"; \
-    StatusMsg: "Setting up Imprint (first time only — uv will download Python)..."; \
+    StatusMsg: "Setting up Imprint (first time only - uv will download Python)..."; \
     Flags: waituntilterminated
 ; 2. Offer to launch Imprint on install finish (unchecked in silent mode).
 Filename: "powershell.exe"; \

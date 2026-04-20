@@ -66,9 +66,18 @@ func provisionWithUv(uv, venvDir, venvPython, baseReqs string) {
 
 	// Fresh venv? Create it. uv venv is idempotent but re-runs always
 	// replace, so only invoke when the python binary is actually missing.
+	//
+	// --python-preference only-managed forces uv to use its own
+	// python-build-standalone interpreter (installed under
+	// UV_PYTHON_INSTALL_DIR set by setupBackend) and never reach for a
+	// stray /usr/bin/python3.12 on the host — keeps Imprint's Python
+	// 100% scoped to the install tree.
 	if !platform.FileExists(venvPython) {
 		output.Info("Creating virtual environment at " + venvDir + " (uv will download Python " + bundledPythonVersion + " if needed)...")
-		if err := runner.Run(uv, "venv", venvDir, "--python", bundledPythonVersion); err != nil {
+		if err := runner.Run(uv, "venv", venvDir,
+			"--python", bundledPythonVersion,
+			"--python-preference", "only-managed",
+		); err != nil {
 			output.Fail("uv venv failed: " + err.Error())
 		}
 		output.Success("Virtual environment ready")
@@ -255,6 +264,19 @@ func setupBackend() backendPaths {
 	if mutableBase := platform.MutableBaseDir(projectDir); mutableBase != projectDir {
 		os.MkdirAll(mutableBase, 0755)
 	}
+
+	// Scope every uv invocation (including nested pip calls below) to
+	// Imprint's install tree so the downloaded Python + wheel cache stay
+	// isolated from any other uv user on the machine. Uninstalling Imprint
+	// removes these dirs too. UV_PYTHON_INSTALL_DIR is respected by
+	// `uv python install` + implicit downloads done by `uv venv`; the wheel
+	// cache gets its own dir via UV_CACHE_DIR.
+	pyInstallDir := platform.UvPythonInstallDir(projectDir)
+	uvCache := platform.UvCacheDir(projectDir)
+	os.MkdirAll(pyInstallDir, 0755)
+	os.MkdirAll(uvCache, 0755)
+	os.Setenv("UV_PYTHON_INSTALL_DIR", pyInstallDir)
+	os.Setenv("UV_CACHE_DIR", uvCache)
 
 	// ── Resolve install profile ────────────────────────────────
 	// Priority: explicit CLI flag > env var > persisted profile.json > auto.

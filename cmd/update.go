@@ -136,8 +136,8 @@ func Update(args []string, currentVersion string) {
 		output.Info("Detected install layout: " + installedVia)
 	}
 
-	output.Info("Updating files in " + installDir + " (preserving data/ + .venv/)...")
-	if err := overlayCopy(extracted, installDir, []string{"data", ".venv"}); err != nil {
+	output.Info("Updating files in " + installDir + " (preserving data/ + .venv/ + python/ + .uv-cache/)...")
+	if err := overlayCopy(extracted, installDir, []string{"data", ".venv", "python", ".uv-cache"}); err != nil {
 		output.Fail("overlay copy failed: " + err.Error() + " (previous binary at " + binPath + ".prev)")
 	}
 

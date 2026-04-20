@@ -202,6 +202,24 @@ func ProfileStatePath(projectDir string) string {
 	return filepath.Join(DataDir(projectDir), "profile.json")
 }
 
+// UvPythonInstallDir returns the directory where uv will extract the
+// python-build-standalone interpreter. Scoped to the imprint install tree
+// (or its writable mirror when the install is inside a read-only .app
+// bundle) so Imprint's Python stays isolated from any other uv user on the
+// machine and uninstalling Imprint removes Python too.
+//
+// Passed as UV_PYTHON_INSTALL_DIR when invoking uv.
+func UvPythonInstallDir(projectDir string) string {
+	return filepath.Join(MutableBaseDir(projectDir), "python")
+}
+
+// UvCacheDir returns the wheel cache dir for uv. Scoped alongside the
+// Python install so Imprint's cache is self-contained and the user can
+// clear it without affecting other Python tooling.
+func UvCacheDir(projectDir string) string {
+	return filepath.Join(MutableBaseDir(projectDir), ".uv-cache")
+}
+
 func HomeDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
