@@ -41,9 +41,15 @@ type backendPaths struct {
 // resolved paths so target-specific code can wire them into MCP configs.
 func setupBackend() backendPaths {
 	projectDir := platform.FindProjectDir()
-	venvDir := filepath.Join(projectDir, ".venv")
+	venvDir := platform.VenvDir(projectDir)
 	dataDir := platform.DataDir(projectDir)
 	requirementsFile := filepath.Join(projectDir, "requirements.txt")
+
+	// When running from a read-only app bundle, mutable state (venv, data)
+	// is redirected to ~/.local/share/imprint/. Ensure the parent exists.
+	if mutableBase := platform.MutableBaseDir(projectDir); mutableBase != projectDir {
+		os.MkdirAll(mutableBase, 0755)
+	}
 
 	output.Info("Detected platform: " + platform.OSName())
 
