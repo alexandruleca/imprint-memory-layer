@@ -1,8 +1,13 @@
-; Custom wizard page for profile + LLM selection.
-; Included from imprint.iss under [Code]. Exposes:
-;   - function SelectedProfile(): 'cpu' | 'gpu'
-;   - function WithLlm(): Boolean
-; Auto-detects NVIDIA GPU via Win32_VideoController and pre-checks GPU.
+// Custom wizard page for profile + LLM selection.
+// Included from imprint.iss inside the [Code] section, so every line here
+// must be valid Inno Setup Pascal Script (// or (* *) comments — NOT the
+// `;` style that the top-level .iss sections use).
+//
+// Exposes to imprint.iss:
+//   function SelectedProfile(): 'cpu' | 'gpu'
+//   function WithLlmFlag():     '-WithLlm' | ''
+// Auto-detects NVIDIA GPU via Win32_VideoController and pre-selects GPU
+// when the host looks like it has one.
 
 var
   ProfilePage: TInputOptionWizardPage;
@@ -21,7 +26,7 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
     if LoadStringFromFile(TempFile, Output) then
-      Result := Pos('NVIDIA', Uppercase(string(Output))) > 0;
+      Result := Pos('NVIDIA', Uppercase(Output)) > 0;
     DeleteFile(TempFile);
   end;
 end;
@@ -53,7 +58,7 @@ begin
   LlmPage.Add('Install llama-cpp-python now (default: off — you can add it later with "imprint profile add-llm")');
 end;
 
-function SelectedProfile(): string;
+function SelectedProfile(Param: string): string;
 begin
   if (ProfilePage <> nil) and (ProfilePage.SelectedValueIndex = 1) then
     Result := 'gpu'
@@ -61,7 +66,7 @@ begin
     Result := 'cpu';
 end;
 
-function WithLlmFlag(): string;
+function WithLlmFlag(Param: string): string;
 begin
   if (LlmPage <> nil) and LlmPage.Values[0] then
     Result := '-WithLlm'
