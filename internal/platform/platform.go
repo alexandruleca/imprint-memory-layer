@@ -265,6 +265,17 @@ func CodexAgentsPath() string {
 	return filepath.Join(HomeDir(), ".codex", "AGENTS.md")
 }
 
+// OpenClawConfigDir returns the user-global OpenClaw config directory (~/.openclaw).
+func OpenClawConfigDir() string {
+	return filepath.Join(HomeDir(), ".openclaw")
+}
+
+// OpenClawMCPPath returns the user-global OpenClaw config file. MCP server
+// registrations live under the nested `mcp.servers` key in this file.
+func OpenClawMCPPath() string {
+	return filepath.Join(OpenClawConfigDir(), "openclaw.json")
+}
+
 // ClineRulesPath returns the user-global Cline rules file (~/.clinerules/imprint.md).
 // Cline reads every file under ~/.clinerules/ as an always-on rule.
 func ClineRulesPath() string {

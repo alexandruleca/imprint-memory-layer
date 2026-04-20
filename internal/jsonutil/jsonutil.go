@@ -408,6 +408,85 @@ func RemoveMCPServer(path, rootKey, name string) (bool, error) {
 	return true, WriteJSON(path, data)
 }
 
+// EnsureMCPServerNested is the nested-key variant of EnsureMCPServerAtKey.
+// Pass keyPath like []string{"mcp","servers"} for hosts that nest the server
+// table (e.g. OpenClaw's ~/.openclaw/openclaw.json). Intermediate objects
+// are created on demand. Returns true if added or updated, false if already
+// identical. Creates the file (and parent dir) if missing.
+func EnsureMCPServerNested(path string, keyPath []string, name string, spec map[string]any) (bool, error) {
+	if len(keyPath) == 0 {
+		return false, fmt.Errorf("keyPath must not be empty")
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return false, fmt.Errorf("creating directory %s: %w", dir, err)
+		}
+		leaf := map[string]any{name: spec}
+		for i := len(keyPath) - 1; i >= 0; i-- {
+			leaf = map[string]any{keyPath[i]: leaf}
+		}
+		return true, WriteJSON(path, leaf)
+	}
+
+	data, err := ReadJSON(path)
+	if err != nil {
+		return false, err
+	}
+
+	cur := data
+	for _, k := range keyPath {
+		next, ok := cur[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			cur[k] = next
+		}
+		cur = next
+	}
+
+	if existing, ok := cur[name].(map[string]any); ok {
+		if jsonEqual(existing, spec) {
+			return false, nil
+		}
+	}
+	cur[name] = spec
+	return true, WriteJSON(path, data)
+}
+
+// RemoveMCPServerNested is the nested-key variant of RemoveMCPServer. Walks
+// keyPath read-only; if any level is missing or the wrong type, returns
+// (false, nil). At the leaf, only `name` is removed — intermediate maps
+// (including the leaf parent, even if it becomes empty) are preserved so we
+// never clobber user-added siblings (e.g. other servers, or unrelated keys
+// like mcp.enabled).
+func RemoveMCPServerNested(path string, keyPath []string, name string) (bool, error) {
+	if len(keyPath) == 0 {
+		return false, fmt.Errorf("keyPath must not be empty")
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false, nil
+	}
+	data, err := ReadJSON(path)
+	if err != nil {
+		return false, err
+	}
+
+	cur := data
+	for _, k := range keyPath {
+		next, ok := cur[k].(map[string]any)
+		if !ok {
+			return false, nil
+		}
+		cur = next
+	}
+	if _, present := cur[name]; !present {
+		return false, nil
+	}
+	delete(cur, name)
+	return true, WriteJSON(path, data)
+}
+
 func jsonEqual(a, b map[string]any) bool {
 	ja, err1 := json.Marshal(a)
 	jb, err2 := json.Marshal(b)
