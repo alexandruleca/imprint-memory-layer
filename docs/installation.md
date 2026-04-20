@@ -5,14 +5,17 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 ## Requirements
 
 **Core:**
-- Python 3.10–3.13
-- pip
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
+- A working network connection on first run (so the bundled `uv` can fetch Python + wheels)
+
+**Host Python is *not* required.** Every release archive now ships Astral's `uv` binary alongside `imprint`; on first run `uv` downloads a pinned Python 3.12 via python-build-standalone into the install dir's `.venv/`. Nothing is installed system-wide.
 
 **Optional — GPU acceleration:**
-- NVIDIA GPU + CUDA 12 + `onnxruntime-gpu` for ~20× faster embedding (see [embeddings.md](./embeddings.md))
+- NVIDIA GPU + CUDA 12 + `onnxruntime-gpu` for ~20× faster embedding (pick `--profile gpu` at install, or run `imprint profile set gpu` later — see [embeddings.md](./embeddings.md))
 
-**LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically with `imprint setup`. No extra steps needed for any provider.
+**Optional — local LLM tagger** — `llama-cpp-python` is skipped by default to keep the install footprint small. Opt in with `--with-llm` at install time or `imprint profile add-llm` afterward.
+
+**LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically in the base profile. No extra steps needed for any provider.
 
 ## Quick Install
 
@@ -26,7 +29,24 @@ curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/
 irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex
 ```
 
-This clones the repo, builds the binary, installs Python dependencies (including ONNX Runtime + Qdrant client + Chonkie), registers the MCP server, configures Claude Code hooks, and sets up shell aliases. One command, everything ready.
+This downloads the pre-built imprint binary + bundled `uv`, prompts for the install profile (CPU / GPU + optional local LLM tagger — auto-skipped in `curl | bash` mode), provisions a Python venv via `uv`, installs the selected dependencies, registers the MCP server, configures Claude Code hooks, and sets up shell aliases. One command, everything ready.
+
+### Profile & extras flags
+
+Skip the interactive prompt with CLI flags:
+
+```bash
+# Force GPU + local LLM tagger, no prompts
+curl -fsSL .../install.sh | bash -s -- --profile gpu --with-llm
+
+# CPU-only, explicitly disable the LLM tagger (default when piped)
+curl -fsSL .../install.sh | bash -s -- --profile cpu --no-llm
+
+# Fully non-interactive: fail fast on any ambiguity
+curl -fsSL .../install.sh | bash -s -- --non-interactive
+```
+
+Swap profile after the fact with `imprint profile set gpu`, add the LLM tagger with `imprint profile add-llm`, or drop it with `imprint profile drop-llm`. Each mutation re-runs the installer's bootstrap step via `uv`.
 
 ## Supported hosts
 

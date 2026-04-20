@@ -1,14 +1,25 @@
 # Invoked once from the Inno Setup [Run] section right after files are copied.
-# Runs in the user's context, not elevated. Creates the Python venv, installs
-# dependencies, registers Imprint with Claude Code, and drops the sentinel
-# that tells the launcher "first-run is done".
+# Runs in the user's context, not elevated. Delegates venv creation + dep
+# install to the bundled `uv.exe` + `imprint bootstrap` — no host Python
+# required.
 #
 # Runs in a VISIBLE PowerShell window (Inno [Run] without /runhidden) so the
-# user can watch progress and see any errors as they happen. On failure the
-# window pauses for input before closing.
+# user can watch uv download Python + wheels and see any errors as they
+# happen. On failure the window pauses for input before closing.
+#
+# Parameters:
+#   -InstallDir <path>      Imprint install root (required).
+#   -Profile cpu|gpu|auto   Install profile (default: cpu).
+#   -WithLlm                Install llama-cpp-python (default: off).
+#   -PauseOnFinish          Linger 3s after success (visible [Run] only).
+#   -Interactive            Wait for Enter after success/failure (Repair
+#                           Imprint shortcut uses this).
 
 param(
     [Parameter(Mandatory=$true)] [string]$InstallDir,
+    [ValidateSet("","cpu","gpu","auto")] [string]$Profile = "",
+    [switch]$WithLlm,
+    [switch]$NoLlm,
     [switch]$PauseOnFinish,
     [switch]$Interactive
 )
@@ -16,9 +27,8 @@ param(
 $ErrorActionPreference = "Continue"
 $InformationPreference = "Continue"
 
-$VenvDir  = Join-Path $InstallDir ".venv"
 $Bin      = Join-Path $InstallDir "bin\imprint.exe"
-$Reqs     = Join-Path $InstallDir "requirements.txt"
+$Uv       = Join-Path $InstallDir "bin\uv.exe"
 $Sentinel = Join-Path $InstallDir ".first-run.done"
 $Log      = Join-Path $InstallDir "first-run.log"
 
@@ -42,48 +52,42 @@ function Fail-Exit {
     exit 1
 }
 
-function Find-Python {
-    foreach ($c in @('python', 'py', 'python3')) {
-        $cmd = Get-Command $c -ErrorAction SilentlyContinue
-        if (-not $cmd) { continue }
-        $argList = if ($c -eq 'py') { @('-3', '--version') } else { @('--version') }
-        try {
-            $out = & $cmd.Source @argList 2>&1
-            if ($out -match 'Python 3\.(1[0-3])\b') {
-                return @{ Cmd = $cmd.Source; ArgsPrefix = $(if ($c -eq 'py') { @('-3') } else { @() }) }
-            }
-        } catch { continue }
-    }
-    return $null
-}
-
 "" | Out-File -FilePath $Log -Encoding ascii  # truncate
 
 Write-Host ""
 Write-Host "=== Imprint first-run setup ===" -ForegroundColor Cyan
 Write-Host ""
 Log-Line "InstallDir = $InstallDir"
+Log-Line "Profile    = $Profile"
+Log-Line "WithLlm    = $($WithLlm.IsPresent)"
 
-$py = Find-Python
-if (-not $py) {
-    Log-Line "Python 3.10–3.13 not found on PATH."
-    Log-Line ""
-    Log-Line "Install Python 3.13 from https://www.python.org/downloads/"
-    Log-Line "and be sure to check 'Add python.exe to PATH' during install."
-    Log-Line "Then re-run setup from the Start Menu: 'Imprint -> Repair Imprint'."
-    Fail-Exit "Python prerequisite missing"
+if (-not (Test-Path $Uv)) {
+    Fail-Exit "Bundled uv.exe not found at $Uv. Re-download the installer."
 }
-Log-Line "Python: $($py.Cmd)"
-
-if (-not (Test-Path $VenvDir)) {
-    Log-Line "Creating Python virtual environment..."
-    & $py.Cmd @($py.ArgsPrefix + @('-m', 'venv', $VenvDir)) *>> $Log
-    if ($LASTEXITCODE -ne 0) { Fail-Exit "venv creation failed (exit=$LASTEXITCODE)" }
+if (-not (Test-Path $Bin)) {
+    Fail-Exit "imprint.exe not found at $Bin. Installer is broken."
 }
 
-Log-Line "Installing Python dependencies (this may take ~1 min)..."
-& "$VenvDir\Scripts\pip.exe" install --disable-pip-version-check -r $Reqs *>> $Log
-if ($LASTEXITCODE -ne 0) { Fail-Exit "pip install failed (exit=$LASTEXITCODE)" }
+try {
+    $uvVer = & $Uv --version 2>&1
+    Log-Line "uv: $uvVer"
+} catch {
+    Fail-Exit "uv.exe is present but not runnable: $_"
+}
+
+# Assemble flags for `imprint bootstrap` — the Go side handles venv
+# provisioning via uv, Python download, and wheel install. Omit flags the
+# user didn't specify so the Go side falls back to profile.json (repairs
+# reuse the last chosen profile instead of overriding it).
+$BootstrapArgs = @("bootstrap")
+if ($Profile -ne "") { $BootstrapArgs += @("--profile", $Profile) }
+if ($WithLlm) { $BootstrapArgs += "--with-llm" }
+elseif ($NoLlm) { $BootstrapArgs += "--no-llm" }
+$BootstrapArgs += "--non-interactive"
+
+Log-Line "Running: imprint $($BootstrapArgs -join ' ')"
+& $Bin @BootstrapArgs *>> $Log
+if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint bootstrap failed (exit=$LASTEXITCODE) — see $Log" }
 
 Log-Line "Registering Imprint with Claude Code..."
 & $Bin setup *>> $Log

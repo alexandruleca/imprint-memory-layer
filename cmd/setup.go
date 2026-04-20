@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,174 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
+// bundledPythonVersion is the interpreter uv downloads (via
+// python-build-standalone) when no matching system Python is around. Pinned
+// so every install ends up with the same minor — avoids the "it works on my
+// machine" class of bugs across onnxruntime / tree-sitter wheels.
+const bundledPythonVersion = "3.12"
+
+// profileState is persisted at data/profile.json so re-running
+// `imprint setup` without flags picks up the last explicit choice.
+type profileState struct {
+	Profile string `json:"profile"` // cpu | gpu | auto
+	WithLLM bool   `json:"with_llm"`
+}
+
+func loadProfile(projectDir string) profileState {
+	var st profileState
+	data, err := os.ReadFile(platform.ProfileStatePath(projectDir))
+	if err != nil {
+		return st
+	}
+	_ = json.Unmarshal(data, &st)
+	return st
+}
+
+func saveProfile(projectDir string, st profileState) {
+	p := platform.ProfileStatePath(projectDir)
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return
+	}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(p, append(data, '\n'), 0644)
+}
+
+// provisionWithUv creates (or reuses) the venv via bundled uv and installs
+// the base requirements. uv auto-downloads python-build-standalone when no
+// compatible system Python is available, so the user never has to install
+// Python manually.
+func provisionWithUv(uv, venvDir, venvPython, baseReqs string) {
+	if !platform.FileExists(baseReqs) {
+		output.Fail("base requirements not found at " + baseReqs + " — is the install tree intact?")
+	}
+
+	// Fresh venv? Create it. uv venv is idempotent but re-runs always
+	// replace, so only invoke when the python binary is actually missing.
+	if !platform.FileExists(venvPython) {
+		output.Info("Creating virtual environment at " + venvDir + " (uv will download Python " + bundledPythonVersion + " if needed)...")
+		if err := runner.Run(uv, "venv", venvDir, "--python", bundledPythonVersion); err != nil {
+			output.Fail("uv venv failed: " + err.Error())
+		}
+		output.Success("Virtual environment ready")
+	} else {
+		output.Skip("Virtual environment at " + venvDir)
+	}
+
+	output.Info("Installing base dependencies (uv)...")
+	if err := runner.Run(uv, "pip", "install",
+		"--python", venvPython,
+		"-r", baseReqs,
+	); err != nil {
+		output.Fail("uv pip install (base) failed: " + err.Error())
+	}
+}
+
+// provisionWithHostPython is the legacy fallback used when no uv binary is
+// present — typically in a dev checkout where `make build && ./build/imprint
+// setup` runs without the release-time fetch-uv step. Functionally identical
+// to the pre-uv behaviour: detect host Python, `python -m venv`, pip install.
+func provisionWithHostPython(venvDir, venvPython, venvPip, baseReqs string) {
+	output.Info(fmt.Sprintf("Checking for Python 3.%d–3.%d...", pythonMinMinor, pythonMaxMinor))
+	py := findPython()
+	if py.Cmd == "" && runtime.GOOS == "windows" && len(py.TooNew) == 0 {
+		if os.Getenv("IMPRINT_NO_PYTHON_INSTALL") != "1" {
+			if tryInstallPythonWindows() {
+				py = findPython()
+			}
+		}
+	}
+	if py.Cmd == "" {
+		if len(py.TooNew) > 0 {
+			output.Fail(fmt.Sprintf(
+				"Found Python %s but it's too new (need 3.%d–3.%d). Install: %s",
+				strings.Join(py.TooNew, ", "), pythonMinMinor, pythonMaxMinor, platform.PythonInstallHint(),
+			))
+		}
+		output.Fail(fmt.Sprintf(
+			"No host Python found and no bundled uv. Install Python 3.%d–3.%d (%s) or ship the uv binary.",
+			pythonMinMinor, pythonMaxMinor, platform.PythonInstallHint(),
+		))
+	}
+	output.Success(fmt.Sprintf("Found Python %s (%s)", py.Version, py.Cmd))
+
+	if !platform.FileExists(venvPython) {
+		venvArgs := append(append([]string{}, py.ExtraArgs...), "-m", "venv", venvDir)
+		if err := runner.Run(py.Cmd, venvArgs...); err != nil {
+			output.Fail("venv creation failed: " + err.Error())
+		}
+		output.Success("Created venv at " + venvDir)
+	} else {
+		output.Skip("Virtual environment at " + venvDir)
+	}
+
+	_ = runner.Run(venvPip, "install", "--upgrade", "pip", "--quiet")
+	output.Info("Installing base dependencies (pip)...")
+	if err := runner.Run(venvPip, "install", "-r", baseReqs, "--quiet"); err != nil {
+		output.Fail("pip install (base) failed: " + err.Error())
+	}
+}
+
+// installGpuReqs layers requirements/gpu.txt on top of the base install,
+// which swaps onnxruntime (CPU) for onnxruntime-gpu. ensureOrtGPU then runs
+// the smoke test + optional cu12 runtime-lib install.
+func installGpuReqs(uv, venvPython, venvPip, gpuReqs string) {
+	if !platform.FileExists(gpuReqs) {
+		output.Warn("gpu requirements not found at " + gpuReqs + " — skipping GPU overlay")
+		return
+	}
+	// Remove the CPU wheel first — the two packages share the `onnxruntime`
+	// namespace and cannot coexist.
+	output.Info("Uninstalling onnxruntime (CPU) before GPU overlay...")
+	if uv != "" {
+		_ = runner.Run(uv, "pip", "uninstall", "--python", venvPython, "onnxruntime")
+		if err := runner.Run(uv, "pip", "install", "--python", venvPython, "-r", gpuReqs); err != nil {
+			output.Warn("uv pip install (gpu) failed: " + err.Error())
+		}
+	} else {
+		_ = runner.Run(venvPip, "uninstall", "-y", "onnxruntime", "--quiet")
+		if err := runner.Run(venvPip, "install", "-r", gpuReqs, "--quiet"); err != nil {
+			output.Warn("pip install (gpu) failed: " + err.Error())
+		}
+	}
+}
+
+// installLlmReqs layers requirements/llm.txt on top of the base install.
+// ensureLlamaCppGPU is invoked separately so the CUDA rebuild only fires
+// when the user opted into GPU profile.
+func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
+	if !platform.FileExists(llmReqs) {
+		output.Warn("llm requirements not found at " + llmReqs + " — skipping LLM overlay")
+		return
+	}
+	output.Info("Installing llama-cpp-python (local tagger + chat)...")
+	if uv != "" {
+		if err := runner.Run(uv, "pip", "install", "--python", venvPython, "-r", llmReqs); err != nil {
+			output.Warn("uv pip install (llm) failed: " + err.Error())
+		}
+	} else {
+		if err := runner.Run(venvPip, "install", "-r", llmReqs, "--quiet"); err != nil {
+			output.Warn("pip install (llm) failed: " + err.Error())
+		}
+	}
+}
+
+// uvBinary resolves the uv executable used for Python + wheel management.
+// Order: bundled (<projectDir>/bin/uv) → `uv` on PATH → empty string. A
+// missing uv is not fatal at this layer — setupBackend falls back to the
+// legacy host-Python flow for local dev checkouts that don't ship uv.
+func uvBinary(projectDir string) string {
+	if p := platform.UvBinary(projectDir); platform.FileExists(p) {
+		return p
+	}
+	if p, ok := runner.Exists("uv"); ok {
+		return p
+	}
+	return ""
+}
+
 // retryGPU is set by main.go when the user passes --retry-gpu. When true,
 // setupBackend clears data/gpu_state.json before the GPU helpers run so
 // previously-sticky failures are retried.
@@ -26,6 +195,31 @@ var retryGPU bool
 
 // SetRetryGPU lets main.go toggle the retry-on-failure flag.
 func SetRetryGPU(v bool) { retryGPU = v }
+
+// Install profile selected by the user (CLI flag, env var, or persisted
+// state). Controls whether the GPU/LLM heavy deps are installed.
+//
+// Values: "cpu", "gpu", "auto" (default — detect NVIDIA GPU and pick).
+// withLLM toggles the llama-cpp-python install (local tagger + chat).
+// nonInteractiveInstall suppresses interactive fall-back prompts in setupBackend.
+var (
+	installProfile        string
+	withLLM               *bool // tri-state: nil = unset (read from profile.json), else set
+	nonInteractiveInstall bool
+)
+
+// SetInstallProfile records the profile flag passed on the CLI / from env.
+// Empty string leaves the existing value alone.
+func SetInstallProfile(v string) { installProfile = v }
+
+// SetWithLLM explicitly enables or disables the llama-cpp-python install.
+// Installers pass true when the user opted in on the wizard page.
+func SetWithLLM(v bool) { b := v; withLLM = &b }
+
+// SetNonInteractive disables interactive prompts during setupBackend. Used
+// by installers that run in non-tty contexts (Inno [Run] hidden, macOS
+// postinstall background job, CI).
+func SetNonInteractive(v bool) { nonInteractiveInstall = v }
 
 // backendPaths holds the resolved local paths produced by setupBackend.
 // Every target (Claude Code, Cursor, ...) reuses these so the venv, data
@@ -37,13 +231,24 @@ type backendPaths struct {
 }
 
 // setupBackend installs everything that is independent of the host AI tool:
-// Python venv, dependencies, data directory, shell alias. Returns the
-// resolved paths so target-specific code can wire them into MCP configs.
+// Python venv (via bundled uv), profile-selected deps, data directory,
+// shell alias. Returns the resolved paths so target-specific code can wire
+// them into MCP configs.
+//
+// Host Python is no longer a prerequisite: uv ships in the release archive
+// and downloads its own Python via python-build-standalone when needed.
 func setupBackend() backendPaths {
 	projectDir := platform.FindProjectDir()
 	venvDir := platform.VenvDir(projectDir)
 	dataDir := platform.DataDir(projectDir)
-	requirementsFile := filepath.Join(projectDir, "requirements.txt")
+	baseReqs := filepath.Join(projectDir, "requirements", "base.txt")
+	gpuReqs := filepath.Join(projectDir, "requirements", "gpu.txt")
+	llmReqs := filepath.Join(projectDir, "requirements", "llm.txt")
+	if !platform.FileExists(baseReqs) {
+		// Old layout (pre-split) — fall through and let the legacy path use
+		// requirements.txt. Breaks nothing, keeps dev checkouts happy.
+		baseReqs = filepath.Join(projectDir, "requirements.txt")
+	}
 
 	// When running from a read-only app bundle, mutable state (venv, data)
 	// is redirected to ~/.local/share/imprint/. Ensure the parent exists.
@@ -51,142 +256,64 @@ func setupBackend() backendPaths {
 		os.MkdirAll(mutableBase, 0755)
 	}
 
-	output.Info("Detected platform: " + platform.OSName())
+	// ── Resolve install profile ────────────────────────────────
+	// Priority: explicit CLI flag > env var > persisted profile.json > auto.
+	stored := loadProfile(projectDir)
+	profile := strings.ToLower(strings.TrimSpace(installProfile))
+	if profile == "" {
+		profile = strings.ToLower(strings.TrimSpace(os.Getenv("IMPRINT_PROFILE")))
+	}
+	if profile == "" {
+		profile = stored.Profile
+	}
+	if profile == "" {
+		profile = "auto"
+	}
+	if profile != "cpu" && profile != "gpu" && profile != "auto" {
+		output.Warn("Unknown profile '" + profile + "' — falling back to auto")
+		profile = "auto"
+	}
+	var llmOn bool
+	switch {
+	case withLLM != nil:
+		llmOn = *withLLM
+	case os.Getenv("IMPRINT_WITH_LLM") != "":
+		llmOn = os.Getenv("IMPRINT_WITH_LLM") == "1" || strings.EqualFold(os.Getenv("IMPRINT_WITH_LLM"), "true")
+	default:
+		llmOn = stored.WithLLM
+	}
 
-	output.Info(fmt.Sprintf("Checking for Python 3.%d–3.%d...", pythonMinMinor, pythonMaxMinor))
-	py := findPython()
-	if py.Cmd == "" && runtime.GOOS == "windows" && len(py.TooNew) == 0 {
-		// Auto-install on Windows: winget first (present on Win10 1809+ and
-		// Win11), else fetch the official python.org installer and run it
-		// silently per-user (no UAC). Users can opt out with
-		// IMPRINT_NO_PYTHON_INSTALL=1.
-		if os.Getenv("IMPRINT_NO_PYTHON_INSTALL") != "1" {
-			if tryInstallPythonWindows() {
-				py = findPython()
-			}
-		}
-	}
-	if py.Cmd == "" {
-		if len(py.TooNew) > 0 {
-			output.Fail(fmt.Sprintf(
-				"Found Python %s but it's too new — some dependencies don't support it yet (need 3.%d–3.%d).\n    Install a compatible version: %s",
-				strings.Join(py.TooNew, ", "), pythonMinMinor, pythonMaxMinor, platform.PythonInstallHint(),
-			))
-		}
-		output.Fail(fmt.Sprintf(
-			"No compatible Python found (need 3.%d–3.%d). Install with: %s",
-			pythonMinMinor, pythonMaxMinor, platform.PythonInstallHint(),
-		))
-	}
-	output.Success(fmt.Sprintf("Found Python %s (%s)", py.Version, py.Cmd))
+	output.Info("Detected platform: " + platform.OSName())
+	output.Info(fmt.Sprintf("Install profile: %s%s", profile, map[bool]string{true: " + local LLM tagger", false: ""}[llmOn]))
 
 	venvPython := platform.VenvPython(projectDir)
 	venvPip := platform.VenvBin(projectDir, "pip")
 
-	output.Info("Setting up virtual environment...")
-	venvHealthy := false
-	if platform.DirExists(venvDir) {
-		// Verify the venv python binary works AND matches the version we found.
-		// A venv created with an older Python will "work" but pip won't install
-		// packages that require the newer version.
-		venvOut, err := runner.RunCapture(venvPython, "--version")
-		if err == nil {
-			venvMatch := pythonVersionRe.FindStringSubmatch(venvOut)
-			pyMatch := pythonVersionRe.FindStringSubmatch("Python " + py.Version)
-			if venvMatch != nil && pyMatch != nil &&
-				venvMatch[1] == pyMatch[1] && venvMatch[2] == pyMatch[2] {
-				venvHealthy = true
-				output.Skip("Virtual environment at " + venvDir)
-			} else {
-				venvVer := "unknown"
-				if venvMatch != nil {
-					venvVer = venvMatch[1] + "." + venvMatch[2]
-				}
-				output.Warn(fmt.Sprintf(
-					"Virtual environment uses Python %s but found %s — recreating...",
-					venvVer, py.Version,
-				))
-				os.RemoveAll(venvDir)
-			}
-		} else {
-			output.Warn("Virtual environment at " + venvDir + " is broken, recreating...")
-			os.RemoveAll(venvDir)
-		}
-	}
-	if !venvHealthy {
-		// Only need system pip/venv when creating a fresh venv
-		output.Info("Checking for pip...")
-		pipArgs := append(append([]string{}, py.ExtraArgs...), "-m", "pip", "--version")
-		if _, err := runner.RunCapture(py.Cmd, pipArgs...); err != nil {
-			// Try ensurepip as fallback before giving up
-			ensureArgs := append(append([]string{}, py.ExtraArgs...), "-m", "ensurepip", "--default-pip")
-			if err2 := runner.Run(py.Cmd, ensureArgs...); err2 != nil {
-				output.Fail("pip not found. Install with: " + platform.PipInstallHint())
-			}
-		}
-
-		venvArgs := append(append([]string{}, py.ExtraArgs...), "-m", "venv", venvDir)
-		if err := runner.Run(py.Cmd, venvArgs...); err != nil {
-			output.Fail("Failed to create virtual environment: " + err.Error())
-		}
-		output.Success("Created virtual environment at " + venvDir)
-	}
-
-	output.Info("Upgrading pip...")
-	if err := runner.Run(venvPip, "install", "--upgrade", "pip", "--quiet"); err != nil {
-		output.Warn("Could not upgrade pip: " + err.Error())
+	// ── Provision venv + base deps ─────────────────────────────
+	uv := uvBinary(projectDir)
+	usedLegacyFallback := false
+	if uv != "" {
+		provisionWithUv(uv, venvDir, venvPython, baseReqs)
 	} else {
-		output.Success("pip up to date")
+		// No bundled uv and no `uv` on PATH: dev checkout or broken install.
+		// Fall back to the legacy host-Python + `python -m venv` + pip flow
+		// so `make build && ./build/imprint setup` still works from source.
+		output.Warn("bundled `uv` not found at " + platform.UvBinary(projectDir) + " — falling back to host Python (install `uv` for faster setups)")
+		provisionWithHostPython(venvDir, venvPython, venvPip, baseReqs)
+		usedLegacyFallback = true
 	}
 
-	output.Info("Checking dependencies...")
-	if !platform.FileExists(requirementsFile) {
-		output.Fail("requirements.txt not found at " + requirementsFile + " — is the project directory correct?")
+	// Sanity check — the core runtime packages should import. If anything
+	// core is missing we give up loud; the extractor/LLM extras are probed
+	// later with graceful fallback.
+	coreReq := []string{"fastmcp", "qdrant_client", "onnxruntime", "chonkie"}
+	if stillMissing := checkPythonImports(venvPython, coreReq); len(stillMissing) > 0 {
+		output.Fail("Core packages failed to install: " + strings.Join(stillMissing, ", "))
 	}
-	// Probe a representative set — core runtime + document extractors + URL
-	// fetch. Missing any = re-run `pip install -r requirements.txt`. Catches
-	// the common case where an older imprint install predates the doc
-	// ingestion feature: fastmcp is present but pypdf/httpx/trafilatura
-	// aren't.
-	requiredPkgs := []string{
-		"fastmcp",       // MCP runtime
-		"qdrant_client", // vector store
-		"onnxruntime",   // embeddings
-		"chonkie",       // chunker
-		"pypdf",         // .pdf extractor
-		"docx",          // .docx (python-docx exposes `docx`)
-		"pptx",          // .pptx (python-pptx exposes `pptx`)
-		"openpyxl",      // .xlsx
-		"ebooklib",      // .epub
-		"striprtf",      // .rtf
-		"bs4",           // html/epub fallback
-		"httpx",         // URL fetch
-		"trafilatura",   // html readability
-		"llama_cpp",     // local Gemma chat + tagger
-		"fastapi",       // dashboard API server
-		"uvicorn",       // ASGI server for FastAPI
-	}
-	missing := checkPythonImports(venvPython, requiredPkgs)
-	if len(missing) == 0 {
-		if out, err := runner.RunCapture(venvPip, "show", "fastmcp"); err == nil {
-			output.Skip("Dependencies installed (fastmcp " + parsePackageVersion(out) + ")")
-		} else {
-			output.Skip("Dependencies installed")
-		}
+	if out, err := runner.RunCapture(venvPython, "-m", "pip", "show", "fastmcp"); err == nil {
+		output.Success("Core dependencies installed (fastmcp " + parsePackageVersion(out) + ")")
 	} else {
-		output.Info(fmt.Sprintf("Installing dependencies (missing: %s)...", strings.Join(missing, ", ")))
-		if err := runner.Run(venvPip, "install", "-r", requirementsFile, "--quiet"); err != nil {
-			output.Fail("Failed to install dependencies: " + err.Error())
-		}
-		// Re-verify after install. If still missing, something in
-		// requirements.txt couldn't be resolved for this Python/platform.
-		stillMissing := checkPythonImports(venvPython, requiredPkgs)
-		if len(stillMissing) > 0 {
-			output.Warn("After install still missing: " + strings.Join(stillMissing, ", ") +
-				" — some doc formats will be skipped at ingest time")
-		} else {
-			output.Success("Dependencies installed")
-		}
+		output.Success("Core dependencies installed")
 	}
 
 	// ── GPU acceleration ────────────────────────────────────────
@@ -198,13 +325,36 @@ func setupBackend() backendPaths {
 		}
 	}
 
-	// If an NVIDIA GPU is present, swap onnxruntime (CPU) for onnxruntime-gpu.
-	// They conflict — can't have both installed.
-	ensureOrtGPU(venvPython, venvPip, dataDir)
+	switch profile {
+	case "cpu":
+		output.Skip("GPU install skipped (profile=cpu)")
+	case "gpu":
+		// Explicit user choice — force onnxruntime-gpu even if nvidia-smi is
+		// absent (e.g. running inside a container where /dev/nvidia* shows
+		// up at runtime but detection fails at install time).
+		installGpuReqs(uv, venvPython, venvPip, gpuReqs)
+		ensureOrtGPU(venvPython, venvPip, dataDir)
+	default: // "auto"
+		ensureOrtGPU(venvPython, venvPip, dataDir)
+	}
 
-	// If an NVIDIA GPU is present, rebuild llama-cpp-python with CUDA
-	// support so the local tagger + chat use GPU offload.
-	ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir)
+	// ── Optional local LLM tagger (llama-cpp-python) ───────────
+	if llmOn {
+		installLlmReqs(uv, venvPython, venvPip, llmReqs)
+		// Only attempt CUDA rebuild when the user opted into GPU profile.
+		if profile == "gpu" || profile == "auto" {
+			ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir)
+		}
+	} else {
+		output.Skip("Local LLM tagger skipped (--with-llm not set)")
+	}
+
+	// Persist the effective profile so subsequent runs without flags stay
+	// consistent. Skip when we fell back to the legacy path — that run
+	// didn't exercise uv, so we'd rather not lock the user in.
+	if !usedLegacyFallback {
+		saveProfile(projectDir, profileState{Profile: profile, WithLLM: llmOn})
+	}
 
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
 	reportExtractorHealth(venvPython, projectDir, dataDir)

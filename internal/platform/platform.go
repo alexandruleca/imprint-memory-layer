@@ -178,6 +178,30 @@ func VenvBin(projectDir, name string) string {
 	return filepath.Join(base, ".venv", "bin", name)
 }
 
+// UvBinary returns the path to the bundled `uv` executable shipped in the
+// install tree. uv is a static Rust binary (from Astral) that replaces host
+// Python + pip as the install-time dependency: it downloads its own Python
+// via python-build-standalone and installs wheels into the venv.
+//
+// Release packaging drops the platform-specific binary at
+// `<projectDir>/bin/uv[.exe]` (see scripts/fetch-uv.{sh,ps1} and the
+// `fetch-uv` Makefile target).
+func UvBinary(projectDir string) string {
+	name := "uv"
+	if runtime.GOOS == "windows" {
+		name = "uv.exe"
+	}
+	return filepath.Join(projectDir, "bin", name)
+}
+
+// ProfileStatePath returns the path to the JSON file that records the
+// active install profile (cpu|gpu, with-llm yes/no). Written by
+// `imprint bootstrap` / `imprint profile set`, read by `imprint setup` when
+// no explicit flags are passed so subsequent runs stay consistent.
+func ProfileStatePath(projectDir string) string {
+	return filepath.Join(DataDir(projectDir), "profile.json")
+}
+
 func HomeDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

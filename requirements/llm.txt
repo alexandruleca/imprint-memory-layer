@@ -1,0 +1,8 @@
+# Installed on top of base.txt when --with-llm is set.
+# Runs Gemma 4 E4B (chat) and Gemma 3 1B (tagger) locally via
+# llama.cpp bindings. First use auto-downloads the GGUF into data/models/.
+# Disable with: imprint config set chat.enabled false
+#
+# GPU profile + --with-llm force-rebuilds this wheel with CUDA support —
+# see ensureLlamaCppGPU in cmd/setup.go.
+llama-cpp-python>=0.3.0

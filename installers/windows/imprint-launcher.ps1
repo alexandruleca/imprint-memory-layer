@@ -1,17 +1,17 @@
 # Shortcut target for the Windows installer.
 # Responsibility: start Imprint's services and open the web UI. That's it.
 #
-# First-run setup (venv, pip install, `imprint setup`) runs at install time
-# via the Inno Setup [Run] section. The launcher only falls back to
-# bootstrap if the sentinel is missing (corrupted state / manual extract).
+# First-run setup (uv-provisioned venv + selected profile deps + MCP
+# registration) runs at install time via the Inno Setup [Run] section. The
+# launcher only falls back to bootstrap if the sentinel is missing
+# (corrupted state / manual extract).
 
 $ErrorActionPreference = "SilentlyContinue"
 
 $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Sentinel   = Join-Path $InstallDir ".first-run.done"
-$VenvDir    = Join-Path $InstallDir ".venv"
 $Bin        = Join-Path $InstallDir "bin\imprint.exe"
-$Reqs       = Join-Path $InstallDir "requirements.txt"
+$Uv         = Join-Path $InstallDir "bin\uv.exe"
 $Log        = Join-Path $InstallDir "first-run.log"
 $SetupScript = Join-Path $InstallDir "imprint-setup.ps1"
 
@@ -42,9 +42,10 @@ What to do next:
        $Log
      and share the last ~20 lines when asking for help.
 
-Most common cause: Python 3.10–3.13 is not installed or not on PATH.
-Download: https://www.python.org/downloads/
-Be sure to check 'Add python.exe to PATH' during install.
+Imprint ships its own Python via the bundled uv binary, so you do not
+need to install Python yourself. If setup still fails, the most likely
+causes are: no internet connection (uv needs to download Python on first
+run) or a broken download (re-run the installer).
 "@
     if ($tail) {
         $body += "`n`nLast log lines:`n$tail"
@@ -80,30 +81,15 @@ Be sure to check 'Add python.exe to PATH' during install.
     }
 }
 
-function Find-Python {
-    foreach ($c in @('python', 'py', 'python3')) {
-        $cmd = Get-Command $c -ErrorAction SilentlyContinue
-        if (-not $cmd) { continue }
-        $argList = if ($c -eq 'py') { @('-3', '--version') } else { @('--version') }
-        try {
-            $out = & $cmd.Source @argList 2>&1
-            if ($out -match 'Python 3\.(1[0-3])\b') {
-                return @{ Cmd = $cmd.Source; ArgsPrefix = $(if ($c -eq 'py') { @('-3') } else { @() }) }
-            }
-        } catch { continue }
-    }
-    return $null
-}
-
 function Invoke-Bootstrap {
-    $py = Find-Python
-    if (-not $py) { return $false }
+    # Silent fallback path. Defers to `imprint bootstrap` (uv + profile.json
+    # if present). We pass --non-interactive and leave --profile unset so
+    # the Go side falls back to the persisted choice, or CPU default on
+    # fresh installs.
+    if (-not (Test-Path $Uv)) { return $false }
+    if (-not (Test-Path $Bin)) { return $false }
     try {
-        if (-not (Test-Path $VenvDir)) {
-            & $py.Cmd @($py.ArgsPrefix + @('-m', 'venv', $VenvDir)) | Out-Null
-            if ($LASTEXITCODE -ne 0) { return $false }
-        }
-        & "$VenvDir\Scripts\pip.exe" install --disable-pip-version-check -q -r $Reqs | Out-Null
+        & $Bin bootstrap --non-interactive | Out-Null
         if ($LASTEXITCODE -ne 0) { return $false }
         & $Bin setup | Out-Null
         if ($LASTEXITCODE -ne 0) { return $false }

@@ -1,19 +1,26 @@
 #!/bin/bash
 # Shortcut target for /Applications/Imprint.app.
 #
-# Responsibility: start Imprint's services and open the web UI. That's it.
-# First-run setup (venv creation, pip install, `imprint setup`) happens in the
-# .pkg's postinstall script, which runs as the console user when the installer
-# finishes. The launcher only falls back to bootstrap if the postinstall
-# sentinel is missing (rare — manual tarball install, corrupted state).
+# Responsibility: on first launch, show a small AppleScript dialog asking
+# for the install profile (CPU/GPU) and whether to ship the local LLM
+# tagger, then open Terminal.app running `imprint bootstrap` + `imprint
+# setup` so the user sees uv's progress. On subsequent launches, just call
+# `imprint ui open` and exit.
+#
+# .pkg's postinstall no longer does any heavy bootstrapping — it only fixes
+# quarantine xattrs, chmod-s the binaries, and symlinks /usr/local/bin/imprint.
 set -uo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_DIR="$APP_DIR/Resources/imprint"
-SENTINEL="$INSTALL_DIR/.first-run.done"
-VENV_DIR="$INSTALL_DIR/.venv"
+HOME_DIR="${HOME:-$(eval echo ~$(id -un))}"
+WRITABLE_HOME="$HOME_DIR/.local/share/imprint"
+
+# The bundle itself is read-only, so the sentinel (plus venv + data) lives
+# in the writable mirror managed by platform.MutableBaseDir in the Go side.
+SENTINEL="$WRITABLE_HOME/.first-run.done"
 BIN="$INSTALL_DIR/bin/imprint"
-REQS="$INSTALL_DIR/requirements.txt"
+UV="$INSTALL_DIR/bin/uv"
 
 show_error() {
     local title="$1"; shift
@@ -22,45 +29,93 @@ show_error() {
     echo "[x] $title: $msg" >&2
 }
 
-find_python() {
-    for c in python3 python; do
-        if command -v "$c" >/dev/null 2>&1; then
-            if "$c" --version 2>&1 | grep -qE 'Python 3\.(1[0-3])\b'; then
-                echo "$c"; return 0
-            fi
-        fi
-    done
-    return 1
+# Apple Silicon → no CUDA; hide the GPU option. Intel Macs also have no
+# CUDA path anymore (NVIDIA dropped macOS a long time ago), so this is
+# effectively always CPU-only on Mac — we still prompt so the user can see
+# the LLM checkbox.
+arch_is_apple_silicon() {
+    [ "$(uname -m)" = "arm64" ]
 }
 
-bootstrap_silent() {
-    local py
-    py=$(find_python) || return 1
-    [ -d "$VENV_DIR" ] || "$py" -m venv "$VENV_DIR" >/dev/null 2>&1 || return 1
-    "$VENV_DIR/bin/pip" install --disable-pip-version-check -q -r "$REQS" >/dev/null 2>&1 || return 1
-    "$BIN" setup >/dev/null 2>&1 || return 1
-    touch "$SENTINEL"
-    return 0
+prompt_profile() {
+    # Returns: "<profile>|<with-llm>" where profile=cpu|gpu and with-llm=1|0.
+    local profile_opt
+    if arch_is_apple_silicon; then
+        profile_opt="cpu"
+    else
+        profile_opt=$(osascript <<'APPLESCRIPT' 2>/dev/null || echo "cpu"
+set profileChoice to choose from list {"CPU (recommended on macOS — no CUDA)", "GPU (requires NVIDIA drivers; unlikely on Mac)"} ¬
+    with title "Imprint — Install profile" ¬
+    with prompt "Pick the accelerator Imprint should target. You can switch later with 'imprint profile set'." ¬
+    default items {"CPU (recommended on macOS — no CUDA)"} ¬
+    OK button name "Continue" ¬
+    cancel button name "Cancel"
+if profileChoice is false then
+    return "cpu"
+else if (item 1 of profileChoice) starts with "GPU" then
+    return "gpu"
+else
+    return "cpu"
+end if
+APPLESCRIPT
+)
+    fi
+
+    local llm_choice
+    llm_choice=$(osascript <<'APPLESCRIPT' 2>/dev/null || echo "0"
+set dlg to display dialog "Install the local LLM tagger (llama-cpp-python, ~200 MB)?
+
+Skip this if you only want embeddings + MCP search. You can add it later with 'imprint profile add-llm'." ¬
+    with title "Imprint — Local LLM tagger" ¬
+    buttons {"Skip", "Install"} ¬
+    default button "Skip" ¬
+    cancel button "Skip"
+if button returned of dlg is "Install" then
+    return "1"
+else
+    return "0"
+end if
+APPLESCRIPT
+)
+    echo "${profile_opt}|${llm_choice}"
+}
+
+run_bootstrap_in_terminal() {
+    local profile="$1"
+    local with_llm="$2"
+    local llm_flag="--no-llm"
+    [ "$with_llm" = "1" ] && llm_flag="--with-llm"
+
+    # Launch Terminal.app and run bootstrap + setup + touch sentinel inside
+    # it so the user sees uv's download progress. We don't block on Terminal
+    # finishing — the sentinel write signals completion, and the next launch
+    # skips straight to `imprint ui open`.
+    mkdir -p "$WRITABLE_HOME"
+    local cmd="\"$BIN\" bootstrap --profile $profile $llm_flag --non-interactive && \"$BIN\" setup && mkdir -p \"$WRITABLE_HOME\" && touch \"$SENTINEL\" && echo && echo '[+] Imprint is ready — press Enter to close this window' && read"
+    osascript <<APPLESCRIPT >/dev/null 2>&1
+tell application "Terminal"
+    activate
+    do script "clear; echo '=== Imprint first-run setup ==='; echo 'Profile: $profile'; echo 'LLM: $with_llm'; echo; $cmd"
+end tell
+APPLESCRIPT
 }
 
 if [ ! -x "$BIN" ]; then
     show_error "Missing binary" "Imprint binary not found at $BIN. Reinstall from https://imprintmcp.alexandruleca.com/download."
     exit 1
 fi
+if [ ! -x "$UV" ]; then
+    show_error "Missing uv" "Bundled uv not found at $UV. Reinstall from https://imprintmcp.alexandruleca.com/download."
+    exit 1
+fi
 
-# Fallback bootstrap when postinstall didn't run (e.g. manual copy of .app).
-# Shown as a non-blocking "please wait" dialog so the user isn't staring at
-# a frozen Dock icon.
 if [ ! -f "$SENTINEL" ]; then
-    osascript -e 'display notification "Finishing first-time setup..." with title "Imprint"' >/dev/null 2>&1 || true
-    if ! bootstrap_silent; then
-        show_error "Setup required" "Imprint could not finish first-time setup automatically. Open Terminal and run:
-
-  $BIN setup
-
-Then re-launch Imprint."
-        exit 1
-    fi
+    IFS='|' read -r PROFILE WITH_LLM <<< "$(prompt_profile)"
+    run_bootstrap_in_terminal "${PROFILE:-cpu}" "${WITH_LLM:-0}"
+    # Exit immediately — user will re-launch from Dock after Terminal shows
+    # "[+] Imprint is ready". We don't call `ui open` here because the venv
+    # isn't ready yet.
+    exit 0
 fi
 
 # `imprint ui open` boots the Qdrant daemon + UI server and opens the

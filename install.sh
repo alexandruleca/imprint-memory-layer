@@ -13,6 +13,13 @@ set -euo pipefail
 # Install latest dev (prerelease):
 #   IMPRINT_CHANNEL=dev curl -fsSL .../install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --dev
+#
+# Profile & extras (bypass the interactive prompt):
+#   curl -fsSL .../install.sh | bash -s -- --profile gpu --with-llm
+#   curl -fsSL .../install.sh | bash -s -- --profile cpu --non-interactive
+#
+# No host Python required — the release archive ships a statically-linked
+# `uv` binary (Astral) that downloads its own Python via python-build-standalone.
 
 REPO="alexandruleca/imprint-memory-layer"
 INSTALL_DIR="$HOME/.local/share/imprint"
@@ -22,6 +29,9 @@ BIN_DIR="$HOME/.local/bin"
 VERSION="${IMPRINT_VERSION:-}"
 CHANNEL="${IMPRINT_CHANNEL:-stable}"
 ASSUME_YES="${IMPRINT_ASSUME_YES:-0}"
+PROFILE="${IMPRINT_PROFILE:-}"
+WITH_LLM="${IMPRINT_WITH_LLM:-}"
+NON_INTERACTIVE="${IMPRINT_NON_INTERACTIVE:-0}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --version) VERSION="$2"; shift 2 ;;
@@ -29,8 +39,13 @@ while [ $# -gt 0 ]; do
         --dev) CHANNEL="dev"; shift ;;
         --stable) CHANNEL="stable"; shift ;;
         -y|--yes) ASSUME_YES=1; shift ;;
+        --profile) PROFILE="$2"; shift 2 ;;
+        --profile=*) PROFILE="${1#--profile=}"; shift ;;
+        --with-llm) WITH_LLM=1; shift ;;
+        --no-llm) WITH_LLM=0; shift ;;
+        --non-interactive) NON_INTERACTIVE=1; shift ;;
         -h|--help)
-            sed -n '3,16p' "$0" 2>/dev/null || echo "See script header for usage."
+            sed -n '3,22p' "$0" 2>/dev/null || echo "See script header for usage."
             exit 0 ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
@@ -151,46 +166,89 @@ IMPRINT_BIN="$INSTALL_DIR/bin/imprint"
 chmod +x "$IMPRINT_BIN"
 success "Binary ready at $IMPRINT_BIN"
 
-# --- Set up Python venv and dependencies ---
-info "Setting up Python virtual environment..."
-
-PYTHON=""
-for cmd in python3 python; do
-    if $cmd --version 2>/dev/null | grep -qE 'Python 3\.(1[0-3])'; then
-        PYTHON="$cmd"
-        break
-    fi
-done
-
-if [ -z "$PYTHON" ]; then
-    fail "Python 3.10–3.13 not found. Install Python first."
-fi
-
-VENV_DIR="$INSTALL_DIR/.venv"
-if [ -d "$VENV_DIR" ] && "$VENV_DIR/bin/python" --version &>/dev/null; then
-    info "Virtual environment already exists at $VENV_DIR"
-else
-    rm -rf "$VENV_DIR"
-    $PYTHON -m venv "$VENV_DIR" || fail "Failed to create virtual environment"
-    success "Created virtual environment at $VENV_DIR"
-fi
-
-info "Installing Python dependencies..."
-"$VENV_DIR/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --quiet || fail "Failed to install dependencies"
-success "Python dependencies installed"
-
-# --- Symlink into PATH ---
+# --- Symlink into PATH (do this before bootstrap so `imprint` is reachable) ---
 info "Linking imprint into $BIN_DIR..."
 mkdir -p "$BIN_DIR"
 ln -sf "$IMPRINT_BIN" "$BIN_DIR/imprint"
 success "Symlinked $BIN_DIR/imprint → $IMPRINT_BIN"
 
-# --- Run setup ---
-info "Running imprint setup..."
+# --- Verify bundled uv is present ---
+UV_BIN="$INSTALL_DIR/bin/uv"
+if [ ! -x "$UV_BIN" ]; then
+    fail "Bundled uv not found at $UV_BIN — release archive is broken. Re-download or re-run the installer."
+fi
+success "Bundled uv: $("$UV_BIN" --version 2>/dev/null || echo unknown)"
+
+# --- Determine install profile (prompt unless --non-interactive / piped) ---
+# NVIDIA auto-detect pre-selects the "gpu" default when nvidia-smi reports
+# at least one device.
+GPU_AVAILABLE=0
+if command -v nvidia-smi >/dev/null 2>&1; then
+    if nvidia-smi -L 2>/dev/null | grep -q "GPU "; then
+        GPU_AVAILABLE=1
+    fi
+fi
+
+# tty-detect: interactive only when stdin IS a tty. `curl | bash` never is.
+INTERACTIVE=0
+if [ -t 0 ] && [ "$NON_INTERACTIVE" != "1" ]; then
+    INTERACTIVE=1
+fi
+
+if [ -z "$PROFILE" ]; then
+    if [ "$INTERACTIVE" = "1" ]; then
+        default="cpu"
+        [ "$GPU_AVAILABLE" = "1" ] && default="gpu"
+        gpu_hint=""
+        [ "$GPU_AVAILABLE" = "1" ] && gpu_hint=" (NVIDIA GPU detected)"
+        printf "\033[0;36m[?]\033[0m Install profile [cpu/gpu] (default: %s)%s: " "$default" "$gpu_hint"
+        read -r reply
+        case "$(echo "${reply:-$default}" | tr '[:upper:]' '[:lower:]')" in
+            gpu) PROFILE="gpu" ;;
+            cpu|"") PROFILE="cpu" ;;
+            *) PROFILE="$default"; info "Unknown choice — using $default" ;;
+        esac
+    else
+        PROFILE="cpu"
+    fi
+fi
+
+if [ -z "$WITH_LLM" ]; then
+    if [ "$INTERACTIVE" = "1" ]; then
+        printf "\033[0;36m[?]\033[0m Install local LLM tagger (llama-cpp-python, ~200 MB)? [y/N]: "
+        read -r reply
+        case "$(echo "${reply:-n}" | tr '[:upper:]' '[:lower:]')" in
+            y|yes) WITH_LLM=1 ;;
+            *) WITH_LLM=0 ;;
+        esac
+    else
+        WITH_LLM=0
+    fi
+fi
+
+if [ "$WITH_LLM" = "1" ]; then
+    info "Profile: $PROFILE + local LLM tagger"
+else
+    info "Profile: $PROFILE (no local LLM)"
+fi
+
+# --- Run imprint bootstrap (uv-powered venv + deps) ---
+info "Running imprint bootstrap (uv downloads its own Python — no host install required)..."
+BOOTSTRAP_ARGS=("--profile" "$PROFILE")
+if [ "$WITH_LLM" = "1" ]; then
+    BOOTSTRAP_ARGS+=("--with-llm")
+else
+    BOOTSTRAP_ARGS+=("--no-llm")
+fi
+[ "$NON_INTERACTIVE" = "1" ] && BOOTSTRAP_ARGS+=("--non-interactive")
+"$IMPRINT_BIN" bootstrap "${BOOTSTRAP_ARGS[@]}" || fail "imprint bootstrap failed"
+
+# --- Register with Claude Code and other AI tools ---
+info "Running imprint setup (MCP registration)..."
 "$IMPRINT_BIN" setup
 
 if [ "$EXISTING_INSTALL" = "1" ]; then
-    success "Update complete. Preserved: data/ (workspaces, qdrant, sqlite, config, gpu_state.json), .venv/"
+    success "Update complete. Preserved: data/ (workspaces, qdrant, sqlite, config, gpu_state.json, profile.json), .venv/"
     info "Future updates can use 'imprint update' directly — no curl required."
 else
     success "Installation complete! Restart your terminal to use the 'imprint' command."
