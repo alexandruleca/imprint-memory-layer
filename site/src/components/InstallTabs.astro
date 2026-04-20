@@ -14,9 +14,15 @@ const tabs = [
   },
   {
     id: 'docker',
+    label: 'Docker',
+    command: 'docker run -d -p 8420:8420 -v imprint-data:/data ghcr.io/alexandruleca/imprint:latest',
+    hint: 'Dashboard UI on <code class="font-mono">localhost:8420</code> · ingest via <code class="font-mono">docker exec</code> or the <code class="font-mono">ingest_content</code> MCP tool. Stdio MCP still installs locally for host IDE integration. Full guide: <a href="/docker" class="underline hover:text-white">Docker docs</a>.',
+  },
+  {
+    id: 'relay',
     label: 'Docker (relay)',
     command: 'docker run -d -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:latest',
-    hint: 'Self-hosted sync relay only — the MCP memory server still installs locally via the scripts above. Full deploy guide: <a href="/docker" class="underline hover:text-white">Docker docs</a>.',
+    hint: 'Self-hosted sync relay only — small Go binary, stateless. For the full runtime use the Docker tab above. See <a href="/docker" class="underline hover:text-white">Docker docs</a>.',
   },
 ];
 ---

@@ -16,14 +16,14 @@ Global CLAUDE.md covers "search before Read". Additional rules specific to this 
 
 **Storing findings.** Use `store` for decisions/patterns/bugs. Use `kg_edit(op="add", ...)` for facts. Batch at end of turn — don't call store mid-answer.
 
-## MCP Tools (12 total)
+## MCP Tools (13 total)
 
 | Tool | Purpose |
 |------|---------|
 | `search` | Semantic search. Auto-hydrates top-1 (or top-3 if low-confidence), rest as index previews. |
 | `graph_scope` | Navigate projects/topics/sources/chunks as a graph |
 | `neighbors` | KNN over embeddings for one memory id |
-| `store` | Store a memory (decision/pattern/bug/etc) |
+| `store` | Store a single memory (decision/pattern/bug/etc) |
 | `delete` | Remove a memory by id |
 | `kg_query` | Query temporal facts |
 | `kg_edit` | `op="add"` or `op="end"` for facts |
@@ -32,6 +32,7 @@ Global CLAUDE.md covers "search before Read". Additional rules specific to this 
 | `file_summary` | One file: chunk count, tags, preview |
 | `file_chunks` | Chunks of a file by index range |
 | `ingest_url` | Fetch + chunk + store a URL |
+| `ingest_content` | Chunk + store an inline blob (text/markdown/csv/json/`code:<lang>`). Dedup + replace by `name`. |
 
 `wake_up` is internal — `search` auto-loads session context on first call.
 `refresh_urls` is CLI-only (`imprint refresh-urls`).

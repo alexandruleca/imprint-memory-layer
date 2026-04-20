@@ -543,6 +543,103 @@ def ingest_url(url: str, project: str = "urls", force: bool = False, workspace: 
     return f"Failed {url}: {status}"
 
 
+# Extension map for format="code:<lang>" → chunker dispatch hint. The
+# chunker reads rel_path's extension to pick the tree-sitter grammar, so
+# we synthesize a fake file name with the matching ext.
+_CODE_FORMAT_EXT = {
+    "python": ".py", "typescript": ".ts", "javascript": ".js",
+    "go": ".go", "rust": ".rs", "java": ".java", "php": ".php",
+    "swift": ".swift", "sql": ".sql", "vue": ".vue", "svelte": ".svelte",
+    "c": ".c", "cpp": ".cpp", "csharp": ".cs", "ruby": ".rb",
+    "kotlin": ".kt", "scala": ".scala", "html": ".html", "css": ".css",
+}
+
+
+@mcp.tool()
+def ingest_content(
+    content: str,
+    name: str,
+    format: str = "",
+    project: str = "ingested",
+    workspace: str = "",
+) -> str:
+    """Ingest an inline content blob (text, markdown, CSV, JSON, code) as memories.
+
+    Unlike ``store`` (which creates a single memory) or ``ingest_url`` (which
+    fetches bytes over HTTP), this chunks and embeds a blob you pass in —
+    useful for API uploads, pasted transcripts, log snippets, or anything
+    your agent already has in memory. Chunk + dedup semantics match
+    ``ingest_url``: re-sending the same ``name`` replaces prior chunks.
+
+    Args:
+        content: Raw content to ingest.
+        name: Logical source id used for dedup + replace. Stable across
+              re-ingests of the same logical document.
+        format: Content format hint. One of: "" (auto → text), "text",
+                "markdown", "csv", "json", or "code:<lang>" (e.g.
+                "code:python", "code:typescript"). Picks the chunker mode
+                and file-extension hint.
+        project: Project label (default "ingested").
+        workspace: Target workspace (optional).
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    if not content or not content.strip():
+        return "Empty content"
+    if not name or not name.strip():
+        return "name is required (used for dedup + replace)"
+
+    fmt = (format or "").lower().strip()
+    chunk_mode = "prose"
+    rel_path = name
+    source_type = "content"
+    prepared = content
+
+    if fmt.startswith("code:"):
+        lang = fmt.split(":", 1)[1] or "python"
+        ext = _CODE_FORMAT_EXT.get(lang, ".py")
+        rel_path = f"{name}{ext}"
+        chunk_mode = "code"
+        source_type = "code"
+    elif fmt == "json":
+        # Pretty-print so semantic chunker sees structural boundaries.
+        try:
+            import json as _json
+            prepared = _json.dumps(_json.loads(content), indent=2, ensure_ascii=False)
+        except Exception:
+            pass  # not valid JSON — ingest as-is
+        rel_path = f"{name}.json"
+        source_type = "json"
+    elif fmt == "csv":
+        rel_path = f"{name}.csv"
+        source_type = "csv"
+    elif fmt == "markdown":
+        rel_path = f"{name}.md"
+    elif fmt in ("", "text"):
+        rel_path = f"{name}.txt"
+    else:
+        # Unknown format — fall back to prose over the raw bytes.
+        pass
+
+    from .ingest_core import store_inline_content
+    n, status = store_inline_content(
+        prepared,
+        source_key=name,
+        project=project,
+        chunk_mode=chunk_mode,
+        source_type=source_type,
+        rel_path=rel_path,
+        workspace=ws,
+    )
+
+    if status == "stored":
+        return f"Stored {n} chunks from '{name}' (project={project}, format={fmt or 'text'})"
+    if status == "skipped-empty":
+        return "Empty content"
+    return f"Failed: {status}"
+
+
 def refresh_urls(project: str = "", workspace: str = "") -> str:
     """Internal: re-check stored URLs via HEAD, refetch changed.
     Exposed via CLI (imprint refresh-urls), not MCP — admin task."""
