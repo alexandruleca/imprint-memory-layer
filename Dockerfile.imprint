@@ -38,14 +38,15 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Python deps. llama-cpp-python is stripped — it requires a C++ toolchain to
-# build and the `local` chat provider isn't the primary path inside the
-# container. Remote chat providers (openai/anthropic/ollama/vllm/gemini) still
-# work because chat.py imports llama_cpp lazily.
-COPY requirements.txt /tmp/requirements.txt
-RUN grep -v "^llama-cpp-python" /tmp/requirements.txt > /tmp/requirements.docker.txt \
-    && pip install --no-cache-dir -r /tmp/requirements.docker.txt \
-    && rm /tmp/requirements.txt /tmp/requirements.docker.txt
+# Python deps. Only the "base" profile is installed in the container:
+# llama-cpp-python (llm.txt) needs a C++ toolchain and the `local` chat
+# provider isn't the primary path inside Docker, while onnxruntime-gpu
+# (gpu.txt) is opt-in on bare-metal NVIDIA hosts, not container workloads.
+# Remote chat providers (openai/anthropic/ollama/vllm/gemini) still work —
+# chat.py imports llama_cpp lazily.
+COPY requirements/ /tmp/requirements/
+RUN pip install --no-cache-dir -r /tmp/requirements/base.txt \
+    && rm -rf /tmp/requirements
 
 # Imprint Python package + Go binary + entrypoint.
 COPY imprint/ /app/imprint/
