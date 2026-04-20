@@ -49,7 +49,7 @@ function Find-Python {
         $argList = if ($c -eq 'py') { @('-3', '--version') } else { @('--version') }
         try {
             $out = & $cmd.Source @argList 2>&1
-            if ($out -match 'Python 3\.(9|1[0-9]|[2-9][0-9])') {
+            if ($out -match 'Python 3\.(1[0-3])\b') {
                 return @{ Cmd = $cmd.Source; ArgsPrefix = $(if ($c -eq 'py') { @('-3') } else { @() }) }
             }
         } catch { continue }
@@ -66,9 +66,9 @@ Log-Line "InstallDir = $InstallDir"
 
 $py = Find-Python
 if (-not $py) {
-    Log-Line "Python 3.9+ not found on PATH."
+    Log-Line "Python 3.10–3.13 not found on PATH."
     Log-Line ""
-    Log-Line "Install Python 3.9+ from https://www.python.org/downloads/"
+    Log-Line "Install Python 3.13 from https://www.python.org/downloads/"
     Log-Line "and be sure to check 'Add python.exe to PATH' during install."
     Log-Line "Then re-run setup from the Start Menu: 'Imprint -> Repair Imprint'."
     Fail-Exit "Python prerequisite missing"

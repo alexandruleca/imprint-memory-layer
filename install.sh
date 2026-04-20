@@ -156,14 +156,14 @@ info "Setting up Python virtual environment..."
 
 PYTHON=""
 for cmd in python3 python; do
-    if $cmd --version 2>/dev/null | grep -qE 'Python 3\.(9|1[0-9]|[2-9][0-9])'; then
+    if $cmd --version 2>/dev/null | grep -qE 'Python 3\.(1[0-3])'; then
         PYTHON="$cmd"
         break
     fi
 done
 
 if [ -z "$PYTHON" ]; then
-    fail "Python 3.9+ not found. Install Python first."
+    fail "Python 3.10–3.13 not found. Install Python first."
 fi
 
 VENV_DIR="$INSTALL_DIR/.venv"

@@ -42,7 +42,7 @@ What to do next:
        $Log
      and share the last ~20 lines when asking for help.
 
-Most common cause: Python 3.9+ is not installed or not on PATH.
+Most common cause: Python 3.10–3.13 is not installed or not on PATH.
 Download: https://www.python.org/downloads/
 Be sure to check 'Add python.exe to PATH' during install.
 "@
@@ -87,7 +87,7 @@ function Find-Python {
         $argList = if ($c -eq 'py') { @('-3', '--version') } else { @('--version') }
         try {
             $out = & $cmd.Source @argList 2>&1
-            if ($out -match 'Python 3\.(9|1[0-9]|[2-9][0-9])') {
+            if ($out -match 'Python 3\.(1[0-3])\b') {
                 return @{ Cmd = $cmd.Source; ArgsPrefix = $(if ($c -eq 'py') { @('-3') } else { @() }) }
             }
         } catch { continue }

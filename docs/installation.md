@@ -5,7 +5,7 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 ## Requirements
 
 **Core:**
-- Python 3.9+
+- Python 3.10–3.13
 - pip
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
 

@@ -133,7 +133,7 @@ cat > "$BUILD_RES/welcome.html" <<HTML
   <li>Symlink the <code>imprint</code> CLI into <code>/usr/local/bin</code>.</li>
   <li>Run first-time setup (Python venv, MCP registration) in the background.</li>
 </ul>
-<p>Requires <strong>Python 3.9+</strong> and the <strong>Claude Code CLI</strong>.</p>
+<p>Requires <strong>Python 3.10–3.13</strong> and the <strong>Claude Code CLI</strong>.</p>
 </body></html>
 HTML
 
