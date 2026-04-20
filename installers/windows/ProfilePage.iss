@@ -1,6 +1,6 @@
 // Custom wizard page for profile + LLM selection.
 // Included from imprint.iss inside the [Code] section, so every line here
-// must be valid Inno Setup Pascal Script (// or (* *) comments — NOT the
+// must be valid Inno Setup Pascal Script (// or (* *) comments - NOT the
 // `;` style that the top-level .iss sections use).
 //
 // Exposes to imprint.iss:
@@ -42,7 +42,7 @@ begin
     'Imprint runs embeddings + optional local LLM inference. Choose GPU if you have a CUDA-capable NVIDIA card; CPU otherwise. You can switch later with "imprint profile set gpu/cpu".',
     True, False);
   ProfilePage.Add('CPU (recommended for laptops without a discrete NVIDIA GPU)');
-  ProfilePage.Add('GPU (NVIDIA CUDA — embeddings + LLM run on the GPU)');
+  ProfilePage.Add('GPU (NVIDIA CUDA - embeddings + LLM run on the GPU)');
   if HasNvidiaGpu() then
     GpuDefault := 1
   else
@@ -55,7 +55,7 @@ begin
     'Install the optional local chat + tagger?',
     'Imprint can run Gemma locally via llama-cpp-python for memory tagging and chat. Adds ~200 MB of Python deps (plus GGUF model download on first use). Skip this if you only want embeddings + MCP search.',
     False, False);
-  LlmPage.Add('Install llama-cpp-python now (default: off — you can add it later with "imprint profile add-llm")');
+  LlmPage.Add('Install llama-cpp-python now (default: off - you can add it later with "imprint profile add-llm")');
 end;
 
 function SelectedProfile(Param: string): string;

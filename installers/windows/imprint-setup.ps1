@@ -1,6 +1,6 @@
 # Invoked once from the Inno Setup [Run] section right after files are copied.
 # Runs in the user's context, not elevated. Delegates venv creation + dep
-# install to the bundled `uv.exe` + `imprint bootstrap` — no host Python
+# install to the bundled `uv.exe` + `imprint bootstrap` - no host Python
 # required.
 #
 # Runs in a VISIBLE PowerShell window (Inno [Run] without /runhidden) so the
@@ -75,7 +75,7 @@ try {
     Fail-Exit "uv.exe is present but not runnable: $_"
 }
 
-# Assemble flags for `imprint bootstrap` — the Go side handles venv
+# Assemble flags for `imprint bootstrap` - the Go side handles venv
 # provisioning via uv, Python download, and wheel install. Omit flags the
 # user didn't specify so the Go side falls back to profile.json (repairs
 # reuse the last chosen profile instead of overriding it).
@@ -87,7 +87,7 @@ $BootstrapArgs += "--non-interactive"
 
 Log-Line "Running: imprint $($BootstrapArgs -join ' ')"
 & $Bin @BootstrapArgs *>> $Log
-if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint bootstrap failed (exit=$LASTEXITCODE) — see $Log" }
+if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint bootstrap failed (exit=$LASTEXITCODE) - see $Log" }
 
 Log-Line "Registering Imprint with Claude Code..."
 & $Bin setup *>> $Log

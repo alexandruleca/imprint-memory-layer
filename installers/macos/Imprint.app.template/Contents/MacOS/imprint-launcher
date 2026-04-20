@@ -29,47 +29,18 @@ show_error() {
     echo "[x] $title: $msg" >&2
 }
 
-# Apple Silicon → no CUDA; hide the GPU option. Intel Macs also have no
-# CUDA path anymore (NVIDIA dropped macOS a long time ago), so this is
-# effectively always CPU-only on Mac — we still prompt so the user can see
-# the LLM checkbox.
-arch_is_apple_silicon() {
-    [ "$(uname -m)" = "arm64" ]
-}
-
+# Profile is always "cpu" on macOS: NVIDIA dropped Mac support long before
+# Apple Silicon, and Metal/MPS backends are not wired into Imprint's ORT
+# stack yet. So we skip the profile question entirely and only ask about
+# the optional local LLM tagger. If Metal support lands upstream, this is
+# the one place to flip.
 prompt_profile() {
-    # Returns: "<profile>|<with-llm>" where profile=cpu|gpu and with-llm=1|0.
-    local profile_opt
-    if arch_is_apple_silicon; then
-        profile_opt="cpu"
-    else
-        profile_opt=$(osascript <<'APPLESCRIPT' 2>/dev/null || echo "cpu"
-set profileChoice to choose from list {"CPU (recommended on macOS — no CUDA)", "GPU (requires NVIDIA drivers; unlikely on Mac)"} ¬
-    with title "Imprint — Install profile" ¬
-    with prompt "Pick the accelerator Imprint should target. You can switch later with 'imprint profile set'." ¬
-    default items {"CPU (recommended on macOS — no CUDA)"} ¬
-    OK button name "Continue" ¬
-    cancel button name "Cancel"
-if profileChoice is false then
-    return "cpu"
-else if (item 1 of profileChoice) starts with "GPU" then
-    return "gpu"
-else
-    return "cpu"
-end if
-APPLESCRIPT
-)
-    fi
-
+    # Returns: "cpu|<with-llm>" where with-llm=1|0.
     local llm_choice
     llm_choice=$(osascript <<'APPLESCRIPT' 2>/dev/null || echo "0"
 set dlg to display dialog "Install the local LLM tagger (llama-cpp-python, ~200 MB)?
 
-Skip this if you only want embeddings + MCP search. You can add it later with 'imprint profile add-llm'." ¬
-    with title "Imprint — Local LLM tagger" ¬
-    buttons {"Skip", "Install"} ¬
-    default button "Skip" ¬
-    cancel button "Skip"
+Skip this if you only want embeddings + MCP search. You can add it later with 'imprint profile add-llm'." with title "Imprint - Local LLM tagger" buttons {"Skip", "Install"} default button "Skip" cancel button "Skip"
 if button returned of dlg is "Install" then
     return "1"
 else
@@ -77,7 +48,7 @@ else
 end if
 APPLESCRIPT
 )
-    echo "${profile_opt}|${llm_choice}"
+    echo "cpu|${llm_choice}"
 }
 
 run_bootstrap_in_terminal() {
@@ -109,7 +80,13 @@ if [ ! -x "$UV" ]; then
     exit 1
 fi
 
-if [ ! -f "$SENTINEL" ]; then
+# A stale sentinel (e.g. left over from a prior install whose venv got
+# wiped, or an aborted bootstrap that touched the sentinel too eagerly)
+# would otherwise send us straight to `ui open`, which then fails with
+# "venv not found". Gate the sentinel on the venv actually existing.
+VENV_PY="$WRITABLE_HOME/.venv/bin/python"
+if [ ! -f "$SENTINEL" ] || [ ! -x "$VENV_PY" ]; then
+    [ -f "$SENTINEL" ] && rm -f "$SENTINEL"
     IFS='|' read -r PROFILE WITH_LLM <<< "$(prompt_profile)"
     run_bootstrap_in_terminal "${PROFILE:-cpu}" "${WITH_LLM:-0}"
     # Exit immediately — user will re-launch from Dock after Terminal shows

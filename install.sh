@@ -152,10 +152,14 @@ tar -xzf "$TARBALL" -C "$TMP" || fail "Failed to extract $TARBALL"
 EXTRACTED="$TMP/imprint-${PLATFORM}-${ARCH}"
 [ -d "$EXTRACTED" ] || fail "Unexpected archive layout: $EXTRACTED not found"
 mkdir -p "$INSTALL_DIR"
-# rsync over-top: upgrades code files, leaves data/ and .venv/ alone.
+# rsync over-top: upgrades code files, leaves runtime state alone.
 # --delete-during drops stale files from the previous release (e.g. renamed
 # scripts) but never descends into the excluded dirs.
-RSYNC_FLAGS="-a --exclude data/ --exclude .venv/"
+#   data/       indexed memories, configs, workspace state
+#   .venv/      uv-provisioned Python venv
+#   python/     uv-managed Python interpreter (UV_PYTHON_INSTALL_DIR)
+#   .uv-cache/  uv wheel cache (UV_CACHE_DIR)
+RSYNC_FLAGS="-a --exclude data/ --exclude .venv/ --exclude python/ --exclude .uv-cache/"
 if [ "$EXISTING_INSTALL" = "1" ]; then
     RSYNC_FLAGS="$RSYNC_FLAGS --delete-during"
 fi

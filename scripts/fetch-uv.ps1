@@ -5,7 +5,7 @@
 # Usage:
 #   pwsh -File scripts/fetch-uv.ps1 -Arch amd64 -DestDir dist/imprint-windows-amd64
 #
-# Pin $UvVersion deliberately per Imprint release — never track `latest`.
+# Pin $UvVersion deliberately per Imprint release - never track `latest`.
 
 param(
     [Parameter(Mandatory=$true)] [ValidateSet("amd64","arm64")] [string]$Arch,
@@ -48,7 +48,7 @@ try {
     $size = (Get-Item $destBin).Length
     Write-Host "[+] $destBin ($size bytes)"
 
-    # Fetch uv's own LICENSE texts — required for Apache 2.0 compliance
+    # Fetch uv's own LICENSE texts - required for Apache 2.0 compliance
     # since we redistribute the binary. Dual-licensed Apache-2.0 OR MIT; we
     # ship both and let the downstream consumer pick.
     $LicDir = Join-Path $DestDir "licenses\uv"
@@ -65,7 +65,7 @@ try {
 # uv $UvVersion
 
 Astral's ``uv`` binary ships at ``bin\uv.exe``. Dual-licensed Apache-2.0
-**or** MIT at the recipient's choice — full texts in this directory.
+**or** MIT at the recipient's choice - full texts in this directory.
 
 Upstream: https://github.com/astral-sh/uv
 "@ | Set-Content (Join-Path $LicDir "README.md") -Encoding utf8
