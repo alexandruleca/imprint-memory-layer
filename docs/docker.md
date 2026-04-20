@@ -2,9 +2,6 @@
 title: Docker
 description: Deploy Imprint with Docker — full runtime (dashboard + API + auto-Qdrant) and stateless sync relay. Pinned tags, compose files, TLS termination, and health checks.
 ---
-
-# Docker
-
 Two images are published to GHCR on every release:
 
 | Image | What it runs | When to use |

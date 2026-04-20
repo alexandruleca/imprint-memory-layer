@@ -2,9 +2,6 @@
 title: Peer Sync & Visualization
 description: Sync Imprint memories between two machines via a stateless WebSocket relay — PIN + device-fingerprint auth, dedup on import, vectors re-embedded locally for model portability.
 ---
-
-# Peer Sync & Visualization
-
 ## Peer Sync
 
 ```mermaid

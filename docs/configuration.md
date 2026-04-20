@@ -2,9 +2,6 @@
 title: Configuration
 description: Tune Imprint — model, chunker, tagger, Qdrant, and queue settings via `imprint config set`, with environment-variable overrides and precedence rules.
 ---
-
-# Configuration
-
 All settings can be persisted via `imprint config` instead of setting environment variables. Settings are stored in `data/config.json` (gitignored).
 
 **Precedence:** env var > config.json > hardcoded default. Environment variables always win, so you can override config.json for one-off runs.
