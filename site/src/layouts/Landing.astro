@@ -1,7 +1,6 @@
 ---
 import '../styles/global.css';
 import Analytics from '../components/Analytics.astro';
-import AnalyticsBody from '../components/AnalyticsBody.astro';
 
 interface Props {
   title: string;
@@ -62,7 +61,6 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://imprintmcp.alexandrule
     <Analytics />
   </head>
   <body class="min-h-screen starry">
-    <AnalyticsBody />
     <slot />
   </body>
 </html>
