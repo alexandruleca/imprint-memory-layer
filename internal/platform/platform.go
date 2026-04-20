@@ -144,15 +144,62 @@ func PythonCandidates() []PythonCandidate {
 	return candidates
 }
 
+// IsAppBundle reports whether the given project directory is inside a macOS
+// .app bundle, where the filesystem is read-only after installation.
+func IsAppBundle(projectDir string) bool {
+	return runtime.GOOS == "darwin" && strings.Contains(projectDir, ".app/Contents/")
+}
+
+// MutableBaseDir returns the writable base directory for mutable state
+// (venv, data). When projectDir is inside a read-only .app bundle, returns
+// ~/.local/share/imprint; otherwise returns projectDir itself.
+func MutableBaseDir(projectDir string) string {
+	if IsAppBundle(projectDir) {
+		return filepath.Join(HomeDir(), ".local", "share", "imprint")
+	}
+	return projectDir
+}
+
+// VenvDir returns the path to the Python virtual environment directory,
+// redirecting to a writable location when inside an app bundle.
+func VenvDir(projectDir string) string {
+	return filepath.Join(MutableBaseDir(projectDir), ".venv")
+}
+
 func VenvPython(projectDir string) string {
 	return VenvBin(projectDir, "python")
 }
 
 func VenvBin(projectDir, name string) string {
+	base := MutableBaseDir(projectDir)
 	if runtime.GOOS == "windows" {
-		return filepath.Join(projectDir, ".venv", "Scripts", name+".exe")
+		return filepath.Join(base, ".venv", "Scripts", name+".exe")
 	}
-	return filepath.Join(projectDir, ".venv", "bin", name)
+	return filepath.Join(base, ".venv", "bin", name)
+}
+
+// UvBinary returns the path to the bundled `uv` executable shipped in the
+// install tree. uv is a static Rust binary (from Astral) that replaces host
+// Python + pip as the install-time dependency: it downloads its own Python
+// via python-build-standalone and installs wheels into the venv.
+//
+// Release packaging drops the platform-specific binary at
+// `<projectDir>/bin/uv[.exe]` (see scripts/fetch-uv.{sh,ps1} and the
+// `fetch-uv` Makefile target).
+func UvBinary(projectDir string) string {
+	name := "uv"
+	if runtime.GOOS == "windows" {
+		name = "uv.exe"
+	}
+	return filepath.Join(projectDir, "bin", name)
+}
+
+// ProfileStatePath returns the path to the JSON file that records the
+// active install profile (cpu|gpu, with-llm yes/no). Written by
+// `imprint bootstrap` / `imprint profile set`, read by `imprint setup` when
+// no explicit flags are passed so subsequent runs stay consistent.
+func ProfileStatePath(projectDir string) string {
+	return filepath.Join(DataDir(projectDir), "profile.json")
 }
 
 func HomeDir() string {
@@ -539,9 +586,10 @@ func PalaceDir() string {
 	return filepath.Join(HomeDir(), ".mempalace")
 }
 
-// DataDir returns the project-local data directory for palace storage.
+// DataDir returns the data directory for imprint storage, redirecting to a
+// writable location when the project dir is inside a read-only app bundle.
 func DataDir(projectDir string) string {
-	return filepath.Join(projectDir, "data")
+	return filepath.Join(MutableBaseDir(projectDir), "data")
 }
 
 // DetectShell returns the shell name and the path to its RC file.

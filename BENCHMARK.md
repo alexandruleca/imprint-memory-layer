@@ -125,7 +125,7 @@ python3 benchmark/summarize.py benchmark/results/raw/<git-sha> --prompt summary-
 
 **Prerequisites:**
 - Claude Code CLI (`claude`) installed and authenticated
-- Python 3.9+ (used for JSON parsing and summarization)
+- Python 3.10–3.13 (used for JSON parsing and summarization)
 - Imprint set up with ingested memories (`imprint setup && imprint ingest .`)
 - Qdrant server running (auto-started by the benchmark script)
 

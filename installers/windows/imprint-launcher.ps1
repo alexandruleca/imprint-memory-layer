@@ -1,17 +1,19 @@
 # Shortcut target for the Windows installer.
 # Responsibility: start Imprint's services and open the web UI. That's it.
 #
-# First-run setup (venv, pip install, `imprint setup`) runs at install time
-# via the Inno Setup [Run] section. The launcher only falls back to
-# bootstrap if the sentinel is missing (corrupted state / manual extract).
+# First-run setup (uv-provisioned venv + selected profile deps + MCP
+# registration) runs at install time via the Inno Setup [Run] section. The
+# launcher only falls back to bootstrap if the sentinel is missing
+# (corrupted state / manual extract).
 
 $ErrorActionPreference = "SilentlyContinue"
 
 $InstallDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Sentinel   = Join-Path $InstallDir ".first-run.done"
-$VenvDir    = Join-Path $InstallDir ".venv"
 $Bin        = Join-Path $InstallDir "bin\imprint.exe"
-$Reqs       = Join-Path $InstallDir "requirements.txt"
+$Uv         = Join-Path $InstallDir "bin\uv.exe"
+$Log        = Join-Path $InstallDir "first-run.log"
+$SetupScript = Join-Path $InstallDir "imprint-setup.ps1"
 
 function Show-Error {
     param([string]$Title, [string]$Message)
@@ -19,30 +21,75 @@ function Show-Error {
     [System.Windows.MessageBox]::Show($Message, "Imprint - $Title", 'OK', 'Error') | Out-Null
 }
 
-function Find-Python {
-    foreach ($c in @('python', 'py', 'python3')) {
-        $cmd = Get-Command $c -ErrorAction SilentlyContinue
-        if (-not $cmd) { continue }
-        $argList = if ($c -eq 'py') { @('-3', '--version') } else { @('--version') }
+function Show-SetupError {
+    # Presents the user with: actionable instructions + a Yes/No offering to
+    # open the log file + a Retry button that re-runs setup in a visible
+    # console window.
+    Add-Type -AssemblyName PresentationFramework
+    $tail = ""
+    if (Test-Path $Log) {
         try {
-            $out = & $cmd.Source @argList 2>&1
-            if ($out -match 'Python 3\.(9|1[0-9]|[2-9][0-9])') {
-                return @{ Cmd = $cmd.Source; ArgsPrefix = $(if ($c -eq 'py') { @('-3') } else { @() }) }
-            }
-        } catch { continue }
+            $tail = (Get-Content $Log -Tail 12 -ErrorAction SilentlyContinue) -join "`n"
+        } catch { $tail = "" }
     }
-    return $null
+    $body = @"
+Imprint's first-run setup did not complete.
+
+What to do next:
+  1. Click Yes below to re-run setup in a visible console window
+     (this is the easiest fix for most failures).
+  2. If setup keeps failing, check the log at:
+       $Log
+     and share the last ~20 lines when asking for help.
+
+Imprint ships its own Python via the bundled uv binary, so you do not
+need to install Python yourself. If setup still fails, the most likely
+causes are: no internet connection (uv needs to download Python on first
+run) or a broken download (re-run the installer).
+"@
+    if ($tail) {
+        $body += "`n`nLast log lines:`n$tail"
+    }
+    $choice = [System.Windows.MessageBox]::Show(
+        $body,
+        "Imprint - Setup required",
+        [System.Windows.MessageBoxButton]::YesNoCancel,
+        [System.Windows.MessageBoxImage]::Warning
+    )
+    switch ($choice) {
+        'Yes' {
+            if (Test-Path $SetupScript) {
+                Start-Process powershell.exe -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                    '-NoExit', '-File', $SetupScript,
+                    '-InstallDir', $InstallDir, '-Interactive'
+                )
+            } else {
+                Start-Process powershell.exe -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit',
+                    '-Command', "cd '$InstallDir'; & '$Bin' setup"
+                )
+            }
+        }
+        'No' {
+            if (Test-Path $Log) {
+                Start-Process notepad.exe $Log
+            } else {
+                Start-Process explorer.exe $InstallDir
+            }
+        }
+    }
 }
 
 function Invoke-Bootstrap {
-    $py = Find-Python
-    if (-not $py) { return $false }
+    # Silent fallback path. Defers to `imprint bootstrap` (uv + profile.json
+    # if present). We pass --non-interactive and leave --profile unset so
+    # the Go side falls back to the persisted choice, or CPU default on
+    # fresh installs.
+    if (-not (Test-Path $Uv)) { return $false }
+    if (-not (Test-Path $Bin)) { return $false }
     try {
-        if (-not (Test-Path $VenvDir)) {
-            & $py.Cmd @($py.ArgsPrefix + @('-m', 'venv', $VenvDir)) | Out-Null
-            if ($LASTEXITCODE -ne 0) { return $false }
-        }
-        & "$VenvDir\Scripts\pip.exe" install --disable-pip-version-check -q -r $Reqs | Out-Null
+        & $Bin bootstrap --non-interactive | Out-Null
         if ($LASTEXITCODE -ne 0) { return $false }
         & $Bin setup | Out-Null
         if ($LASTEXITCODE -ne 0) { return $false }
@@ -58,10 +105,12 @@ if (-not (Test-Path $Bin)) {
     exit 1
 }
 
-# Fallback bootstrap if installer-time setup didn't complete.
+# Fallback bootstrap if installer-time setup didn't complete. Attempt it
+# silently once; if that fails too, surface the rich Show-SetupError dialog
+# so the user can retry interactively or inspect the log.
 if (-not (Test-Path $Sentinel)) {
     if (-not (Invoke-Bootstrap)) {
-        Show-Error "Setup required" "Imprint could not finish first-time setup automatically. Open PowerShell in '$InstallDir' and run:`n`n  .\bin\imprint.exe setup`n`nThen re-launch Imprint."
+        Show-SetupError
         exit 1
     }
 }

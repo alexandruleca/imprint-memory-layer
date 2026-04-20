@@ -1,8 +1,9 @@
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS  := -s -w -X main.version=$(VERSION)
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+UV_VERSION ?= 0.5.11
+LDFLAGS    := -s -w -X main.version=$(VERSION)
+PLATFORMS  := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: build all package installer-macos installer-windows clean $(PLATFORMS)
+.PHONY: build all package installer-macos installer-windows clean fetch-uv $(PLATFORMS)
 
 # Build for current OS/arch (local dev)
 build:
@@ -44,6 +45,7 @@ package:
 		mkdir -p "$$STAGE/bin"; \
 		cp "$$SRCBIN" "$$STAGE/bin/imprint$$EXT"; \
 		chmod +x "$$STAGE/bin/imprint$$EXT"; \
+		UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh $$OS $$ARCH "$$STAGE"; \
 		if [ "$$OS" = "windows" ]; then \
 			python3 -c "import shutil; shutil.make_archive('dist/$$NAME', 'zip', 'dist', '$$NAME')"; \
 			echo "  dist/$$NAME.zip"; \
@@ -74,6 +76,13 @@ installer-windows:
 	SRC="$$(pwd)/dist/imprint-windows-amd64"; \
 	[ -d "$$SRC" ] || { echo "Missing $$SRC — run 'make all && make package' first"; exit 1; }; \
 	iscc /DImprintVersion=$$VER /DImprintSource="$$SRC" /O"$$(pwd)/dist" installers/windows/imprint.iss
+
+# Standalone target for pulling uv into an already-staged tree (used when
+# re-packaging a single platform without re-running `make package`).
+# Usage: make fetch-uv OS=linux ARCH=amd64 DEST=dist/imprint-linux-amd64
+fetch-uv:
+	@[ -n "$$OS" ] && [ -n "$$ARCH" ] && [ -n "$$DEST" ] || { echo "usage: make fetch-uv OS=<os> ARCH=<arch> DEST=<dir>"; exit 1; }
+	UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh "$$OS" "$$ARCH" "$$DEST"
 
 clean:
 	rm -rf build/ dist/

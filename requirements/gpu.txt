@@ -1,0 +1,6 @@
+# Installed on top of base.txt when profile=gpu.
+# onnxruntime-gpu replaces the CPU onnxruntime wheel — they share the
+# `onnxruntime` Python namespace and cannot coexist, so the installer
+# uninstalls the CPU version first.
+onnxruntime-gpu>=1.20.0
+onnx>=1.17.0

@@ -34,7 +34,7 @@ func Uninstall(args []string) {
 
 	projectDir := platform.FindProjectDir()
 	dataDir := platform.DataDir(projectDir)
-	venvDir := filepath.Join(projectDir, ".venv")
+	venvDir := platform.VenvDir(projectDir)
 	installDir := filepath.Join(platform.HomeDir(), ".local", "share", "imprint")
 
 	fmt.Println()

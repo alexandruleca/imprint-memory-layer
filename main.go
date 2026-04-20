@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/hunter/imprint/cmd"
 )
@@ -21,14 +22,30 @@ func main() {
 		// `imprint setup <target>`     → dispatch to a single handler
 		// `imprint setup all`          → run every handler; each self-skips
 		//                                  if its host tool isn't installed.
-		// `imprint setup [--retry-gpu] [target]` → clear sticky GPU
-		//   failure state before running so doomed ORT/llama-cpp CUDA
-		//   installs get another shot (useful after the user upgrades nvcc).
+		// Flags:
+		//   --retry-gpu           clear sticky GPU failure cache
+		//   --profile <cpu|gpu|auto>   force install profile (persists)
+		//   --with-llm            install llama-cpp-python local tagger
+		//   --no-llm              skip llama-cpp-python
+		//   --non-interactive     never prompt; fail fast on ambiguity
 		target := "all"
-		for _, a := range os.Args[2:] {
-			switch a {
-			case "--retry-gpu":
+		rest := os.Args[2:]
+		for i := 0; i < len(rest); i++ {
+			a := rest[i]
+			switch {
+			case a == "--retry-gpu":
 				cmd.SetRetryGPU(true)
+			case a == "--with-llm":
+				cmd.SetWithLLM(true)
+			case a == "--no-llm":
+				cmd.SetWithLLM(false)
+			case a == "--non-interactive":
+				cmd.SetNonInteractive(true)
+			case a == "--profile" && i+1 < len(rest):
+				cmd.SetInstallProfile(rest[i+1])
+				i++
+			case strings.HasPrefix(a, "--profile="):
+				cmd.SetInstallProfile(strings.TrimPrefix(a, "--profile="))
 			default:
 				target = a
 			}
@@ -38,6 +55,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all)\n", target)
 			os.Exit(1)
 		}
+	case "bootstrap":
+		cmd.Bootstrap(os.Args[2:])
+	case "profile":
+		cmd.Profile(os.Args[2:])
 	case "ingest":
 		cmd.Ingest(os.Args[2:])
 	case "learn":
@@ -88,8 +109,16 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `imprint — AI memory for Claude Code
 
 Usage:
-  imprint setup [target]     Install deps, register MCP server, configure host AI tool
+  imprint setup [target] [--profile cpu|gpu|auto] [--with-llm|--no-llm] [--retry-gpu] [--non-interactive]
+                             Install deps, register MCP server, configure host AI tool
                                target: claude-code (default) | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all
+  imprint bootstrap [--profile cpu|gpu|auto] [--with-llm] [--non-interactive]
+                             Provision venv + selected dependencies only (no MCP registration).
+                             Intended for installer scripts; end users should run 'imprint setup'.
+  imprint profile            Show active install profile (cpu|gpu + with-llm flag)
+  imprint profile set <cpu|gpu|auto>   Swap profile; reinstalls deps via uv
+  imprint profile add-llm    Install llama-cpp-python into active profile
+  imprint profile drop-llm   Uninstall llama-cpp-python
   imprint ingest <path>      Index project source files (directory or single file)
   imprint learn              Index Claude Code conversations + memory files
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)
