@@ -2,9 +2,6 @@
 title: HTTP API
 description: Reference for the Imprint dashboard HTTP API, with a downloadable Postman collection and auto-generated OpenAPI schema.
 ---
-
-# HTTP API
-
 The Imprint container runs a FastAPI server on port **8420**. Everything the
 built-in dashboard does — search, ingest, retag, graph walks, sync, chat — is
 available over plain HTTP for any external client: a backend service pushing

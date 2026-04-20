@@ -1,10 +1,36 @@
 ---
 import benchmarks from '../data/benchmarks.json';
+import releases from '../data/releases.json';
 
 const tokenPct = benchmarks.overall?.tokenPct ?? '−70.4%';
 const costPct = benchmarks.overall?.costPct ?? '−31.7%';
 const costOff = benchmarks.overall?.costOff?.toFixed(2) ?? '2.84';
 const costOn = benchmarks.overall?.costOn?.toFixed(2) ?? '1.94';
+
+// Pick the default Download CTA target per OS. macOS → arm64 first (most
+// modern Macs); Windows/Linux → amd64. Falls back to /download when the
+// expected asset isn't attached to the latest stable release yet.
+const assets = releases.latestStable?.assets ?? [];
+function pick(os, arch, kind) {
+  return assets.find((a) => a.os === os && a.arch === arch && a.kind === kind);
+}
+const latestTag = releases.latestStable?.tag ?? '';
+const defaultMac = pick('macos', 'arm64', 'installer') || pick('macos', 'arm64', 'archive');
+const defaultWin = pick('windows', 'amd64', 'installer') || pick('windows', 'amd64', 'archive');
+const defaultLinux = pick('linux', 'amd64', 'archive');
+
+const oneLiners = [
+  {
+    id: 'unix',
+    label: 'macOS / Linux',
+    cmd: 'curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash',
+  },
+  {
+    id: 'win',
+    label: 'Windows',
+    cmd: 'irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex',
+  },
+];
 ---
 
 <section class="relative overflow-hidden">
@@ -28,11 +54,18 @@ const costOn = benchmarks.overall?.costOn?.toFixed(2) ?? '1.94';
 
     <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-center">
       <a
-        href="/installation"
+        data-hero-download
+        data-url-macos={defaultMac?.url ?? '/download'}
+        data-url-windows={defaultWin?.url ?? '/download'}
+        data-url-linux={defaultLinux?.url ?? '/download'}
+        data-label-macos={defaultMac ? `Download for macOS ${defaultMac.arch === 'arm64' ? '(Apple Silicon)' : '(Intel)'}` : 'Download'}
+        data-label-windows={defaultWin ? 'Download for Windows' : 'Download'}
+        data-label-linux={defaultLinux ? 'Download for Linux' : 'Download'}
+        href="/download"
         class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-semibold bg-gradient-to-r from-violet-500 to-indigo-500 text-white hover:from-violet-400 hover:to-indigo-400 transition shadow-[0_0_40px_-10px_rgba(139,92,246,0.7)]"
       >
-        Install in 30 seconds
-        <span aria-hidden>→</span>
+        <span data-hero-download-label>Download {latestTag}</span>
+        <span aria-hidden>↓</span>
       </a>
       <a
         href="/benchmarks"
@@ -41,6 +74,92 @@ const costOn = benchmarks.overall?.costOn?.toFixed(2) ?? '1.94';
         See the benchmark numbers
       </a>
     </div>
+
+    <!-- One-liner installer pill (doesn't replace /download — just a shortcut for CLI users) -->
+    <div class="mt-6 max-w-2xl mx-auto">
+      <div class="flex items-center justify-center gap-1 mb-2" role="tablist">
+        {oneLiners.map((o, i) => (
+          <button
+            data-hero-oneliner-tab={o.id}
+            class={`px-3 py-1 text-xs font-medium rounded-md transition ${
+              i === 0
+                ? 'bg-[color:var(--color-bg-elevated)] text-white border border-[color:var(--color-border)]'
+                : 'text-[color:var(--color-text-muted)] hover:text-white'
+            }`}
+            role="tab"
+            aria-selected={i === 0 ? 'true' : 'false'}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div class="flex items-stretch gap-2 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-1.5">
+        <pre class="flex-1 overflow-x-auto text-xs sm:text-sm font-mono px-3 py-2.5 whitespace-nowrap text-left"><code data-hero-oneliner-cmd>{oneLiners[0].cmd}</code></pre>
+        <button
+          data-hero-oneliner-copy
+          class="shrink-0 px-3 text-xs rounded-lg hover:bg-[color:var(--color-bg-elevated)] text-[color:var(--color-text-muted)] hover:text-white border border-[color:var(--color-border)]"
+          aria-label="Copy install command"
+        >
+          Copy
+        </button>
+      </div>
+    </div>
+
+    <script define:vars={{ latestTag, oneLiners }}>
+      // --- OS detection for the hero Download CTA + one-liner default tab ---
+      const ua = navigator.userAgent;
+      let os = 'macos';
+      if (/Windows/i.test(ua)) os = 'windows';
+      else if (/Linux|X11/i.test(ua)) os = 'linux';
+      else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macos';
+
+      const cta = document.querySelector('[data-hero-download]');
+      const label = document.querySelector('[data-hero-download-label]');
+      if (cta && label) {
+        const href = cta.getAttribute('data-url-' + os);
+        const text = cta.getAttribute('data-label-' + os);
+        if (href) cta.setAttribute('href', href);
+        if (text) label.textContent = `${text} · ${latestTag}`;
+      }
+
+      // --- One-liner tabs ---
+      const preferWin = os === 'windows';
+      const cmdEl = document.querySelector('[data-hero-oneliner-cmd]');
+      const tabs = document.querySelectorAll('[data-hero-oneliner-tab]');
+      const copyBtn = document.querySelector('[data-hero-oneliner-copy]');
+
+      function activate(id) {
+        const entry = oneLiners.find((o) => o.id === id);
+        if (!entry || !cmdEl) return;
+        cmdEl.textContent = entry.cmd;
+        tabs.forEach((t) => {
+          const active = t.getAttribute('data-hero-oneliner-tab') === id;
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+          t.classList.toggle('bg-[color:var(--color-bg-elevated)]', active);
+          t.classList.toggle('text-white', active);
+          t.classList.toggle('border', active);
+          t.classList.toggle('border-[color:var(--color-border)]', active);
+          t.classList.toggle('text-[color:var(--color-text-muted)]', !active);
+        });
+      }
+
+      if (preferWin) activate('win');
+
+      tabs.forEach((t) => {
+        t.addEventListener('click', () => activate(t.getAttribute('data-hero-oneliner-tab')));
+      });
+
+      if (copyBtn && cmdEl) {
+        copyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(cmdEl.textContent || '');
+            const prev = copyBtn.textContent;
+            copyBtn.textContent = 'Copied';
+            setTimeout(() => { copyBtn.textContent = prev || 'Copy'; }, 1300);
+          } catch { /* ignore */ }
+        });
+      }
+    </script>
 
     <!-- Cost comparison card -->
     <div class="mt-14 max-w-2xl mx-auto grad-border rounded-2xl p-6 sm:p-8">

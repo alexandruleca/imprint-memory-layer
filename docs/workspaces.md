@@ -2,9 +2,6 @@
 title: Workspaces & Projects
 description: Imprint workspaces isolate memory collections, SQLite graphs, and config per-context. How projects are detected from manifest files and how to switch between them.
 ---
-
-# Workspaces & Projects
-
 ## Project Detection
 
 When you run `imprint ingest ~/code`, it recursively finds real project roots by looking for manifest files — not just top-level directories:

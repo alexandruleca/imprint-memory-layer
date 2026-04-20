@@ -2,9 +2,6 @@
 title: Metadata Tagging
 description: How Imprint tags chunks — language/layer/kind/domain/topics from keyword dictionaries, zero-shot classification, and optional LLM refinement for structured search filters.
 ---
-
-# Metadata Tagging
-
 Every chunk gets a structured tag payload stored in Qdrant:
 
 ```python

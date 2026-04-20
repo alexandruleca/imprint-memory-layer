@@ -2,9 +2,6 @@
 title: Architecture
 description: How Imprint's pieces fit together — Go CLI, Python MCP server, embedded Qdrant, ONNX embeddings, SQLite knowledge graph, and the data flow between them.
 ---
-
-# Architecture
-
 ## Components
 
 ```mermaid

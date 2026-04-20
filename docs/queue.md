@@ -2,9 +2,6 @@
 title: Command Queue
 description: How Imprint serializes long-running CLI jobs (ingest, retag, wipe, sync) through a single-slot FIFO queue with advisory file locking, SIGTERM-safe cancellation, and SSE streaming.
 ---
-
-# Command Queue
-
 Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant, and — when LLM tagging is on — hold a per-batch HTTP connection to the tagger provider. Running two in parallel on a workstation is the fastest way to OOM the box. Imprint serializes them with a shared single-slot queue.
 
 ## Semantics

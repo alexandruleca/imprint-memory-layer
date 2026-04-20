@@ -2,9 +2,6 @@
 title: Embeddings
 description: Imprint's local ONNX-powered embeddings — EmbeddingGemma-300M by default, optional GPU acceleration via onnxruntime-gpu, and how to swap models safely.
 ---
-
-# Embeddings
-
 The system converts every chunk of text — code, markdown, conversation, decision — into a dense vector (768-dim by default) that captures its meaning. Semantically similar text lands close together in vector space, which is what makes semantic search possible.
 
 ```mermaid

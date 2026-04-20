@@ -2,9 +2,6 @@
 title: MCP Tools & Automatic Updates
 description: The 13 MCP tools Imprint exposes to coding agents — semantic search, graph navigation, knowledge-graph queries, inline content ingestion, and more.
 ---
-
-# MCP Tools & Automatic Updates
-
 ## MCP Tools
 
 The imprint MCP server exposes **13 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation of a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
