@@ -197,6 +197,42 @@ func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
 	}
 }
 
+// pipInstall runs `pip install`-equivalent through uv when available,
+// falling back to the venv-internal pip. uv is strongly preferred because
+// `uv venv` does NOT seed a pip into the venv by default — so venvPip
+// typically doesn't exist on post-uv installs, and every venvPip call
+// silently fails. That used to leave broken onnxruntime-gpu stub wheels
+// in place (AttributeError: no SessionOptions at import time).
+func pipInstall(uv, venvPython, venvPip string, args ...string) error {
+	if uv != "" {
+		full := append([]string{"pip", "install", "--python", venvPython}, args...)
+		return runner.Run(uv, full...)
+	}
+	full := append([]string{"install"}, args...)
+	return runner.Run(venvPip, full...)
+}
+
+// pipInstallEnv is pipInstall with an env override (used by the CUDA
+// llama-cpp rebuild where CMAKE_ARGS must be passed through).
+func pipInstallEnv(uv, venvPython, venvPip string, env []string, args ...string) (string, error) {
+	if uv != "" {
+		full := append([]string{"pip", "install", "--python", venvPython}, args...)
+		return runner.RunCaptureEnv(uv, env, full...)
+	}
+	full := append([]string{"install"}, args...)
+	return runner.RunCaptureEnv(venvPip, env, full...)
+}
+
+// pipUninstall removes packages from the venv, preferring uv.
+func pipUninstall(uv, venvPython, venvPip string, pkgs ...string) error {
+	if uv != "" {
+		full := append([]string{"pip", "uninstall", "--python", venvPython}, pkgs...)
+		return runner.Run(uv, full...)
+	}
+	full := append([]string{"uninstall", "-y"}, pkgs...)
+	return runner.Run(venvPip, full...)
+}
+
 // uvBinary resolves the uv executable used for Python + wheel management.
 // Order: bundled (<projectDir>/bin/uv) → `uv` on PATH → empty string. A
 // missing uv is not fatal at this layer — setupBackend falls back to the
@@ -369,9 +405,9 @@ func setupBackend() backendPaths {
 		// absent (e.g. running inside a container where /dev/nvidia* shows
 		// up at runtime but detection fails at install time).
 		installGpuReqs(uv, venvPython, venvPip, gpuReqs)
-		ensureOrtGPU(venvPython, venvPip, dataDir)
+		ensureOrtGPU(uv, venvPython, venvPip, dataDir)
 	default: // "auto"
-		ensureOrtGPU(venvPython, venvPip, dataDir)
+		ensureOrtGPU(uv, venvPython, venvPip, dataDir)
 	}
 
 	// ── Optional local LLM tagger (llama-cpp-python) ───────────
@@ -379,7 +415,7 @@ func setupBackend() backendPaths {
 		installLlmReqs(uv, venvPython, venvPip, llmReqs)
 		// Only attempt CUDA rebuild when the user opted into GPU profile.
 		if profile == "gpu" || profile == "auto" {
-			ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir)
+			ensureLlamaCppGPU(uv, venvPython, venvPip, projectDir, dataDir)
 		}
 	} else {
 		output.Skip("Local LLM tagger skipped (--with-llm not set)")
@@ -786,7 +822,7 @@ func ortStubWheelErr(errLine string) bool {
 // the cu12 pip wheels if the first failure looks like a missing runtime
 // lib, and caches "broken" verdicts in data/gpu_state.json so repeat setup
 // runs stay silent instead of reinstalling every time.
-func ensureOrtGPU(venvPython, venvPip, dataDir string) {
+func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
 	state := gpustate.Load(dataDir)
 	hostEnv := ortHostEnv(venvPython)
 
@@ -812,11 +848,14 @@ func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 		// through so we install cu12 wheels and retry below.
 	}
 
-	// If the module won't even import, reinstall CPU version and continue.
+	// If the module won't even import (or is a stub wheel with no
+	// SessionOptions — the "AttributeError at import time" crash users hit
+	// on Windows when onnxruntime-gpu ships no bindings for their Python
+	// minor), roll back to the CPU wheel so the venv stays usable.
 	if cudaErr != nil {
 		output.Warn("onnxruntime module is broken — reinstalling CPU version...")
-		_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "onnxruntime", "-y", "--quiet")
-		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+		_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnxruntime")
+		_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")
 	}
 
 	// No GPU? CPU is fine.
@@ -829,10 +868,10 @@ func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 
 	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — installing onnxruntime-gpu...", hostEnv.GPU))
 
-	_ = runner.Run(venvPip, "uninstall", "onnxruntime", "-y", "--quiet")
-	if err := runner.Run(venvPip, "install", "onnxruntime-gpu", "onnx", "--quiet"); err != nil {
+	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime")
+	if err := pipInstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnx"); err != nil {
 		output.Warn("Failed to install onnxruntime-gpu: " + err.Error() + " — falling back to CPU")
-		_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+		_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")
 		state.OrtGPU = "broken"
 		state.OrtGPUReason = err.Error()
 		state.OrtGPUEnv = hostEnv
@@ -844,7 +883,7 @@ func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 	ok, errLine := ortSmokeTest(venvPython, projectDir)
 	if !ok && cudaRuntimeMissing(errLine) {
 		output.Info("Missing CUDA runtime libs — installing cu12 pip wheels...")
-		_ = runner.Run(venvPip, "install", "--quiet",
+		_ = pipInstall(uv, venvPython, venvPip,
 			"nvidia-cuda-runtime-cu12", "nvidia-cublas-cu12", "nvidia-cudnn-cu12",
 			"nvidia-cufft-cu12", "nvidia-curand-cu12")
 		ok, errLine = ortSmokeTest(venvPython, projectDir)
@@ -867,8 +906,8 @@ func ensureOrtGPU(venvPython, venvPip, dataDir string) {
 	} else {
 		output.Warn("onnxruntime-gpu smoke test failed (" + errLine + ") — falling back to CPU")
 	}
-	_ = runner.Run(venvPip, "uninstall", "onnxruntime-gpu", "-y", "--quiet")
-	_ = runner.Run(venvPip, "install", "onnxruntime", "--quiet")
+	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu")
+	_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")
 	state.OrtGPU = "broken"
 	state.OrtGPUReason = errLine
 	state.OrtGPUEnv = hostEnv
@@ -1038,7 +1077,7 @@ func nvccSupportsCap(nvcc, cap string) bool {
 // compatible NVIDIA GPU + toolchain is present. Remembers failures per
 // {gpu, nvcc, compute_cap} in gpu_state.json so repeat setup runs don't
 // spam the same retry-and-fail cycle.
-func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
+func ensureLlamaCppGPU(uv, venvPython, venvPip, projectDir, dataDir string) {
 	// Quick check: is llama_cpp even installed?
 	if _, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
 		return
@@ -1128,8 +1167,8 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 			output.Info("nvcc not on PATH — using " + nvccPath + " for build")
 		}
 	}
-	if out, err := runner.RunCaptureEnv(venvPip, env,
-		"install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir"); err != nil {
+	if out, err := pipInstallEnv(uv, venvPython, venvPip, env,
+		"llama-cpp-python", "--force-reinstall", "--no-cache-dir"); err != nil {
 		output.Warn("Failed to rebuild llama-cpp-python with CUDA: " + err.Error() + " — using CPU")
 		if tail := lastNonBlankLines(out, 5); tail != "" {
 			output.Warn("pip/compile tail:\n" + tail)
@@ -1137,7 +1176,7 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
 		_ = gpustate.Save(dataDir, state)
 		// Try to restore a working CPU build so the tagger still loads.
-		_ = runner.Run(venvPip, "install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet")
+		_ = pipInstall(uv, venvPython, venvPip, "llama-cpp-python", "--force-reinstall", "--no-cache-dir")
 		return
 	}
 
@@ -1145,7 +1184,7 @@ func ensureLlamaCppGPU(venvPython, venvPip, projectDir, dataDir string) {
 		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
 	if checkErr != nil {
 		output.Warn("llama-cpp-python CUDA build broken (can't import) — reinstalling CPU version")
-		_ = runner.Run(venvPip, "install", "llama-cpp-python", "--force-reinstall", "--no-cache-dir", "--quiet")
+		_ = pipInstall(uv, venvPython, venvPip, "llama-cpp-python", "--force-reinstall", "--no-cache-dir")
 		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
 		_ = gpustate.Save(dataDir, state)
 		return
