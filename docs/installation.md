@@ -109,15 +109,14 @@ The setup also auto-installs the `nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12
 
 ## Run the relay server (Docker)
 
-Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release:
+Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR
+after every release:
 
 ```bash
-docker run -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:latest        # latest stable
-docker run -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:v0.2.0         # pinned
-docker run -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:v0.2           # floating minor
-docker run -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:dev            # latest dev
+docker run -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:latest
 ```
 
-Or deploy to Docker Swarm with [`docker-compose.relay.yml`](../docker-compose.relay.yml) (includes Traefik labels for HTTPS termination).
-
-See [sync.md](./sync.md) for how peer sync uses the relay.
+Full deployment guide — pinned tags, `docker compose`, TLS termination (Caddy /
+Traefik / Nginx), health checks, and manual rebuilds — lives on the dedicated
+[Docker page](./docker.md). See [sync.md](./sync.md) for how peer sync uses the
+relay.

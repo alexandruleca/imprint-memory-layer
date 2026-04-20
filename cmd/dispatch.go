@@ -4,7 +4,7 @@ import "github.com/hunter/imprint/internal/output"
 
 // setupTargets is the ordered list used by `imprint setup all`. Kept small
 // and explicit — one handler per host AI tool.
-var setupTargets = []string{"claude-code", "cursor", "codex", "copilot", "cline"}
+var setupTargets = []string{"claude-code", "cursor", "codex", "copilot", "cline", "openclaw"}
 
 // setupHostsRan counts how many host handlers actually detected their tool
 // and proceeded past the skip-on-missing guard. Handlers bump this after
@@ -30,6 +30,8 @@ func DispatchSetup(target string) bool {
 		SetupCopilot()
 	case "cline":
 		SetupCline()
+	case "openclaw", "clawdbot", "moltbot":
+		SetupOpenClaw()
 	case "all":
 		setupHostsRan = 0
 		for _, t := range setupTargets {
@@ -37,7 +39,7 @@ func DispatchSetup(target string) bool {
 			DispatchSetup(t)
 		}
 		if setupHostsRan == 0 {
-			output.Warn("No autosetup targets found — install Claude Code, Cursor, Codex, Copilot, or Cline, then re-run `imprint setup`.")
+			output.Warn("No autosetup targets found — install Claude Code, Cursor, Codex, Copilot, Cline, or OpenClaw, then re-run `imprint setup`.")
 		}
 	default:
 		return false

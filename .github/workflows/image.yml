@@ -1,0 +1,146 @@
+name: Image
+
+on:
+  workflow_run:
+    workflows: ["Release", "Dev Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to build (e.g. v1.2.3 or v1.2.3-dev.4). Defaults to latest matching channel."
+        required: false
+      channel:
+        description: "Channel for floating tag"
+        required: false
+        default: "stable"
+        type: choice
+        options: [stable, dev]
+
+concurrency:
+  group: image-${{ github.event.workflow_run.name || inputs.channel }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/alexandruleca/imprint-relay
+
+jobs:
+  build:
+    # Skip if the triggering release run failed. Always run on manual dispatch.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - name: Determine channel
+        id: channel
+        env:
+          UPSTREAM: ${{ github.event.workflow_run.name }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            if [ "$UPSTREAM" = "Dev Release" ]; then
+              CHANNEL=dev
+            else
+              CHANNEL=stable
+            fi
+          else
+            CHANNEL="${INPUT_CHANNEL:-stable}"
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "Channel: $CHANNEL"
+
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version tag
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ "$CHANNEL" = "dev" ]; then
+            VERSION=$(git tag --sort=-creatordate | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$' | head -1 || true)
+          else
+            VERSION=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo "No matching tag found for channel=$CHANNEL. Nothing to build."
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+            echo "major_minor=v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved version: $VERSION"
+
+      - name: Checkout source at tag
+        if: steps.version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: git checkout "$VERSION"
+
+      - name: Compute image tags
+        id: tags
+        if: steps.version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MAJOR_MINOR: ${{ steps.version.outputs.major_minor }}
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+        run: |
+          set -euo pipefail
+          TAGS="${IMAGE}:${VERSION}"
+          if [ "$CHANNEL" = "dev" ]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE}:dev"
+          else
+            TAGS="${TAGS}"$'\n'"${IMAGE}:latest"
+            if [ -n "${MAJOR_MINOR:-}" ]; then
+              TAGS="${TAGS}"$'\n'"${IMAGE}:${MAJOR_MINOR}"
+            fi
+          fi
+          {
+            echo 'tags<<EOF'
+            echo "$TAGS"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        if: steps.version.outputs.version != ''
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        if: steps.version.outputs.version != ''
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.version.outputs.version != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push relay image
+        if: steps.version.outputs.version != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

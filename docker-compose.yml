@@ -1,0 +1,13 @@
+services:
+  imprint-relay:
+    image: ghcr.io/alexandruleca/imprint-relay:latest
+    restart: unless-stopped
+    ports:
+      - "8430:8430"
+    command: ["relay", "--port", "8430"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8430/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

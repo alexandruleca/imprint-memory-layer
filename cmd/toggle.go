@@ -102,6 +102,23 @@ func Disable(args []string) {
 	// Cline CLI (mcpServers).
 	removeJSONServer(platform.ClineCLISettingsPath(), "mcpServers", "Cline CLI MCP config")
 
+	// OpenClaw (mcp.servers — nested two levels).
+	removeNestedJSONServer := func(path string, keyPath []string, label string) {
+		if path == "" || !platform.FileExists(path) {
+			output.Skip(label + " not present (" + path + ")")
+			return
+		}
+		ok, err := jsonutil.RemoveMCPServerNested(path, keyPath, "imprint")
+		if err != nil {
+			output.Warn(label + " update failed: " + err.Error())
+		} else if ok {
+			output.Success("Removed imprint from " + path)
+		} else {
+			output.Skip("imprint not registered in " + path)
+		}
+	}
+	removeNestedJSONServer(platform.OpenClawMCPPath(), []string{"mcp", "servers"}, "OpenClaw MCP config")
+
 	// Codex TOML.
 	codexPath := platform.CodexConfigPath()
 	if platform.FileExists(codexPath) {
@@ -139,7 +156,7 @@ func Enable(args []string) {
 	fmt.Println()
 
 	if !DispatchSetup(target) {
-		output.Fail("unknown target: " + target + " (expected: claude-code | cursor | codex | copilot | cline | all)")
+		output.Fail("unknown target: " + target + " (expected: claude-code | cursor | codex | copilot | cline | openclaw | all)")
 	}
 
 	// Pre-warm the Qdrant server so the next MCP call doesn't pay the
