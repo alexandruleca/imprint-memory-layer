@@ -7,11 +7,20 @@ interface Props {
   title: string;
   description: string;
   pathname?: string;
+  noindex?: boolean;
+  keywords?: string;
 }
 
-const { title, description, pathname = '/' } = Astro.props;
-const canonical = new URL(pathname, Astro.site ?? 'https://imprintmcp.alexandruleca.com').toString();
-const ogImage = new URL('/og.png', Astro.site ?? 'https://imprintmcp.alexandruleca.com').toString();
+const {
+  title,
+  description,
+  pathname = '/',
+  noindex = false,
+  keywords = 'MCP memory layer, Claude Code memory, Cursor memory, Copilot memory, semantic code search, vector memory for AI agents, Qdrant, ONNX embeddings, local AI memory, token savings, developer productivity',
+} = Astro.props;
+const siteOrigin = 'https://imprintmcp.alexandruleca.com';
+const canonical = new URL(pathname, Astro.site ?? siteOrigin).toString();
+const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
 ---
 
 <!doctype html>
@@ -21,18 +30,36 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://imprintmcp.alexandrule
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <meta name="keywords" content={keywords} />
+    <meta name="author" content="Alexandru Leca" />
+    <meta name="theme-color" content="#0f1020" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="generator" content={Astro.generator} />
+    {noindex ? (
+      <meta name="robots" content="noindex, nofollow" />
+    ) : (
+      <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    )}
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/site.webmanifest" />
 
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Imprint" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Imprint — MCP memory layer for AI coding tools" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content="Imprint — MCP memory layer for AI coding tools" />
 
     <link
       rel="preconnect"
@@ -51,11 +78,22 @@ const ogImage = new URL('/og.png', Astro.site ?? 'https://imprintmcp.alexandrule
         '@context': 'https://schema.org',
         '@type': 'SoftwareApplication',
         name: 'Imprint',
+        alternateName: 'Imprint MCP Memory Layer',
         applicationCategory: 'DeveloperApplication',
+        applicationSubCategory: 'AI Coding Tools',
         operatingSystem: 'Linux, macOS, Windows',
         description,
-        url: 'https://imprintmcp.alexandruleca.com',
+        url: siteOrigin,
+        image: ogImage,
+        license: 'https://github.com/alexandruleca/imprint-memory-layer/blob/main/LICENSE',
+        codeRepository: 'https://github.com/alexandruleca/imprint-memory-layer',
+        programmingLanguage: ['Python', 'Go', 'TypeScript'],
         offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        author: {
+          '@type': 'Person',
+          name: 'Alexandru Leca',
+          url: 'https://github.com/alexandruleca',
+        },
       })}
     />
 

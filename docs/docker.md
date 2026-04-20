@@ -1,5 +1,6 @@
 ---
 title: Docker
+description: Deploy Imprint with Docker — full runtime (dashboard + API + auto-Qdrant) and stateless sync relay. Pinned tags, compose files, TLS termination, and health checks.
 ---
 
 # Docker

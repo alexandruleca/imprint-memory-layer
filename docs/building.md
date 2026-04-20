@@ -1,5 +1,6 @@
 ---
 title: Building & Releases
+description: Build Imprint from source — Go binary via Makefile, Python venv setup, and the conventional-commit-driven release pipeline that publishes stable and dev channels.
 ---
 
 # Building & Releases

@@ -1,5 +1,6 @@
 ---
 title: Chunking
+description: How Imprint splits code and prose for embedding — Chonkie's tree-sitter CodeChunker for source files, SemanticChunker for markdown, sliding overlap, and size bounds.
 ---
 
 # Chunking
