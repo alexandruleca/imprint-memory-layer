@@ -49,6 +49,17 @@ func setupBackend() backendPaths {
 
 	output.Info(fmt.Sprintf("Checking for Python 3.%d–3.%d...", pythonMinMinor, pythonMaxMinor))
 	py := findPython()
+	if py.Cmd == "" && runtime.GOOS == "windows" && len(py.TooNew) == 0 {
+		// Auto-install on Windows: winget first (present on Win10 1809+ and
+		// Win11), else fetch the official python.org installer and run it
+		// silently per-user (no UAC). Users can opt out with
+		// IMPRINT_NO_PYTHON_INSTALL=1.
+		if os.Getenv("IMPRINT_NO_PYTHON_INSTALL") != "1" {
+			if tryInstallPythonWindows() {
+				py = findPython()
+			}
+		}
+	}
 	if py.Cmd == "" {
 		if len(py.TooNew) > 0 {
 			output.Fail(fmt.Sprintf(

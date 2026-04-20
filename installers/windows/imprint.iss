@@ -87,17 +87,20 @@ Name: "{app}\.venv"; Flags: uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#AppName}";           Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{#IconInstalled}"
+Name: "{group}\Repair {#AppName}";    Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NoExit -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" -Interactive"; WorkingDir: "{app}"; IconFilename: "{#IconInstalled}"; Comment: "Re-run first-run setup (visible console)"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}";     Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{#IconInstalled}"; Tasks: desktopicon
 
 [Run]
 ; 1. Bootstrap venv + pip deps + `imprint setup` right after files are copied,
 ;    so the first shortcut click can skip straight to "open UI".
+;    Window is VISIBLE (no /runhidden) so the user can watch pip install and
+;    see any errors without hunting for first-run.log later.
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"""; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" -PauseOnFinish"; \
     WorkingDir: "{app}"; \
     StatusMsg: "Setting up Imprint (first time only)..."; \
-    Flags: runhidden waituntilterminated
+    Flags: waituntilterminated
 ; 2. Offer to launch Imprint on install finish (unchecked in silent mode).
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; \
