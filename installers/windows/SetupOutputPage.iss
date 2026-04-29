@@ -19,7 +19,7 @@ function SetTimer(hWnd: HWND; nIDEvent: UINT_PTR; uElapse: UINT;
   external 'SetTimer@user32.dll stdcall';
 function KillTimer(hWnd: HWND; uIDEvent: UINT_PTR): BOOL;
   external 'KillTimer@user32.dll stdcall';
-function SendMessageScroll(hWnd: HWND; Msg: UINT; wParam: WPARAM; lParam: LPARAM): LRESULT;
+function SendMessageScroll(hWnd: HWND; Msg: UINT; wParam: UINT_PTR; lParam: INT_PTR): INT_PTR;
   external 'SendMessageW@user32.dll stdcall';
 
 const
