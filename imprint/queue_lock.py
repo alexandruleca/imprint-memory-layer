@@ -1,20 +1,60 @@
 """Cross-process lock file for the command queue.
 
 Serializes ingest/refresh/retag/ingest-url across the Go CLI and the FastAPI
-dispatcher. Both processes acquire an advisory `fcntl.flock` on
+dispatcher. Both processes acquire an advisory lock on
 `{DATA_DIR}/queue.lock` before spawning a job. The lock file body is JSON
 describing the current holder so the CLI can print a useful error when
 another process already holds it.
+
+Locking backend: fcntl.flock on Unix, msvcrt.locking on Windows.
 """
 
 from __future__ import annotations
 
 import errno
-import fcntl
 import json
 import os
+import sys
 import time
 from pathlib import Path
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock(fd: int, block: bool) -> bool:
+        os.lseek(fd, 0, os.SEEK_SET)
+        mode = msvcrt.LK_LOCK if block else msvcrt.LK_NBLCK
+        try:
+            msvcrt.locking(fd, mode, 1)
+        except OSError:
+            return False
+        return True
+
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+else:
+    import fcntl
+
+    def _lock(fd: int, block: bool) -> bool:
+        flags = fcntl.LOCK_EX if block else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(fd, flags)
+        except OSError as e:
+            if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
+                return False
+            raise
+        return True
+
+    def _unlock(fd: int) -> None:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
 
 
 def lock_path() -> Path:
@@ -31,15 +71,9 @@ def acquire(command: str, job_id: str, block: bool = False) -> int | None:
     p = lock_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(p), os.O_RDWR | os.O_CREAT, 0o644)
-    flags = fcntl.LOCK_EX if block else fcntl.LOCK_EX | fcntl.LOCK_NB
-    try:
-        fcntl.flock(fd, flags)
-    except OSError as e:
-        if e.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
-            os.close(fd)
-            return None
+    if not _lock(fd, block):
         os.close(fd)
-        raise
+        return None
     payload = json.dumps({
         "pid": os.getpid(),
         "job_id": job_id,
@@ -56,10 +90,7 @@ def acquire(command: str, job_id: str, block: bool = False) -> int | None:
 def release(fd: int | None) -> None:
     if fd is None:
         return
-    try:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    except OSError:
-        pass
+    _unlock(fd)
     try:
         os.close(fd)
     except OSError:
@@ -98,8 +129,8 @@ def clear_stale() -> None:
     """Remove the lock file if its recorded PID is gone.
 
     Safe to call on startup before the dispatcher takes over. Does not
-    attempt to unlink while the lock is held — if flock acquires in
-    non-blocking mode succeeds we simply release immediately.
+    attempt to unlink while the lock is held — if the non-blocking acquire
+    succeeds we simply release immediately.
     """
     holder = read_holder()
     if holder is not None:
