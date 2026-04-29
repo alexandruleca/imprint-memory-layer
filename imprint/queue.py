@@ -34,6 +34,36 @@ from typing import Any, AsyncIterator, Iterable
 
 from . import queue_lock
 
+# SIGKILL doesn't exist on Windows; fall back to SIGTERM for the force-kill
+# escalation path (os.kill(pid, SIGTERM) terminates unconditionally on Windows).
+_SIGKILL: int = getattr(signal, "SIGKILL", signal.SIGTERM)
+
+# ── Platform-safe process helpers ──────────────────────────────
+
+
+def _get_pgid(pid: int) -> int | None:
+    """Return the process group id of pid, or None on Windows / on error."""
+    if sys.platform == "win32":
+        return None
+    try:
+        return os.getpgid(pid)
+    except (ProcessLookupError, OSError):
+        return None
+
+
+def _killpg_or_pid(pgid: int | None, pid: int | None, sig: int) -> None:
+    """Send sig to the process group on Unix; fall back to pid on Windows."""
+    if sys.platform != "win32" and pgid:
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, OSError):
+            pass
+    elif pid:
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, OSError):
+            pass
+
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -218,19 +248,11 @@ def cancel(job_id: str) -> dict:
             )
         return {"ok": True, "was_running": False, "pid_was_dead": True}
 
-    # Running — signal the process group. The dispatcher observes proc.wait()
-    # and transitions the row to cancelled once it reaps.
-    if pgid:
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        _schedule_sigkill(pgid)
-    elif pid:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+    # Running — signal the process group (Unix) or pid (Windows).
+    # The dispatcher observes proc.wait() and transitions the row to
+    # cancelled once it reaps.
+    _killpg_or_pid(pgid, pid, signal.SIGTERM)
+    _schedule_sigkill(pgid, pid)
 
     # Idempotent: only append the marker once per job.
     if "cancelled by user" not in existing_err:
@@ -256,7 +278,7 @@ def _pid_dead(pid: int | None) -> bool:
 
 
 def _pgid_dead(pgid: int | None) -> bool:
-    if not pgid:
+    if not pgid or sys.platform == "win32":
         return True
     try:
         os.killpg(pgid, 0)
@@ -267,20 +289,11 @@ def _pgid_dead(pgid: int | None) -> bool:
     return False
 
 
-def _schedule_sigkill(pgid: int, delay: float = 3.0) -> None:
-    """Send SIGKILL to ``pgid`` after ``delay`` seconds if still alive."""
+def _schedule_sigkill(pgid: int | None, pid: int | None, delay: float = 3.0) -> None:
+    """Escalate to force-kill after ``delay`` seconds if the process is still alive."""
     def _kill():
         time.sleep(delay)
-        try:
-            os.killpg(pgid, 0)
-        except ProcessLookupError:
-            return
-        except PermissionError:
-            return
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        _killpg_or_pid(pgid, pid, _SIGKILL)
 
     t = threading.Thread(target=_kill, daemon=True)
     t.start()
@@ -441,10 +454,7 @@ async def _run_job(job: dict) -> None:
             start_new_session=True,
             env=env,
         )
-        try:
-            pgid = os.getpgid(proc.pid)
-        except ProcessLookupError:
-            pgid = proc.pid
+        pgid = _get_pgid(proc.pid)
 
         with _db_lock, _connect() as conn:
             conn.execute(
@@ -470,7 +480,7 @@ async def _run_job(job: dict) -> None:
             err_row = conn.execute("SELECT error FROM jobs WHERE id=?", (job_id,)).fetchone()
             was_cancel_flag = bool(err_row and err_row["error"] and "cancelled" in err_row["error"])
 
-        if was_cancel_flag or exit_code in (-signal.SIGTERM, -signal.SIGKILL, 130, 143, 137):
+        if was_cancel_flag or exit_code in (-signal.SIGTERM, -_SIGKILL, 130, 143, 137):
             status = "cancelled"
         elif exit_code == 0:
             status = "done"

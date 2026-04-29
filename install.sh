@@ -231,6 +231,7 @@ if [ -z "$WITH_LLM" ]; then
         esac
     else
         WITH_LLM=0
+        info "Local LLM tagger skipped (non-interactive). Add it later with: imprint profile add-llm"
     fi
 fi
 

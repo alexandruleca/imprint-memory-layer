@@ -309,7 +309,7 @@ def load_model() -> tuple[Any, str | None]:
     if _llm is not None:
         return _llm, None
     if not LLAMA_AVAILABLE:
-        return None, f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR})"
+        return None, f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR}). Run: imprint profile add-llm"
 
     with _llm_lock:
         if _llm is not None:
@@ -360,7 +360,7 @@ def status() -> dict:
             "provider": "local",
             "model_ready": False,
             "model_path": "",
-            "error": f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR})",
+            "error": f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR}). Run: imprint profile add-llm",
         }
 
     explicit = _cfg("chat.model_path")

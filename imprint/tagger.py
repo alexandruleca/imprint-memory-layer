@@ -597,7 +597,7 @@ def _load_tagger_model() -> tuple[Any, str | None]:
         from imprint import _llama_compat
         _llama_compat.apply()
     except ImportError as e:
-        return None, f"llama-cpp-python not installed ({e})"
+        return None, f"llama-cpp-python not installed ({e}). Run: imprint profile add-llm"
 
     with _tagger_llm_lock:
         if _tagger_llm is not None:
