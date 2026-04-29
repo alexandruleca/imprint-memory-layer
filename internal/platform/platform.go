@@ -614,8 +614,16 @@ func DataDir(projectDir string) string {
 // On Windows, it returns "powershell" and the PowerShell profile path.
 func DetectShell() (name string, rcFile string) {
 	if runtime.GOOS == "windows" {
-		profile := filepath.Join(HomeDir(), "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
-		return "powershell", profile
+		home := HomeDir()
+		// PowerShell 7+ (pwsh) uses Documents\PowerShell\; Windows PowerShell
+		// 5.1 (the inbox version) uses Documents\WindowsPowerShell\. Prefer
+		// PS7 when pwsh.exe is on PATH, fall back to 5.1 otherwise.
+		ps7Profile := filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
+		ps5Profile := filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1")
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			return "powershell", ps7Profile
+		}
+		return "powershell", ps5Profile
 	}
 
 	shell := os.Getenv("SHELL")
