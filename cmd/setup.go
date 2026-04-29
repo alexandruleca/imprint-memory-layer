@@ -400,6 +400,22 @@ func setupBackend() backendPaths {
 	switch profile {
 	case "cpu":
 		output.Skip("GPU install skipped (profile=cpu)")
+		// ensureOrtGPU is skipped for cpu profile, so we must validate here.
+		// A stub onnxruntime wheel (empty namespace — imports cleanly but
+		// exports no classes) triggers an AttributeError at runtime otherwise.
+		if _, err := runner.RunCapture(venvPython, "-c",
+			"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'stub'"); err != nil {
+			output.Warn("onnxruntime stub wheel detected — reinstalling CPU version...")
+			_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnxruntime")
+			if instErr := pipInstall(uv, venvPython, venvPip, "onnxruntime"); instErr != nil {
+				output.Fail("onnxruntime reinstall failed: " + instErr.Error())
+			}
+			if _, err2 := runner.RunCapture(venvPython, "-c",
+				"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions')"); err2 != nil {
+				output.Fail("onnxruntime still broken after reinstall — run `imprint setup` to retry")
+			}
+			output.Success("onnxruntime reinstalled (stub wheel replaced)")
+		}
 	case "gpu":
 		// Explicit user choice — force onnxruntime-gpu even if nvidia-smi is
 		// absent (e.g. running inside a container where /dev/nvidia* shows
@@ -855,7 +871,12 @@ func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
 	if cudaErr != nil {
 		output.Warn("onnxruntime module is broken — reinstalling CPU version...")
 		_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnxruntime")
-		_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")
+		if instErr := pipInstall(uv, venvPython, venvPip, "onnxruntime"); instErr != nil {
+			output.Warn("onnxruntime CPU reinstall failed: " + instErr.Error())
+		} else if _, verifyErr := runner.RunCapture(venvPython, "-c",
+			"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions')"); verifyErr != nil {
+			output.Warn("onnxruntime reinstalled but still broken — embeddings will fail at runtime")
+		}
 	}
 
 	// No GPU? CPU is fine.

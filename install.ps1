@@ -23,7 +23,7 @@ $ErrorActionPreference = "Stop"
 
 $Repo = "alexandruleca/imprint-memory-layer"
 $InstallDir = Join-Path $env:USERPROFILE ".local\share\imprint"
-$BinDir = Join-Path $env:USERPROFILE ".local\bin"
+$BinDir     = Join-Path $InstallDir "bin"
 
 function Write-Info    { param($Msg) Write-Host "[*] $Msg" -ForegroundColor Cyan }
 function Write-Success { param($Msg) Write-Host "[+] $Msg" -ForegroundColor Green }
@@ -110,8 +110,21 @@ try {
 
 Write-Success "Binary ready at $ImprintBin"
 
+# --- Add bin dir to user PATH (works in any shell, survives reboots) ---
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($UserPath -notlike "*$BinDir*") {
+    [Environment]::SetEnvironmentVariable("Path", "$UserPath;$BinDir", "User")
+    Write-Success "Added $BinDir to user PATH"
+} else {
+    Write-Info "$BinDir already in user PATH"
+}
+# Also inject into the current session so imprint works immediately.
+if ($env:PATH -notlike "*$BinDir*") {
+    $env:PATH = "$env:PATH;$BinDir"
+}
+
 # --- Run setup ---
 Write-Info "Running imprint setup..."
 & $ImprintBin setup
 
-Write-Success "Installation complete! Restart PowerShell to use the 'imprint' command."
+Write-Success "Installation complete! 'imprint' is available now (open a new terminal if the current one was already open)."
