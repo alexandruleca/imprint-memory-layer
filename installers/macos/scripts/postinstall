@@ -19,9 +19,10 @@ IMPRINT_HOME="$APP/Contents/Resources/imprint"
 
 /usr/bin/xattr -cr "$APP" 2>/dev/null || true
 
-chmod +x "$APP/Contents/MacOS/imprint-launcher" 2>/dev/null || true
-chmod +x "$IMPRINT_HOME/bin/imprint"              2>/dev/null || true
-chmod +x "$IMPRINT_HOME/bin/uv"                   2>/dev/null || true
+chmod +x "$APP/Contents/MacOS/imprint-launcher"       2>/dev/null || true
+chmod +x "$APP/Contents/MacOS/imprint-setup-helper"  2>/dev/null || true
+chmod +x "$IMPRINT_HOME/bin/imprint"                 2>/dev/null || true
+chmod +x "$IMPRINT_HOME/bin/uv"                      2>/dev/null || true
 
 mkdir -p /usr/local/bin
 ln -sf "$IMPRINT_HOME/bin/imprint" /usr/local/bin/imprint

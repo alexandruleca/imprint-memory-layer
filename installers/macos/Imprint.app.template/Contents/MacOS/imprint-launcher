@@ -51,24 +51,42 @@ APPLESCRIPT
     echo "cpu|${llm_choice}"
 }
 
-run_bootstrap_in_terminal() {
+run_bootstrap_in_window() {
     local profile="$1"
     local with_llm="$2"
+    local helper="$APP_DIR/Contents/MacOS/imprint-setup-helper"
+
+    if [ -x "$helper" ]; then
+        # exec replaces this launcher process with the helper, so Imprint.app
+        # stays active in the Dock while the setup window is shown.
+        exec "$helper" "$BIN" "$WRITABLE_HOME" "$profile" "$with_llm"
+        # exec only returns on failure — fall through to Terminal fallback.
+    fi
+
+    # Fallback: no compiled helper present (local dev builds) or exec failed.
+    # exec only returns on failure, so reaching here from the helper path means
+    # the binary couldn't launch (Gatekeeper block, missing dylib, wrong arch).
     local llm_flag="--no-llm"
     [ "$with_llm" = "1" ] && llm_flag="--with-llm"
-
-    # Launch Terminal.app and run bootstrap + setup + touch sentinel inside
-    # it so the user sees uv's download progress. We don't block on Terminal
-    # finishing — the sentinel write signals completion, and the next launch
-    # skips straight to `imprint ui open`.
     mkdir -p "$WRITABLE_HOME"
     local cmd="\"$BIN\" bootstrap --profile $profile $llm_flag --non-interactive && \"$BIN\" setup && mkdir -p \"$WRITABLE_HOME\" && touch \"$SENTINEL\" && echo && echo '[+] Imprint is ready — press Enter to close this window' && read"
-    osascript <<APPLESCRIPT >/dev/null 2>&1
+    if ! osascript 2>/tmp/imprint-launcher-err.log <<APPLESCRIPT
 tell application "Terminal"
     activate
     do script "clear; echo '=== Imprint first-run setup ==='; echo 'Profile: $profile'; echo 'LLM: $with_llm'; echo; $cmd"
 end tell
 APPLESCRIPT
+    then
+        local err_detail
+        err_detail="$(cat /tmp/imprint-launcher-err.log 2>/dev/null | head -3)"
+        show_error "Setup failed" "Could not open a Terminal window to run first-run setup.
+
+$err_detail
+
+Open Terminal.app manually and run:
+  imprint bootstrap --profile $profile $llm_flag --non-interactive
+  imprint setup"
+    fi
 }
 
 if [ ! -x "$BIN" ]; then
@@ -88,10 +106,9 @@ VENV_PY="$WRITABLE_HOME/.venv/bin/python"
 if [ ! -f "$SENTINEL" ] || [ ! -x "$VENV_PY" ]; then
     [ -f "$SENTINEL" ] && rm -f "$SENTINEL"
     IFS='|' read -r PROFILE WITH_LLM <<< "$(prompt_profile)"
-    run_bootstrap_in_terminal "${PROFILE:-cpu}" "${WITH_LLM:-0}"
-    # Exit immediately — user will re-launch from Dock after Terminal shows
-    # "[+] Imprint is ready". We don't call `ui open` here because the venv
-    # isn't ready yet.
+    # run_bootstrap_in_window execs the helper (replacing this process) or
+    # opens Terminal.app as fallback, then exits.
+    run_bootstrap_in_window "${PROFILE:-cpu}" "${WITH_LLM:-0}"
     exit 0
 fi
 

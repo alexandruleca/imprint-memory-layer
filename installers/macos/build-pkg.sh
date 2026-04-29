@@ -89,6 +89,29 @@ rsync -a --delete "$SOURCE/" "$APP_DIR/Contents/Resources/imprint/"
 chmod +x "$APP_DIR/Contents/Resources/imprint/bin/imprint"
 chmod +x "$APP_DIR/Contents/MacOS/imprint-launcher"
 
+# Compile the native setup-progress helper (requires swiftc on the build host).
+# Falls back gracefully to Terminal.app on end-user machines if absent.
+HELPER_SRC="$SCRIPT_DIR/ImprintSetupHelper/main.swift"
+HELPER_BIN="$APP_DIR/Contents/MacOS/imprint-setup-helper"
+if [ -f "$HELPER_SRC" ] && command -v swiftc >/dev/null 2>&1; then
+    info "Compiling imprint-setup-helper (arch=$PB_ARCH)..."
+    case "$PB_ARCH" in
+        arm64)  MACOS_TARGET="11.0" ;;
+        x86_64) MACOS_TARGET="10.15" ;;
+        *)      MACOS_TARGET="11.0" ;;
+    esac
+    if swiftc -O -target "${PB_ARCH}-apple-macos${MACOS_TARGET}" \
+              -o "$HELPER_BIN" "$HELPER_SRC"; then
+        chmod +x "$HELPER_BIN"
+        ok "imprint-setup-helper compiled"
+    else
+        info "Warning: Swift compilation failed — installer will fall back to Terminal.app"
+    fi
+else
+    [ -f "$HELPER_SRC" ] || info "Warning: ImprintSetupHelper/main.swift not found"
+    command -v swiftc >/dev/null 2>&1 || info "Warning: swiftc not found — skipping helper compile"
+fi
+
 # Optional app icon (requires rsvg-convert). generate-icns.sh is a no-op
 # when the tool is missing, so the build keeps going without an icon.
 ICNS_PATH="$APP_DIR/Contents/Resources/AppIcon.icns"

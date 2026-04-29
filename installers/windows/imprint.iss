@@ -92,17 +92,9 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}";     Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{#IconInstalled}"; Tasks: desktopicon
 
 [Run]
-; 1. Bootstrap venv + selected-profile deps + `imprint setup` right after
-;    files are copied, so the first shortcut click can skip straight to
-;    "open UI". Window is VISIBLE (no /runhidden) so the user can watch uv
-;    download Python + wheels and see errors without hunting for
-;    first-run.log later.
-Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" -Profile {code:SelectedProfile} {code:WithLlmFlag} -PauseOnFinish"; \
-    WorkingDir: "{app}"; \
-    StatusMsg: "Setting up Imprint (first time only - uv will download Python)..."; \
-    Flags: waituntilterminated
-; 2. Offer to launch Imprint on install finish (unchecked in silent mode).
+; Bootstrap now runs on the inline "Setting up Imprint" wizard page (SetupOutputPage.iss)
+; so users see live output without a separate PowerShell window.
+; Offer to launch Imprint on install finish (unchecked in silent mode).
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; \
     WorkingDir: "{app}"; \
@@ -121,10 +113,24 @@ Type: files; Name: "{app}\.first-run.done"
 
 [Code]
 #include "ProfilePage.iss"
+#include "SetupOutputPage.iss"
 
 procedure InitializeWizard();
 begin
   CreateProfilePages();
+  CreateSetupOutputPage();
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (GOutputPage <> nil) and (CurPageID = GOutputPage.ID) then
+    StartBootstrapOnPage();
+end;
+
+function BackButtonClick(CurPageID: Integer): Boolean;
+begin
+  // Prevent going back while bootstrap is running.
+  Result := not ((GOutputPage <> nil) and (CurPageID = GOutputPage.ID) and not GBootDone);
 end;
 
 function NeedsPathEntry(const Dir: string): Boolean;
