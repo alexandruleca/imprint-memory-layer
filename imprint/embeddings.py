@@ -5,6 +5,8 @@ Default: EmbeddingGemma-300M (768-dim, 2048 ctx). Also works with BGE-M3
 and pooling strategy are configurable via `imprint config`.
 """
 
+from __future__ import annotations
+
 import gc
 import os
 
