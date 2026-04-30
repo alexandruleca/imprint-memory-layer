@@ -8,15 +8,16 @@ UI_DIR     := ui-electron
 .PHONY: build all package package-local installer-macos installer-windows installer-local \
         clean fetch-uv \
         ui-build ui-build-linux ui-build-mac ui-build-win ui-build-all \
-        ui-dist-linux ui-dist-mac ui-dist-win \
+        ui-dist ui-dist-linux ui-dist-mac ui-dist-win \
+        site-build \
         $(PLATFORMS)
 
 # Build for current OS/arch (local dev)
 build:
 	go build -ldflags "$(LDFLAGS)" -o build/imprint .
 
-# Cross-compile all platforms directly into bin/
-all: $(PLATFORMS)
+# Cross-compile all platforms + build UI for host OS + build site
+all: $(PLATFORMS) ui-dist site-build
 
 $(PLATFORMS):
 	$(eval OS := $(word 1,$(subst /, ,$@)))
@@ -217,11 +218,26 @@ ui-dist-win: $(UI_DIR)/node_modules
 	@cp $$(find dist/electron -maxdepth 1 -name '*.exe' | head -1) build/electron/imprint-ui.exe
 	@echo "[+] build/electron/imprint-ui.exe"
 
+# Build Electron UI for the current host OS
+ui-dist: $(if $(filter darwin,$(_UI_HOST_OS)),ui-dist-mac,$(if $(filter mingw% msys% windows%,$(_UI_HOST_OS)),ui-dist-win,ui-dist-linux))
+
 # Install npm deps only when package.json changes
 $(UI_DIR)/node_modules: $(UI_DIR)/package.json $(UI_DIR)/package-lock.json
 	cd $(UI_DIR) && npm ci --prefer-offline
 	@touch $(UI_DIR)/node_modules
 
+SITE_DIR := site
+
+# Build Astro static site
+site-build: $(SITE_DIR)/node_modules
+	cd $(SITE_DIR) && npm run build
+	@echo "[+] site/dist/ built"
+
+$(SITE_DIR)/node_modules: $(SITE_DIR)/package.json $(SITE_DIR)/package-lock.json
+	cd $(SITE_DIR) && npm ci --prefer-offline
+	@touch $(SITE_DIR)/node_modules
+
 clean:
 	rm -rf build/ dist/
 	rm -rf $(UI_DIR)/node_modules
+	rm -rf $(SITE_DIR)/node_modules $(SITE_DIR)/dist

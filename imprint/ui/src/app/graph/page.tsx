@@ -432,7 +432,7 @@ export default function GraphPage() {
   }, [data, filtered, forces, toggles.showLabels, toggles.showEdges, drill]);
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       <div className="p-3 border-b border-border flex items-center gap-3 flex-wrap">
         <h2 className="text-lg font-bold">Graph</h2>
         <GraphBreadcrumbs crumbs={crumbs} onGo={goToCrumb} />
