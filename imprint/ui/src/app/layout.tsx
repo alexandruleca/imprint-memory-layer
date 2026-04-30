@@ -22,10 +22,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${roboto.variable} dark h-full`}>
-      <body className="min-h-full bg-background text-foreground flex">
+      <body className="h-full bg-background text-foreground flex">
         <Heartbeat />
         <Sidebar />
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 h-full overflow-auto">{children}</main>
       </body>
     </html>
   );

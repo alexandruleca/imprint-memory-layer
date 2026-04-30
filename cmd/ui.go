@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -152,12 +154,13 @@ func uiStart(args []string) {
 		output.Warn("state file write failed: " + err.Error())
 	}
 
-	if waitUIReady(port, 10*time.Second) {
+	if waitUIReady(port, 20*time.Second) {
 		output.Success(fmt.Sprintf("UI server running at http://127.0.0.1:%d (pid %d)", port, pid))
 		output.Info("Log: " + logPath)
 		output.Info("Open it with: imprint ui open")
 	} else {
-		output.Warn(fmt.Sprintf("Spawned pid %d but /api/ping didn't answer in 10s — check %s", pid, logPath))
+		output.Warn(fmt.Sprintf("Spawned pid %d but /api/ping didn't answer in 20s", pid))
+		printLogTail(logPath, 30)
 	}
 }
 
@@ -246,6 +249,23 @@ func uiLog(_ []string) {
 func uiStateFile(dataDir string) string { return filepath.Join(dataDir, "imprint_ui.json") }
 func uiLogFile(dataDir string) string   { return filepath.Join(dataDir, "imprint_ui.log") }
 
+func printLogTail(logPath string, lines int) {
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		output.Warn("could not read log: " + err.Error())
+		output.Info("Log path: " + logPath)
+		return
+	}
+	all := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	output.Warn("Last " + strconv.Itoa(lines) + " lines of " + logPath + ":")
+	for _, l := range all {
+		fmt.Println("  " + l)
+	}
+}
+
 func readUIState(dataDir string) (*uiState, bool) {
 	b, err := os.ReadFile(uiStateFile(dataDir))
 	if err != nil {
@@ -327,6 +347,67 @@ func stripPort(args []string) []string {
 }
 
 func launchBrowser(projectDir, dataDir, url string) {
+	if launchElectron(projectDir, dataDir, url) {
+		return
+	}
+	launchChromeFallback(projectDir, dataDir, url)
+}
+
+// launchElectron tries to open the Imprint Electron app. Resolution order:
+//  1. $IMPRINT_ELECTRON env var (explicit binary path)
+//  2. imprint-ui / imprint-ui.exe / imprint-ui.app next to the running imprint binary
+//  3. npx electron ui-electron/ inside projectDir (dev mode)
+func launchElectron(projectDir, dataDir, url string) bool {
+	electronArgs := []string{
+		"--imprint-url=" + url,
+		"--project-dir=" + projectDir,
+		"--data-dir=" + dataDir,
+	}
+
+	// 1. Explicit override
+	if bin := os.Getenv("IMPRINT_ELECTRON"); bin != "" {
+		return spawnDetached(bin, electronArgs)
+	}
+
+	// 2. Packaged binary next to the imprint CLI
+	self, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(self)
+
+		// macOS: .app bundle distributed alongside the CLI
+		if runtime.GOOS == "darwin" {
+			appBundle := filepath.Join(dir, "imprint-ui.app")
+			if platform.FileExists(filepath.Join(appBundle, "Contents", "Info.plist")) {
+				return spawnDetached("open", append([]string{"-a", appBundle, "--args"}, electronArgs...))
+			}
+		}
+
+		suffix := ""
+		if strings.HasSuffix(self, ".exe") {
+			suffix = ".exe"
+		}
+		candidate := filepath.Join(dir, "imprint-ui"+suffix)
+		if platform.FileExists(candidate) {
+			return spawnDetached(candidate, electronArgs)
+		}
+	}
+
+	// 3. Dev mode: npx electron ui-electron/
+	electronDir := filepath.Join(projectDir, "ui-electron")
+	if platform.FileExists(filepath.Join(electronDir, "main.js")) {
+		npx := "npx"
+		if runtime.GOOS == "windows" {
+			npx = "npx.cmd"
+		}
+		args := append([]string{"electron", electronDir}, electronArgs...)
+		return spawnDetached(npx, args)
+	}
+
+	return false
+}
+
+// launchChromeFallback uses the old Python _launch_browser as a last resort.
+func launchChromeFallback(projectDir, dataDir, url string) {
 	venv := platform.VenvPython(projectDir)
 	if !platform.FileExists(venv) {
 		output.Warn("venv missing; open " + url + " in your browser")
@@ -344,4 +425,17 @@ func launchBrowser(projectDir, dataDir, url string) {
 		return
 	}
 	go func() { _ = cmd.Wait() }()
+}
+
+func spawnDetached(bin string, args []string) bool {
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	cmd.SysProcAttr = detachAttrs()
+	if err := cmd.Start(); err != nil {
+		return false
+	}
+	go func() { _ = cmd.Wait() }()
+	return true
 }

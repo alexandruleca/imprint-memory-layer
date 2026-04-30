@@ -37,6 +37,10 @@ const faqs = [
     a: 'Search itself is tens of milliseconds against a local Qdrant. Net turn count can go up slightly (search → answer takes one extra call), but each turn carries a tiny fraction of the tokens. Across the benchmark, duration drops in parallel with cost on debug and cross-project questions, stays flat on creation.',
   },
   {
+    q: 'Can it index JS-heavy docs sites or complex documents?',
+    a: 'Yes, via two opt-in extractors. For JS-rendered pages, install the obscura headless browser (Apache 2.0) and set `imprint config set ingest.use_obscura true` — `imprint ingest-url` will pipe every URL through a real browser before extraction. For richer document support (archives, Apple iWork, ODF, email/mbox, image OCR), install kreuzberg (`pip install kreuzberg[all]`) and set `ingest.use_kreuzberg true`. kreuzberg is under the Elastic License 2.0 — internal and self-hosted use is fine; SaaS re-hosting of its extraction is not.',
+  },
+  {
     q: 'What does uninstalling look like?',
     a: '`imprint disable` tears down every MCP entry from every host config it previously wrote, stops the Qdrant daemon, and preserves `data/` and `.venv/` so `imprint enable` brings everything back instantly. Full removal is one extra `imprint wipe` — everything is under `data/`.',
   },

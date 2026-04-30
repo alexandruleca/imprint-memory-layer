@@ -32,6 +32,9 @@ Split across [requirements/base.txt](requirements/base.txt) (always installed), 
 | `anthropic` | MIT | base | https://github.com/anthropics/anthropic-sdk-python |
 | `openai` | Apache 2.0 | base | https://github.com/openai/openai-python |
 | `llama-cpp-python` | MIT | llm (opt-in) | https://github.com/abetlen/llama-cpp-python |
+| `kreuzberg` | **ELv2** (not OSI open-source) | opt-in (`ingest.use_kreuzberg=true`) | https://pypi.org/project/kreuzberg/ |
+
+**Kreuzberg is not Apache/MIT.** Kreuzberg is published under the [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license). ELv2 permits internal and self-hosted use but **prohibits offering kreuzberg's functionality as a hosted/SaaS service** to third parties. Review the full ELv2 terms before enabling `ingest.use_kreuzberg=true` in a multi-tenant deployment. Imprint does not install kreuzberg by default — the user installs it explicitly with `pip install kreuzberg[all]` and opts in via config.
 
 Document extractors (`pypdf`, `python-docx`, `python-pptx`, `openpyxl`, `ebooklib`, `striprtf`, `beautifulsoup4`, `httpx`, `trafilatura`), the FastAPI stack (`fastapi`, `uvicorn`), and optional OCR deps carry permissive licenses (MIT / BSD / Apache 2.0) — see each project's manifest for the exact terms. Transitive dependencies inherit their upstream licenses.
 
@@ -53,6 +56,16 @@ Fetched on demand into the user's local data dir; not present in Imprint's relea
 |---|---|---|---|
 | Qdrant server binary (`v1.17.1` default) | Apache 2.0 | https://github.com/qdrant/qdrant/releases | [`imprint/qdrant_runner.py`](imprint/qdrant_runner.py) |
 | CPython 3.12 interpreter | PSF License 2.0 (upstream) + MIT (python-build-standalone patches) | https://github.com/astral-sh/python-build-standalone/releases | `uv python install` on first `imprint bootstrap` |
+
+## Optional External Binaries
+
+Tools that users install separately and opt in via config; not bundled or downloaded by Imprint:
+
+| Component | License | Source | Enabled by |
+|---|---|---|---|
+| `obscura` headless browser | Apache 2.0 | https://github.com/h4ckf0r0day/obscura | `ingest.use_obscura=true` + binary in PATH |
+
+obscura is an external CLI binary that provides JS-rendered HTML extraction for `imprint ingest-url`. Imprint shells out to it via subprocess; it is never redistributed. Users download it from the project's GitHub releases and place it in their PATH. Its Apache 2.0 license imposes no constraints on Imprint's distribution.
 
 ## Runtime-Downloaded Model Weights
 
@@ -78,8 +91,9 @@ These services are called via their official SDKs with user-supplied API keys. T
 | License | Applies to | Obligation met by |
 |---|---|---|
 | MIT / BSD-3-Clause | Python deps, `uv` (MIT branch), nhooyr/websocket | This file lists the packages + upstream repo URLs (where full LICENSE texts live) |
-| Apache 2.0 | Python deps, `uv` (Apache branch), Qdrant | Same + no modification to upstream code. uv is the only Apache-2.0 component we *redistribute* in binary form; we elect the MIT branch of its dual license to avoid the NOTICE redistribution requirement, but honor either at the recipient's choice |
+| Apache 2.0 | Python deps, `uv` (Apache branch), Qdrant, obscura | Same + no modification to upstream code. uv is the only Apache-2.0 component we *redistribute* in binary form; we elect the MIT branch of its dual license to avoid the NOTICE redistribution requirement, but honor either at the recipient's choice |
 | PSF License 2.0 | CPython (downloaded by uv on first run) | Pass-through; CPython is not redistributed by Imprint — `uv` fetches it from python-build-standalone on first bootstrap |
 | Gemma Terms | EmbeddingGemma weights | Pass-through via HuggingFace click-through; noted in [README](README.md) and [docs/embeddings.md](docs/embeddings.md) |
+| ELv2 (Elastic License 2.0) | `kreuzberg` (opt-in only) | User accepts ELv2 when they `pip install kreuzberg`. Imprint does not install or redistribute kreuzberg. SaaS/hosted deployments that expose kreuzberg's extraction to third parties must review ELv2 §2 restrictions before enabling `ingest.use_kreuzberg=true` |
 
 If you redistribute imprint in a form that *bundles* additional components (e.g. a prebuilt Docker image with Qdrant baked in, a distribution that includes Gemma weights, or a snapshot archive that includes the provisioned `.venv/`), you inherit those components' attribution obligations and must include the corresponding LICENSE/NOTICE files in your distribution.

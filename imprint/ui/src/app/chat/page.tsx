@@ -111,7 +111,7 @@ export default function ChatPage() {
   }, [messages, streamText, thinking, workingTool]);
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-full overflow-hidden">
       <div className="w-56 border-r border-border flex flex-col">
         <div className="p-3 border-b border-border">
           <button onClick={newSession} className="w-full text-sm bg-primary text-primary-foreground rounded px-3 py-1.5">

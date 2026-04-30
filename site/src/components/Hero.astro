@@ -7,17 +7,7 @@ const costPct = benchmarks.overall?.costPct ?? '−31.7%';
 const costOff = benchmarks.overall?.costOff?.toFixed(2) ?? '2.84';
 const costOn = benchmarks.overall?.costOn?.toFixed(2) ?? '1.94';
 
-// Pick the default Download CTA target per OS. macOS → arm64 first (most
-// modern Macs); Windows/Linux → amd64. Falls back to /download when the
-// expected asset isn't attached to the latest stable release yet.
-const assets = releases.latestStable?.assets ?? [];
-function pick(os, arch, kind) {
-  return assets.find((a) => a.os === os && a.arch === arch && a.kind === kind);
-}
 const latestTag = releases.latestStable?.tag ?? '';
-const defaultMac = pick('macos', 'arm64', 'installer') || pick('macos', 'arm64', 'archive');
-const defaultWin = pick('windows', 'amd64', 'installer') || pick('windows', 'amd64', 'archive');
-const defaultLinux = pick('linux', 'amd64', 'archive');
 
 const oneLiners = [
   {
@@ -54,17 +44,10 @@ const oneLiners = [
 
     <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-center">
       <a
-        data-hero-download
-        data-url-macos={defaultMac?.url ?? '/download'}
-        data-url-windows={defaultWin?.url ?? '/download'}
-        data-url-linux={defaultLinux?.url ?? '/download'}
-        data-label-macos={defaultMac ? `Download for macOS ${defaultMac.arch === 'arm64' ? '(Apple Silicon)' : '(Intel)'}` : 'Download'}
-        data-label-windows={defaultWin ? 'Download for Windows' : 'Download'}
-        data-label-linux={defaultLinux ? 'Download for Linux' : 'Download'}
-        href="/download"
+        href="#install"
         class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-semibold bg-gradient-to-r from-violet-500 to-indigo-500 text-white hover:from-violet-400 hover:to-indigo-400 transition shadow-[0_0_40px_-10px_rgba(139,92,246,0.7)]"
       >
-        <span data-hero-download-label>Download {latestTag}</span>
+        Install {latestTag}
         <span aria-hidden>↓</span>
       </a>
       <a
@@ -75,7 +58,6 @@ const oneLiners = [
       </a>
     </div>
 
-    <!-- One-liner installer pill (doesn't replace /download — just a shortcut for CLI users) -->
     <div class="mt-6 max-w-2xl mx-auto">
       <div class="flex items-center justify-center gap-1 mb-2" role="tablist">
         {oneLiners.map((o, i) => (
@@ -105,24 +87,14 @@ const oneLiners = [
       </div>
     </div>
 
-    <script define:vars={{ latestTag, oneLiners }}>
-      // --- OS detection for the hero Download CTA + one-liner default tab ---
+    <script define:vars={{ oneLiners }}>
+      // --- OS detection for one-liner default tab ---
       const ua = navigator.userAgent;
       let os = 'macos';
       if (/Windows/i.test(ua)) os = 'windows';
       else if (/Linux|X11/i.test(ua)) os = 'linux';
       else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macos';
 
-      const cta = document.querySelector('[data-hero-download]');
-      const label = document.querySelector('[data-hero-download-label]');
-      if (cta && label) {
-        const href = cta.getAttribute('data-url-' + os);
-        const text = cta.getAttribute('data-label-' + os);
-        if (href) cta.setAttribute('href', href);
-        if (text) label.textContent = `${text} · ${latestTag}`;
-      }
-
-      // --- One-liner tabs ---
       const preferWin = os === 'windows';
       const cmdEl = document.querySelector('[data-hero-oneliner-cmd]');
       const tabs = document.querySelectorAll('[data-hero-oneliner-tab]');

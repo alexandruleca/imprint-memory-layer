@@ -10,6 +10,7 @@ import { listSources, getSourceSummary, getSourceLineage } from "@/lib/api";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MigrateDialog } from "@/components/migrate-dialog";
+import { ChunkDialog } from "@/components/chunk-dialog";
 import type { SourceEntry, SourceSummary, SourceLineage, MemoryNode } from "@/lib/types";
 
 export default function SourcesPage() {
@@ -21,6 +22,7 @@ export default function SourcesPage() {
   const [summary, setSummary] = useState<SourceSummary | null>(null);
   const [lineage, setLineage] = useState<SourceLineage | null>(null);
   const [expandedChunk, setExpandedChunk] = useState<string | null>(null);
+  const [chunkDialog, setChunkDialog] = useState<MemoryNode | null>(null);
   const [migrateOpen, setMigrateOpen] = useState(false);
 
   useEffect(() => {
@@ -226,9 +228,17 @@ export default function SourcesPage() {
                               </div>
                             </div>
                             {expandedChunk === chunk.id && (
-                              <pre className="text-xs bg-muted mx-2 mb-2 p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
-                                {chunk.content}
-                              </pre>
+                              <div className="mx-2 mb-2 space-y-1.5">
+                                <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
+                                  {chunk.content}
+                                </pre>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setChunkDialog(chunk); }}
+                                  className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/70"
+                                >
+                                  View full
+                                </button>
+                              </div>
                             )}
                           </div>
                         ))}
@@ -254,6 +264,7 @@ export default function SourcesPage() {
           onDone={() => setMigrateOpen(false)}
         />
       )}
+      <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
     </div>
   );
 }

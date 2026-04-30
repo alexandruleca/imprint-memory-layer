@@ -172,7 +172,12 @@ from . import image as _image   # noqa: E402,F401
 from . import json_doc as _json_doc  # noqa: E402,F401
 
 # url extractor is callable directly, not via by-ext dispatch.
+# extract_links_bs4 lives in url.py (avoids circular import) and is re-exported here.
 from . import url as _url       # noqa: E402,F401
+from .url import extract_links_bs4  # noqa: E402,F401
+
+# kreuzberg self-registers when ingest.use_kreuzberg=true + dep installed.
+from . import kreuzberg as _kreuzberg  # noqa: E402,F401
 
 
 __all__ = [
@@ -187,4 +192,5 @@ __all__ = [
     "dispatch_by_ext",
     "dispatch_by_mime",
     "DOC_EXTENSIONS",
+    "extract_links_bs4",
 ]

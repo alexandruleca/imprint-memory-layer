@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { searchMemories, getSourceLineage } from "@/lib/api";
 import { CardGridSkeleton, Spinner } from "@/components/loaders";
+import { ChunkDialog } from "@/components/chunk-dialog";
 import type { MemoryNode, SourceLineage } from "@/lib/types";
 
 export default function SearchPage() {
@@ -15,6 +16,7 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<MemoryNode | null>(null);
   const [lineage, setLineage] = useState<SourceLineage | null>(null);
+  const [chunkDialog, setChunkDialog] = useState<MemoryNode | null>(null);
 
   async function doSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -103,6 +105,12 @@ export default function SearchPage() {
                 <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-60 whitespace-pre-wrap">
                   {selected.content}
                 </pre>
+                <button
+                  onClick={() => setChunkDialog(selected)}
+                  className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/70 self-start"
+                >
+                  View full
+                </button>
               </CardContent>
             </Card>
           )}
@@ -132,6 +140,7 @@ export default function SearchPage() {
           )}
         </div>
       </div>
+      <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
     </div>
   );
 }

@@ -17,6 +17,24 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 
 **LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically in the base profile. No extra steps needed for any provider.
 
+**Optional — kreuzberg document extractor** (ELv2, opt-in) — Replaces the built-in PDF/DOCX/image extractors with a more capable alternative that also adds archive formats (.zip, .7z, .tar), Apple iWork files, ODF documents, and email/mbox. Install separately and opt in:
+
+```bash
+pip install kreuzberg[all]          # or: kreuzberg  (core, no OCR / image support)
+imprint config set ingest.use_kreuzberg true
+```
+
+> **License note:** kreuzberg is published under the [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license). Internal and self-hosted use is permitted; offering Imprint as a hosted/SaaS service that exposes kreuzberg's extraction is not. Imprint does not install kreuzberg automatically — you accept ELv2 when you run `pip install kreuzberg`.
+
+**Optional — obscura headless browser** (Apache 2.0, opt-in) — Provides JS-rendered HTML extraction for `imprint ingest-url`, making it possible to fully index JS-heavy SPAs and documentation sites that return blank pages to static fetchers. Install the binary and opt in:
+
+```bash
+# Download from https://github.com/h4ckf0r0day/obscura/releases and put in PATH
+imprint config set ingest.use_obscura true
+```
+
+When `use_obscura=true`, `imprint ingest-url` pipes each URL through `obscura fetch` for JS execution before extraction. Falls back gracefully if the binary is not in PATH.
+
 ## Quick Install
 
 **Linux / macOS:**

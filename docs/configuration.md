@@ -91,6 +91,11 @@ imprint config reset --all
 | `ingest.url_read_timeout_sec` | `300` | Per-chunk read timeout for URL fetch (raise for very large files) |
 | `ingest.url_user_agent` | `imprint/1.0` | HTTP User-Agent header |
 | `ingest.url_respect_robots` | `true` | Check `robots.txt` before fetching |
+| `ingest.use_kreuzberg` | `false` | Use kreuzberg (ELv2) for doc extraction — replaces PDF/DOCX/image extractors, adds archives (.zip, .7z, .tar, Apple iWork, ODF, .eml, images via OCR). Install with `pip install kreuzberg[all]`. **ELv2 — not permitted for SaaS/hosted use.** |
+| `ingest.use_obscura` | `false` | Use obscura headless browser for HTML URL fetch (JS rendering). Requires `obscura` binary in PATH. Enables full-fidelity ingestion of JS-heavy SPAs and docs sites. |
+| `ingest.url_follow` | `false` | Follow same-domain links found on ingested pages (BFS crawl) |
+| `ingest.url_follow_depth` | `1` | Max link-follow depth (`1` = links on seed pages only) |
+| `ingest.url_follow_max` | `20` | Max discovered URLs to queue per ingest run |
 | **Chat (dashboard panel)** | | |
 | `chat.enabled` | `true` | Enable the dashboard chat panel |
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
