@@ -109,8 +109,67 @@ jobs:
             echo "major_minor=" >> "$GITHUB_OUTPUT"
           fi
 
-  release:
+  electron-linux:
     needs: analyze
+    if: needs.analyze.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install FUSE2
+        run: sudo apt-get install -y libfuse2
+      - name: Build Linux AppImage
+        run: make ui-dist-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-linux
+          path: build/electron/imprint-ui
+
+  electron-macos:
+    needs: analyze
+    if: needs.analyze.outputs.version != ''
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build macOS universal app
+        run: make ui-dist-mac
+      - name: Archive .app bundle (tar preserves symlinks)
+        run: tar czf build/electron/imprint-ui.app.tar.gz -C build/electron imprint-ui.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-macos
+          path: build/electron/imprint-ui.app.tar.gz
+
+  electron-windows:
+    needs: analyze
+    if: needs.analyze.outputs.version != ''
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Windows portable
+        shell: bash
+        run: |
+          cd ui-electron
+          npm ci --prefer-offline
+          npx electron-builder --win portable
+          mkdir -p ../build/electron
+          EXE=$(find ../dist/electron -maxdepth 1 -name '*.exe' | head -1)
+          cp "$EXE" ../build/electron/imprint-ui.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows
+          path: build/electron/imprint-ui.exe
+
+  release:
+    needs: [analyze, electron-linux, electron-macos, electron-windows]
     if: needs.analyze.outputs.version != ''
     runs-on: [self-hosted, linux, x64]
     steps:
@@ -140,6 +199,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Download Electron artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: electron-*
+          path: build/electron/
+          merge-multiple: true
+
+      - name: Unpack macOS .app bundle
+        run: |
+          tar xzf build/electron/imprint-ui.app.tar.gz -C build/electron/
+          rm build/electron/imprint-ui.app.tar.gz
+
+      - name: Fix Electron permissions
+        run: chmod +x build/electron/imprint-ui
 
       - name: Build all platforms
         env:

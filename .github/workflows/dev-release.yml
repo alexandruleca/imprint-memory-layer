@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  prepare:
     runs-on: [self-hosted, linux, x64]
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -43,6 +43,72 @@ jobs:
           git tag -a "$VERSION" -m "Dev release $VERSION"
           git push origin "$VERSION"
 
+  electron-linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install FUSE2
+        run: sudo apt-get install -y libfuse2
+      - name: Build Linux AppImage
+        run: make ui-dist-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-linux
+          path: build/electron/imprint-ui
+
+  electron-macos:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build macOS universal app
+        run: make ui-dist-mac
+      - name: Archive .app bundle (tar preserves symlinks)
+        run: tar czf build/electron/imprint-ui.app.tar.gz -C build/electron imprint-ui.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-macos
+          path: build/electron/imprint-ui.app.tar.gz
+
+  electron-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Windows portable
+        shell: bash
+        run: |
+          cd ui-electron
+          npm ci --prefer-offline
+          npx electron-builder --win portable
+          mkdir -p ../build/electron
+          EXE=$(find ../dist/electron -maxdepth 1 -name '*.exe' | head -1)
+          cp "$EXE" ../build/electron/imprint-ui.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows
+          path: build/electron/imprint-ui.exe
+
+  release:
+    needs: [prepare, electron-linux, electron-macos, electron-windows]
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -54,14 +120,29 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Download Electron artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: electron-*
+          path: build/electron/
+          merge-multiple: true
+
+      - name: Unpack macOS .app bundle
+        run: |
+          tar xzf build/electron/imprint-ui.app.tar.gz -C build/electron/
+          rm build/electron/imprint-ui.app.tar.gz
+
+      - name: Fix Electron permissions
+        run: chmod +x build/electron/imprint-ui
+
       - name: Build all platforms
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: make all
 
       - name: Package per-platform archives
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: make package
 
       - name: Generate checksums
@@ -71,7 +152,7 @@ jobs:
       - name: Create GitHub prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           gh release create "$VERSION" \
@@ -84,13 +165,9 @@ jobs:
             dist/imprint-darwin-arm64.tar.gz \
             dist/imprint-windows-amd64.zip \
             dist/SHA256SUMS
-          # Relay container image is built by .github/workflows/image.yml,
-          # which fires on workflow_run after this workflow succeeds.
-          # Native installers (.exe / .pkg) are attached by the
-          # package-windows / package-macos jobs below.
 
   package-windows:
-    needs: release
+    needs: [prepare, release]
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -103,7 +180,7 @@ jobs:
       - name: Download release archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -135,7 +212,7 @@ jobs:
       - name: Build installer
         shell: pwsh
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           $ver = $env:VERSION.TrimStart('v')
           $src = Resolve-Path dist\imprint-windows-amd64
@@ -149,7 +226,7 @@ jobs:
       - name: Upload installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -159,7 +236,7 @@ jobs:
           gh release upload "$VERSION" "$INSTALLER" --clobber
 
   package-macos:
-    needs: release
+    needs: [prepare, release]
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -172,7 +249,7 @@ jobs:
       - name: Download release archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
@@ -188,7 +265,7 @@ jobs:
 
       - name: Build .pkg
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
@@ -202,7 +279,7 @@ jobs:
       - name: Upload installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail

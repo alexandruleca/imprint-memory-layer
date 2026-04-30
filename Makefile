@@ -16,8 +16,14 @@ UI_DIR     := ui-electron
 build:
 	go build -ldflags "$(LDFLAGS)" -o build/imprint .
 
-# Cross-compile all platforms + build UI for host OS + build site
+# Cross-compile all platforms + build UI for host OS + build site.
+# In CI (GitHub Actions sets CI=true) skip ui-dist — Electron requires
+# display/FUSE tooling not available on headless runners.
+ifeq ($(CI),true)
+all: $(PLATFORMS) site-build
+else
 all: $(PLATFORMS) ui-dist site-build
+endif
 
 $(PLATFORMS):
 	$(eval OS := $(word 1,$(subst /, ,$@)))
@@ -206,10 +212,12 @@ ui-dist-linux: $(UI_DIR)/node_modules
 	@echo "[+] build/electron/imprint-ui (AppImage)"
 
 ui-dist-mac: $(UI_DIR)/node_modules
-	cd $(UI_DIR) && npx electron-builder --mac dir
+	cd $(UI_DIR) && npx electron-builder --mac dir --universal
 	@mkdir -p build/electron
 	@rm -rf build/electron/imprint-ui.app
-	@cp -r dist/electron/mac/Imprint.app build/electron/imprint-ui.app
+	@APP=$$(find dist/electron -maxdepth 2 -name 'Imprint.app' -type d | head -1); \
+	  [ -n "$$APP" ] || { echo "[x] Imprint.app not found under dist/electron"; exit 1; }; \
+	  cp -r "$$APP" build/electron/imprint-ui.app
 	@echo "[+] build/electron/imprint-ui.app"
 
 ui-dist-win: $(UI_DIR)/node_modules
