@@ -16,14 +16,8 @@ UI_DIR     := ui-electron
 build:
 	go build -ldflags "$(LDFLAGS)" -o build/imprint .
 
-# Cross-compile all platforms + build UI for host OS + build site.
-# In CI (GitHub Actions sets CI=true) skip ui-dist — Electron requires
-# display/FUSE tooling not available on headless runners.
-ifeq ($(CI),true)
-all: $(PLATFORMS) site-build
-else
-all: $(PLATFORMS) ui-dist site-build
-endif
+# Cross-compile all platforms into bin/. UI and site have dedicated targets.
+all: $(PLATFORMS)
 
 $(PLATFORMS):
 	$(eval OS := $(word 1,$(subst /, ,$@)))

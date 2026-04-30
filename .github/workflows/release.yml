@@ -195,11 +195,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: Download Electron artifacts
         uses: actions/download-artifact@v4
         with:
