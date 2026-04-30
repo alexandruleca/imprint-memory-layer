@@ -1171,6 +1171,10 @@ def _launch_browser(url: str):
 def main():
     global _auto_shutdown, _last_ui_ping
 
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     import argparse
     parser = argparse.ArgumentParser(description="Imprint API server")
     parser.add_argument("--port", type=int, default=8420, help="Port to listen on")

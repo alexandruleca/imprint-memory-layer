@@ -79,6 +79,11 @@ SETTINGS: list[Setting] = [
     Setting("ingest.url_read_timeout_sec","IMPRINT_INGEST_URL_READ_TIMEOUT", 300,         int,  "Per-chunk read timeout for URL fetch (seconds) — increase for very large files"),
     Setting("ingest.url_user_agent",    "IMPRINT_INGEST_URL_USER_AGENT",    "imprint/1.0", str, "HTTP User-Agent header for URL fetch"),
     Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs"),
+    Setting("ingest.use_kreuzberg",    "IMPRINT_INGEST_USE_KREUZBERG",    False, bool, "Use kreuzberg (ELv2) for doc extraction — replaces PDF/DOCX/image extractors, adds archives"),
+    Setting("ingest.use_obscura",      "IMPRINT_INGEST_USE_OBSCURA",      False, bool, "Use obscura headless browser for HTML URL fetch (JS rendering, needs obscura in PATH)"),
+    Setting("ingest.url_follow",       "IMPRINT_INGEST_URL_FOLLOW",       False, bool, "Follow same-domain links found on ingested pages"),
+    Setting("ingest.url_follow_depth", "IMPRINT_INGEST_URL_FOLLOW_DEPTH", 1,     int,  "Max link-follow depth (1 = links on seed pages only)"),
+    Setting("ingest.url_follow_max",   "IMPRINT_INGEST_URL_FOLLOW_MAX",   20,    int,  "Max discovered URLs to queue per ingest run"),
 
     # ── Chat (local Gemma agent in dashboard) ────────────────────
     Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),

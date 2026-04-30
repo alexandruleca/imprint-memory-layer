@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { getGraphScope, getMemory } from "@/lib/api";
+import { getGraphScope, getMemory, getTopicDetail } from "@/lib/api";
+import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
 import { GraphSkeleton } from "@/components/loaders";
 import type {
   GraphEdge,
   GraphNode,
   GraphScopeData,
   GraphNodeKind,
+  MemoryNode,
 } from "@/lib/types";
 import {
   GraphBreadcrumbs,
@@ -60,7 +62,9 @@ export default function GraphPage() {
   const [data, setData] = useState<GraphScopeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<GraphNode | null>(null);
-  const [memoryPreview, setMemoryPreview] = useState<{ id: string; content: string } | null>(null);
+  const [chunkDialog, setChunkDialog] = useState<ChunkPreview | null>(null);
+  const [topicChunks, setTopicChunks] = useState<MemoryNode[] | null>(null);
+  const [topicLoading, setTopicLoading] = useState(false);
   const [depth, setDepth] = useState(1);
   const [forces, setForces] = useState<GraphForces>(DEFAULT_FORCES);
   const [toggles, setToggles] = useState<GraphToggles>(DEFAULT_TOGGLES);
@@ -94,6 +98,34 @@ export default function GraphPage() {
   }, [depth, forces, toggles, panelOpen]);
 
   const scope = crumbs[crumbs.length - 1]?.scope || "root";
+
+  // Derive the current project from breadcrumbs (most recent project:* crumb)
+  const currentProject = useMemo(() => {
+    const pc = [...crumbs].reverse().find((c) => c.scope.startsWith("project:"));
+    return pc ? pc.scope.slice("project:".length) : null;
+  }, [crumbs]);
+
+  // Fetch chunks for selected topic node
+  useEffect(() => {
+    if (!selected || selected.kind !== "topic") {
+      setTopicChunks(null);
+      return;
+    }
+    let cancelled = false;
+    setTopicLoading(true);
+    setTopicChunks(null);
+    getTopicDetail(selected.label)
+      .then((d) => {
+        if (cancelled) return;
+        const nodes = currentProject
+          ? d.nodes.filter((n) => n.project === currentProject)
+          : d.nodes;
+        setTopicChunks(nodes);
+      })
+      .catch(() => !cancelled && setTopicChunks([]))
+      .finally(() => !cancelled && setTopicLoading(false));
+    return () => { cancelled = true; };
+  }, [selected, currentProject]);
 
   useEffect(() => {
     let cancelled = false;
@@ -325,10 +357,10 @@ export default function GraphPage() {
             .then((m) => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const mm = m as any;
-              setMemoryPreview({ id: mid, content: mm?.content || n.content || "" });
+              setChunkDialog({ label: n.label, source: n.fullPath, project: n.project, content: mm?.content || n.content || "" });
             })
             .catch(() =>
-              setMemoryPreview({ id: mid, content: n.content || "" }),
+              setChunkDialog({ label: n.label, source: n.fullPath, project: n.project, content: n.content || "" }),
             );
           return;
         }
@@ -476,6 +508,35 @@ export default function GraphPage() {
                 {selected.content}
               </p>
             )}
+            {selected.kind === "topic" && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">
+                  {currentProject ? `Chunks in ${currentProject}` : "Chunks"}
+                  {topicChunks && ` (${topicChunks.length})`}
+                </p>
+                {topicLoading && (
+                  <p className="text-xs text-muted-foreground">Loading…</p>
+                )}
+                {topicChunks && topicChunks.length === 0 && !topicLoading && (
+                  <p className="text-xs text-muted-foreground">No chunks found.</p>
+                )}
+                {topicChunks && topicChunks.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto space-y-0.5 rounded border border-border">
+                    {topicChunks.map((chunk) => (
+                      <button
+                        key={chunk.id}
+                        onClick={() => setChunkDialog(chunk)}
+                        className="w-full text-left px-2 py-1.5 text-xs hover:bg-muted/60 truncate block border-b border-border/40 last:border-0"
+                        title={chunk.label}
+                      >
+                        <span className="text-muted-foreground font-mono mr-1.5">#{chunk.chunk_index}</span>
+                        {chunk.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex gap-2 pt-1">
               {selected.kind !== "chunk" ? (
                 <button
@@ -490,11 +551,10 @@ export default function GraphPage() {
                     const mid = selected.id.replace(/^chunk:/, "");
                     getMemory(mid)
                       .then((m) =>
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        setMemoryPreview({ id: mid, content: (m as any)?.content || "" }),
+                        setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: (m as any)?.content || selected.content || "" }),
                       )
                       .catch(() =>
-                        setMemoryPreview({ id: mid, content: selected.content || "" }),
+                        setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: selected.content || "" }),
                       );
                   }}
                   className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:opacity-90"
@@ -514,32 +574,7 @@ export default function GraphPage() {
           </div>
         )}
 
-        {memoryPreview && (
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm z-20 flex items-center justify-center p-6"
-            onClick={() => setMemoryPreview(null)}
-          >
-            <div
-              className="bg-background border border-border rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto p-5 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-mono text-muted-foreground">
-                  {memoryPreview.id}
-                </span>
-                <button
-                  onClick={() => setMemoryPreview(null)}
-                  className="text-muted-foreground hover:text-foreground text-lg leading-none px-1"
-                >
-                  &times;
-                </button>
-              </div>
-              <pre className="text-sm whitespace-pre-wrap font-sans">
-                {memoryPreview.content || "(empty)"}
-              </pre>
-            </div>
-          </div>
-        )}
+        <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
 
         <div className="absolute bottom-3 right-3 z-10 text-xs text-muted-foreground bg-background/80 backdrop-blur border border-border rounded px-2 py-1 pointer-events-none">
           {filtered.nodes.length} nodes · {filtered.edges.length} edges

@@ -33,10 +33,14 @@ C_YELLOW = "\033[1;33m"
 C_DIM = "\033[2m"
 
 
-def _parse_args(argv: list[str]) -> tuple[list[str], str, bool]:
+def _parse_args(argv: list[str]) -> tuple[list[str], str, bool, bool, bool, int | None]:
+    """Returns (urls, project, force, follow, no_follow, follow_depth_override)."""
     urls: list[str] = []
     project = "urls"
     force = False
+    follow = False
+    no_follow = False
+    follow_depth_override: int | None = None
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -71,9 +75,36 @@ def _parse_args(argv: list[str]) -> tuple[list[str], str, bool]:
             force = True
             i += 1
             continue
+        if a == "--follow":
+            follow = True
+            i += 1
+            continue
+        if a == "--no-follow":
+            no_follow = True
+            i += 1
+            continue
+        if a == "--follow-depth":
+            if i + 1 >= len(argv):
+                print("--follow-depth requires a value", file=sys.stderr)
+                sys.exit(1)
+            try:
+                follow_depth_override = int(argv[i + 1])
+            except ValueError:
+                print("--follow-depth must be an integer", file=sys.stderr)
+                sys.exit(1)
+            i += 2
+            continue
+        if a.startswith("--follow-depth="):
+            try:
+                follow_depth_override = int(a.split("=", 1)[1])
+            except ValueError:
+                print("--follow-depth must be an integer", file=sys.stderr)
+                sys.exit(1)
+            i += 1
+            continue
         urls.append(a)
         i += 1
-    return urls, project, force
+    return urls, project, force, follow, no_follow, follow_depth_override
 
 
 def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tuple[int, str]:
@@ -166,45 +197,82 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
 
 
 def main():
-    urls, project, force = _parse_args(sys.argv[1:])
+    urls, project, force, follow, no_follow, follow_depth_override = _parse_args(sys.argv[1:])
     if not urls:
         print(
-            "Usage: python -m imprint.cli_ingest_url <url> [...] [--project NAME] [--from-file urls.txt] [--force]",
+            "Usage: python -m imprint.cli_ingest_url <url> [...] [--project NAME] "
+            "[--from-file urls.txt] [--force] [--follow] [--no-follow] [--follow-depth N]",
             file=sys.stderr,
         )
         sys.exit(1)
 
+    from imprint.config_schema import resolve as _resolve
+    url_follow   = (follow or _resolve("ingest.url_follow")[0]) and not no_follow
+    follow_depth = follow_depth_override if follow_depth_override is not None else _resolve("ingest.url_follow_depth")[0]
+    follow_max   = _resolve("ingest.url_follow_max")[0]
+
     print()
-    print(f"  {C_CYAN}Ingesting{C_RESET} {len(urls)} url(s) → project={project}")
+    print(f"  {C_CYAN}Ingesting{C_RESET} {len(urls)} url(s) → project={project}", end="")
+    if url_follow:
+        print(f"  {C_DIM}(follow depth={follow_depth} max={follow_max}){C_RESET}", end="")
+    print()
     print()
 
     known = vs.get_url_sources()
     total_stored = 0
     total_skipped = 0
     total_errors = 0
+    total_discovered = 0
     t_start = time.time()
     progress_projects = [project] if project else []
-    total_urls = len(urls)
+
+    # BFS queue: (url, depth). Seed URLs start at depth 0.
+    queue: list[tuple[str, int]] = [(u, 0) for u in urls]
+    visited: set[str] = set()
+    processed = 0
 
     write_progress(
-        "ingest-url", 0, total_urls, 0, 0, t_start, progress_projects,
+        "ingest-url", 0, len(urls), 0, 0, t_start, progress_projects,
     )
 
-    for idx, url in enumerate(urls):
+    while queue:
+        url, depth = queue.pop(0)
+        if url in visited:
+            continue
+        visited.add(url)
+        processed += 1
+
+        depth_tag = f"  {C_DIM}depth {depth}{C_RESET}" if depth > 0 else ""
         n, status = ingest_one(url, project, known, force=force)
         if status == "stored":
             total_stored += n
-            print(f"  {C_GREEN}+{C_RESET} {url}  ({n} chunks)")
+            print(f"  {C_GREEN}+{C_RESET} {url}  ({n} chunks){depth_tag}")
         elif status == "skipped-unchanged":
             total_skipped += 1
-            print(f"  {C_DIM}= {url}  (unchanged){C_RESET}")
+            print(f"  {C_DIM}= {url}  (unchanged){C_RESET}{depth_tag}")
         else:
             total_errors += 1
-            print(f"  {C_YELLOW}! {url}  ({status}){C_RESET}")
+            print(f"  {C_YELLOW}! {url}  ({status}){C_RESET}{depth_tag}")
+
         write_progress(
-            "ingest-url", idx + 1, total_urls, total_stored, total_skipped,
-            t_start, progress_projects,
+            "ingest-url", processed, max(processed, len(queue) + processed),
+            total_stored, total_skipped, t_start, progress_projects,
         )
+
+        # Follow same-domain links if enabled and within depth limit
+        if url_follow and depth < follow_depth and status in ("stored", "skipped-unchanged"):
+            links = url_ext.extract_links(url)
+            new_links = 0
+            for link in links:
+                if link not in visited and total_discovered < follow_max:
+                    queue.append((link, depth + 1))
+                    total_discovered += 1
+                    new_links += 1
+            if new_links:
+                print(f"  {C_DIM}  → discovered {new_links} link(s) from {url}{C_RESET}")
+            # Refresh known sources so freshness checks work for newly discovered URLs
+            if new_links:
+                known = vs.get_url_sources()
 
     # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
     from imprint.config_schema import resolve
@@ -240,6 +308,8 @@ def main():
         print(f"  Tagged:   {llm_tagged} (LLM)")
     print(f"  Skipped:  {total_skipped} url(s)")
     print(f"  Errors:   {total_errors}")
+    if total_discovered:
+        print(f"  Followed: {total_discovered} discovered url(s)")
     print(f"  Time:     {elapsed:.1f}s")
     print()
 

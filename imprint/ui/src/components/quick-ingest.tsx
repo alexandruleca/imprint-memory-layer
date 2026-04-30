@@ -18,6 +18,7 @@ type Field = {
   label: string;
   placeholder?: string;
   type?: "text" | "checkbox";
+  showWhen?: { key: string; value: boolean };
 };
 
 type Action = {
@@ -41,6 +42,8 @@ const ACTIONS: Action[] = [
       { key: "url", label: "URL", placeholder: "https://example.com/page.html" },
       { key: "project", label: "Project (optional)", placeholder: "my-project" },
       { key: "force", label: "Force re-ingest", type: "checkbox" },
+      { key: "follow", label: "Follow links", type: "checkbox" },
+      { key: "follow_depth", label: "Follow depth", placeholder: "1", showWhen: { key: "follow", value: true } },
     ],
     required: ["url"],
   },
@@ -127,7 +130,8 @@ export function QuickIngest() {
       if (f.type === "checkbox") {
         if (v) body[f.key] = true;
       } else if (typeof v === "string" && v.trim()) {
-        body[f.key] = v.trim();
+        const n = Number(v.trim());
+        body[f.key] = f.key === "follow_depth" && !isNaN(n) ? n : v.trim();
       }
     }
 
@@ -195,7 +199,9 @@ export function QuickIngest() {
               </button>
             </div>
             <div className="space-y-2">
-              {activeAction.fields.map((f) => (
+              {activeAction.fields.filter((f) =>
+                !f.showWhen || !!params[f.showWhen.key] === f.showWhen.value
+              ).map((f) => (
                 <div key={f.key} className="flex items-center gap-2">
                   <label className="text-xs w-36 text-muted-foreground shrink-0">
                     {f.label}

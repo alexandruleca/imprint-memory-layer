@@ -23,7 +23,7 @@ func IngestURL(args []string) {
 	}
 
 	if len(args) == 0 {
-		fmt.Println("Usage: imprint ingest-url <url> [<url>...] [--project NAME] [--from-file urls.txt] [--force]")
+		fmt.Println("Usage: imprint ingest-url <url> [<url>...] [--project NAME] [--from-file urls.txt] [--force] [--no-follow] [--follow-depth N]")
 		os.Exit(1)
 	}
 

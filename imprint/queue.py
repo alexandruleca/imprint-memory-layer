@@ -605,6 +605,12 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.extend(["--project", body["project"]])
         if body.get("force"):
             args.append("--force")
+        if body.get("follow"):
+            args.append("--follow")
+        if body.get("no_follow"):
+            args.append("--no-follow")
+        if body.get("follow_depth") is not None:
+            args.extend(["--follow-depth", str(int(body["follow_depth"]))])
     elif command == "refresh":
         if body.get("dir"):
             args.append(body["dir"])
