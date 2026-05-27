@@ -54,8 +54,11 @@ imprint ingest ~/code
 ```bash
 .venv/bin/pip install onnxruntime-gpu \
     nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 \
-    nvidia-cufft-cu12 nvidia-curand-cu12
+    nvidia-cufft-cu12 nvidia-curand-cu12 \
+    nvidia-cusparse-cu12 nvidia-nvjitlink-cu12 nvidia-cuda-nvrtc-cu12
 ```
+
+> `onnxruntime-gpu` 1.18+ links against `libnvJitLink.so.12` and friends. On a host running the CUDA 13 driver, the system only ships `.so.13`, so ORT silently fails to find them and falls back to CPU unless the cu12 pip wheels are installed too. `imprint setup` installs all eight wheels automatically when it detects a GPU.
 
 The runtime [`_preload_cuda_libs()`](../imprint/embeddings.py) dlopens the pip-installed CUDA libraries before constructing the ORT session, so you don't need `LD_LIBRARY_PATH` set at process start.
 

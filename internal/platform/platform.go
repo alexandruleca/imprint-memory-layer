@@ -596,14 +596,6 @@ func CopilotInstructionsPath() string {
 	return filepath.Join(d, "prompts", "imprint.instructions.md")
 }
 
-func PalaceConfigPath() string {
-	return filepath.Join(HomeDir(), ".mempalace", "config.json")
-}
-
-func PalaceDir() string {
-	return filepath.Join(HomeDir(), ".mempalace")
-}
-
 // DataDir returns the data directory for imprint storage, redirecting to a
 // writable location when the project dir is inside a read-only app bundle.
 func DataDir(projectDir string) string {

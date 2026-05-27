@@ -758,9 +758,11 @@ func cudaRuntimeMissing(errLine string) bool {
 	needles := []string{
 		"libcublasLt", "libcublas", "libcudart",
 		"libcudnn", "libcufft", "libcurand",
+		"libcusparse", "libnvJitLink", "libnvrtc",
 	}
+	lower := strings.ToLower(errLine)
 	for _, n := range needles {
-		if strings.Contains(errLine, n) {
+		if strings.Contains(errLine, n) || strings.Contains(lower, strings.ToLower(n)) {
 			return true
 		}
 	}
@@ -903,10 +905,14 @@ func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
 	projectDir := platform.FindProjectDir()
 	ok, errLine := ortSmokeTest(venvPython, projectDir)
 	if !ok && cudaRuntimeMissing(errLine) {
-		output.Info("Missing CUDA runtime libs — installing cu12 pip wheels...")
+		output.Info("Missing CUDA runtime libs (" + errLine + ") — installing cu12 pip wheels...")
+		// nvjitlink / cusparse / nvrtc are required by onnxruntime-gpu 1.18+ but
+		// don't ship inside the wheel; on CUDA 13 driver hosts the system libs
+		// only exist as .so.13, so ORT can't find the .so.12 it links against.
 		_ = pipInstall(uv, venvPython, venvPip,
 			"nvidia-cuda-runtime-cu12", "nvidia-cublas-cu12", "nvidia-cudnn-cu12",
-			"nvidia-cufft-cu12", "nvidia-curand-cu12")
+			"nvidia-cufft-cu12", "nvidia-curand-cu12",
+			"nvidia-cusparse-cu12", "nvidia-nvjitlink-cu12", "nvidia-cuda-nvrtc-cu12")
 		ok, errLine = ortSmokeTest(venvPython, projectDir)
 	}
 
@@ -926,6 +932,13 @@ func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
 		))
 	} else {
 		output.Warn("onnxruntime-gpu smoke test failed (" + errLine + ") — falling back to CPU")
+		if cudaRuntimeMissing(errLine) {
+			// We already tried installing cu12 wheels above — if the same lib
+			// is still missing, the most likely cause is a system loader that
+			// picks the host's mismatched libs (e.g. CUDA 13) before the venv's
+			// cu12 wheels. Surface a hint so users know what to try next.
+			output.Warn("  Hint: ORT-GPU links against CUDA 12 .so files. If your host is on CUDA 13, run `imprint setup --retry-gpu` and report the error if it persists.")
+		}
 	}
 	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu")
 	_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")

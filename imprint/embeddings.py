@@ -55,7 +55,12 @@ def _preload_cuda_libs() -> None:
         if not os.path.isdir(nv):
             continue
         # Order matters: cuda_runtime → cublas → cudnn (cudnn depends on cublas).
-        for sub in ("cuda_runtime", "cublas", "cudnn", "cufft", "curand"):
+        # nvjitlink / cusparse / cuda_nvrtc were added when onnxruntime-gpu 1.18+
+        # started linking libnvJitLink.so.12 — without preloading, ORT fails to
+        # create a CUDA session on hosts whose system libs don't ship the .so.12
+        # ABI (e.g. CUDA 13 driver hosts where only .so.13 exists).
+        for sub in ("cuda_runtime", "cublas", "cudnn", "cufft", "curand",
+                    "cusparse", "nvjitlink", "cuda_nvrtc"):
             for so in sorted(glob.glob(os.path.join(nv, sub, "lib", "lib*.so.*"))):
                 try:
                     ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
