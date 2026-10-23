@@ -120,13 +120,16 @@ Type: files; Name: "{app}\.setup-result"
 
 procedure InitializeWizard();
 begin
+  // Silent provisioning belongs exclusively to [Run]. Hidden custom pages
+  // cannot wait for Next, and must not disable Inno's automatic navigation.
+  if WizardSilent then Exit;
   CreateProfilePages();
   CreateSetupOutputPage();
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if (GOutputPage <> nil) and (CurPageID = GOutputPage.ID) then
+  if (not WizardSilent) and (GOutputPage <> nil) and (CurPageID = GOutputPage.ID) then
     StartBootstrapOnPage();
 end;
 

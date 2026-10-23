@@ -161,6 +161,7 @@ jobs:
   package-windows:
     needs: archives
     runs-on: windows-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -179,20 +180,15 @@ jobs:
         run: |
           Expand-Archive -Path dist\imprint-windows-amd64.zip -DestinationPath dist -Force
 
-      - name: Install ImageMagick (for icon rendering)
-        shell: pwsh
-        run: choco install imagemagick --no-progress -y
-
-      - name: Generate .ico from site logo
+      - name: Reuse the bundled desktop icon
         shell: pwsh
         run: |
+          Add-Type -AssemblyName System.Drawing
           New-Item -ItemType Directory -Path installers\windows\assets -Force | Out-Null
-          & magick -background none site\public\logo.svg `
-              -define icon:auto-resize=16,24,32,48,64,128,256 `
-              installers\windows\assets\imprint.ico
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path installers\windows\assets\imprint.ico)) {
-              Write-Warning "Icon generation failed; Inno will fall back to the exe icon."
-          }
+          $exe = (Resolve-Path dist\imprint-windows-amd64\bin\imprint-ui.exe).Path
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          $stream = [System.IO.File]::Create((Join-Path $PWD 'installers\windows\assets\imprint.ico'))
+          try { $icon.Save($stream) } finally { $stream.Dispose(); $icon.Dispose() }
 
       - name: Build installer
         shell: pwsh
@@ -210,16 +206,39 @@ jobs:
           Get-ChildItem dist\*.exe | Format-Table Name, Length
 
       - name: Smoke test silent install in a path with spaces
+        timeout-minutes: 20
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP 'Imprint install smoke'
           $installer = (Resolve-Path dist/imprint-windows-amd64-setup.exe).Path
-          $process = Start-Process $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$dest`"") -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
-          if ((Get-Content "$dest/.setup-result").Trim() -ne '0') { throw 'First-run setup failed' }
+          $log = Join-Path $env:RUNNER_TEMP 'imprint-installer.log'
+          $process = Start-Process $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"", "/DIR=`"$dest`"") -PassThru
+          try {
+            if (-not $process.WaitForExit(900000)) {
+              taskkill /PID $process.Id /T /F
+              throw 'Silent installer exceeded the 15 minute deadline'
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+            if (-not (Test-Path "$dest/.setup-result")) { throw 'Installer produced no setup result' }
+            if ((Get-Content "$dest/.setup-result").Trim() -ne '0') { throw 'First-run setup failed' }
+          } finally {
+            foreach ($file in @($log, "$dest/first-run.log")) {
+              if (Test-Path $file) { Write-Host "Log: $file"; Get-Content $file -Tail 100 }
+            }
+          }
           $env:PYTHONPATH = $dest
           & "$dest/.venv/Scripts/python.exe" scripts/smoke-runtime.py --with-embeddings
           if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
+      - name: Preserve Windows install diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-install-logs
+          path: |
+            ${{ runner.temp }}/imprint-installer.log
+            ${{ runner.temp }}/Imprint install smoke/first-run.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: installer-windows
@@ -229,6 +248,7 @@ jobs:
   package-macos:
     needs: archives
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -269,6 +289,7 @@ jobs:
           ls -la "$OUT"
 
       - name: Smoke test native package and writable runtime
+        timeout-minutes: 15
         env:
           ARCH: ${{ matrix.arch }}
         run: |
@@ -295,6 +316,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
