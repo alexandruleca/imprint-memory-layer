@@ -18,3 +18,5 @@ button:hover:enabled { background: #424d6b; }
 #save { margin-top: 12px; background: #4c4ba1; }
 [role="status"] { overflow-wrap: anywhere; }
 [hidden] { display: none !important; }
+.roadmap { border-top: 1px solid #495064; padding-top: 10px; color: #aab1c5; font-size: 12px; }
+.roadmap summary { cursor: pointer; }

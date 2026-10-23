@@ -7,7 +7,8 @@ description: Current adapters, verified host capabilities and a plan for dependa
 
 An [experimental Chrome capture extension](browser-extension.md) lives on the
 `wip/chrome-extension` branch. It uses a separately paired local HTTP capture API
-to save page/selection/expanded Gmail text. It is not a released automatic host
+to save pages and selected text. Gmail and document integrations are coming soon.
+It is not an automatic host
 adapter or a mailbox synchronization connector.
 
 Use local stdio MCP as the default integration contract. Register an absolute interpreter path with `-m imprint` and explicit `PYTHONPATH` and `IMPRINT_DATA_DIR`. The client owns the MCP process; Qdrant is a shared local daemon. Installation and client registration are separate operations: `imprint bootstrap` provisions the backend, and `imprint setup <target>` registers a detected client.

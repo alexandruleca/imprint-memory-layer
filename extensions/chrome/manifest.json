@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Imprint Capture (WIP)",
-  "version": "0.1.0",
-  "description": "Preview and save the current page, selected text, or expanded Gmail messages to local Imprint.",
+  "version": "0.1.1",
+  "description": "Preview and save web pages or selected text to local Imprint. Gmail and document integrations are coming soon.",
   "minimum_chrome_version": "114",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://127.0.0.1/*"],

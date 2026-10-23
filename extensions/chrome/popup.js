@@ -3,7 +3,6 @@ import {send, showError} from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
 let documents = [];
-let account = "";
 let polling = false;
 $("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 
@@ -28,13 +27,13 @@ async function preview(mode) {
   documents = [];
   try {
     const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-    const results = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: extractCapture, args: [mode, account]});
+    const results = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: extractCapture, args: [mode]});
     if (results[0]?.error) throw new Error(results[0].error.message || "Page extraction failed.");
     if (results[0]?.result?.error) throw new Error(results[0].result.error);
     documents = results[0]?.result;
     if (!Array.isArray(documents) || !documents.length) throw new Error("Could not extract this page. Try selecting text or another tab.");
     const bytes = new TextEncoder().encode(JSON.stringify({documents, project: $("project").value})).length;
-    if (bytes > 950000 || documents.length > 50) throw new Error("Capture is too large. Select a smaller passage or expand fewer emails.");
+    if (bytes > 950000 || documents.length > 50) throw new Error("Capture is too large. Select a smaller passage.");
     $("preview").replaceChildren();
     for (const [index, doc] of documents.entries()) {
       const label = document.createElement("label");
@@ -84,7 +83,6 @@ $("capture-form").addEventListener("submit", async (event) => {
 
 try {
   const settings = await send("settings");
-  account = settings.account;
   $("project").value = settings.project;
   const status = await send("status");
   $("connection").textContent = `Connected · workspace: ${status.workspace}`;

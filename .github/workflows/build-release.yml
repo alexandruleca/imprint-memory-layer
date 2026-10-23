@@ -37,6 +37,32 @@ jobs:
             exit 1
           fi
 
+  chrome-extension:
+    needs: branch-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p 'test_chrome_extension_package.py' -v
+      - run: node --test extensions/chrome/tests/*.test.js
+      - run: npm ci --prefix imprint/ui
+      - run: npx playwright install chromium
+        working-directory: imprint/ui
+        timeout-minutes: 5
+      - run: python scripts/package_chrome_extension.py
+      - run: node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension
+          path: dist/imprint-chrome-extension.zip
+          if-no-files-found: error
+
   dashboard:
     needs: branch-policy
     runs-on: ubuntu-latest
@@ -394,7 +420,7 @@ jobs:
 
 
   publish:
-    needs: [archives, package-windows, package-macos, smoke-linux]
+    needs: [archives, package-windows, package-macos, smoke-linux, chrome-extension]
     if: inputs.publish
     runs-on: ubuntu-latest
     permissions:
@@ -411,6 +437,10 @@ jobs:
           pattern: installer-*
           path: dist/
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: chrome-extension
+          path: dist/
       - name: Check complete asset set and checksum every deliverable
         working-directory: dist
         run: |
@@ -418,7 +448,8 @@ jobs:
           for asset in imprint-linux-amd64.tar.gz imprint-linux-arm64.tar.gz \
             imprint-darwin-amd64.tar.gz imprint-darwin-arm64.tar.gz \
             imprint-windows-amd64.zip imprint-windows-amd64-setup.exe \
-            imprint-darwin-amd64.pkg imprint-darwin-arm64.pkg; do
+            imprint-darwin-amd64.pkg imprint-darwin-arm64.pkg \
+            imprint-chrome-extension.zip; do
             test -s "$asset"
           done
           sha256sum *.tar.gz *.zip *.exe *.pkg > SHA256SUMS

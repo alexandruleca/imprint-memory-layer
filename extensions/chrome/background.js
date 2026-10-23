@@ -9,10 +9,10 @@ async function handle(message) {
   const request = (path, body, override = settings) => requestAPI({...override, extensionId: chrome.runtime.id}, path, body);
   switch (message.type) {
     case "settings":
-      return {base: settings.base || "http://127.0.0.1:8420", account: settings.account || "", project: settings.project || "browser", paired: Boolean(settings.token)};
+      return {base: settings.base || "http://127.0.0.1:8420", project: settings.project || "browser", paired: Boolean(settings.token)};
     case "connect": {
       const updated = {base: apiBase(message.base), token: message.token.trim() || settings.token,
-        account: message.account.trim(), project: settings.project || "browser"};
+        project: settings.project || "browser"};
       const status = await request("status", undefined, updated);
       await chrome.storage.local.set({settings: updated});
       await chrome.storage.local.remove("lastJob");

@@ -42,4 +42,5 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0025](0025-desktop-owned-background-service.md) | Accepted | Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | Accepted | Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. |
 | [0027](0027-symmetric-uninstall-and-branch-sync.md) | Accepted | Disconnect managed clients before uninstall, preserve memories by default, retry failures and fast-forward dev after main changes. |
-| [0028](0028-paired-browser-capture.md) | Accepted (WIP branch) | Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. |
+| [0029](0029-paired-browser-capture.md) | Accepted (WIP branch) | Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. |
+| [0030](0030-chrome-extension-release-zip.md) | Accepted | Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations. |

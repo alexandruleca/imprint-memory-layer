@@ -1,6 +1,7 @@
 // Uses the repository dashboard's existing Playwright dependency; no extension build/deps.
 import assert from "node:assert/strict";
 import {mkdtemp, rm} from "node:fs/promises";
+import {execFileSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {resolve, dirname} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -9,7 +10,7 @@ import {createServer} from "node:http";
 import {extractCapture} from "../capture.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const extensionPath = resolve(here, "..");
+const packagedZip = process.argv[2] ? resolve(process.argv[2]) : null;
 const require = createRequire(import.meta.url);
 const {chromium} = require(resolve(here, "../../../imprint/ui/node_modules/@playwright/test"));
 const profile = await mkdtemp(resolve(tmpdir(), "imprint-extension-"));
@@ -29,7 +30,12 @@ const api = createServer(async (request, response) => {
 await new Promise((done) => api.listen(0, "127.0.0.1", done));
 let context;
 try {
-  context = await chromium.launchPersistentContext(profile, {channel: "chromium", headless: true,
+  const python = process.env.PYTHON || 'python3';
+  const zip = packagedZip || resolve(profile, 'extension.zip');
+  if (!process.argv[2]) execFileSync(python, [resolve(here, '../../../scripts/package_chrome_extension.py'), '--output', zip]);
+  execFileSync(python, ['-m', 'zipfile', '-e', zip, resolve(profile, 'unpacked')]);
+  const extensionPath = resolve(profile, 'unpacked/imprint-chrome-extension');
+  context = await chromium.launchPersistentContext(resolve(profile, 'browser'), {channel: "chromium", headless: true,
     ignoreDefaultArgs: ["--disable-extensions"],
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`]});
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
@@ -61,30 +67,31 @@ try {
   documents = await article.evaluate(`(${extractCapture.toString()})("selection")`);
   assert.equal(documents[0].kind, "selection");
   assert.equal(documents[0].text, "Visible article text worth saving to memory.");
+  const savedDocuments = documents;
 
   const gmail = await context.newPage();
   await gmail.route("https://mail.google.com/**", (route) => route.fulfill({contentType: "text/html", body:
     `<title>Gmail fixture</title><div role="main"><h2 class="hP">Fixture subject</h2><div data-legacy-message-id="abc123"><span class="gD" email="sender@example.com">Sender</span><span class="g3" title="2026-10-23">Today</span><div class="a3s">Expanded email body worth remembering.</div></div><div data-legacy-message-id="def456" hidden><div class="a3s">Collapsed email must not be captured.</div></div><div role="textbox" contenteditable="true">Unsent email draft</div></div>`}));
   await gmail.goto("https://mail.google.com/mail/u/0/#inbox/thread");
-  documents = await gmail.evaluate(`(${extractCapture.toString()})("page", "me@example.com")`);
-  assert.equal(documents.length, 1);
-  assert.equal(documents[0].kind, "gmail");
-  assert.equal(documents[0].message_id, "abc123");
-  assert.match(documents[0].text, /sender@example.com/);
-  assert.ok(!documents[0].text.includes("Unsent"));
-  await gmail.locator('[data-legacy-message-id="abc123"]').evaluate((node) => node.remove());
-  const missing = await gmail.evaluate(`(${extractCapture.toString()})("page", "me@example.com")`);
-  assert.match(missing.error, /Open an email/);
+  for (const mode of ['page', 'selection']) {
+    const result = await gmail.evaluate(`(${extractCapture.toString()})(${JSON.stringify(mode)})`);
+    assert.match(result.error, /Gmail capture is coming soon/);
+  }
+  await gmail.route('https://docs.google.com/**', (route) => route.fulfill({contentType: 'text/html', body: '<main>Document text</main>'}));
+  await gmail.goto('https://docs.google.com/document/d/fixture');
+  assert.match((await gmail.evaluate(extractCapture)).error, /Google Docs & Sheets capture is coming soon/);
 
   // Drive the actual popup bridge/save/poll flow from its extension origin.
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await popup.getByText("Connected · workspace: fixture").waitFor();
-  const saved = await popup.evaluate(async (documents) => chrome.runtime.sendMessage({type: "save", capture: {project: "fixture", documents}}), documents);
+  await popup.getByText('Coming soon', {exact: true}).waitFor();
+  assert.equal(await options.locator('#account').count(), 0);
+  const saved = await popup.evaluate(async (documents) => chrome.runtime.sendMessage({type: "save", capture: {project: "fixture", documents}}), savedDocuments);
   assert.equal(saved.ok, true);
   const job = await popup.evaluate(async () => chrome.runtime.sendMessage({type: "job"}));
   assert.equal(job.data.status, "done");
-  assert.equal(JSON.parse(requests.find((request) => request.url.endsWith("/captures")).body).documents[0].message_id, "abc123");
+  assert.equal(JSON.parse(requests.find((request) => request.url.endsWith("/captures")).body).documents[0].kind, 'selection');
   const accessLevel = await worker.evaluate(async () => chrome.storage.local.get("settings"));
   assert.equal(accessLevel.settings.token, "disposable-fixture-token");
   const local = await context.newPage();
@@ -103,7 +110,7 @@ try {
     }});
   });
   assert.deepEqual(contentAccess[0].result, {storageDenied: true, bridgeDenied: true});
-  console.log("Chromium extension pairing, extraction, Gmail fixtures and save/status smoke passed.");
+  console.log("Packaged Chromium extension: pairing, page/selection capture, coming-soon gates and save/status passed.");
 } finally {
   await context?.close();
   await new Promise((done) => api.close(done));

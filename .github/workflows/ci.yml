@@ -68,6 +68,7 @@ jobs:
       - run: node --test ui-electron/*.test.js
       - run: node --test site/scripts/build-benchmarks.test.mjs
       - run: node --test site/scripts/doc-links.test.mjs
+      - run: node --test site/scripts/chrome-extension.test.mjs
       - run: make dashboard-build
       - run: npm run lint
         working-directory: imprint/ui

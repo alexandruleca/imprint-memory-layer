@@ -1,20 +1,52 @@
 ---
 title: Chrome capture extension (WIP)
-description: Install the experimental local browser capture extension, pair one workspace, and preview pages or expanded Gmail messages before indexing.
+description: Download the Chrome extension ZIP, install it manually, pair one workspace, and preview pages or selected text before indexing.
 ---
 
 ## Status and scope
 
-The `wip/chrome-extension` branch contains an unpacked Manifest V3 extension in
-[`extensions/chrome`](../extensions/chrome/). This is a development prototype,
-not a Chrome Web Store release. No cloud capture service or Gmail OAuth client
+The Manifest V3 extension lives in [`extensions/chrome`](../extensions/chrome/)
+and is distributed as `imprint-chrome-extension.zip` in GitHub releases. This is
+a preview, installed manually rather than through the Chrome Web Store. No cloud capture service or Gmail OAuth client
 is required. It sends the text you explicitly preview and save to the local
 Imprint HTTP API, then the existing queue runs the inline ingestion pipeline.
 
-Supported prototype flows: ordinary readable HTTP(S) pages, selected text, and
-expanded Gmail message bodies with sender/date when available. The preview is
+Available now: ordinary readable HTTP(S) pages and selected text. The preview is
 editable. Saving shows queued/running/completed status; accepted jobs continue
 after the popup closes. Reopening the popup checks the last submitted job.
+
+**Coming soon:** Gmail, PDFs and attachments, Google Docs/Sheets, OCR, background
+capture, mailbox sync, offline retries, extension search and Chrome Web Store
+distribution. Gmail and Google Docs/Sheets show a coming-soon message instead
+of being captured, including when selected text is requested on those sites.
+
+## Download and install
+
+The [Chrome extension page](https://imprintmcp.alexandruleca.com/chrome-extension/)
+links to the newest published stable release containing the extension ZIP. A
+newer desktop release without that asset does not break the previous download.
+
+1. Install and start Imprint from the same release as the ZIP. Older backends
+   without `/api/browser` need an update; development setup is below.
+2. Download and extract `imprint-chrome-extension.zip` to a permanent folder.
+3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
+   and select the extracted `imprint-chrome-extension` folder containing
+   `manifest.json`. Pin the extension from Chrome's Extensions menu.
+4. Open its **Settings**, run the pairing command with the backend's interpreter
+   and data directory, paste the token and choose **Connect and save**.
+
+The ZIP includes `INSTALL.txt` with standalone instructions. Chrome loads the
+extracted folder; it does not install this ZIP directly. For updates, replace
+the files in that same folder and click **Reload** in `chrome://extensions`.
+Moving the folder can change the unpacked extension ID and require pairing again.
+
+Build locally with `make chrome-extension-zip`, or
+`python3 scripts/package_chrome_extension.py`. Outputs:
+`dist/imprint-chrome-extension.zip` and its `.zip.sha256` checksum. The builder
+uses an explicit runtime-file allowlist and fixed ZIP timestamps; tests,
+package manifests, development dependencies, caches and local credentials are
+excluded. Release CI loads the extracted ZIP in disposable Chromium before
+including it in the complete release and `SHA256SUMS`. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
 ## Install from this checkout
 
@@ -39,16 +71,13 @@ after the popup closes. Reopening the popup checks the last submitted job.
    printed token into settings, confirm the local address, then **Connect and
    save**. Do not commit or share tokens. Loading from a different checkout path
    can change the unpacked extension ID and require a new pairing.
-4. On a page, click the toolbar icon, choose **Preview page / email** or
+4. On a page, click the toolbar icon, choose **Preview page** or
    **Preview selection**, review/edit the extracted text, choose a project,
    then **Save to Imprint**. The paired workspace is shown in the popup.
 
-For Gmail, set the account email in extension settings to match the Gmail tab,
-open a conversation, and expand the messages to capture. Each expanded message
-is saved separately using its Gmail message ID plus account identity. Inbox
-lists, collapsed messages and attachments are not indexed. The account email
-is supplied by the user; the prototype cannot independently verify it. Change
-it before capturing from a different signed-in account.
+Gmail account settings are hidden in this preview. The backend retains the
+initial message identity scaffold for future development; it does not make
+Gmail capture an available extension feature.
 
 ## Connection and data boundaries
 
@@ -86,9 +115,9 @@ selected workspace's sync settings and Imprint's model/tagger configuration;
 an explicitly configured remote provider may receive content through existing
 processing. Local browser transport does not override those settings.
 
-Pages update by exact normalized URL (including query and fragment). Gmail
-messages update by account + message ID, independent of account-tab numbering
-or conversation route. Selected passages have separate content-based identities
+Pages update by exact normalized URL (including query and fragment). The dormant
+Gmail backend scaffold uses account + message ID rather than account-tab numbering.
+Selected passages have separate content-based identities
 and never replace full-page captures. Capture kind, title, account/message ID
 and capture date are stored in existing `doc_metadata`, with `source_url`,
 content hash and byte size on each chunk. Unchanged chunks retain their existing
@@ -108,13 +137,12 @@ python -m imprint.browser_capture EXTENSION_ID --revoke
 job pointer. It does not revoke backend access or delete indexed memories.
 Use Imprint's existing source purge workflow to remove indexed captures.
 
-## Remaining work and validation
+## Coming soon and validation
 
-PDF bytes, attachments, OCR, Google Docs/Sheets exports, iframe/shadow-DOM
+Gmail, PDF bytes, attachments, OCR, Google Docs/Sheets exports, iframe/shadow-DOM
 coverage, background capture, mailbox synchronization, offline retries, search
-inside the extension and Store packaging are future work. Restricted Chrome
-pages cannot be captured. Gmail selectors are experimental and will need upkeep;
-the prototype does not expand threads or scroll to load missing content.
+inside the extension and Chrome Web Store publication are coming soon. Restricted
+Chrome pages cannot be captured. Planned features have no announced delivery date.
 
 Run from the repository root:
 
@@ -122,13 +150,16 @@ Run from the repository root:
 python -m unittest discover -s tests -p 'test_browser_capture.py' -v
 python -m unittest discover -s tests -p 'test_http_security.py' -v
 node --test extensions/chrome/tests/*.test.js
+python -m unittest discover -s tests -p 'test_chrome_extension_package.py' -v
+make chrome-extension-zip
 # Reuses the dashboard's development dependency; never shipped with the extension.
 npm ci --prefix imprint/ui
 npx --prefix imprint/ui playwright install chromium
-node extensions/chrome/tests/browser-smoke.mjs
+node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
 ```
 
-The browser smoke uses a disposable Chromium profile and synthetic pages/emails;
+The browser smoke extracts the actual ZIP and uses a disposable Chromium profile
+and synthetic pages to test page/selection capture and coming-soon gates;
 it never opens a real Gmail account or contributor profile. See
 [platform validation](platform-validation.md) for executed checks and limits.
-The design and alternatives are recorded in [ADR 0028](adr/0028-paired-browser-capture.md).
+The design and alternatives are recorded in [ADR 0029](adr/0029-paired-browser-capture.md).

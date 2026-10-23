@@ -5,7 +5,6 @@ $("revoke").textContent = `python -m imprint.browser_capture ${chrome.runtime.id
 try {
   const settings = await send("settings");
   $("base").value = settings.base;
-  $("account").value = settings.account;
   if (settings.paired) $("token").placeholder = "Leave empty to keep the saved token";
 } catch (error) {showError($("feedback"), error);}
 finally {$("save").disabled = false;}
@@ -13,7 +12,7 @@ $("connect").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("save").disabled = true;
   try {
-    const status = await send("connect", {base: $("base").value, token: $("token").value, account: $("account").value});
+    const status = await send("connect", {base: $("base").value, token: $("token").value});
     $("token").value = "";
     $("token").placeholder = "Leave empty to keep the saved token";
     $("feedback").textContent = `Connected to workspace: ${status.workspace}`;

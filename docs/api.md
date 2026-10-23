@@ -252,7 +252,10 @@ not expose CLI commands, arbitrary filesystem access, or general dashboard data.
 Captures use the shared queue and inline ingestion pipeline. Request limit:
 1,000,000 UTF-8 bytes; 1–50 documents; 10–800,000 characters per document.
 Indexed provenance uses `source_type=browser`, `source_url` and `doc_metadata`.
-See [ADR 0028](adr/0028-paired-browser-capture.md) for the boundary and WIP limits.
+See [ADR 0029](adr/0029-paired-browser-capture.md) for the boundary and WIP limits.
+The downloadable extension currently sends pages and selections. Gmail support
+is marked **Coming soon**; its original backend payload scaffold remains for
+future development. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
 ## Versioning
 

@@ -17,6 +17,7 @@ The marketing + docs site deployed to https://imprintmcp.alexandruleca.com via G
 | `/` | `src/pages/index.astro` — hand-authored landing |
 | `/benchmarks` | `src/pages/benchmarks.astro` — full benchmark tables from `BENCHMARK.md` |
 | `/faq` | `src/pages/faq.astro` — SEO-targeted "MCP memory layer" Q&A |
+| `/chrome-extension/` | `src/pages/chrome-extension.astro` — Chrome preview download, manual installation and coming-soon integrations |
 | `/installation`, `/mcp`, `/architecture`, … | `../docs/*.md` via Starlight content collection |
 | `/404` | `src/pages/404.astro` |
 
@@ -29,6 +30,15 @@ npm run dev          # http://localhost:4321
 ```
 
 The dev script regenerates `src/data/benchmarks.json` on each start.
+
+The Chrome page reuses the landing layout, design tokens, icons and navigation.
+It selects the latest stable release containing `imprint-chrome-extension.zip`
+from the normalized release manifest; desktop-only releases do not replace a
+working extension download. Before a ZIP is published it links to releases and
+explains the preview backend prerequisite. A successful Release triggers the
+normal Pages rebuild so the new ZIP appears automatically. Preview source is
+kept in `extensions/chrome`; runtime ZIP assembly and validation live in
+`scripts/package_chrome_extension.py` and `extensions/chrome/tests`.
 
 ## Build
 

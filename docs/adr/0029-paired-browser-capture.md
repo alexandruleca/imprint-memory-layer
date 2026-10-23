@@ -1,11 +1,12 @@
 ---
-title: ADR 0028 — Paired local browser capture prototype
+title: ADR 0029 — Paired local browser capture prototype
 description: A workspace-bound Chrome extension capture API, explicit previews, and reuse of the serialized inline ingestion pipeline.
 ---
 
 - Status: Accepted (WIP implementation on `wip/chrome-extension`; not a released integration)
 - Date: 2026-10-23
 - Extends: [ADR 0024](0024-enforce-local-service-boundaries.md) and [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md).
+- Gmail availability and unpacked-only distribution are superseded by [ADR 0030](0030-chrome-extension-release-zip.md); the original rationale below is preserved.
 
 ## Context
 

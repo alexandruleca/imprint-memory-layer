@@ -1,0 +1,36 @@
+IMPRINT CAPTURE — CHROME PREVIEW
+
+Available now: preview/edit/save web pages and selected text to local Imprint.
+Coming soon: Gmail, PDFs, attachments, Google Docs & Sheets, OCR, background
+capture, mailbox sync, offline retries and search inside the extension.
+
+INSTALL
+1. Extract imprint-chrome-extension.zip to a permanent folder on your computer.
+2. Open chrome://extensions in Chrome.
+3. Turn on Developer mode, then click Load unpacked.
+4. Choose the extracted imprint-chrome-extension folder containing manifest.json.
+5. Pin Imprint Capture (WIP) from Chrome's Extensions menu.
+
+CONNECT
+Install and run the Imprint backend from the same GitHub release as this ZIP.
+The backend must support /api/browser; older versions need an update.
+For development before a compatible release is available, run this checkout:
+  python -m imprint.api --dev --no-browser
+Use a Python interpreter with Imprint's base dependencies installed.
+Open the extension's Settings and run its pairing command using that same
+interpreter and IMPRINT_DATA_DIR. Paste the token, then click Connect and save.
+Each pairing grants one existing workspace; the popup lets you choose a project.
+
+USE
+Open a web page, click the toolbar icon, and choose Preview page or Preview
+selection. Review/edit the text, then Save to Imprint. Accepted jobs continue
+after the popup closes. Your workspace's normal sync and model settings apply.
+
+UPDATE
+Download the new ZIP, replace the files in the same extracted folder, and click
+Reload on the extension at chrome://extensions. Keep the folder in the same
+place to retain the unpacked extension ID and pairing.
+
+HELP
+https://imprintmcp.alexandruleca.com/chrome-extension/
+https://github.com/alexandruleca/imprint-memory-layer/tree/wip/chrome-extension

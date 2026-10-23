@@ -11,6 +11,25 @@ The initial GitHub history showed successful recent release jobs and the expecte
 
 ## Executed locally
 
+### Chrome preview ZIP and website — 2026-10-23
+
+The follow-up preview keeps Gmail, PDFs, attachments and Google Docs/Sheets
+marked **Coming soon**. The extension now offers page/selection capture only.
+Three standard-library packaging regressions passed: exact runtime-only file set
+(including exclusion of injected credential/dependency fixtures), deterministic
+ZIP bytes across source mtimes, correct checksum, and preservation of an existing
+artifact when a required source file is absent. Four extension transport/sender
+checks and seven website evidence/download-selection/link tests passed.
+
+The actual generated `dist/imprint-chrome-extension.zip` was extracted and loaded
+in disposable Linux Chromium. Pairing, selected-text save/status and credential
+isolation passed; Gmail and Google Docs were rejected with coming-soon messages.
+The Astro production build passed. Desktop (1440px) and mobile (375px) screenshots
+were inspected and the mobile page had no horizontal overflow. Workflow lint
+passed for the updated release and CI workflows. This validates local Linux
+packaging/browser behavior; native macOS/Windows Chrome installation and the
+new hosted release job still require execution. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
+
 ### Chrome capture WIP — 2026-10-23
 
 On `wip/chrome-extension`, Linux x64/WSL2 with Python 3.12.15 and Node 25.9.0:
@@ -38,7 +57,7 @@ These checks do not establish live Gmail selector compatibility, full-model
 capture quality, Store approval, native Windows/macOS Chrome execution, real
 toolbar gesture behavior, or PDF/attachment/editor-export support. See
 [browser extension setup and limitations](browser-extension.md) and
-[ADR 0028](adr/0028-paired-browser-capture.md).
+[ADR 0029](adr/0029-paired-browser-capture.md).
 
 ### Existing subsystem checks
 
