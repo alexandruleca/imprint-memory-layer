@@ -432,7 +432,8 @@ async def _run_job(job: dict) -> None:
                 (time.time(), job_id),
             )
 
-        argv = _build_argv(command, body)
+        argv = (_build_argv(command, body, job_id=job_id) if command == 'browser-capture'
+                else _build_argv(command, body))
         log_path = _logs_dir() / f"{job_id}.log"
 
         env = os.environ.copy()
@@ -585,7 +586,11 @@ def find_imprint_binary(root: Path = INSTALL_ROOT) -> str:
     return shutil.which("imprint") or "imprint"
 
 
-def _build_argv(command: str, body: dict) -> list[str]:
+def _build_argv(command: str, body: dict, *, job_id: str | None = None) -> list[str]:
+    if command == 'browser-capture':
+        if not job_id or not re.fullmatch(r'[a-f0-9]{32}', job_id):
+            raise ValueError('Browser worker requires a queue job ID')
+        return [sys.executable, '-m', 'imprint.browser_worker', job_id]
     imprint_bin = find_imprint_binary()
     argv = [imprint_bin, command]
     argv.extend(build_command_args(command, body))

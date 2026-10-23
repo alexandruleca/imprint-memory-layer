@@ -9,7 +9,7 @@ data, a CI job retagging after a merge, your own UI, or a quick `curl` to see
 what's in memory.
 
 :::note
-The dashboard API supports loopback access. It validates the connection address, Host and browser Origin; there is no authenticated remote dashboard mode. The supported launcher disables proxy-header interpretation. Container mode explicitly permits NAT peers and relies on host ports published on `127.0.0.1` plus a trusted container network. Host/Origin headers can be forged by a remote HTTP client, so they do not replace network isolation. TLS alone does not add authentication.
+The dashboard API supports loopback access. It validates the connection address, Host and browser Origin; there is no authenticated remote dashboard mode. The WIP `/api/browser/*` router additionally admits an explicitly paired Chrome extension with workspace-bound credentials; it does not change general dashboard access. The supported launcher disables proxy-header interpretation. Container mode explicitly permits NAT peers and relies on host ports published on `127.0.0.1` plus a trusted container network. Host/Origin headers can be forged by a remote HTTP client, so they do not replace network isolation. TLS alone does not add authentication.
 :::
 
 ## Get started
@@ -234,6 +234,25 @@ transports. Pick the one that matches your integration:
 | Search | `search` | `GET /api/search` |
 | Streaming | Native | SSE |
 | Best for | Agent integrations | Local services, CI, dashboards |
+
+## Browser capture (WIP branch)
+
+The [experimental Chrome extension](browser-extension.md) uses a separate local
+router. All requests require `Authorization: Bearer TOKEN` and
+`X-Imprint-Extension-Id: ID`; any supplied Origin must exactly match the paired
+`chrome-extension://ID`. Pairings grant one existing workspace. This router does
+not expose CLI commands, arbitrary filesystem access, or general dashboard data.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/browser/status` | Paired workspace and maximum request bytes. |
+| POST | `/api/browser/captures` | JSON `{project, documents:[{kind, url, title, text, account?, message_id?}]}`. Returns 202 `{job_id, status, workspace}`. Kinds: `page`, `selection`, `gmail`. Gmail requires account identity and a message ID. |
+| GET | `/api/browser/jobs/{id}` | Only this pairing's capture job status, without payload or logs. |
+
+Captures use the shared queue and inline ingestion pipeline. Request limit:
+1,000,000 UTF-8 bytes; 1–50 documents; 10–800,000 characters per document.
+Indexed provenance uses `source_type=browser`, `source_url` and `doc_metadata`.
+See [ADR 0028](adr/0028-paired-browser-capture.md) for the boundary and WIP limits.
 
 ## Versioning
 

@@ -33,6 +33,7 @@ jobs:
         with:
           node-version: '22'
       - run: node --test ui-electron/*.test.js
+      - run: node --test extensions/chrome/tests/*.test.js
       - run: go vet ./...
       - run: go test ./...
       - name: Windows PowerShell setup regression
@@ -75,6 +76,7 @@ jobs:
       - run: npx playwright install chromium
         timeout-minutes: 5
         working-directory: imprint/ui
+      - run: node extensions/chrome/tests/browser-smoke.mjs
       - run: npm run test:e2e
         working-directory: imprint/ui
 

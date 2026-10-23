@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Imprint Capture</title><link rel="stylesheet" href="style.css"></head>
+<body class="popup">
+  <header><strong>imprint <span>capture · WIP</span></strong><button id="settings" type="button">Settings</button></header>
+  <p id="connection" role="status">Connecting to local Imprint…</p>
+  <label for="project">Project</label><input id="project" value="browser" maxlength="128" required>
+  <div class="actions"><button id="page" type="button" disabled>Preview page / email</button><button id="selection" type="button" disabled>Preview selection</button></div>
+  <p class="hint">Only the preview you save is sent to Imprint. Expand Gmail messages before capturing.</p>
+  <form id="capture-form" hidden>
+    <div id="preview"></div>
+    <button id="save" type="submit">Save to Imprint</button>
+  </form>
+  <p id="feedback" role="status" aria-live="polite"></p>
+  <p id="job" role="status" aria-live="polite"></p>
+  <script type="module" src="popup.js"></script>
+</body></html>

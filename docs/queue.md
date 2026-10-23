@@ -87,3 +87,15 @@ New submissions store their workspace in the job body as `_workspace`. The dispa
 Stale metadata cleanup acquires the original lock inode before truncation and never unlinks it. Qdrant first startup has a separate shared lock with a health recheck, preventing competing CLI/API/MCP processes from starting two daemons. PID reuse, crash stress and complete Windows descendant cancellation still need dedicated tests; liveness alone is not process identity.
 
 Queued `ingest` and `refresh` accept `force: true` and `batch_size: N`; equivalent CLI flags are preserved when enqueueing. Forced runs re-embed unchanged content within the same model profile.
+
+## Browser capture prototype
+
+The WIP [Chrome extension](browser-extension.md) submits bounded inline text to
+`POST /api/browser/captures`. Its internal `browser-capture` jobs use the same
+SQLite queue and ingestion lock, with a Python worker launched by job ID instead
+of the Go CLI. This command is not added to the general HTTP command allowlist.
+The paired workspace is pinned on submission and pairing is checked again before
+indexing. Capture text is retained in the job body/history; the browser status
+endpoint exposes only state and timestamps. The dashboard keeps normal local
+queue visibility and cancellation. Revocation is not cancellation of a job
+already indexing; multi-message captures can partly complete before a failure.

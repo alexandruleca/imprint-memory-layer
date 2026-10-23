@@ -86,10 +86,19 @@ async def reject_remote_origin(request: Request, call_next):
     # malicious website from submitting requests to the local command API.
     if not local_host(request.headers.get("host", "")):
         return JSONResponse({"detail": "The dashboard requires a loopback host"}, status_code=403)
+    if request.url.path.startswith('/api/browser/'):
+        from .browser_api import boundary
+        return await boundary(request, call_next)
+    if request.headers.get('x-imprint-extension-id') is not None:
+        return JSONResponse({'detail': 'Browser clients must use the capture API'}, status_code=403)
     origin = request.headers.get("origin")
     if origin is not None and not local_origin(origin):
         return JSONResponse({"detail": "Only local dashboard origins are allowed"}, status_code=403)
     return await call_next(request)
+
+
+from .browser_api import router as browser_router
+app.include_router(browser_router)
 
 
 @app.on_event("startup")

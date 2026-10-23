@@ -1,0 +1,20 @@
+:root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 18px; background: #14161c; color: #eceef4; }
+.popup { width: 420px; }
+.options { max-width: 740px; margin: 48px auto; }
+header, .actions { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+header span, small, .hint { color: #aab1c5; font-size: 12px; }
+label { display: block; margin: 14px 0 5px; font-weight: 600; }
+input, textarea, button { font: inherit; border-radius: 7px; border: 1px solid #495064; }
+input, textarea { width: 100%; padding: 9px; background: #20232d; color: inherit; }
+textarea { resize: vertical; }
+button { padding: 8px 12px; cursor: pointer; background: #303952; color: #f3f5ff; }
+button:disabled { opacity: .5; cursor: default; }
+button:hover:enabled { background: #424d6b; }
+:focus-visible { outline: 2px solid #b3bcff; outline-offset: 3px; }
+.actions { margin-top: 14px; }
+.source, pre { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; color: #bbc6e5; }
+#save { margin-top: 12px; background: #4c4ba1; }
+[role="status"] { overflow-wrap: anywhere; }
+[hidden] { display: none !important; }

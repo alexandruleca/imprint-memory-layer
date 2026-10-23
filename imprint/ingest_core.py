@@ -1,7 +1,7 @@
 """Shared ingest pipeline for inline content blobs.
 
-Extracted so that MCP tools (ingest_content), future API endpoints, and CLI
-paths can all produce identical end-state memories without duplicating the
+Extracted so that MCP tools (ingest_content), the browser capture worker, and
+CLI paths can produce identical end-state memories without duplicating the
 chunk → tag → embed → upsert wiring. The URL path in
 ``imprint.cli_ingest_url.ingest_one`` keeps its own loop for now because it
 handles per-doc chunk_mode + HTTP-specific provenance (etag, last_modified).
@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 
 from . import tagger, vectorstore as vs
-from .chunker import chunk_file
+from .chunker import MIN_SIZE, chunk_file
 from .config_schema import resolve
 
 
@@ -45,8 +45,8 @@ def store_inline_content(
             dispatch. If ``None``, uses ``source_key``. For code content,
             include an extension (e.g. ``rel_path="upload.py"``) so the
             tree-sitter chunker picks the right language.
-        replace: If True, delete existing chunks with this source_key
-            before inserting — same semantics as ``ingest_url``.
+        replace: If True, upsert replacement chunks before pruning obsolete
+            chunks, scoped to this source_key and project.
         extra_fields: Additional fields merged into each record dict.
         workspace: Target workspace. ``None`` = active workspace.
 
@@ -56,9 +56,13 @@ def store_inline_content(
     """
     if not content or len(content.strip()) < 10:
         return 0, "skipped-empty"
+    content = content.strip()
 
     path_for_chunk = rel_path or source_key
-    chunks = chunk_file(content, path_for_chunk, chunk_mode=chunk_mode)
+    # File chunking drops tiny files. Inline captures/notes legitimately contain
+    # less than that threshold and already passed this API's 10-character floor.
+    chunks = ([(f'[{path_for_chunk}]\n{content}', 0)] if len(content) < MIN_SIZE
+              else chunk_file(content, path_for_chunk, chunk_mode=chunk_mode))
     if not chunks:
         return 0, "error: no chunks produced"
 
