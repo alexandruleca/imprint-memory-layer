@@ -31,7 +31,7 @@ const details = [
   {
     icon: 'merge',
     title: 'No duplicates',
-    body: 'Memories dedupe by content hash; facts by subject, predicate, object and start date.',
+    body: 'Memories and facts merge without duplicates. Unchanged workspace digests skip the next vector transfer.',
   },
   {
     icon: 'arrowRight',
@@ -125,6 +125,13 @@ const details = [
         </li>
       ))}
     </ul>
+
+    <p class="mt-5 text-sm text-[color:var(--color-text-muted)] max-w-3xl">
+      Keep your own devices in step: enable automatic pairing on both sides, or add <code class="font-mono">--remember</code>
+      to both commands. While both dashboards or <code class="font-mono">imprint sync watch</code> processes run,
+      Imprint reconnects with the same workspace and approved direction. Pause anytime, or confirm forgetting
+      the device on both sides. Offline removal remains pending until they reconnect.
+    </p>
 
     <p class="mt-5 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
       The code’s secret never crosses the relay, and the relay — including the default one — never sees your
