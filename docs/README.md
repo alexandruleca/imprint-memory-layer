@@ -9,6 +9,8 @@ Start with the [repository assessment](repository-assessment.md), [integration s
 
 Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing and retrieval](indexing-retrieval.md), [UI/UX review](ui-ux-review.md), and [local model selection](local-model-selection.md) and [local helper setup](local-models.md).
 
+Agent efficiency: [context budgets and cost experiments](context-budgets.md).
+
 Cross-device context: [devices and portable project paths](devices.md).
 
 Measurement: [benchmark assessment and methodology](benchmarks.md).
