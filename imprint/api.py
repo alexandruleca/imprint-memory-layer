@@ -184,23 +184,23 @@ def api_stats():
 
 @app.get("/api/version")
 def api_version():
-    """Return the installed imprint CLI version.
+    """Return the version of this installation's imprint CLI.
 
-    Shells out to ``imprint version`` once per process and caches the result.
-    Falls back to ``"unknown"`` when the binary can't be located or invoked.
+    Shells out to ``imprint version`` and caches the answer for the process.
+    A failed call reports ``"unknown"`` without caching it, so the next call
+    tries again.
     """
     global _CACHED_VERSION
-    if _CACHED_VERSION is not None:
-        return {"version": _CACHED_VERSION}
-    try:
-        out = subprocess.check_output(
-            [_find_imprint_binary(), "version"],
-            stderr=subprocess.STDOUT, timeout=5, text=True,
-        ).strip()
+    if _CACHED_VERSION is None:
+        try:
+            out = subprocess.check_output(
+                [job_queue.find_imprint_binary(), "version"],
+                stderr=subprocess.STDOUT, timeout=5, text=True,
+            ).strip()
+        except Exception:
+            return {"version": "unknown"}
         # Output is "imprint <version>"; strip the prefix if present.
         _CACHED_VERSION = out.split(" ", 1)[1] if out.startswith("imprint ") else out
-    except Exception:
-        _CACHED_VERSION = "unknown"
     return {"version": _CACHED_VERSION}
 
 
@@ -311,10 +311,10 @@ async def api_workspace_switch(request: Request):
     body = await request.json()
     name = body.get("workspace", "")
     if not name:
-        return {"error": "workspace name required"}
+        return JSONResponse({"error": "workspace name required"}, status_code=400)
     err = config.validate_workspace_name(name)
     if err:
-        return {"error": err}
+        return JSONResponse({"error": err}, status_code=400)
     config.switch_workspace(name)
     vs._client = None
     _reset_after_wipe()
@@ -796,25 +796,6 @@ _ALLOWED_COMMANDS = {
     "status", "ingest", "ingest-url", "refresh", "refresh-urls", "retag",
     "learn", "config", "wipe", "sync", "migrate", "workspace",
 }
-
-
-def _find_imprint_binary() -> str:
-    """Find the imprint binary."""
-    import shutil
-    # Check PATH first
-    found = shutil.which("imprint")
-    if found:
-        return found
-    # Check bundled binaries
-    import platform as plat
-    system = plat.system().lower()
-    machine = plat.machine().lower()
-    arch = "amd64" if machine in ("x86_64", "amd64") else "arm64"
-    bin_name = f"imprint-{system}-{arch}"
-    bin_path = Path(__file__).parent.parent / "bin" / bin_name
-    if bin_path.exists():
-        return str(bin_path)
-    return "imprint"
 
 
 @app.post("/api/commands/{command}")

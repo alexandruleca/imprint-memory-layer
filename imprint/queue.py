@@ -558,23 +558,30 @@ async def tail_output(job_id: str) -> AsyncIterator[str]:
 
 # ── Argv builders ──────────────────────────────────────────────
 
-def _find_imprint_binary() -> str:
-    found = shutil.which("imprint")
-    if found:
-        return found
+INSTALL_ROOT = Path(__file__).resolve().parent.parent
+
+
+def find_imprint_binary(root: Path = INSTALL_ROOT) -> str:
+    """The CLI that belongs to this installation, else one on PATH.
+
+    A release keeps it at ``bin/imprint[.exe]`` beside this package and a
+    checkout's ``make all`` builds ``bin/imprint-<os>-<arch>[.exe]``. PATH
+    comes last: the Windows installer leaves PATH alone by default, and a
+    PATH hit may belong to a different install.
+    """
     import platform as plat
+    ext = ".exe" if os.name == "nt" else ""
     system = plat.system().lower()
-    machine = plat.machine().lower()
-    arch = "amd64" if machine in ("x86_64", "amd64") else "arm64"
-    bin_name = f"imprint-{system}-{arch}"
-    bin_path = Path(__file__).parent.parent / "bin" / bin_name
-    if bin_path.exists():
-        return str(bin_path)
-    return "imprint"
+    arch = "amd64" if plat.machine().lower() in ("x86_64", "amd64") else "arm64"
+    for name in (f"imprint{ext}", f"imprint-{system}-{arch}{ext}"):
+        candidate = root / "bin" / name
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("imprint") or "imprint"
 
 
 def _build_argv(command: str, body: dict) -> list[str]:
-    imprint_bin = _find_imprint_binary()
+    imprint_bin = find_imprint_binary()
     argv = [imprint_bin, command]
     argv.extend(build_command_args(command, body))
     return argv

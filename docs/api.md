@@ -57,7 +57,7 @@ side by side.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/version` | Installed imprint CLI version — cheap healthcheck. |
+| GET | `/api/version` | Version of this installation's imprint CLI (`bin/imprint` beside the package, else PATH); `unknown` when it can't be run. |
 | GET | `/api/stats` | Aggregate counts per project, type, and language. |
 | GET | `/api/overview` | Bubble-chart overview. Repeat `?type=` for multi-filter. |
 | GET | `/api/timeline` | Recent activity feed. `?project=`, `?limit=`. |
@@ -110,8 +110,8 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | GET | `/api/workspace/roots?workspace=NAME` | Approved roots and purge exclusions for one workspace. |
 | POST | `/api/workspace/roots` | Add/remove a root or restore an exclusion. JSON: workspace, path, action; add accepts explicit boolean `allow_overlap`. |
 | POST | `/api/sources/purge` | Preview by default. JSON: target, workspace, kind (`path`/`source`), recursive, apply. Apply requires an explicit workspace and boolean confirmation. |
-| POST | `/api/workspace/switch` | Switch active workspace. Body: `{"name": "..."}`. |
-| POST | `/api/workspace/create` | Create a new workspace. Body: `{"name": "..."}`. |
+| POST | `/api/workspace/switch` | Switch the active workspace, registering it if new. Body: `{"workspace": "..."}`. Invalid names return 400. |
+| POST | `/api/workspace/create` | Register a workspace without switching to it. Body: `{"name": "..."}`. Invalid names return 400. |
 
 ### CLI commands (async jobs)
 
