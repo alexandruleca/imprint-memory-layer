@@ -27,8 +27,8 @@ isolation passed; Gmail and Google Docs were rejected with coming-soon messages.
 The Astro production build passed. Desktop (1440px) and mobile (375px) screenshots
 were inspected and the mobile page had no horizontal overflow. Workflow lint
 passed for the updated release and CI workflows. This validates local Linux
-packaging/browser behavior; native macOS/Windows Chrome installation and the
-new hosted release job still require execution. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
+packaging/browser behavior; interactive macOS/Windows Chrome installation remains
+unverified. Hosted follow-up results are recorded below. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
 The first hosted ZIP gate caught a settings startup race: a typed API address
 could be overwritten when saved settings finished loading. Connection controls
@@ -37,6 +37,19 @@ the settings response pending, verifies disabled inputs, releases initialization
 and then connects to its fixture. A delayed-startup fixture reproduced the
 original release failure locally before the fix. Archive/native packaging now
 also waits for the Chrome ZIP gate, avoiding downstream work when it fails.
+
+Final source `5fe4118` passed the complete [dev CI](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40003625421)
+and [production CI](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40003630925),
+including native Linux x64/ARM, macOS Intel/ARM and Windows backend checks. The
+[v0.18.0 release](https://github.com/alexandruleca/imprint-memory-layer/releases/tag/v0.18.0)
+passed [release validation](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40003631152)
+and published the Chrome ZIP with the complete native installer/archive set.
+The public 14,157-byte ZIP contains 12 runtime/guide/license files, matches the
+hosted Chromium-tested artifact byte for byte, and verifies against the release's
+`SHA256SUMS`. The [post-release Pages deployment](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40005752646)
+passed; the public Chrome page's download points to that exact v0.18.0 asset and
+shows the install guide and seven Coming soon labels. Native installer/backend
+validation does not replace interactive Chrome validation on macOS/Windows.
 
 ### Chrome capture WIP — 2026-10-23
 
