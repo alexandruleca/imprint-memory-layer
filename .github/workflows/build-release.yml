@@ -149,7 +149,7 @@ jobs:
           path: build/electron/imprint-ui.exe
 
   archives:
-    needs: [dashboard, electron-linux, electron-macos, electron-windows]
+    needs: [dashboard, electron-linux, electron-macos, electron-windows, chrome-extension]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

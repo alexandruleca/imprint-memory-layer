@@ -7,7 +7,9 @@ try {
   $("base").value = settings.base;
   if (settings.paired) $("token").placeholder = "Leave empty to keep the saved token";
 } catch (error) {showError($("feedback"), error);}
-finally {$("save").disabled = false;}
+finally {
+  for (const id of ["base", "token", "save", "disconnect"]) $(id).disabled = false;
+}
 $("connect").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("save").disabled = true;

@@ -30,6 +30,14 @@ passed for the updated release and CI workflows. This validates local Linux
 packaging/browser behavior; native macOS/Windows Chrome installation and the
 new hosted release job still require execution. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
+The first hosted ZIP gate caught a settings startup race: a typed API address
+could be overwritten when saved settings finished loading. Connection controls
+now stay disabled until initialization completes. The browser regression holds
+the settings response pending, verifies disabled inputs, releases initialization
+and then connects to its fixture. A delayed-startup fixture reproduced the
+original release failure locally before the fix. Archive/native packaging now
+also waits for the Chrome ZIP gate, avoiding downstream work when it fails.
+
 ### Chrome capture WIP — 2026-10-23
 
 On `wip/chrome-extension`, Linux x64/WSL2 with Python 3.12.15 and Node 25.9.0:

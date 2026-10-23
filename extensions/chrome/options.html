@@ -6,10 +6,10 @@
   <p>Run this command with the Python runtime and data directory used by your local Imprint backend. Choose an existing workspace.</p>
   <pre id="command"></pre>
   <form id="connect">
-    <label for="base">Local Imprint address</label><input id="base" type="url" value="http://127.0.0.1:8420" required>
-    <label for="token">Pairing token</label><input id="token" type="password" autocomplete="off" placeholder="Paste the token from the command">
+    <label for="base">Local Imprint address</label><input id="base" type="url" value="http://127.0.0.1:8420" required disabled>
+    <label for="token">Pairing token</label><input id="token" type="password" autocomplete="off" placeholder="Paste the token from the command" disabled>
     <p class="hint">Available now: web pages and selected text. Gmail, PDFs, attachments and Google Docs &amp; Sheets are coming soon.</p>
-    <div class="actions"><button type="submit" id="save" disabled>Connect and save</button><button type="button" id="disconnect">Forget local connection</button></div>
+    <div class="actions"><button type="submit" id="save" disabled>Connect and save</button><button type="button" id="disconnect" disabled>Forget local connection</button></div>
   </form>
   <p id="feedback" role="status" aria-live="polite"></p>
   <p>To revoke access on the backend:</p><pre id="revoke"></pre>

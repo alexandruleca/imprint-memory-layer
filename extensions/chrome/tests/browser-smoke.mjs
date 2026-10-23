@@ -41,7 +41,20 @@ try {
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
   const extensionId = new URL(worker.url()).hostname;
   const options = await context.newPage();
+  // Slow startup must not allow saved defaults to overwrite a typed address.
+  await options.addInitScript(() => {
+    const ready = new Promise((resume) => {globalThis.__resumeSettings = resume;});
+    const original = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = async (...args) => {
+      if (args[0]?.type === 'settings') await ready;
+      return original(...args);
+    };
+  });
   await options.goto(`chrome-extension://${extensionId}/options.html`);
+  assert.equal(await options.getByLabel('Local Imprint address').isDisabled(), true);
+  assert.equal(await options.getByLabel('Pairing token').isDisabled(), true);
+  await options.evaluate(() => globalThis.__resumeSettings());
+  await options.waitForFunction(() => !document.getElementById('save').disabled);
   await options.getByLabel("Local Imprint address").fill(`http://127.0.0.1:${api.address().port}`);
   await options.getByLabel("Pairing token").fill("disposable-fixture-token");
   await options.getByRole("button", {name: "Connect and save"}).click();
