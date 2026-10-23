@@ -87,7 +87,7 @@ const ticks = [-100, -50, 0, 50, 100];
         <ul class="space-y-1">
           {rows.map((r) => (
             <li
-              class="grid grid-cols-[1fr_auto] sm:grid-cols-[9.5rem_1fr_6.5rem] items-center gap-x-4 gap-y-1 rounded-lg px-2 py-2 -mx-2 outline-none hover:bg-white/[0.03] focus-visible:bg-white/[0.05] focus-visible:ring-1 focus-visible:ring-[color:var(--color-accent)]"
+              class="grid grid-cols-[1fr_auto] sm:grid-cols-[9.5rem_1fr_6.5rem] items-center gap-x-4 gap-y-1 rounded-lg px-2 py-2 -mx-2 outline-none hover:bg-fill focus-visible:bg-fill-strong focus-visible:ring-1 focus-visible:ring-[color:var(--color-accent)]"
               tabindex="0"
               data-bench-row
               data-label={r.label}
@@ -121,7 +121,7 @@ const ticks = [-100, -50, 0, 50, 100];
           <div class="absolute inset-y-0 left-14 right-14">
             {ticks.map((t) => (
               <span
-                class={`absolute inset-y-0 w-px ${t === 0 ? 'bg-[color:var(--color-text-dim)]/60' : 'bg-white/[0.05]'}`}
+                class={`absolute inset-y-0 w-px ${t === 0 ? 'bg-[color:var(--color-text-dim)]/60' : 'bg-fill-strong'}`}
                 style={`left:${50 + t / 2}%`}
               ></span>
             ))}
@@ -140,7 +140,7 @@ const ticks = [-100, -50, 0, 50, 100];
       </div>
 
       <div
-        class="pointer-events-none absolute z-10 hidden rounded-lg border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-xs shadow-xl shadow-black/50"
+        class="pointer-events-none absolute z-10 hidden rounded-lg border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-xs shadow-xl shadow-black/10"
         data-bench-tip
         aria-hidden="true"
       >
@@ -152,7 +152,7 @@ const ticks = [-100, -50, 0, 50, 100];
       <p class="mt-5 text-sm leading-relaxed text-[color:var(--color-text-dim)]">
         Both modes receive the same frozen public evidence. Memory-first guidance, MCP context and startup costs
         are included in ON. Increases are shown alongside savings; no answer-quality uplift or avoided follow-up
-        cost is claimed. Details and uncertainty are on the <a href="/benchmarks" class="underline underline-offset-2 hover:text-white">benchmarks page</a>.
+        cost is claimed. Details and uncertainty are on the <a href="/benchmarks" class="underline underline-offset-2 hover:text-ink">benchmarks page</a>.
       </p>
     </figure>
   </div>

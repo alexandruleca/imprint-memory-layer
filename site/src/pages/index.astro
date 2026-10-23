@@ -8,16 +8,14 @@ import Sync from '../components/Sync.astro';
 import Workspaces from '../components/Workspaces.astro';
 import Capture from '../components/Capture.astro';
 import Recall from '../components/Recall.astro';
-import BenchSummary from '../components/BenchSummary.astro';
 import ArchDiagram from '../components/ArchDiagram.astro';
 import Install from '../components/Install.astro';
 import CTA from '../components/CTA.astro';
 import Footer from '../components/Footer.astro';
-import benchmarks from '../data/benchmarks.json';
 
 const title = 'Imprint — Shared MCP Memory for Claude Code, Cursor, Copilot';
 const description =
-  `One persistent, searchable memory for your AI coding agents, shared across sessions, tools, machines and teammates. Local-first and open source. ${benchmarks.runCount} measured benchmark trials with published retrieval, token and cost evidence.`;
+  'Persistent project memory for your AI coding agents. Search locally, sync workspaces with end-to-end encryption, and carry shared knowledge across sessions, tools and devices. Open source.';
 ---
 
 <Landing title={title} description={description} pathname="/">
@@ -30,7 +28,6 @@ const description =
     <Workspaces />
     <Capture />
     <Recall />
-    <BenchSummary />
     <ArchDiagram />
     <Install />
     <CTA />

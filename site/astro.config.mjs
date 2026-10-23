@@ -40,34 +40,53 @@ const mermaidFences = {
   },
 };
 
-// Render those blocks as live diagrams on Starlight docs pages.
+// Render those blocks as live diagrams on Starlight docs pages, in the
+// palette of the current theme; switching theme re-renders them.
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
 const mermaidHead = [
   {
     tag: 'style',
     content:
-      `pre.mermaid{background:#10111c;border:1px solid #1f2134;border-radius:.75rem;` +
-      `padding:1rem;margin:1rem 0;overflow-x:auto;text-align:center}` +
+      `pre.mermaid{background:var(--sl-color-bg-sidebar);border:1px solid var(--sl-color-hairline);` +
+      `border-radius:.75rem;padding:1rem;margin:1rem 0;overflow-x:auto;text-align:center}` +
       `pre.mermaid svg{max-width:100%;height:auto}`,
   },
   {
     tag: 'script',
     attrs: { type: 'module' },
     content: `(async () => {
-  if (!document.querySelector('pre.mermaid')) return;
+  const blocks = [...document.querySelectorAll('pre.mermaid')];
+  if (!blocks.length) return;
   const mermaid = (await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;
-  mermaid.initialize({
-    startOnLoad: false, theme: 'dark', securityLevel: 'loose',
-    themeVariables: {
-      background: '#10111c', primaryColor: '#1d1f38', primaryTextColor: '#eef0fb',
-      primaryBorderColor: '#6366f1', lineColor: '#a78bfa',
-      secondaryColor: '#1f2134', tertiaryColor: '#0c0d16',
-      fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+  const sources = blocks.map((b) => b.textContent);
+  const palettes = {
+    light: {
+      darkMode: false, background: '#fbfbfd', primaryColor: '#f3efff', primaryTextColor: '#1b1c33',
+      primaryBorderColor: '#7c3aed', lineColor: '#6d28d9', secondaryColor: '#ecfeff', tertiaryColor: '#f4f4f8',
+      noteBkgColor: '#fff7ed', noteBorderColor: '#fdba74', noteTextColor: '#1b1c33',
     },
-    flowchart: { htmlLabels: true, curve: 'basis' },
-    sequence: { actorMargin: 40 },
-  });
-  await mermaid.run({ querySelector: 'pre.mermaid' });
+    dark: {
+      darkMode: true, background: '#10111c', primaryColor: '#1d1f38', primaryTextColor: '#eef0fb',
+      primaryBorderColor: '#6366f1', lineColor: '#a78bfa', secondaryColor: '#1f2134', tertiaryColor: '#0c0d16',
+      noteBkgColor: '#2a2440', noteBorderColor: '#6d5bd0', noteTextColor: '#eef0fb',
+    },
+  };
+  let shown = '';
+  const render = async () => {
+    const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    if (theme === shown) return;
+    shown = theme;
+    mermaid.initialize({
+      startOnLoad: false, theme: 'base', securityLevel: 'loose',
+      themeVariables: { ...palettes[theme], fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' },
+      flowchart: { htmlLabels: true, curve: 'basis' },
+      sequence: { actorMargin: 40 },
+    });
+    blocks.forEach((b, i) => { b.removeAttribute('data-processed'); b.textContent = sources[i]; });
+    await mermaid.run({ nodes: blocks });
+  };
+  await render();
+  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 })();`,
   },
 ];
@@ -156,6 +175,8 @@ export default defineConfig({
       ],
       components: {
         Header: './src/components/DocsHeader.astro',
+        ThemeProvider: './src/components/ThemeProvider.astro',
+        ThemeSelect: './src/components/ThemeSelect.astro',
       },
       pagination: true,
       lastUpdated: true,

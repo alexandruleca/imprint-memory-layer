@@ -8,9 +8,9 @@ const devices = [
   { icon: 'server', label: 'VPS' },
 ] as const;
 const teammates = [
-  { initial: 'A', tone: 'bg-violet-500/25 text-violet-100' },
-  { initial: 'S', tone: 'bg-cyan-500/20 text-cyan-100' },
-  { initial: 'M', tone: 'bg-indigo-500/25 text-indigo-100' },
+  { initial: 'A', tone: 'bg-violet-100 text-violet-800' },
+  { initial: 'S', tone: 'bg-cyan-100 text-cyan-800' },
+  { initial: 'M', tone: 'bg-indigo-100 text-indigo-800' },
 ];
 ---
 
@@ -30,7 +30,7 @@ const teammates = [
       <article class="card p-6 sm:p-7">
         <div class="h-36 flex items-center">
           <ol class="relative w-full grid grid-cols-3 gap-3 text-center">
-            <span class="absolute left-[16%] right-[16%] top-[13px] h-px bg-gradient-to-r from-violet-400/50 via-violet-400/30 to-cyan-400/60" aria-hidden="true"></span>
+            <span class="absolute left-[16%] right-[16%] top-[13px] h-px bg-gradient-to-r from-accent-line via-accent-line to-cyan-line" aria-hidden="true"></span>
             <li class="relative flex flex-col items-center gap-2.5">
               <span class="w-[27px] h-[27px] rounded-full bg-[color:var(--color-surface-2)] border border-[color:var(--color-border-strong)] grid place-items-center text-[10px] font-mono text-[color:var(--color-text-muted)]">Mon</span>
               <span class="chip !text-[11px]">+ decision</span>
@@ -40,8 +40,8 @@ const teammates = [
               <span class="chip !text-[11px]">+ bug fix</span>
             </li>
             <li class="relative flex flex-col items-center gap-2.5">
-              <span class="w-[27px] h-[27px] rounded-full bg-cyan-400/15 border border-cyan-300/50 grid place-items-center text-cyan-200"><Icon name="check" size={13} /></span>
-              <span class="chip !text-[11px] !border-cyan-300/40 !text-cyan-100">recalls both</span>
+              <span class="w-[27px] h-[27px] rounded-full bg-cyan-soft border border-cyan-line grid place-items-center text-cyan"><Icon name="check" size={13} /></span>
+              <span class="chip !text-[11px] !border-cyan-line !text-cyan">recalls both</span>
             </li>
           </ol>
         </div>
@@ -61,8 +61,8 @@ const teammates = [
           <ul class="flex flex-wrap justify-center gap-1.5">
             {tools.map((t) => <li class="chip !text-[11px]">{t}</li>)}
           </ul>
-          <span class="h-5 w-px bg-gradient-to-b from-violet-400/60 to-violet-400/0" aria-hidden="true"></span>
-          <span class="inline-flex items-center gap-2 rounded-lg border border-violet-400/40 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100">
+          <span class="h-5 w-px bg-gradient-to-b from-accent-line to-transparent" aria-hidden="true"></span>
+          <span class="inline-flex items-center gap-2 rounded-lg border border-accent-line bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent">
             <img src="/logo.svg" alt="" width="16" height="16" /> one shared store
           </span>
         </div>
@@ -83,10 +83,10 @@ const teammates = [
             {devices.map((d, i) => (
               <>
                 {i > 0 && (
-                  <li class="flex flex-1 min-w-6 items-center text-cyan-300/80" aria-hidden="true">
-                    <span class="flex-1 border-t border-dashed border-cyan-300/40"></span>
+                  <li class="flex flex-1 min-w-6 items-center text-cyan/80" aria-hidden="true">
+                    <span class="flex-1 border-t border-dashed border-cyan-line"></span>
                     <Icon name="sync" size={14} class="shrink-0" />
-                    <span class="flex-1 border-t border-dashed border-cyan-300/40"></span>
+                    <span class="flex-1 border-t border-dashed border-cyan-line"></span>
                   </li>
                 )}
                 <li class="flex flex-col items-center gap-2">
@@ -118,10 +118,10 @@ const teammates = [
               <span class={`w-9 h-9 sm:w-11 sm:h-11 rounded-full ring-4 ring-[color:var(--color-surface)] grid place-items-center text-sm font-semibold ${t.tone}`}>{t.initial}</span>
             ))}
           </div>
-          <span class="flex flex-col sm:flex-row sm:flex-1 sm:min-w-8 sm:max-w-24 items-center text-violet-300/80" aria-hidden="true">
-            <span class="hidden sm:block flex-1 border-t border-dashed border-violet-300/40"></span>
+          <span class="flex flex-col sm:flex-row sm:flex-1 sm:min-w-8 sm:max-w-24 items-center text-accent/80" aria-hidden="true">
+            <span class="hidden sm:block flex-1 border-t border-dashed border-accent-line"></span>
             <Icon name="merge" size={16} class="shrink-0" />
-            <span class="hidden sm:block flex-1 border-t border-dashed border-violet-300/40"></span>
+            <span class="hidden sm:block flex-1 border-t border-dashed border-accent-line"></span>
           </span>
           <div class="shrink-0 whitespace-nowrap rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-surface-2)] px-3 py-2.5 text-[11px] leading-5 font-mono text-[color:var(--color-text-muted)]">
             <div class="text-[color:var(--color-text)] font-sans font-semibold text-xs mb-0.5">workspace: team</div>

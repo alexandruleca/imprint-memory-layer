@@ -1,0 +1,43 @@
+---
+// Starlight ThemeProvider override: the site is light unless the reader picks
+// dark, or picks auto to follow the system. Starlight's own provider treats a
+// missing choice as auto; here it means light, and auto is stored explicitly
+// (see ThemeSelect.astro, which shares the storage format).
+import { Icon } from '@astrojs/starlight/components';
+---
+
+{/* Inlined to avoid a flash of the wrong theme. */}
+<script is:inline>
+	window.StarlightThemeProvider = (() => {
+		const stored = typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const choice = stored === 'dark' || stored === 'auto' ? stored : 'light';
+		const theme =
+			choice === 'auto'
+				? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+				: choice;
+		document.documentElement.dataset.theme = theme;
+		return {
+			updatePickers(theme = choice) {
+				document.querySelectorAll('starlight-theme-select').forEach((picker) => {
+					const select = picker.querySelector('select');
+					if (select) select.value = theme;
+					/** @type {HTMLTemplateElement | null} */
+					const tmpl = document.querySelector(`#theme-icons`);
+					const newIcon = tmpl && tmpl.content.querySelector('.' + theme);
+					if (newIcon) {
+						const oldIcon = picker.querySelector('svg.label-icon');
+						if (oldIcon) {
+							oldIcon.replaceChildren(...newIcon.cloneNode(true).childNodes);
+						}
+					}
+				});
+			},
+		};
+	})();
+</script>
+
+<template id="theme-icons">
+	<Icon name="sun" class="light" />
+	<Icon name="moon" class="dark" />
+	<Icon name="laptop" class="auto" />
+</template>

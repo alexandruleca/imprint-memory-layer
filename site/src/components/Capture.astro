@@ -69,7 +69,7 @@ const tags = [
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
                 <h3 class="font-semibold">{s.title}</h3>
-                <code class={`cmd !text-[12px] ${s.cmd === 'automatic' ? '!text-emerald-200 !border-emerald-400/30 !bg-emerald-400/5' : ''}`}>{s.cmd}</code>
+                <code class={`cmd !text-[12px] ${s.cmd === 'automatic' ? '!text-success !border-success-line !bg-success-soft' : ''}`}>{s.cmd}</code>
               </div>
               <p class="mt-1.5 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">{s.body}</p>
             </div>
@@ -86,9 +86,9 @@ const tags = [
           {stages.map((st, i) => (
             <li class="relative flex gap-3.5 pb-5">
               {i < stages.length - 1 && (
-                <span class="absolute left-[7px] top-5 bottom-0 w-px bg-gradient-to-b from-violet-400/50 to-violet-400/10" aria-hidden="true"></span>
+                <span class="absolute left-[7px] top-5 bottom-0 w-px bg-gradient-to-b from-accent-line to-accent-soft" aria-hidden="true"></span>
               )}
-              <span class="mt-1 w-[15px] h-[15px] rounded-full border-2 border-violet-400/70 bg-[color:var(--color-surface)] shrink-0"></span>
+              <span class="mt-1 w-[15px] h-[15px] rounded-full border-2 border-accent bg-[color:var(--color-surface)] shrink-0"></span>
               <div>
                 <div class="font-mono text-sm text-[color:var(--color-text)]">{st.label}</div>
                 <div class="text-[13px] text-[color:var(--color-text-dim)]">{st.detail}</div>
@@ -102,7 +102,7 @@ const tags = [
             {tags.map(([k, v]) => (
               <>
                 <dt class="text-[color:var(--color-text-dim)]">{k}</dt>
-                <dd class="text-violet-200">{v}</dd>
+                <dd class="text-accent">{v}</dd>
               </>
             ))}
           </dl>

@@ -145,3 +145,7 @@ the report's `analysisSha256` identifies the statistics code used to recalculate
 results. Post-measurement validation can reject malformed usage without changing
 the original valid trials. Publishing refreshes the canonical `BENCHMARK.md` as
 well as the website selector and versioned evidence bundle.
+
+## Role on the presentation site
+
+The homepage leads with persistent project memory, local retrieval, encrypted workspace sync and continuity across tools and devices. Benchmark details live on the evidence page, linked from the footer, rather than serving as hero statistics or a primary navigation item. Neither token savings, cost non-regression nor better answer quality is a product guarantee: report the measured costs, increases, uncertainty and limits together.

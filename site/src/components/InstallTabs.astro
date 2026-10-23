@@ -24,13 +24,13 @@ const tabs = [
     id: 'docker',
     label: 'Docker',
     command: 'docker run -d -p 127.0.0.1:8420:8420 -v imprint-data:/data ghcr.io/alexandruleca/imprint:latest',
-    hint: 'Dashboard and API on <code class="cmd">localhost:8420</code>. Ingest with <code class="cmd">docker exec</code> or the <code class="cmd">ingest_content</code> tool; IDE hosts still use the local stdio install. See the <a href="/docker" class="underline underline-offset-2 hover:text-white">Docker guide</a>.',
+    hint: 'Dashboard and API on <code class="cmd">localhost:8420</code>. Ingest with <code class="cmd">docker exec</code> or the <code class="cmd">ingest_content</code> tool; IDE hosts still use the local stdio install. See the <a href="/docker" class="underline underline-offset-2 hover:text-ink">Docker guide</a>.',
   },
   {
     id: 'relay',
     label: 'Sync relay',
     command: 'docker run -d -p 8430:8430 ghcr.io/alexandruleca/imprint-relay:latest',
-    hint: 'Self-host the stateless sync relay, then point peers at it with <code class="cmd">imprint sync serve --relay your.host</code>. Put TLS in front of it; see the <a href="/docker" class="underline underline-offset-2 hover:text-white">Docker guide</a>.',
+    hint: 'Self-host the stateless sync relay, then point peers at it with <code class="cmd">imprint sync serve --relay your.host</code>. Put TLS in front of it; see the <a href="/docker" class="underline underline-offset-2 hover:text-ink">Docker guide</a>.',
   },
 ];
 ---
@@ -40,7 +40,7 @@ const tabs = [
     {tabs.map((t, i) => (
       <button
         data-install-tab={t.id}
-        class="px-4 py-2 text-sm font-medium whitespace-nowrap rounded-lg transition text-[color:var(--color-text-muted)] hover:text-white aria-selected:bg-white/[0.06] aria-selected:text-white"
+        class="px-4 py-2 text-sm font-medium whitespace-nowrap rounded-lg transition text-[color:var(--color-text-muted)] hover:text-ink aria-selected:bg-fill-strong aria-selected:text-ink"
         role="tab"
         aria-selected={i === 0 ? 'true' : 'false'}
         aria-controls={`install-panel-${t.id}`}
@@ -61,7 +61,7 @@ const tabs = [
         <pre class="flex-1 overflow-x-auto text-[13px] font-mono py-2.5 [scrollbar-width:thin]"><code>{t.command}</code></pre>
         <button
           data-install-copy={t.id}
-          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-[color:var(--color-text-muted)] hover:text-white transition"
+          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-fill hover:bg-fill-strong text-[color:var(--color-text-muted)] hover:text-ink transition"
         >
           <Icon name="copy" size={14} />
           <span data-copy-label>Copy</span>
@@ -72,7 +72,7 @@ const tabs = [
         <ol class="mt-5 grid gap-3 sm:grid-cols-3">
           {nextSteps.map((s, n) => (
             <li class="flex items-start gap-3">
-              <span class="w-6 h-6 shrink-0 rounded-full grid place-items-center text-xs font-semibold bg-violet-500/15 text-violet-200 border border-violet-400/30">{n + 1}</span>
+              <span class="w-6 h-6 shrink-0 rounded-full grid place-items-center text-xs font-semibold bg-accent-soft text-accent border border-accent-line">{n + 1}</span>
               <div class="min-w-0">
                 <code class="cmd !text-[12.5px]">{s.cmd}</code>
                 <div class="mt-1 text-[13px] text-[color:var(--color-text-muted)]">{s.body}</div>

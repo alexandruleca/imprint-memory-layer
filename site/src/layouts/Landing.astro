@@ -1,7 +1,6 @@
 ---
 import '../styles/global.css';
 import Analytics from '../components/Analytics.astro';
-import MermaidInit from '../components/MermaidInit.astro';
 
 interface Props {
   title: string;
@@ -24,7 +23,7 @@ const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
 ---
 
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -32,8 +31,8 @@ const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
     <meta name="description" content={description} />
     <meta name="keywords" content={keywords} />
     <meta name="author" content="Alexandru Leca" />
-    <meta name="theme-color" content="#07070c" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#fbfbfd" />
+    <meta name="color-scheme" content="light" />
     <meta name="generator" content={Astro.generator} />
     {noindex ? (
       <meta name="robots" content="noindex, nofollow" />
@@ -101,6 +100,5 @@ const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
   </head>
   <body class="min-h-screen starry">
     <slot />
-    <MermaidInit />
   </body>
 </html>

@@ -1,5 +1,12 @@
-/* Starlight theme overrides to match the landing page palette. */
+/* Starlight theme overrides to match the landing page palette (src/styles/global.css).
+   Light is the default (see ThemeProvider.astro); dark stays available from the theme picker. */
 :root {
+  --sl-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+:root,
+:root[data-theme="dark"] {
   --sl-color-accent: #8b5cf6;
   --sl-color-accent-high: #a78bfa;
   --sl-color-accent-low: #3b2f6a;
@@ -12,13 +19,27 @@
   --sl-color-gray-6: #22243b;
   --sl-color-gray-7: #151627;
   --sl-color-black: #07070d;
-
-  --sl-font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-:root[data-theme="dark"] {
   --sl-color-bg: #07070d;
   --sl-color-bg-nav: #0f1020;
   --sl-color-bg-sidebar: #0b0c19;
+}
+
+/* Starlight's light theme inverts the scale: "white" is the darkest ink and
+   "black" the page. */
+:root[data-theme="light"] {
+  --sl-color-accent: #6d28d9;
+  --sl-color-accent-high: #5b21b6;
+  --sl-color-accent-low: #ede9fe;
+  --sl-color-white: #0c0d1f;
+  --sl-color-gray-1: #1b1c33;
+  --sl-color-gray-2: #33364f;
+  --sl-color-gray-3: #4a4e6a;
+  --sl-color-gray-4: #61657f;
+  --sl-color-gray-5: #c9cada;
+  --sl-color-gray-6: #e7e7f0;
+  --sl-color-gray-7: #f4f4f8;
+  --sl-color-black: #ffffff;
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #fbfbfd;
 }

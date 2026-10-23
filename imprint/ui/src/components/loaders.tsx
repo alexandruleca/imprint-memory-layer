@@ -101,7 +101,7 @@ export function Spinner({ className = "w-4 h-4" }: { className?: string }) {
 
 export function GraphSkeleton() {
   return (
-    <div className="flex-1 bg-[#0a0a1a] flex items-center justify-center">
+    <div className="flex-1 bg-background flex items-center justify-center">
       <div className="space-y-6 flex flex-col items-center">
         <div className="relative">
           {[0, 1, 2, 3, 4].map((i) => (
