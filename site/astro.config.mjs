@@ -120,7 +120,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'Imprint',
-      description: 'Persistent MCP memory for Claude Code, Cursor, Copilot, Codex and Cline — shared across tools, machines and teammates. Local-first. −70.4% tokens, −31.7% cost.',
+      description: 'Persistent MCP memory for Claude Code, Cursor, Copilot, Codex and Cline — shared across tools, machines and teammates. Local retrieval and end-to-end encrypted workspace sync.',
       logo: { light: './public/logo-lockup.svg', dark: './public/logo-lockup-dark.svg', replacesTitle: true },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/alexandruleca/imprint-memory-layer' },

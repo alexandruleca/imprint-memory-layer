@@ -27,6 +27,12 @@ A user should understand whether Imprint is connected, what was indexed, how fre
 
 Browser checks exercise mobile overflow, empty/error/retry, filters, stale responses, full-memory modal and reconnection. They mock API responses to test interaction deterministically; backend/native-model smoke provides separate retrieval evidence. This is not a full accessibility certification or native desktop GUI test.
 
+## Paired sync and presentation follow-up
+
+The Sync page now offers explicit automatic pairing on both sides and a paired-device list with workspace mapping, relay, approved direction, last successful sync and errors. Pause/enable controls apply locally; forgetting requires an accessible confirmation naming both devices and all workspaces. Offline remote removal stays visibly pending. Browser checks cover opt-in defaults, pause/resume, cancellation of the forget dialog and confirmed revocation. Backend relay tests verify enforcement separately (ADR 0020).
+
+The presentation homepage leads with persistent project memory, local retrieval, encrypted workspace sync and shared cross-device knowledge. Benchmark percentages are removed from the hero and the large homepage summary is removed; the footer links to detailed measured evidence with uncertainties. The other design session's theme, logo and graph redesign are preserved.
+
 ## Next improvements
 
 | Priority | Improvement | Acceptance criterion |

@@ -22,7 +22,6 @@
   <a href="https://github.com/alexandruleca/imprint-memory-layer/releases/latest"><img src="https://img.shields.io/github/v/release/alexandruleca/imprint-memory-layer?sort=semver&display_name=tag" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/benchmarks-auditable-6366f1" alt="Auditable benchmarks">
-  <img src="https://img.shields.io/badge/cost-−31.7%25-8b5cf6" alt="Cost −31.7%">
 </p>
 
 ---
@@ -171,9 +170,11 @@ imprint workspace delete <name>  # delete a workspace and its data
 imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve [--relay <host>] [--workspace <name>] [--send-only | --receive-only]
-                           # expose one workspace for end-to-end encrypted peer sync; prints a one-time share code
+                           # expose one workspace for encrypted peer sync; add --remember on BOTH sides to pair
 imprint sync <code> [--workspace <name>] [--two-way | --send-only] [--fresh]
                            # join with that code; receives only unless --two-way/--send-only (confirmed before sending)
+imprint sync watch          # auto-sync explicitly paired devices while this process runs
+imprint sync peers          # list pairings; enable/disable/forget <pair-id> controls them
 imprint sync export | import <dir>       # snapshot bundle, no re-embed on import
 imprint relay              # run the sync relay server
 imprint ui [start|stop|status|open|restart|log] [--port N]
@@ -196,7 +197,7 @@ imprint version            # print version
 | Command queue + cancellation | [docs/queue.md](docs/queue.md) |
 | All settings (`imprint config`) | [docs/configuration.md](docs/configuration.md) |
 | Building from source + CI/release flow | [docs/building.md](docs/building.md) |
-| Benchmarks & token savings | [BENCHMARK.md](BENCHMARK.md) |
+| Benchmark evidence & methodology | [BENCHMARK.md](BENCHMARK.md) |
 
 ## Glossary
 

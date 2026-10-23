@@ -15,6 +15,25 @@ const points = (values: number[]) => `${(values[0]*100).toFixed(1)} to ${(values
     Intervals resample paired tasks and repetitions, not individual tokens, and describe this fixed suite.
     {stats.costChangeCI95 && stats.costChangeCI95[0] <= 0 && stats.costChangeCI95[1] >= 0 && 'The cost interval includes no change, so the point estimate does not establish a clear saving.'}
   </p>
+  {benchmarks.previous && <>
+    <h2 class="mt-6 text-lg font-semibold">Before and after compact MCP responses</h2>
+    <div class="overflow-x-auto mt-3">
+      <table class="w-full text-sm text-left">
+        <thead><tr><th class="py-2 pr-4">Run</th><th class="pr-4">Trials</th><th class="pr-4">Token change ON vs OFF</th><th>Estimated cost change ON vs OFF</th></tr></thead>
+        <tbody>{[["Previous response policy", benchmarks.previous], ["Compact response policy", benchmarks]].map(([label, run]: any) => <tr class="border-t border-[color:var(--color-border)] text-[color:var(--color-text-muted)]">
+          <th class="py-2 pr-4 font-medium">{label}</th><td class="pr-4">{run.runCount}</td>
+          <td class="pr-4">{run.overall.tokenPct} ({interval(run.overall.tokenChangeCI95)})</td>
+          <td>{run.overall.costPct} ({interval(run.overall.costChangeCI95)})</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">
+      Same frozen evidence, task suite, model and repeat count. These runs were collected sequentially,
+      with provider-managed caches and service variation. Each row compares matched ON/OFF trials within
+      its run; this table is descriptive and does not isolate a causal version effect or establish answer quality.
+      <a href={`https://github.com/alexandruleca/imprint-memory-layer/tree/main/benchmark/published/${benchmarks.previous.runId}`} class="underline">Previous trial evidence</a>.
+    </p>
+  </>}
   {retrieval && <>
     <h2 class="mt-6 text-lg font-semibold">Retrieval on the labeled public corpus</h2>
     <div class="overflow-x-auto mt-3">
@@ -30,7 +49,7 @@ const points = (values: number[]) => `${(values[0]*100).toFixed(1)} to ${(values
     <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">
       {retrieval.metricUnit} {retrieval.groups.hybrid.queries} positive queries, plus explicit filter/workspace boundary cases;
       {retrieval.repetitions} timing repetitions per mode. Model load and first query: {(retrieval.coldModelLoadAndFirstQueryMs/1000).toFixed(1)}s.
-      Fixed passages isolate retrieval from ingestion quality. Source relevance is not generated-answer correctness.
+      Fixed passages isolate retrieval from ingestion quality. These metrics score ranked chunks before MCP response budgeting; they do not prove which evidence an agent read or generated-answer correctness.
     </p>
     <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">
       Hybrid − semantic Recall@5: {(retrieval.comparison.recallAt5.hybridMinusSemantic*100).toFixed(1)} percentage points;
@@ -45,6 +64,9 @@ const points = (values: number[]) => `${(values[0]*100).toFixed(1)} to ${(values
     </p>
   </>}
   <p class="mt-4 text-sm text-[color:var(--color-text-muted)]">
+    Runtime: <code>{measurement.runtimeRevision.slice(0, 12)}</code>;
+    frozen evidence: <code>{measurement.corpusRevision.slice(0, 12)}</code>.
+    {' '}
     <a href="/docs/benchmarks/" class="underline underline-offset-2">Methodology, corpus and limitations</a>
     {' · '}<a href={`https://github.com/alexandruleca/imprint-memory-layer/tree/main/benchmark/published/${benchmarks.runId}`} class="underline underline-offset-2">Trial evidence and manifest</a>
   </p>

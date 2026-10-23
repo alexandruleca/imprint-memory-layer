@@ -29,7 +29,20 @@ export function loadBenchmarks(root) {
   if (report.runId !== pointer.runId) throw new Error('Benchmark run ID mismatch');
   const manifest = JSON.parse(readFileSync(resolve(root, 'benchmark/published', pointer.runId, 'manifest.json'), 'utf8'));
   if (manifest.runId !== report.runId || manifest.sourceRevision !== report.sourceRevision) throw new Error('Benchmark manifest mismatch');
-  return { ...report, measurement: {hardware: manifest.hardware, index: manifest.index} };
+  let previous = null;
+  if (pointer.previousRunId) {
+    if (!/^[\w-]+$/.test(pointer.previousRunId)) throw new Error('Invalid previous benchmark selector');
+    previous = validateReport(JSON.parse(readFileSync(resolve(root, 'benchmark/published', pointer.previousRunId, 'summary.json'), 'utf8')));
+    const priorManifest = JSON.parse(readFileSync(resolve(root, 'benchmark/published', pointer.previousRunId, 'manifest.json'), 'utf8'));
+    if (previous.runId !== pointer.previousRunId || priorManifest.runId !== previous.runId
+        || previous.sourceRevision !== report.sourceRevision || previous.modelIds.join() !== report.modelIds.join()
+        || JSON.stringify(priorManifest.corpus) !== JSON.stringify(manifest.corpus)
+        || JSON.stringify(priorManifest.prompts) !== JSON.stringify(manifest.prompts)
+        || priorManifest.index.embeddingIdentity !== manifest.index.embeddingIdentity
+        || previous.repetitions !== report.repetitions || previous.promptCount !== report.promptCount) throw new Error('Incompatible benchmark comparison');
+  }
+  return { ...report, previous, measurement: {hardware: manifest.hardware, index: manifest.index,
+    runtimeRevision: manifest.runtimeRevision ?? manifest.sourceRevision, corpusRevision: manifest.sourceRevision} };
 }
 
 const here = fileURLToPath(import.meta.url);
