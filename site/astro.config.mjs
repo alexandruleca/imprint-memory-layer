@@ -61,14 +61,14 @@ const mermaidHead = [
   const sources = blocks.map((b) => b.textContent);
   const palettes = {
     light: {
-      darkMode: false, background: '#fbfbfd', primaryColor: '#f3efff', primaryTextColor: '#1b1c33',
-      primaryBorderColor: '#7c3aed', lineColor: '#6d28d9', secondaryColor: '#ecfeff', tertiaryColor: '#f4f4f8',
-      noteBkgColor: '#fff7ed', noteBorderColor: '#fdba74', noteTextColor: '#1b1c33',
+      darkMode: false, background: '#fafafa', primaryColor: '#f4f4f5', primaryTextColor: '#171717',
+      primaryBorderColor: '#525252', lineColor: '#404040', secondaryColor: '#fafafa', tertiaryColor: '#f4f4f5',
+      noteBkgColor: '#ffffff', noteBorderColor: '#d4d4d4', noteTextColor: '#171717',
     },
     dark: {
-      darkMode: true, background: '#10111c', primaryColor: '#1d1f38', primaryTextColor: '#eef0fb',
-      primaryBorderColor: '#6366f1', lineColor: '#a78bfa', secondaryColor: '#1f2134', tertiaryColor: '#0c0d16',
-      noteBkgColor: '#2a2440', noteBorderColor: '#6d5bd0', noteTextColor: '#eef0fb',
+      darkMode: true, background: '#0d0d0d', primaryColor: '#1a1a1a', primaryTextColor: '#ededed',
+      primaryBorderColor: '#737373', lineColor: '#a3a3a3', secondaryColor: '#141414', tertiaryColor: '#111111',
+      noteBkgColor: '#1f1f1f', noteBorderColor: '#404040', noteTextColor: '#ededed',
     },
   };
   let shown = '';
@@ -121,7 +121,7 @@ export default defineConfig({
     starlight({
       title: 'Imprint',
       description: 'Persistent MCP memory for Claude Code, Cursor, Copilot, Codex and Cline — shared across tools, machines and teammates. Local-first. −70.4% tokens, −31.7% cost.',
-      logo: { src: './public/logo.svg', replacesTitle: false },
+      logo: { light: './public/logo-lockup.svg', dark: './public/logo-lockup-dark.svg', replacesTitle: true },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/alexandruleca/imprint-memory-layer' },
       ],

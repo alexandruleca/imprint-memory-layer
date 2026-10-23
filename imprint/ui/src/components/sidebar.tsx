@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { LogoMark } from "./logo-mark";
 import {
   LayoutDashboard,
   Network,
@@ -91,8 +92,13 @@ export function Sidebar() {
         style={isElectron ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined}
       >
         {isElectron && <TrafficLights />}
-        <h1 className="hidden sm:block text-lg font-bold tracking-tight">Imprint</h1>
-        <p className="hidden sm:block text-xs text-muted-foreground">AI Memory Dashboard</p>
+        <div className="flex items-center gap-2.5">
+          <LogoMark className="size-7 shrink-0" />
+          <div className="hidden sm:block">
+            <h1 className="text-lg font-bold leading-tight tracking-tight">Imprint</h1>
+            <p className="text-xs text-muted-foreground">AI Memory Dashboard</p>
+          </div>
+        </div>
       </div>
       <nav className="flex-1 p-2 space-y-0.5">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {

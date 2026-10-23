@@ -7,39 +7,45 @@
 
 :root,
 :root[data-theme="dark"] {
-  --sl-color-accent: #8b5cf6;
-  --sl-color-accent-high: #a78bfa;
-  --sl-color-accent-low: #3b2f6a;
-  --sl-color-white: #f8fafc;
-  --sl-color-gray-1: #e2e4f3;
-  --sl-color-gray-2: #c5c8dc;
-  --sl-color-gray-3: #9aa0bf;
-  --sl-color-gray-4: #6b7091;
-  --sl-color-gray-5: #3a3d5a;
-  --sl-color-gray-6: #22243b;
-  --sl-color-gray-7: #151627;
-  --sl-color-black: #07070d;
-  --sl-color-bg: #07070d;
-  --sl-color-bg-nav: #0f1020;
-  --sl-color-bg-sidebar: #0b0c19;
+  --sl-color-accent: #d4d4d4;
+  --sl-color-accent-high: #ffffff;
+  --sl-color-accent-low: #262626;
+  --sl-color-white: #fafafa;
+  --sl-color-gray-1: #e5e5e5;
+  --sl-color-gray-2: #d4d4d4;
+  --sl-color-gray-3: #a3a3a3;
+  --sl-color-gray-4: #737373;
+  --sl-color-gray-5: #404040;
+  --sl-color-gray-6: #262626;
+  --sl-color-gray-7: #171717;
+  --sl-color-black: #0a0a0a;
+  --sl-color-bg: #0a0a0a;
+  --sl-color-bg-nav: #111111;
+  --sl-color-bg-sidebar: #0d0d0d;
 }
 
 /* Starlight's light theme inverts the scale: "white" is the darkest ink and
    "black" the page. */
 :root[data-theme="light"] {
-  --sl-color-accent: #6d28d9;
-  --sl-color-accent-high: #5b21b6;
-  --sl-color-accent-low: #ede9fe;
-  --sl-color-white: #0c0d1f;
-  --sl-color-gray-1: #1b1c33;
-  --sl-color-gray-2: #33364f;
-  --sl-color-gray-3: #4a4e6a;
-  --sl-color-gray-4: #61657f;
-  --sl-color-gray-5: #c9cada;
-  --sl-color-gray-6: #e7e7f0;
-  --sl-color-gray-7: #f4f4f8;
+  --sl-color-accent: #0a0a0a;
+  --sl-color-accent-high: #000000;
+  --sl-color-accent-low: #f0f0f0;
+  --sl-color-white: #0a0a0a;
+  --sl-color-gray-1: #171717;
+  --sl-color-gray-2: #333333;
+  --sl-color-gray-3: #525252;
+  --sl-color-gray-4: #666666;
+  --sl-color-gray-5: #d4d4d4;
+  --sl-color-gray-6: #e5e5e5;
+  --sl-color-gray-7: #f4f4f5;
   --sl-color-black: #ffffff;
   --sl-color-bg: #ffffff;
   --sl-color-bg-nav: #ffffff;
-  --sl-color-bg-sidebar: #fbfbfd;
+  --sl-color-bg-sidebar: #fafafa;
+}
+
+/* The lockup at the landing header's size, not the full nav height. */
+.site-title img {
+  height: 1.75rem;
+  width: auto;
 }
