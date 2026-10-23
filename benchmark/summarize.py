@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Calculate auditable paired statistics, Markdown and website-compatible JSON."""
 import argparse
+import hashlib
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -8,7 +9,7 @@ import statistics
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark.analysis import aggregate, paired_runs, percentile
+from benchmark.analysis import aggregate, paired_runs, percentile, retrieval_summary
 from benchmark.run import write_json
 
 CATEGORIES = [('information', 'Information'), ('decision', 'Decision Recall'),
@@ -22,11 +23,12 @@ def pct(value):
 
 def summarize(raw):
     manifest = json.loads((raw/'manifest.json').read_text())
-    trials = []
-    for path in sorted(raw.glob('*_*.json')):
-        data = json.loads(path.read_text())
-        if 'prompt_id' in data and 'mode' in data:
-            trials.append(data)
+    trials = json.loads((raw/'trials.json').read_text()) if (raw/'trials.json').exists() else []
+    if not trials:
+        for path in sorted(raw.glob('*_*.json')):
+            data = json.loads(path.read_text())
+            if 'prompt_id' in data and 'mode' in data:
+                trials.append(data)
     pairs = paired_runs(trials)
     stats = aggregate(pairs)
     categories = []
@@ -63,6 +65,7 @@ def summarize(raw):
     measured_at = max((t['recordedAt'] for t in trials), default=manifest['createdAt'])
     report = {'schemaVersion': 2, 'generatedAt': measured_at, 'measuredAt': measured_at,
               'calculatedAt': datetime.now(timezone.utc).isoformat(),
+              'analysisSha256': hashlib.sha256(Path(__file__).read_bytes()+Path(__file__).with_name('analysis.py').read_bytes()).hexdigest(),
               'runId': manifest['runId'], 'sourceRevision': manifest['sourceRevision'],
               'status': 'complete' if len(trials) == expected else 'incomplete',
               'runCount': len(trials), 'successfulRuns': len(success), 'failedRuns': len(errors),
@@ -89,19 +92,27 @@ def summarize(raw):
               'trials': trials}
     if (raw/'retrieval-report.json').exists():
         report['retrieval'] = json.loads((raw/'retrieval-report.json').read_text())
+    elif (raw/'retrieval-trials.json').exists():
+        report['retrieval'] = json.loads((raw/'summary.json').read_text())['retrieval']
+        report['retrieval']['queries'] = json.loads((raw/'retrieval-trials.json').read_text())
+    if 'retrieval' in report:
+        report['retrieval'].update(retrieval_summary(report['retrieval']['queries']))
     return report
 
 
 def markdown(report):
     overall = report['overall']
+    ci = lambda values: f'{pct(values[0])} to {pct(values[1])}' if values else 'not estimated'
     lines = ['# Imprint benchmark results', '',
              f"Measured {report['generatedAt'][:10]} against `{report['sourceRevision'][:12]}` using {', '.join(report['modelIds'])}.", '',
              f"{report['runCount']}/{report['expectedRuns']} trials recorded; {report['validPairs']} complete successful pairs; {report['failedRuns']} failed trials.", '',
              f"Total processed tokens: {overall['tokenPct']} ({overall['tokensOff']:,} OFF → {overall['tokensOn']:,} ON).",
              f"Reported list-price cost: {overall['costPct']} (${overall['costOff']:.4f} OFF → ${overall['costOn']:.4f} ON).", '',
-             f"Token-change 95% interval: {overall['tokenChangeCI95']}. Cost-change 95% interval: {overall['costChangeCI95']}.", '',
+             f"Token-change 95% interval: {ci(overall['tokenChangeCI95'])}. Cost-change 95% interval: {ci(overall['costChangeCI95'])}.", '',
              'Totals sum all complete paired trials. Tables below show per-task medians. These are different estimands.', '',
              'No answer-quality uplift is claimed. The old biased LLM judge and response-length proxy are retired.', '']
+    if overall['costChangeCI95'] and overall['costChangeCI95'][0] <= 0 <= overall['costChangeCI95'][1]:
+        lines += ['The cost interval includes no change: the point estimate does not establish a clear saving.', '']
     for category in report['categories']:
         lines += ['## '+category['label'], '', '| Task | Pairs | OFF tokens | ON tokens | Change | OFF cost | ON cost |',
                   '| --- | ---: | ---: | ---: | ---: | ---: | ---: |']
@@ -143,6 +154,7 @@ def main():
         write_json(destination/'summary.json', compact)
         (destination/'README.md').write_text(markdown(report))
         write_json(Path(__file__).parent/'latest.json', {'schemaVersion': 2, 'runId': report['runId']})
+        (Path(__file__).resolve().parents[1]/'BENCHMARK.md').write_text(markdown(report))
     print(f"{report['runCount']}/{report['expectedRuns']} trials; {report['validPairs']} pairs; tokens {report['overall']['tokenPct']}; cost {report['overall']['costPct']}")
 
 

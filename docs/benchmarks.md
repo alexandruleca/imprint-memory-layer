@@ -96,6 +96,8 @@ python benchmark/run.py --resume benchmark/results/RUN_ID --model MODEL_ID
 python benchmark/runtime.py retrieval --state benchmark/results/RUN_ID/state.json \
   --out benchmark/results/RUN_ID/retrieval-report.json --runs 5
 python benchmark/summarize.py benchmark/results/RUN_ID --publish
+# Recalculate a committed evidence bundle without Claude, Qdrant or model weights:
+python benchmark/summarize.py benchmark/published/RUN_ID
 python benchmark/runtime.py stop --state benchmark/results/RUN_ID/state.json
 ```
 
@@ -137,3 +139,9 @@ allowlisted per-model usage ledger and tool-result character counts. It never
 exports credentials, full initialization events or private local paths. Full
 traces remain local. Character counts are not model token attribution. Published
 corpora/trials are excluded from runtime installer bundles.
+
+The manifest's `harnessRevision`/`harnessSha256` identify the measurement code;
+the report's `analysisSha256` identifies the statistics code used to recalculate
+results. Post-measurement validation can reject malformed usage without changing
+the original valid trials. Publishing refreshes the canonical `BENCHMARK.md` as
+well as the website selector and versioned evidence bundle.

@@ -1,0 +1,575 @@
+{
+  "schemaVersion": 2,
+  "sourceRevision": "fdea98aea4bb554b56122271ca482655e8133a07",
+  "runId": "20261023T124638620849Z-fdea98ae-s1729",
+  "createdAt": "2026-10-23T13:06:27.474429+00:00",
+  "modelRequested": "claude-sonnet-5-5",
+  "cliVersion": "2.1.304 (Claude Code)",
+  "seed": 1729,
+  "repetitions": 5,
+  "workers": 2,
+  "maxConcurrentMcpProcesses": 1,
+  "budgetUsd": 30,
+  "trialBudgetUsd": 0.5,
+  "prompts": [
+    {
+      "id": "info-1",
+      "category": "information",
+      "name": "Chunking system",
+      "prompt": "How does the chunking system work in this project? Explain the dispatch logic, what chunker is used for code vs prose, and the overlap strategy.",
+      "checks": [
+        "CodeChunker|tree.sitter",
+        "SemanticChunker",
+        "overlap"
+      ]
+    },
+    {
+      "id": "info-2",
+      "category": "information",
+      "name": "Embedding model",
+      "prompt": "What embedding model does Imprint use and how is the ONNX session configured? Include details about memory safeguards and GPU support.",
+      "checks": [
+        "Qwen3",
+        "1024",
+        "2048",
+        "CPU",
+        "CUDA|GPU"
+      ]
+    },
+    {
+      "id": "info-3",
+      "category": "information",
+      "name": "Workspace isolation",
+      "prompt": "Explain current workspace isolation: collections, graph databases, WAL, approved roots, and how a running MCP session stays pinned when another window switches workspace.",
+      "checks": [
+        "collection",
+        "SQLite|graph.*db",
+        "WAL|write.ahead",
+        "pin|captur|start"
+      ]
+    },
+    {
+      "id": "info-4",
+      "category": "information",
+      "name": "Metadata tagging",
+      "prompt": "How does the metadata tagging system work? Walk me through the four tag sources from deterministic to LLM, including the zero-shot approach.",
+      "checks": [
+        "deterministic",
+        "keyword",
+        "zero.shot",
+        "opt.in|disabled|off"
+      ]
+    },
+    {
+      "id": "info-5",
+      "category": "information",
+      "name": "Qdrant lifecycle",
+      "prompt": "How does the auto-spawned Qdrant server work? Why is server mode used instead of embedded mode? How does qdrant_runner.py handle lifecycle?",
+      "checks": [
+        "HTTP|server",
+        "lock|concurr|multi.process",
+        "checksum|SHA.?256",
+        "PID|process"
+      ]
+    },
+    {
+      "id": "decision-1",
+      "category": "decision",
+      "name": "Qdrant vs embedded",
+      "prompt": "What were the reasons for choosing a Qdrant HTTP server over the embedded/in-process mode in Imprint? Cite the trade-offs considered.",
+      "checks": [
+        "multi.process|concurr|lock",
+        "HTTP|server",
+        "process|daemon"
+      ]
+    },
+    {
+      "id": "decision-2",
+      "category": "decision",
+      "name": "LLM tagger default off",
+      "prompt": "Why is LLM tagging opt-in (IMPRINT_LLM_TAGS=0 by default) while zero-shot tagging is on by default? What problem does that default guard against?",
+      "checks": [
+        "opt.in|disabled|off",
+        "latency|cost|memory|resource",
+        "zero.shot|embedding"
+      ]
+    },
+    {
+      "id": "debug-1",
+      "category": "debug",
+      "name": "Search returns nothing",
+      "prompt": "If mcp__imprint__search returns zero results for a query that should match an indexed file, list the most likely root causes in order of probability, based on this project's known failure modes. Focus on what could be checked in under 30 seconds.",
+      "checks": [
+        "workspace",
+        "profile|identity|model",
+        "index|ingest",
+        "filter|source|project"
+      ]
+    },
+    {
+      "id": "debug-2",
+      "category": "debug",
+      "name": "Slow embedding on first run",
+      "prompt": "A user reports the first embedding call on a fresh install takes 20+ seconds but subsequent calls are fast. Explain what's happening in the ONNX/embedding pipeline that causes this, and whether any of it is avoidable.",
+      "checks": [
+        "download|614|weight",
+        "session|initial|ONNX",
+        "cache|warm|subsequent"
+      ]
+    },
+    {
+      "id": "cross-1",
+      "category": "cross-project",
+      "name": "Async work pattern",
+      "prompt": "Compare background work in Imprint and the synthetic reference project in reference/worker.py. Explain shared patterns and differences in durability, process locking, and workers.",
+      "checks": [
+        "SQLite|durab",
+        "FIFO|queue",
+        "Thread|thread",
+        "lock|process"
+      ]
+    },
+    {
+      "id": "cross-2",
+      "category": "cross-project",
+      "name": "Config precedence",
+      "prompt": "Compare configuration precedence in Imprint and the synthetic reference project in reference/worker.py. Give the priority order and any differences.",
+      "checks": [
+        "env|environment",
+        "config|persist",
+        "default",
+        "REFERENCE_|reference"
+      ]
+    },
+    {
+      "id": "summary-1",
+      "category": "summary",
+      "name": "Recent activity",
+      "prompt": "Using reference/session-notes.md, summarize the three recent Imprint work areas and why each changed. This is synthetic historical evidence; do not infer actual live session history.",
+      "checks": [
+        "workspace|purge",
+        "installer|Windows|macOS",
+        "device|portable|provenance"
+      ]
+    },
+    {
+      "id": "create-1",
+      "category": "creation",
+      "name": "Qdrant connectivity test",
+      "prompt": "Write a Python script called test_qdrant_connectivity.py that connects to the local Qdrant server at the configured host:port, checks if it's reachable, lists collections, and prints memory counts per collection. Use the same Qdrant client library this project uses. Return the implementation in your answer; do not create, modify, or execute files.",
+      "checks": [
+        "QdrantClient",
+        "get_collections",
+        "points_count|count\\(",
+        "config"
+      ]
+    },
+    {
+      "id": "create-2",
+      "category": "creation",
+      "name": "Memory count utility",
+      "prompt": "Write a Python utility function called count_memories_by_project() that queries the Qdrant collection and returns a dict of {project_name: count}. Use the same facet-based approach this project already uses in the MCP server. Return the implementation in your answer; do not create, modify, or execute files.",
+      "checks": [
+        "facet",
+        "project",
+        "count"
+      ]
+    },
+    {
+      "id": "create-3",
+      "category": "creation",
+      "name": "Workspace stats CLI",
+      "prompt": "Write a small Python function named workspace_stats(workspace: str) -> dict that returns {'memories': int, 'facts': int, 'projects': list[str]} for a given Imprint workspace. Reuse existing helpers from the imprint package \u2014 do not re-implement Qdrant access or SQLite queries. Return the implementation in your answer; do not create, modify, or execute files.",
+      "checks": [
+        "workspace",
+        "memories",
+        "facts",
+        "projects",
+        "imprint"
+      ]
+    },
+    {
+      "id": "info-6",
+      "category": "information",
+      "name": "Portable device context",
+      "prompt": "How do shared conversation chunks remain useful when device A uses a Windows path and device B has a Linux checkout elsewhere? Explain recorded origin, retrieval scope, local mappings and legacy data.",
+      "checks": [
+        "origin|provenance",
+        "map|relative",
+        "legacy|unknown",
+        "not.*filter|no.*filter|shared|portable"
+      ]
+    },
+    {
+      "id": "info-7",
+      "category": "information",
+      "name": "Scoped source purge",
+      "prompt": "How can a user remove an accidentally indexed directory from one workspace? Explain preview/apply, overlap approval, exclusions and protection against an embedding job that was already running.",
+      "checks": [
+        "preview",
+        "purge|apply",
+        "exclusion",
+        "overlap|confirm",
+        "guard|fenc|serial|lock"
+      ]
+    },
+    {
+      "id": "debug-3",
+      "category": "debug",
+      "name": "Encrypted sync boundary",
+      "prompt": "A relay operator inspects Imprint sync traffic and tries to replay or alter transferred memories. What protects current sync, what is not protected, and what must the receiver verify for embedding compatibility?",
+      "checks": [
+        "SPAKE2|PAKE",
+        "AES|GCM|encrypt",
+        "replay|sequence|counter",
+        "identity|profile|embedding"
+      ]
+    }
+  ],
+  "corpus": {
+    "files": [
+      {
+        "path": "docs/adr/0001-record-significant-decisions.md",
+        "sha256": "e6754dec0f821937776e31653f309ba53acb7bac62ee2f1caa81ed4b4d683841",
+        "bytes": 1657,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0002-build-and-validate-before-publication.md",
+        "sha256": "0ddacabdd3f7a8addf16171bc44f448adbcbeb032d924c798fafb8f68bbf3b70",
+        "bytes": 2378,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0003-local-mcp-and-portable-hooks.md",
+        "sha256": "a66eee34a5cdd97c8eaadf1667441624acd15a6e2345c3576f1774869660b588",
+        "bytes": 2267,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0004-runtime-dependencies-and-local-boundaries.md",
+        "sha256": "ad10cc3f42cc4ac6779adf8ff7a4f7aae2cf4ffc450f7f8bf3e4837f794245e0",
+        "bytes": 2767,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0005-source-lifecycle-and-hybrid-retrieval.md",
+        "sha256": "09fd86945f2c1181ea2a39f628dad9b29cb44480f924e0d47832d1bcbe30153e",
+        "bytes": 3829,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0006-durable-mcp-and-preserved-client-config.md",
+        "sha256": "2dd78098944f9a72202109b5d02930b9aeb62a98e95e9b1e6ab788fff9e4d21a",
+        "bytes": 3985,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0007-verified-runtime-and-desktop-baseline.md",
+        "sha256": "92cdc4ac5a91634dafec1a870c62f3226a3d4f47f46e1ef0eb4a7c84bd622f5b",
+        "bytes": 3690,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0008-dashboard-retrieval-and-accessibility.md",
+        "sha256": "b522151cfd74929efba87285fa8a680115728c882a3f664c9e9b37ac06d17ff6",
+        "bytes": 2420,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0009-model-profiles-and-embedding-identity.md",
+        "sha256": "b8c9e0e1962db61ccdae955a3e7cc62ec10466b0f8db54329c9dd2dba8a1219e",
+        "bytes": 4126,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "sha256": "d469d1b573a0476829dfd2eb64f9b0e53ea3f2b17d83450e2809bf0bc71539e1",
+        "bytes": 4320,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0011-nightly-trivy-security-scanning.md",
+        "sha256": "9f3f18238251fcb2cac3beedc0ce4337e5333e4b977e7c22341b62fc45a78e84",
+        "bytes": 3067,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0012-native-package-runtime-and-silent-installs.md",
+        "sha256": "671679438047b0c9d155be44ac99c6ba07543b6f2afadbdbcc0011474026dbcd",
+        "bytes": 2622,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0013-remediate-security-scan-dependencies.md",
+        "sha256": "09785752af83cf88fb9d0e52f62a94fac4c78a1a50278977069c20b3197fc8f2",
+        "bytes": 3103,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0014-main-only-release-packaging.md",
+        "sha256": "6ae4f9c7c4a7b7ab585b9d82058dd619db2a9670e179831111869364053948d2",
+        "bytes": 2041,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0015-workspace-roots-and-source-purge.md",
+        "sha256": "fe8b7ae42b88c855114e58de897469e5d03b5ac224414c26d71969665ef1515a",
+        "bytes": 4104,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0016-sync-direction-and-workspace-sharing.md",
+        "sha256": "3d0353eb8d6e7de8d0b5e1f98ec95dd142bafcd0672356c35b767266d9b3bf13",
+        "bytes": 8083,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "sha256": "f82fe316deebb55664e4ef584747715ad595c7ec6a3a3670e7a7f3afe34962e3",
+        "bytes": 3235,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "sha256": "81c42c0d1b11cb11c854b52f2e34abdb96781fec6cf4949827ba55922ccf16c0",
+        "bytes": 12737,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/architecture.md",
+        "sha256": "9fcb3dd639414e110e616e106d4f18eafb811f944097e720f33391fb80f4066b",
+        "bytes": 12195,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/building.md",
+        "sha256": "dd3108d06b0b1247eaa270522de83d5dc637c0f43d3bbead1226a14647250d1e",
+        "bytes": 7921,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/chunking.md",
+        "sha256": "e80b636c6adf196bdb351910818f2c58b7a1e69131a2292e1636637df18040ac",
+        "bytes": 3019,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/configuration.md",
+        "sha256": "04f28b726efa97adc0af2376647c03a4d367f94840c802465c3fc9e3be146319",
+        "bytes": 9589,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/devices.md",
+        "sha256": "48dec271e3d12f6f9cc8faa1804719e3bff2f3c88b718c9c2e5d2350c77c5509",
+        "bytes": 3409,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/embeddings.md",
+        "sha256": "554938c6eb2cbcf745ec44a608737929576aa2d1152fe9da7b0584fdbdf70a88",
+        "bytes": 6605,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/installation.md",
+        "sha256": "9ab62a8dcff8524ad5b65b0adfb9a0d395d96db49225beb2c0981be55cbdaf74",
+        "bytes": 12598,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/local-models.md",
+        "sha256": "6ac67890a7afe3caae4f2bdfa9d840f9cd6ed003e790b30d746ced6ac782a40d",
+        "bytes": 4456,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/mcp.md",
+        "sha256": "61c3b32f944d6ded904042d8683f968d90489eac27f30692f90073bffe26b267",
+        "bytes": 6845,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/queue.md",
+        "sha256": "eb3a8ba258f3e36c2b0231cb0ae1d345e04a5b0e1a653b0e4f398219305ee5d2",
+        "bytes": 6942,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/security-scanning.md",
+        "sha256": "c964320e894c00d1bb3c313978a835a6b518274cb3201e1a128a9bb0d4a18ecb",
+        "bytes": 5571,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/sync.md",
+        "sha256": "0e1df80976d6318e0435d614bd48324b0a0307a83c0fc963ac8cf0dc2269e019",
+        "bytes": 17033,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/tagging.md",
+        "sha256": "b6a7ba3a4d7c71325db6b44390af86d886250b44bb49215f4477ea57238df429",
+        "bytes": 4540,
+        "project": "imprint"
+      },
+      {
+        "path": "docs/workspaces.md",
+        "sha256": "13f179c2859c4b64ccb93b97b30245d630f0c9359b9b564d6d7ac644d88dc451",
+        "bytes": 9700,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/chunker.py",
+        "sha256": "76e803bbb80b128c59daa44a3ac88876b738c48e1da55d3f42eceb7d52ec3b98",
+        "bytes": 15578,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/config.py",
+        "sha256": "a7d835e7c08b5908af92293d72483b7fc09e73e6c26c69d812f7185b8cdb9c51",
+        "bytes": 7961,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/config_schema.py",
+        "sha256": "5a74d3a8ad262d474e017a4b95d45c36eaf8bca7aa0d77c067d722e41a942a6b",
+        "bytes": 21738,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/device.py",
+        "sha256": "7acb13d83cdcc51667b4124bc0f248ccf4ea6de35d426925baffe934a3508147",
+        "bytes": 6062,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/embeddings.py",
+        "sha256": "154d1f3df3e547ff178617b3f0be8d79c67c120edb65b92dbae6295dbb96b6ae",
+        "bytes": 15035,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/imprint_graph.py",
+        "sha256": "8f6e2f75fe5aed436331fc09a1411075f079344e0428915df140587d12377459",
+        "bytes": 5365,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/ingest_core.py",
+        "sha256": "f792d4b65d9161edc5c01516ec03ccbd6534a679e6a30752f4c81749a7fffc39",
+        "bytes": 3928,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/model_profiles.py",
+        "sha256": "798661bab5f347affbddefe5f38a3924a8b7edfa57d3c183f7a895787f5ac65d",
+        "bytes": 945,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/qdrant_runner.py",
+        "sha256": "ef1058f529f78f2e8de0b604feaf15d7314e78ea394d4b3f11e2dc5e446c3564",
+        "bytes": 11041,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/queue.py",
+        "sha256": "d0bb3dd0d241a79eafff882a204e4d940560d54b5efb0f2d7f962524e4e5fde1",
+        "bytes": 22999,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/queue_lock.py",
+        "sha256": "9ee718213db7a3f314d5f58f31942ae477969e069b50d44015f7729d86a6a08c",
+        "bytes": 3600,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/server.py",
+        "sha256": "40501d0c0272f9e09300914704f2b46a16357e0720e6b5d02e413e638f03864b",
+        "bytes": 41914,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/source_state.py",
+        "sha256": "be351d478098917f0448b07112cc27e4487b41dfc8a52d0027d382a43409e5f3",
+        "bytes": 2566,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/sync_crypto.py",
+        "sha256": "2629b87bd8fb1d5a644557c5be4f48d9becedb4369e78d956b32a48226afd6ae",
+        "bytes": 3731,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/tagger.py",
+        "sha256": "d8524a888bde49cf6135974926a3f77b1f85bd0d10cddbad3584d6647dd68c65",
+        "bytes": 38278,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/vectorstore.py",
+        "sha256": "42253c15e51283f3f61c804e1d2a0279a9d0eee97c9b692b897ba3adf2b85dd9",
+        "bytes": 46882,
+        "project": "imprint"
+      },
+      {
+        "path": "imprint/workspace_policy.py",
+        "sha256": "f68a31f1f7e5ce72566e5625a745f76ff4b69f3100f5b86f7bf757605a35bdd3",
+        "bytes": 8671,
+        "project": "imprint"
+      },
+      {
+        "path": "reference/session-notes.md",
+        "sha256": "639e904b53f757d3dc111edf744a117fa3709197e7c1a0b4e6679729682e3789",
+        "bytes": 1294,
+        "project": "reference"
+      },
+      {
+        "path": "reference/worker.py",
+        "sha256": "95c78eff4d9db8b79f7557c37ccc32bc7a13f3387d10af81ce4c777211ede4d2",
+        "bytes": 549,
+        "project": "reference"
+      }
+    ],
+    "sha256": "fb4c7a00966e390321a14c57aede68a87d358f9d3e63aef0e2532f72604e5a9a"
+  },
+  "index": {
+    "passages": 297,
+    "indexSeconds": 406.52552303099947,
+    "embeddingIdentity": "64a8d4b24998d006f4c2d28372fd114bd0bb4668ca2f49e0f652454022d2d8ff",
+    "model": "onnx-community/Qwen3-Embedding-0.6B-ONNX",
+    "modelRevision": "c25a394dd583836952667c12f008335071b3f43d",
+    "modelFile": "onnx/model_quantized.onnx",
+    "dimensions": 1024,
+    "sequenceLength": 2048,
+    "threads": 2,
+    "passageWindowChars": 1800,
+    "passageOverlapChars": 180,
+    "tagging": "disabled; retrieval benchmark uses declared source/project metadata",
+    "dependencies": {
+      "onnxruntime": "1.31.0",
+      "qdrant-client": "1.18.0",
+      "mcp": "2.3.0"
+    },
+    "peakRssMiB": 1700.5390625
+  },
+  "hardware": {
+    "os": "Linux",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "architecture": "x86_64",
+    "python": "3.12.15",
+    "logicalCpus": 32,
+    "cpuModel": "13th Gen Intel(R) Core(TM) i9-13900HX",
+    "memoryTotalMiB": 15857.71484375
+  },
+  "harnessSha256": "d6a9ec8e043806cd715dd021459eacd89ab207997c0325e802c5ca0e772291df",
+  "protocol": "v2: same frozen evidence, read-only tools, fresh sessions, counterbalanced paired order",
+  "costBasis": "Claude Code reported list-price estimate, not a subscription invoice",
+  "cachePolicy": "Provider-managed cache; measured separately, not forced cold. Concurrent trials may share cache.",
+  "qualityPolicy": "Reference regex coverage is diagnostic, not an answer-quality score. No LLM judge.",
+  "harnessRevision": "b49a14bc37336d569a9d1dd1198412e975475c78"
+}

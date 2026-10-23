@@ -1,0 +1,3301 @@
+{
+  "schemaVersion": 2,
+  "trialsAudited": 180,
+  "frozenFilesVerified": 51,
+  "retrievalSearchesAudited": 460,
+  "analysisSha256": "173d61195848f1c2dfe47e11a358ec95c03c1f5fa0bea19b21de8ab3dac9eb93",
+  "toolUsage": {
+    "off": {
+      "Grep": {
+        "calls": 171,
+        "resultChars": 352249,
+        "protocolErrors": 0
+      },
+      "Read": {
+        "calls": 160,
+        "resultChars": 1204691,
+        "protocolErrors": 0
+      },
+      "Glob": {
+        "calls": 43,
+        "resultChars": 51308,
+        "protocolErrors": 0
+      }
+    },
+    "on": {
+      "mcp__imprint__search": {
+        "calls": 94,
+        "resultChars": 641602,
+        "protocolErrors": 0
+      },
+      "Grep": {
+        "calls": 132,
+        "resultChars": 285173,
+        "protocolErrors": 0
+      },
+      "Read": {
+        "calls": 97,
+        "resultChars": 505054,
+        "protocolErrors": 0
+      },
+      "Glob": {
+        "calls": 9,
+        "resultChars": 196,
+        "protocolErrors": 0
+      },
+      "mcp__imprint__status": {
+        "calls": 3,
+        "resultChars": 297,
+        "protocolErrors": 0
+      },
+      "mcp__imprint__device_context": {
+        "calls": 1,
+        "resultChars": 253,
+        "protocolErrors": 0
+      }
+    }
+  },
+  "usageLedger": [
+    {
+      "trial": "create-1_off_0",
+      "traceSha256": "6a0ebc63a9ecf798ee96458d850cf465e8bb3a3b232ac7fe784df6a0004f8163",
+      "status": "success",
+      "totalCostUsd": 0.0309788,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1499,
+          "cacheCreationInputTokens": 3615,
+          "cacheReadInputTokens": 15168,
+          "costUSD": 0.0309788,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_off_1",
+      "traceSha256": "4e4cb62dc185b844b48004ce0419380d243f61b930412187a9540552b3701758",
+      "status": "success",
+      "totalCostUsd": 0.0336342,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1459,
+          "cacheCreationInputTokens": 4397,
+          "cacheReadInputTokens": 14442,
+          "costUSD": 0.0336342,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_off_2",
+      "traceSha256": "22bd0168a640e2ebe3aade404f109dd2660b7eb544a84953c974e4307b3ff252",
+      "status": "success",
+      "totalCostUsd": 0.0319368,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1424,
+          "cacheCreationInputTokens": 4042,
+          "cacheReadInputTokens": 15168,
+          "costUSD": 0.0319368,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_off_3",
+      "traceSha256": "306050c0e73b3d4c0127438de628a9ca5344369b582ff8fd72360dc469f825ef",
+      "status": "success",
+      "totalCostUsd": 0.0367988,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1559,
+          "cacheCreationInputTokens": 4920,
+          "cacheReadInputTokens": 15168,
+          "costUSD": 0.0367988,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_off_4",
+      "traceSha256": "0f8241a8b040083f74ca494d76270f163179f39aa1f1cf649d1faabddef25aba",
+      "status": "success",
+      "totalCostUsd": 0.0348804,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1477,
+          "cacheCreationInputTokens": 4646,
+          "cacheReadInputTokens": 15144,
+          "costUSD": 0.0348804,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_on_0",
+      "traceSha256": "7f5ff78254c545c342a6efc55facd12e2419714a80832c0ab3eceb7aa54651ee",
+      "status": "success",
+      "totalCostUsd": 0.0473772,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1341,
+          "cacheCreationInputTokens": 7744,
+          "cacheReadInputTokens": 29792,
+          "costUSD": 0.0473772,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_on_1",
+      "traceSha256": "6dea51b71afb27ab4a7a89f8f555d98af1c466a19b1c4f065e5b27f2ebf7c993",
+      "status": "success",
+      "totalCostUsd": 0.0466412,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 1324,
+          "cacheCreationInputTokens": 7993,
+          "cacheReadInputTokens": 14212,
+          "costUSD": 0.0466412,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_on_2",
+      "traceSha256": "f0dbc4696e3e7754c9a506d966338630386f23b65add5905ee7ef6664134bf3f",
+      "status": "success",
+      "totalCostUsd": 0.0416826,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 1252,
+          "cacheCreationInputTokens": 6905,
+          "cacheReadInputTokens": 15346,
+          "costUSD": 0.0416826,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_on_3",
+      "traceSha256": "4365b9ff1040f4909a4aea8c75d93d9612ca0e5212e50b3b5ab70f6c70881b8f",
+      "status": "success",
+      "totalCostUsd": 0.0428066,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 1296,
+          "cacheCreationInputTokens": 7076,
+          "cacheReadInputTokens": 15346,
+          "costUSD": 0.0428066,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-1_on_4",
+      "traceSha256": "8ba7256ae0fca75255dae5d565a9d49f9c7ab6cdfc1125bf3a354fc22d0624e2",
+      "status": "success",
+      "totalCostUsd": 0.048513600000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1258,
+          "cacheCreationInputTokens": 8226,
+          "cacheReadInputTokens": 30176,
+          "costUSD": 0.048513600000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_off_0",
+      "traceSha256": "bb49e64d2e782a7b3765b6a903145626be4b3c048f7b4504eac04c243729cb7b",
+      "status": "success",
+      "totalCostUsd": 0.022518999999999997,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 906,
+          "cacheCreationInputTokens": 2986,
+          "cacheReadInputTokens": 15030,
+          "costUSD": 0.022518999999999997,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_off_1",
+      "traceSha256": "acad051d9a880e5771f7dbfc4f49b578d89d0e1ba7a0ee86c750e1eb626d428f",
+      "status": "success",
+      "totalCostUsd": 0.0177379,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 970,
+          "cacheCreationInputTokens": 1583,
+          "cacheReadInputTokens": 16939,
+          "costUSD": 0.0177379,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_off_2",
+      "traceSha256": "3e55c0a6727cfd1ed669d249fe1f125700c470b48061cebcf6543e6f564e61d1",
+      "status": "success",
+      "totalCostUsd": 0.0232943,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1051,
+          "cacheCreationInputTokens": 2799,
+          "cacheReadInputTokens": 15763,
+          "costUSD": 0.0232943,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_off_3",
+      "traceSha256": "cf9d46e4094b610c71ede1215ed10e948c60a6d2dff96bdfafa2a18986ebd9f1",
+      "status": "success",
+      "totalCostUsd": 0.0201163,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 939,
+          "cacheCreationInputTokens": 2285,
+          "cacheReadInputTokens": 15743,
+          "costUSD": 0.0201163,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_off_4",
+      "traceSha256": "d342dc084614465c4c9ba252e39c7267c3710ffc91a029900148e43a8d1acda1",
+      "status": "success",
+      "totalCostUsd": 0.0188499,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1082,
+          "cacheCreationInputTokens": 1580,
+          "cacheReadInputTokens": 16979,
+          "costUSD": 0.0188499,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_on_0",
+      "traceSha256": "59351d551d862b8970d1c73b3fb64665cfc4985b32cfa2425c7ec86ba3896899",
+      "status": "success",
+      "totalCostUsd": 0.0421977,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 831,
+          "cacheCreationInputTokens": 8115,
+          "cacheReadInputTokens": 14197,
+          "costUSD": 0.0421977,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_on_1",
+      "traceSha256": "6e3def00cf4b2299754c88a3d0b1aae36b32261d40da53402fd7c4ab5a6ad6b2",
+      "status": "success",
+      "totalCostUsd": 0.0405356,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 836,
+          "cacheCreationInputTokens": 7659,
+          "cacheReadInputTokens": 15316,
+          "costUSD": 0.0405356,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_on_2",
+      "traceSha256": "c02c35bbc73765ee39c8291889a9e91aaa4f08006f81b546b0a2a7230199afd8",
+      "status": "success",
+      "totalCostUsd": 0.0346514,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 948,
+          "cacheCreationInputTokens": 5590,
+          "cacheReadInputTokens": 27994,
+          "costUSD": 0.0346514,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_on_3",
+      "traceSha256": "6fbfb186ff95bdca96417a163538b9fc22787e08f9dd77dfe42bc40ff7d9b74c",
+      "status": "success",
+      "totalCostUsd": 0.038147600000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 856,
+          "cacheCreationInputTokens": 7012,
+          "cacheReadInputTokens": 15316,
+          "costUSD": 0.038147600000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-2_on_4",
+      "traceSha256": "61be6934e467dff7c82f05866da05ca3e1fd825ad9ce940f81a392936c323067",
+      "status": "success",
+      "totalCostUsd": 0.0390756,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 940,
+          "cacheCreationInputTokens": 7034,
+          "cacheReadInputTokens": 15316,
+          "costUSD": 0.0390756,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_off_0",
+      "traceSha256": "d70569b5ce267aa06beaae6109acf1b963bc8b624352b9917c97b233b3f30b4e",
+      "status": "success",
+      "totalCostUsd": 0.0260955,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1256,
+          "cacheCreationInputTokens": 2998,
+          "cacheReadInputTokens": 15315,
+          "costUSD": 0.0260955,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_off_1",
+      "traceSha256": "41212d3ff844d2a6cbe86bc5a317c6ab581b1a6ae46ff697a507b747b4a4eb8b",
+      "status": "success",
+      "totalCostUsd": 0.0357437,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1496,
+          "cacheCreationInputTokens": 4543,
+          "cacheReadInputTokens": 25957,
+          "costUSD": 0.0357437,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_off_2",
+      "traceSha256": "d32102cdd2230012257d3aa84e7b4eb9cffab6b4d4959830a589a8ba39a15869",
+      "status": "success",
+      "totalCostUsd": 0.0267495,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1209,
+          "cacheCreationInputTokens": 3297,
+          "cacheReadInputTokens": 14595,
+          "costUSD": 0.0267495,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_off_3",
+      "traceSha256": "a988ae01fda600b72a378eab93e615da49f916f9be00853c064d9daa1965c956",
+      "status": "success",
+      "totalCostUsd": 0.0256539,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1206,
+          "cacheCreationInputTokens": 3012,
+          "cacheReadInputTokens": 15339,
+          "costUSD": 0.0256539,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_off_4",
+      "traceSha256": "8d8fb4887df2c430fc81ac2a50a232d2af62825d7161806a7857b756b61411a9",
+      "status": "success",
+      "totalCostUsd": 0.031473600000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1294,
+          "cacheCreationInputTokens": 4049,
+          "cacheReadInputTokens": 23216,
+          "costUSD": 0.031473600000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_on_0",
+      "traceSha256": "8e2d00459c6cc9e9c4e1deae37715adfcd5a0d1198f921b87b3650836245a929",
+      "status": "success",
+      "totalCostUsd": 0.0351775,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1183,
+          "cacheCreationInputTokens": 5178,
+          "cacheReadInputTokens": 26235,
+          "costUSD": 0.0351775,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_on_1",
+      "traceSha256": "102bbbae0517372e20425f950ecbd00a1c3d1c8b5f66e3cb385a28e314b8fa5d",
+      "status": "success",
+      "totalCostUsd": 0.0345913,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1143,
+          "cacheCreationInputTokens": 5131,
+          "cacheReadInputTokens": 26253,
+          "costUSD": 0.0345913,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_on_2",
+      "traceSha256": "57fd189a4feaa7b63c7e0036c670c3014b8ede03f1f3be90f89a00bbefd90778",
+      "status": "success",
+      "totalCostUsd": 0.0356853,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1026,
+          "cacheCreationInputTokens": 5718,
+          "cacheReadInputTokens": 25413,
+          "costUSD": 0.0356853,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_on_3",
+      "traceSha256": "41f1fea690234c722f4ac7d6c8a733d409f1e6865cd07a33ea3285fb2f540e23",
+      "status": "success",
+      "totalCostUsd": 0.0337435,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1135,
+          "cacheCreationInputTokens": 4939,
+          "cacheReadInputTokens": 26255,
+          "costUSD": 0.0337435,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "create-3_on_4",
+      "traceSha256": "3902a80265b8443f15c7b95bb7fb4f0f3535869c1189c0fa8af142571a9518bb",
+      "status": "success",
+      "totalCostUsd": 0.0334748,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1111,
+          "cacheCreationInputTokens": 4932,
+          "cacheReadInputTokens": 26248,
+          "costUSD": 0.0334748,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_off_0",
+      "traceSha256": "5b039f18be925c50c9ade72c57e5c63ae880540c8a33ec98ed7d7dfa4994f15d",
+      "status": "success",
+      "totalCostUsd": 0.079729,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1271,
+          "cacheCreationInputTokens": 16363,
+          "cacheReadInputTokens": 15550,
+          "costUSD": 0.079729,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_off_1",
+      "traceSha256": "e8ea8ea66259b495774cc0746177207983f2250595df7acd48df5b212e2b84cf",
+      "status": "success",
+      "totalCostUsd": 0.0812902,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1421,
+          "cacheCreationInputTokens": 16378,
+          "cacheReadInputTokens": 15562,
+          "costUSD": 0.0812902,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_off_2",
+      "traceSha256": "cffdab604f17a82d01673a316155bfb3815e4e30d7a07b7274d1aa65c41ca2f4",
+      "status": "success",
+      "totalCostUsd": 0.048171599999999995,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1595,
+          "cacheCreationInputTokens": 7660,
+          "cacheReadInputTokens": 15696,
+          "costUSD": 0.048171599999999995,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_off_3",
+      "traceSha256": "ee6958eb90a3255730e647f99e5f3df19e3fe1683b2ed2853cbbc3e6b0e9d863",
+      "status": "success",
+      "totalCostUsd": 0.0856587,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1621,
+          "cacheCreationInputTokens": 16969,
+          "cacheReadInputTokens": 15607,
+          "costUSD": 0.0856587,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_off_4",
+      "traceSha256": "ef2a91798aa5d7e27b568b053bd90dcdd10258f11ce5066666f2e9632fd44c6a",
+      "status": "success",
+      "totalCostUsd": 0.0835237,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1342,
+          "cacheCreationInputTokens": 17148,
+          "cacheReadInputTokens": 14997,
+          "costUSD": 0.0835237,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_on_0",
+      "traceSha256": "4521cadefdc57a9f3a2f43e3db5880271eb839d0811a9a8fa351d04770ff30ba",
+      "status": "success",
+      "totalCostUsd": 0.08591309999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1333,
+          "cacheCreationInputTokens": 17469,
+          "cacheReadInputTokens": 26951,
+          "costUSD": 0.08591309999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_on_1",
+      "traceSha256": "f426d4958b42a484d7eae47ca7281ed0025d3f6e2ec1c46f703cccd8b9819145",
+      "status": "success",
+      "totalCostUsd": 0.08635440000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1426,
+          "cacheCreationInputTokens": 17358,
+          "cacheReadInputTokens": 26504,
+          "costUSD": 0.08635440000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_on_2",
+      "traceSha256": "fc5da4855172050a709bb316d5c9634b6466f13ca422acef175b3055f416802b",
+      "status": "success",
+      "totalCostUsd": 0.04303100000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1352,
+          "cacheCreationInputTokens": 6696,
+          "cacheReadInputTokens": 27150,
+          "costUSD": 0.04303100000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_on_3",
+      "traceSha256": "e615d875d2e5fafda0e9651614183fd72a8177a548ca1c9a91d92bf5f8d4d7b5",
+      "status": "success",
+      "totalCostUsd": 0.043466599999999994,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1428,
+          "cacheCreationInputTokens": 6608,
+          "cacheReadInputTokens": 27426,
+          "costUSD": 0.043466599999999994,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-1_on_4",
+      "traceSha256": "61010cd8890987338010d6e6372f68a6078a981af4297fb4003080e7f9f62a35",
+      "status": "success",
+      "totalCostUsd": 0.04689,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1284,
+          "cacheCreationInputTokens": 7873,
+          "cacheReadInputTokens": 25460,
+          "costUSD": 0.04689,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_off_0",
+      "traceSha256": "c752c908c1b8ad070e7ceb1a37292b7d86b5fc8797c7daf3943648a7dcd5fba0",
+      "status": "success",
+      "totalCostUsd": 0.0333909,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1238,
+          "cacheCreationInputTokens": 4792,
+          "cacheReadInputTokens": 18309,
+          "costUSD": 0.0333909,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_off_1",
+      "traceSha256": "9b7e3b69ff691baefbcaebd1949fa1214f556d94a2c3dffc02314ec8ae40242e",
+      "status": "success",
+      "totalCostUsd": 0.0490823,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1363,
+          "cacheCreationInputTokens": 8181,
+          "cacheReadInputTokens": 27123,
+          "costUSD": 0.0490823,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_off_2",
+      "traceSha256": "0eee9908604ffb0eca7a178de2e16777f21763db8f7acca1af2dea1169019e54",
+      "status": "success",
+      "totalCostUsd": 0.044681900000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1514,
+          "cacheCreationInputTokens": 6739,
+          "cacheReadInputTokens": 25699,
+          "costUSD": 0.044681900000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_off_3",
+      "traceSha256": "77a01899fada39d7b7c1283249cef0e46ce9a03da694c736d51da62d41408e13",
+      "status": "success",
+      "totalCostUsd": 0.031055799999999998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1481,
+          "cacheCreationInputTokens": 3499,
+          "cacheReadInputTokens": 22338,
+          "costUSD": 0.031055799999999998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_off_4",
+      "traceSha256": "d7254ede12bef249094018db37e24f7569c396c5a5956ee334917e8c148a3c20",
+      "status": "success",
+      "totalCostUsd": 0.031378699999999995,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1504,
+          "cacheCreationInputTokens": 3533,
+          "cacheReadInputTokens": 21907,
+          "costUSD": 0.031378699999999995,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_on_0",
+      "traceSha256": "4f654cc612a234212579518675eb4610b1ad9baebca066701348d3d838baed87",
+      "status": "success",
+      "totalCostUsd": 0.045466099999999995,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1132,
+          "cacheCreationInputTokens": 7797,
+          "cacheReadInputTokens": 29461,
+          "costUSD": 0.045466099999999995,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_on_1",
+      "traceSha256": "8e3bb8c07d1ba461564be15a83c5eb1a1c36c5c568fb63f15e9e561c6757bfd4",
+      "status": "success",
+      "totalCostUsd": 0.027278399999999998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 886,
+          "cacheCreationInputTokens": 4222,
+          "cacheReadInputTokens": 15224,
+          "costUSD": 0.027278399999999998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_on_2",
+      "traceSha256": "0b48361a68e338a47165a590567db4ed2a207735a5282a55115e36694edec4c3",
+      "status": "success",
+      "totalCostUsd": 0.028374399999999998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 850,
+          "cacheCreationInputTokens": 4586,
+          "cacheReadInputTokens": 15224,
+          "costUSD": 0.028374399999999998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_on_3",
+      "traceSha256": "65f10ffd07596edfe64c74116164d2f009d5a110599fe3f3b29f8f7d17e6380d",
+      "status": "success",
+      "totalCostUsd": 0.0559998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1310,
+          "cacheCreationInputTokens": 9948,
+          "cacheReadInputTokens": 30958,
+          "costUSD": 0.0559998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "cross-2_on_4",
+      "traceSha256": "0f7aeaf875154481899b7fd84b63ca73cb1d052b4ee2f72b8056852f45361e86",
+      "status": "success",
+      "totalCostUsd": 0.06456999999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1388,
+          "cacheCreationInputTokens": 11487,
+          "cacheReadInputTokens": 47260,
+          "costUSD": 0.06456999999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_off_0",
+      "traceSha256": "1a2675b444b064eca65265df8060f39ed27d0ff4adb10d7b7404d68bd4b05dfa",
+      "status": "success",
+      "totalCostUsd": 0.047119400000000006,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1543,
+          "cacheCreationInputTokens": 7293,
+          "cacheReadInputTokens": 25014,
+          "costUSD": 0.047119400000000006,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_off_1",
+      "traceSha256": "77882da2be1f18862bee75778bc6ba63401c8cee21f4036ba38e22115010d3d2",
+      "status": "success",
+      "totalCostUsd": 0.036163600000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1330,
+          "cacheCreationInputTokens": 5287,
+          "cacheReadInputTokens": 17036,
+          "costUSD": 0.036163600000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_off_2",
+      "traceSha256": "0feb48fe915c46b264c0ba637f5562e282113b9674a531812074b6089a9da80d",
+      "status": "success",
+      "totalCostUsd": 0.0346591,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1605,
+          "cacheCreationInputTokens": 4021,
+          "cacheReadInputTokens": 25091,
+          "costUSD": 0.0346591,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_off_3",
+      "traceSha256": "2141d552e83d8cace6578e35df391782042171f4cbe2ad3120717acaf85dbbce",
+      "status": "success",
+      "totalCostUsd": 0.04801590000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1505,
+          "cacheCreationInputTokens": 7569,
+          "cacheReadInputTokens": 26739,
+          "costUSD": 0.04801590000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_off_4",
+      "traceSha256": "8cebfd6ec3cac1fa2de296e7a4bdce9e1984603f8460ce872357549bd680ccb4",
+      "status": "success",
+      "totalCostUsd": 0.0548615,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1535,
+          "cacheCreationInputTokens": 9247,
+          "cacheReadInputTokens": 25075,
+          "costUSD": 0.0548615,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_on_0",
+      "traceSha256": "56f72f65307be80ba4e8240b1bf8b791e859b896ba7811660a83133a9f96c4f0",
+      "status": "success",
+      "totalCostUsd": 0.0381963,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1299,
+          "cacheCreationInputTokens": 5623,
+          "cacheReadInputTokens": 27023,
+          "costUSD": 0.0381963,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_on_1",
+      "traceSha256": "973823777472b79773602699d627cf43e173edb9eb3b5bdcfba37667dda9f0ee",
+      "status": "success",
+      "totalCostUsd": 0.0364438,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1391,
+          "cacheCreationInputTokens": 4945,
+          "cacheReadInputTokens": 27418,
+          "costUSD": 0.0364438,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_on_2",
+      "traceSha256": "5628916d5ce6d798f672b09e164882b4a4ed5c7259b7ba9a68ecd4d093e112b8",
+      "status": "success",
+      "totalCostUsd": 0.053159899999999996,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1671,
+          "cacheCreationInputTokens": 8091,
+          "cacheReadInputTokens": 40699,
+          "costUSD": 0.053159899999999996,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_on_3",
+      "traceSha256": "57743a453a11d5d434bfd5af599d3884226affb2999f7293286a34b17453088b",
+      "status": "success",
+      "totalCostUsd": 0.057171799999999995,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1671,
+          "cacheCreationInputTokens": 9078,
+          "cacheReadInputTokens": 41338,
+          "costUSD": 0.057171799999999995,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-1_on_4",
+      "traceSha256": "b88018cf07a6bac23ab720d7d2569c01f806ed23e0795543812dcff79e16acf9",
+      "status": "success",
+      "totalCostUsd": 0.0413598,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 1089,
+          "cacheCreationInputTokens": 7261,
+          "cacheReadInputTokens": 14178,
+          "costUSD": 0.0413598,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_off_0",
+      "traceSha256": "c8ee200fe36992927f78986d14240a6c6fb70211148b4f30317d5d6fdfa1a9ed",
+      "status": "success",
+      "totalCostUsd": 0.062360299999999994,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1314,
+          "cacheCreationInputTokens": 11900,
+          "cacheReadInputTokens": 16083,
+          "costUSD": 0.062360299999999994,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_off_1",
+      "traceSha256": "207a7adb64589098ab97cd8cf2217bfac956c272d57cb03115e664339dd619b2",
+      "status": "success",
+      "totalCostUsd": 0.0586997,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1311,
+          "cacheCreationInputTokens": 11015,
+          "cacheReadInputTokens": 15177,
+          "costUSD": 0.0586997,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_off_2",
+      "traceSha256": "870da68637299531e98861c5367b61c97af22f92928331ed4e0575d16147ac95",
+      "status": "success",
+      "totalCostUsd": 0.0684322,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1358,
+          "cacheCreationInputTokens": 12920,
+          "cacheReadInputTokens": 31562,
+          "costUSD": 0.0684322,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_off_3",
+      "traceSha256": "4cee1750ca5f33ca03ab4943397ad0ef8d47e31761e0c3a8b2baf48d8e78b2fd",
+      "status": "success",
+      "totalCostUsd": 0.0667716,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1397,
+          "cacheCreationInputTokens": 12398,
+          "cacheReadInputTokens": 31936,
+          "costUSD": 0.0667716,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_off_4",
+      "traceSha256": "d3fac673bdc4cdd70d86d4fb1475fb279f7daf5d44879ba40b773085ebce6964",
+      "status": "success",
+      "totalCostUsd": 0.062024300000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1276,
+          "cacheCreationInputTokens": 11911,
+          "cacheReadInputTokens": 16083,
+          "costUSD": 0.062024300000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_on_0",
+      "traceSha256": "2fc447228c1430e2a461353c5ccf6d9a7f5f404bf3a7208d41e7b3d5b99014d0",
+      "status": "success",
+      "totalCostUsd": 0.0538108,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1520,
+          "cacheCreationInputTokens": 8627,
+          "cacheReadInputTokens": 40868,
+          "costUSD": 0.0538108,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_on_1",
+      "traceSha256": "88e56f27ce6b127a5c9213ac6b8b5971bbdc35ae6f1a131d2525060131d4d8bd",
+      "status": "success",
+      "totalCostUsd": 0.059565599999999996,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1525,
+          "cacheCreationInputTokens": 9997,
+          "cacheReadInputTokens": 43116,
+          "costUSD": 0.059565599999999996,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_on_2",
+      "traceSha256": "a1d8fa0ae06911c73b2d9ca17919f9251eb742b66b5628135b5f33ef9bb7f737",
+      "status": "success",
+      "totalCostUsd": 0.0680177,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1494,
+          "cacheCreationInputTokens": 12226,
+          "cacheReadInputTokens": 41577,
+          "costUSD": 0.0680177,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_on_3",
+      "traceSha256": "e72d85c4e659026c7612ce4da6ef4fb782bcd1981550eefaec7cf5cee32779b9",
+      "status": "success",
+      "totalCostUsd": 0.0608282,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1704,
+          "cacheCreationInputTokens": 9903,
+          "cacheReadInputTokens": 41602,
+          "costUSD": 0.0608282,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-2_on_4",
+      "traceSha256": "e301ff37769a15a7ab4571dedbd0a7f8762f00effc6f6df06870ff35dc971597",
+      "status": "success",
+      "totalCostUsd": 0.07021379999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1652,
+          "cacheCreationInputTokens": 12343,
+          "cacheReadInputTokens": 43058,
+          "costUSD": 0.07021379999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_off_0",
+      "traceSha256": "d26e1b1b55e7183d42a4106b50fdcfa23da27b39562aeac5a523d9f4d9fbfbaa",
+      "status": "success",
+      "totalCostUsd": 0.0802429,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1474,
+          "cacheCreationInputTokens": 15478,
+          "cacheReadInputTokens": 35749,
+          "costUSD": 0.0802429,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_off_1",
+      "traceSha256": "a1ea6c3f326e6adef22325cc30905edc5a79fdeb4c3a5a0a4c554d241215731d",
+      "status": "success",
+      "totalCostUsd": 0.0825446,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1668,
+          "cacheCreationInputTokens": 15565,
+          "cacheReadInputTokens": 35886,
+          "costUSD": 0.0825446,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_off_2",
+      "traceSha256": "a1c1eb0cd5de58bb531573f6e318a6d3406118d78e79e6466029c333ca6dabc1",
+      "status": "success",
+      "totalCostUsd": 0.0738994,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1322,
+          "cacheCreationInputTokens": 14768,
+          "cacheReadInputTokens": 15954,
+          "costUSD": 0.0738994,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_off_3",
+      "traceSha256": "31bc642ab079e0be936e65ac5f7602d5832a1422bf06cd19a61baa13a725897f",
+      "status": "success",
+      "totalCostUsd": 0.0765264,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1297,
+          "cacheCreationInputTokens": 15503,
+          "cacheReadInputTokens": 15324,
+          "costUSD": 0.0765264,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_off_4",
+      "traceSha256": "ef98e639db789b95d78e01c2aa9be89936ea85d5b69923a0e7e70005c2d93f98",
+      "status": "success",
+      "totalCostUsd": 0.0742449,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1334,
+          "cacheCreationInputTokens": 14823,
+          "cacheReadInputTokens": 16009,
+          "costUSD": 0.0742449,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_on_0",
+      "traceSha256": "3502eaf78b86daca025dc38278520ac6ac0dedec1837855f5c5a0232fda86920",
+      "status": "success",
+      "totalCostUsd": 0.0634817,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1735,
+          "cacheCreationInputTokens": 10438,
+          "cacheReadInputTokens": 43637,
+          "costUSD": 0.0634817,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_on_1",
+      "traceSha256": "5b6fafef1f3e5b6b2d7bf24375d63a6933d16cf566d1a9b555949df86ac98bff",
+      "status": "success",
+      "totalCostUsd": 0.06473369999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1530,
+          "cacheCreationInputTokens": 11232,
+          "cacheReadInputTokens": 44897,
+          "costUSD": 0.06473369999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_on_2",
+      "traceSha256": "f2256cf548b7b8223c1b9b21f4f35410911025865219c2ece28b06392396daa8",
+      "status": "success",
+      "totalCostUsd": 0.0555233,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1409,
+          "cacheCreationInputTokens": 9671,
+          "cacheReadInputTokens": 27373,
+          "costUSD": 0.0555233,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_on_3",
+      "traceSha256": "425037f253e399abac1ae387e98bb3a4c4c8f015ebdedddfd970858882b8af60",
+      "status": "success",
+      "totalCostUsd": 0.0648822,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 12,
+          "outputTokens": 1980,
+          "cacheCreationInputTokens": 9506,
+          "cacheReadInputTokens": 70342,
+          "costUSD": 0.0648822,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "debug-3_on_4",
+      "traceSha256": "5a67e00ff8703eea47cb49cfdded931b2512787803c31bc2f578ac5c5587a045",
+      "status": "success",
+      "totalCostUsd": 0.067384,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1483,
+          "cacheCreationInputTokens": 11976,
+          "cacheReadInputTokens": 46340,
+          "costUSD": 0.067384,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_off_0",
+      "traceSha256": "5b30f245c7da69d303fb917e63bbea367fcfc9fa63ce4f21875eb6a021bb0abd",
+      "status": "success",
+      "totalCostUsd": 0.033356300000000005,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1298,
+          "cacheCreationInputTokens": 4541,
+          "cacheReadInputTokens": 21963,
+          "costUSD": 0.033356300000000005,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_off_1",
+      "traceSha256": "8730be0994050736060e5d9573b5b56211381fbc5eea0ab3169b9e383fe162a7",
+      "status": "success",
+      "totalCostUsd": 0.0294681,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1033,
+          "cacheCreationInputTokens": 4407,
+          "cacheReadInputTokens": 14981,
+          "costUSD": 0.0294681,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_off_2",
+      "traceSha256": "302eeecd906f04ca8785ac7696d9a04e7d6cfecfbb93eb2a69a388c36ccdfeba",
+      "status": "success",
+      "totalCostUsd": 0.0462869,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1287,
+          "cacheCreationInputTokens": 7978,
+          "cacheReadInputTokens": 14929,
+          "costUSD": 0.0462869,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_off_3",
+      "traceSha256": "6d6eff739d145f672a9b65b4899b759aa2b2618e709343e3f06a34b670971079",
+      "status": "success",
+      "totalCostUsd": 0.031160999999999998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1378,
+          "cacheCreationInputTokens": 3754,
+          "cacheReadInputTokens": 23490,
+          "costUSD": 0.031160999999999998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_off_4",
+      "traceSha256": "643c47ae3d2b5fe99fc177747bc8a8d453a14d0c8640d1c1dd6cbbf82ec0b303",
+      "status": "success",
+      "totalCostUsd": 0.030035299999999997,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1070,
+          "cacheCreationInputTokens": 4457,
+          "cacheReadInputTokens": 14953,
+          "costUSD": 0.030035299999999997,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_on_0",
+      "traceSha256": "29316009272e490b5732a663307c4ac441e9f46aa268460667753287a8ec062c",
+      "status": "success",
+      "totalCostUsd": 0.0263018,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 649,
+          "cacheCreationInputTokens": 4597,
+          "cacheReadInputTokens": 14158,
+          "costUSD": 0.0263018,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_on_1",
+      "traceSha256": "4dc9286d631f15066f0431cb1234b3c7ad9079ababedcf3b6266a000158efac0",
+      "status": "success",
+      "totalCostUsd": 0.0316011,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 952,
+          "cacheCreationInputTokens": 4875,
+          "cacheReadInputTokens": 25691,
+          "costUSD": 0.0316011,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_on_2",
+      "traceSha256": "0500f46ea0a81d6c35d37800babf41c0cb864e67fa18648a16216e4d23126da1",
+      "status": "success",
+      "totalCostUsd": 0.0227058,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 709,
+          "cacheCreationInputTokens": 3521,
+          "cacheReadInputTokens": 15238,
+          "costUSD": 0.0227058,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_on_3",
+      "traceSha256": "3375588888e7f7b1f3acb8df246774e0e06640456ced98fec6326681d1158a69",
+      "status": "success",
+      "totalCostUsd": 0.027337800000000002,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 951,
+          "cacheCreationInputTokens": 4074,
+          "cacheReadInputTokens": 15238,
+          "costUSD": 0.027337800000000002,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-1_on_4",
+      "traceSha256": "f0043bd11c6407ff4871eb5c95ed98de6bd28c91accedcd8039f12be9be74ce0",
+      "status": "success",
+      "totalCostUsd": 0.038131700000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1099,
+          "cacheCreationInputTokens": 6074,
+          "cacheReadInputTokens": 28337,
+          "costUSD": 0.038131700000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_off_0",
+      "traceSha256": "0ab5460852ec4a2bcda7b86c37add03ecfe1460938eed51ebaa681c2f61bcd84",
+      "status": "success",
+      "totalCostUsd": 0.027770100000000002,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 996,
+          "cacheCreationInputTokens": 4009,
+          "cacheReadInputTokens": 17621,
+          "costUSD": 0.027770100000000002,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_off_1",
+      "traceSha256": "be609376080c66726f93e5d0514a115a095eb56703ada8bcce5e6b3c5fca81ca",
+      "status": "success",
+      "totalCostUsd": 0.0235601,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 882,
+          "cacheCreationInputTokens": 3459,
+          "cacheReadInputTokens": 8961,
+          "costUSD": 0.0235601,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_off_2",
+      "traceSha256": "3246aa186b95e57e1b5b3d14e81d6f6eccaa900d5a71d48c4d9d29dd0f51d696",
+      "status": "success",
+      "totalCostUsd": 0.0312998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 912,
+          "cacheCreationInputTokens": 5302,
+          "cacheReadInputTokens": 9638,
+          "costUSD": 0.0312998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_off_3",
+      "traceSha256": "ef34c19d394293a2e4b4bfbd453a4648f241d5c9ff19944d4edbb642dee57ce5",
+      "status": "success",
+      "totalCostUsd": 0.024126299999999996,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 939,
+          "cacheCreationInputTokens": 3250,
+          "cacheReadInputTokens": 17243,
+          "costUSD": 0.024126299999999996,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_off_4",
+      "traceSha256": "550e762183ffd9f759e3ea051fc532847ab0601b76480aec8dacedb2cefabfb0",
+      "status": "success",
+      "totalCostUsd": 0.0256281,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 917,
+          "cacheCreationInputTokens": 3671,
+          "cacheReadInputTokens": 17621,
+          "costUSD": 0.0256281,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_on_0",
+      "traceSha256": "929f487bac9dfcf35f366d4a7081438638dc2985eb06ac04e1e269765847bd71",
+      "status": "success",
+      "totalCostUsd": 0.030899600000000003,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 805,
+          "cacheCreationInputTokens": 5329,
+          "cacheReadInputTokens": 15256,
+          "costUSD": 0.030899600000000003,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_on_1",
+      "traceSha256": "e04369324729da9f2c44afda011ecd616e613f375241a5ffa830f7b8a799e068",
+      "status": "success",
+      "totalCostUsd": 0.0406758,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 820,
+          "cacheCreationInputTokens": 7788,
+          "cacheReadInputTokens": 13158,
+          "costUSD": 0.0406758,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_on_2",
+      "traceSha256": "0eea1cd44609e44da2b2abed1e9d4c39b2294d0b65da59175518ad6e88286697",
+      "status": "success",
+      "totalCostUsd": 0.0328496,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 856,
+          "cacheCreationInputTokens": 5689,
+          "cacheReadInputTokens": 15256,
+          "costUSD": 0.0328496,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_on_3",
+      "traceSha256": "f727bc3c46a9b7ea0f1ae5fa0e73c9b23c815afbce7bce1538258ecf2b3192dc",
+      "status": "success",
+      "totalCostUsd": 0.035645300000000005,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 944,
+          "cacheCreationInputTokens": 5843,
+          "cacheReadInputTokens": 28213,
+          "costUSD": 0.035645300000000005,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "decision-2_on_4",
+      "traceSha256": "b53081c56a5fa03fa996a0769d97d47129076eb2f087c305f7fa62b9156c3045",
+      "status": "success",
+      "totalCostUsd": 0.0323016,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 782,
+          "cacheCreationInputTokens": 5737,
+          "cacheReadInputTokens": 15256,
+          "costUSD": 0.0323016,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_off_0",
+      "traceSha256": "2cad1758288ab0a0f645431dfcea53aa91782f02b7100423fbd4b16f7a56eda9",
+      "status": "success",
+      "totalCostUsd": 0.0541311,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1399,
+          "cacheCreationInputTokens": 9658,
+          "cacheReadInputTokens": 14971,
+          "costUSD": 0.0541311,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_off_1",
+      "traceSha256": "15759de7a034ca9f45a6a2c4039998f2823f4d4b77f1f09245abc017261353ad",
+      "status": "success",
+      "totalCostUsd": 0.05432880000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1379,
+          "cacheCreationInputTokens": 9755,
+          "cacheReadInputTokens": 15068,
+          "costUSD": 0.05432880000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_off_2",
+      "traceSha256": "e5fa2754c8a91e4ec4424991611286fcfe5ac93f9dde6517c489fa821f00c354",
+      "status": "success",
+      "totalCostUsd": 0.0432952,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1504,
+          "cacheCreationInputTokens": 6506,
+          "cacheReadInputTokens": 22152,
+          "costUSD": 0.0432952,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_off_3",
+      "traceSha256": "c1d3017933707a0204b8e47da1fbee5619db4669550b1a576a7f076a1b1c325e",
+      "status": "success",
+      "totalCostUsd": 0.0546788,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1414,
+          "cacheCreationInputTokens": 9755,
+          "cacheReadInputTokens": 15068,
+          "costUSD": 0.0546788,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_off_4",
+      "traceSha256": "a1b438d343db909b8ba47756f1a5fdab1980afd7cfa547243bb6b817edd91a49",
+      "status": "success",
+      "totalCostUsd": 0.05390110000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1376,
+          "cacheCreationInputTokens": 9658,
+          "cacheReadInputTokens": 14971,
+          "costUSD": 0.05390110000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_on_0",
+      "traceSha256": "93459ad18d9199eb3256ff5e8386b825cb8e1e0a24b08f55e2a2a2015af1f72f",
+      "status": "success",
+      "totalCostUsd": 0.0170308,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1323,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 37888,
+          "costUSD": 0.0170308,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_on_1",
+      "traceSha256": "3751e31e6086f572771c2f1a47643e27a2817cfa4081b02f0c1b54c43ad0ccc5",
+      "status": "success",
+      "totalCostUsd": 0.05963650000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1182,
+          "cacheCreationInputTokens": 11286,
+          "cacheReadInputTokens": 26605,
+          "costUSD": 0.05963650000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_on_2",
+      "traceSha256": "d758b98df8015160bc5cbeda29cbc90f7f2aadebba119c837801fa72b3932256",
+      "status": "success",
+      "totalCostUsd": 0.0690381,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1292,
+          "cacheCreationInputTokens": 13387,
+          "cacheReadInputTokens": 25581,
+          "costUSD": 0.0690381,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_on_3",
+      "traceSha256": "bc0398c405c592d76fad0065c50657217371ccf1564dc19917d91c31db2c7e3f",
+      "status": "success",
+      "totalCostUsd": 0.059614600000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1279,
+          "cacheCreationInputTokens": 11044,
+          "cacheReadInputTokens": 26366,
+          "costUSD": 0.059614600000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-1_on_4",
+      "traceSha256": "ac7beb491235d4c08f70cbe27bedcafb390fdf2019156a3a38d67763379d8443",
+      "status": "success",
+      "totalCostUsd": 0.0457188,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1259,
+          "cacheCreationInputTokens": 7520,
+          "cacheReadInputTokens": 30368,
+          "costUSD": 0.0457188,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_off_0",
+      "traceSha256": "318d5592bb6004b25ec78aab8c2324d212d1cb19f51764437cd5559143016cb9",
+      "status": "success",
+      "totalCostUsd": 0.032977400000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1449,
+          "cacheCreationInputTokens": 4039,
+          "cacheReadInputTokens": 23154,
+          "costUSD": 0.032977400000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_off_1",
+      "traceSha256": "3d72f5a3c93206bf7774c21378997414faae6ba9f23837a36d692f5eb20bdddd",
+      "status": "success",
+      "totalCostUsd": 0.055419300000000005,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1233,
+          "cacheCreationInputTokens": 10397,
+          "cacheReadInputTokens": 14893,
+          "costUSD": 0.055419300000000005,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_off_2",
+      "traceSha256": "7bc51a14913de4e682d948b944737d288147fd7bf5bf694abe7d770f5994e95f",
+      "status": "success",
+      "totalCostUsd": 0.0561356,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1287,
+          "cacheCreationInputTokens": 10440,
+          "cacheReadInputTokens": 14936,
+          "costUSD": 0.0561356,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_off_3",
+      "traceSha256": "725e05af0b13d1697f6b99829368cfa955d573e2ffc7e04d8796855f72ddfe69",
+      "status": "success",
+      "totalCostUsd": 0.057351200000000005,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1181,
+          "cacheCreationInputTokens": 11027,
+          "cacheReadInputTokens": 14212,
+          "costUSD": 0.057351200000000005,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_off_4",
+      "traceSha256": "eb776a33f60d39c9ba9156a9f1e367dd4c958507059e54579728df5b3a574891",
+      "status": "success",
+      "totalCostUsd": 0.0343488,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1707,
+          "cacheCreationInputTokens": 3754,
+          "cacheReadInputTokens": 22468,
+          "costUSD": 0.0343488,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_on_0",
+      "traceSha256": "cce89132d10a2b9a3957007ea3ba3416a7ad7f51ff06072ec2127083b2075a8c",
+      "status": "success",
+      "totalCostUsd": 0.035082300000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1234,
+          "cacheCreationInputTokens": 5010,
+          "cacheReadInputTokens": 26903,
+          "costUSD": 0.035082300000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_on_1",
+      "traceSha256": "ee8c5d45e9e0023c057151754a342e9645f6785ac7f1172128a9f4bfa98ab9ed",
+      "status": "success",
+      "totalCostUsd": 0.061446999999999995,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1634,
+          "cacheCreationInputTokens": 10226,
+          "cacheReadInputTokens": 41870,
+          "costUSD": 0.061446999999999995,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_on_2",
+      "traceSha256": "eebf0cebf05de04c64c38a75130c0088e93bb03267590dc6e9ddf2854ec1396d",
+      "status": "success",
+      "totalCostUsd": 0.04478700000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1601,
+          "cacheCreationInputTokens": 6047,
+          "cacheReadInputTokens": 45730,
+          "costUSD": 0.04478700000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_on_3",
+      "traceSha256": "a609393175bc852f0f40000eb2f574c1f3c38e180e8ad61e373d3654647bd435",
+      "status": "success",
+      "totalCostUsd": 0.0709589,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1839,
+          "cacheCreationInputTokens": 12029,
+          "cacheReadInputTokens": 44369,
+          "costUSD": 0.0709589,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-2_on_4",
+      "traceSha256": "c93a2d4831437fd2bb0d00033051114e5e6a29b3b87af521373175ee6268ecfd",
+      "status": "success",
+      "totalCostUsd": 0.0522625,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1407,
+          "cacheCreationInputTokens": 8827,
+          "cacheReadInputTokens": 28725,
+          "costUSD": 0.0522625,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_off_0",
+      "traceSha256": "3d8a33d23d7e6d01f960de6e8738462a169283e6846e3488827069dda916de53",
+      "status": "success",
+      "totalCostUsd": 0.052641299999999995,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 1673,
+          "cacheCreationInputTokens": 8019,
+          "cacheReadInputTokens": 38153,
+          "costUSD": 0.052641299999999995,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_off_1",
+      "traceSha256": "3f74edb865ba250d67e1405e3b4e1e2eb67d23fd67c5b9c6ba7989544d3efc22",
+      "status": "success",
+      "totalCostUsd": 0.0650729,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 1973,
+          "cacheCreationInputTokens": 10263,
+          "cacheReadInputTokens": 42709,
+          "costUSD": 0.0650729,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_off_2",
+      "traceSha256": "128967ff18d51d19c077244cef1ba9ec0da4a6079f6516045a9b36ee59aefff9",
+      "status": "success",
+      "totalCostUsd": 0.07457839999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 2021,
+          "cacheCreationInputTokens": 12489,
+          "cacheReadInputTokens": 43924,
+          "costUSD": 0.07457839999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_off_3",
+      "traceSha256": "19fc3423e0058ead6af941a4ae22e1bbc4f3531b1f3369fc76f8e684f36f9784",
+      "status": "success",
+      "totalCostUsd": 0.08041390000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 14,
+          "outputTokens": 2597,
+          "cacheCreationInputTokens": 11953,
+          "cacheReadInputTokens": 66039,
+          "costUSD": 0.08041390000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_off_4",
+      "traceSha256": "eba226aab9bd8ee576b6f5ecc7b5d61885edbeba5c7282d471cd3639cc2dd3e1",
+      "status": "success",
+      "totalCostUsd": 0.09396890000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 2114,
+          "cacheCreationInputTokens": 16886,
+          "cacheReadInputTokens": 52649,
+          "costUSD": 0.09396890000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_on_0",
+      "traceSha256": "14fa831704df2b1aed0a4adcf8c03e20ae38fa1af881392c39f3c7e6a792e553",
+      "status": "success",
+      "totalCostUsd": 0.0663723,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 1676,
+          "cacheCreationInputTokens": 10859,
+          "cacheReadInputTokens": 61563,
+          "costUSD": 0.0663723,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_on_1",
+      "traceSha256": "45a54ba0b1bb2da6490f5512e9ac95b5b39942f0d72ee67d0ba3b374c35b423b",
+      "status": "success",
+      "totalCostUsd": 0.06505259999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 12,
+          "outputTokens": 2282,
+          "cacheCreationInputTokens": 8846,
+          "cacheReadInputTokens": 68246,
+          "costUSD": 0.06505259999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_on_2",
+      "traceSha256": "392a161ca4888f4624ba3646203e0aadc0d5539321ac55fe294dc1df25e8dc87",
+      "status": "success",
+      "totalCostUsd": 0.057826,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1332,
+          "cacheCreationInputTokens": 10491,
+          "cacheReadInputTokens": 25300,
+          "costUSD": 0.057826,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_on_3",
+      "traceSha256": "96bc0deb156f6f8b7b9b95d96e7ca35322885b67581df64d497362e286a5f7d0",
+      "status": "success",
+      "totalCostUsd": 0.06798610000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 2028,
+          "cacheCreationInputTokens": 10394,
+          "cacheReadInputTokens": 61101,
+          "costUSD": 0.06798610000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-3_on_4",
+      "traceSha256": "64ad086db5f3333a3851843dca9ede05b4c5a326db3558bf9d17116c674b0150",
+      "status": "success",
+      "totalCostUsd": 0.0779791,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 10,
+          "outputTokens": 2042,
+          "cacheCreationInputTokens": 12787,
+          "cacheReadInputTokens": 63911,
+          "costUSD": 0.0779791,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_off_0",
+      "traceSha256": "ab5d8acaf48d2a49bcf3006896827456420a7d3fbb98607117656626c706ed33",
+      "status": "success",
+      "totalCostUsd": 0.1021818,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1335,
+          "cacheCreationInputTokens": 21849,
+          "cacheReadInputTokens": 14238,
+          "costUSD": 0.1021818,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_off_1",
+      "traceSha256": "4bc2c33f2da34642db5aa4cb0739003d66959c020e27ed032704bdff0bb879f3",
+      "status": "success",
+      "totalCostUsd": 0.09843160000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1253,
+          "cacheCreationInputTokens": 21102,
+          "cacheReadInputTokens": 14816,
+          "costUSD": 0.09843160000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_off_2",
+      "traceSha256": "dd2ba7ce5edea5ac04e6f584bb8e761af8ad612e302c1ef4eb8a9badd7fb4da0",
+      "status": "success",
+      "totalCostUsd": 0.0978243,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1351,
+          "cacheCreationInputTokens": 20695,
+          "cacheReadInputTokens": 15223,
+          "costUSD": 0.0978243,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_off_3",
+      "traceSha256": "0a2818f9aa78fe45f30995dfeab1db66f4f548a4eda6b791d8519729f133e0b6",
+      "status": "success",
+      "totalCostUsd": 0.09981939999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1309,
+          "cacheCreationInputTokens": 21304,
+          "cacheReadInputTokens": 15014,
+          "costUSD": 0.09981939999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_off_4",
+      "traceSha256": "2f98e98576b46fee196eafbb016cdfaea83f190c0a9a068c34d558d34c4dbbad",
+      "status": "success",
+      "totalCostUsd": 0.0998168,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1362,
+          "cacheCreationInputTokens": 21174,
+          "cacheReadInputTokens": 14888,
+          "costUSD": 0.0998168,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_on_0",
+      "traceSha256": "e68022cf527913f14946b41be48c9509c3688d01a4c5a9e00cd83e076723b0bc",
+      "status": "success",
+      "totalCostUsd": 0.0486624,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1309,
+          "cacheCreationInputTokens": 8263,
+          "cacheReadInputTokens": 25084,
+          "costUSD": 0.0486624,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_on_1",
+      "traceSha256": "fa4a8cd9fd765d419222cc4dff949bc1fcc4d94989b3e456e81835d01f3ff7f4",
+      "status": "success",
+      "totalCostUsd": 0.0451561,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1232,
+          "cacheCreationInputTokens": 7552,
+          "cacheReadInputTokens": 26161,
+          "costUSD": 0.0451561,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_on_2",
+      "traceSha256": "295714068f9a94000c21a4133885cfb247a7befae07305f5dc469ecaaed8f7f9",
+      "status": "success",
+      "totalCostUsd": 0.0359195,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1029,
+          "cacheCreationInputTokens": 5751,
+          "cacheReadInputTokens": 26135,
+          "costUSD": 0.0359195,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_on_3",
+      "traceSha256": "563e8628c86137e4a08d7e7626b038fcd64323ab2875e5c80b54db3842cdba15",
+      "status": "success",
+      "totalCostUsd": 0.0349381,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 919,
+          "cacheCreationInputTokens": 5780,
+          "cacheReadInputTokens": 26161,
+          "costUSD": 0.0349381,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-4_on_4",
+      "traceSha256": "4e5a6d12c96364a390a918b90fb60dba56676df55e5270591a187f6fa243e268",
+      "status": "success",
+      "totalCostUsd": 0.0310566,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1232,
+          "cacheCreationInputTokens": 3944,
+          "cacheReadInputTokens": 29486,
+          "costUSD": 0.0310566,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_off_0",
+      "traceSha256": "0699dcd4eef23b1bb930d83bcdb348bcc39196df1d65460466b33a9c6aa6b85a",
+      "status": "success",
+      "totalCostUsd": 0.0619719,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1547,
+          "cacheCreationInputTokens": 11270,
+          "cacheReadInputTokens": 14099,
+          "costUSD": 0.0619719,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_off_1",
+      "traceSha256": "9d1bd76fb4ef2c0fd5cb5dffc6e00267b8e6e349ab047f4a896b1db1f5ea8e17",
+      "status": "success",
+      "totalCostUsd": 0.0485241,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1536,
+          "cacheCreationInputTokens": 7901,
+          "cacheReadInputTokens": 15481,
+          "costUSD": 0.0485241,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_off_2",
+      "traceSha256": "3e8a1295a9f609578f4e2fbf3a714b8c26143113102c149cfe29cf2b74f6ac5f",
+      "status": "success",
+      "totalCostUsd": 0.0471341,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1397,
+          "cacheCreationInputTokens": 7901,
+          "cacheReadInputTokens": 15481,
+          "costUSD": 0.0471341,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_off_3",
+      "traceSha256": "a19960c38bc779f14f438f19550934ec73308a0bc240e77315edc698ef6a224f",
+      "status": "success",
+      "totalCostUsd": 0.0691787,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1684,
+          "cacheCreationInputTokens": 12712,
+          "cacheReadInputTokens": 14787,
+          "costUSD": 0.0691787,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_off_4",
+      "traceSha256": "0bab36770f8d4caf1e73f44a96e761247d5886a021655a2a38f015964336e066",
+      "status": "success",
+      "totalCostUsd": 0.0474541,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1429,
+          "cacheCreationInputTokens": 7901,
+          "cacheReadInputTokens": 15481,
+          "costUSD": 0.0474541,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_on_0",
+      "traceSha256": "1486a5976d0234dc2b71ccbc682f8c4650360049896c0f02aeeaea3c1ba57344",
+      "status": "success",
+      "totalCostUsd": 0.0590429,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1321,
+          "cacheCreationInputTokens": 10826,
+          "cacheReadInputTokens": 25169,
+          "costUSD": 0.0590429,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_on_1",
+      "traceSha256": "795d8ccf4449d7427a675105e095a9c106da0bf13e795e2982965fe646990aa9",
+      "status": "success",
+      "totalCostUsd": 0.053938200000000006,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1383,
+          "cacheCreationInputTokens": 9377,
+          "cacheReadInputTokens": 25882,
+          "costUSD": 0.053938200000000006,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_on_2",
+      "traceSha256": "38a7cef9e1111dcc84240fbeb9abddc94f09a6bfe91bf5f99c286df25cf09c52",
+      "status": "success",
+      "totalCostUsd": 0.055587700000000004,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1386,
+          "cacheCreationInputTokens": 9772,
+          "cacheReadInputTokens": 26277,
+          "costUSD": 0.055587700000000004,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_on_3",
+      "traceSha256": "7f7ecd37716ece93887509d26eb926c68f1ef790419c7c90360883ef8388b6ac",
+      "status": "success",
+      "totalCostUsd": 0.055041099999999996,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1342,
+          "cacheCreationInputTokens": 9746,
+          "cacheReadInputTokens": 26251,
+          "costUSD": 0.055041099999999996,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-5_on_4",
+      "traceSha256": "e629bc90eb6786c8c504a25fb078782a7e60dbb35d1cb22ad82d8e558194d689",
+      "status": "success",
+      "totalCostUsd": 0.0554452,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1382,
+          "cacheCreationInputTokens": 9747,
+          "cacheReadInputTokens": 26252,
+          "costUSD": 0.0554452,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_off_0",
+      "traceSha256": "ff33cdd966ac0991b272d45aeca9db05a42d2326595351d9fe5f455de17ae652",
+      "status": "success",
+      "totalCostUsd": 0.034352799999999996,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1267,
+          "cacheCreationInputTokens": 5015,
+          "cacheReadInputTokens": 16108,
+          "costUSD": 0.034352799999999996,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_off_1",
+      "traceSha256": "146e7159d753b454a0c7d13af08a1af7a42635b38c36a6f88d8310e1573ea0a5",
+      "status": "success",
+      "totalCostUsd": 0.0295914,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1144,
+          "cacheCreationInputTokens": 4134,
+          "cacheReadInputTokens": 16034,
+          "costUSD": 0.0295914,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_off_2",
+      "traceSha256": "6ca7b410509d8ba2629bf9cafd9cde7d2f64b1bc03d3a5d175283b0ee115f48f",
+      "status": "success",
+      "totalCostUsd": 0.0324136,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1148,
+          "cacheCreationInputTokens": 4846,
+          "cacheReadInputTokens": 15376,
+          "costUSD": 0.0324136,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_off_3",
+      "traceSha256": "d5f4f669db37e73ba7c4412b30d6e8177eb508f7388c3a0d11347acc69130bac",
+      "status": "success",
+      "totalCostUsd": 0.0298523,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1157,
+          "cacheCreationInputTokens": 4166,
+          "cacheReadInputTokens": 16063,
+          "costUSD": 0.0298523,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_off_4",
+      "traceSha256": "c6b1a06ff6106c341adb5fb05982bc5644325468db8ceffe02340532f239389d",
+      "status": "success",
+      "totalCostUsd": 0.040071600000000006,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1350,
+          "cacheCreationInputTokens": 6238,
+          "cacheReadInputTokens": 16076,
+          "costUSD": 0.040071600000000006,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_on_0",
+      "traceSha256": "8f71de8810ede0579ca4c1437c3242158dbb6c6a588b3ec169cd88393fd52dc9",
+      "status": "success",
+      "totalCostUsd": 0.0412572,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 1053,
+          "cacheCreationInputTokens": 7298,
+          "cacheReadInputTokens": 15272,
+          "costUSD": 0.0412572,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_on_1",
+      "traceSha256": "bcc63d8332f5d798c31a9ded794890c41c54e89d28d016d03fc1a658fca9af31",
+      "status": "success",
+      "totalCostUsd": 0.0405147,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1100,
+          "cacheCreationInputTokens": 6700,
+          "cacheReadInputTokens": 27027,
+          "costUSD": 0.0405147,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_on_2",
+      "traceSha256": "99989e8ec706ad35d6a9854c047f03c49346640205e812f26983f0384ec6f08d",
+      "status": "success",
+      "totalCostUsd": 0.0449895,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 998,
+          "cacheCreationInputTokens": 8396,
+          "cacheReadInputTokens": 14175,
+          "costUSD": 0.0449895,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_on_3",
+      "traceSha256": "ccbfa72c1b103ce4d4dcc772db7bdaaf5405e1d925dbdfb044f4efff13eeb081",
+      "status": "success",
+      "totalCostUsd": 0.0419172,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 1119,
+          "cacheCreationInputTokens": 7298,
+          "cacheReadInputTokens": 15272,
+          "costUSD": 0.0419172,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-6_on_4",
+      "traceSha256": "f1b8b6a530cd06991ef3ad5a4844505cf1f0386626f0eba89136291589b23a75",
+      "status": "success",
+      "totalCostUsd": 0.026261200000000002,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 963,
+          "cacheCreationInputTokens": 3774,
+          "cacheReadInputTokens": 15272,
+          "costUSD": 0.026261200000000002,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_off_0",
+      "traceSha256": "e37b21eee5a36ff2ced82f39e4e0314116f6c423b67e2bb0a6d824d4ae15ebb7",
+      "status": "success",
+      "totalCostUsd": 0.0480865,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1420,
+          "cacheCreationInputTokens": 8072,
+          "cacheReadInputTokens": 15865,
+          "costUSD": 0.0480865,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_off_1",
+      "traceSha256": "5b2774eb83fc011585da388b32b5757a5d591ed2afb58bca657133315d5f6c12",
+      "status": "success",
+      "totalCostUsd": 0.0431365,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1482,
+          "cacheCreationInputTokens": 6644,
+          "cacheReadInputTokens": 17285,
+          "costUSD": 0.0431365,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_off_2",
+      "traceSha256": "ee2d891d2bcb03f6ebbb9f74efaa3ad5c4b439e0c760389f9ee695d9d8fef763",
+      "status": "success",
+      "totalCostUsd": 0.0505908,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1412,
+          "cacheCreationInputTokens": 8735,
+          "cacheReadInputTokens": 15188,
+          "costUSD": 0.0505908,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_off_3",
+      "traceSha256": "8731d221207f08662dec1a12b5ddf170c68555e609b71e3228aa15351f6567e2",
+      "status": "success",
+      "totalCostUsd": 0.05919580000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1333,
+          "cacheCreationInputTokens": 11065,
+          "cacheReadInputTokens": 15938,
+          "costUSD": 0.05919580000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_off_4",
+      "traceSha256": "f35d647613ed5f99a2441142d466cd4e57356f7f15ca4318bc055f908c20987d",
+      "status": "success",
+      "totalCostUsd": 0.0606725,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 6,
+          "outputTokens": 1386,
+          "cacheCreationInputTokens": 11296,
+          "cacheReadInputTokens": 16165,
+          "costUSD": 0.0606725,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_on_0",
+      "traceSha256": "3736394fca7c70b96b43b1a46eaf8350e7a10c39218e3ed9a45b29c6fa16616c",
+      "status": "success",
+      "totalCostUsd": 0.0287805,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1415,
+          "cacheCreationInputTokens": 2566,
+          "cacheReadInputTokens": 43505,
+          "costUSD": 0.0287805,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_on_1",
+      "traceSha256": "5e237548c300ee3d490f22564523fdc9c6b7e85ed8be054ed154070f43b48bb7",
+      "status": "success",
+      "totalCostUsd": 0.041373099999999996,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1402,
+          "cacheCreationInputTokens": 5870,
+          "cacheReadInputTokens": 38571,
+          "costUSD": 0.041373099999999996,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_on_2",
+      "traceSha256": "ba1e1b50eb5b0d7b927adbfd800a8b87a693d769a10f98bd036988d09a628b7e",
+      "status": "success",
+      "totalCostUsd": 0.045298,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1382,
+          "cacheCreationInputTokens": 6929,
+          "cacheReadInputTokens": 37460,
+          "costUSD": 0.045298,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_on_3",
+      "traceSha256": "1e9c994587d66ce60fa3412ec3a194e6e114798e43216482ff398f26d9b2cefd",
+      "status": "success",
+      "totalCostUsd": 0.028492800000000002,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1454,
+          "cacheCreationInputTokens": 2417,
+          "cacheReadInputTokens": 42688,
+          "costUSD": 0.028492800000000002,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "info-7_on_4",
+      "traceSha256": "89b508cc14825cd30a19fe0e40dafdb4c001a40c47d1d43c81a5b359c7df0553",
+      "status": "success",
+      "totalCostUsd": 0.0429045,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 8,
+          "outputTokens": 1447,
+          "cacheCreationInputTokens": 6113,
+          "cacheReadInputTokens": 39665,
+          "costUSD": 0.0429045,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_off_0",
+      "traceSha256": "c8df11c7dbfaf67d49eaa6675c7c236ece50caddce0a18bd9c994259ee476dc7",
+      "status": "success",
+      "totalCostUsd": 0.0111116,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 518,
+          "cacheCreationInputTokens": 1257,
+          "cacheReadInputTokens": 8956,
+          "costUSD": 0.0111116,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_off_1",
+      "traceSha256": "9d67239dbeb7f2688d1970dd4dca04f99643b481105110994d55c1d2fa20face",
+      "status": "success",
+      "totalCostUsd": 0.0061293,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 510,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 10213,
+          "costUSD": 0.0061293,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_off_2",
+      "traceSha256": "b5d7f4df1d1bc4c6831fb9a3cb778798e7a406005af8a038c244ad7c1b657037",
+      "status": "success",
+      "totalCostUsd": 0.0084908,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 518,
+          "cacheCreationInputTokens": 585,
+          "cacheReadInputTokens": 9628,
+          "costUSD": 0.0084908,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_off_3",
+      "traceSha256": "280e3c80d9e469c4ecc41239b2738c90febe638dd98f6c7c90375e6823c4dbaa",
+      "status": "success",
+      "totalCostUsd": 0.0064993,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 547,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 10213,
+          "costUSD": 0.0064993,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_off_4",
+      "traceSha256": "4b30115b1f766a597b9a0267c51fae38f3202755d2d1c4ef9c9fd28ed3a3a4dc",
+      "status": "success",
+      "totalCostUsd": 0.0072593,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 623,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 10213,
+          "costUSD": 0.0072593,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_on_0",
+      "traceSha256": "babcf239691a304f9ba05df7e64d6b61db0b59f1e4d22368b7f96bc618c31c31",
+      "status": "success",
+      "totalCostUsd": 0.0195282,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 672,
+          "cacheCreationInputTokens": 2846,
+          "cacheReadInputTokens": 14162,
+          "costUSD": 0.0195282,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_on_1",
+      "traceSha256": "f446f0edd9e141544edf851def35db8ae2cd52fe3a4d68a2d041f4b5250dcd7f",
+      "status": "success",
+      "totalCostUsd": 0.015280599999999998,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 672,
+          "cacheCreationInputTokens": 1757,
+          "cacheReadInputTokens": 15246,
+          "costUSD": 0.015280599999999998,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_on_2",
+      "traceSha256": "6179166a22ebe5461cffc1f6300eb2ffae7ae9ee90f7656c66c857080d578486",
+      "status": "success",
+      "totalCostUsd": 0.0151266,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 653,
+          "cacheCreationInputTokens": 1766,
+          "cacheReadInputTokens": 15246,
+          "costUSD": 0.0151266,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_on_3",
+      "traceSha256": "31c8ff19afb493f3cdf9fbb2bb7b2d139512d1f1f213f49c71fa8a809c9ee70b",
+      "status": "success",
+      "totalCostUsd": 0.008339200000000001,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 663,
+          "cacheCreationInputTokens": 0,
+          "cacheReadInputTokens": 17012,
+          "costUSD": 0.008339200000000001,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    },
+    {
+      "trial": "summary-1_on_4",
+      "traceSha256": "468cfdfef7566641ed83114cf5f8a38db9f860fd0ee96a5d1cd06ead5b03fa8c",
+      "status": "success",
+      "totalCostUsd": 0.015166599999999999,
+      "models": {
+        "claude-sonnet-5-5": {
+          "inputTokens": 4,
+          "outputTokens": 657,
+          "cacheCreationInputTokens": 1766,
+          "cacheReadInputTokens": 15246,
+          "costUSD": 0.015166599999999999,
+          "canonicalModel": "claude-sonnet-5-5",
+          "provider": "firstParty",
+          "costBasis": "list"
+        }
+      }
+    }
+  ],
+  "limitations": "Tool result character counts describe returned payloads; they are not token attribution or answer-quality scores."
+}

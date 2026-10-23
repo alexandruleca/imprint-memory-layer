@@ -17,6 +17,14 @@ After this research, the user approved adopting Qwen defaults and rebuilding the
 
 ## Workloads that matter
 
+Benchmark follow-up, 2026-10-23: the pinned Qwen default now has a [public local
+retrieval evaluation](benchmarks.md) on 297 fixed passages from 51 files.
+Hybrid source Recall@5/10 is 0.833/0.937; semantic is 0.802/0.921. CPU warm
+hybrid p50/p95 is 153/170 ms on an i9-13900HX WSL2 host with two ONNX threads;
+model load plus first query is recorded separately. The hybrid-vs-semantic
+Recall@5 interval includes zero. These results do not compare embedding
+candidates, establish answer correctness or validate the optional helper LLM.
+
 | Workload | What good behavior means | Model policy |
 | --- | --- | --- |
 | MCP/IDE search | Find a symbol or a paraphrased decision across selected code and prose; support multilingual queries and exact identifiers | A small, persistent embedding model plus lexical retrieval; no generative model required for ordinary search |

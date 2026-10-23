@@ -13,9 +13,18 @@ def metrics(result):
         raise ValueError('Claude did not complete successfully')
     models = result.get('modelUsage')
     if models:
+        if not isinstance(models, dict) or any(not isinstance(m, dict) or not all(k in m for k in ('inputTokens','outputTokens')) for m in models.values()):
+            raise ValueError('Incomplete per-model token usage')
         names = ('inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens')
+        if any(type(m.get(key,0)) not in (int,float) or not math.isfinite(m.get(key,0)) or m.get(key,0)<0 for m in models.values() for key in names):
+            raise ValueError('Invalid per-model token usage')
         values = [sum(m.get(key, 0) for m in models.values()) for key in names]
-        cost = result.get('total_cost_usd', sum(m.get('costUSD', 0) for m in models.values()))
+        if 'total_cost_usd' in result:
+            cost = result['total_cost_usd']
+        elif all(type(m.get('costUSD')) in (int,float) for m in models.values()):
+            cost = sum(m['costUSD'] for m in models.values())
+        else:
+            raise ValueError('Missing reported cost')
     elif isinstance(result.get('usage'), dict):
         usage = result['usage']
         if not all(k in usage for k in ('input_tokens', 'output_tokens')):
@@ -24,7 +33,7 @@ def metrics(result):
         cost = result.get('total_cost_usd')
     else:
         raise ValueError('Missing token usage')
-    if any(not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in [*values, cost]):
+    if any(type(v) not in (int,float) or not math.isfinite(v) or v < 0 for v in [*values, cost]) or not sum(values):
         raise ValueError('Invalid token usage or cost')
     return {**dict(zip(TOKEN_FIELDS, values)), 'total_tokens': sum(values),
             'cost': cost, 'turns': result.get('num_turns', 0),
@@ -97,6 +106,7 @@ def aggregate(pairs):
 
 def retrieval_metrics(sources, relevance, k):
     """Distinct relevant sources in the first k chunks; duplicates gain nothing."""
+    relevance = {source: grade for source,grade in relevance.items() if grade > 0}
     seen = set()
     gains = []
     for source in sources[:k]:
@@ -137,3 +147,25 @@ def retrieval_comparison(rows, seed=1729, samples=2000):
         output[name] = {'hybridMinusSemantic': statistics.mean(values),
                         'ci95': [percentile(estimates,.025), percentile(estimates,.975)]}
     return output
+
+
+def retrieval_summary(rows):
+    """Recalculate retrieval aggregates from published per-search evidence."""
+    groups = {}
+    for mode in ('semantic', 'hybrid'):
+        subset = [r for r in rows if r['mode'] == mode]
+        first = [r for r in subset if r['repeat'] == 0 and not r['negative']]
+        groups[mode] = {'queries': len(first), 'timedSearches': len(subset),
+                        'p50Ms': percentile([r['durationMs'] for r in subset], .5),
+                        'p95Ms': percentile([r['durationMs'] for r in subset], .95),
+                        'boundaryPasses': sum(r['boundaryPass'] for r in subset if r['boundaryCase']),
+                        'boundaryChecks': sum(r['boundaryCase'] for r in subset),
+                        'workspaceIsolationPasses': sum(r['boundaryPass'] for r in subset),
+                        'at': {str(k): {metric: statistics.mean(r['scores'][str(k)][metric] for r in first)
+                                       for metric in ('recall', 'reciprocal_rank', 'ndcg', 'hit')}
+                               for k in (1,5,10)}}
+    rankings = defaultdict(set)
+    for row in rows:
+        rankings[row['id'],row['mode']].add(tuple(row['sources']))
+    return {'groups': groups, 'comparison': retrieval_comparison(rows),
+            'rankingRepeatDisagreements': sum(len(values)>1 for values in rankings.values())}

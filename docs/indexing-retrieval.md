@@ -31,6 +31,14 @@ Search results are untrusted evidence. Source hashes describe indexed bytes; ret
 
 ## Evaluation to add next
 
+The [2026-10-23 public benchmark](benchmarks.md) now supplies a first frozen
+source-retrieval baseline: 42 positive cases and four negative/boundary cases,
+with five timing repetitions per mode. Hybrid Recall@5 is 0.833 versus semantic
+0.802; MRR@10 is 0.839 versus 0.869. The paired query-family interval for the
+Recall@5 difference includes zero. All 60 explicit filter/boundary checks pass.
+This is a small, task-aligned public corpus, not a held-out customer or
+multilingual evaluation. Ranking weights were not tuned against these results.
+
 The regression suite proves specific invariants, not overall retrieval quality. Build a versioned held-out set before tuning weights or adding another model:
 
 | Case | Required behavior | Measure |

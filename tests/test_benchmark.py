@@ -41,6 +41,13 @@ class BenchmarkStatisticsTests(unittest.TestCase):
         result = self.result(); result['total_cost_usd'] = float('nan')
         with self.assertRaises(ValueError): metrics(result)
 
+    def test_partial_model_maps_unknown_cost_and_boolean_tokens_are_rejected(self):
+        for model in ({}, {'inputTokens':True,'outputTokens':10}, {'inputTokens':'10','outputTokens':2}):
+            with self.assertRaises(ValueError):
+                metrics({'subtype':'success','modelUsage':{'model':model},'total_cost_usd':0})
+        with self.assertRaises(ValueError):
+            metrics({'subtype':'success','modelUsage':{'model':{'inputTokens':10,'outputTokens':5}}})
+
     def test_pairing_excludes_both_sides_of_a_failed_or_missing_pair(self):
         rows = [self.trial('a','off',0,100), self.trial('a','on',0,50),
                 self.trial('a','off',1,100), self.trial('a','on',1,0,'failed'), self.trial('b','off',0,200)]
@@ -76,6 +83,7 @@ class BenchmarkStatisticsTests(unittest.TestCase):
         self.assertEqual(score['reciprocal_rank'],1)
         self.assertEqual(retrieval_metrics(['x','b'],{'b':3},10)['reciprocal_rank'],.5)
         self.assertIsNone(retrieval_metrics(['x'],{},5)['recall'])
+        self.assertEqual(retrieval_metrics(['a'],{'a':3,'irrelevant':0},5)['recall'],1)
 
     def test_passages_are_deterministic_bounded_and_keep_long_lines(self):
         text='z'*6000+'\n'+'next line\n'*200

@@ -1,0 +1,571 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T13:30:20.737167+00:00",
+  "measuredAt": "2026-10-23T13:30:20.737167+00:00",
+  "calculatedAt": "2026-10-23T13:38:04.538295+00:00",
+  "analysisSha256": "a17f27e856f9d1027a6713b0a57eaa66bd09508a22609682013c520f0bb37f3c",
+  "runId": "20261023T124638620849Z-fdea98ae-s1729",
+  "sourceRevision": "fdea98aea4bb554b56122271ca482655e8133a07",
+  "status": "complete",
+  "runCount": 180,
+  "successfulRuns": 180,
+  "failedRuns": 0,
+  "expectedRuns": 180,
+  "validPairs": 90,
+  "repetitions": 5,
+  "promptCount": 18,
+  "modelIds": [
+    "claude-sonnet-5-5"
+  ],
+  "overall": {
+    "pairs": 90,
+    "tokensOff": 2584140,
+    "tokensOn": 3402984,
+    "costOff": 4.3167168,
+    "costOn": 4.0756783,
+    "tokenChangePct": 31.68729248415334,
+    "costChangePct": -5.583838624762228,
+    "tokenChangeCI95": [
+      18.51403707345208,
+      45.732080992756316
+    ],
+    "costChangeCI95": [
+      -20.586120618365705,
+      10.541836013578923
+    ],
+    "tokenPct": "+31.7%",
+    "costPct": "-5.6%",
+    "qualityPct": null,
+    "referenceCoverageOff": 0.9927777777777778,
+    "referenceCoverageOn": 0.9894444444444445,
+    "latency": {
+      "off": {
+        "p50Ms": 12581.363129998863,
+        "p95Ms": 17177.34650705079
+      },
+      "on": {
+        "p50Ms": 13592.619291999654,
+        "p95Ms": 18662.122073849423
+      }
+    },
+    "cacheTokens": {
+      "off": {
+        "input_tokens": 588,
+        "output_tokens": 119483,
+        "cache_read": 1727068,
+        "cache_create": 737001
+      },
+      "on": {
+        "input_tokens": 550,
+        "output_tokens": 112184,
+        "cache_read": 2617503,
+        "cache_create": 672747
+      }
+    },
+    "mcpUseRate": 1.0,
+    "toolErrors": {
+      "off": 0,
+      "on": 0
+    }
+  },
+  "categories": [
+    {
+      "key": "information",
+      "heading": "Information Prompts",
+      "label": "Information",
+      "rows": [
+        {
+          "id": "info-1",
+          "prompt": "Chunking system",
+          "pairs": 5,
+          "offTokens": 26208,
+          "onTokens": 39153,
+          "savings": -12945,
+          "pct": "+49.4%",
+          "offCost": "$0.0541",
+          "onCost": "$0.0596",
+          "costDelta": "$+0.0055"
+        },
+        {
+          "id": "info-2",
+          "prompt": "Embedding model",
+          "pairs": 5,
+          "offTokens": 26669,
+          "onTokens": 53386,
+          "savings": -26717,
+          "pct": "+100.2%",
+          "offCost": "$0.0554",
+          "onCost": "$0.0523",
+          "costDelta": "$-0.0032"
+        },
+        {
+          "id": "info-3",
+          "prompt": "Workspace isolation",
+          "pairs": 5,
+          "offTokens": 58444,
+          "onTokens": 74108,
+          "savings": -15664,
+          "pct": "+26.8%",
+          "offCost": "$0.0746",
+          "onCost": "$0.0664",
+          "costDelta": "$-0.0082"
+        },
+        {
+          "id": "info-4",
+          "prompt": "Metadata tagging",
+          "pairs": 5,
+          "offTokens": 37428,
+          "onTokens": 34662,
+          "savings": 2766,
+          "pct": "-7.4%",
+          "offCost": "$0.0998",
+          "onCost": "$0.0359",
+          "costDelta": "$-0.0639"
+        },
+        {
+          "id": "info-5",
+          "prompt": "Qdrant lifecycle",
+          "pairs": 5,
+          "offTokens": 24924,
+          "onTokens": 37345,
+          "savings": -12421,
+          "pct": "+49.8%",
+          "offCost": "$0.0485",
+          "onCost": "$0.0554",
+          "costDelta": "$+0.0069"
+        },
+        {
+          "id": "info-6",
+          "prompt": "Portable device context",
+          "pairs": 5,
+          "offTokens": 21392,
+          "onTokens": 23627,
+          "savings": -2235,
+          "pct": "+10.4%",
+          "offCost": "$0.0324",
+          "onCost": "$0.0413",
+          "costDelta": "$+0.0088"
+        },
+        {
+          "id": "info-7",
+          "prompt": "Scoped source purge",
+          "pairs": 5,
+          "offTokens": 25417,
+          "onTokens": 46567,
+          "savings": -21150,
+          "pct": "+83.2%",
+          "offCost": "$0.0506",
+          "onCost": "$0.0414",
+          "costDelta": "$-0.0092"
+        }
+      ],
+      "avgTokens": "+30.2%",
+      "avgCost": "-17.3%",
+      "quality": null,
+      "note": null,
+      "statistics": {
+        "pairs": 35,
+        "tokensOff": 1145441,
+        "tokensOn": 1491677,
+        "costOff": 2.0635433,
+        "costOn": 1.7073691,
+        "tokenChangePct": 30.227309830886085,
+        "costChangePct": -17.26032111853433,
+        "tokenChangeCI95": [
+          8.54947131195494,
+          59.58535283498045
+        ],
+        "costChangeCI95": [
+          -39.668565612181695,
+          6.009105635143094
+        ]
+      }
+    },
+    {
+      "key": "decision",
+      "heading": "Decision Recall Prompts",
+      "label": "Decision Recall",
+      "rows": [
+        {
+          "id": "decision-1",
+          "prompt": "Qdrant vs embedded",
+          "pairs": 5,
+          "offTokens": 24200,
+          "onTokens": 20267,
+          "savings": 3933,
+          "pct": "-16.3%",
+          "offCost": "$0.0312",
+          "onCost": "$0.0273",
+          "costDelta": "$-0.0038"
+        },
+        {
+          "id": "decision-2",
+          "prompt": "LLM tagger default off",
+          "pairs": 5,
+          "offTokens": 21438,
+          "onTokens": 21779,
+          "savings": -341,
+          "pct": "+1.6%",
+          "offCost": "$0.0256",
+          "onCost": "$0.0328",
+          "costDelta": "$+0.0072"
+        }
+      ],
+      "avgTokens": "+14.3%",
+      "avgCost": "+5.2%",
+      "quality": null,
+      "note": null,
+      "statistics": {
+        "pairs": 10,
+        "tokensOff": 217000,
+        "tokensOn": 247941,
+        "costOff": 0.302692,
+        "costOn": 0.3184501,
+        "tokenChangePct": 14.25852534562213,
+        "costChangePct": 5.205984961611132,
+        "tokenChangeCI95": [
+          -13.760614876588335,
+          43.099040349772125
+        ],
+        "costChangeCI95": [
+          -25.269327799730167,
+          40.39143802731464
+        ]
+      }
+    },
+    {
+      "key": "debug",
+      "heading": "Debugging Prompts",
+      "label": "Debugging",
+      "rows": [
+        {
+          "id": "debug-1",
+          "prompt": "Search returns nothing",
+          "pairs": 5,
+          "offTokens": 33858,
+          "onTokens": 33951,
+          "savings": -93,
+          "pct": "+0.3%",
+          "offCost": "$0.0471",
+          "onCost": "$0.0414",
+          "costDelta": "$-0.0058"
+        },
+        {
+          "id": "debug-2",
+          "prompt": "Slow embedding on first run",
+          "pairs": 5,
+          "offTokens": 29303,
+          "onTokens": 54646,
+          "savings": -25343,
+          "pct": "+86.5%",
+          "offCost": "$0.0624",
+          "onCost": "$0.0608",
+          "costDelta": "$-0.0015"
+        },
+        {
+          "id": "debug-3",
+          "prompt": "Encrypted sync boundary",
+          "pairs": 5,
+          "offTokens": 32172,
+          "onTokens": 57667,
+          "savings": -25495,
+          "pct": "+79.2%",
+          "offCost": "$0.0765",
+          "onCost": "$0.0647",
+          "costDelta": "$-0.0118"
+        }
+      ],
+      "avgTokens": "+40.4%",
+      "avgCost": "-7.7%",
+      "quality": null,
+      "note": null,
+      "statistics": {
+        "pairs": 15,
+        "tokensOff": 539791,
+        "tokensOn": 757650,
+        "costOff": 0.9265658,
+        "costOn": 0.8547726,
+        "tokenChangePct": 40.35988002764033,
+        "costChangePct": -7.748311021192455,
+        "tokenChangeCI95": [
+          13.870616814933996,
+          68.71681925058793
+        ],
+        "costChangeCI95": [
+          -18.253462865453294,
+          6.845496959134504
+        ]
+      }
+    },
+    {
+      "key": "cross",
+      "heading": "Cross-Project Prompts",
+      "label": "Cross-Project",
+      "rows": [
+        {
+          "id": "cross-1",
+          "prompt": "Async work pattern",
+          "pairs": 5,
+          "offTokens": 33367,
+          "onTokens": 35468,
+          "savings": -2101,
+          "pct": "+6.3%",
+          "offCost": "$0.0813",
+          "onCost": "$0.0469",
+          "costDelta": "$-0.0344"
+        },
+        {
+          "id": "cross-2",
+          "prompt": "Config precedence",
+          "pairs": 5,
+          "offTokens": 27326,
+          "onTokens": 38396,
+          "savings": -11070,
+          "pct": "+40.5%",
+          "offCost": "$0.0334",
+          "onCost": "$0.0455",
+          "costDelta": "$+0.0121"
+        }
+      ],
+      "avgTokens": "+22.6%",
+      "avgCost": "-7.2%",
+      "quality": null,
+      "note": null,
+      "statistics": {
+        "pairs": 10,
+        "tokensOff": 308468,
+        "tokensOn": 378109,
+        "costOff": 0.5679628,
+        "costOn": 0.5273438,
+        "tokenChangePct": 22.57640987071592,
+        "costChangePct": -7.151700780403214,
+        "tokenChangeCI95": [
+          -5.512053764103831,
+          55.98679079481309
+        ],
+        "costChangeCI95": [
+          -30.760367678312782,
+          45.258773234176935
+        ]
+      }
+    },
+    {
+      "key": "summary",
+      "heading": "Session Summary Prompts",
+      "label": "Session Summary",
+      "rows": [
+        {
+          "id": "summary-1",
+          "prompt": "Recent activity",
+          "pairs": 5,
+          "offTokens": 10735,
+          "onTokens": 17679,
+          "savings": -6944,
+          "pct": "+64.7%",
+          "offCost": "$0.0073",
+          "onCost": "$0.0152",
+          "costDelta": "$+0.0079"
+        }
+      ],
+      "avgTokens": "+64.3%",
+      "avgCost": "+86.0%",
+      "quality": null,
+      "note": null,
+      "statistics": {
+        "pairs": 5,
+        "tokensOff": 53801,
+        "tokensOn": 88384,
+        "costOff": 0.0394903,
+        "costOn": 0.0734412,
+        "tokenChangePct": 64.27947435921266,
+        "costChangePct": 85.9727578671218,
+        "tokenChangeCI95": [
+          63.62777952639278,
+          64.7347136547457
+        ],
+        "costChangeCI95": [
+          57.68231367246914,
+          116.04232396865328
+        ]
+      }
+    },
+    {
+      "key": "creation",
+      "heading": "Creation Prompts",
+      "label": "Creation",
+      "rows": [
+        {
+          "id": "create-1",
+          "prompt": "Qdrant connectivity test",
+          "pairs": 5,
+          "offTokens": 20640,
+          "onTokens": 23722,
+          "savings": -3082,
+          "pct": "+14.9%",
+          "offCost": "$0.0336",
+          "onCost": "$0.0466",
+          "costDelta": "$+0.0130"
+        },
+        {
+          "id": "create-2",
+          "prompt": "Memory count utility",
+          "pairs": 5,
+          "offTokens": 19498,
+          "onTokens": 23294,
+          "savings": -3796,
+          "pct": "+19.5%",
+          "offCost": "$0.0201",
+          "onCost": "$0.0391",
+          "costDelta": "$+0.0190"
+        },
+        {
+          "id": "create-3",
+          "prompt": "Workspace stats CLI",
+          "pairs": 5,
+          "offTokens": 19575,
+          "onTokens": 32335,
+          "savings": -12760,
+          "pct": "+65.2%",
+          "offCost": "$0.0267",
+          "onCost": "$0.0346",
+          "costDelta": "$+0.0078"
+        }
+      ],
+      "avgTokens": "+37.4%",
+      "avgCost": "+42.7%",
+      "quality": null,
+      "note": null,
+      "statistics": {
+        "pairs": 15,
+        "tokensOff": 319639,
+        "tokensOn": 439223,
+        "costOff": 0.4164626,
+        "costOn": 0.5943015,
+        "tokenChangePct": 37.4122056444927,
+        "costChangePct": 42.70224985388844,
+        "tokenChangeCI95": [
+          22.085137964487153,
+          55.080340904572175
+        ],
+        "costChangeCI95": [
+          18.69782021791967,
+          87.69743809096515
+        ]
+      }
+    }
+  ],
+  "env": {
+    "os": "Linux",
+    "python": "3.12.15",
+    "model": "claude-sonnet-5-5",
+    "imprint": "fdea98aea4bb",
+    "memories": 297
+  },
+  "methodology": {
+    "overview": "Actual sums across complete successful pairs; cache input included. Per-task rows are medians, not summed component medians.",
+    "uncertainty": "95% paired hierarchical bootstrap, resampling task IDs then repetitions; 2,000 samples, seed 1729. Describes this fixed suite.",
+    "quality": "No answer-quality uplift is claimed. Reference-check coverage is a lexical diagnostic, not verified correctness.",
+    "cache": "Provider-managed cache; measured separately, not forced cold. Concurrent trials may share cache.",
+    "cost": "Claude Code reported list-price estimate, not a subscription invoice",
+    "comparison": "Protocol v2 and the fixed public corpus differ from the legacy v0.5.1 experiment; results are not a model/version improvement claim."
+  },
+  "failures": [],
+  "retrieval": {
+    "schemaVersion": 2,
+    "seed": 1729,
+    "repetitions": 5,
+    "coldModelLoadAndFirstQueryMs": 1482.7693689985608,
+    "groups": {
+      "semantic": {
+        "queries": 42,
+        "timedSearches": 230,
+        "p50Ms": 107.99403750024794,
+        "p95Ms": 124.08365849969411,
+        "boundaryPasses": 30,
+        "boundaryChecks": 30,
+        "workspaceIsolationPasses": 230,
+        "at": {
+          "1": {
+            "recall": 0.4126984126984127,
+            "reciprocal_rank": 0.7857142857142857,
+            "ndcg": 0.6428571428571429,
+            "hit": 0.7857142857142857
+          },
+          "5": {
+            "recall": 0.8015873015873016,
+            "reciprocal_rank": 0.8690476190476191,
+            "ndcg": 0.744795236806678,
+            "hit": 0.9761904761904762
+          },
+          "10": {
+            "recall": 0.9206349206349206,
+            "reciprocal_rank": 0.8690476190476191,
+            "ndcg": 0.7821344917403282,
+            "hit": 0.9761904761904762
+          }
+        }
+      },
+      "hybrid": {
+        "queries": 42,
+        "timedSearches": 230,
+        "p50Ms": 153.36067600037495,
+        "p95Ms": 170.08977209879956,
+        "boundaryPasses": 30,
+        "boundaryChecks": 30,
+        "workspaceIsolationPasses": 230,
+        "at": {
+          "1": {
+            "recall": 0.3888888888888889,
+            "reciprocal_rank": 0.7380952380952381,
+            "ndcg": 0.5748299319727891,
+            "hit": 0.7380952380952381
+          },
+          "5": {
+            "recall": 0.8333333333333334,
+            "reciprocal_rank": 0.8392857142857143,
+            "ndcg": 0.7422438539226949,
+            "hit": 0.9761904761904762
+          },
+          "10": {
+            "recall": 0.9365079365079365,
+            "reciprocal_rank": 0.8392857142857143,
+            "ndcg": 0.7756851558296205,
+            "hit": 0.9761904761904762
+          }
+        }
+      }
+    },
+    "comparison": {
+      "recallAt5": {
+        "hybridMinusSemantic": 0.031746031746031744,
+        "ci95": [
+          -0.011904761904761904,
+          0.08333333333333333
+        ]
+      },
+      "mrrAt10": {
+        "hybridMinusSemantic": -0.02976190476190476,
+        "ci95": [
+          -0.09325396825396826,
+          0.03174603174603175
+        ]
+      },
+      "ndcgAt10": {
+        "hybridMinusSemantic": -0.006449335910707719,
+        "ci95": [
+          -0.05212461669840011,
+          0.034993889391421375
+        ]
+      }
+    },
+    "rankingRepeatDisagreements": 0,
+    "metricUnit": "Distinct gold sources in the first k returned chunks; duplicate source gains are zero.",
+    "limitations": [
+      "Fixed public task suite, not unseen customer workloads.",
+      "Source relevance does not establish generated-answer correctness.",
+      "Warm timings exclude model download and run serially on this host."
+    ],
+    "peakRssMiB": 1055.65234375,
+    "datasetSha256": "fb6ce6901b923749446c4febf851e61ed5befbdc15d1042f03cb36541547a74d"
+  }
+}

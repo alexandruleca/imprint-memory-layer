@@ -21,7 +21,7 @@
   <a href="https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml"><img src="https://github.com/alexandruleca/imprint-memory-layer/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/alexandruleca/imprint-memory-layer/releases/latest"><img src="https://img.shields.io/github/v/release/alexandruleca/imprint-memory-layer?sort=semver&display_name=tag" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
-  <img src="https://img.shields.io/badge/tokens-−70.4%25-6366f1" alt="Tokens −70.4%">
+  <img src="https://img.shields.io/badge/benchmarks-auditable-6366f1" alt="Auditable benchmarks">
   <img src="https://img.shields.io/badge/cost-−31.7%25-8b5cf6" alt="Cost −31.7%">
 </p>
 
@@ -32,7 +32,7 @@
 ### Why Imprint
 
 - **Remembers what your AI forgets.** Decisions, patterns, bug fixes, and architectural choices persist across sessions — searched semantically, not grepped.
-- **−70.4% tokens, −31.7% cost.** Measured across 150 runs on Claude Code (Sonnet). Your AI searches memory instead of re-reading files. See [BENCHMARK.md](BENCHMARK.md) for raw numbers.
+- **Measured usage and visible trade-offs.** Published retrieval, token, estimated cost and latency measurements include paired trial evidence, failures, exact model/corpus versions and uncertainty. See [BENCHMARK.md](BENCHMARK.md).
 - **Runs 100% locally by default.** Qwen3-Embedding-0.6B via ONNX, Qdrant vector DB, Chonkie chunking — all on your machine. No API credits consumed unless you opt in.
 - **One command, any host.** Wires into Claude Code, Cursor, Codex CLI, Copilot, or Cline via MCP. Same memory, shared across tools.
 
@@ -228,21 +228,13 @@ Terms used across the docs.
 
 ## Benchmarks
 
-Imprint reduces Claude Code's token consumption by serving focused semantic search results instead of requiring full file reads. Measured across 15 prompts in 6 categories, 5 runs per prompt per mode, Sonnet primary model.
+Imprint measures local retrieval separately from Claude Code task usage. Both ON and OFF receive the same frozen public source files and synthetic historical evidence; ON adds read-only memory tools and memory-first guidance with file fallback. Trials use fresh sessions, counterbalanced paired order and recorded model IDs.
 
-| Category | Prompts | Δ Tokens | Δ Cost | Notes |
-|---|---|---|---|---|
-| **Debugging** | 2 | **−94.2%** | **−68.3%** | Imprint answers from indexed failure-mode patterns instead of reading the codebase |
-| **Cross-project recall** | 2 | **−90.6%** | **−46.9%** | Patterns spanning multiple indexed projects — impossible without memory |
-| **Architecture Q&A** | 5 | **−87.2%** | **−42.6%** | Questions like "how does chunking work?" served from semantic search |
-| **Decision recall** | 2 | **−78.8%** | **−46.1%** | Why-we-did-X questions served from stored decisions |
-| Creation tasks | 3 | +9.9% | +15.1% | Near parity — code generation still needs codebase context |
-| Session summary | 1 | +179.6% | +204.1% | Outlier: single prompt, ON went on a graph-exploration spree |
-| **Overall** | **15** | **−70.4%** (10.28M → 3.05M) | **−31.7%** ($2.84 → $1.94) | |
+The [current measured report](BENCHMARK.md) includes actual paired token/cost totals, per-task medians, latency, source recall/MRR/nDCG, failures and bootstrap intervals. [Versioned sanitized trials](benchmark/published/) support recalculation; [the run selector](benchmark/latest.json) drives the website directly from JSON. [Methodology and limitations](docs/benchmarks.md) explain why the old Imprint 0.5.1 figures and biased quality judge are retired. No universal token saving or answer-quality uplift is claimed.
 
-Numbers are median per prompt, summed across categories. See [BENCHMARK.md](BENCHMARK.md) for per-prompt tables, per-model breakdown, response-quality analysis, and the exact flags used.
-
-> Reproduce: `bash benchmark/run.sh` (full suite, ~$15–25) or `bash benchmark/run.sh --subset` (one prompt per category, ~$6–10).
+```bash
+PYTHON=/path/to/venv/bin/python bash benchmark/run.sh --runs 5 --workers 2
+```
 
 ## Roadmap
 

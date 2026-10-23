@@ -2,7 +2,9 @@
 import benchmarks from '../data/benchmarks.json';
 const stats = benchmarks.overall;
 const retrieval = benchmarks.retrieval;
+const measurement = benchmarks.measurement;
 const interval = (values: number[] | null) => values ? `${values[0].toFixed(1)}% to ${values[1].toFixed(1)}%` : 'not estimated';
+const points = (values: number[]) => `${(values[0]*100).toFixed(1)} to ${(values[1]*100).toFixed(1)} percentage points`;
 ---
 <section class="mt-8 rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
   <h2 class="text-lg font-semibold">Uncertainty and latency</h2>
@@ -11,6 +13,7 @@ const interval = (values: number[] | null) => values ? `${values[0].toFixed(1)}%
     End-to-end p50: {(stats.latency.off.p50Ms / 1000).toFixed(1)}s OFF → {(stats.latency.on.p50Ms / 1000).toFixed(1)}s ON;
     p95: {(stats.latency.off.p95Ms / 1000).toFixed(1)}s → {(stats.latency.on.p95Ms / 1000).toFixed(1)}s.
     Intervals resample paired tasks and repetitions, not individual tokens, and describe this fixed suite.
+    {stats.costChangeCI95 && stats.costChangeCI95[0] <= 0 && stats.costChangeCI95[1] >= 0 && 'The cost interval includes no change, so the point estimate does not establish a clear saving.'}
   </p>
   {retrieval && <>
     <h2 class="mt-6 text-lg font-semibold">Retrieval on the labeled public corpus</h2>
@@ -28,6 +31,17 @@ const interval = (values: number[] | null) => values ? `${values[0].toFixed(1)}%
       {retrieval.metricUnit} {retrieval.groups.hybrid.queries} positive queries, plus explicit filter/workspace boundary cases;
       {retrieval.repetitions} timing repetitions per mode. Model load and first query: {(retrieval.coldModelLoadAndFirstQueryMs/1000).toFixed(1)}s.
       Fixed passages isolate retrieval from ingestion quality. Source relevance is not generated-answer correctness.
+    </p>
+    <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">
+      Hybrid − semantic Recall@5: {(retrieval.comparison.recallAt5.hybridMinusSemantic*100).toFixed(1)} percentage points;
+      paired query-family bootstrap interval: {points(retrieval.comparison.recallAt5.ci95)}.
+      {retrieval.comparison.recallAt5.ci95[0] <= 0 && retrieval.comparison.recallAt5.ci95[1] >= 0 && 'The interval includes no difference; this does not establish a clear retrieval winner.'}
+      Boundary checks: {retrieval.groups.hybrid.boundaryPasses + retrieval.groups.semantic.boundaryPasses}/{retrieval.groups.hybrid.boundaryChecks + retrieval.groups.semantic.boundaryChecks} passed.
+    </p>
+    <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">
+      {measurement.index.model}, {measurement.index.dimensions} dimensions, {measurement.index.sequenceLength}-token cap,
+      {measurement.index.threads} ONNX threads. Host: {measurement.hardware.cpuModel ?? measurement.hardware.architecture}.
+      Timings come from a shared {measurement.hardware.os} host and are not platform-wide performance guarantees.
     </p>
   </>}
   <p class="mt-4 text-sm text-[color:var(--color-text-muted)]">

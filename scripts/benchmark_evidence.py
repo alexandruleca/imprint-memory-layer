@@ -13,7 +13,7 @@ import statistics
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark.analysis import metrics
+from benchmark.analysis import metrics, retrieval_metrics
 
 
 def audit(raw):
@@ -59,7 +59,20 @@ def audit(raw):
         data = (Path(state['snapshot'])/file['path']).read_bytes()
         if hashlib.sha256(data).hexdigest() != file['sha256']:
             raise ValueError(f'Frozen evidence changed: {file["path"]}')
+    retrieval_count = 0
+    if (raw/'retrieval-report.json').exists():
+        dataset = Path(__file__).resolve().parents[1]/'benchmark/retrieval.json'
+        relevance = {q['id']:q.get('relevance',{}) for q in json.loads(dataset.read_text())}
+        report = json.loads((raw/'retrieval-report.json').read_text())
+        if hashlib.sha256(dataset.read_bytes()).hexdigest() != report['datasetSha256']:
+            raise ValueError('Retrieval labels changed after measurement')
+        for row in report['queries']:
+            for k in (1,5,10):
+                if retrieval_metrics(row['sources'],relevance[row['id']],k) != row['scores'][str(k)]:
+                    raise ValueError(f'Retrieval score mismatch: {row["id"]}, {row["mode"]}, {k}')
+            retrieval_count += 1
     return {'schemaVersion': 2, 'trialsAudited': len(ledger), 'frozenFilesVerified': len(manifest['corpus']['files']),
+            'retrievalSearchesAudited': retrieval_count,
             'analysisSha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'toolUsage': {mode: dict(counts) for mode,counts in tools.items()},
             'usageLedger': ledger,

@@ -27,7 +27,9 @@ export function loadBenchmarks(root) {
   if (pointer.schemaVersion !== 2 || !/^[\w-]+$/.test(pointer.runId)) throw new Error('Invalid benchmark run selector');
   const report = validateReport(JSON.parse(readFileSync(resolve(root, 'benchmark/published', pointer.runId, 'summary.json'), 'utf8')));
   if (report.runId !== pointer.runId) throw new Error('Benchmark run ID mismatch');
-  return report;
+  const manifest = JSON.parse(readFileSync(resolve(root, 'benchmark/published', pointer.runId, 'manifest.json'), 'utf8'));
+  if (manifest.runId !== report.runId || manifest.sourceRevision !== report.sourceRevision) throw new Error('Benchmark manifest mismatch');
+  return { ...report, measurement: {hardware: manifest.hardware, index: manifest.index} };
 }
 
 const here = fileURLToPath(import.meta.url);
