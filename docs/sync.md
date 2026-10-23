@@ -108,6 +108,10 @@ acknowledgement may leave a pending notification rather than a false success.
 Existing memories remain on both machines; forgetting cannot retract knowledge
 already shared. Pair again with a fresh code to restore authorization.
 
+Pause/forget control frames run before opening either index, so revocation also
+works after a workspace is removed or embedding settings become incompatible.
+Automatic data transfer never recreates a deleted workspace implicitly.
+
 Pair credentials live only in `data/sync-pairs.sqlite3` (0600 on Unix; the data
 directory ACL applies on Windows) and are omitted from peer API responses,
 exports and snapshots. Back up this data directory as sensitive local state.

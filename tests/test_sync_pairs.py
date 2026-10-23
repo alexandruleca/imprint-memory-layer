@@ -215,6 +215,20 @@ class PairedSyncTests(unittest.TestCase):
                 self.assertEqual(self.imports, [])
             self.scenario(scenario)
 
+    def test_forget_does_not_need_an_index_or_an_existing_workspace(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            pair = sync_pairs.pairs()[0]
+            sync_pairs.forget(pair['id'], confirmed=True)
+            self.imports.clear()
+            with patch.object(config, 'get_known_workspaces', return_value=[]), \
+                 patch.object(sync_pairs, 'digest', side_effect=RuntimeError('index unavailable')) as read:
+                await self.repeat()
+                read.assert_not_called()
+            self.assertFalse(sync_pairs.pairs())
+            self.assertFalse(self.imports)
+        self.scenario(scenario)
+
     def test_credentials_are_private_and_lock_has_one_owner(self):
         sync_pairs.pairs()
         path = self.dirs['a'] / 'sync-pairs.sqlite3'
