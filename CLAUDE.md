@@ -74,5 +74,6 @@ imprint ui [start|stop|status|open|restart|log]
 imprint workspace [list|switch|delete]
 imprint wipe [--force|--all]
 imprint sync serve --relay <host> | <host>/<id>
+imprint update [--check [--json]]  # install the latest release the way this install was set up (ADR 0023)
 imprint version
 ```

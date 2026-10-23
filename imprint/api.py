@@ -37,6 +37,7 @@ from . import imprint_graph as kg
 from . import chat as chat_mod
 from . import chat_store
 from . import queue as job_queue
+from . import updates
 from .http_security import local_origin, local_host
 from .processes import is_alive
 
@@ -205,6 +206,34 @@ def api_version():
 
 
 _CACHED_VERSION: str | None = None
+
+
+@app.get("/api/update")
+def api_update(refresh: bool = False):
+    """Latest release, how this installation updates, and update progress."""
+    try:
+        report = updates.check(refresh)
+    except Exception as error:
+        return {**updates.status(), "error": str(error)}
+    return {**report, **updates.status()}
+
+
+@app.post("/api/update")
+def api_update_start():
+    """Start updating to the latest release (ADR 0023)."""
+    try:
+        report = updates.check()
+    except Exception as error:
+        return JSONResponse({"error": f"Could not check for updates: {error}"}, status_code=502)
+    if report.get("unsupported"):
+        return JSONResponse({"error": report["unsupported"]}, status_code=400)
+    if not report.get("update_available"):
+        return JSONResponse({"error": f"Already on {report.get('current')}"}, status_code=400)
+    try:
+        updates.start()
+    except updates.UpdateConflict as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
+    return {"started": True, "target": report["latest"]}
 
 
 @app.get("/api/cross-project")

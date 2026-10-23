@@ -92,8 +92,16 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}";     Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{#IconInstalled}"; Tasks: desktopicon
 
 [Run]
-; Silent installs skip custom wizard pages. Provision explicitly in that case.
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NonInteractive -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" -Profile cpu -NoLlm"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; Check: WizardSilent
+; Silent installs skip custom wizard pages. Provision explicitly in that case:
+; deterministic CPU/no-LLM defaults on a first install (ADR 0012), the
+; persisted profile on an update (ADR 0023).
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NonInteractive -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" {code:SilentProfileArgs}"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; Check: WizardSilent
+; `imprint update` runs this installer with /RELAUNCH=1 and has closed
+; Imprint; reopen it once the update is provisioned.
+Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; \
+    WorkingDir: "{app}"; \
+    Flags: nowait runhidden; Check: WizardSilent and RelaunchRequested
 ; Bootstrap now runs on the inline "Setting up Imprint" wizard page (SetupOutputPage.iss)
 ; so users see live output without a separate PowerShell window.
 ; Offer to launch Imprint on install finish (unchecked in silent mode).
@@ -137,6 +145,19 @@ function BackButtonClick(CurPageID: Integer): Boolean;
 begin
   // Prevent going back while bootstrap is running.
   Result := not ((GOutputPage <> nil) and (CurPageID = GOutputPage.ID) and not GBootDone);
+end;
+
+function SilentProfileArgs(Param: string): string;
+begin
+  if FileExists(ExpandConstant('{app}\data\profile.json')) then
+    Result := ''
+  else
+    Result := '-Profile cpu -NoLlm';
+end;
+
+function RelaunchRequested: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
 end;
 
 function NeedsPathEntry(const Dir: string): Boolean;

@@ -103,6 +103,35 @@ export async function getVersion(): Promise<{ version: string }> {
   return fetchAPI("/api/version");
 }
 
+// ── Updates ─────────────────────────────────────────────────────
+
+/** How this installation updates; see ADR 0023. */
+export type UpdateMethod = "archive" | "windows-setup" | "macos-pkg";
+
+export interface UpdateInfo {
+  current?: string;
+  latest?: string;
+  name?: string;
+  url?: string;
+  published_at?: string;
+  update_available?: boolean;
+  method?: UpdateMethod;
+  /** Why this installation cannot update itself (container, source checkout). */
+  unsupported?: string;
+  /** An update started by this server is still running. */
+  running: boolean;
+  log: string[];
+  error?: string;
+}
+
+export function getUpdate(refresh = false) {
+  return fetchAPI<UpdateInfo>(`/api/update${refresh ? "?refresh=true" : ""}`);
+}
+
+export function startUpdate() {
+  return fetchAPI<{ started: boolean; target: string }>("/api/update", { method: "POST" });
+}
+
 export async function getJobs(): Promise<{ jobs: IngestionJob[] }> {
   return fetchAPI("/api/jobs");
 }

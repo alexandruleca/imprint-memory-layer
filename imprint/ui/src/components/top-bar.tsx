@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { UpdateButton } from "@/components/update-button";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 
 /** App-wide controls above every page. In the frameless desktop window the
@@ -12,6 +13,7 @@ export function TopBar() {
       className="flex h-12 shrink-0 items-center justify-end gap-2 px-4 sm:px-6"
       style={isElectron ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined}
     >
+      <UpdateButton />
       <WorkspaceSwitcher />
     </header>
   );

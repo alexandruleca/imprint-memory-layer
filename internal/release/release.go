@@ -1,5 +1,4 @@
-// Package release resolves Imprint releases from GitHub. Shared by
-// `imprint update` and (future) `imprint version --check`.
+// Package release resolves Imprint releases from GitHub for `imprint update`.
 package release
 
 import (
@@ -82,6 +81,7 @@ const (
 type Release struct {
 	TagName     string         `json:"tag_name"`
 	Name        string         `json:"name"`
+	HTMLURL     string         `json:"html_url"`
 	Body        string         `json:"body"`
 	Prerelease  bool           `json:"prerelease"`
 	PublishedAt time.Time      `json:"published_at"`
@@ -153,13 +153,17 @@ func ResolveTag(tag string) (*Release, error) {
 // FindArchiveAsset picks the current-platform archive asset from a release.
 // Returns an error if no matching asset is attached.
 func FindArchiveAsset(r *Release) (*ReleaseAsset, error) {
-	want := ArchiveName()
+	return FindAsset(r, ArchiveName())
+}
+
+// FindAsset picks the asset with this exact name from a release.
+func FindAsset(r *Release, name string) (*ReleaseAsset, error) {
 	for i := range r.Assets {
-		if r.Assets[i].Name == want {
+		if r.Assets[i].Name == name {
 			return &r.Assets[i], nil
 		}
 	}
-	return nil, fmt.Errorf("release %s has no asset named %s", r.TagName, want)
+	return nil, fmt.Errorf("release %s has no asset named %s", r.TagName, name)
 }
 
 // Download streams a URL into the writer. Caller is responsible for creating

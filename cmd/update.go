@@ -5,15 +5,20 @@ import (
 	"archive/zip"
 	"bufio"
 	"compress/gzip"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/queuelock"
 	"github.com/hunter/imprint/internal/release"
 	"github.com/hunter/imprint/internal/runner"
 )
@@ -24,18 +29,52 @@ type updateFlags struct {
 	Dev     bool
 	Yes     bool
 	Check   bool
+	JSON    bool
 }
 
-// Update implements `imprint update`. It downloads the selected release
-// archive from GitHub, rsyncs the new code over the existing install
-// (preserving data/ and .venv/), runs pip install -r requirements.txt, and
-// re-runs `imprint setup` from the freshly-installed binary.
+// installKind is how this installation was set up, which decides how it
+// updates (ADR 0023).
+type installKind string
+
+const (
+	// installArchive: install.sh / install.ps1. Overlay the release archive.
+	installArchive installKind = "archive"
+	// installWindowsSetup: the Inno Setup installer. Run the new setup.exe,
+	// which closes the app, replaces its files and reopens it.
+	installWindowsSetup installKind = "windows-setup"
+	// installMacPkg: the root-owned /Applications/Imprint.app. Open the new
+	// .pkg so Installer asks for permission.
+	installMacPkg installKind = "macos-pkg"
+)
+
+type installation struct {
+	dir  string
+	kind installKind
+}
+
+// updateReport is `imprint update --check --json`, read by the dashboard.
+type updateReport struct {
+	Current         string      `json:"current"`
+	Latest          string      `json:"latest"`
+	Name            string      `json:"name"`
+	URL             string      `json:"url"`
+	PublishedAt     time.Time   `json:"published_at"`
+	UpdateAvailable bool        `json:"update_available"`
+	Method          installKind `json:"method,omitempty"`
+	// Unsupported says why this installation cannot update itself.
+	Unsupported string `json:"unsupported,omitempty"`
+}
+
+// Update implements `imprint update`. It resolves the release, verifies the
+// download against SHA256SUMS, and installs it the way this installation
+// was set up: overlaying the archive (preserving data/ and .venv/), or
+// handing over to the platform installer.
 //
 //	imprint update                  # latest stable, interactive confirm
 //	imprint update --version vX.Y.Z # pinned release
 //	imprint update --dev            # latest prerelease
 //	imprint update -y               # skip confirm
-//	imprint update --check          # print current + latest and exit
+//	imprint update --check [--json] # print current + latest and exit
 func Update(args []string, currentVersion string) {
 	flags, err := parseUpdateFlags(args)
 	if err != nil {
@@ -43,16 +82,12 @@ func Update(args []string, currentVersion string) {
 		os.Exit(2)
 	}
 
-	installDir, err := resolveInstallDir()
-	if err != nil {
-		output.Fail(err.Error())
-	}
+	inst, instErr := resolveInstallation()
 
 	channel := release.Stable
 	if flags.Dev {
 		channel = release.Dev
 	}
-
 	var target *release.Release
 	switch {
 	case flags.Version != "":
@@ -65,17 +100,11 @@ func Update(args []string, currentVersion string) {
 	}
 
 	if flags.Check {
-		fmt.Printf("Current: %s\nLatest:  %s   (%s)\n", currentVersion, target.TagName, target.Name)
-		if strings.TrimSpace(target.Body) != "" {
-			lines := strings.Split(strings.TrimSpace(target.Body), "\n")
-			for i, l := range lines {
-				if i >= 5 {
-					break
-				}
-				fmt.Println("  " + l)
-			}
-		}
+		printUpdateCheck(flags.JSON, currentVersion, target, inst, instErr)
 		return
+	}
+	if instErr != nil {
+		output.Fail(instErr.Error())
 	}
 
 	if target.TagName == currentVersion && currentVersion != "dev" {
@@ -83,6 +112,63 @@ func Update(args []string, currentVersion string) {
 		return
 	}
 
+	// A running ingest would lose its files and its server mid-job.
+	dataDir := platform.DataDir(inst.dir)
+	lock, err := queuelock.TryAcquire(dataDir, "update")
+	if err != nil {
+		output.Fail(err.Error() + " — update when it finishes")
+	}
+	defer lock.Release()
+
+	switch inst.kind {
+	case installWindowsSetup:
+		updateWithWindowsSetup(inst, target, currentVersion, flags.Yes)
+	case installMacPkg:
+		updateWithMacPkg(inst, target, currentVersion, flags.Yes)
+	default:
+		updateArchive(inst, target, currentVersion, flags.Yes)
+	}
+}
+
+func printUpdateCheck(asJSON bool, currentVersion string, target *release.Release, inst installation, instErr error) {
+	report := updateReport{
+		Current:         currentVersion,
+		Latest:          target.TagName,
+		Name:            target.Name,
+		URL:             target.HTMLURL,
+		PublishedAt:     target.PublishedAt,
+		UpdateAvailable: isNewerVersion(target.TagName, currentVersion),
+		Method:          inst.kind,
+	}
+	if instErr != nil {
+		report.Unsupported = instErr.Error()
+	}
+	if asJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(report)
+		return
+	}
+	fmt.Printf("Current: %s\nLatest:  %s   (%s)\n", currentVersion, target.TagName, target.Name)
+	if report.Unsupported != "" {
+		fmt.Println("Update:  not available here — " + report.Unsupported)
+	} else {
+		fmt.Println("Install: " + installLabel(inst.kind))
+	}
+	if strings.TrimSpace(target.Body) != "" {
+		lines := strings.Split(strings.TrimSpace(target.Body), "\n")
+		for i, l := range lines {
+			if i >= 5 {
+				break
+			}
+			fmt.Println("  " + l)
+		}
+	}
+}
+
+// updateArchive overlays the release archive onto an install.sh /
+// install.ps1 tree, re-runs setup and restarts the dashboard server if it
+// was running.
+func updateArchive(inst installation, target *release.Release, currentVersion string, yes bool) {
+	installDir := inst.dir
 	asset, err := release.FindArchiveAsset(target)
 	if err != nil {
 		output.Fail(err.Error())
@@ -94,7 +180,7 @@ func Update(args []string, currentVersion string) {
 	fmt.Println("  Preserved:   data/ (workspaces, qdrant, sqlite, config, gpu_state), .venv/")
 	fmt.Println()
 
-	if !flags.Yes && !confirm(fmt.Sprintf("Update to %s?", target.TagName)) {
+	if !yes && !confirm(fmt.Sprintf("Update to %s?", target.TagName)) {
 		output.Info("Aborted.")
 		return
 	}
@@ -105,14 +191,7 @@ func Update(args []string, currentVersion string) {
 	}
 	defer os.RemoveAll(tmp)
 
-	archivePath := filepath.Join(tmp, asset.Name)
-	output.Info("Downloading " + asset.BrowserDownloadURL)
-	if err := downloadTo(archivePath, asset.BrowserDownloadURL); err != nil {
-		output.Fail(err.Error())
-	}
-	if err := release.VerifyReleaseArchive(target, asset.Name, archivePath); err != nil {
-		output.Fail("Archive verification failed: " + err.Error())
-	}
+	archivePath := downloadVerified(target, asset, tmp)
 
 	output.Info("Extracting archive...")
 	if err := extractArchive(archivePath, tmp); err != nil {
@@ -128,16 +207,12 @@ func Update(args []string, currentVersion string) {
 		binName = "imprint.exe"
 	}
 	binPath := filepath.Join(installDir, "bin", binName)
-	// Back up the current binary so the user can roll back manually if the
-	// overlay breaks something weird. A single slot is enough.
-	if platform.FileExists(binPath) {
-		_ = os.Rename(binPath, binPath+".prev")
-	}
+	ui, uiRunning := runningUI(platform.DataDir(installDir))
 
-	installedVia := detectInstallMethod(installDir)
-	if installedVia != "" {
-		output.Info("Detected install layout: " + installedVia)
-	}
+	// Keep the current binaries one step back for a manual rollback. Moving
+	// them also frees the names of running executables, which Windows will
+	// not overwrite (this updater, an open desktop window).
+	moveBinariesAside(filepath.Join(installDir, "bin"))
 
 	output.Info("Updating files in " + installDir + " (preserving data/ + .venv/ + python/ + .uv-cache/)...")
 	if err := overlayCopy(extracted, installDir, []string{"data", ".venv", "python", ".uv-cache"}); err != nil {
@@ -178,6 +253,171 @@ func Update(args []string, currentVersion string) {
 	if err := runner.Run(binPath, "setup"); err != nil {
 		output.Warn("Setup returned error: " + err.Error())
 	}
+	restartUI(binPath, ui, uiRunning, target.TagName)
+}
+
+// updateWithWindowsSetup hands over to the release's Inno Setup installer.
+// It must outlive this process: the installer closes everything running
+// from the install directory, this updater included, then reopens Imprint.
+func updateWithWindowsSetup(inst installation, target *release.Release, currentVersion string, yes bool) {
+	asset, err := release.FindAsset(target, "imprint-windows-amd64-setup.exe")
+	if err != nil {
+		output.Fail(err.Error())
+	}
+	fmt.Printf("\n  Current:   %s\n  New:       %s\n  Installer: %s\n  Install:   %s\n\n",
+		currentVersion, target.TagName, asset.Name, inst.dir)
+	fmt.Println("  Imprint closes while the installer runs and reopens when it finishes.")
+	fmt.Println("  Preserved: data/ (workspaces, qdrant, sqlite, config), .venv/, your install profile")
+	fmt.Println()
+	if !yes && !confirm(fmt.Sprintf("Update to %s?", target.TagName)) {
+		output.Info("Aborted.")
+		return
+	}
+
+	dir := filepath.Join(os.TempDir(), "imprint-update-"+target.TagName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		output.Fail("Could not create temp dir: " + err.Error())
+	}
+	installer := downloadVerified(target, asset, dir)
+
+	// The dashboard server holds no installed files open, so the installer
+	// would leave it serving the old code; stop it first.
+	uiStop(nil)
+
+	logPath := filepath.Join(platform.DataDir(inst.dir), "update-setup.log")
+	args := []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1", "/LOG=" + logPath}
+	if !spawnDetached(installer, args) {
+		output.Fail("Could not start the installer: " + installer)
+	}
+	output.Success("Installer started: Imprint closes, updates to " + target.TagName + " and reopens.")
+	output.Info("Installer log: " + logPath)
+}
+
+// updateWithMacPkg opens the release's .pkg in Installer, which asks for
+// permission to replace the root-owned app bundle, then restarts the
+// dashboard server from the installed binary.
+func updateWithMacPkg(inst installation, target *release.Release, currentVersion string, yes bool) {
+	asset, err := release.FindAsset(target, fmt.Sprintf("imprint-darwin-%s.pkg", runtime.GOARCH))
+	if err != nil {
+		output.Fail(err.Error())
+	}
+	fmt.Printf("\n  Current:   %s\n  New:       %s\n  Installer: %s\n  Install:   %s\n\n",
+		currentVersion, target.TagName, asset.Name, inst.dir)
+	fmt.Println("  Installer opens and asks for your password. Your data stays in ~/.local/share/imprint.")
+	fmt.Println()
+	if !yes && !confirm(fmt.Sprintf("Update to %s?", target.TagName)) {
+		output.Info("Aborted.")
+		return
+	}
+
+	tmp, err := os.MkdirTemp("", "imprint-update-*")
+	if err != nil {
+		output.Fail("Could not create temp dir: " + err.Error())
+	}
+	defer os.RemoveAll(tmp)
+	pkg := downloadVerified(target, asset, tmp)
+
+	ui, uiRunning := runningUI(platform.DataDir(inst.dir))
+	output.Info("Opening the installer — follow its steps")
+	if err := runner.Run("open", "-W", pkg); err != nil {
+		output.Fail("Could not open the installer: " + err.Error())
+	}
+
+	binPath := filepath.Join(inst.dir, "bin", "imprint")
+	installed, err := runner.RunCapture(binPath, "version")
+	if err != nil || strings.TrimSpace(strings.TrimPrefix(installed, "imprint ")) != target.TagName {
+		output.Fail("Installer closed without installing " + target.TagName)
+	}
+	output.Success("Updated to " + target.TagName)
+	restartUI(binPath, ui, uiRunning, target.TagName)
+}
+
+// downloadVerified downloads a release asset into dir and checks it against
+// SHA256SUMS before anything is installed.
+func downloadVerified(target *release.Release, asset *release.ReleaseAsset, dir string) string {
+	path := filepath.Join(dir, asset.Name)
+	output.Info("Downloading " + asset.BrowserDownloadURL)
+	if err := downloadTo(path, asset.BrowserDownloadURL); err != nil {
+		output.Fail(err.Error())
+	}
+	if err := release.VerifyReleaseArchive(target, asset.Name, path); err != nil {
+		output.Fail("Download verification failed: " + err.Error())
+	}
+	return path
+}
+
+// runningUI reports the dashboard server started by `imprint ui start`, if
+// it is answering.
+func runningUI(dataDir string) (*uiState, bool) {
+	st, ok := readUIState(dataDir)
+	return st, ok && uiHealthy(st.Port)
+}
+
+// restartUI restarts a dashboard server that was running before the update
+// with the new binary, so it serves the new code.
+func restartUI(binPath string, ui *uiState, wasRunning bool, version string) {
+	if !wasRunning {
+		output.Info("Restart any open Imprint window to use " + version + ".")
+		return
+	}
+	output.Info("Restarting the dashboard server...")
+	if err := runner.Run(binPath, "ui", "restart", "--port", strconv.Itoa(ui.Port)); err != nil {
+		output.Warn("Dashboard restart failed: " + err.Error() + " — run `imprint ui restart`")
+	}
+}
+
+// moveBinariesAside renames each file in bin/ to <name>.prev, replacing the
+// previous backup.
+func moveBinariesAside(binDir string) {
+	entries, err := os.ReadDir(binDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || strings.HasSuffix(entry.Name(), ".prev") {
+			continue
+		}
+		path := filepath.Join(binDir, entry.Name())
+		_ = os.Remove(path + ".prev")
+		_ = os.Rename(path, path+".prev")
+	}
+}
+
+// isNewerVersion reports whether release tag a is a later version than b.
+// A build without a release version ("dev") is never behind.
+func isNewerVersion(a, b string) bool {
+	va, okA := parseVersion(a)
+	vb, okB := parseVersion(b)
+	if !okA || !okB {
+		return false
+	}
+	for i := range va {
+		if va[i] != vb[i] {
+			return va[i] > vb[i]
+		}
+	}
+	return false
+}
+
+// parseVersion reads the vMAJOR.MINOR.PATCH prefix of a tag or of a
+// `git describe` version such as v0.13.1-4-gabc1234.
+func parseVersion(s string) ([3]int, bool) {
+	var v [3]int
+	parts := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(s), "v"), ".", 3)
+	if len(parts) != 3 {
+		return v, false
+	}
+	for i, part := range parts {
+		if end := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' }); end >= 0 {
+			part = part[:end]
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return v, false
+		}
+		v[i] = n
+	}
+	return v, true
 }
 
 func parseUpdateFlags(args []string) (updateFlags, error) {
@@ -198,6 +438,8 @@ func parseUpdateFlags(args []string) (updateFlags, error) {
 			f.Yes = true
 		case a == "--check":
 			f.Check = true
+		case a == "--json":
+			f.JSON = true
 		case a == "-h" || a == "--help":
 			printUpdateHelp()
 			os.Exit(0)
@@ -207,6 +449,9 @@ func parseUpdateFlags(args []string) (updateFlags, error) {
 	}
 	if f.Version != "" && f.Dev {
 		return f, fmt.Errorf("--version and --dev are mutually exclusive")
+	}
+	if f.JSON && !f.Check {
+		return f, fmt.Errorf("--json only applies to --check")
 	}
 	return f, nil
 }
@@ -219,19 +464,66 @@ Usage:
   imprint update --version vX.Y.Z  # pin a specific release tag
   imprint update --dev             # latest prerelease
   imprint update --check           # show current + latest and exit
+  imprint update --check --json    # the same as JSON, for the dashboard
   imprint update -y | --yes        # skip confirmation prompt
+
+How it installs depends on how Imprint was installed:
+  install.sh / install.ps1   replace the install tree, re-run setup and
+                             restart a running dashboard server
+  Windows installer          run the new setup.exe silently; Imprint closes
+                             and reopens
+  macOS .pkg                 open the new .pkg in Installer
 
 Data preservation:
   data/   (workspaces, qdrant storage, sqlite graphs, config, gpu_state.json)
   .venv/  (Python virtual environment)
-are never touched. Everything else under the install directory is replaced.
+are never touched.
 `)
 }
 
-// resolveInstallDir returns the directory that `imprint update` should
-// update. This is the parent of bin/ for the currently-running binary —
-// typically ~/.local/share/imprint/. Refuses to update a go-run / source
-// checkout where there is no bin/imprint.
+// resolveInstallation finds the installation this binary belongs to and how
+// it was installed. Containers and source checkouts are not installations
+// that can replace themselves.
+func resolveInstallation() (installation, error) {
+	if platform.FileExists("/.dockerenv") || platform.FileExists("/run/.containerenv") {
+		return installation{}, errors.New("running in a container: pull the new image and recreate the container (the /data volume is kept)")
+	}
+	dir, err := resolveInstallDir()
+	if err != nil {
+		return installation{}, err
+	}
+	if platform.DirExists(filepath.Join(dir, ".git")) {
+		return installation{}, fmt.Errorf("%s is a source checkout: update it with git pull and rebuild", dir)
+	}
+	return installation{dir: dir, kind: installKindOf(dir, runtime.GOOS)}, nil
+}
+
+// installKindOf tells an installer-managed tree from an install.sh /
+// install.ps1 one. Inno Setup leaves its uninstaller in the install
+// directory; the macOS .pkg installs into the app bundle.
+func installKindOf(dir, goos string) installKind {
+	switch {
+	case goos == "windows" && platform.FileExists(filepath.Join(dir, "unins000.exe")):
+		return installWindowsSetup
+	case goos == "darwin" && strings.HasSuffix(filepath.ToSlash(dir), ".app/Contents/Resources/imprint"):
+		return installMacPkg
+	}
+	return installArchive
+}
+
+func installLabel(kind installKind) string {
+	switch kind {
+	case installWindowsSetup:
+		return "Windows installer — updates by running the new setup.exe"
+	case installMacPkg:
+		return "macOS .pkg — updates by opening the new .pkg"
+	}
+	return "install script — updates in place"
+}
+
+// resolveInstallDir returns the parent of bin/ for the running binary —
+// typically ~/.local/share/imprint/. Refuses a go-run / source build where
+// there is no bin/imprint.
 func resolveInstallDir() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -254,17 +546,26 @@ func resolveInstallDir() (string, error) {
 	return installDir, nil
 }
 
-// confirm asks a y/N question. Reads from /dev/tty so it works even when
-// stdin is piped (e.g. wrapping `imprint update` inside a shell pipeline).
+// confirm asks a y/N question on the terminal, so it works even when stdin
+// is piped (e.g. wrapping `imprint update` inside a shell pipeline).
 // Defaults to "no" on blank input to stay conservative with destructive ops.
 func confirm(prompt string) bool {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	in, out := "/dev/tty", "/dev/tty"
+	if runtime.GOOS == "windows" {
+		in, out = "CONIN$", "CONOUT$"
+	}
+	tty, err := os.Open(in)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s Cannot open /dev/tty — pass -y to skip confirm.\n", prompt)
+		fmt.Fprintf(os.Stderr, "%s Cannot open the terminal — pass -y to skip confirm.\n", prompt)
 		return false
 	}
 	defer tty.Close()
-	fmt.Fprintf(tty, "%s [y/N] ", prompt)
+	if w, err := os.OpenFile(out, os.O_WRONLY, 0); err == nil {
+		fmt.Fprintf(w, "%s [y/N] ", prompt)
+		w.Close()
+	} else {
+		fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)
+	}
 	r := bufio.NewReader(tty)
 	line, err := r.ReadString('\n')
 	if err != nil && err != io.EOF {
@@ -484,25 +785,4 @@ func overlayCopy(src, dst string, skipDirs []string) error {
 		}
 		return out.Close()
 	})
-}
-
-// detectInstallMethod returns a short label describing how imprint appears
-// to have been installed, or "" if we can't tell. Used only for user-facing
-// messaging — the overlay update path is identical for all layouts.
-func detectInstallMethod(installDir string) string {
-	switch runtime.GOOS {
-	case "darwin":
-		if strings.Contains(installDir, "/Applications/Imprint.app/") {
-			return "macOS .pkg (/Applications/Imprint.app)"
-		}
-	case "windows":
-		lower := strings.ToLower(installDir)
-		if strings.Contains(lower, `\programs\imprint`) || strings.Contains(lower, "/programs/imprint") {
-			return "Windows installer (%LOCALAPPDATA%\\Programs\\Imprint)"
-		}
-	}
-	if strings.Contains(installDir, ".local/share/imprint") || strings.Contains(installDir, `.local\share\imprint`) {
-		return "curl/PowerShell installer (~/.local/share/imprint)"
-	}
-	return ""
 }

@@ -154,21 +154,34 @@ irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/in
 .\install.ps1 -Dev
 ```
 
-Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > default stable. The installer `git checkout`s the matching tag so the repo source tree aligns with the binary version.
+Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > default stable. The installer downloads that release's archive and verifies it against `SHA256SUMS`.
 
 ## Updating an existing install
 
-Once installed, upgrade in place with the CLI — no curl pipe, no sudo, and no chance of clobbering your indexed memory:
+When a newer release exists, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reconnects when the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open.
+
+From a terminal:
 
 ```bash
 imprint update                 # latest stable (asks for confirmation)
 imprint update --dev           # latest prerelease
 imprint update --version v0.3.1
 imprint update --check         # prints current + latest and exits
+imprint update --check --json  # the same, as JSON
 imprint update -y              # skip confirmation, for scripts / CI
 ```
 
-**What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `gpu_state.json`) and `.venv/` (Python virtual environment). Everything else under the install dir (`~/.local/share/imprint/` by default) is replaced with the new release's tree; stale files from the previous release are removed (`rsync --delete-during`). The previous binary is kept at `bin/imprint.prev` in case you need to roll back manually.
+Every download is verified against the release's `SHA256SUMS` before anything is installed. An update refuses to start while an ingest or other queued job runs. How it installs depends on how Imprint was installed ([ADR 0023](adr/0023-update-by-installation-type.md)):
+
+| Installed with | Update |
+| --- | --- |
+| `install.sh` / `install.ps1` | Replaces the install tree in place, re-runs `imprint setup` and restarts a dashboard server started by `imprint ui start`. The previous files in `bin/` are kept as `bin/<name>.prev` for a manual rollback. |
+| Windows installer | Stops the dashboard server and runs the new `setup.exe` silently. Imprint closes, updates and reopens; your install profile (GPU, local LLM) is kept. The installer log is `data/update-setup.log`. |
+| macOS `.pkg` | Opens the new `.pkg` in Installer, which asks for your password, then restarts the dashboard server. |
+| Docker | Pull the new image and recreate the container; the `/data` volume is kept. |
+| Source checkout | `git pull` and rebuild. |
+
+**What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `gpu_state.json`) and `.venv/` (Python virtual environment). An in-place update overwrites the release's files and leaves files that newer releases dropped. Installations from before ADR 0023 update once by the old route (installer, install script or `imprint update`) before the dashboard can update them.
 
 Re-running `install.sh` against an existing install also still works, but it now requires confirmation:
 
