@@ -68,11 +68,13 @@ function Invoke-Imprint {
     $nativeExit = $null
     try {
         $ErrorActionPreference = 'Continue'
-        $LASTEXITCODE = $null
+        # Native commands update the global automatic variable. A local
+        # assignment would shadow it and hide the completed process's exit.
+        $global:LASTEXITCODE = $null
         & $Bin @Arguments 2>&1 | ForEach-Object {
             "$_" | Out-File -FilePath $Log -Append -Encoding utf8
         }
-        $nativeExit = $LASTEXITCODE
+        $nativeExit = $global:LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousPreference
     }
