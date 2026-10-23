@@ -132,7 +132,7 @@ These don't live in `config.json` because they're path-shaped infra knobs the co
 |---|---|---|
 | `IMPRINT_DATA_DIR` | `<repo>/data` or `~/.local/share/imprint/data` | Root for workspaces, Qdrant storage, SQLite graphs, config.json. Override for multi-install setups or when running out of a read-only tree. |
 | `IMPRINT_QDRANT_BIN` | auto (downloaded into `data/qdrant-bin/`) | Path to a system-installed `qdrant` binary, bypassing the pinned auto-download. |
-| `IMPRINT_MCP_IDLE_S` | `30` | Seconds of MCP inactivity after which the server releases the embedded Qdrant client lock so a separate `imprint ingest` can grab it. |
+| `IMPRINT_MCP_IDLE_S` | Retired | Ignored compatibility setting. HTTP Qdrant clients retain their connection pool until explicit cleanup or process exit; there is no embedded lock to release. See ADR 0022. |
 
 ## Source limits and operation workspace
 

@@ -157,7 +157,7 @@ New manifests record `runtimeRevision` and `runtimeSourceSha256` separately from
 
 ## Follow-up bundle and comparison
 
-The compact-response follow-up is `20261023T140134777248Z-fdea98ae-s1729`: 180 successful trials, 90 pairs, no protocol tool errors, plus 460 retrieval searches and 60 explicit boundary checks. Runtime `ee040e6` is pinned separately from the unchanged `fdea98ae` corpus. Later sync-control recovery fixes do not change the measured MCP response modules.
+The compact-response follow-up is `20261023T140134777248Z-fdea98ae-s1729`: 180 successful trials, 90 pairs, no protocol tool errors, plus 460 retrieval searches and 60 explicit boundary checks. Runtime `ee040e6` is pinned separately from the unchanged `fdea98ae` corpus. Later sync-control recovery and HTTP-client lifetime fixes leave MCP response formatting and ranking behavior unchanged; the measured runtime revision remains explicit.
 
 The selector retains `previousRunId` so the evidence page can display both complete studies. Comparison is permitted only with identical corpus, tasks, resolved model, repetition count and embedding identity. The table is descriptive; provider caches were managed externally and the runs were sequential. See [context budgets](context-budgets.md) for the actual response/file-read tradeoff.
 

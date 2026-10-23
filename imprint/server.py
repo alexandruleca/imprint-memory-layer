@@ -32,11 +32,6 @@ stop when sufficient. Use detail="full" for broader session context.
 
 mcp = FastMCP("imprint", instructions=_MCP_INSTRUCTIONS)
 
-# Release the embedded Qdrant lock after 30s of no MCP activity so
-# `imprint ingest` (a separate process) can grab it. Without this, the
-# MCP server pins the lock for the lifetime of Claude Code.
-vs.release_idle_client(after_seconds=float(__import__("os").environ.get("IMPRINT_MCP_IDLE_S", "30")))
-
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
 
