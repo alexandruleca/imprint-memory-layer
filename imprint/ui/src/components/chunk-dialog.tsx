@@ -3,8 +3,12 @@
 import { Modal } from "./modal";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import { DeviceProvenance } from "./device-provenance";
+import type { DeviceIdentity, PathContext } from "@/lib/types";
 
 export type ChunkPreview = {
+  recorded_device?: DeviceIdentity;
+  path_context?: PathContext;
   label?: string;
   source?: string;
   project?: string;
@@ -32,6 +36,7 @@ export function ChunkDialog({ chunk, onClose }: Props) {
             {chunk.source && (
               <p className="text-xs text-muted-foreground break-all">{chunk.source}</p>
             )}
+            <DeviceProvenance origin={chunk.recorded_device} paths={chunk.path_context} />
             <div className="flex gap-1 flex-wrap">
               {chunk.project && <Badge variant="outline" className="text-xs">{chunk.project}</Badge>}
               {chunk.type && <Badge variant="secondary" className="text-xs">{chunk.type}</Badge>}

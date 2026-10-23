@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MigrateDialog } from "@/components/migrate-dialog";
 import { ChunkDialog } from "@/components/chunk-dialog";
 import { WorkspaceSources } from "@/components/workspace-sources";
+import { DeviceProvenance } from "@/components/device-provenance";
 import type { SourceEntry, SourceSummary, SourceLineage, MemoryNode } from "@/lib/types";
 
 export default function SourcesPage() {
@@ -131,6 +132,7 @@ export default function SourcesPage() {
                   </Button>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <DeviceProvenance origin={summary.recorded_device} paths={summary.path_context} />
                   <div className="flex gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground">Project: </span>

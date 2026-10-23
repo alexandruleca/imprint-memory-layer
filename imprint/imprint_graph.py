@@ -1,4 +1,5 @@
 import atexit
+import json
 import sqlite3
 import time
 
@@ -19,6 +20,7 @@ def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute('BEGIN IMMEDIATE')
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS facts (
@@ -32,6 +34,8 @@ def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
         )
     """
     )
+    if 'recorded_device' not in {row[1] for row in conn.execute('PRAGMA table_info(facts)')}:
+        conn.execute("ALTER TABLE facts ADD COLUMN recorded_device TEXT NOT NULL DEFAULT '{}'")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject)"
     )
@@ -61,15 +65,18 @@ def add(
     object: str,
     source: str = "",
     workspace: str | None = None,
+    recorded_device: dict | None = None,
 ) -> int:
     """Add a temporal fact. Returns the fact ID."""
     from .workspace_policy import workspace_name, write_guard
     workspace = workspace_name(workspace)
+    from .device import current, _identity
+    origin = current() if recorded_device is None else _identity(recorded_device)
     conn = _get_conn(workspace)
     with write_guard([{'source': source}], workspace):
         cur = conn.execute(
-            "INSERT INTO facts (subject, predicate, object, valid_from, source) VALUES (?, ?, ?, ?, ?)",
-            (subject, predicate, object, time.time(), source),
+            "INSERT INTO facts (subject, predicate, object, valid_from, source, recorded_device) VALUES (?, ?, ?, ?, ?, ?)",
+            (subject, predicate, object, time.time(), source, json.dumps(origin)),
         )
         conn.commit()
     return cur.lastrowid
@@ -111,6 +118,7 @@ def query(
             "valid_from": r["valid_from"],
             "ended": r["ended"],
             "source": r["source"],
+            "recorded_device": json.loads(r['recorded_device'] or '{}'),
         }
         for r in rows
     ]
@@ -125,6 +133,21 @@ def invalidate(fact_id: int, workspace: str | None = None) -> bool:
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+def import_fact(record: dict, workspace: str | None = None) -> bool:
+    """Preserve origin/timestamps and enforce exclusions on imported facts."""
+    from .workspace_policy import workspace_name, write_guard
+    from .device import _identity
+    ws = workspace_name(workspace)
+    conn = _get_conn(ws)
+    values = (record.get('subject', ''), record.get('predicate', ''), record.get('object', ''), record.get('valid_from', 0))
+    with write_guard([{'source': record.get('source', '')}], ws), conn:
+        if conn.execute('SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?', values).fetchone():
+            return False
+        conn.execute('INSERT INTO facts (subject, predicate, object, valid_from, ended, source, recorded_device) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                     (*values, record.get('ended'), record.get('source', '') or '', json.dumps(_identity(record.get('recorded_device')))))
+    return True
 
 
 def recent(limit: int = 5, workspace: str | None = None) -> list[dict]:

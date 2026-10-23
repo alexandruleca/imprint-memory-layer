@@ -59,6 +59,26 @@ test('service errors are visible and retry succeeds', async ({ page }) => {
   await expect(page.getByRole('button', { name: /1. Installer decision/ })).toBeVisible();
 });
 
+test('shared memory shows origin and current device without treating foreign paths as local', async ({ page }) => {
+  const shared = { ...memory, recorded_device: { id: 'aaaaaaaa', name: 'Laptop A', os: 'windows' },
+    path_context: { current_device: { id: 'bbbbbbbb', name: 'Desktop B', os: 'linux' },
+      working_directory: '/code/project', original_source_path: 'C:\\old-checkout\\docs\\adr.md',
+      local_source_path: '', path_status: 'foreign-unmapped' } };
+  await page.route('**/api/search?**', route => route.fulfill({ json: { nodes: [shared] } }));
+  await page.route('**/api/memory/*', route => route.fulfill({ json: shared }));
+  await page.goto('/search/');
+  await page.getByLabel('Search query', { exact: true }).fill('installer');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('button', { name: 'Open full memory' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Recorded on: Laptop A');
+  await expect(dialog).toContainText('This device: Desktop B');
+  await expect(dialog).toContainText('Original path (reference):');
+  await expect(dialog).toContainText('Shared content remains available');
+  await expect(dialog).not.toContainText('Local path (verify before editing):');
+  await expect(dialog).toContainText(memory.content);
+});
+
 test('an older search cannot overwrite a newer result', async ({ page }) => {
   await page.route('**/api/search?**', async route => {
     const query = new URL(route.request().url()).searchParams.get('q');

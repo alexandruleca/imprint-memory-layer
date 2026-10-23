@@ -68,3 +68,7 @@ Electron is pinned to 45.0.0. The macOS desktop app/pkg now requires macOS 13, r
 ## Full runtime container
 
 `docker build -f Dockerfile.imprint -t imprint-local .` builds the CLI, fresh dashboard and a Python 3.12 venv from the hashed CPU lock. `.dockerignore` excludes local state and build caches. Runtime requirements include the checksum manifest; Go/Python share `IMPRINT_DATA_DIR`. Publish `-p 127.0.0.1:8420:8420`, mount `/data`, and use `docker exec <container> imprint doctor --json --probe-mcp` to diagnose it. Container ARM and GPU execution remain separate validation targets.
+
+## Website deployment setting
+
+GitHub Pages must use **GitHub Actions** (`build_type=workflow`), matching `pages.yml`. The old branch-root/Jekyll mode ran a second failing `pages-build-deployment` job alongside successful Astro deployments. The repository setting was corrected on 2026-10-23; the existing custom domain was retained.

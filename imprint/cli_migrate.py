@@ -73,8 +73,9 @@ def _migrate_kg_facts(
 
     try:
         conn = sqlite3.connect(src_db)
+        origin = 'recorded_device' if 'recorded_device' in {row[1] for row in conn.execute('PRAGMA table_info(facts)')} else "'{}'"
         cur = conn.execute(
-            "SELECT subject, predicate, object, valid_from, ended, source "
+            f"SELECT subject, predicate, object, valid_from, ended, source, {origin} "
             f"FROM facts WHERE {where_sql}",
             where_val,
         )
@@ -102,9 +103,11 @@ def _migrate_kg_facts(
         )
         """
     )
+    if 'recorded_device' not in {row[1] for row in dst_conn.execute('PRAGMA table_info(facts)')}:
+        dst_conn.execute("ALTER TABLE facts ADD COLUMN recorded_device TEXT NOT NULL DEFAULT '{}'")
     dst_conn.executemany(
-        "INSERT INTO facts (subject, predicate, object, valid_from, ended, source) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO facts (subject, predicate, object, valid_from, ended, source, recorded_device) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     dst_conn.commit()

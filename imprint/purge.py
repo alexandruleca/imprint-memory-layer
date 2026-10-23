@@ -24,9 +24,13 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
         offset = None
         while True:
             points, offset = client.scroll(collection_name=collection, limit=256, offset=offset,
-                                           with_payload=['source', 'source_path', 'project'], with_vectors=False)
+                                           with_payload=['source', 'source_path', 'project', 'source_device', 'source_path_local'], with_vectors=False)
             for point in points:
                 payload = point.payload or {}
+                if kind == 'path':
+                    from .device import local_source
+                    if not local_source(payload):
+                        continue
                 value = payload.get('source_path' if kind == 'path' else 'source', '')
                 if policy.matches(value, target, recursive, kind):
                     point_ids.append(point.id)

@@ -1046,12 +1046,13 @@ emit({"kind": "meta", "datasets": {"memories": mem_total, "facts": fact_total}, 
 
 # Stream memories with vectors
 if mem_total > 0:
+    from imprint.device import TRANSFER_FIELDS
     buf = []
     seq = 0
     for pl in vs._scroll_all([
         "_mid", "content", "project", "type", "tags", "source",
         "chunk_index", "source_mtime", "timestamp",
-    ], with_vectors=True):
+    ] + TRANSFER_FIELDS, with_vectors=True):
         rec = {
             "id": pl.get("_mid", ""),
             "content": pl.get("content", ""),
@@ -1063,6 +1064,7 @@ if mem_total > 0:
             "source_mtime": pl.get("source_mtime", 0),
             "timestamp": pl.get("timestamp", 0),
             "embedding_identity": config.embedding_identity(),
+            **{key: pl[key] for key in TRANSFER_FIELDS if key in pl},
         }
         vec = pl.get("_vector")
         if vec is not None:
@@ -1080,7 +1082,7 @@ if mem_total > 0:
 if fact_total > 0 and kg is not None:
     conn = kg._get_conn()
     rows = conn.execute(
-        "SELECT subject, predicate, object, valid_from, ended, source FROM facts"
+        "SELECT subject, predicate, object, valid_from, ended, source, recorded_device FROM facts"
     ).fetchall()
     records = [
         {
@@ -1090,6 +1092,7 @@ if fact_total > 0 and kg is not None:
             "valid_from": r["valid_from"],
             "ended": r["ended"],
             "source": r["source"] or "",
+            "recorded_device": json.loads(r['recorded_device'] or '{}'),
         }
         for r in rows
     ]
@@ -1181,6 +1184,7 @@ def import_memories(records):
     if not records:
         return
     ensure_initial("memories")
+    from imprint.device import TRANSFER_FIELDS, prepare
     # Check if first record carries a vector — if so, use precomputed path
     use_precomputed = has_vectors and records[0].get("vector") is not None
     payloads = []
@@ -1198,7 +1202,8 @@ def import_memories(records):
             p["vector"] = r["vector"]
             p["id"] = r.get("id")
             p["embedding_identity"] = r.get("embedding_identity")
-        payloads.append(p)
+        p.update({key: r[key] for key in TRANSFER_FIELDS if key in r})
+        payloads.append(prepare(p, imported=True))
     chunk = len(payloads) if use_precomputed else EMBED_CHUNK
     store_fn = vs.store_batch_precomputed if use_precomputed else vs.store_batch
     for i in range(0, len(payloads), chunk):
@@ -1215,30 +1220,13 @@ def import_facts(records):
         stats["facts"]["skipped"] += len(records)
         progress("facts")
         return
-    conn = kg._get_conn()
     ins = 0
     sk = 0
     for r in records:
-        row = conn.execute(
-            "SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?",
-            (r.get("subject", ""), r.get("predicate", ""), r.get("object", ""), r.get("valid_from", 0)),
-        ).fetchone()
-        if row:
+        if kg.import_fact(r):
+            ins += 1
+        else:
             sk += 1
-            continue
-        conn.execute(
-            "INSERT INTO facts (subject, predicate, object, valid_from, ended, source) VALUES (?,?,?,?,?,?)",
-            (
-                r.get("subject", ""),
-                r.get("predicate", ""),
-                r.get("object", ""),
-                r.get("valid_from", 0),
-                r.get("ended"),
-                r.get("source", "") or "",
-            ),
-        )
-        ins += 1
-    conn.commit()
     stats["facts"]["inserted"] += ins
     stats["facts"]["skipped"] += sk
     progress("facts")
@@ -1489,18 +1477,44 @@ func pinEqual(a, b string) bool {
 // creating it on first call.
 func loadOrCreateFingerprint(dataDir string) string {
 	path := filepath.Join(dataDir, "device_id.txt")
-	if data, err := os.ReadFile(path); err == nil {
-		fp := strings.TrimSpace(string(data))
-		if fp != "" {
-			return fp
-		}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		output.Fail(err.Error())
 	}
-	buf := make([]byte, 4)
-	rand.Read(buf)
-	fp := hex.EncodeToString(buf)
-	_ = os.MkdirAll(dataDir, 0755)
-	_ = os.WriteFile(path, []byte(fp+"\n"), 0644)
-	return fp
+	for attempt := 0; attempt < 200; attempt++ {
+		if data, err := os.ReadFile(path); err == nil {
+            if fp := strings.TrimSpace(string(data)); len(fp) >= 8 {
+				return fp
+			}
+		}
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if os.IsExist(err) {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if err != nil {
+			output.Fail("Device identity: " + err.Error())
+		}
+		buf := make([]byte, 4)
+		if _, err := rand.Read(buf); err != nil {
+			file.Close()
+			output.Fail(err.Error())
+		}
+		fp := hex.EncodeToString(buf)
+		_, writeErr := file.WriteString(fp + "\n")
+		if writeErr == nil {
+			writeErr = file.Sync()
+		}
+		closeErr := file.Close()
+		if writeErr != nil {
+			output.Fail(writeErr.Error())
+		}
+		if closeErr != nil {
+			output.Fail(closeErr.Error())
+		}
+		return fp
+	}
+	output.Fail("Device identity is empty or being provisioned; retry or restore device_id.txt")
+	return ""
 }
 
 // loadTrustedDevices returns a map keyed by fingerprint.

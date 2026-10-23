@@ -475,6 +475,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
     policy.ensure_ingest_paths([file_path])
     if policy.is_excluded(path=file_path, source=f'{project}/{os.path.basename(file_path)}'):
         raise ValueError('Source is excluded after purge; restore its workspace exclusion before ingesting')
+    policy.map_project(project, os.path.dirname(os.path.abspath(file_path)))
 
     if not allowed_source(file_path):
         raise ValueError("Secret-bearing files cannot be indexed")
@@ -742,6 +743,8 @@ def _main(command: str = "ingest"):
 
     from . import workspace_policy as policy
     policy.ensure_ingest_paths([target, *(path for path, _ in pairs)])
+    for path, project in pairs:
+        policy.map_project(project, path)
     exclusion_rules = policy.exclusions()
 
     # Recover per-project exclude_paths (root-fallback projects need to skip

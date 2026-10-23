@@ -1,14 +1,16 @@
 ---
 title: MCP Tools & Automatic Updates
-description: The 15 MCP tools Imprint exposes to coding agents — search, graph navigation, source cleanup, inline content ingestion, and more.
+description: The 16 MCP tools Imprint exposes to coding agents — search, graph navigation, source cleanup, inline content ingestion, and more.
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **15 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation per workspace in a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
+The imprint MCP server exposes **16 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation per workspace in a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
 The MCP process pins its default workspace at startup. Restart after switching the global selection, set `IMPRINT_WORKSPACE` in the client environment, or use explicit tool workspace parameters. A running client's default no longer follows another window's workspace switch.
+
+The read-only `device_context(workspace="")` tool reports the current device, process cwd and approved roots. The handshake includes current device/cwd; retrieval labels origin and foreign-versus-local paths. Shared conversations stay searchable across devices. See [device provenance](devices.md).
 
 ### Search & retrieval
 

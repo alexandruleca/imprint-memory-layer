@@ -124,15 +124,8 @@ def submit_approval(session_id: str, decision: str) -> bool:
 
 
 def get_device_identity() -> dict:
-    data_dir = config.get_data_dir()
-    fp_path = data_dir / "device_id.txt"
-    fingerprint = ""
-    if fp_path.exists():
-        fingerprint = fp_path.read_text().strip()
-    if not fingerprint:
-        fingerprint = secrets.token_hex(4)
-        data_dir.mkdir(parents=True, exist_ok=True)
-        fp_path.write_text(fingerprint + "\n")
+    from .device import current
+    fingerprint = current()['id']
     return {
         "hostname": socket.gethostname(),
         "user": os.environ.get("USER") or os.environ.get("USERNAME") or "",
@@ -158,12 +151,20 @@ def _check_cancel(cancel: asyncio.Event | None) -> None:
 
 # ── Data streaming (sync, not async — called from thread) ────────
 
-def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
-    """Generate JSONL lines for a full export (memories + facts with vectors).
+def stream_export_lines(workspace: str | int | None = None, batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
+    """Generate JSONL lines for a full export (memories + facts with vectors)
+    of ``workspace``.
 
     Returns list of JSON strings (one per line). Mirrors the Go
-    syncExportStreamScript embedded Python.
+    syncExportStreamScript embedded Python. The workspace is explicit: this
+    runs inside the long-lived API process, whose active workspace can
+    change mid-session.
     """
+    # Preserve the former positional batch-size call while accepting an
+    # explicit workspace. Resolve the default once for this export.
+    if isinstance(workspace, int):
+        batch_size, workspace = workspace, None
+    workspace = workspace or config.get_active_workspace()
     from . import vectorstore as vs
 
     try:
@@ -171,14 +172,14 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
     except Exception:
         kg = None
 
-    client, coll = vs._ensure_collection()
+    client, coll = vs._ensure_collection(workspace)
     info = client.get_collection(coll)
     mem_total = int(info.points_count or 0)
 
     fact_total = 0
     if kg is not None:
         try:
-            conn = kg._get_conn()
+            conn = kg._get_conn(workspace)
             fact_total = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
         except Exception:
             fact_total = 0
@@ -194,10 +195,11 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
     if mem_total > 0:
         buf: list[dict] = []
         seq = 0
+        from .device import TRANSFER_FIELDS
         for pl in vs._scroll_all([
             "_mid", "content", "project", "type", "tags", "source",
             "chunk_index", "source_mtime", "timestamp",
-        ], with_vectors=True):
+        ] + TRANSFER_FIELDS, workspace=workspace, with_vectors=True):
             rec = {
                 "id": pl.get("_mid", ""),
                 "content": pl.get("content", ""),
@@ -209,6 +211,7 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
                 "source_mtime": pl.get("source_mtime", 0),
                 "timestamp": pl.get("timestamp", 0),
                 "embedding_identity": config.embedding_identity(),
+                **{key: pl[key] for key in TRANSFER_FIELDS if key in pl},
             }
             vec = pl.get("_vector")
             if vec is not None:
@@ -224,9 +227,9 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
 
     # Stream facts
     if fact_total > 0 and kg is not None:
-        conn = kg._get_conn()
+        conn = kg._get_conn(workspace)
         rows = conn.execute(
-            "SELECT subject, predicate, object, valid_from, ended, source FROM facts"
+            "SELECT subject, predicate, object, valid_from, ended, source, recorded_device FROM facts"
         ).fetchall()
         records = [
             {
@@ -236,6 +239,7 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
                 "valid_from": r["valid_from"],
                 "ended": r["ended"],
                 "source": r["source"] or "",
+                "recorded_device": json.loads(r['recorded_device'] or '{}'),
             }
             for r in rows
         ]
@@ -249,13 +253,18 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
 
 def process_import_buffer(
     path: str,
+    workspace: str | Callable | None = None,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> dict:
-    """Process a JSONL buffer file, importing memories and facts.
+    """Process a JSONL buffer file, importing memories and facts into
+    ``workspace``.
 
     Mirrors the Go syncImportStreamScript embedded Python.
     Returns stats dict: {memories: {inserted, skipped}, facts: {inserted, skipped}}.
     """
+    if callable(workspace):
+        on_progress, workspace = workspace, None
+    workspace = workspace or config.get_active_workspace()
     from . import vectorstore as vs
 
     try:
@@ -278,6 +287,7 @@ def process_import_buffer(
     def import_memories(records: list[dict]) -> None:
         if not records:
             return
+        from .device import TRANSFER_FIELDS, prepare
         use_precomputed = has_vectors and records[0].get("vector") is not None
         payloads = []
         for r in records:
@@ -294,11 +304,12 @@ def process_import_buffer(
                 p["vector"] = r["vector"]
                 p["id"] = r.get("id")
                 p["embedding_identity"] = r.get("embedding_identity")
-            payloads.append(p)
+            p.update({key: r[key] for key in TRANSFER_FIELDS if key in r})
+            payloads.append(prepare(p, imported=True))
         chunk = len(payloads) if use_precomputed else EMBED_CHUNK
         store_fn = vs.store_batch_precomputed if use_precomputed else vs.store_batch
         for i in range(0, len(payloads), chunk):
-            ins, sk = store_fn(payloads[i:i + chunk])
+            ins, sk = store_fn(payloads[i:i + chunk], workspace=workspace)
             stats["memories"]["inserted"] += int(ins)
             stats["memories"]["skipped"] += int(sk)
             progress("memories")
@@ -310,30 +321,13 @@ def process_import_buffer(
             stats["facts"]["skipped"] += len(records)
             progress("facts")
             return
-        conn = kg._get_conn()
         ins = 0
         sk = 0
         for r in records:
-            row = conn.execute(
-                "SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?",
-                (r.get("subject", ""), r.get("predicate", ""), r.get("object", ""), r.get("valid_from", 0)),
-            ).fetchone()
-            if row:
+            if kg.import_fact(r, workspace):
+                ins += 1
+            else:
                 sk += 1
-                continue
-            conn.execute(
-                "INSERT INTO facts (subject, predicate, object, valid_from, ended, source) VALUES (?,?,?,?,?,?)",
-                (
-                    r.get("subject", ""),
-                    r.get("predicate", ""),
-                    r.get("object", ""),
-                    r.get("valid_from", 0),
-                    r.get("ended"),
-                    r.get("source", "") or "",
-                ),
-            )
-            ins += 1
-        conn.commit()
         stats["facts"]["inserted"] += ins
         stats["facts"]["skipped"] += sk
         progress("facts")

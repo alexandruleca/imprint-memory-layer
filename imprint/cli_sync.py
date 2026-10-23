@@ -76,6 +76,8 @@ def export_snapshot(
         "point_count": _count_points(client, coll),
         "embedding_identity": config.embedding_identity(),
     }
+    from .device import current
+    meta['exported_from_device'] = current()
     (bundle / "manifest.json").write_text(json.dumps(meta, indent=2))
 
     size_mb = sum(f.stat().st_size for f in bundle.rglob("*") if f.is_file()) / (1024 * 1024)
@@ -105,6 +107,9 @@ def import_snapshot(
 
     if meta.get("embedding_identity") != config.embedding_identity():
         raise ValueError("Snapshot embedding profile mismatch or missing identity; reindex/export with the same model settings before importing")
+    from .workspace_policy import exclusions
+    if exclusions(workspace):
+        raise ValueError('Snapshot restore would bypass purge exclusions. Import into a fresh workspace or explicitly restore its exclusions first.')
     client, coll = vectorstore._ensure_collection(workspace)
 
     # Restore Qdrant snapshot
@@ -118,6 +123,8 @@ def import_snapshot(
         collection_name=coll,
         location=f"file://{snap_file.resolve()}",
     )
+    from qdrant_client import models as qm
+    client.set_payload(collection_name=coll, payload={'source_path_local': False}, points=qm.Filter(), wait=True)
 
     # Restore SQLite graph DB
     graph_file = bundle / "imprint_graph.sqlite3"

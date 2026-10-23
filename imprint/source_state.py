@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from . import device
 
 _SECRET_NAMES = {'.env', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'}
 
@@ -27,17 +28,18 @@ def fingerprint(path: str | Path) -> dict:
     if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
         raise OSError(f'Source changed while reading: {path}')
     return {'source_hash': digest.hexdigest(), 'source_size': after.st_size,
-            'source_mtime': after.st_mtime, 'source_path': str(path.resolve())}
+            'source_mtime': after.st_mtime, 'source_path': str(path.resolve()),
+            'source_device': device.current(), 'source_path_local': True}
 
 
 def stamp_records(records: list[dict], path: str, before: dict) -> list[dict]:
     if fingerprint(path) != before:
         raise OSError(f'Source changed while extracting: {path}')
-    return [{**record, **before} for record in records]
+    return [{**record, **before, 'source_relative_path': device.relative_path(record)} for record in records]
 
 
 def unchanged(current: dict, stored: dict | None) -> bool:
-    return bool(stored and stored.get('source_hash') == current['source_hash']
+    return bool(stored and device.local_source(stored) and stored.get('source_hash') == current['source_hash']
                 and stored.get('source_path') == current['source_path'])
 
 
@@ -46,7 +48,7 @@ def missing_sources(states: dict[str, dict], roots: list[str]) -> list[str]:
     resolved = [Path(root).resolve() for root in roots]
     missing = []
     for source, state in states.items():
-        if not state.get('source_path'):
+        if not state.get('source_path') or not device.local_source(state):
             continue
         # Normalize both sides: macOS exposes /var through /private/var, and
         # older provenance may retain an equivalent noncanonical spelling.

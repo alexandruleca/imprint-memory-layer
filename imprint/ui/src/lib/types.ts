@@ -17,7 +17,16 @@ export interface Topic {
   color: string;
 }
 
+export interface DeviceIdentity { id: string; name: string; os: string }
+export interface PathContext {
+  current_device: DeviceIdentity; working_directory: string;
+  recorded_device: DeviceIdentity; source_device: DeviceIdentity;
+  original_source_path: string; local_source_path: string; path_status: string;
+}
+
 export interface MemoryNode {
+  recorded_device?: DeviceIdentity;
+  path_context?: PathContext;
   similarity?: number;
   retrieval_score?: number;
   match_type?: "semantic" | "lexical" | "hybrid";
@@ -96,6 +105,8 @@ export interface SourcesData {
 }
 
 export interface SourceSummary {
+  recorded_device?: DeviceIdentity;
+  path_context?: PathContext;
   source: string;
   project: string;
   type: string;

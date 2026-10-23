@@ -2,6 +2,10 @@
 title: Peer Sync & Visualization
 description: Sync Imprint memories between two machines via a stateless WebSocket relay — PIN + device-fingerprint auth, dedup on import, vectors re-embedded locally for model portability.
 ---
+## Device provenance
+
+Memory and graph origins survive sync; imported paths are references until mapped on the receiver. Device identity does not partition shared knowledge or change vectors. Local identity/root mappings are not transferred. See [devices and portable project paths](devices.md).
+
 ## Peer Sync
 
 ```mermaid

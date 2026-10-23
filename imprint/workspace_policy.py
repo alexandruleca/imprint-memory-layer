@@ -21,6 +21,7 @@ def _db():
     try:
         conn.execute('CREATE TABLE IF NOT EXISTS roots (workspace TEXT, path TEXT, PRIMARY KEY(workspace, path))')
         conn.execute('CREATE TABLE IF NOT EXISTS exclusions (workspace TEXT, kind TEXT, path TEXT, recursive INTEGER, PRIMARY KEY(workspace, kind, path))')
+        conn.execute('CREATE TABLE IF NOT EXISTS project_roots (workspace TEXT, project TEXT, path TEXT, PRIMARY KEY(workspace, project))')
         conn.commit()
         conn.execute('BEGIN IMMEDIATE')
         yield conn
@@ -159,7 +160,8 @@ def is_excluded(*, path='', source='', workspace=None, rules=None):
 
 def _check_records(records, rules):
     for record in records:
-        if is_excluded(path=record.get('source_path', ''), source=record.get('source', ''), rules=rules):
+        path = record.get('source_path', '') if record.get('source_path_local') is not False else ''
+        if is_excluded(path=path, source=record.get('source', ''), rules=rules):
             raise ValueError(f"Source excluded after purge: {record.get('source', '')}. Restore its workspace exclusion explicitly before importing it again.")
 
 
@@ -189,3 +191,21 @@ def remove_workspace(workspace):
     with _db() as conn:
         conn.execute('DELETE FROM roots WHERE workspace=?', (workspace,))
         conn.execute('DELETE FROM exclusions WHERE workspace=?', (workspace,))
+        conn.execute('DELETE FROM project_roots WHERE workspace=?', (workspace,))
+
+
+def map_project(project, path, workspace=None):
+    ws, path = workspace_name(workspace), canonical(path)
+    if not isinstance(project, str) or not project.strip() or len(project) > 256 or not path.is_dir():
+        raise ValueError('A project name and existing local directory are required')
+    ensure_ingest_paths([str(path)], ws)
+    with _db() as conn:
+        conn.execute('INSERT OR REPLACE INTO project_roots VALUES (?, ?, ?)', (ws, project, str(path)))
+    return {'workspace': ws, 'project': project, 'path': str(path)}
+
+
+def project_root(project, workspace=None):
+    ws = workspace_name(workspace)
+    with _db() as conn:
+        row = conn.execute('SELECT path FROM project_roots WHERE workspace=? AND project=?', (ws, project)).fetchone()
+        return row[0] if row else None

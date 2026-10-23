@@ -85,6 +85,8 @@ func Workspace(args []string) {
 	}
 
 	switch args[0] {
+	case "map":
+		runWorkspacePolicy(append([]string{"map"}, args[1:]...), false)
 	case "roots", "exclusions":
 		action := args[0]
 		tail := args[1:]

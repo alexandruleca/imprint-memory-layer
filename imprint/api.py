@@ -283,6 +283,11 @@ def api_graph(scope: str = "root", depth: int = 1):
 
 # ── Workspaces ─────────────────────────────────────────────────
 
+@app.get('/api/device')
+def api_device():
+    from .device import current
+    return {'device': current(), 'working_directory': os.getcwd(), 'workspace': config.get_active_workspace()}
+
 @app.get("/api/workspaces")
 def api_workspaces():
     return {

@@ -294,6 +294,7 @@ def get_memory(node_id: str, workspace: str | None = None) -> dict:
             return {"error": "not found"}
         p = points[0]
         pay = p.payload or {}
+        from .device import context, provenance
         tags = pay.get("tags", {})
         return {
             "id": node_id,
@@ -308,6 +309,8 @@ def get_memory(node_id: str, workspace: str | None = None) -> dict:
             "source_mtime": pay.get("source_mtime", 0),
             "source_type": pay.get("source_type", ""),
             "chunk_index": pay.get("chunk_index", 0),
+            **provenance(pay),
+            "path_context": context(pay, workspace),
         }
     except Exception:
         return {"error": "not found"}

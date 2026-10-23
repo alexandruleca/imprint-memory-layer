@@ -14,6 +14,13 @@ from imprint.retrieval import fuse, query_terms
 
 
 class FingerprintTests(unittest.TestCase):
+    def setUp(self):
+        self.data = tempfile.TemporaryDirectory()
+        self.addCleanup(self.data.cleanup)
+        self.data_patch = patch.object(config, 'get_data_dir', return_value=Path(self.data.name))
+        self.data_patch.start()
+        self.addCleanup(self.data_patch.stop)
+
     def test_changes_with_preserved_timestamp(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'app.py'
@@ -28,6 +35,9 @@ class FingerprintTests(unittest.TestCase):
             root = Path(directory)
             states = {'local': {'source_path': str(root / 'gone.py')},
                       'other': {'source_path': str(root.parent / 'elsewhere.py')}, 'legacy': {}}
+            from imprint.device import current
+            for state in states.values():
+                state.update(source_device=current(), source_path_local=True)
             self.assertEqual(missing_sources(states, [directory]), ['local'])
 
     def test_pruning_normalizes_aliases_without_following_escapes(self):
@@ -44,6 +54,9 @@ class FingerprintTests(unittest.TestCase):
                 self.skipTest(f'Directory symlinks unavailable: {error}')
             states = {'local': {'source_path': str(alias / 'gone.py')},
                       'escape': {'source_path': str(root / 'escape' / 'gone.py')}}
+            from imprint.device import current
+            for state in states.values():
+                state.update(source_device=current(), source_path_local=True)
             self.assertEqual(missing_sources(states, [str(root)]), ['local'])
             self.assertEqual(missing_sources(states, [str(alias)]), ['local'])
 

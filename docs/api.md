@@ -105,6 +105,7 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/api/device` | Current device ID/name/OS, process working directory and workspace. |
 | GET | `/api/workspaces` | List all workspaces + active one. |
 | GET | `/api/workspace/roots?workspace=NAME` | Approved roots and purge exclusions for one workspace. |
 | POST | `/api/workspace/roots` | Add/remove a root or restore an exclusion. JSON: workspace, path, action; add accepts explicit boolean `allow_overlap`. |

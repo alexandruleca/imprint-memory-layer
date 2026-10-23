@@ -31,7 +31,7 @@ from typing import Iterable
 from qdrant_client import QdrantClient, models as qm
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from . import config, embeddings, imprint_graph, qdrant_runner
+from . import config, embeddings, imprint_graph, qdrant_runner, device
 
 _client: QdrantClient | None = None
 _collections_ready: set[str] = set()
@@ -360,6 +360,8 @@ def store(
         "source_mtime": source_mtime,
         "timestamp": time.time(),
     }
+    from . import device
+    payload = device.prepare(payload)
     _persist_points(client, coll, [
             qm.PointStruct(
                 id=_point_uuid(memory_id),
@@ -421,7 +423,7 @@ def _persist_points(client, coll, points, workspace):
         _upsert_chunked(client, coll, points)
 
 
-def store_batch(records: list[dict], workspace: str | None = None, *, force: bool = False) -> tuple[int, int]:
+def store_batch(records: list[dict], workspace: str | None = None, *, force: bool = False, imported: bool = False) -> tuple[int, int]:
     """Store many records with one embed pass. Skips duplicates by logical id.
 
     Each record: {content, project?, type?, tags?, source?, chunk_index?,
@@ -430,6 +432,8 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
     """
     from .workspace_policy import check_records, workspace_name
     workspace = workspace_name(workspace)
+    from . import device
+    records = [device.prepare(record, imported=imported) for record in records]
     check_records(records, workspace)
     client, coll = _ensure_collection(workspace)
     existing = set() if force else _live_existing_ids(client, coll, (
@@ -489,6 +493,7 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
             "source_path": r.get("source_path", ""),
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
+            **device.provenance(r),
         }
         points.append(
             qm.PointStruct(
@@ -531,7 +536,8 @@ def replace_source(records: list[dict], source: str, project: str,
     ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
     # Refresh provenance even when unchanged chunks reused their embeddings.
     provenance = {key: records[0][key] for key in
-                  ("source_hash", "source_size", "source_path", "source_mtime", "etag", "last_modified")
+                  ("source_hash", "source_size", "source_path", "source_mtime", "etag", "last_modified",
+                   "source_device", "source_path_local", "source_relative_path")
                   if key in records[0]}
     if provenance:
         client.set_payload(collection_name=coll, payload=provenance, points=ids, wait=True)
@@ -553,6 +559,8 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
                   chunk_index?, source_mtime?}.
     Returns (inserted, skipped).
     """
+    from . import device
+    records = [device.prepare(record, imported=True) for record in records]
     if any(r.get("embedding_identity") != config.embedding_identity() for r in records):
         raise ValueError("Precomputed vector profile mismatch or missing identity. Reindex on the source with the same embedding settings, then export/sync again.")
     import math
@@ -614,6 +622,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "source_path": r.get("source_path", ""),
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
+            **device.provenance(r),
         }
         points.append(
             qm.PointStruct(
@@ -684,6 +693,8 @@ def search(
 ) -> list[dict]:
     """Bounded semantic/lexical search. Similarity is not answer confidence."""
     from .retrieval import CANDIDATE_LIMIT, query_terms, fuse
+    from . import device
+    workspace = workspace or config.get_active_workspace()
     query = query.strip()
     if not query:
         return []
@@ -714,8 +725,10 @@ def search(
                 "similarity": round(max(0., float(similarity)), 3)}
 
     semantic = [result(point, point.score) for point in hits]
+    def present(rows):
+        return [{**row, 'path_context': device.context(row, workspace)} for row in rows]
     if mode == "semantic":
-        return [{**row, "match_type": "semantic"} for row in semantic[offset:offset + limit]]
+        return present([{**row, "match_type": "semantic"} for row in semantic[offset:offset + limit]])
     terms = query_terms(query)
     lexical = []
     if terms:
@@ -723,7 +736,7 @@ def search(
             must=conditions, should=[qm.FieldCondition(key="content", match=qm.MatchText(text=term)) for term in terms]),
             limit=CANDIDATE_LIMIT, with_payload=True, with_vectors=False)
         lexical = [result(point) for point in points]
-    return fuse(query, semantic, lexical)[offset:offset + limit]
+    return present(fuse(query, semantic, lexical)[offset:offset + limit])
 
 
 def resolve_point_id(memory_id: str) -> str:
@@ -797,7 +810,7 @@ def _scroll_all(fields: list[str], workspace: str | None = None, with_vectors: b
 def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     """Fail visibly if provenance cannot be read; never infer an empty index."""
     states = {}
-    fields = ["source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type"]
+    fields = ["source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type", "source_device", "source_path_local", "source_relative_path"]
     for payload in _scroll_all(fields, workspace=workspace):
         if payload.get("source") and payload.get("source_type") in ("file", "ocr"):
             source = payload["source"]
@@ -908,8 +921,9 @@ def get_source_summary(
             scroll_filter=flt,
             limit=_SCAN_BATCH,
             offset=offset,
-            with_payload=["content", "project", "type", "tags", "source_type",
-                          "source_mtime", "chunk_index"],
+            with_payload=["content", "project", "type", "tags", "source_type", "source",
+                          "source_mtime", "chunk_index", "source_path", "recorded_device", "recorded_at",
+                          "source_device", "source_relative_path", "source_path_local"],
             with_vectors=False,
         )
         all_points.extend(points)
@@ -967,6 +981,8 @@ def get_source_summary(
             "topics": topics[:15],
         },
         "first_chunk_preview": preview,
+        "path_context": device.context(first, workspace),
+        "recorded_device": first.get('recorded_device'),
     }
 
 
@@ -1001,7 +1017,7 @@ def get_chunks_by_source(
             scroll_filter=flt,
             limit=_SCAN_BATCH,
             offset=offset,
-            with_payload=["content", "chunk_index", "tags"],
+            with_payload=["content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local"],
             with_vectors=False,
         )
         all_points.extend(points)
@@ -1026,6 +1042,8 @@ def get_chunks_by_source(
             "chunk_index": idx,
             "content": pl.get("content", ""),
             "tags": pl.get("tags", {}),
+            "recorded_device": pl.get('recorded_device'),
+            "path_context": device.context(pl, workspace),
         })
 
     return results
@@ -1160,7 +1178,7 @@ def recent_ordered(limit: int = 15, types: list[str] | None = None, workspace: s
             scroll_filter=scroll_filter,
             limit=limit,
             order_by=qm.OrderBy(key="timestamp", direction=qm.Direction.DESC),
-            with_payload=["_mid", "content", "project", "type", "tags", "source", "timestamp"],
+            with_payload=["_mid", "content", "project", "type", "tags", "source", "timestamp", "recorded_device"],
             with_vectors=False,
         )
     except Exception:
@@ -1175,6 +1193,7 @@ def recent_ordered(limit: int = 15, types: list[str] | None = None, workspace: s
             "tags": (p.payload or {}).get("tags", {}),
             "source": (p.payload or {}).get("source", ""),
             "timestamp": (p.payload or {}).get("timestamp", 0),
+            "recorded_device": (p.payload or {}).get('recorded_device'),
         }
         for p in points
     ]
