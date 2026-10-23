@@ -78,10 +78,11 @@ These are proposals, not implemented features or promised savings:
 | --- | --- | --- |
 | P1 | Multi-turn project sessions | Measure complete tasks, follow-up turns, tool calls and correctness with a long-lived MCP process. The current fresh-session study includes startup but does not measure ongoing conversation efficiency. |
 | P1 | Exposed-evidence evaluation | Label answer spans/citations and score what survives the response budget, alongside ranked-source recall. Include stale, contradictory, multilingual and unseen customer cases. |
+| P1 | Bounded live-source verification | Preserve validated line anchors for indexed passages and let agents read the matching local file window. Require matching source hash/path mapping before trusting an anchor. Measure whether this reduces file fallback volume without missing current changes. |
 | P1 | Adaptive response budgets | Compare small lookups, rationale questions and larger code tasks with predeclared budgets. Keep IDs and a reliable expansion route; do not tune thresholds against the published suite. |
 | P2 | Group duplicate/adjacent evidence | Group repeated passages or contiguous chunks while retaining every source/device origin needed for attribution. Verify that different projects and historical versions are not collapsed incorrectly. |
 | P2 | Batched selected-memory expansion | Fetch a bounded set of IDs in one round trip, with a total budget and individual continuation. Compare total context and tool turns, including the added schema cost. |
-| P2 | Smaller client tool profiles | Offer a read-focused profile for clients that do not need ingestion/admin tools. Measure schema and capability tradeoffs in disposable client profiles before changing registrations. |
+| P1 | Smaller client tool profiles | Offer a read-focused profile for clients that do not need ingestion/admin tools. Measure schema and capability tradeoffs in disposable client profiles before changing registrations. |
 | P2 | Reuse and invalidation | Cache repeated local query work behind workspace/index-generation keys. This can save local CPU, but it does not itself prove a lower coding-agent token bill. Never reuse results across workspaces. |
 | P2 | Background conversation distillation | Compare concise local summaries plus links to the original conversation against raw chunks. Retain provenance, contradictions and original evidence; evaluate factual loss before replacing history. |
 
