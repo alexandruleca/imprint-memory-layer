@@ -37,6 +37,8 @@ class WorkspacePurgeTests(unittest.TestCase):
         self.assertEqual(vs.status(workspace='other')['total_memories'], 3)
         self.assertEqual(kg.count(), 1)
         with self.assertRaisesRegex(ValueError, 'excluded after purge'):
+            kg.add('a', 'uses', 'b', source='project/dir/a.py')
+        with self.assertRaisesRegex(ValueError, 'excluded after purge'):
             vs.store_batch(self.records(['restore by mistake'], source='project/dir/a.py'), force=True)
         policy.restore('project/dir', 'source')
         vs.store_batch(self.records(['explicitly restored'], source='project/dir/a.py'))
@@ -61,6 +63,26 @@ class WorkspacePurgeTests(unittest.TestCase):
             result = purge('project/dir/a.py', kind='source', apply=True)
             self.assertEqual(result['chunks'], 1)
             embed.assert_not_called()
+
+    def test_orphan_graph_facts_are_previewed_and_removed_by_source(self):
+        self.addCleanup(kg._close_all)
+        kg.add('a', 'uses', 'b', source='project/old/file.py')
+        kg.add('c', 'uses', 'd', source='project/old-other/file.py')
+        preview = purge('project/old', kind='source', recursive=True)
+        self.assertEqual((preview['chunks'], preview['facts']), (0, 1))
+        self.assertEqual(kg.count(), 2)
+        purge('project/old', kind='source', recursive=True, apply=True)
+        self.assertEqual(kg.count(), 1)
+
+    def test_purge_during_inference_blocks_the_late_upsert(self):
+        self.prepare()
+        def embed(texts):
+            purge('project/dir', kind='source', recursive=True, apply=True)
+            return [[1., 0., 0.] for _ in texts]
+        with patch('imprint.embeddings.embed_documents_batch', side_effect=embed):
+            with self.assertRaisesRegex(ValueError, 'excluded after purge'):
+                vs.store_batch(self.records(['late result'], source='project/dir/late.py'))
+        self.assertEqual(self.contents(), ['keep'])
 
     def test_replacement_does_not_follow_mid_write_workspace_switch(self):
         self.addCleanup(kg._close_all)

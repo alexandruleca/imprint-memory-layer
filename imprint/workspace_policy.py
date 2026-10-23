@@ -157,11 +157,25 @@ def is_excluded(*, path='', source='', workspace=None, rules=None):
                        rule['path'], rule['recursive'], rule['kind']) for rule in rules)
 
 
-def check_records(records, workspace=None):
-    rules = exclusions(workspace)
+def _check_records(records, rules):
     for record in records:
         if is_excluded(path=record.get('source_path', ''), source=record.get('source', ''), rules=rules):
             raise ValueError(f"Source excluded after purge: {record.get('source', '')}. Restore its workspace exclusion explicitly before importing it again.")
+
+
+def check_records(records, workspace=None):
+    _check_records(records, exclusions(workspace))
+
+
+@contextmanager
+def write_guard(records, workspace=None):
+    # Serialize the final upsert against purge exclusions, after slow inference.
+    ws = workspace_name(workspace)
+    with _db() as conn:
+        rules = [{'kind': kind, 'path': path, 'recursive': bool(recursive)} for kind, path, recursive in
+                 conn.execute('SELECT kind, path, recursive FROM exclusions WHERE workspace=?', (ws,))]
+        _check_records(records, rules)
+        yield
 
 
 def restore(target, kind, workspace=None):

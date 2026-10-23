@@ -6,7 +6,7 @@ export type WorkspaceScope = {
 };
 export type PurgePreview = {
   workspace: string; target: string; kind: "path" | "source"; recursive: boolean;
-  chunks: number; sources: number; applied: boolean;
+  chunks: number; sources: number; facts: number; applied: boolean;
   sample: { project: string; source: string }[];
 };
 export function getWorkspaceScope(workspace: string) {

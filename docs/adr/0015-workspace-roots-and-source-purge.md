@@ -19,7 +19,7 @@ Capture CLI workspace selection before queue waits/submission and vector write/r
 
 Conversation learning requires recorded cwd evidence inside approved roots; skip unscoped/mixed-outside transcripts. Auto-memory imports require that project evidence. Desktop exports require approved locations, with workspace-specific import tracking. Retain physical provenance for cleanup.
 
-Offer preview-default CLI, dashboard and destructive-annotated MCP source purge. Match physical paths or logical source keys; recursive matching uses directory boundaries. Delete only the selected workspace's vectors and matching source-linked graph facts. Apply first records an exclusion; refresh skips it, and storage/sync import rejects excluded sources until explicitly restored. API/MCP apply must name the reviewed workspace. Maintenance shares the ingestion lock. Purge works on old-model collections without embedding inference.
+Offer preview-default CLI, dashboard and destructive-annotated MCP source purge. Match physical paths or logical source keys; recursive matching uses directory boundaries. Delete only the selected workspace's vectors and matching source-linked graph facts, including source-key orphan facts. Apply first records an exclusion; refresh skips it, and storage/sync import rejects excluded sources until explicitly restored. Serialize final vector upserts against exclusion updates after inference, then enumerate purge matches, so in-flight inference cannot restore a purged source. API/MCP apply must name the reviewed workspace. Maintenance shares the ingestion lock. Purge works on old-model collections without embedding inference.
 
 ## Alternatives
 

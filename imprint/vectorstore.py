@@ -360,16 +360,13 @@ def store(
         "source_mtime": source_mtime,
         "timestamp": time.time(),
     }
-    client.upsert(
-        collection_name=coll,
-        points=[
+    _persist_points(client, coll, [
             qm.PointStruct(
                 id=_point_uuid(memory_id),
                 vector={config.QDRANT_VECTOR_NAME: vector},
                 payload=payload,
             )
-        ], wait=True,
-    )
+        ], workspace)
     with _cache_lock:
         _id_caches.pop(coll, None)
     return memory_id
@@ -416,6 +413,12 @@ def _upsert_chunked(client, coll: str, points: list) -> None:
         size += est
     if batch:
         client.upsert(collection_name=coll, points=batch, wait=True)
+
+
+def _persist_points(client, coll, points, workspace):
+    from .workspace_policy import write_guard
+    with write_guard([point.payload or {} for point in points], workspace):
+        _upsert_chunked(client, coll, points)
 
 
 def store_batch(records: list[dict], workspace: str | None = None, *, force: bool = False) -> tuple[int, int]:
@@ -495,7 +498,7 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
             )
         )
 
-    _upsert_chunked(client, coll, points)
+    _persist_points(client, coll, points, workspace)
 
     with _cache_lock:
         _id_caches.pop(coll, None)
@@ -620,7 +623,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             )
         )
 
-    _upsert_chunked(client, coll, points)
+    _persist_points(client, coll, points, workspace)
 
     with _cache_lock:
         _id_caches.pop(coll, None)

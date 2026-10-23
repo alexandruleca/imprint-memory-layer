@@ -50,7 +50,7 @@ export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource:
     setBusy(true); setError("");
     try {
       const result = await purgeSources({ ...preview, apply: true });
-      setNotice(`Removed ${result.chunks} chunks from ${result.sources} sources in ${result.workspace}. Re-ingestion is excluded until restored.`);
+      setNotice(`Removed ${result.chunks} chunks and ${result.facts || 0} graph facts from ${result.sources} sources in ${result.workspace}. Re-ingestion is excluded until restored.`);
       setPreview(null); setConfirm(false);
       setScope(await getWorkspaceScope(result.workspace));
       await onPurged();
@@ -85,7 +85,7 @@ export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource:
         <label className="flex gap-2 items-center"><input type="checkbox" checked={recursive} disabled={busy} onChange={e => { setRecursive(e.target.checked); setPreview(null); }} />Include directory descendants</label>
         <Button variant="outline" disabled={busy || !target.trim()} onClick={previewPurge}>Preview cleanup</Button>
         {preview && <div className="space-y-2">
-          <p role="status">{preview.chunks} chunks in {preview.sources} sources · workspace {preview.workspace}</p>
+          <p role="status">{preview.chunks} chunks in {preview.sources} sources · {preview.facts || 0} graph facts · workspace {preview.workspace}</p>
           <p className="font-mono break-all">{preview.target}{preview.recursive ? "/**" : ""}</p>
           <ul>{preview.sample.map(item => <li key={`${item.project}/${item.source}`} className="font-mono text-xs break-all">{item.source}</li>)}</ul>
           <Button variant="destructive" disabled={busy} onClick={() => setConfirm(true)}>Purge from {preview.workspace}…</Button>

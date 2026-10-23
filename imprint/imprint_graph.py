@@ -63,12 +63,15 @@ def add(
     workspace: str | None = None,
 ) -> int:
     """Add a temporal fact. Returns the fact ID."""
+    from .workspace_policy import workspace_name, write_guard
+    workspace = workspace_name(workspace)
     conn = _get_conn(workspace)
-    cur = conn.execute(
-        "INSERT INTO facts (subject, predicate, object, valid_from, source) VALUES (?, ?, ?, ?, ?)",
-        (subject, predicate, object, time.time(), source),
-    )
-    conn.commit()
+    with write_guard([{'source': source}], workspace):
+        cur = conn.execute(
+            "INSERT INTO facts (subject, predicate, object, valid_from, source) VALUES (?, ?, ?, ?, ?)",
+            (subject, predicate, object, time.time(), source),
+        )
+        conn.commit()
     return cur.lastrowid
 
 
