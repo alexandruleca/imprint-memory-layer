@@ -298,9 +298,23 @@ func RemoveHooksMatching(settingsPath string, needles []string) (int, error) {
 		for _, g := range groups {
 			grp, ok := g.(map[string]any)
 			if !ok {
+				newGroups = append(newGroups, g)
 				continue
 			}
-			entries, _ := grp["hooks"].([]any)
+			// Cursor uses direct command entries rather than nested groups.
+			if command, direct := grp["command"].(string); direct {
+				if matches(command) {
+					removed++
+				} else {
+					newGroups = append(newGroups, g)
+				}
+				continue
+			}
+			entries, nested := grp["hooks"].([]any)
+			if !nested {
+				newGroups = append(newGroups, g)
+				continue
+			}
 			keep := make([]any, 0, len(entries))
 			for _, h := range entries {
 				hm, ok := h.(map[string]any)

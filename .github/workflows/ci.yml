@@ -39,6 +39,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-windows-setup.ps1
+      - name: Windows uninstall cleanup regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-uninstall.ps1
       - name: Windows desktop launcher regression
         if: runner.os == 'Windows'
         shell: pwsh

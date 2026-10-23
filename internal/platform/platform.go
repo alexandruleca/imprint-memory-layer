@@ -270,6 +270,16 @@ func CodexHome() string {
 // `Code/User` first, falling back to `Code - Insiders/User`. Empty string if
 // neither is present. Used to resolve Copilot and Cline-extension paths.
 func VSCodeUserDir() string {
+	for _, dir := range VSCodeUserDirs() {
+		if DirExists(dir) {
+			return dir
+		}
+	}
+	return ""
+}
+
+// VSCodeUserDirs includes stable and Insiders locations for symmetric cleanup.
+func VSCodeUserDirs() []string {
 	home := HomeDir()
 	var roots []string
 	switch runtime.GOOS {
@@ -295,12 +305,7 @@ func VSCodeUserDir() string {
 			filepath.Join(base, "Code - Insiders", "User"),
 		}
 	}
-	for _, r := range roots {
-		if DirExists(r) {
-			return r
-		}
-	}
-	return ""
+	return roots
 }
 
 // CopilotMCPPath returns the user-global VSCode MCP file (`<userDir>/mcp.json`).
@@ -469,6 +474,10 @@ func ClaudeDesktopConfigPath() string {
 	// the writer can create it.
 	return candidates[0]
 }
+
+// ClaudeDesktopConfigPaths returns all supported layouts, including standalone
+// and Store installs, so an uninstall also cleans a previously selected layout.
+func ClaudeDesktopConfigPaths() []string { return claudeDesktopConfigCandidates() }
 
 // claudeDesktopConfigCandidates returns every candidate config path for the
 // current host, ordered by preference (Store install before standalone).

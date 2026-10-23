@@ -88,14 +88,26 @@ cd ~/code/my-project
 
 Existing workspace overlap, sharing and purge rules apply. Linux files are accessed through the distribution's Windows UNC namespace; mounted Windows drives use their real Windows paths, honoring custom mount locations. Windows paths returned by other tools can be translated with `wslpath -u`. Spaces, Unicode and apostrophes are supported; paths that cannot be represented through Windows filesystem APIs fail explicitly. Hook support follows the current host adapters; a configured entry alone does not establish host-side trust or transcript-version compatibility.
 
-To disconnect before uninstalling the Windows runtime:
+To disconnect a selected profile manually:
 
 ```powershell
 & $ImprintBin wsl remove --distribution Ubuntu --target claude-code
 & $ImprintBin wsl remove --distribution Ubuntu --target codex
 ```
 
-Use the same user/profile override flags when removing a custom registration. Removal preserves memories and other integrations; it refuses to remove an Imprint entry that now points to a different runtime. Windows uninstall does not silently edit Linux profiles. See [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md) and [platform validation](platform-validation.md).
+Use the same user/profile override flags when removing a custom registration. Removal preserves memories and other integrations; it refuses to remove an Imprint entry that now points to a different runtime. Windows disable/uninstall also disconnects the WSL profiles previously registered by this installation, including recorded custom users and homes. If a recorded distribution or profile cannot be reached, cleanup fails and uninstall keeps the runtime for a retry. See [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md) and [platform validation](platform-validation.md).
+
+### Disable and uninstall
+
+`imprint disable` disconnects this runtime from supported local clients and recorded WSL profiles, removes its hooks, Claude permission and managed instructions, and stops the explicit dashboard daemon and Qdrant. Runtime and memories remain available for `imprint enable`. Another installation's MCP registration and associated rules are preserved. Cursor/Cline standalone rules are removed only when their contents match the generated rule; edited files are retained and reported. Other settings, servers, hooks and user-authored text are preserved. Configuration backups remain as inert recovery files.
+
+Use **Windows Settings → Apps → Imprint → Uninstall**, or the Start menu uninstaller. It runs cleanup before deleting program files and shortcuts, removes only this install's user PATH segment, and preserves memories. A failure cancels file removal; inspect `uninstall-cleanup.log` in the install directory, correct the reported configuration/access error and retry. WSL cleanup uses the concrete profiles recorded during setup, with compatibility for the older installer's saved distro/target selections. Registrations created manually by older versions with custom user/home flags were not recorded; disconnect those using the same flags before uninstalling.
+
+On macOS, run **Uninstall Imprint.command**. It disconnects clients before removing the app and its CLI symlink, preserves memories and stops on cleanup errors. Close Imprint with **Quit Imprint** before uninstalling on any platform so its desktop-owned service exits.
+
+For archive/script installations, run `imprint uninstall [-y]`. Memories are preserved by default; use `--delete-data` to explicitly erase this runtime's data. `--keep-data` remains accepted. Cleanup errors stop runtime removal. Shell aliases and symlinks are removed only when they point into this runtime, and a source checkout never deletes a separate release installation. The command leaves the source/release tree when preserving data; native installer-owned files and OS shortcuts are removed through the native uninstaller. Hosted ChatGPT connectors and project-local configurations installed by hand are not managed local files and must be removed where they were configured. Custom native profiles require their setup environment (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) when running cleanup.
+
+See [ADR 0027](adr/0027-symmetric-uninstall-and-branch-sync.md) for ownership, retry behavior and platform validation limits.
 
 ### Profile & extras flags
 

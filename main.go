@@ -163,10 +163,10 @@ Usage:
   imprint doctor [--json] [--probe-mcp]
                              Diagnose runtime, registration and MCP health without changing setup
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
-  imprint disable            Stop server, unregister MCP, strip hooks (data preserved)
+  imprint disable            Disconnect managed clients and stop services (data preserved)
   imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor | codex | copilot | cline | all)
-  imprint uninstall [-y] [--keep-data]
-                             Full removal: disable + strip CLAUDE.md block + drop alias/symlink + delete venv/data/install dir
+  imprint uninstall [-y] [--delete-data]
+                             Disconnect clients and remove runtime; preserve memories unless --delete-data
   imprint workspace          List workspaces and show active
   imprint workspace switch <n>  Switch to workspace (create if new)
   imprint workspace delete <n>  Delete a workspace and its data

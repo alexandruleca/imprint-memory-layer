@@ -7,58 +7,36 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hunter/imprint/internal/instructions"
-	"github.com/hunter/imprint/internal/jsonutil"
+	"github.com/hunter/imprint/internal/configfile"
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
 )
 
-// Uninstall fully removes imprint from the system: runs Disable to tear
-// down MCP registrations + hooks across all hosts, strips the managed
-// CLAUDE.md block, removes the shell alias, deletes the ~/.local/bin
-// symlink, and (unless --keep-data) removes the venv, data directory,
-// and install dir. Destructive — prompts for confirmation unless -y.
+// Uninstall disconnects clients before removing this installation's runtime.
+// Memories are kept unless --delete-data is explicitly requested.
 func Uninstall(args []string) {
-	force := false
-	keepData := false
+	force, keepData := false, true
 	for _, a := range args {
 		switch a {
 		case "-y", "--yes", "--force":
 			force = true
 		case "--keep-data":
 			keepData = true
+		case "--delete-data":
+			keepData = false
 		default:
-			output.Fail("uninstall: unknown flag " + a + " (expected: -y | --force | --keep-data)")
+			output.Fail("uninstall: unknown flag " + a + " (expected: -y | --keep-data | --delete-data)")
 		}
 	}
-
-	projectDir := platform.FindProjectDir()
-	dataDir := platform.DataDir(projectDir)
-	venvDir := platform.VenvDir(projectDir)
-	pyDir := platform.UvPythonInstallDir(projectDir)
-	uvCacheDir := platform.UvCacheDir(projectDir)
-	installDir := filepath.Join(platform.HomeDir(), ".local", "share", "imprint")
-
-	fmt.Println()
-	output.Header("═══ Uninstalling Imprint ═══")
-	fmt.Println()
-	fmt.Println("  This will:")
-	fmt.Println("    - stop the server, unregister MCP from every host, strip hooks")
-	fmt.Println("    - strip the managed block from ~/.claude/CLAUDE.md")
-	fmt.Println("    - remove the shell alias and ~/.local/bin/imprint symlink")
+	project := platform.FindProjectDir()
+	data := platform.DataDir(project)
+	output.Header("Uninstalling Imprint")
+	fmt.Println("  Disconnect managed clients, stop services and remove this installation's runtime.")
 	if keepData {
-		fmt.Println("    - remove .venv/ + bundled Python + uv cache  (keeping data at " + dataDir + ")")
+		fmt.Println("  Memories preserved at " + data)
 	} else {
-		fmt.Println("    - DELETE data/ at " + dataDir + " (all memories + configs)")
-		fmt.Println("    - DELETE .venv/ at " + venvDir)
-		fmt.Println("    - DELETE bundled Python at " + pyDir)
-		fmt.Println("    - DELETE uv cache at " + uvCacheDir)
-		if platform.DirExists(installDir) {
-			fmt.Println("    - DELETE install dir at " + installDir)
-		}
+		fmt.Println("  DELETE all memories and configuration at " + data)
 	}
-	fmt.Println()
-
 	if !force {
 		fmt.Print("  Type 'yes' to continue: ")
 		reply, _ := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -67,208 +45,83 @@ func Uninstall(args []string) {
 			return
 		}
 	}
-
-	// 1. Reuse Disable: stops server, removes MCP from every host,
-	//    strips hooks from Claude Code settings.json.
+	// Disable fails before runtime deletion if any config or distro is inaccessible.
 	Disable(nil)
-
-	// 2. Drop the `mcp__imprint__*` permission entry from settings.json.
-	removeClaudePermission(platform.ClaudeSettingsPath(), "mcp__imprint__*")
-
-	// 3. Strip the managed imprint block from ~/.claude/CLAUDE.md.
-	stripManagedClaudeMD()
-
-	// 4. Remove the shell alias we appended during setup.
-	removeShellAlias("imprint")
-
-	// 5. Remove the ~/.local/bin/imprint symlink created by install.sh.
-	removeSymlinkIfLink(filepath.Join(platform.HomeDir(), ".local", "bin", "imprint"))
-
-	// 6. Delete venv + bundled Python + uv cache + data + install dir.
-	removeDirReport(venvDir, ".venv")
-	removeDirReport(pyDir, "bundled Python (uv-managed)")
-	removeDirReport(uvCacheDir, "uv wheel cache")
-	if !keepData {
-		removeDirReport(dataDir, "data dir")
-		if installDir != projectDir && platform.DirExists(installDir) {
-			// Separate install dir (user has both a source checkout and a
-			// release install). Wipe its own venv + data too.
-			removeDirReport(filepath.Join(installDir, ".venv"), "install .venv")
-			removeDirReport(filepath.Join(installDir, "python"), "install bundled Python")
-			removeDirReport(filepath.Join(installDir, ".uv-cache"), "install uv cache")
-			removeDirReport(filepath.Join(installDir, "data"), "install data dir")
-			removeDirReport(installDir, "install dir")
-		} else if installDir == projectDir {
-			// We ARE the install dir — fine to wipe in full.
-			removeDirReport(installDir, "install dir")
-		} else {
-			output.Skip("Source checkout at " + projectDir + " left intact")
+	home := platform.HomeDir()
+	_, detectedRC := platform.DetectShell()
+	rcFiles := []string{detectedRC, filepath.Join(home, ".bashrc"), filepath.Join(home, ".zshrc"), filepath.Join(home, ".bash_profile"), filepath.Join(home, ".profile"), filepath.Join(home, ".config", "fish", "config.fish")}
+	for _, rc := range rcFiles {
+		if err := removeManagedAlias(rc, project); err != nil {
+			output.Fail("Cleanup incomplete: " + err.Error())
 		}
-	} else {
-		output.Info("Keeping data at " + dataDir)
 	}
-
-	fmt.Println()
-	output.Header("═══ Uninstalled ═══")
-	fmt.Println()
-	fmt.Println("  Restart your shell to drop the removed alias from the current session.")
-	fmt.Println()
+	if err := removeOwnedSymlink(filepath.Join(home, ".local", "bin", "imprint"), project); err != nil {
+		output.Fail(err.Error())
+	}
+	for _, dir := range []string{platform.VenvDir(project), platform.UvPythonInstallDir(project), platform.UvCacheDir(project)} {
+		if err := os.RemoveAll(dir); err != nil {
+			output.Fail("Could not remove runtime: " + err.Error())
+		}
+	}
+	if !keepData {
+		if err := os.RemoveAll(data); err != nil {
+			output.Fail(err.Error())
+		}
+	}
+	// Never erase a separate release installation when called from a checkout.
+	install := filepath.Join(home, ".local", "share", "imprint")
+	if project == install && !keepData {
+		if err := os.RemoveAll(install); err != nil {
+			output.Fail(err.Error())
+		}
+	}
+	output.Success("Uninstalled. Restart client applications and your shell to refresh their configuration.")
 }
 
-// removeClaudePermission drops a single entry from permissions.allow in
-// settings.json. No-op if the file, the permissions block, or the entry
-// is absent.
-func removeClaudePermission(settingsPath, perm string) {
-	if !platform.FileExists(settingsPath) {
-		output.Skip("Claude settings not present (" + settingsPath + ")")
-		return
+func removeManagedAlias(file, project string) error {
+	if file == "" {
+		return nil
 	}
-	data, err := jsonutil.ReadJSON(settingsPath)
+	content, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
-		output.Warn("Could not read " + settingsPath + ": " + err.Error())
-		return
+		return err
 	}
-	permissions, ok := data["permissions"].(map[string]any)
-	if !ok {
-		output.Skip("No imprint permission in " + settingsPath)
-		return
-	}
-	allow, ok := permissions["allow"].([]any)
-	if !ok {
-		output.Skip("No imprint permission in " + settingsPath)
-		return
-	}
-	filtered := make([]any, 0, len(allow))
-	removed := false
-	for _, entry := range allow {
-		if s, ok := entry.(string); ok && s == perm {
-			removed = true
+	lines := strings.SplitAfter(string(content), "\n")
+	var kept strings.Builder
+	changed := false
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "# imprint CLI alias" && i+1 < len(lines) && belongsToRuntime(strings.TrimSpace(lines[i+1]), project) {
+			i++
+			changed = true
 			continue
 		}
-		filtered = append(filtered, entry)
+		kept.WriteString(lines[i])
 	}
-	if !removed {
-		output.Skip("No imprint permission in " + settingsPath)
-		return
+	if !changed {
+		return nil
 	}
-	permissions["allow"] = filtered
-	if err := jsonutil.WriteJSON(settingsPath, data); err != nil {
-		output.Warn("Could not update " + settingsPath + ": " + err.Error())
-		return
-	}
-	output.Success("Removed imprint permission from " + settingsPath)
+	return configfile.Write(file, []byte(kept.String()))
 }
 
-// stripManagedClaudeMD removes the marker-bracketed imprint block from
-// ~/.claude/CLAUDE.md while preserving any other user-authored content.
-func stripManagedClaudeMD() {
-	claudeMD := filepath.Join(platform.HomeDir(), ".claude", "CLAUDE.md")
-	if !platform.FileExists(claudeMD) {
-		output.Skip("Global CLAUDE.md not present")
-		return
+func removeOwnedSymlink(file, project string) error {
+	target, err := os.Readlink(file)
+	if os.IsNotExist(err) {
+		return nil
 	}
-	data, err := os.ReadFile(claudeMD)
 	if err != nil {
-		output.Warn("Could not read " + claudeMD + ": " + err.Error())
-		return
+		if info, statErr := os.Lstat(file); statErr == nil && info.Mode()&os.ModeSymlink == 0 {
+			return nil
+		}
+		return err
 	}
-	existing := string(data)
-	start := strings.Index(existing, instructions.MarkerStart)
-	end := strings.Index(existing, instructions.MarkerEnd)
-	if start < 0 || end < 0 || end <= start {
-		output.Skip("No managed imprint block in " + claudeMD)
-		return
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(file), target)
 	}
-	end += len(instructions.MarkerEnd)
-	if end < len(existing) && existing[end] == '\n' {
-		end++
+	if belongsToRuntime(filepath.Clean(target), project) {
+		return os.Remove(file)
 	}
-	// Eat one leading blank line that setupGlobalClaudeMD may have inserted
-	// before the managed block when appending to non-empty content.
-	trimmed := start
-	if trimmed >= 2 && existing[trimmed-1] == '\n' && existing[trimmed-2] == '\n' {
-		trimmed--
-	}
-	updated := existing[:trimmed] + existing[end:]
-	if err := os.WriteFile(claudeMD, []byte(updated), 0644); err != nil {
-		output.Warn("Could not update " + claudeMD + ": " + err.Error())
-		return
-	}
-	output.Success("Stripped managed block from " + claudeMD)
-}
-
-// removeShellAlias strips the `# imprint CLI alias` comment and the alias
-// line that follows it. Matches the exact pair that setupShellAlias wrote.
-func removeShellAlias(name string) {
-	_, rcFile := platform.DetectShell()
-	if rcFile == "" || !platform.FileExists(rcFile) {
-		output.Skip("Shell RC file not present")
-		return
-	}
-	data, err := os.ReadFile(rcFile)
-	if err != nil {
-		output.Warn("Could not read " + rcFile + ": " + err.Error())
-		return
-	}
-	content := string(data)
-	marker := "# " + name + " CLI alias"
-	idx := strings.Index(content, marker)
-	if idx < 0 {
-		output.Skip("No imprint alias in " + rcFile)
-		return
-	}
-	// Span = blank line before marker (if any) + marker line + alias line.
-	end := idx + len(marker)
-	if end < len(content) && content[end] == '\n' {
-		end++
-	}
-	if nl := strings.Index(content[end:], "\n"); nl >= 0 {
-		end += nl + 1
-	} else {
-		end = len(content)
-	}
-	start := idx
-	if start > 0 && content[start-1] == '\n' {
-		start--
-	}
-	updated := content[:start] + content[end:]
-	if err := os.WriteFile(rcFile, []byte(updated), 0644); err != nil {
-		output.Warn("Could not update " + rcFile + ": " + err.Error())
-		return
-	}
-	output.Success("Removed imprint alias from " + rcFile)
-}
-
-// removeSymlinkIfLink removes a path only if it's a symlink. Leaves
-// regular files alone — users sometimes copy the binary into PATH
-// directly and we shouldn't delete that without being asked.
-func removeSymlinkIfLink(path string) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		output.Skip("No symlink at " + path)
-		return
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		output.Skip(path + " is not a symlink — leaving intact")
-		return
-	}
-	if err := os.Remove(path); err != nil {
-		output.Warn("Could not remove symlink " + path + ": " + err.Error())
-		return
-	}
-	output.Success("Removed symlink " + path)
-}
-
-// removeDirReport is a thin os.RemoveAll wrapper that reports Skip/Success
-// consistently with the rest of the uninstall output.
-func removeDirReport(path, label string) {
-	if !platform.DirExists(path) {
-		output.Skip(label + " not present (" + path + ")")
-		return
-	}
-	if err := os.RemoveAll(path); err != nil {
-		output.Warn("Could not remove " + label + " " + path + ": " + err.Error())
-		return
-	}
-	output.Success("Removed " + label + " at " + path)
+	return nil
 }

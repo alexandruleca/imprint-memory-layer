@@ -258,6 +258,35 @@ jobs:
           $env:PYTHONPATH = $dest
           & "$dest/.venv/Scripts/python.exe" scripts/smoke-runtime.py --with-embeddings
           if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
+      - name: Smoke test native uninstall preserves data and disconnects clients
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'Imprint install smoke'
+          $env:CODEX_HOME = Join-Path $env:RUNNER_TEMP 'Imprint disposable Codex profile'
+          New-Item -ItemType Directory -Path $env:CODEX_HOME -Force | Out-Null
+          $command = (Join-Path $dest '.venv/Scripts/python.exe') | ConvertTo-Json -Compress
+          @('model = "fixture"', '[mcp_servers.imprint]', "command = $command", '[mcp_servers.other]', 'command = "keep-other"') |
+            Set-Content "$env:CODEX_HOME/config.toml" -Encoding utf8NoBOM
+          @('Keep my rules.', '<!-- imprint:begin -->', 'Imprint fixture', '<!-- imprint:end -->') |
+            Set-Content "$env:CODEX_HOME/AGENTS.md" -Encoding utf8NoBOM
+          '{"hooks":{"Stop":[{"hooks":[{"command":"imprint/hook_entry.py stop"},{"command":"keep-hook"}]}]}}' |
+            Set-Content "$env:CODEX_HOME/hooks.json" -Encoding utf8NoBOM
+          'keep memories' | Set-Content "$dest/data/uninstall-keep.txt"
+          $log = Join-Path $env:RUNNER_TEMP 'imprint-uninstaller.log'
+          $process = Start-Process "$dest/unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"") -PassThru
+          $null = $process.Handle
+          if (-not $process.WaitForExit(120000)) { taskkill /PID $process.Id /T /F; throw 'Uninstall timed out' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Uninstall failed: $($process.ExitCode)" }
+          if (Test-Path "$dest/bin/imprint.exe") { throw 'Uninstall left the CLI installed' }
+          if ((Get-Content "$dest/data/uninstall-keep.txt").Trim() -ne 'keep memories') { throw 'Uninstall changed memories' }
+          $config = Get-Content "$env:CODEX_HOME/config.toml" -Raw
+          if ($config -match 'mcp_servers.imprint' -or $config -notmatch 'keep-other') { throw 'MCP cleanup failed' }
+          $rules = Get-Content "$env:CODEX_HOME/AGENTS.md" -Raw
+          if ($rules -match 'imprint:begin' -or $rules -notmatch 'Keep my rules') { throw 'Rule cleanup failed' }
+          $hooks = Get-Content "$env:CODEX_HOME/hooks.json" -Raw
+          if ($hooks -match 'hook_entry' -or $hooks -notmatch 'keep-hook') { throw 'Hook cleanup failed' }
       - name: Preserve Windows install diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -265,6 +294,8 @@ jobs:
           name: windows-install-logs
           path: |
             ${{ runner.temp }}/imprint-installer.log
+            ${{ runner.temp }}/imprint-uninstaller.log
+            ${{ runner.temp }}/Imprint install smoke/uninstall-cleanup.log
             ${{ runner.temp }}/Imprint install smoke/first-run.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4

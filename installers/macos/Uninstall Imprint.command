@@ -2,7 +2,7 @@
 # Double-click to uninstall Imprint. Runs `imprint uninstall` to unwire the
 # MCP hooks, then removes /Applications/Imprint.app, /usr/local/bin/imprint,
 # and this command file itself.
-set -u
+set -eu
 
 APP="/Applications/Imprint.app"
 SYMLINK="/usr/local/bin/imprint"
@@ -13,7 +13,7 @@ echo "================ Uninstall Imprint ================"
 echo ""
 echo "This will:"
 echo "  * Unregister Imprint's MCP server from Claude Code + other hosts"
-echo "  * Remove the Python venv and all indexed memories"
+echo "  * Remove the Python runtime (preserve indexed memories)"
 echo "  * Delete /Applications/Imprint.app"
 echo "  * Delete /usr/local/bin/imprint"
 echo ""
@@ -26,14 +26,20 @@ esac
 echo ""
 if [ -x "$IMPRINT" ]; then
     echo "[*] Running 'imprint uninstall'..."
-    "$IMPRINT" uninstall -y || echo "    (continued despite errors)"
+    if ! "$IMPRINT" uninstall -y --keep-data; then
+        echo "[!] Client cleanup failed. App preserved; resolve the error and retry."
+        exit 1
+    fi
 else
-    echo "[!] Imprint binary not found at $IMPRINT; skipping 'imprint uninstall'."
+    echo "[!] Imprint binary missing; repair the app before uninstalling."
+    exit 1
 fi
 
 echo ""
 echo "[*] Removing /usr/local/bin/imprint (needs sudo)..."
-sudo rm -f "$SYMLINK"
+if [ -L "$SYMLINK" ] && [ "$(readlink "$SYMLINK")" = "$IMPRINT" ]; then
+    sudo rm -f "$SYMLINK"
+fi
 
 echo "[*] Removing $APP (needs sudo)..."
 sudo rm -rf "$APP"

@@ -20,3 +20,8 @@ python
 .first-run.done
 .setup-result
 first-run.log
+
+# Per-install integration ownership and cleanup diagnostics
+.wsl-integrations.txt*
+.wsl-registrations.json*
+uninstall-cleanup.log

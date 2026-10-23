@@ -25,3 +25,8 @@ installers/windows/assets/
 
 imprint/ui/test-results/
 imprint/ui/playwright-report/
+
+# Per-install integration ownership and cleanup diagnostics
+.wsl-integrations.txt*
+.wsl-registrations.json*
+uninstall-cleanup.log

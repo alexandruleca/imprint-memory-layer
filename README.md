@@ -139,12 +139,12 @@ imprint setup [target]     # install deps, register MCP, configure the chosen ho
                            # add --retry-gpu to forget a sticky GPU failure and retry ORT / llama-cpp CUDA
 imprint update [--version v0.3.1] [--dev] [-y] [--check]
                            # upgrade imprint in place; preserves data/ and .venv/
-imprint uninstall [-y] [--keep-data]
-                           # full removal: disable + strip CLAUDE.md + delete venv/data/install dir
+imprint uninstall [-y] [--delete-data]
+                           # disconnect clients + remove runtime; memories kept unless --delete-data
 imprint status             # is everything wired? show enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
                            #   target: claude-code | cursor | codex | copilot | cline | all
-imprint disable            # stop server, unregister MCP from every host, strip Claude hooks (data preserved)
+imprint disable            # disconnect managed clients, strip hooks/rules, stop services (data preserved)
 imprint ingest <path>      # index project source files (directory or single file)
 imprint learn              # index Claude Code conversations + memory files
 imprint learn --desktop    # also ingest Claude Desktop / ChatGPT Desktop export zips from Downloads

@@ -158,3 +158,20 @@ The [corrected release run 39972914308](https://github.com/alexandruleca/imprint
 | Electron regression suite/workflow lint/diff whitespace | Passed | Existing 14 desktop tests stay green; native CI discovers the new Go/Python tests and its existing setup fixture now covers saved WSL choices. |
 
 The interop smoke is opt-in at `scripts/test-wsl-interop.py`; hosted CI does not assert that a WSL distribution is installed. Native GUI selection/progress, client reload/trust and full conversation ingestion against live Claude Code/Codex versions still need manual checks. Codex transcript coverage remains the current adapter's limitation. Custom users/profiles require explicit flags and must be accessible through the Windows account's WSL filesystem provider; registration does not change their permissions or elevate privileges. WSL interoperability disabled, inaccessible distributions or unreadable profiles fail selected registration rather than report success.
+
+
+## Symmetric uninstall milestone (2026-10-23)
+
+[ADR 0027](adr/0027-symmetric-uninstall-and-branch-sync.md) connects native uninstall to shared disable cleanup and preserves memories by default. Tests used private profiles/data and a copied CLI in a private Windows install tree. Existing installed Windows Python was reused read-only for WSL bridge probes; real client configurations and memory stores were not used as fixtures.
+
+| Check | Result | Scope |
+| --- | --- | --- |
+| Linux Go tests and vet | Passed | Supported JSON/TOML registries, nested OpenClaw entries, Claude/Codex/Cursor hooks, permissions/rules, unrelated settings, repeated cleanup, malformed configuration, foreign runtimes, shared Cline rules, shell aliases/symlinks and legacy/custom WSL selection coexistence. |
+| Native Windows Go cleanup fixtures | Passed | Actual Windows execution of the compiled cleanup/profile tests and durable config updates. The symlink portion is skipped because this Windows account lacks symlink privilege; alias assertions execute, and Linux exercises symlink ownership. |
+| Native Windows PowerShell 5.1 helper | Passed | Successful stderr diagnostics, propagated exit 23 and missing CLI; the helper invokes disable and preserves fixture memories. |
+| Native Windows + actual WSL cleanup | Passed | `scripts/test-wsl-uninstall.py` registers disposable custom Claude/Codex profiles from a copied private Windows CLI. Native disable removes both WSL bridges plus native entries/hooks/permissions, preserves other config and remains idempotent. Invalid native TOML blocks uninstall and preserves a runtime sentinel; retry succeeds and retains a memory sentinel with default flags. |
+| Native Inno Setup 6.7.3 | Passed | Current installer compiles. An isolated installer with a unique application ID/name and executable stand-ins runs install, failed cleanup, then successful uninstall: failure keeps program files; success removes them and retains a data sentinel. PATH logic is redirected to a private fixture registry key; unrelated user PATH remains untouched. |
+| Python suite | Passed, 201 tests | Includes release exclusion of journals/backups/logs and an actual Git fast-forward/divergence fixture for the dev synchronization script. |
+| Documentation/workflow checks | Passed | Website builds 62 pages; actionlint, shell syntax and diff whitespace checks pass. |
+
+Windows release CI now also uninstalls its disposable real installation and checks preserved data plus Codex registration/hook/rule removal. This new hosted release gate is implemented; the local stand-in installer and copied-CLI checks above are the executed evidence. Native macOS `.command`/package uninstall and interactive OS/client reload behavior remain unexecuted locally; macOS script syntax is checked without claiming native execution. Linux cleanup runs natively in WSL; an interactive AppImage desktop uninstall was not exercised. Old custom WSL profiles created before journaling require explicit removal with their original flags; custom native profiles require their profile environment. Configuration recovery backups remain inert.

@@ -36,3 +36,5 @@ This feature requires WSL Windows-executable interoperability and distribution a
 ## Validation
 
 Go fixtures exercise UTF-16 enumeration, explicit distro selection, utility distro exclusion, quoting, profile preservation, idempotence, removal, malformed TOML and foreign launcher protection. Python tests exercise path context, metadata-only translation and unchanged workspace-root enforcement. Native Windows Go execution and WSL-to-Windows smoke use disposable Linux homes and Windows data, an existing Windows interpreter read-only, real hooks and a 16-tool MCP initialize/discovery round trip. The native setup fixture checks saved selections and stderr/exit behavior. Native Inno Setup compilation checks the actual installer page. Retain exact executed results and GUI/client-trust limitations in [platform validation](../platform-validation.md).
+
+Uninstall lifecycle follow-up: [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) adds recorded WSL profile cleanup to disable/native uninstall. The original manual removal path remains available.

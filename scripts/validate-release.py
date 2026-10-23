@@ -61,10 +61,10 @@ def validate(root: Path, platform: str) -> None:
             raise ValueError(f'Development state in archive: {Path(directory) / sorted(bad)[0]}')
         if any(name == '.env' or name.startswith('.env.') for name in files):
             raise ValueError(f'Environment file in archive: {directory}')
-    for name in ('data', 'python', '.first-run.done', '.setup-result', '.wsl-integrations.txt', 'first-run.log'):
+    for name in ('data', 'python', '.first-run.done', '.setup-result', '.wsl-integrations.txt', 'first-run.log', 'uninstall-cleanup.log'):
         if (root / name).exists():
             raise ValueError(f'User state in archive: {name}')
-    if any(root.glob('.wsl-integrations.txt*')):
+    if any(root.glob('.wsl-integrations.txt*')) or any(root.glob('.wsl-registrations.json*')):
         raise ValueError('User state in archive: WSL selections or their backups')
 
 

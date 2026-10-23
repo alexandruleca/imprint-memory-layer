@@ -338,6 +338,11 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	if target == "claude-code" {
+		if err := removePermission(local(path.Join(dir, hooksFile)), "mcp__imprint__*"); err != nil {
+			return err
+		}
+	}
 	if err := os.Remove(local(launcher)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -399,6 +404,9 @@ func WSL(args []string) {
 			if err := removeWSLProfile(p, *target, local); err != nil {
 				output.Fail(err.Error())
 			}
+			if err := saveWSLRegistration(project, wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}, true); err != nil {
+				output.Fail(err.Error())
+			}
 			// Only default-user registrations are represented in installer choices.
 			if *user == "" && *home == "" && *claude == "" && *codex == "" {
 				selectionFile := filepath.Join(project, ".wsl-integrations.txt")
@@ -425,6 +433,13 @@ func WSL(args []string) {
 		}
 		if !platform.FileExists(bp.VenvPython) {
 			output.Fail("Windows runtime missing; run imprint bootstrap first")
+		}
+		// Journal before mutation so even partial setup is removable.
+		if *target != "claude-code" && *target != "codex" {
+			output.Fail("target must be claude-code or codex")
+		}
+		if err := saveWSLRegistration(project, wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}, false); err != nil {
+			output.Fail(err.Error())
 		}
 		err = applyWSLProfile(p, bp, *target, local, func(value string) error {
 			_, err := runWSL(wslArgs(p.Distribution, *user, "chmod", "700", value)...)

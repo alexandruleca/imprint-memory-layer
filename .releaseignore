@@ -14,7 +14,6 @@ node_modules/
 python/
 .first-run.done
 .setup-result
-.wsl-integrations.txt*
 first-run.log
 .claude/
 .codex/
@@ -51,3 +50,8 @@ MEMORY.md
 
 playwright-report/
 test-results/
+
+# Per-install integration ownership and cleanup diagnostics
+.wsl-integrations.txt*
+.wsl-registrations.json*
+uninstall-cleanup.log

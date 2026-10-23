@@ -79,3 +79,12 @@ class ReleaseValidationTests(unittest.TestCase):
             (root / '.wsl-integrations.txt.imprint-123.bak').write_text('Ubuntu|codex\n')
             with self.assertRaisesRegex(ValueError, 'User state'):
                 VALIDATOR.validate(root, 'linux/amd64')
+
+    def test_private_uninstall_journal_is_never_distributed(self):
+        for name in ('.wsl-registrations.json', '.wsl-registrations.json.imprint-123.bak', 'uninstall-cleanup.log'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.tree(root)
+                (root / name).write_text('private fixture')
+                with self.assertRaisesRegex(ValueError, 'User state'):
+                    VALIDATOR.validate(root, 'linux/amd64')

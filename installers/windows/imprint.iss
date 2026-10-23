@@ -74,6 +74,7 @@ Name: "addtopath";    Description: "Add Imprint to the user PATH"; GroupDescript
 Source: "{#ImprintSource}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Our custom launcher + installer-time setup helper live alongside the binary.
 Source: "imprint-launcher.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "imprint-uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "imprint-setup.ps1";    DestDir: "{app}"; Flags: ignoreversion
 ; App icon. Optional - the CI build generates this from site/public/logo.svg;
 ; the #ifexist guard below keeps local `iscc` invocations working without it.
@@ -122,6 +123,8 @@ Type: filesandordirs; Name: "{app}\__pycache__"
 Type: files; Name: "{app}\.first-run.done"
 Type: files; Name: "{app}\.setup-result"
 Type: files; Name: "{app}\.wsl-integrations.txt"
+Type: files; Name: "{app}\.wsl-registrations.json"
+Type: files; Name: "{app}\uninstall-cleanup.log"
 
 [Code]
 #include "ProfilePage.iss"
@@ -182,4 +185,51 @@ begin
     exit;
   end;
   Result := Pos(';' + Lowercase(Dir) + ';', ';' + Lowercase(ExistingPath) + ';') = 0;
+end;
+
+// Run cleanup before the uninstaller removes the runtime it needs. Returning
+// False preserves files, shortcuts and the retry journal on any failure.
+function InitializeUninstall(): Boolean;
+var
+  Code, Separator: Integer;
+  ExistingPath, Remaining, Part, UpdatedPath, BinDir: string;
+begin
+  Result := False;
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File "' +
+    ExpandConstant('{app}\imprint-uninstall.ps1') + '" -InstallDir "' + ExpandConstant('{app}') + '"',
+    ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) then Code := -1;
+  if Code <> 0 then
+  begin
+    Log('Imprint client cleanup failed; uninstall cancelled.');
+    if not UninstallSilent then
+      MsgBox('Imprint could not disconnect all clients. No program files were removed.' + #13#10 +
+        'Check ' + ExpandConstant('{app}\uninstall-cleanup.log') + ', make recorded WSL distributions available, then retry uninstall.', mbError, MB_OK);
+    Exit;
+  end;
+  // Remove only this installation's PATH segment, preserving all other values.
+  if RegQueryStringValue(HKCU, 'Environment', 'Path', ExistingPath) then
+  begin
+    Remaining := ExistingPath;
+    UpdatedPath := '';
+    BinDir := Lowercase(RemoveBackslashUnlessRoot(ExpandConstant('{app}\bin')));
+    while Remaining <> '' do
+    begin
+      Separator := Pos(';', Remaining);
+      if Separator = 0 then begin Part := Remaining; Remaining := ''; end
+      else begin Part := Copy(Remaining, 1, Separator - 1); Delete(Remaining, 1, Separator); end;
+      if Lowercase(RemoveBackslashUnlessRoot(RemoveQuotes(Trim(Part)))) <> BinDir then
+      begin
+        UpdatedPath := UpdatedPath + Part;
+        if Separator <> 0 then UpdatedPath := UpdatedPath + ';';
+      end;
+    end;
+    if UpdatedPath <> ExistingPath then
+      if not RegWriteExpandStringValue(HKCU, 'Environment', 'Path', UpdatedPath) then
+      begin
+        Log('Could not remove Imprint from the user PATH; uninstall cancelled.');
+        Exit;
+      end;
+  end;
+  Result := True;
 end;

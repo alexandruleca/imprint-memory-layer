@@ -1,0 +1,27 @@
+name: Keep dev current
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-dev
+  cancel-in-progress: false
+
+jobs:
+  fast-forward:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fast-forward dev to the current main
+        run: bash scripts/sync-dev.sh
