@@ -89,11 +89,14 @@ def main():
         cli('uninstall', '-y', success=False)
         assert runtime_sentinel.exists()
         config.write_text('model="keep-model"\n')
-        cli('uninstall', '-y')
+        cli('uninstall', '-y', '--keep-data')
         assert not runtime_sentinel.exists()
         assert (data / 'memories.txt').read_text() == 'keep memories'
+        # The default removes the data too (ADR 0028).
+        cli('uninstall', '-y')
+        assert not data.exists()
     shutil.rmtree(root)
-    print('Native Windows disable/uninstall: WSL + native cleanup, retry and default memory preservation passed')
+    print('Native Windows disable/uninstall: WSL + native cleanup, retry, kept and removed data passed')
 
 
 if __name__ == '__main__':

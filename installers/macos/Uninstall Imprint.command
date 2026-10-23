@@ -1,6 +1,7 @@
 #!/bin/bash
 # Double-click to uninstall Imprint. Runs `imprint uninstall` to unwire the
-# MCP hooks, then removes /Applications/Imprint.app, /usr/local/bin/imprint,
+# MCP hooks, stop every Imprint process and remove the runtime and data
+# (ADR 0028), then removes /Applications/Imprint.app, /usr/local/bin/imprint,
 # and this command file itself.
 set -eu
 
@@ -13,7 +14,8 @@ echo "================ Uninstall Imprint ================"
 echo ""
 echo "This will:"
 echo "  * Unregister Imprint's MCP server from Claude Code + other hosts"
-echo "  * Remove the Python runtime (preserve indexed memories)"
+echo "  * Stop Imprint, its local service, MCP servers and Qdrant"
+echo "  * Remove the Python runtime"
 echo "  * Delete /Applications/Imprint.app"
 echo "  * Delete /usr/local/bin/imprint"
 echo ""
@@ -22,12 +24,17 @@ case "$ans" in
     y|Y|yes|YES) ;;
     *) echo "Aborted."; exit 0 ;;
 esac
+read -r -p "Also delete your memories, workspaces and settings in ~/.local/share/imprint? [Y/n] " ans
+case "$ans" in
+    n|N|no|NO) DATA_FLAG="--keep-data" ;;
+    *) DATA_FLAG="--delete-data" ;;
+esac
 
 echo ""
 if [ -x "$IMPRINT" ]; then
     echo "[*] Running 'imprint uninstall'..."
-    if ! "$IMPRINT" uninstall -y --keep-data; then
-        echo "[!] Client cleanup failed. App preserved; resolve the error and retry."
+    if ! "$IMPRINT" uninstall -y "$DATA_FLAG"; then
+        echo "[!] Cleanup failed. App preserved; resolve the error and retry."
         exit 1
     fi
 else

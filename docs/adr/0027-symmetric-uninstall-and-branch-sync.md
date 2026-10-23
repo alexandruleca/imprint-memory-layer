@@ -5,7 +5,7 @@ description: Disconnect managed clients before runtime removal, preserve memorie
 
 # 0027 — Symmetric uninstall and branch synchronization
 
-- Status: Accepted
+- Status: Accepted; memory retention and the ask-to-quit step superseded by [0028](0028-complete-uninstall.md)
 - Date: 2026-10-23
 - Related: [0006](0006-durable-mcp-and-preserved-client-config.md), [0014](0014-main-only-release-packaging.md), [0025](0025-desktop-owned-background-service.md), [0026](0026-windows-installer-wsl-client-bridge.md)
 

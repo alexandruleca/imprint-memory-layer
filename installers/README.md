@@ -2,7 +2,7 @@
 
 Windows x64 uses Inno Setup; macOS Intel/ARM use pkgbuild/productbuild. Both consume a validated staged release tree from `make package` or `make package-local`. See [building](../docs/building.md), [platform validation](../docs/platform-validation.md) and [ADR 0002](../docs/adr/0002-build-and-validate-before-publication.md).
 
-Windows installs per user under `%LOCALAPPDATA%\Programs\Imprint`. Its wizard runs the bundled uv/bootstrap path and client registration, displaying the log. The final `.setup-result` reports completion; `.first-run.done` alone does not. Silent installs run the setup script explicitly. The Repair shortcut reuses saved profile choices. Data and the virtual environment are retained on uninstall.
+Windows installs per user under `%LOCALAPPDATA%\Programs\Imprint`. Its wizard runs the bundled uv/bootstrap path and client registration, displaying the log. The final `.setup-result` reports completion; `.first-run.done` alone does not. Silent installs run the setup script explicitly. The Repair shortcut reuses saved profile choices. Uninstall stops Imprint's processes and removes everything, data included, unless you choose to keep the data (`/KEEPDATA` when silent); see [ADR 0028](../docs/adr/0028-complete-uninstall.md).
 
 macOS installs `/Applications/Imprint.app` and a `/usr/local/bin/imprint` link. Root postinstall only fixes permissions/quarantine and the CLI link. First launch provisions Python/dependencies in the user's writable `~/.local/share/imprint` through the native Swift progress helper, with a Terminal fallback. It does not install Python as root. Source resources remain inside the app bundle.
 

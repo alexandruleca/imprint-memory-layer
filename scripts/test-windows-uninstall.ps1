@@ -21,20 +21,27 @@ func main(){
     }
     Copy-Item $helper "$root/imprint-uninstall.ps1"
     'preserve memories' | Set-Content "$root/memories.txt"
-    foreach ($fail in @(0, 1)) {
+    $cases = @(
+        @{ Fail = 0; Switches = @(); Expected = 'uninstall -y' },
+        @{ Fail = 0; Switches = @('-KeepData'); Expected = 'uninstall -y --keep-data' },
+        @{ Fail = 1; Switches = @(); Expected = 'uninstall -y' }
+    )
+    foreach ($case in $cases) {
+        $fail = $case.Fail
         $env:IMPRINT_UNINSTALL_TEST_FAIL = "$fail"
         $env:IMPRINT_UNINSTALL_TEST_ARGS = "$root/calls.json"
-        $child = Start-Process powershell.exe -ArgumentList @(
+        $child = Start-Process powershell.exe -ArgumentList (@(
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
             "`"$root/imprint-uninstall.ps1`"", '-InstallDir', "`"$root`""
-        ) -WorkingDirectory $root -PassThru -WindowStyle Hidden
+        ) + $case.Switches) -WorkingDirectory $root -PassThru -WindowStyle Hidden
         $null = $child.Handle
         if (-not $child.WaitForExit(30000)) { taskkill /PID $child.Id /T /F; throw 'Cleanup timed out' }
         $child.Refresh()
         if ($child.ExitCode -ne $fail) { throw "Expected exit $fail, got $($child.ExitCode)" }
         $calls = @(Get-Content "$root/calls.json" -Raw | ConvertFrom-Json)
-        if ($calls.Count -ne 1 -or $calls[0] -ne 'disable') { throw 'Uninstaller did not use disable' }
+        if (($calls -join ' ') -ne $case.Expected) { throw "Expected '$($case.Expected)', got '$($calls -join ' ')'" }
         if ((Get-Content "$root/uninstall-cleanup.log" -Raw) -notmatch 'ordinary cleanup diagnostics') { throw 'Missing diagnostic log' }
+        # The helper delegates deletion to the CLI; it must not touch data itself.
         if ((Get-Content "$root/memories.txt").Trim() -ne 'preserve memories') { throw 'Memories changed' }
     }
     Remove-Item "$root/bin/imprint.exe"

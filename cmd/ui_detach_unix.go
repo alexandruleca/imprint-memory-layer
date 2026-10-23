@@ -24,3 +24,12 @@ func stopProcess(pid int) error {
 	}
 	return nil
 }
+
+// killProcess ends a process that ignored SIGTERM.
+func killProcess(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Signal(syscall.SIGKILL)
+}

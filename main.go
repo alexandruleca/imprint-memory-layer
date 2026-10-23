@@ -165,8 +165,8 @@ Usage:
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Disconnect managed clients and stop services (data preserved)
   imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor | codex | copilot | cline | all)
-  imprint uninstall [-y] [--delete-data]
-                             Disconnect clients and remove runtime; preserve memories unless --delete-data
+  imprint uninstall [-y] [--keep-data]
+                             Disconnect clients, stop Imprint processes, remove runtime and memories (--keep-data keeps memories)
   imprint workspace          List workspaces and show active
   imprint workspace switch <n>  Switch to workspace (create if new)
   imprint workspace delete <n>  Delete a workspace and its data

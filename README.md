@@ -138,9 +138,9 @@ imprint setup [target]     # install deps, register MCP, configure the chosen ho
                            #   target: claude-code (default) | cursor | codex | copilot | cline | all
                            # add --retry-gpu to forget a sticky GPU failure and retry ORT / llama-cpp CUDA
 imprint update [--version v0.3.1] [--dev] [-y] [--check]
-                           # upgrade imprint in place; preserves data/ and .venv/
-imprint uninstall [-y] [--delete-data]
-                           # disconnect clients + remove runtime; memories kept unless --delete-data
+                           # install the latest release the way this install was set up; preserves data/ and .venv/
+imprint uninstall [-y] [--keep-data]
+                           # disconnect clients, stop Imprint, remove runtime + memories (--keep-data keeps them)
 imprint status             # is everything wired? show enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
                            #   target: claude-code | cursor | codex | copilot | cline | all

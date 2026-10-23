@@ -258,7 +258,7 @@ jobs:
           $env:PYTHONPATH = $dest
           & "$dest/.venv/Scripts/python.exe" scripts/smoke-runtime.py --with-embeddings
           if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
-      - name: Smoke test native uninstall preserves data and disconnects clients
+      - name: Smoke test native uninstall stops Imprint, removes it and disconnects clients
         timeout-minutes: 5
         shell: pwsh
         run: |
@@ -272,15 +272,24 @@ jobs:
             Set-Content "$env:CODEX_HOME/AGENTS.md" -Encoding utf8NoBOM
           '{"hooks":{"Stop":[{"hooks":[{"command":"imprint/hook_entry.py stop"},{"command":"keep-hook"}]}]}}' |
             Set-Content "$env:CODEX_HOME/hooks.json" -Encoding utf8NoBOM
-          'keep memories' | Set-Content "$dest/data/uninstall-keep.txt"
+          'remove memories' | Set-Content "$dest/data/uninstall-probe.txt"
+          # Stands in for an MCP server a client started from the venv.
+          $server = Start-Process "$dest/.venv/Scripts/python.exe" -ArgumentList @('-c', '"import time; time.sleep(600)"') -PassThru -WindowStyle Hidden
+          $null = $server.Handle
           $log = Join-Path $env:RUNNER_TEMP 'imprint-uninstaller.log'
           $process = Start-Process "$dest/unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"") -PassThru
           $null = $process.Handle
           if (-not $process.WaitForExit(120000)) { taskkill /PID $process.Id /T /F; throw 'Uninstall timed out' }
           $process.Refresh()
           if ($process.ExitCode -ne 0) { throw "Uninstall failed: $($process.ExitCode)" }
-          if (Test-Path "$dest/bin/imprint.exe") { throw 'Uninstall left the CLI installed' }
-          if ((Get-Content "$dest/data/uninstall-keep.txt").Trim() -ne 'keep memories') { throw 'Uninstall changed memories' }
+          if (-not $server.WaitForExit(1000)) { $server.Kill(); throw 'Uninstall left an Imprint process running' }
+          # Inno removes its own uninstaller files just after it exits.
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Test-Path $dest) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path $dest) {
+            Get-ChildItem -LiteralPath $dest -Recurse -Force | Select-Object -First 20 FullName | Out-Host
+            throw 'Uninstall left files behind'
+          }
           $config = Get-Content "$env:CODEX_HOME/config.toml" -Raw
           if ($config -match 'mcp_servers.imprint' -or $config -notmatch 'keep-other') { throw 'MCP cleanup failed' }
           $rules = Get-Content "$env:CODEX_HOME/AGENTS.md" -Raw

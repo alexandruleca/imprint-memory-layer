@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	detachedProcess        = 0x00000008
-	createNewProcessGroup  = 0x00000200
+	detachedProcess       = 0x00000008
+	createNewProcessGroup = 0x00000200
 )
 
 func detachAttrs() *syscall.SysProcAttr {
@@ -23,3 +23,7 @@ func stopProcess(pid int) error {
 	}
 	return p.Kill()
 }
+
+// killProcess is stopProcess: Windows has no polite signal for console and
+// background processes, and closing the desktop window only hides it.
+func killProcess(pid int) error { return stopProcess(pid) }

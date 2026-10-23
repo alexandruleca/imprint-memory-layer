@@ -70,7 +70,7 @@ Name: "addtopath";    Description: "Add Imprint to the user PATH"; GroupDescript
 [Files]
 ; Ship the whole release tree. The launcher script + binaries + python sources
 ; all live under {app}. `data/` and `.venv/` are populated at first launch and
-; preserved on upgrade/uninstall (see [InstallDelete] / [UninstallDelete]).
+; preserved on upgrade; uninstall removes them unless data is kept (ADR 0028).
 Source: "{#ImprintSource}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; Our custom launcher + installer-time setup helper live alongside the binary.
 Source: "imprint-launcher.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -118,7 +118,7 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
   ValueData: "{olddata};{app}\bin"; Tasks: addtopath; Check: NeedsPathEntry('{app}\bin')
 
 [UninstallDelete]
-; Only remove files we installed; data/ and .venv/ are preserved via [Dirs] flag.
+; `imprint uninstall` removes data/ and .venv/ unless data is kept; see [Code].
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: files; Name: "{app}\.first-run.done"
 Type: files; Name: "{app}\.setup-result"
@@ -187,49 +187,101 @@ begin
   Result := Pos(';' + Lowercase(Dir) + ';', ';' + Lowercase(ExistingPath) + ';') = 0;
 end;
 
-// Run cleanup before the uninstaller removes the runtime it needs. Returning
-// False preserves files, shortcuts and the retry journal on any failure.
-function InitializeUninstall(): Boolean;
 var
-  Code, Separator: Integer;
-  ExistingPath, Remaining, Part, UpdatedPath, BinDir: string;
+  KeepData: Boolean;
+
+function HasSwitch(const Name: string): Boolean;
+var
+  I: Integer;
 begin
   Result := False;
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File "' +
-    ExpandConstant('{app}\imprint-uninstall.ps1') + '" -InstallDir "' + ExpandConstant('{app}') + '"',
-    ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) then Code := -1;
-  if Code <> 0 then
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), Name) = 0 then
+      Result := True;
+end;
+
+// Cleanup needs the CLI; refuse before Inno's confirmation if it is gone.
+// The cleanup itself waits until the user has confirmed (usUninstall).
+function InitializeUninstall(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\bin\imprint.exe'));
+  if not Result then
   begin
-    Log('Imprint client cleanup failed; uninstall cancelled.');
+    Log('bin\imprint.exe is missing; uninstall cancelled.');
     if not UninstallSilent then
-      MsgBox('Imprint could not disconnect all clients. No program files were removed.' + #13#10 +
-        'Check ' + ExpandConstant('{app}\uninstall-cleanup.log') + ', make recorded WSL distributions available, then retry uninstall.', mbError, MB_OK);
-    Exit;
+      MsgBox('Imprint is incomplete: ' + ExpandConstant('{app}\bin\imprint.exe') + ' is missing.' + #13#10 +
+        'Run the Imprint installer to repair it, then uninstall.', mbError, MB_OK);
   end;
-  // Remove only this installation's PATH segment, preserving all other values.
-  if RegQueryStringValue(HKCU, 'Environment', 'Path', ExistingPath) then
-  begin
-    Remaining := ExistingPath;
-    UpdatedPath := '';
-    BinDir := Lowercase(RemoveBackslashUnlessRoot(ExpandConstant('{app}\bin')));
-    while Remaining <> '' do
-    begin
-      Separator := Pos(';', Remaining);
-      if Separator = 0 then begin Part := Remaining; Remaining := ''; end
-      else begin Part := Copy(Remaining, 1, Separator - 1); Delete(Remaining, 1, Separator); end;
-      if Lowercase(RemoveBackslashUnlessRoot(RemoveQuotes(Trim(Part)))) <> BinDir then
-      begin
-        UpdatedPath := UpdatedPath + Part;
-        if Separator <> 0 then UpdatedPath := UpdatedPath + ';';
-      end;
-    end;
-    if UpdatedPath <> ExistingPath then
-      if not RegWriteExpandStringValue(HKCU, 'Environment', 'Path', UpdatedPath) then
-      begin
-        Log('Could not remove Imprint from the user PATH; uninstall cancelled.');
-        Exit;
-      end;
-  end;
+end;
+
+// Remove only this installation's PATH segment, preserving all other values.
+function RemovePathEntry(): Boolean;
+var
+  Separator: Integer;
+  ExistingPath, Remaining, Part, UpdatedPath, BinDir: string;
+begin
   Result := True;
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', ExistingPath) then Exit;
+  Remaining := ExistingPath;
+  UpdatedPath := '';
+  BinDir := Lowercase(RemoveBackslashUnlessRoot(ExpandConstant('{app}\bin')));
+  while Remaining <> '' do
+  begin
+    Separator := Pos(';', Remaining);
+    if Separator = 0 then begin Part := Remaining; Remaining := ''; end
+    else begin Part := Copy(Remaining, 1, Separator - 1); Delete(Remaining, 1, Separator); end;
+    if Lowercase(RemoveBackslashUnlessRoot(RemoveQuotes(Trim(Part)))) <> BinDir then
+    begin
+      UpdatedPath := UpdatedPath + Part;
+      if Separator <> 0 then UpdatedPath := UpdatedPath + ';';
+    end;
+  end;
+  if UpdatedPath <> ExistingPath then
+    Result := RegWriteExpandStringValue(HKCU, 'Environment', 'Path', UpdatedPath);
+end;
+
+// After confirmation and before any file is removed: disconnect clients,
+// stop every Imprint process and remove the runtime and, unless kept, the
+// data (ADR 0028). Any failure aborts with the installation intact.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Code: Integer;
+  Params: string;
+begin
+  case CurUninstallStep of
+    usUninstall:
+      begin
+        KeepData := HasSwitch('/KEEPDATA');
+        if not UninstallSilent then
+          case MsgBox('Also delete your Imprint memories, workspaces and settings?' + #13#10#13#10 +
+              'Yes deletes everything. No keeps them in ' + ExpandConstant('{app}\data') + ' for a later reinstall.',
+              mbConfirmation, MB_YESNOCANCEL) of
+            IDNO: KeepData := True;
+            IDCANCEL: Abort;
+          end;
+        Params := '-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File "' +
+          ExpandConstant('{app}\imprint-uninstall.ps1') + '" -InstallDir "' + ExpandConstant('{app}') + '"';
+        if KeepData then Params := Params + ' -KeepData';
+        if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params,
+          ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, Code) then Code := -1;
+        if Code <> 0 then
+        begin
+          Log('Imprint cleanup failed; uninstall cancelled.');
+          if not UninstallSilent then
+            MsgBox('Imprint could not finish cleaning up. No program files were removed.' + #13#10 +
+              'Check ' + ExpandConstant('{app}\uninstall-cleanup.log') + ', close any process it names or make recorded WSL distributions available, then retry uninstall.', mbError, MB_OK);
+          Abort;
+        end;
+        if not RemovePathEntry() then
+        begin
+          Log('Could not remove Imprint from the user PATH; uninstall cancelled.');
+          Abort;
+        end;
+      end;
+    usPostUninstall:
+      // Files Inno did not install remain (logs, bytecode caches); a full
+      // uninstall leaves nothing behind.
+      if not KeepData then
+        DelTree(ExpandConstant('{app}'), True, True, True);
+  end;
 end;
