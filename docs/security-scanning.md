@@ -20,6 +20,8 @@ Inspect the package/path, affected version, advisory and fix availability before
 
 Initial local baseline, 2026-10-23: 60 dependency findings and two Dockerfile findings; 31 dependency findings and one configuration finding are high/critical. Counts can repeat an advisory across lockfiles. The severity gate correctly fails on this baseline. These are findings to triage, rather than a claim that the repository passes a clean security audit.
 
+The [first hosted run](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39921877128) successfully uploaded its reports and published 62 results to GitHub Security, then failed at the severity gate as intended. Use that run's artifact and the Security tab to review the baseline.
+
 ## Reproduction and maintenance
 
 Use the workflow's pinned Trivy version (initially 0.76.1), with a separate output directory:

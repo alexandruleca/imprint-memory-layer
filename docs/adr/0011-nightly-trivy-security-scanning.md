@@ -27,4 +27,6 @@ Existing high/critical findings can make the first run fail. This is expected re
 
 ## Validation
 
-Completed locally: actionlint passes; the checksum-verified Trivy 0.76.1 scan identifies seven dependency manifests/locks and both Dockerfiles, including development dependencies. SARIF conversion produces 62 results. The gate exits 1 for 31 high/critical dependency findings and one high misconfiguration, as intended. These counts include repeated advisories across targets. The documentation site builds 42 pages. Hosted workflow execution is checked separately after pushing; a scheduled trigger's existence does not establish a successful hosted run.
+Completed locally: actionlint passes; the checksum-verified Trivy 0.76.1 scan identifies seven dependency manifests/locks and both Dockerfiles, including development dependencies. SARIF conversion produces 62 results. The gate exits 1 for 31 high/critical dependency findings and one high misconfiguration, as intended. These counts include repeated advisories across targets. The documentation site builds 42 pages.
+
+Hosted [manual run 39921877128](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39921877128) completed on 2026-10-23: verified installation, scanning, SARIF generation, artifact retention and Security publication all passed. GitHub accepted 62 Trivy results on `main` with no processing error. The final severity gate failed on findings as designed. Nightly scheduling is configured; this manual run validates the job, not a completed future scheduled trigger.
