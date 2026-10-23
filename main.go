@@ -72,7 +72,7 @@ func main() {
 	case "sync":
 		cmd.Sync(os.Args[2:])
 	case "relay":
-		cmd.Relay(os.Args[2:])
+		cmd.Relay(os.Args[2:], version)
 	case "ui":
 		cmd.UI(os.Args[2:])
 	case "retag":

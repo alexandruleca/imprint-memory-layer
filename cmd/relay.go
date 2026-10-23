@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -34,7 +35,7 @@ const (
 	relayUnpairedTTL = time.Hour
 )
 
-func Relay(args []string) {
+func Relay(args []string, version string) {
 	port := 8430
 	for i, arg := range args {
 		if arg == "--port" && i+1 < len(args) {
@@ -70,13 +71,7 @@ func Relay(args []string) {
 	}()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		roomsMu.Lock()
-		count := len(rooms)
-		roomsMu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","rooms":%d}`, count)
-	})
+	mux.HandleFunc("/health", relayHealth(version))
 	mux.HandleFunc("/", relayHandler)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
@@ -89,6 +84,22 @@ func Relay(args []string) {
 	server := &http.Server{Addr: addr, Handler: mux}
 	if err := server.ListenAndServe(); err != nil {
 		output.Fail("Relay error: " + err.Error())
+	}
+}
+
+// relayHealth reports liveness, the running release (a deploy waits for it)
+// and the number of open rooms.
+func relayHealth(version string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		roomsMu.Lock()
+		count := len(rooms)
+		roomsMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(struct {
+			Status  string `json:"status"`
+			Version string `json:"version"`
+			Rooms   int    `json:"rooms"`
+		}{"ok", version, count})
 	}
 }
 

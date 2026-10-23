@@ -193,7 +193,11 @@ includes Traefik labels with a `letsencrypt` cert resolver:
 docker stack deploy -c docker-compose.relay.yml imprint
 ```
 
-Edit the `Host(...)` rule to match your domain before deploying.
+Edit the `Host(...)` rule to match your domain before deploying. Updates start
+the new relay before stopping the old one and roll back if it never turns
+healthy, so an automated redeploy (below) cannot leave the relay down. Rooms
+live in the relay's memory: sessions running during an update are cut and have
+to be started again.
 
 ### Nginx (relay)
 
@@ -222,7 +226,7 @@ server {
 - **imprint** — healthcheck hits `GET /api/version`. `docker logs -f imprint`
   tails the FastAPI / Qdrant output.
 - **imprint-relay** — healthcheck hits `GET /health` (returns
-  `{"status":"ok","rooms":N}`).
+  `{"status":"ok","version":"vX.Y.Z","rooms":N}`).
 
 ## Building from source
 
@@ -245,3 +249,11 @@ Both images are built by [`image.yml`](https://github.com/alexandruleca/imprint-
 can be rebuilt independently. Manual rebuilds of a specific tag are available
 via `workflow_dispatch`, useful for rebasing an image without cutting a new
 release.
+
+After a stable build, the `deploy-relay` job redeploys the public relay: it
+POSTs the URL in the repository secret `RELAY_DEPLOY_WEBHOOK` (a Portainer
+service webhook on the Swarm service running `imprint-relay:latest`, which
+re-pulls that tag) and waits up to five minutes for
+`https://imprint.alexandruleca.com/health` to report the new version. A
+self-hosted relay can be wired the same way: enable the service webhook in
+Portainer and POST it after pushing the image.

@@ -167,3 +167,32 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # The public relay runs the relay image's `latest` tag. Its Portainer service
+  # webhook (secret RELAY_DEPLOY_WEBHOOK) re-pulls that tag; Swarm starts the
+  # new relay before stopping the old one and rolls back if it never turns
+  # healthy. The job ends when the relay reports the release.
+  deploy-relay:
+    needs: [resolve, build]
+    if: needs.resolve.outputs.channel == 'stable'
+    runs-on: [self-hosted, linux, x64]
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      RELAY_URL: https://imprint.alexandruleca.com
+    steps:
+      - name: Redeploy the public relay
+        env:
+          WEBHOOK: ${{ secrets.RELAY_DEPLOY_WEBHOOK }}
+        run: |
+          test -n "$WEBHOOK" || { echo "RELAY_DEPLOY_WEBHOOK is not set"; exit 1; }
+          curl --fail --silent --show-error -X POST "$WEBHOOK"
+
+      - name: Wait for the relay to run ${{ needs.resolve.outputs.version }}
+        run: |
+          for _ in $(seq 30); do
+            running=$(curl --fail --silent "$RELAY_URL/health" | jq -r .version) || running=
+            if [ "$running" = "$VERSION" ]; then echo "The relay runs $VERSION"; exit 0; fi
+            sleep 10
+          done
+          echo "After 5 minutes the relay reports '${running:-nothing}', not $VERSION"
+          exit 1

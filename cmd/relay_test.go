@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -186,5 +187,27 @@ func TestRelayClosesOversizedMessages(t *testing.T) {
 	_ = provider.Write(ctx, websocket.MessageBinary, make([]byte, relayMaxMessage+1))
 	if _, _, err := provider.Read(ctx); websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
 		t.Fatalf("oversized message not refused: %v", err)
+	}
+}
+
+// TestRelayHealthReportsVersion: a deploy waits until /health names the
+// release it rolled out.
+func TestRelayHealthReportsVersion(t *testing.T) {
+	srv := httptest.NewServer(relayHealth("v1.2.3"))
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	defer resp.Body.Close()
+	var health struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if health.Status != "ok" || health.Version != "v1.2.3" {
+		t.Fatalf("health = %+v, want status ok and version v1.2.3", health)
 	}
 }

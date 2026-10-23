@@ -9,6 +9,13 @@ services:
     command: ["relay", "--port", "8430"]
     deploy:
       replicas: 1
+      # An update (e.g. a webhook re-pulling :latest) starts the new relay
+      # first and rolls back if it never turns healthy.
+      update_config:
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        order: start-first
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.imprint-relay.rule=Host(`sync.yourdomain.com`)"
