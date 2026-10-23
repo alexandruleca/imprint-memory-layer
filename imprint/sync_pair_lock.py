@@ -9,8 +9,9 @@ def owner():
     directory = config.get_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     with open(directory / 'sync-pairs.lock', 'a+b') as file:
-        file.seek(0)
-        if not file.read(1):
+        # Windows byte-range locks also deny reads of that byte by another
+        # opener. Inspect the size without reading a currently locked byte.
+        if os.fstat(file.fileno()).st_size == 0:
             file.write(b'0')
             file.flush()
         file.seek(0)
