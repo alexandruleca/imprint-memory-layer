@@ -25,3 +25,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0008](0008-dashboard-retrieval-and-accessibility.md) | Accepted | Same-origin dashboard, usable search states and accessible modal behavior. |
 | [0009](0009-model-profiles-and-embedding-identity.md) | Proposed | Evaluate local model profiles with explicit embedding identity and safe re-embedding. |
 | [0010](0010-qwen-defaults-and-explicit-reindex.md) | Accepted | Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. |
+| [0011](0011-nightly-trivy-security-scanning.md) | Accepted | Nightly Trivy repository scans, retained reports and a high/critical failure gate. |

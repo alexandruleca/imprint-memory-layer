@@ -1,0 +1,28 @@
+# Keep source and lockfiles; exclude generated output and private local state.
+scan:
+  scanners:
+    - vuln
+    - misconfig
+    - secret
+  skip-dirs:
+    - .git
+    - .venv
+    - '**/.venv'
+    - node_modules
+    - '**/node_modules'
+    - data
+    - bin
+    - build
+    - dist
+    - imprint/ui/.next
+    - imprint/ui/out
+    - site/.astro
+    - site/dist
+  file-patterns:
+    - 'pip:requirements/(base|gpu|llm)\.lock\.txt$'
+    - 'dockerfile:Dockerfile(\.[^/]+)?$'
+
+pkg:
+  include-dev-deps: true
+exit-code: 0
+timeout: 10m

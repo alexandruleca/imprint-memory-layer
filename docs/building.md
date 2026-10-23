@@ -42,6 +42,8 @@ Use the **Build release artifacts** manual workflow for a build-only validation 
 
 PR CI runs Go checks, Python dependency/unit/runtime checks on five native targets, dashboard lint/production build/Playwright, Electron archive checks and workflow linting. Signing/notarization and interactive GUI/tray checks remain separate release requirements; see the [roadmap](quality-roadmap.md).
 
+The separate [nightly Trivy security scan](security-scanning.md) checks source, dependency locks, configuration and secrets daily at 01:23 UTC, publishes reports and fails on high/critical findings. It also has a manual trigger.
+
 Version injection uses `main.version`; override with `VERSION=vX.Y.Z`. Avoid committing local regenerated binary/static-export output as an incidental change.
 
 ## Docker relay

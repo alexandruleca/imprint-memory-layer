@@ -9,6 +9,8 @@ Start with the [repository assessment](repository-assessment.md), [integration s
 
 Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing and retrieval](indexing-retrieval.md), [UI/UX review](ui-ux-review.md), and [local model selection](local-model-selection.md) and [local helper setup](local-models.md).
 
+Ongoing checks: [nightly security scanning](security-scanning.md).
+
 Existing subsystem references: [architecture](architecture.md), [configuration](configuration.md), [MCP](mcp.md), [HTTP API](api.md), [building and releases](building.md), [installation](installation.md), [workspaces](workspaces.md), [queue](queue.md), [sync](sync.md), [embeddings](embeddings.md), [chunking](chunking.md), [tagging](tagging.md) and [Docker](docker.md).
 
 ## Decisions and upkeep

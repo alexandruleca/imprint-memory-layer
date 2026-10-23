@@ -1,0 +1,77 @@
+name: Nightly security scan
+
+on:
+  schedule:
+    # 03:23 Bucharest in winter, 04:23 in summer (GitHub cron uses UTC).
+    - cron: '23 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-security-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  trivy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      TRIVY_VERSION: '0.76.1'
+      TRIVY_ARCHIVE_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      TRIVY_DISABLE_TELEMETRY: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install checksum-pinned Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir="$(mktemp -d "$RUNNER_TEMP/trivy.XXXXXX")"
+          archive="$install_dir/trivy.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$TRIVY_ARCHIVE_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$install_dir" trivy
+          echo "$install_dir" >> "$GITHUB_PATH"
+          echo "TRIVY_CACHE_DIR=$RUNNER_TEMP/trivy-cache" >> "$GITHUB_ENV"
+          echo "REPORT_DIR=$RUNNER_TEMP/trivy-reports" >> "$GITHUB_ENV"
+
+      - name: Scan source and dependency locks
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          trivy fs --config trivy.yaml --format json --output "$REPORT_DIR/trivy.json" .
+
+      - name: Generate SARIF
+        id: sarif
+        run: trivy convert --format sarif --output "$REPORT_DIR/trivy.sarif" "$REPORT_DIR/trivy.json"
+
+      - name: Preserve security reports
+        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trivy-security-reports
+          path: ${{ env.REPORT_DIR }}/trivy.*
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish findings to GitHub Security
+        if: ${{ !cancelled() && steps.sarif.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/trivy.sarif
+          category: trivy-repository
+
+      - name: Fail on high or critical findings
+        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+        run: trivy convert --format table --severity HIGH,CRITICAL --exit-code 1 "$REPORT_DIR/trivy.json"
