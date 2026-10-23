@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   native:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +41,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,7 +51,10 @@ jobs:
       - run: make dashboard-build
       - run: npm run lint
         working-directory: imprint/ui
-      - run: npx playwright install --with-deps chromium
+      # Hosted Ubuntu already supplies Chromium's runtime libraries. Avoid
+      # upgrading unrelated OS/font packages through a slow apt mirror.
+      - run: npx playwright install chromium
+        timeout-minutes: 5
         working-directory: imprint/ui
       - run: npm run test:e2e
         working-directory: imprint/ui
@@ -63,6 +68,7 @@ jobs:
 
   container:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Verify relay runs as non-root and serves health
@@ -79,6 +85,7 @@ jobs:
 
   workflows:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
