@@ -1,11 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="imprint-tile" x1="6" y1="2" x2="58" y2="62" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#8b5cf6"/>
-      <stop offset="1" stop-color="#4f46e5"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="15" fill="url(#imprint-tile)"/>
-  <path fill="#ffffff" d="M21.5 15h21a3.5 3.5 0 0 1 0 7h-7v19.5a3.5 3.5 0 0 1-7 0V22h-7a3.5 3.5 0 0 1 0-7z"/>
-  <rect x="18" y="42" width="28" height="7" rx="3.5" fill="#67e8f9"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><title>Imprint</title><rect width="64" height="64" rx="14" fill="#0a0a0a"/><g transform="translate(32 32) scale(0.78) translate(-32 -32)"><path d="M6.08 56V34.27A25.92 25.92 0 0 1 57.92 34.27V38 M19.04 47V34.27A12.96 12.96 0 0 1 44.96 34.27V56 M32 48.09V56" fill="none" stroke="#ffffff" stroke-width="7.2" stroke-linecap="round"/><circle cx="32" cy="35.13" r="4.46" fill="#ffffff" stroke="none"/></g></svg>

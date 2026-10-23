@@ -3,26 +3,24 @@
 @theme {
   /* Light page. Every role is a token so a dark island (.island, below)
      can redefine the same names and everything inside it follows. */
-  --color-bg: #fbfbfd;
-  --color-bg-elevated: #f4f4f8;
+  /* Black and white, like the logo: true neutrals, ink as the accent.
+     Hue is left only where it carries meaning (success, warning,
+     danger, the benchmark pair). */
+  --color-bg: #fafafa;
+  --color-bg-elevated: #f4f4f5;
   --color-surface: #ffffff;
-  --color-surface-2: #f7f7fb;
-  --color-border: #e7e7f0;
-  --color-border-strong: #d6d7e5;
-  --color-ink: #0c0d1f;
-  --color-text: #1b1c33;
-  --color-text-muted: #4a4e6a;
-  --color-text-dim: #61657f;
-  --color-fill: rgba(27, 28, 51, 0.045);
-  --color-fill-strong: rgba(27, 28, 51, 0.08);
-  --color-indigo: #4f46e5;
-  --color-violet: #7c3aed;
-  --color-accent: #6d28d9;
-  --color-accent-soft: rgba(124, 58, 237, 0.08);
-  --color-accent-line: rgba(124, 58, 237, 0.28);
-  --color-cyan: #0e7490;
-  --color-cyan-soft: rgba(8, 145, 178, 0.08);
-  --color-cyan-line: rgba(8, 145, 178, 0.32);
+  --color-surface-2: #f7f7f7;
+  --color-border: #e5e5e5;
+  --color-border-strong: #d4d4d4;
+  --color-ink: #0a0a0a;
+  --color-text: #171717;
+  --color-text-muted: #525252;
+  --color-text-dim: #666666;
+  --color-fill: rgba(10, 10, 10, 0.04);
+  --color-fill-strong: rgba(10, 10, 10, 0.07);
+  --color-accent: #0a0a0a;
+  --color-accent-soft: rgba(10, 10, 10, 0.05);
+  --color-accent-line: rgba(10, 10, 10, 0.16);
   --color-success: #047857;
   --color-success-soft: rgba(4, 120, 87, 0.07);
   --color-success-line: rgba(4, 120, 87, 0.28);
@@ -41,24 +39,21 @@
    frame. Same token names, dark values. */
 .island,
 .term {
-  --color-bg: #07070c;
-  --color-bg-elevated: #0c0d16;
-  --color-surface: #10111c;
-  --color-surface-2: #161827;
-  --color-border: #1f2134;
-  --color-border-strong: #2c2f48;
+  --color-bg: #0a0a0a;
+  --color-bg-elevated: #111111;
+  --color-surface: #141414;
+  --color-surface-2: #1a1a1a;
+  --color-border: #262626;
+  --color-border-strong: #333333;
   --color-ink: #ffffff;
-  --color-text: #eef0fb;
-  --color-text-muted: #a1a6c2;
-  --color-text-dim: #7c81a0;
+  --color-text: #ededed;
+  --color-text-muted: #a3a3a3;
+  --color-text-dim: #8a8a8a;
   --color-fill: rgba(255, 255, 255, 0.05);
   --color-fill-strong: rgba(255, 255, 255, 0.1);
-  --color-accent: #a78bfa;
-  --color-accent-soft: rgba(139, 92, 246, 0.15);
-  --color-accent-line: rgba(167, 139, 250, 0.4);
-  --color-cyan: #22d3ee;
-  --color-cyan-soft: rgba(34, 211, 238, 0.12);
-  --color-cyan-line: rgba(103, 232, 249, 0.35);
+  --color-accent: #ffffff;
+  --color-accent-soft: rgba(255, 255, 255, 0.08);
+  --color-accent-line: rgba(255, 255, 255, 0.22);
   --color-success: #34d399;
   --color-success-soft: rgba(52, 211, 153, 0.08);
   --color-success-line: rgba(52, 211, 153, 0.3);
@@ -88,7 +83,7 @@ code, pre, kbd, samp {
 }
 
 ::selection {
-  background: rgba(124, 58, 237, 0.18);
+  background: rgba(10, 10, 10, 0.12);
 }
 
 :focus-visible {
@@ -98,7 +93,7 @@ code, pre, kbd, samp {
 }
 
 .grad-text {
-  background: linear-gradient(95deg, #7c3aed 0%, #4f46e5 45%, #0891b2 100%);
+  background: linear-gradient(95deg, #0a0a0a 0%, #3f3f3f 55%, #8a8a8a 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -106,13 +101,13 @@ code, pre, kbd, samp {
 
 .starry {
   background-image:
-    radial-gradient(ellipse 70% 45% at 50% -8%, rgba(139, 92, 246, 0.11), transparent 65%),
-    radial-gradient(ellipse 45% 35% at 92% 6%, rgba(34, 211, 238, 0.09), transparent 60%);
+    radial-gradient(ellipse 70% 45% at 50% -8%, rgba(10, 10, 10, 0.05), transparent 65%),
+    radial-gradient(ellipse 45% 35% at 92% 6%, rgba(10, 10, 10, 0.035), transparent 60%);
   background-repeat: no-repeat;
 }
 
 .dot-grid {
-  background-image: radial-gradient(rgba(79, 70, 229, 0.16) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(10, 10, 10, 0.1) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -167,7 +162,7 @@ code, pre, kbd, samp {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 1rem;
-  box-shadow: 0 1px 2px rgba(16, 17, 40, 0.04), 0 12px 32px -18px rgba(16, 17, 40, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -18px rgba(0, 0, 0, 0.12);
 }
 
 .icon-tile {
@@ -221,11 +216,11 @@ code, pre, kbd, samp {
 }
 .btn-primary {
   color: #fff;
-  background: linear-gradient(180deg, #7c3aed, #6d28d9);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset, 0 8px 22px -10px rgba(109, 40, 217, 0.55);
+  background: #0a0a0a;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 8px 22px -12px rgba(0, 0, 0, 0.5);
 }
 .btn-primary:hover {
-  background: linear-gradient(180deg, #6d28d9, #5b21b6);
+  background: #262626;
 }
 .btn-ghost {
   color: var(--color-ink);
@@ -239,11 +234,11 @@ code, pre, kbd, samp {
 
 /* ── Terminal window ────────────────────────────────────── */
 .term {
-  background: #0d0e18;
-  border: 1px solid #1c1e30;
+  background: #0a0a0a;
+  border: 1px solid #262626;
   border-radius: 0.875rem;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(16, 17, 40, 0.08), 0 30px 60px -28px rgba(16, 17, 40, 0.45);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 30px 60px -28px rgba(0, 0, 0, 0.45);
 }
 .term-bar {
   display: flex;

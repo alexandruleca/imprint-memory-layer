@@ -2,9 +2,9 @@
 import Icon from './Icon.astro';
 
 const stores = [
-  { icon: 'database', title: 'Qdrant', detail: 'vectors · local daemon on 127.0.0.1:6333', tone: 'text-sky-700' },
-  { icon: 'clock', title: 'Imprint graph', detail: 'temporal facts · SQLite per workspace', tone: 'text-emerald-700' },
-  { icon: 'cpu', title: 'Embeddings', detail: 'Qwen3 via ONNX Runtime · CPU or GPU', tone: 'text-amber-700' },
+  { icon: 'database', title: 'Qdrant', detail: 'vectors · local daemon on 127.0.0.1:6333' },
+  { icon: 'clock', title: 'Imprint graph', detail: 'temporal facts · SQLite per workspace' },
+  { icon: 'cpu', title: 'Embeddings', detail: 'Qwen3 via ONNX Runtime · CPU or GPU' },
 ] as const;
 
 const optIn = [
@@ -30,7 +30,7 @@ const optIn = [
         <span class="absolute top-4 left-4 sm:left-8 text-[11px] font-semibold tracking-[0.16em] text-accent">YOUR MACHINE</span>
 
         <div class="card !bg-[color:var(--color-surface-2)] p-4 sm:p-5 flex items-center gap-4">
-          <span class="icon-tile !bg-sky-500/10 !border-sky-600/30 !text-sky-700"><Icon name="terminal" size={19} /></span>
+          <span class="icon-tile"><Icon name="terminal" size={19} /></span>
           <div>
             <div class="font-semibold">Your AI coding agent</div>
             <div class="text-sm text-[color:var(--color-text-muted)]">Claude Code · Cursor · Copilot · Codex · Cline · …</div>
@@ -60,7 +60,7 @@ const optIn = [
         <ul class="grid gap-3 sm:grid-cols-3">
           {stores.map((s) => (
             <li class="card !bg-[color:var(--color-surface-2)] p-4">
-              <Icon name={s.icon} size={18} class={s.tone} />
+              <Icon name={s.icon} size={18} class="text-ink" />
               <div class="mt-2.5 font-semibold text-[15px]">{s.title}</div>
               <div class="mt-0.5 text-[13px] leading-snug text-[color:var(--color-text-muted)]">{s.detail}</div>
             </li>
