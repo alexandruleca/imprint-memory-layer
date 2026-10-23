@@ -130,8 +130,10 @@ Usage:
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)
   imprint refresh <dir>      Re-index only files that changed since last index
   imprint refresh-urls       Re-check stored URLs (ETag/Last-Modified) and re-index changed
-  imprint sync serve --relay <host>  Expose KB for syncing via relay
-  imprint sync <host>/<id>   Pull + push to a remote peer
+  imprint sync serve [--relay <host>] [--workspace <n>] [--send-only | --receive-only]
+                             Expose a workspace for syncing via relay
+  imprint sync <host>/<id> --pin <pin> [--workspace <n>] [--send-only | --receive-only]
+                             Pull from and/or push to a remote peer
   imprint sync export         Export snapshot bundle (no re-embed on import)
   imprint sync import <dir>   Import snapshot bundle from another device
   imprint relay              Run the sync relay server
@@ -143,8 +145,8 @@ Usage:
   imprint ui restart         Stop + start the background UI server
   imprint ui log             Print the UI log file path (for tail -f)
   imprint retag [--project] [--all]  Re-tag existing memories (--all re-runs even already-tagged chunks)
-  imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG [--dry-run]
-                             Move memories between workspaces (preserves vectors)
+  imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
+                             Move (or --copy) memories between workspaces (preserves vectors)
   imprint server <cmd>       Manage the local Qdrant server
                                cmd: start | stop | status | log
   imprint config             Show all settings and current values

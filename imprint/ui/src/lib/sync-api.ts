@@ -1,4 +1,4 @@
-import type { SyncEvent } from "./types";
+import type { SyncDirection, SyncEvent } from "./types";
 
 import { API_BASE } from "./api-base";
 
@@ -68,15 +68,32 @@ function readSSE(
   })();
 }
 
+/** Which workspace a live session uses and what this machine allows. */
+export interface SyncSessionOptions {
+  workspace: string;
+  direction: SyncDirection;
+  /** Serving only: relay host; empty uses the public relay. */
+  relay?: string;
+}
+
+/** Report a rejected request with the server's reason when it gave one. */
+async function failure(res: Response): Promise<SyncEvent> {
+  const body = await res.json().catch(() => ({}));
+  return { type: "error", message: body.error || `Server error: ${res.status}` };
+}
+
 export function streamSyncServe(
+  options: SyncSessionOptions,
   onEvent: (ev: SyncEvent) => void,
 ): AbortController {
   const ctrl = new AbortController();
-  fetch(`${API_BASE}/api/sync/serve`, {
+  const query = new URLSearchParams({ workspace: options.workspace, direction: options.direction });
+  if (options.relay) query.set("relay", options.relay);
+  fetch(`${API_BASE}/api/sync/serve?${query}`, {
     signal: ctrl.signal,
-  }).then((res) => {
+  }).then(async (res) => {
     if (!res.ok) {
-      onEvent({ type: "error", message: `Server error: ${res.status}` });
+      onEvent(await failure(res));
       return;
     }
     readSSE(res, onEvent);
@@ -91,17 +108,18 @@ export function streamSyncServe(
 export function streamSyncReceive(
   roomId: string,
   pin: string,
+  options: SyncSessionOptions,
   onEvent: (ev: SyncEvent) => void,
 ): AbortController {
   const ctrl = new AbortController();
   fetch(`${API_BASE}/api/sync/receive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_id: roomId, pin }),
+    body: JSON.stringify({ room_id: roomId, pin, workspace: options.workspace, direction: options.direction }),
     signal: ctrl.signal,
-  }).then((res) => {
+  }).then(async (res) => {
     if (!res.ok) {
-      onEvent({ type: "error", message: `Server error: ${res.status}` });
+      onEvent(await failure(res));
       return;
     }
     readSSE(res, onEvent);

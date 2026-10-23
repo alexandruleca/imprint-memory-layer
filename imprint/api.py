@@ -949,12 +949,26 @@ async def api_sync_import_upload(file: UploadFile = File(...)):
 # ── Sync: live relay sessions (SSE) ──────────────────────────
 
 @app.get("/api/sync/serve")
-async def api_sync_serve():
-    """SSE stream for provider (serve) mode. Connects to relay, yields events."""
-    from .sync_ws import serve_session
+async def api_sync_serve(workspace: str = "", direction: str = "both", relay: str = ""):
+    """SSE stream for provider (serve) mode. Connects to relay, yields events.
+
+    Serves an existing ``workspace`` (default: active, captured now) under
+    ``direction`` = ``both`` | ``send`` | ``receive`` through ``relay``
+    (default: the public relay).
+    """
+    from .sync_ws import SyncPolicy, parse_relay, serve_session, sync_workspace
+
+    try:
+        policy = SyncPolicy.parse(direction)
+        endpoint = parse_relay(relay)
+        ws, exists = sync_workspace(workspace)
+        if not exists:
+            raise ValueError(f"workspace {ws!r} does not exist")
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
     async def event_stream():
-        async for event in serve_session():
+        async for event in serve_session(ws, policy, endpoint):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -962,17 +976,32 @@ async def api_sync_serve():
 
 @app.post("/api/sync/receive")
 async def api_sync_receive(request: Request):
-    """SSE stream for consumer (receive) mode. Needs room_id and pin."""
+    """SSE stream for consumer (receive) mode. Needs room_id and pin;
+    room_id takes any form the serving side shows (``<room>``,
+    ``<host>/<room>`` or ``wss://<host>/<room>``).
+
+    Optional ``workspace`` (default: active; a new name is created once the
+    peer's data arrives) and ``direction`` = ``both`` | ``send`` | ``receive``.
+    """
     body = await request.json()
     room_id = body.get("room_id", "").strip()
     pin = body.get("pin", "").strip()
     if not room_id or not pin:
         return JSONResponse({"error": "room_id and pin required"}, status_code=400)
 
-    from .sync_ws import receive_session
+    from .sync_ws import SyncPolicy, parse_target, receive_session, sync_workspace
+
+    try:
+        endpoint, room = parse_target(room_id)
+        policy = SyncPolicy.parse(body.get("direction", "both"))
+        ws, exists = sync_workspace(body.get("workspace"))
+        if not exists and not policy.receive:
+            raise ValueError(f"workspace {ws!r} does not exist, so a send-only sync has nothing to send")
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
     async def event_stream():
-        async for event in receive_session(room_id, pin):
+        async for event in receive_session(endpoint, room, pin, ws, policy):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

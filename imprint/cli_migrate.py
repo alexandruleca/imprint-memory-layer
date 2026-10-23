@@ -1,14 +1,16 @@
-"""Move memories between workspaces — by project, topic, or source.
+"""Move or copy memories between workspaces — by project, topic, or source.
 
 Scrolls points from source workspace's collection, upserts into target
 workspace's collection **preserving the existing vectors** (no re-embedding),
-then deletes from source.  Optionally migrates knowledge-graph facts that
-share the same project tag or source key.
+then deletes from source unless ``--copy`` is given.  Copying curates a
+workspace (for example one to share with ``imprint sync serve --workspace
+WS2 --send-only``) without taking anything away from the source.  Also
+copies knowledge-graph facts that share the same project tag or source key.
 
 Usage:
-    python -m imprint.cli_migrate --from WS1 --to WS2 --project NAME [--dry-run]
-    python -m imprint.cli_migrate --from WS1 --to WS2 --topic TOPIC [--dry-run]
-    python -m imprint.cli_migrate --from WS1 --to WS2 --source KEY [--dry-run]
+    python -m imprint.cli_migrate --from WS1 --to WS2 --project NAME [--copy] [--dry-run]
+    python -m imprint.cli_migrate --from WS1 --to WS2 --topic TOPIC [--copy] [--dry-run]
+    python -m imprint.cli_migrate --from WS1 --to WS2 --source KEY [--copy] [--dry-run]
 """
 
 from __future__ import annotations
@@ -55,6 +57,10 @@ def _migrate_kg_facts(
     - If `project` given: copies facts whose source starts with '<project>/'.
     - If `source` given: copies facts whose source equals the exact key.
 
+    Facts the target already holds — same (subject, predicate, object,
+    valid_from), the key sync dedups on — are skipped, so repeating a copy
+    to refresh a curated workspace does not duplicate them.
+
     Returns count of facts copied (or would-copy if dry_run).  Source rows are
     NOT deleted — facts are usually additive and safe to keep as historical.
     """
@@ -84,35 +90,48 @@ def _migrate_kg_facts(
     except sqlite3.OperationalError:
         return 0
 
-    if not rows or dry_run:
-        return len(rows)
+    if not rows:
+        return 0
 
     dst = _config.graph_db_path(to_workspace)
-    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dry_run and not dst.exists():
+        return len(rows)
+    if not dry_run:
+        dst.parent.mkdir(parents=True, exist_ok=True)
     dst_conn = sqlite3.connect(dst)
-    dst_conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS facts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            subject TEXT NOT NULL,
-            predicate TEXT NOT NULL,
-            object TEXT NOT NULL,
-            valid_from REAL NOT NULL,
-            ended REAL,
-            source TEXT DEFAULT ''
+    try:
+        dst_conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                valid_from REAL NOT NULL,
+                ended REAL,
+                source TEXT DEFAULT ''
+            )
+            """
         )
-        """
-    )
-    if 'recorded_device' not in {row[1] for row in dst_conn.execute('PRAGMA table_info(facts)')}:
-        dst_conn.execute("ALTER TABLE facts ADD COLUMN recorded_device TEXT NOT NULL DEFAULT '{}'")
-    dst_conn.executemany(
-        "INSERT INTO facts (subject, predicate, object, valid_from, ended, source, recorded_device) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-    dst_conn.commit()
-    dst_conn.close()
-    return len(rows)
+        if 'recorded_device' not in {row[1] for row in dst_conn.execute('PRAGMA table_info(facts)')}:
+            dst_conn.execute("ALTER TABLE facts ADD COLUMN recorded_device TEXT NOT NULL DEFAULT '{}'")
+        new_rows = [
+            row for row in rows
+            if dst_conn.execute(
+                "SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?",
+                row[:4],
+            ).fetchone() is None
+        ]
+        if not dry_run:
+            dst_conn.executemany(
+                "INSERT INTO facts (subject, predicate, object, valid_from, ended, source, recorded_device) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                new_rows,
+            )
+            dst_conn.commit()
+    finally:
+        dst_conn.close()
+    return len(new_rows)
 
 
 def migrate(
@@ -123,19 +142,34 @@ def migrate(
     source: str = "",
     batch_size: int = 200,
     dry_run: bool = False,
+    copy: bool = False,
 ) -> tuple[int, int, int]:
-    """Move points matching filter from one workspace to another.
+    """Move points matching filter from one workspace to another, or copy
+    them (the source keeps its points) when ``copy`` is set.
 
-    Returns (moved, scanned, kg_facts_copied).
+    Returns (transferred, scanned, kg_facts_copied).
     """
     if not project and not topic and not source:
         raise ValueError("migrate requires --project, --topic, or --source")
     if from_workspace == to_workspace:
         raise ValueError("from_workspace and to_workspace must differ")
+    for name in (from_workspace, to_workspace):
+        error = _config.validate_workspace_name(name)
+        if error:
+            raise ValueError(f"invalid workspace {name!r}: {error}")
+    if from_workspace not in _config.get_known_workspaces():
+        raise ValueError(f"source workspace {from_workspace!r} does not exist")
 
     src_client, src_coll = vectorstore._ensure_collection(from_workspace)
-    tgt_client, tgt_coll = vectorstore._ensure_collection(to_workspace)
+    # A dry run changes nothing, not even the target. A real run makes the
+    # target a listed workspace, so it can be served or switched to.
+    tgt_client = tgt_coll = None
+    if not dry_run:
+        if _config.register_workspace(to_workspace):
+            print(f"  Created workspace: {to_workspace}", file=sys.stderr)
+        tgt_client, tgt_coll = vectorstore._ensure_collection(to_workspace)
     flt = _build_filter(project, topic, source)
+    verb = "Copied" if copy else "Moved"
 
     moved = 0
     scanned = 0
@@ -170,15 +204,16 @@ def migrate(
             if len(pending_points) >= batch_size:
                 if not dry_run:
                     vectorstore._upsert_chunked(tgt_client, tgt_coll, pending_points)
-                    src_client.delete(
-                        collection_name=src_coll,
-                        points_selector=qm.PointIdsList(points=pending_ids),
-                    )
+                    if not copy:
+                        src_client.delete(
+                            collection_name=src_coll,
+                            points_selector=qm.PointIdsList(points=pending_ids),
+                        )
                 moved += len(pending_points)
                 elapsed = time.time() - t0
                 rate = moved / elapsed if elapsed > 0 else 0
                 print(
-                    f"\r  Moved {moved} / {scanned} scanned  ({rate:.1f}/s)",
+                    f"\r  {verb} {moved} / {scanned} scanned  ({rate:.1f}/s)",
                     end="", file=sys.stderr, flush=True,
                 )
                 pending_points = []
@@ -191,10 +226,11 @@ def migrate(
     if pending_points:
         if not dry_run:
             vectorstore._upsert_chunked(tgt_client, tgt_coll, pending_points)
-            src_client.delete(
-                collection_name=src_coll,
-                points_selector=qm.PointIdsList(points=pending_ids),
-            )
+            if not copy:
+                src_client.delete(
+                    collection_name=src_coll,
+                    points_selector=qm.PointIdsList(points=pending_ids),
+                )
         moved += len(pending_points)
 
     # KG facts — for project or source migration (topics aren't tracked in KG)
@@ -206,18 +242,20 @@ def migrate(
 
     elapsed = time.time() - t0
     print(file=sys.stderr)
-    print(
-        f"  Done: {moved} moved of {scanned} scanned  "
-        f"({elapsed:.1f}s) + {kg_copied} KG facts"
-        f"{' [DRY RUN]' if dry_run else ''}",
-        file=sys.stderr,
-    )
+    if dry_run:
+        summary = (f"  Dry run: would {'copy' if copy else 'move'} {moved} of {scanned} scanned "
+                   f"+ {kg_copied} new KG facts; nothing was changed [DRY RUN]")
+    else:
+        kept = "source unchanged" if copy else "removed from source"
+        summary = (f"  Done: {moved} {verb.lower()} of {scanned} scanned ({kept}) "
+                   f"({elapsed:.1f}s) + {kg_copied} new KG facts")
+    print(summary, file=sys.stderr)
     return moved, scanned, kg_copied
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Migrate memories (by project or topic) between workspaces",
+        description="Move or copy memories (by project, topic or source) between workspaces",
     )
     parser.add_argument("--from", dest="from_ws", required=True,
                         help="Source workspace")
@@ -228,8 +266,10 @@ def main():
     parser.add_argument("--source", default="", help="Filter by exact source key")
     parser.add_argument("--batch-size", type=int, default=200,
                         help="Points per upsert/delete batch")
+    parser.add_argument("--copy", action="store_true",
+                        help="Copy instead of move: the source workspace keeps its memories")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Scan but don't move anything")
+                        help="Scan but don't change anything")
     args = parser.parse_args()
 
     if not args.project and not args.topic and not args.source:
@@ -243,19 +283,24 @@ def main():
     else:
         what = f"source={args.source}"
     print(
-        f"\n  Migrating {what}: {args.from_ws} → {args.to_ws}",
+        f"\n  {'Copying' if args.copy else 'Moving'} {what}: {args.from_ws} → {args.to_ws}",
         file=sys.stderr,
     )
 
-    migrate(
-        from_workspace=args.from_ws,
-        to_workspace=args.to_ws,
-        project=args.project,
-        topic=args.topic,
-        source=args.source,
-        batch_size=args.batch_size,
-        dry_run=args.dry_run,
-    )
+    try:
+        migrate(
+            from_workspace=args.from_ws,
+            to_workspace=args.to_ws,
+            project=args.project,
+            topic=args.topic,
+            source=args.source,
+            batch_size=args.batch_size,
+            dry_run=args.dry_run,
+            copy=args.copy,
+        )
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -211,7 +211,7 @@ export function WorkspaceManager() {
                 onClick={() => setMigrateOpen(true)}
                 disabled={state.workspaces.length < 2}
               >
-                Migrate…
+                Copy / move…
               </Button>
             </>
           )}

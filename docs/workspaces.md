@@ -105,6 +105,20 @@ imprint wipe --all                 # stop Qdrant, delete all data, restart fresh
 
 The MCP process pins its default workspace at startup, so another window's `workspace switch` cannot redirect it. Restart the client connection after switching, set `IMPRINT_WORKSPACE` in the client's server environment, or pass a tool's explicit `workspace`. CLI ingestion captures its workspace before waiting/queueing. Selection is stored in `data/workspace.json`.
 
+## Copy, move and share a workspace
+
+`imprint migrate` transfers memories between workspaces by project, topic or exact source, keeping their vectors, so both workspaces need the same embedding profile. It moves by default. `--copy` leaves the source untouched, which is how you curate a workspace to share without taking anything out of your own:
+
+```bash
+imprint migrate --from default --to team --project payments-api --copy --dry-run
+imprint migrate --from default --to team --project payments-api --copy
+imprint migrate --from default --to team --topic auth --copy
+```
+
+A real run registers a new target workspace without switching to it; a dry run changes nothing, not even the target. Project and source transfers also copy their source-linked knowledge-graph facts (topic transfers have none); facts are never removed from the source and facts the target already holds are skipped, so re-running a copy refreshes the curated workspace without duplicates. A copy does not delete: memories you later remove from the source stay in the target until you remove them there. The dashboard's **Settings → Workspaces → Copy / move…** dialog offers the same choice and defaults to **Copy**.
+
+Live sync works on one workspace, end-to-end encrypted, and never switches the active one. `imprint sync serve --workspace team --send-only` shares only `team`, read-only; the joining machine picks its own destination with `--workspace` (created when the data arrives) and can add `--receive-only`. See [sync](sync.md#share-part-of-your-memory) and [ADR 0016](adr/0016-sync-direction-and-workspace-sharing.md).
+
 ## Approved roots and sharing
 
 The first ingest binds a directory (a single file binds its parent). Later ingest/refresh targets must stay inside approved roots. Additional roots require explicit approval:

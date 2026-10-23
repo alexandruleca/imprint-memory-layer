@@ -224,6 +224,9 @@ export interface GraphScopeData {
 
 // ── Sync types ─────────────────────────────────────────────────
 
+/** What this machine is willing to do in a live sync (both sides enforce their own). */
+export type SyncDirection = "both" | "send" | "receive";
+
 export interface SyncEvent {
   type:
     | "room"
@@ -231,7 +234,11 @@ export interface SyncEvent {
     | "status"
     | "approval_required"
     | "auto_accepted"
+    | "trusted"
     | "peer_connected"
+    | "plan"
+    | "refused"
+    | "workspace_created"
     | "progress"
     | "pull_complete"
     | "push_complete"
@@ -240,6 +247,10 @@ export interface SyncEvent {
     | "warning"
     | "error";
   room_id?: string;
+  /** room: what the other machine enters — the room ID, or relay address and room on a custom relay. */
+  target?: string;
+  /** room: the relay this session uses. */
+  relay?: string;
   pin?: string;
   session_id?: string;
   status?: string;
@@ -252,9 +263,18 @@ export interface SyncEvent {
   done?: number;
   total?: number;
   stats?: SyncStats;
-  pull_stats?: SyncStats;
-  push_stats?: SyncStats;
+  pull_stats?: SyncStats | null;
+  push_stats?: SyncStats | null;
   message?: string;
+  /** room: the served workspace; session/workspace_created: the local workspace. */
+  workspace?: string;
+  /** room: what peers may do; plan: the phases this session runs. */
+  pull?: boolean;
+  push?: boolean;
+  /** plan: why each missing phase is left out. */
+  skipped?: string[];
+  /** refused: which peer request the provider's policy rejected. */
+  request?: "pull" | "push";
 }
 
 export interface SyncStats {

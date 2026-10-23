@@ -228,6 +228,8 @@ export function migrateContent(
     project?: string;
     topic?: string;
     source?: string;
+    /** Copy instead of move: the source workspace keeps its memories. */
+    copy?: boolean;
     dryRun?: boolean;
   },
   onEvent: (ev: Record<string, unknown>) => void,
@@ -240,6 +242,7 @@ export function migrateContent(
       project: params.project,
       topic: params.topic,
       source: params.source,
+      copy: params.copy,
       dry_run: params.dryRun,
     },
     onEvent,

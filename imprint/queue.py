@@ -651,6 +651,8 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.extend(["--topic", body["topic"]])
         if body.get("source"):
             args.extend(["--source", body["source"]])
+        if body.get("copy"):
+            args.append("--copy")
         if body.get("dry_run"):
             args.append("--dry-run")
     elif command == "workspace":

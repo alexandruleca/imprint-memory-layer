@@ -41,3 +41,4 @@ fastapi>=0.120.0
 uvicorn>=0.30.0
 python-multipart>=0.0.18       # FastAPI file uploads (do not rely on FastMCP's extras)
 websockets>=14.0              # sync_ws imports websockets.asyncio.client
+spake2==0.9                   # sync: PIN-authenticated key exchange (same release magic-wormhole pins)

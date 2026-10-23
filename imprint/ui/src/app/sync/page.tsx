@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,8 @@ import {
   type DesktopExportEntry,
   type DesktopScanResult,
 } from "@/lib/desktop-learn";
-import type { SyncEvent, SyncStats, DatasetProgress } from "@/lib/types";
+import { getWorkspaces } from "@/lib/api";
+import type { SyncDirection, SyncEvent, SyncStats, DatasetProgress } from "@/lib/types";
 import {
   Download,
   Upload,
@@ -67,6 +68,12 @@ function statusLabel(status: string): string {
     storing: "Storing records...",
     pulling: "Pulling remote data...",
     pushing: "Pushing local data...",
+    // progress phases
+    send: "Sending data...",
+    push: "Sending data...",
+    receive: "Receiving data...",
+    pull: "Receiving data...",
+    store: "Storing records...",
   };
   return labels[status] || status;
 }
@@ -272,9 +279,115 @@ function ImportCard() {
   );
 }
 
+// ── Live-sync options ──────────────────────────────────────────
+
+type Workspaces = { active: string; workspaces: string[] };
+
+const DIRECTIONS: { value: SyncDirection; label: string; serve: string; receive: string }[] = [
+  {
+    value: "both",
+    label: "Two-way",
+    serve: "The other device can pull this workspace and push its memories into it.",
+    receive: "Pull the other device's memories, then push this workspace back.",
+  },
+  {
+    value: "send",
+    label: "Send only",
+    serve: "The other device can pull this workspace. Anything it pushes is refused.",
+    receive: "Push this workspace to the other device. Nothing is imported here.",
+  },
+  {
+    value: "receive",
+    label: "Receive only",
+    serve: "The other device can push into this workspace. Nothing here is sent.",
+    receive: "Import the other device's memories. Nothing here is sent.",
+  },
+];
+
+function directionLabel(direction: SyncDirection): string {
+  return DIRECTIONS.find((d) => d.value === direction)?.label ?? direction;
+}
+
+// Mirrors the CLI's "Mode:" line for the provider (cmd/sync.go mode()).
+function modeText(pull: boolean, push: boolean): string {
+  if (pull && push) return "Two-way — peers can pull and push";
+  if (pull) return "Send only — peers can pull, pushes are refused";
+  return "Receive only — peers can push, pulls are refused";
+}
+
+// Mirrors the CLI's "Plan:" line for the joining side (syncPlan.String()).
+function planText(pull: boolean, push: boolean, skipped: string[] = []): string {
+  const phases = pull && push ? "pull, then push" : pull ? "pull only" : "push only";
+  return ["Plan: " + phases, ...skipped].join(" — ");
+}
+
+const WORKSPACE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+// Same rules as config.validate_workspace_name; the server re-checks.
+function workspaceProblem(name: string, known: boolean, direction: SyncDirection): string {
+  if (!name) return "Enter a workspace name.";
+  if (name.length > 40) return "Use at most 40 characters.";
+  if (!WORKSPACE_NAME.test(name)) return "Use lowercase letters, digits and hyphens, starting with a letter or digit.";
+  if (!known && direction === "send") return "Send only needs an existing workspace to send from.";
+  return "";
+}
+
+function DirectionField({
+  side,
+  value,
+  onChange,
+}: {
+  side: "serve" | "receive";
+  value: SyncDirection;
+  onChange: (direction: SyncDirection) => void;
+}) {
+  const name = useId();
+  return (
+    <fieldset>
+      <legend className="text-xs font-medium mb-2">Direction</legend>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {DIRECTIONS.map((option) => (
+          <label
+            key={option.value}
+            className={`flex items-start gap-2 rounded-md border p-2.5 text-xs cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
+              value === option.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+            }`}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+              className="mt-0.5 accent-primary"
+            />
+            <span>
+              <span className="block font-medium">{option.label}</span>
+              <span className="text-muted-foreground">{option[side]}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+// Live region for the negotiated plan, refusals and warnings.
+function SessionNotes({ notes }: { notes: string[] }) {
+  return (
+    <div role="status" className="space-y-1 text-xs text-muted-foreground">
+      {notes.map((note, i) => (
+        <p key={i}>{note}</p>
+      ))}
+    </div>
+  );
+}
+
 // ── Serve panel ────────────────────────────────────────────────
 
 type Peer = { hostname: string; os: string; fingerprint: string; user: string };
+
+type ServedSession = { workspace: string; pull: boolean; push: boolean };
 
 type ServeState =
   | { phase: "idle" }
@@ -282,12 +395,34 @@ type ServeState =
   | { phase: "awaiting_approval"; roomId: string; pin: string; sessionId: string; peer: Peer; submitting: boolean }
   | { phase: "connected"; roomId: string; pin: string; sessionId: string; peer: Peer }
   | { phase: "syncing"; sessionId: string; status: string; datasets: Record<string, DatasetProgress> }
-  | { phase: "done"; pullStats?: SyncStats; pushStats?: SyncStats }
+  | { phase: "done"; receivedStats?: SyncStats }
   | { phase: "error"; message: string };
 
-function ServePanel() {
+function approvalText(served: ServedSession | null): string {
+  if (!served) return "Approve to let this device sync with you.";
+  const ws = `workspace “${served.workspace}”`;
+  if (served.pull && served.push) return `Approve to let this device read and write ${ws}.`;
+  if (served.pull) return `Approve to let this device read ${ws}. Anything it pushes is refused.`;
+  return `Approve to let this device write into ${ws}. Nothing is sent to it.`;
+}
+
+function refusalNote(request: SyncEvent["request"]): string {
+  return request === "pull"
+    ? "Refused the other device's pull: this session is receive-only, so nothing was sent."
+    : "Refused the other device's push: this session is send-only, so nothing was imported.";
+}
+
+function ServePanel({ workspaces }: { workspaces: Workspaces }) {
   const [state, setState] = useState<ServeState>({ phase: "idle" });
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [direction, setDirection] = useState<SyncDirection>("both");
+  const [relay, setRelay] = useState("");
+  const [served, setServed] = useState<ServedSession | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
   const ctrlRef = useRef<AbortController | null>(null);
+  const workspaceId = useId();
+  const relayId = useId();
+  const workspace = chosen ?? workspaces.active;
 
   const start = useCallback(() => {
     const datasets: Record<string, DatasetProgress> = {};
@@ -295,21 +430,25 @@ function ServePanel() {
     let roomId = "";
     let pin = "";
     let peer: Peer = { hostname: "", os: "", fingerprint: "", user: "" };
-    let pullStats: SyncStats | undefined;
-    let pushStats: SyncStats | undefined;
+    let receivedStats: SyncStats | undefined;
+    setServed(null);
+    setNotes([]);
+    const note = (text: string) => setNotes((current) => [...current, text]);
 
-    const ctrl = streamSyncServe((ev: SyncEvent) => {
+    const ctrl = streamSyncServe({ workspace, direction, relay: relay.trim() }, (ev: SyncEvent) => {
       switch (ev.type) {
         case "room":
-          roomId = ev.room_id || "";
+          roomId = ev.target || ev.room_id || "";
           pin = ev.pin || "";
           sessionId = ev.session_id || "";
+          setServed({ workspace: ev.workspace || workspace, pull: Boolean(ev.pull), push: Boolean(ev.push) });
           setState({ phase: "waiting", roomId, pin, sessionId });
           break;
         case "status":
           if (ev.status === "waiting") {
             setState({ phase: "waiting", roomId, pin, sessionId });
           } else {
+            if (ev.status === "send_complete") note("Sent this workspace to the other device.");
             setState({ phase: "syncing", sessionId, status: ev.status || "", datasets: { ...datasets } });
           }
           break;
@@ -340,9 +479,11 @@ function ServePanel() {
           };
           setState({ phase: "connected", roomId, pin, sessionId, peer });
           break;
+        case "refused":
+          note(refusalNote(ev.request));
+          break;
         case "warning":
-          // non-fatal; surfaced at the console for now.
-          console.warn("sync warning:", ev.message);
+          note(ev.message || "Warning");
           break;
         case "progress":
           datasets[ev.dataset || ""] = {
@@ -353,13 +494,11 @@ function ServePanel() {
           setState({ phase: "syncing", sessionId, status: ev.phase || "", datasets: { ...datasets } });
           break;
         case "push_complete":
-          pushStats = ev.stats;
-          break;
-        case "pull_complete":
-          pullStats = ev.stats;
+          // The provider's push_complete reports what it stored from the peer.
+          receivedStats = ev.stats;
           break;
         case "done":
-          setState({ phase: "done", pullStats, pushStats });
+          setState({ phase: "done", receivedStats });
           break;
         case "cancelled":
           setState({ phase: "idle" });
@@ -370,7 +509,7 @@ function ServePanel() {
       }
     });
     ctrlRef.current = ctrl;
-  }, []);
+  }, [workspace, direction, relay]);
 
   function stop() {
     ctrlRef.current?.abort();
@@ -408,13 +547,55 @@ function ServePanel() {
         {state.phase === "idle" && (
           <>
             <p className="text-xs text-muted-foreground">
-              Expose this machine&apos;s knowledge base for another device to sync with.
+              Expose one workspace for another device to sync with.
               A room ID and PIN will be generated to share.
             </p>
-            <Btn onClick={start}>
+            <div className="space-y-1">
+              <label htmlFor={workspaceId} className="block text-xs font-medium">
+                Workspace to serve
+              </label>
+              <select
+                id={workspaceId}
+                value={workspace}
+                onChange={(e) => setChosen(e.target.value)}
+                className="block h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm"
+              >
+                {workspaces.workspaces.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                    {name === workspaces.active ? " (active)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <DirectionField side="serve" value={direction} onChange={setDirection} />
+            <div className="space-y-1">
+              <label htmlFor={relayId} className="block text-xs font-medium">
+                Relay <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <Input
+                id={relayId}
+                value={relay}
+                onChange={(e) => setRelay(e.target.value)}
+                placeholder="public relay"
+                className="text-sm font-mono max-w-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                A self-hosted relay host, e.g. sync.example.com. Sessions are end-to-end encrypted either way.
+              </p>
+            </div>
+            <Btn onClick={start} disabled={!workspace}>
               <Radio className="w-4 h-4" /> Start Serving
             </Btn>
           </>
+        )}
+
+        {state.phase !== "idle" && served && (
+          <p className="text-xs text-muted-foreground">
+            Serving workspace <span className="font-mono text-foreground">{served.workspace}</span>
+            {" · "}
+            {modeText(served.pull, served.push)}
+          </p>
         )}
 
         {state.phase === "waiting" && (
@@ -430,7 +611,7 @@ function ServePanel() {
                 Share these with the other device:
               </p>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-16">Room ID</span>
+                <span className="text-xs text-muted-foreground w-16">Room</span>
                 <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.roomId}</code>
                 <CopyButton text={state.roomId} />
               </div>
@@ -467,7 +648,7 @@ function ServePanel() {
                 fingerprint: {state.peer.fingerprint || "unknown"}
               </p>
               <p className="text-xs text-muted-foreground pl-6">
-                PIN was verified. Approve to let this device read + write your memories.
+                PIN was verified. {approvalText(served)}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -535,6 +716,8 @@ function ServePanel() {
           </>
         )}
 
+        {state.phase !== "idle" && <SessionNotes notes={notes} />}
+
         {state.phase === "done" && (
           <>
             <div className="flex items-center gap-2 mb-2">
@@ -543,14 +726,9 @@ function ServePanel() {
                 Sync Complete
               </Badge>
             </div>
-            {state.pullStats && (
+            {state.receivedStats && (
               <p className="text-xs text-muted-foreground">
-                <span className="font-medium">Received:</span> {formatStats(state.pullStats)}
-              </p>
-            )}
-            {state.pushStats && (
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium">Sent:</span> {formatStats(state.pushStats)}
+                <span className="font-medium">Received:</span> {formatStats(state.receivedStats)}
               </p>
             )}
             <Btn variant="outline" onClick={reset}>
@@ -589,15 +767,26 @@ type ReceiveState =
   | { phase: "done"; pullStats?: SyncStats; pushStats?: SyncStats }
   | { phase: "error"; message: string };
 
-function ReceivePanel() {
+function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
   const [state, setState] = useState<ReceiveState>({ phase: "idle" });
   const [roomIdInput, setRoomIdInput] = useState("");
   const [pinInput, setPinInput] = useState("");
+  const [typed, setTyped] = useState<string | null>(null);
+  const [direction, setDirection] = useState<SyncDirection>("both");
+  const [notes, setNotes] = useState<string[]>([]);
   const ctrlRef = useRef<AbortController | null>(null);
+  const roomId = useId();
+  const workspaceId = useId();
+  const pinId = useId();
+
+  const loading = typed === null && !workspaces.active;
+  const workspace = (typed ?? workspaces.active).trim();
+  const known = workspaces.workspaces.includes(workspace);
+  const problem = loading ? "" : workspaceProblem(workspace, known, direction);
 
   function promptPin() {
     const rid = roomIdInput.trim();
-    if (!rid) return;
+    if (!rid || loading || problem) return;
     setState({ phase: "pin_prompt", roomId: rid });
     setPinInput("");
   }
@@ -608,13 +797,15 @@ function ReceivePanel() {
     if (!rid || !pin) return;
 
     setState({ phase: "connecting" });
+    setNotes([]);
+    const note = (text: string) => setNotes((current) => [...current, text]);
 
     const datasets: Record<string, DatasetProgress> = {};
     let sessionId = "";
     let pullStats: SyncStats | undefined;
     let pushStats: SyncStats | undefined;
 
-    const ctrl = streamSyncReceive(rid, pin, (ev: SyncEvent) => {
+    const ctrl = streamSyncReceive(rid, pin, { workspace, direction }, (ev: SyncEvent) => {
       switch (ev.type) {
         case "session":
           sessionId = ev.session_id || "";
@@ -627,6 +818,15 @@ function ReceivePanel() {
           } else {
             setState({ phase: "syncing", sessionId, status: ev.status || "", datasets: { ...datasets } });
           }
+          break;
+        case "plan":
+          note(planText(Boolean(ev.pull), Boolean(ev.push), ev.skipped));
+          break;
+        case "workspace_created":
+          note(`Created workspace “${ev.workspace}”.`);
+          break;
+        case "warning":
+          note(ev.message || "Warning");
           break;
         case "progress":
           datasets[ev.dataset || ""] = {
@@ -672,6 +872,7 @@ function ReceivePanel() {
   function reset() {
     setRoomIdInput("");
     setPinInput("");
+    setNotes([]);
     setState({ phase: "idle" });
   }
 
@@ -681,21 +882,59 @@ function ReceivePanel() {
         {state.phase === "idle" && (
           <>
             <p className="text-xs text-muted-foreground">
-              Connect to another device that is serving its knowledge base.
-              Enter the room ID shown on the other machine.
+              Connect to another device that is serving a workspace.
+              Enter the room shown on the other machine: its ID, or the full
+              address when it uses its own relay.
             </p>
-            <div className="flex items-center gap-2">
+            <div className="space-y-1">
+              <label htmlFor={roomId} className="block text-xs font-medium">
+                Room
+              </label>
               <Input
+                id={roomId}
                 value={roomIdInput}
                 onChange={(e) => setRoomIdInput(e.target.value)}
-                placeholder="Room ID (e.g. a1b2c3d4)"
-                className="text-sm font-mono max-w-[220px]"
+                placeholder="a1b2c3d4 or wss://host/a1b2c3d4"
+                className="text-sm font-mono max-w-sm"
                 onKeyDown={(e) => e.key === "Enter" && promptPin()}
               />
-              <Btn onClick={promptPin} disabled={!roomIdInput.trim()}>
-                <Plug className="w-4 h-4" /> Connect
-              </Btn>
             </div>
+            <div className="space-y-1">
+              <label htmlFor={workspaceId} className="block text-xs font-medium">
+                Workspace on this device
+              </label>
+              <Input
+                id={workspaceId}
+                list={`${workspaceId}-known`}
+                value={typed ?? workspaces.active}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="workspace-name"
+                aria-describedby={`${workspaceId}-hint`}
+                aria-invalid={problem ? true : undefined}
+                className="text-sm font-mono max-w-xs"
+                onKeyDown={(e) => e.key === "Enter" && promptPin()}
+              />
+              <datalist id={`${workspaceId}-known`}>
+                {workspaces.workspaces.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+              <p
+                id={`${workspaceId}-hint`}
+                className={`text-xs ${problem ? "text-destructive" : "text-muted-foreground"}`}
+              >
+                {problem ||
+                  (loading
+                    ? "Loading workspaces…"
+                    : known
+                      ? `Syncs “${workspace}”${workspace === workspaces.active ? " (active)" : ""}. The active workspace is not changed.`
+                      : `New workspace — created when the other device's memories arrive.`)}
+              </p>
+            </div>
+            <DirectionField side="receive" value={direction} onChange={setDirection} />
+            <Btn onClick={promptPin} disabled={!roomIdInput.trim() || loading || Boolean(problem)}>
+              <Plug className="w-4 h-4" /> Connect
+            </Btn>
           </>
         )}
 
@@ -706,12 +945,24 @@ function ReceivePanel() {
             </p>
             <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 space-y-3">
               <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-16">Room</span>
+                <span className="text-xs text-muted-foreground w-20">Room</span>
                 <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.roomId}</code>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-16">PIN</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-20">Workspace</span>
+                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{workspace}</code>
+                {!known && <span className="text-xs text-muted-foreground">new</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-20">Direction</span>
+                <span className="text-sm">{directionLabel(direction)}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <label htmlFor={pinId} className="text-xs text-muted-foreground w-20">
+                  PIN
+                </label>
                 <Input
+                  id={pinId}
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
                   placeholder="Enter PIN"
@@ -760,6 +1011,8 @@ function ReceivePanel() {
             </Btn>
           </>
         )}
+
+        {state.phase !== "idle" && state.phase !== "pin_prompt" && <SessionNotes notes={notes} />}
 
         {state.phase === "done" && (
           <>
@@ -981,6 +1234,16 @@ function DesktopExportsCard() {
 // ── Page ───────────────────────────────────────────────────────
 
 export default function SyncPage() {
+  const [workspaces, setWorkspaces] = useState<Workspaces>({ active: "", workspaces: [] });
+
+  useEffect(() => {
+    let cancelled = false;
+    getWorkspaces().then((result) => {
+      if (!cancelled) setWorkspaces(result);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="p-8 space-y-6 max-w-4xl">
       <div>
@@ -1000,7 +1263,16 @@ export default function SyncPage() {
       <Separator />
 
       <div>
-        <h3 className="text-lg font-semibold mb-3">Live Sync</h3>
+        <h3 className="text-lg font-semibold">Live Sync</h3>
+        <p className="text-xs text-muted-foreground mt-1 mb-3">
+          Sync one workspace with another device through a relay. Sessions are
+          end-to-end encrypted with the PIN: the relay never sees the PIN, the
+          devices or your data. To share a
+          curated workspace with a colleague one way, serve it with Send only:
+          they can pull it but cannot write to your memory. Build one by
+          copying projects or topics into a new workspace from Settings →
+          Workspaces.
+        </p>
         <Tabs defaultValue="serve">
           <TabsList>
             <TabsTrigger value="serve">
@@ -1012,11 +1284,11 @@ export default function SyncPage() {
           </TabsList>
 
           <TabsContent value="serve">
-            <ServePanel />
+            <ServePanel workspaces={workspaces} />
           </TabsContent>
 
           <TabsContent value="receive">
-            <ReceivePanel />
+            <ReceivePanel workspaces={workspaces} />
           </TabsContent>
         </Tabs>
       </div>

@@ -30,4 +30,6 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0013](0013-remediate-security-scan-dependencies.md) | Accepted | Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching. |
 | [0014](0014-main-only-release-packaging.md) | Accepted | Compile/test branches; package and publish release artifacts only from main. |
 | [0015](0015-workspace-roots-and-source-purge.md) | Accepted | Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. |
+| [0016](0016-sync-direction-and-workspace-sharing.md) | Accepted (details superseded by 0018) | Per-machine sync direction policies, per-session workspace selection and copy migration for sharing curated workspaces. |
 | [0017](0017-device-provenance-and-local-project-paths.md) | Accepted | Portable memory origin, current-device context and approved local project-path mappings. |
+| [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Accepted | One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback. |

@@ -1,0 +1,54 @@
+---
+title: ADR 0018 — Single sync implementation and end-to-end encryption
+description: Live sync runs in one Python implementation for CLI and dashboard, and every session is end-to-end encrypted with SPAKE2 and AES-256-GCM.
+---
+
+# 0018 — Single sync implementation and end-to-end encryption
+
+- Status: Accepted
+- Date: 2026-10-23
+- Related: ADR 0016 (direction policies, workspace selection), ADR 0010 (embedding identity), ADR 0017 (device provenance)
+
+## Context
+
+The sync protocol was implemented twice: in Go for the CLI (`cmd/sync.go`, with export/import as Python scripts embedded in Go strings) and in Python for the dashboard (`imprint/sync_ws.py`). Every protocol change had to be made, tested and kept in step twice; ADR 0016's direction policy, and the device provenance of ADR 0017, each touched both. The two implementations also drifted: only the Go CLI could use a self-hosted relay or resume an interrupted download, and only Go answered `/sync/status`, an endpoint no client requested.
+
+The protocol was not end-to-end encrypted. The joining side's HELLO carried the session PIN in clear, and every memory, vector and fact crossed the relay as plaintext JSON. TLS terminated at the relay, so whoever operated a relay — including the default public relay — could read everything synced through it, and, having seen the PIN, impersonate either side.
+
+## Decision
+
+**One implementation.** `imprint/sync_ws.py` is the only implementation of the protocol: async-generator sessions yielding events. The CLI is a terminal front-end for them (`imprint/cli_sync.py` `serve` / `join`), and `imprint sync` in Go only starts it, forwarding stdin for the approval prompt and propagating the exit code. The dashboard streams the same events over SSE. Features one side had now serve both: custom relays (the dashboard's Serve tab gains a relay field and Receive accepts any target form), and resumable downloads for the CLI. The relay stays in Go. `/sync/status`, the per-room legacy buffer migration (a layout no release shipped) and the Go fingerprint writer are removed; device identity comes from `imprint/device.py` alone.
+
+**End-to-end encryption (protocol 2).** In `imprint/sync_crypto.py`:
+
+1. The consumer and provider exchange SPAKE2 messages (`spake2` 0.9, Ed25519, asymmetric roles), keyed by the PIN, with the protocol label and room ID in both identities. This is the only cleartext.
+2. HKDF-SHA256 derives one key per direction. Every later frame is a binary WebSocket message sealed with AES-256-GCM, nonce = that direction's frame counter.
+3. The consumer's first sealed frame is HELLO (device identity, no PIN). A provider that cannot open it reports a wrong PIN and ends the session, so a relay gets one online PIN guess per session and nothing to test guesses against offline. Approval, the grant and all data follow inside the channel.
+4. Any frame that fails to open, or a text frame after the exchange, ends the session; nothing from an unfinished stream is stored. Before the channel exists a peer may send an unauthenticated text notice (`{"status", "body", "version": 2}`) that can only end a session.
+
+**No fallback.** Protocol 1 peers are rejected — an older consumer gets status 426 telling it to update; a newer consumer recognises an older provider's reply. A plaintext fallback would let a relay force it. With every peer on protocol 2, ADR 0016's compatibility rules for older clients are removed: a grant must be an object, and a request outside it is answered with 403 and ends the session instead of being drained.
+
+## Alternatives
+
+- **Encrypt in both implementations.** Rejected: interop between two hand-written crypto paths is where security bugs live, and the duplication cost would recur on every later change.
+- **Move the protocol to Go.** Rejected: export/import, storage, provenance and the dashboard are Python; Go already shelled out to Python for all data work.
+- **Key from the PIN directly (PBKDF/Argon2 of the PIN).** Rejected: a relay recording traffic could brute-force an 8-character PIN offline, and could still act as a man in the middle at the handshake. A PAKE gives one online guess per session.
+- **CPace or OPAQUE.** CPace needs hash-to-curve and has no mature Python implementation; OPAQUE is for long-term client/server passwords. SPAKE2 matches this exact setting (short code, untrusted rendezvous relay) and the chosen package is the one magic-wormhole pins.
+- **Keep the relay trusted and rely on self-hosting.** Rejected as the default: the public relay is the default path.
+
+## Consequences
+
+- The relay sees room IDs, the two exchange messages, ciphertext sizes and timing, and IP addresses — not the PIN, devices or data. A relay can still deny service.
+- Both machines must run a release with protocol 2; mixed versions fail with an explicit message.
+- `spake2==0.9` (pure Python, MIT, depends only on `cryptography`, which was already locked) is added to `requirements/base.txt` and `base.lock.txt` with hashes. Go needs no crypto dependency.
+- ~1,800 lines of Go protocol code and its tests are removed. `cmd/device_test.go` is removed with the Go fingerprint writer: the race it guarded (Go and Python creating different identities) cannot occur, and Python's concurrent initialisation keeps its own test.
+- Device trust remains a consent gate keyed by a non-secret fingerprint; the PIN is the authentication. The PIN length is unchanged; a shorter PIN would now be safe and is left as a separate UX decision.
+- The resume buffer records its destination workspace, fixing a regression risk from ADR 0016 where a resumed download could land in whichever workspace the resuming run selected.
+- Storing runs on a worker thread that stops at the next chunk on cancellation, and reports storing progress (previously collected and discarded).
+
+## Validation
+
+- `tests/test_sync_live.py` (30 tests) runs both sessions through a real WebSocket relay that records every frame: two-way sync with the PIN, secret content, hostname, fingerprint and workspace name absent from all relay frames and only two cleartext frames; wrong PIN; reject, unknown decision, trust and auto-accept; altered, dropped, replayed and injected frames; protocol 1 consumer and provider; every direction combination, refusal of a request outside the grant, new-workspace creation; resumable buffer kept on failure, resumed, cleaned up on success, and release-era buffers; CLI serve/join transcripts and exit codes; relay and target parsing; key agreement, room binding, direction separation and malformed messages. A mutation that turns the cipher into a no-op fails the encryption, tamper, drop, replay and wrong-PIN tests.
+- Full Python suite (121 tests), Go `vet`/`test` (relay tests kept in `cmd/relay_test.go`), dashboard `tsc`, `eslint`, static build and 11 Playwright tests.
+- Process-level run: two data directories with separate Qdrant servers, the Go relay and the built `imprint` binary. A send-only curated workspace (1,200 memories with 1024-dim vectors and a fact) was received into a new workspace while the provider's other workspace stayed private; a second two-way run auto-accepted the trusted device and deduplicated everything; a wrong PIN exited 1 on both sides; Ctrl+C exited 130 while waiting and at the approval prompt.
+- Not run: native Windows/macOS, Python 3.12 (tests ran on 3.14), and the public relay.

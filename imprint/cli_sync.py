@@ -1,9 +1,14 @@
-"""Sync export/import for Imprint memories.
+"""``imprint sync``: live peer sync and snapshot bundles.
+
+Live sync (``serve`` / ``join``) is the terminal front-end for the sessions
+in :mod:`imprint.sync_ws`, the same ones the dashboard streams over SSE.
 
 Export creates a Qdrant collection snapshot + copies the SQLite graph DB.
 Import restores both.  **No re-embedding needed on the receiving device.**
 
 Usage:
+    python -m imprint.cli_sync serve [--relay HOST] [--workspace NAME] [--send-only | --receive-only]
+    python -m imprint.cli_sync join TARGET --pin PIN [--workspace NAME] [--send-only | --receive-only] [--fresh]
     python -m imprint.cli_sync export [--output DIR] [--workspace NAME]
     python -m imprint.cli_sync import <snapshot_dir> [--workspace NAME]
 """
@@ -11,14 +16,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
-from . import config, vectorstore
+from . import config, sync_ws, vectorstore
 
 
 def _snapshots_dir() -> Path:
@@ -161,9 +168,329 @@ def _download_snapshot_http(coll: str, snap_name: str, dest: Path) -> None:
         raise RuntimeError(f"Failed to download snapshot: {e}") from e
 
 
+# ── Live sync front-end ───────────────────────────────────────────
+
+_COLOR = os.environ.get("NO_COLOR", "") == ""
+C_RESET = "\033[0m"
+C_RED = "\033[0;31m"
+C_GREEN = "\033[0;32m"
+C_YELLOW = "\033[1;33m"
+C_CYAN = "\033[0;36m"
+
+
+def _paint(color: str, text: str) -> str:
+    return f"{color}{text}{C_RESET}" if _COLOR else text
+
+
+def _info(msg: str) -> None:
+    print(f"{_paint(C_CYAN, '[*]')} {msg}", flush=True)
+
+
+def _ok(msg: str) -> None:
+    print(f"{_paint(C_GREEN, '[+]')} {msg}", flush=True)
+
+
+def _warn(msg: str) -> None:
+    print(f"{_paint(C_YELLOW, '[!]')} {msg}", flush=True)
+
+
+def _fail(msg: str) -> None:
+    print(f"{_paint(C_RED, '[x]')} {msg}", flush=True)
+
+
+def _header(msg: str) -> None:
+    print(f"\n{_paint(C_GREEN, msg)}", flush=True)
+
+
+def _duration(seconds: float) -> str:
+    total = int(seconds)
+    h, m, s = total // 3600, total % 3600 // 60, total % 60
+    if h:
+        return f"{h}h{m}m"
+    return f"{m}m{s}s" if m else f"{s}s"
+
+
+def _size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n}{unit}" if unit == "B" else f"{n:.1f}{unit}"
+        n /= 1024
+    return ""
+
+
+def _stats(stats: dict | None) -> str:
+    memories = (stats or {}).get("memories", {})
+    facts = (stats or {}).get("facts", {})
+    present = memories.get("skipped", 0) + facts.get("skipped", 0)
+    return (f"{memories.get('inserted', 0)} new memories, {facts.get('inserted', 0)} new facts"
+            f" ({present} already present)")
+
+
+def _plan(event: dict) -> str:
+    phases = ("pull, then push" if event["pull"] and event["push"]
+              else "pull only" if event["pull"] else "push only")
+    return " — ".join([phases, *event["skipped"]])
+
+
+class _Progress:
+    """Per-phase progress: a counter updated in place on a terminal (at most
+    once a second otherwise) and a summary line when the phase ends."""
+
+    LABELS = {"send": "Sending", "push": "Sending", "receive": "Receiving", "pull": "Receiving", "store": "Storing"}
+
+    def __init__(self) -> None:
+        self.tty = sys.stdout.isatty()
+        self.phase: str | None = None
+
+    def update(self, event: dict) -> None:
+        if event["phase"] != self.phase:
+            self.finish()
+            self.phase, self.start, self.shown, self.counts = event["phase"], time.monotonic(), 0.0, {}
+        self.counts[event["dataset"]] = (event["done"], event["total"])
+        now = time.monotonic()
+        done, total = event["done"], event["total"]
+        if not self.tty and now - self.shown < 1 and done < total:
+            return
+        self.shown = now
+        elapsed = now - self.start
+        suffix = f" [{_duration(elapsed)}]"
+        if 0 < done < total and elapsed > 0:
+            suffix = f" [{_duration(elapsed)} elapsed, ~{_duration((total - done) * elapsed / done)} left]"
+        line = f"  {self.LABELS.get(self.phase, self.phase)} {event['dataset']}: {done}/{total}{suffix}"
+        print(f"\r\033[K{line}" if self.tty else line, end="" if self.tty else "\n", flush=True)
+
+    def finish(self) -> None:
+        if self.phase is None:
+            return
+        if self.tty:
+            print("\r\033[K", end="", flush=True)
+        parts = [f"{done}/{total} {ds}" for ds, (done, total) in self.counts.items() if total]
+        label = self.LABELS.get(self.phase, self.phase)
+        summary = f": {', '.join(parts)}" if parts else ""
+        _ok(f"{label} complete{summary} ({_duration(time.monotonic() - self.start)})")
+        self.phase = None
+
+
+def _ask(prompt: str) -> asyncio.Future:
+    """Read a line on a daemon thread, so the event loop keeps the relay
+    connection alive while the user decides and Ctrl+C is not held up."""
+    loop = asyncio.get_running_loop()
+    answer = loop.create_future()
+
+    def read() -> None:
+        try:
+            line = input(prompt)
+        except (EOFError, OSError):
+            line = ""
+        loop.call_soon_threadsafe(lambda: answer.done() or answer.set_result(line))
+
+    threading.Thread(target=read, daemon=True).start()
+    return answer
+
+
+async def _approve(peer: dict) -> str:
+    _header("═══ Incoming Sync Request ═══")
+    print(f"  Device:   {peer.get('hostname', '')}")
+    print(f"  User:     {peer.get('user', '')}")
+    print(f"  OS:       {peer.get('os', '')}")
+    print(f"  ID:       {peer.get('fingerprint', '')}")
+    print()
+    reply = (await _ask("  Accept? [y]es / [n]o / [t]rust & accept: ")).strip().lower()
+    return {"y": "accept", "yes": "accept", "t": "trust", "trust": "trust"}.get(reply, "reject")
+
+
+async def _render(session, on_event) -> int:
+    """Print a session's events; ``on_event`` handles the role-specific ones
+    and returns False for those it does not know. Returns the exit code."""
+    progress = _Progress()
+    code = 0
+    async for event in session:
+        kind = event["type"]
+        if kind == "progress":
+            progress.update(event)
+            continue
+        progress.finish()
+        if await on_event(event):
+            continue
+        if kind == "workspace_created":
+            _ok(f"Created workspace: {event['workspace']}")
+        elif kind == "warning":
+            _warn(event["message"])
+        elif kind == "error":
+            _fail(event["message"])
+            code = 1
+        elif kind == "cancelled":
+            print("\n  Disconnecting...")
+            code = 130
+    return code
+
+
+async def _serve(args) -> int:
+    workspace, exists = sync_ws.sync_workspace(args.workspace)
+    if not exists:
+        _fail(f"workspace {workspace!r} does not exist (see `imprint workspace`)")
+        return 1
+    relay = sync_ws.parse_relay(args.relay)
+    policy = _policy(args)
+    _header("═══ Imprint Sync Server ═══")
+    _info(f"Connecting to relay: {relay}")
+    room: dict = {}
+
+    async def on_event(event: dict) -> bool:
+        kind, status = event["type"], event.get("status")
+        if kind == "room":
+            room.update(event)
+        elif status == "waiting":
+            device = sync_ws.get_device_identity()
+            _ok("Connected! Share this with the other machine:")
+            print(f"\n  imprint sync {room['target']} --pin {room['pin']}\n")
+            print(f"  This device: {device['hostname']} (id: {device['fingerprint']})")
+            print(f"  Workspace:   {workspace}")
+            print(f"  Mode:        {policy.mode()}\n")
+            _info("Waiting for peer... (Ctrl+C to stop)")
+        elif kind == "approval_required":
+            sync_ws.submit_approval(room["session_id"], await _approve(event))
+        elif kind == "auto_accepted":
+            _ok(f"Trusted device connected: {event['hostname']} ({event['fingerprint']})")
+        elif kind == "trusted":
+            _ok("Device added to trusted list")
+        elif kind == "peer_connected":
+            _ok(f"Peer connected: {event['hostname']} ({event['fingerprint']})")
+        elif status == "sending":
+            _info("Peer requesting pull...")
+        elif status == "receiving":
+            _info("Peer pushing data...")
+        elif kind == "refused":
+            _warn(f"Refused {event['request']}: {event['message']}")
+        elif kind == "push_complete":
+            _ok("Merged peer data: " + _stats(event["stats"]))
+        elif kind == "done":
+            print("  Connection closed.")
+        else:
+            return kind == "status"
+        return True
+
+    return await _render(sync_ws.serve_session(workspace, policy, relay), on_event)
+
+
+async def _join(args) -> int:
+    try:
+        relay, room_id = sync_ws.parse_target(args.target)
+    except ValueError as e:
+        _fail(str(e))
+        return 1
+    policy = _policy(args)
+    workspace, exists = sync_ws.sync_workspace(args.workspace)
+    if not exists and not policy.receive:
+        _fail(f"workspace {workspace!r} does not exist, so a --send-only sync has nothing to send (see `imprint workspace`)")
+        return 1
+
+    _header("═══ Imprint Sync ═══")
+    _info(f"Workspace: {workspace}" + ("" if exists else " (new — created when data arrives)"))
+
+    async def on_event(event: dict) -> bool:
+        kind, status = event["type"], event.get("status")
+        if status == "connected":
+            _ok("Connected to relay")
+        elif status == "handshake_sent":
+            _info("Handshake sent — waiting for the other machine to accept this device...")
+        elif status == "handshake_ok":
+            _ok("Handshake accepted")
+        elif kind == "plan":
+            _info("Plan: " + _plan(event))
+        elif status == "pulling":
+            _info("Pulling remote data...")
+        elif status == "pushing":
+            _info("Pushing local data...")
+        elif kind == "pull_complete":
+            _ok("Merged remote → local: " + _stats(event["stats"]))
+        elif kind == "push_complete":
+            _ok("Pushed local → remote: " + _stats(event["stats"]))
+        elif kind == "done":
+            _header("═══ Sync Complete ═══")
+        else:
+            return kind in ("session", "status")
+        return True
+
+    # A completed download that failed to store is finished locally first:
+    # the peer's room is gone by now. It holds a pull, so --send-only keeps it.
+    buffer = sync_ws.pending_buffer_path()
+    if policy.receive:
+        if args.fresh:
+            removed = sync_ws.discard_pending(buffer)
+            _info("--fresh: " + (f"cleared {', '.join(map(str, removed))}" if removed
+                                 else "no buffer to clear, will download fresh"))
+        else:
+            try:
+                pending = sync_ws.pending_download(buffer)
+            except ValueError as e:
+                _fail(str(e))
+                return 1
+            if pending is not None:
+                if pending.workspace != workspace:
+                    _fail(f"An unfinished download into workspace {pending.workspace!r} is waiting to be stored. "
+                          f"Finish it with --workspace {pending.workspace}, or discard it with --fresh.")
+                    return 1
+                _info(f"Found local buffer: {pending.memories} memories, {pending.facts} facts "
+                      f"(downloaded {_duration(time.time() - pending.modified)} ago, {_size(pending.size)})")
+                _info("Resuming local processing — peer not needed (run with --fresh to redownload)")
+                code = await _render(sync_ws.resume_session(pending), on_event)
+                if code == 0:
+                    _info("To push local changes back to a peer, run `imprint sync <id> --pin <pin>` again "
+                          "when a peer is serving.")
+                return code
+
+    if not args.pin:
+        _fail("--pin <pin> is required for a fresh sync (shown on the provider machine)")
+        return 1
+    _info(f"Connecting to {relay}/{room_id}...")
+    session = sync_ws.receive_session(relay, room_id, args.pin, workspace, policy,
+                                      buffer if policy.receive else None)
+    return await _render(session, on_event)
+
+
+def _policy(args) -> "sync_ws.SyncPolicy":
+    if args.send_only:
+        return sync_ws.SyncPolicy.parse("send")
+    if args.receive_only:
+        return sync_ws.SyncPolicy.parse("receive")
+    return sync_ws.SyncPolicy.parse("both")
+
+
+def _live(coro) -> int:
+    try:
+        return asyncio.run(coro)
+    except KeyboardInterrupt:
+        print("\n  Disconnecting...")
+        return 130
+    except ValueError as e:
+        _fail(str(e))
+        return 1
+
+
+def _direction_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--workspace", default=None,
+                        help="Sync this workspace instead of the active one (the active workspace is not changed)")
+    direction = parser.add_mutually_exclusive_group()
+    direction.add_argument("--send-only", action="store_true",
+                           help="This machine sends its memories and imports nothing")
+    direction.add_argument("--receive-only", action="store_true",
+                           help="This machine imports the peer's memories and sends nothing")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Sync export/import for Imprint")
+    parser = argparse.ArgumentParser(prog="imprint sync", description="Live peer sync and snapshot bundles")
     sub = parser.add_subparsers(dest="action", required=True)
+
+    serve = sub.add_parser("serve", help="Expose a workspace via the relay; prints a room ID and PIN")
+    serve.add_argument("--relay", default=None, help="Relay host (default: the public relay)")
+    _direction_flags(serve)
+
+    join = sub.add_parser("join", help="Sync with a machine that is serving")
+    join.add_argument("target", help="Room ID, <host>/<room-id> or wss://<host>/<room-id>")
+    join.add_argument("--pin", default="", help="PIN shown on the serving machine")
+    join.add_argument("--fresh", action="store_true", help="Discard any saved download and re-download")
+    _direction_flags(join)
 
     exp = sub.add_parser("export", help="Export snapshot bundle")
     exp.add_argument("--output", type=Path, default=None, help="Output directory")
@@ -175,7 +502,13 @@ def main():
 
     args = parser.parse_args()
 
-    if args.action == "export":
+    if args.action == "serve":
+        sys.exit(_live(_serve(args)))
+    elif args.action == "join":
+        if args.fresh and args.send_only:
+            join.error("--fresh re-downloads a pull, and a --send-only sync downloads nothing")
+        sys.exit(_live(_join(args)))
+    elif args.action == "export":
         export_snapshot(output_dir=args.output, workspace=args.workspace)
     elif args.action == "import":
         import_snapshot(bundle_path=args.bundle, workspace=args.workspace)

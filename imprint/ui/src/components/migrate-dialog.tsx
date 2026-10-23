@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,6 +12,12 @@ import {
 } from "@/lib/api";
 
 type Mode = "project" | "topic" | "source";
+type Transfer = "copy" | "move";
+
+const TRANSFERS: { value: Transfer; label: string; detail: string }[] = [
+  { value: "copy", label: "Copy", detail: "The source workspace keeps its memories — use this to curate a workspace to share." },
+  { value: "move", label: "Move", detail: "Memories are removed from the source workspace after they are copied." },
+];
 
 export type MigratePreset = {
   mode: Mode;
@@ -51,6 +57,9 @@ function MigrateDialogContent({
   const [topics, setTopics] = useState<string[]>([]);
   const [sources, setSources] = useState<string[]>([]);
   const [selection, setSelection] = useState(preset?.value ?? "");
+  // Copy is the non-destructive default here; the CLI keeps move as its default.
+  const [transfer, setTransfer] = useState<Transfer>("copy");
+  const transferName = useId();
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -109,6 +118,7 @@ function MigrateDialogContent({
         project: mode === "project" ? selection : undefined,
         topic: mode === "topic" ? selection : undefined,
         source: mode === "source" ? selection : undefined,
+        copy: transfer === "copy",
         dryRun,
       },
       (ev) => {
@@ -142,7 +152,7 @@ function MigrateDialogContent({
       />
       <div className="relative z-10 w-full max-w-2xl rounded-lg border border-border bg-background p-5 shadow-lg space-y-4">
         <h3 className="text-base font-semibold">
-          {preset ? `Migrate ${preset.mode}` : "Migrate between workspaces"}
+          {preset ? `Copy or move ${preset.mode}` : "Copy or move between workspaces"}
         </h3>
 
         {!presetLocked && (
@@ -214,10 +224,37 @@ function MigrateDialogContent({
           </label>
         </div>
 
+        <fieldset disabled={busy}>
+          <legend className="text-xs text-muted-foreground mb-1">Copy or move</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {TRANSFERS.map((option) => (
+              <label
+                key={option.value}
+                className={`flex items-start gap-2 rounded border p-2 text-xs cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
+                  transfer === option.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={transferName}
+                  value={option.value}
+                  checked={transfer === option.value}
+                  onChange={() => setTransfer(option.value)}
+                  className="mt-0.5 accent-primary"
+                />
+                <span>
+                  <span className="block font-medium">{option.label}</span>
+                  <span className="text-muted-foreground">{option.detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         {!presetLocked && (
           <div className="space-y-1">
             <span className="text-xs text-muted-foreground capitalize">
-              {mode} to migrate
+              {mode} to {transfer}
             </span>
             <Input
               value={filter}
@@ -278,7 +315,7 @@ function MigrateDialogContent({
               onClick={() => run(false)}
               disabled={!canRun}
             >
-              {busy ? "Running…" : "Migrate"}
+              {busy ? "Running…" : transfer === "copy" ? "Copy" : "Move"}
             </Button>
           </div>
         </div>

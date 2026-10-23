@@ -131,6 +131,9 @@ through the same single-slot queue the dashboard uses.
 `refresh-urls`, `retag`, `learn`, `config`, `wipe`, `sync`, `migrate`,
 `workspace`.
 
+`migrate` takes `from`, `to`, one of `project` / `topic` / `source`, and the
+booleans `copy` (keep the source's memories; `--copy`) and `dry_run`.
+
 ```bash
 # Ingest a URL in the "docs" project
 curl -s -X POST http://localhost:8420/api/commands/ingest-url \
@@ -154,14 +157,24 @@ dedup/replace by `name`, and avoids a trip through the job queue. See
 | POST | `/api/sync/import` | Restore from a server-side bundle path. |
 | GET | `/api/sync/export/download` | Stream a zipped snapshot to the browser. |
 | POST | `/api/sync/import/upload` | Multipart upload of a zip bundle. |
+| GET | `/api/sync/serve` | SSE stream: serve one workspace for live sync. Query (optional): `workspace` (an existing workspace; default: active, captured at start), `direction` = `both` \| `send` \| `receive` (default `both`) and `relay` (host, default: the public relay). Invalid values return 400. |
+| POST | `/api/sync/receive` | SSE stream: join a served room. Body: `{"room_id", "pin"}` — `room_id` takes what the serving side shows: `<room>`, `<host>/<room>` or `wss://<host>/<room>` — plus optional `workspace` (default: active; a new name is created when data arrives) and `direction`. A send-only receive needs an existing workspace. |
 | POST | `/api/sync/cancel` | Cancel an active peer-sync session by `session_id`. |
 | POST | `/api/sync/approve` | Resolve the provider-side `[y/n/t]` prompt. Body: `{"session_id": "...", "decision": "accept" \| "trust" \| "reject"}`. |
 | GET | `/api/desktop-learn/history` | Previously-indexed Claude Desktop / ChatGPT Desktop export zips (SHA-keyed). |
 | POST | `/api/desktop-learn/scan` | One-shot Downloads scan for new desktop-app conversation exports. Body (optional): `{"paths": ["/extra/dir", ...]}`. Returns the structured scan result used by the dashboard. |
 
-Peer sync between two machines still uses the CLI's `imprint sync` command —
-see [sync](./sync.md). The HTTP endpoints above cover snapshot-based sync
-(export → transfer zip → import) for cases where a direct WS connection isn't
+Live peer sync runs the same sessions as `imprint sync` (one implementation,
+`imprint/sync_ws.py`), end-to-end encrypted — see [sync](./sync.md). Beyond
+status events, `serve` emits `room` (`room_id`, `target` — what the other
+machine enters — `pin`, `relay`, `workspace` and the `pull`/`push` grant peers
+receive), `approval_required` / `auto_accepted` / `trusted` and `refused`
+(`request`: `pull` \| `push`) when its direction policy turns a peer's request
+down; `receive` emits `session` (`workspace`), `plan` (`pull`, `push`,
+`skipped` reasons), `workspace_created` and `warning`. `progress` events carry
+`phase` = `send` \| `receive` \| `pull` \| `push` \| `store`. The session uses
+the workspace passed explicitly and never changes the active one. Snapshot
+endpoints cover export → transfer zip → import when a relay connection isn't
 available.
 
 ### Config

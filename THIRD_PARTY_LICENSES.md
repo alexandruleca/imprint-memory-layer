@@ -31,6 +31,7 @@ Split across [requirements/base.txt](requirements/base.txt) (always installed), 
 | `tree-sitter-language-pack` | MIT | base | https://github.com/Goldziher/tree-sitter-language-pack |
 | `anthropic` | MIT | base | https://github.com/anthropics/anthropic-sdk-python |
 | `openai` | Apache 2.0 | base | https://github.com/openai/openai-python |
+| `spake2` | MIT | base | https://github.com/warner/python-spake2 |
 | `llama-cpp-python` | MIT | llm (opt-in) | https://github.com/abetlen/llama-cpp-python |
 | `kreuzberg` | **ELv2** (not OSI open-source) | opt-in (`ingest.use_kreuzberg=true`) | https://pypi.org/project/kreuzberg/ |
 
