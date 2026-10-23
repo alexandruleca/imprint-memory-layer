@@ -73,7 +73,9 @@ class WSLPathTests(unittest.TestCase):
     def test_transcript_cwd_still_requires_approved_root(self):
         from imprint import workspace_policy as policy
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            # Stored roots are canonical; temp paths are not on macOS
+            # (/var -> /private/var) or Windows (8.3 short names).
+            root = Path(directory).resolve()
             transcript = root / 'session.jsonl'
             transcript.write_text(json.dumps({'cwd': '/home/test/project'}))
             # Fixture maps the Windows UNC to a local native directory, then

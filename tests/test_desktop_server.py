@@ -48,6 +48,33 @@ class ParentWatchTests(unittest.TestCase):
                 proc.wait()
             proc.stdout.close()
 
+    def test_blocked_pipe_reader_does_not_stall_dll_imports(self):
+        # Windows serializes I/O on the pipe a thread is blocked reading; numpy
+        # loads DLLs that query standard input, which must no longer be it.
+        code = (
+            'import sys, threading; '
+            'from imprint.desktop_server import detach_lifetime_pipe; '
+            'pipe = detach_lifetime_pipe(); '
+            'threading.Thread(target=pipe.read, args=(1,), daemon=True).start(); '
+            'import numpy; '
+            'print("stdin", repr(sys.stdin.read()), flush=True)'
+        )
+        proc = subprocess.Popen([sys.executable, '-c', code], cwd=ROOT,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        try:
+            line = []
+            reader = threading.Thread(target=lambda: line.append(proc.stdout.readline()), daemon=True)
+            reader.start()
+            reader.join(60)
+            self.assertEqual([l.strip() for l in line], [b"stdin ''"])
+            proc.stdin.close()
+            self.assertEqual(proc.wait(timeout=15), 0)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc.stdout.close()
+
     def test_real_api_stays_up_until_parent_pipe_closes(self):
         with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data:
             with socket.socket() as sock:

@@ -79,6 +79,12 @@ Before pushing, the change was rebased onto current main (`b92f0e8`), preserving
 
 Interactive Windows/macOS/Linux desktop execution of the updated shell, console visibility, tray/Dock reopening, quitting with active jobs, app-crash recovery and upgrades remains pending. Windows/macOS Python lifecycle execution awaits the native CI jobs. A pre-existing CLI daemon intentionally survives desktop Quit; shared Qdrant also remains independent. First-run bootstrap still uses the existing setup UI, and OS/portable-executable startup can precede the Electron splash.
 
+### Native Windows finding — desktop service never started
+
+The first native Windows CI run of the lifetime test timed out with an empty service log. A Windows-runner diagnostic dumped the stalled service: the parent-watch thread was blocked reading standard input while the main thread hung importing numpy's extension module. Without that reader the same service answered in 2.9 s. Windows serializes I/O on a pipe a thread is blocked reading, and a DLL whose C runtime queries the standard handles waits on it. The desktop service therefore never started on Windows; any later DLL load would have hung the same way.
+
+The service now moves the lifetime pipe to a private descriptor and points standard input at the null device before reading it, which also stops child processes from inheriting the pipe. A regression test blocks a reader on the detached pipe while importing numpy. The same Windows runner diagnostic then confirmed the service answers and exits on pipe close.
+
 ## Native release validation
 
 Follow-up 2026-10-23: release run `39910991520` established successful Linux x64/ARM and macOS ARM native execution, then exposed the Intel ONNX wheel failure and silent Windows installer hang. The obsolete run was cancelled after logs were retained. [Replacement build 39923142177](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39923142177) is build-only: both macOS installers and both Linux runtime jobs pass, including real default-model inference. Its Windows job now terminates and preserves logs, exposing a separate Windows PowerShell 5.1 native-stderr handling error. That helper path is corrected and covered by `scripts/test-windows-setup.ps1`; subsequent native results are recorded below when complete. See ADR 0012. The following table is the original validation baseline, not the current run status.
