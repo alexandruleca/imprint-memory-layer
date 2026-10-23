@@ -67,7 +67,7 @@ const cards = [
   <div class="flex flex-wrap items-baseline justify-between gap-3 mb-6">
     <div>
       <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">
-        Download Imprint
+        Latest release
         <span class="ml-2 text-sm font-mono text-[color:var(--color-accent)]">{tag}</span>
       </h2>
       {pubDate && (
@@ -116,6 +116,7 @@ const cards = [
             <div class="mt-2 text-xs font-mono text-[color:var(--color-text-muted)] truncate" data-download-filename={c.id} title={c.primary.name}>
               {c.primary.name} · {c.primary.sizeLabel}
             </div>
+            <div class="mt-1 text-xs text-[color:var(--color-text-dim)]">Desktop app and CLI</div>
           </>
         ) : (
           <div class="mt-4 text-sm text-[color:var(--color-text-muted)]">Not yet available for this release.</div>
@@ -146,7 +147,7 @@ const cards = [
   </div>
 
   <p class="mt-6 text-xs text-[color:var(--color-text-muted)]">
-    Prefer one command? The <a href="/#install" class="underline hover:text-ink">curl / PowerShell installers</a> download the same archives and run <code class="font-mono">imprint setup</code> automatically.
+    The one-line installers below download the same archives and run <code class="font-mono">imprint setup</code> for you.
   </p>
 </section>
 

@@ -38,7 +38,12 @@ const PLATFORM_MATCHERS = [
 ];
 
 const OS_LABEL = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
-const ARCH_LABEL = { amd64: 'Intel / x64', arm64: 'Apple Silicon / ARM64' };
+// Apple's names on macOS; the plain names elsewhere.
+const ARCH_LABEL = {
+  macos: { amd64: 'Intel', arm64: 'Apple Silicon' },
+  default: { amd64: 'x64', arm64: 'ARM64' },
+};
+const archLabel = (os, arch) => (ARCH_LABEL[os] ?? ARCH_LABEL.default)[arch] ?? '';
 const KIND_LABEL = { installer: 'Installer', archive: 'Archive' };
 
 function classifyAsset(name) {
@@ -126,7 +131,7 @@ function normalize(releases) {
           arch: cls?.arch ?? null,
           kind: cls?.kind ?? 'other',
           osLabel: cls ? OS_LABEL[cls.os] : 'Other',
-          archLabel: cls?.arch ? ARCH_LABEL[cls.arch] : null,
+          archLabel: cls?.arch ? archLabel(cls.os, cls.arch) : null,
           kindLabel: cls ? KIND_LABEL[cls.kind] : 'File',
         };
       })

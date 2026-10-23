@@ -1,0 +1,364 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import Icon from '../components/Icon.astro';
+import Shot from '../components/Shot.astro';
+import serveSetup from '../assets/sync/serve-setup.png';
+import serveCode from '../assets/sync/serve-code.png';
+import serveApprove from '../assets/sync/serve-approve.png';
+import receiveProgress from '../assets/sync/receive-progress.png';
+import receiveDone from '../assets/sync/receive-done.png';
+import receiveConfirm from '../assets/sync/receive-confirm.png';
+import pairOptIn from '../assets/sync/pair-opt-in.png';
+import pairedDevices from '../assets/sync/paired-devices.png';
+import pairedPaused from '../assets/sync/paired-paused.png';
+import forgetDialog from '../assets/sync/forget-dialog.png';
+import forgetPending from '../assets/sync/forget-pending.png';
+
+const title = 'Sync & share — Imprint MCP Memory Layer';
+const description =
+  'Hand one Imprint workspace to another machine or a teammate with a one-time code: end-to-end encrypted, one way or both, from the terminal or the dashboard, and paired devices that stay in step on their own.';
+
+// Lines from real sessions between two demo machines (alice-laptop and
+// sam-workstation) through the public relay, recorded for this page. Each
+// line is verbatim; connection chatter and progress counters are left out.
+const serveLines = [
+  ['cmd', 'imprint sync serve --workspace team --send-only --remember'],
+  ['dim', '═══ Imprint Sync Server ═══'],
+  ['', '[*] Automatic pairing enabled for this workspace and direction; the other device must also opt in.'],
+  ['ok', '[+] Connected! Share this with the other machine:'],
+  ['hl', '    imprint sync 85c55ac4-GoLS8V37'],
+  ['', '    This device: alice-laptop (id: ff2f7d42)'],
+  ['', '    Workspace:   team'],
+  ['', '    Mode:        send-only — peers can pull, pushes are refused'],
+  ['dim', '═══ Incoming Sync Request ═══'],
+  ['', '    Device:   sam-workstation'],
+  ['', '    User:     sam'],
+  ['', '    OS:       linux'],
+  ['', '    ID:       559e885f'],
+  ['hl', '    Accept? [y]es / [n]o / [t]rust & accept: y'],
+  ['ok', '[+] Paired for automatic sync. Keep the dashboard or imprint sync watch running on both devices.'],
+  ['ok', '[+] Sending complete: 4000/4000 memories, 2/2 facts (2s)'],
+];
+const joinLines = [
+  ['cmd', 'imprint sync 85c55ac4-GoLS8V37 --workspace handbook --remember'],
+  ['dim', '═══ Imprint Sync ═══'],
+  ['', '[*] Workspace: handbook (new — created when data arrives)'],
+  ['ok', '[+] Handshake accepted'],
+  ['ok', '[+] Connected to alice-laptop (alice, linux, id ff2f7d42)'],
+  ['', '[*] Plan: pull only — push skipped (this machine is receive-only)'],
+  ['ok', '[+] Paired for automatic sync. Keep the dashboard or imprint sync watch running on both devices.'],
+  ['ok', '[+] Receiving complete: 4000/4000 memories, 2/2 facts (2s)'],
+  ['ok', '[+] Storing complete: 4000/4000 memories, 2/2 facts (2s)'],
+  ['ok', '[+] Merged remote → local: 4000 new memories, 2 new facts (0 already present)'],
+  ['dim', '═══ Sync Complete ═══'],
+];
+
+const steps = [
+  {
+    n: 1, title: 'Serve a workspace', machine: 'alice-laptop', src: serveSetup,
+    body: 'Pick the workspace and what the other machine may do with it. The default public relay is fine: it only ever forwards ciphertext. Tick automatic sync if this is one of your own devices.',
+    alt: 'Serve form: workspace team selected, Send only chosen, the automatic sync option and an optional relay field',
+  },
+  {
+    n: 2, title: 'Share the code', machine: 'alice-laptop', src: serveCode,
+    body: 'Imprint prints one code. Its first half names the room on the relay; the second is a secret only the two machines use. It works once.',
+    alt: 'Waiting for a peer, with the code f5b9c62d-CYHSeQEC shown large with a copy button and the matching imprint sync command',
+  },
+  {
+    n: 3, title: 'Approve the device', machine: 'alice-laptop', src: serveApprove,
+    body: 'Once the code checks out, the serving machine shows who is asking: hostname, user, OS and device fingerprint. Accept once, trust it for next time, or reject.',
+    alt: 'Incoming sync request from sam-workstation, user sam, linux, with its fingerprint and Accept once, Trust and accept and Reject buttons',
+  },
+  {
+    n: 4, title: 'Memories arrive', machine: 'sam-workstation', src: receiveDone,
+    body: 'Memories travel with their vectors, so nothing is re-embedded on arrival, and facts come along. Everything is deduplicated, so running it again only adds what is new.',
+    alt: 'Sync complete on sam-workstation: 4000 memories and 2 facts pulled into the new workspace from-alice',
+  },
+] as const;
+
+const serveModes = [
+  ['Two-way', 'The other machine may pull and push.'],
+  ['Send only', 'It may pull; anything it pushes is refused.'],
+  ['Receive only', 'It may push; nothing here is sent.'],
+];
+const joinModes = [
+  ['Receive only', 'The default: import, send nothing.'],
+  ['--two-way', 'Import, then send back after you confirm who gets it.'],
+  ['--send-only', 'Send after you confirm; import nothing.'],
+];
+
+const relaySees = ['The room ID', 'Two key-exchange messages', 'Sizes and timing of encrypted frames', 'IP addresses'];
+const relayNever = ['The code’s secret', 'Device names, users, fingerprints', 'Memories, vectors and facts', 'Which workspace is synced'];
+
+const faqs = [
+  {
+    q: 'What exactly is transferred?',
+    a: 'Memories from the selected workspace, with their content, metadata and vectors, and the knowledge-graph facts. Not other workspaces, configuration, the trust list or workspace roots. Imported URLs are never refreshed by the receiving machine.',
+  },
+  {
+    q: 'Do both machines need the same embedding model?',
+    a: 'Yes. Vectors arrive precomputed, so both sides must use the same embedding profile. A mismatch is refused before anything is stored.',
+  },
+  {
+    q: 'Do deletions sync?',
+    a: 'No. Sync merges; it never deletes. A memory you remove after sharing stays on the other machine until it is removed there too.',
+  },
+  {
+    q: 'What if a transfer is interrupted?',
+    a: 'Nothing from an unfinished or tampered stream is stored. In the terminal, a download that arrived but failed to store is kept; running the same command again stores it without the other machine.',
+  },
+  {
+    q: 'Can I sync without a relay?',
+    a: 'Yes: export a snapshot on one machine and import it on the other, from Sync → Snapshots or `imprint sync export` and `imprint sync import`. Or run your own relay: it is a small stateless Docker image.',
+  },
+];
+---
+
+<Landing title={title} description={description} pathname="/sync-and-share/">
+  <Nav />
+  <main>
+    <section class="relative overflow-hidden border-b border-[color:var(--color-border)]">
+      <div class="absolute inset-0 starry pointer-events-none" aria-hidden="true"></div>
+      <div class="wrap relative py-16 sm:py-24 grid grid-cols-1 gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-center">
+        <div>
+          <div class="eyebrow"><Icon name="sync" size={14} /> Sync &amp; share</div>
+          <h1 class="mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight leading-[1.05] text-balance">
+            Your memory on every machine. <span class="grad-text">And your team’s.</span>
+          </h1>
+          <p class="lede max-w-xl">
+            Hand one workspace to another machine or a colleague with a single code. Sessions are end-to-end
+            encrypted, go one way or both, and run from the terminal or the dashboard. Pair your own machines once
+            and they keep that workspace in step on their own.
+          </p>
+          <div class="mt-8 flex flex-wrap gap-3">
+            <a href="/#install" class="btn btn-primary">Install Imprint <Icon name="arrowRight" size={16} /></a>
+            <a href="/sync/" class="btn btn-ghost">Read the sync docs</a>
+          </div>
+          <p class="mt-6 text-sm text-[color:var(--color-text-dim)] max-w-xl">
+            Everything on this page is a real session between two demo machines, alice-laptop and sam-workstation,
+            through the public relay.
+          </p>
+        </div>
+
+        <div class="relative min-w-0 space-y-4">
+          <figure class="term" aria-label="Terminal on alice-laptop serving the team workspace">
+            <div class="term-bar"><span class="term-dots"><i></i><i></i><i></i></span><span class="font-mono">alice@alice-laptop</span></div>
+            <div class="term-body">
+              {serveLines.map(([kind, text]) => kind === 'cmd'
+                ? <div><span class="prompt">$</span> <span class="hl">{text}</span></div>
+                : <div class={kind === 'ok' ? 'ok' : kind === 'hl' ? 'hl' : kind === 'dim' ? 'text-[color:var(--color-text-dim)]' : ''}>{text}</div>)}
+            </div>
+          </figure>
+          <figure class="term lg:ml-10" aria-label="Terminal on sam-workstation joining with the code">
+            <div class="term-bar"><span class="term-dots"><i></i><i></i><i></i></span><span class="font-mono">sam@sam-workstation</span></div>
+            <div class="term-body">
+              {joinLines.map(([kind, text]) => kind === 'cmd'
+                ? <div><span class="prompt">$</span> <span class="hl">{text}</span></div>
+                : <div class={kind === 'ok' ? 'ok' : kind === 'hl' ? 'hl' : kind === 'dim' ? 'text-[color:var(--color-text-dim)]' : ''}>{text}</div>)}
+            </div>
+          </figure>
+          <p class="text-xs text-[color:var(--color-text-dim)] lg:ml-10">Excerpts from the recorded transcripts.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="max-w-2xl">
+          <div class="eyebrow">How a session works</div>
+          <h2 class="h2">Four steps, about ten seconds.</h2>
+          <p class="lede">
+            The same session runs in the terminal with <code class="cmd">imprint sync</code> and in the dashboard
+            under Sync. These are the dashboard’s screens.
+          </p>
+        </div>
+        <ol class="mt-14 space-y-16">
+          {steps.map((s, i) => (
+            <li class={`grid grid-cols-1 gap-8 lg:grid-cols-2 lg:items-center ${i % 2 ? 'lg:[&>div:first-child]:order-2' : ''}`}>
+              <div>
+                <span class="grid size-9 place-items-center rounded-full bg-[color:var(--color-ink)] text-white text-sm font-semibold">{s.n}</span>
+                <h3 class="mt-4 text-2xl font-semibold tracking-tight">{s.title}</h3>
+                <p class="mt-2 text-[color:var(--color-text-muted)] leading-relaxed max-w-md">{s.body}</p>
+              </div>
+              <Shot src={s.src} alt={s.alt} machine={s.machine} />
+            </li>
+          ))}
+        </ol>
+        <div class="mt-16 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Shot src={receiveProgress} machine="sam-workstation" alt="Receiving data: 500 of 4000 memories, with the plan and the new workspace noted" caption="Progress while it runs, and a plan that says what will and will not happen." />
+          <div class="card p-6 sm:p-8 self-start">
+            <h3 class="font-semibold">In the terminal</h3>
+            <pre class="mt-4 overflow-x-auto rounded-xl bg-[color:var(--color-bg-elevated)] border border-[color:var(--color-border)] p-4 text-[13px] leading-relaxed font-mono"><code><span class="text-[color:var(--color-text-dim)]"># on the machine that shares</span>
+imprint sync serve --workspace team --send-only
+
+<span class="text-[color:var(--color-text-dim)]"># on the other machine, with the code it prints</span>
+imprint sync f5b9c62d-CYHSeQEC --workspace from-alice</code></pre>
+            <p class="mt-4 text-sm text-[color:var(--color-text-muted)]">
+              Add <code class="cmd">--relay sync.example.com</code> to use your own relay; the code then carries
+              its address.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section border-t border-[color:var(--color-border)]">
+      <div class="wrap grid grid-cols-1 gap-12 lg:grid-cols-2 lg:items-start">
+        <div>
+          <div class="eyebrow"><Icon name="arrowRight" size={14} /> Direction</div>
+          <h2 class="h2">You decide what leaves.</h2>
+          <p class="lede">
+            Each machine states what it is willing to do, and the serving side enforces its own choice. A code is
+            all it takes to join, so joining only receives unless you ask to send, and then you see exactly which
+            device gets your workspace first.
+          </p>
+          <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="card p-5">
+              <h3 class="text-sm font-semibold">Serving</h3>
+              <dl class="mt-3 space-y-2.5 text-sm">
+                {serveModes.map(([k, v]) => (<div><dt class="font-medium">{k}</dt><dd class="text-[color:var(--color-text-muted)]">{v}</dd></div>))}
+              </dl>
+            </div>
+            <div class="card p-5">
+              <h3 class="text-sm font-semibold">Joining</h3>
+              <dl class="mt-3 space-y-2.5 text-sm">
+                {joinModes.map(([k, v]) => (<div><dt class="font-medium font-mono text-[13px]">{k}</dt><dd class="text-[color:var(--color-text-muted)]">{v}</dd></div>))}
+              </dl>
+            </div>
+          </div>
+        </div>
+        <Shot src={receiveConfirm} machine="sam-workstation" alt="Send this workspace? Sam is asked whether to send from-alice to alice-laptop, with that device's user, OS and fingerprint, and Send or Don't send" caption="A two-way join asks before sending. Saying no still runs the pull." />
+      </div>
+    </section>
+
+    <section class="section border-t border-[color:var(--color-border)]">
+      <div class="wrap">
+        <div class="max-w-2xl">
+          <div class="eyebrow"><Icon name="users" size={14} /> Share with your team</div>
+          <h2 class="h2">Share part of your memory, not all of it.</h2>
+          <p class="lede">
+            Copy just what belongs into a workspace of its own. Yours stays whole. Serve that workspace send-only:
+            your colleague reads it, and nothing of theirs comes back.
+          </p>
+        </div>
+        <ol class="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <li class="card p-5">
+            <p class="text-sm font-semibold">1 · Curate</p>
+            <code class="mt-3 block cmd !whitespace-normal !text-[12.5px]">imprint migrate --from default --to team --project billing-api --copy</code>
+            <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Or Settings → Workspaces → Copy / move in the dashboard.</p>
+          </li>
+          <li class="card p-5">
+            <p class="text-sm font-semibold">2 · Share one way</p>
+            <code class="mt-3 block cmd !whitespace-normal !text-[12.5px]">imprint sync serve --workspace team --send-only</code>
+            <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Your active workspace does not change; pushes are refused.</p>
+          </li>
+          <li class="card p-5">
+            <p class="text-sm font-semibold">3 · Receive</p>
+            <code class="mt-3 block cmd !whitespace-normal !text-[12.5px]">imprint sync &lt;code&gt; --workspace from-alice</code>
+            <p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Into a workspace of their own, created when the data arrives.</p>
+          </li>
+        </ol>
+        <p class="mt-5 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
+          Re-run the copy and the sync to refresh: both deduplicate. Neither deletes, so what you shared stays
+          shared.
+        </p>
+      </div>
+    </section>
+
+    <section class="section border-t border-[color:var(--color-border)]">
+      <div class="wrap">
+        <div class="max-w-2xl">
+          <div class="eyebrow"><Icon name="laptop" size={14} /> Automatic sync</div>
+          <h2 class="h2">Pair your machines once.</h2>
+          <p class="lede">
+            Turn on automatic sync on both sides of a session, or add <code class="cmd">--remember</code> to both
+            commands. Only that workspace and the direction you approved are remembered. From then on, whenever
+            Imprint runs on both, through the dashboard or <code class="cmd">imprint sync watch</code>, they reconnect
+            through the same relay about once a minute and merge what changed.
+          </p>
+        </div>
+        <div class="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Shot src={pairOptIn} machine="sam-workstation" alt="Receive form with the code entered, workspace from-alice, Receive only, and Enable automatic sync with this device ticked" caption="Opt in on both devices; a declined push never becomes an automatic one." />
+          <div class="space-y-6">
+            <Shot src={pairedDevices} machine="alice-laptop" alt="Paired devices: sam-workstation, active, team sends to from-alice through the public relay, last sync just now, with Pause and Forget buttons" caption="Each paired device, what it syncs and when it last did." />
+            <Shot src={pairedPaused} machine="sam-workstation" alt="The same pairing seen from sam-workstation, paused on this device, with a Resume button" caption="Pause on either side and nothing transfers until you resume." />
+          </div>
+        </div>
+        <div class="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+          <Shot src={forgetDialog} machine="alice-laptop" alt="Confirmation: Forget this device on both sides? It removes automatic pairing with sam-workstation for all paired workspaces; existing memories remain" />
+          <div>
+            <h3 class="text-xl font-semibold tracking-tight">Forgetting is confirmed, and honest about timing.</h3>
+            <p class="mt-2 text-[color:var(--color-text-muted)] leading-relaxed">
+              The device is revoked on this machine at once. The other one removes the pairing when the two next
+              connect. In this session that took 51 seconds. Until then it shows as pending, never as done.
+              Memories already shared stay.
+            </p>
+            <Shot class="mt-5" src={forgetPending} machine="alice-laptop" alt="sam-workstation marked Removal pending: revoked locally, remote removal pending until both devices reconnect" />
+            <pre class="mt-5 overflow-x-auto rounded-xl bg-[color:var(--color-bg-elevated)] border border-[color:var(--color-border)] p-4 text-[13px] leading-relaxed font-mono"><code>imprint sync peers              <span class="text-[color:var(--color-text-dim)]"># list paired devices</span>
+imprint sync watch              <span class="text-[color:var(--color-text-dim)]"># sync them without the dashboard</span>
+imprint sync disable &lt;id&gt;       <span class="text-[color:var(--color-text-dim)]"># pause; enable resumes</span>
+imprint sync forget &lt;id&gt;        <span class="text-[color:var(--color-text-dim)]"># remove on both sides</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section border-t border-[color:var(--color-border)]">
+      <div class="wrap grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
+        <div>
+          <div class="eyebrow"><Icon name="lock" size={14} /> Privacy</div>
+          <h2 class="h2">The relay carries it. It cannot read it.</h2>
+          <p class="lede">
+            The code’s secret becomes the encryption key through SPAKE2, a password-authenticated key exchange: it
+            never crosses the relay, and a relay that tries to join in gets one wrong guess before the session ends.
+            Every frame after that is AES-256-GCM, and an altered, dropped or replayed frame stops the session
+            with nothing from it stored.
+          </p>
+          <p class="mt-4 text-sm text-[color:var(--color-text-muted)]">
+            Want the metadata private too? <a href="/docker/" class="underline underline-offset-4 hover:text-ink">Run your own relay</a>.
+          </p>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold">The relay sees</h3>
+            <ul class="mt-3 space-y-2 text-sm text-[color:var(--color-text-muted)]">
+              {relaySees.map((t) => (<li class="flex gap-2"><span class="mt-2 size-1.5 shrink-0 rounded-full bg-[color:var(--color-text-dim)]"></span>{t}</li>))}
+            </ul>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold">It never sees</h3>
+            <ul class="mt-3 space-y-2 text-sm">
+              {relayNever.map((t) => (<li class="flex gap-2"><Icon name="lock" size={14} class="mt-0.5 shrink-0" />{t}</li>))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section border-t border-[color:var(--color-border)]">
+      <div class="wrap max-w-4xl">
+        <h2 class="h2">Questions</h2>
+        <div class="mt-8 space-y-3">
+          {faqs.map((item) => (
+            <details class="group rounded-xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)] open:border-[color:var(--color-accent)]/60 transition">
+              <summary class="cursor-pointer list-none px-5 py-4 flex items-center justify-between gap-4">
+                <span class="font-semibold">{item.q}</span>
+                <span class="text-[color:var(--color-text-muted)] group-open:rotate-45 transition-transform text-xl leading-none">+</span>
+              </summary>
+              <div class="px-5 pb-5 text-[color:var(--color-text-muted)] leading-relaxed">
+                {item.a.split('`').map((part, i) => (i % 2 ? <code class="cmd">{part}</code> : part))}
+              </div>
+            </details>
+          ))}
+        </div>
+        <div class="mt-12 flex flex-wrap gap-3">
+          <a href="/#install" class="btn btn-primary">Install Imprint <Icon name="arrowRight" size={16} /></a>
+          <a href="/sync/" class="btn btn-ghost">Sync reference</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Landing>

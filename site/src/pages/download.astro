@@ -2,11 +2,13 @@
 import Landing from '../layouts/Landing.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import DownloadPicker from '../components/DownloadPicker.astro';
 import InstallTabs from '../components/InstallTabs.astro';
 import releases from '../data/releases.json';
 
-const title = 'Install Imprint';
-const description = 'One-line install for macOS, Linux, and Windows. No sudo. No system pollution.';
+const title = 'Download Imprint — desktop app, installers and archives';
+const description =
+  'Installers for macOS and Windows and archives for Linux, each with the Imprint desktop app and CLI, a one-line install, and every previous release.';
 
 const all = releases.releases ?? [];
 const stableOnly = all.filter((r) => !r.prerelease);
@@ -24,14 +26,21 @@ function fmtDate(iso?: string) {
   <Nav />
   <main class="max-w-6xl mx-auto px-6 py-16">
     <a href="/" class="text-sm text-[color:var(--color-text-muted)] hover:text-ink">← Back to overview</a>
-    <h1 class="mt-4 text-4xl sm:text-5xl font-extrabold tracking-tight">Install Imprint</h1>
+    <h1 class="mt-4 text-4xl sm:text-5xl font-extrabold tracking-tight">Download Imprint</h1>
     <p class="mt-4 max-w-3xl text-[color:var(--color-text-muted)]">
-      One command sets up the Python venv, downloads the Qdrant binary, and registers the MCP server in your IDE. No sudo required.
+      Every installer and archive includes the Imprint desktop app, the dashboard in its own window, and the
+      <code class="cmd">imprint</code> CLI. Prefer the terminal? One command does the same, below.
     </p>
 
-    <div class="mt-12">
+    <DownloadPicker className="mt-12" />
+
+    <section class="mt-16">
+      <h2 class="text-xl sm:text-2xl font-bold tracking-tight">Or install from the terminal</h2>
+      <p class="mt-1 mb-6 text-sm text-[color:var(--color-text-muted)]">
+        Sets up the Python venv, downloads the Qdrant binary and registers the MCP server in your IDE. No sudo required.
+      </p>
       <InstallTabs />
-    </div>
+    </section>
 
     {releases.latestStable?.bodyHtml && (
       <section class="mt-16">
@@ -76,6 +85,7 @@ function fmtDate(iso?: string) {
               <tr>
                 <th class="text-left px-5 py-3 font-semibold">Version</th>
                 <th class="text-left px-5 py-3 font-semibold hidden sm:table-cell">Released</th>
+                <th class="text-left px-5 py-3 font-semibold">Downloads</th>
                 <th class="text-right px-5 py-3 font-semibold">Notes</th>
               </tr>
             </thead>
@@ -84,6 +94,22 @@ function fmtDate(iso?: string) {
                 <tr class="border-t border-[color:var(--color-border)]/60 align-top">
                   <td class="px-5 py-4 font-mono text-[color:var(--color-accent)] whitespace-nowrap">{r.tag}</td>
                   <td class="px-5 py-4 text-[color:var(--color-text-muted)] hidden sm:table-cell whitespace-nowrap">{fmtDate(r.publishedAt)}</td>
+                  <td class="px-5 py-4">
+                    {r.assets.length === 0 ? (
+                      <span class="text-[color:var(--color-text-muted)]">No downloads</span>
+                    ) : (
+                      <ul class="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                        {r.assets.map((a) => (
+                          <li>
+                            <a href={a.url} class="text-[color:var(--color-text-muted)] hover:text-ink whitespace-nowrap">
+                              <span class="font-mono">{a.osLabel} {a.arch} {a.kind === 'installer' ? 'installer' : 'archive'}</span>
+                              <span class="opacity-70"> ({a.sizeLabel})</span>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
                   <td class="px-5 py-4 text-right">
                     <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-ink">Notes ↗</a>
                   </td>

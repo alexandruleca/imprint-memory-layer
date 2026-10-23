@@ -40,55 +40,11 @@ const mermaidFences = {
   },
 };
 
-// Render those blocks as live diagrams on Starlight docs pages, in the
-// palette of the current theme; switching theme re-renders them.
+// Render those blocks as live diagrams on Starlight docs pages, in the current
+// theme's palette, each in a viewer with zoom, pan and full screen.
 /** @type {import('@astrojs/starlight/types').HeadConfig} */
 const mermaidHead = [
-  {
-    tag: 'style',
-    content:
-      `pre.mermaid{background:var(--sl-color-bg-sidebar);border:1px solid var(--sl-color-hairline);` +
-      `border-radius:.75rem;padding:1rem;margin:1rem 0;overflow-x:auto;text-align:center}` +
-      `pre.mermaid svg{max-width:100%;height:auto}`,
-  },
-  {
-    tag: 'script',
-    attrs: { type: 'module' },
-    content: `(async () => {
-  const blocks = [...document.querySelectorAll('pre.mermaid')];
-  if (!blocks.length) return;
-  const mermaid = (await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')).default;
-  const sources = blocks.map((b) => b.textContent);
-  const palettes = {
-    light: {
-      darkMode: false, background: '#fafafa', primaryColor: '#f4f4f5', primaryTextColor: '#171717',
-      primaryBorderColor: '#525252', lineColor: '#404040', secondaryColor: '#fafafa', tertiaryColor: '#f4f4f5',
-      noteBkgColor: '#ffffff', noteBorderColor: '#d4d4d4', noteTextColor: '#171717',
-    },
-    dark: {
-      darkMode: true, background: '#0d0d0d', primaryColor: '#1a1a1a', primaryTextColor: '#ededed',
-      primaryBorderColor: '#737373', lineColor: '#a3a3a3', secondaryColor: '#141414', tertiaryColor: '#111111',
-      noteBkgColor: '#1f1f1f', noteBorderColor: '#404040', noteTextColor: '#ededed',
-    },
-  };
-  let shown = '';
-  const render = async () => {
-    const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-    if (theme === shown) return;
-    shown = theme;
-    mermaid.initialize({
-      startOnLoad: false, theme: 'base', securityLevel: 'loose',
-      themeVariables: { ...palettes[theme], fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' },
-      flowchart: { htmlLabels: true, curve: 'basis' },
-      sequence: { actorMargin: 40 },
-    });
-    blocks.forEach((b, i) => { b.removeAttribute('data-processed'); b.textContent = sources[i]; });
-    await mermaid.run({ nodes: blocks });
-  };
-  await render();
-  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-})();`,
-  },
+  { tag: 'script', attrs: { type: 'module', src: '/scripts/mermaid.js' } },
 ];
 
 // Same faces as the landing pages; Starlight's theme already names them.
