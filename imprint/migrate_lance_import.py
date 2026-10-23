@@ -42,7 +42,7 @@ def main():
         nonlocal inserted, skipped
         if not batch:
             return
-        ins, sk = vs.store_batch(batch)
+        ins, sk = vs.store_batch(batch, imported=True)
         inserted += ins
         skipped += sk
         batch.clear()
