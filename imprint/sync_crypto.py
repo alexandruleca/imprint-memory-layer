@@ -14,14 +14,12 @@ altered, dropped, replayed or reordered fails to decrypt.
 from __future__ import annotations
 
 import base64
-import binascii
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from spake2 import SPAKE2_A, SPAKE2_B
-from spake2.spake2 import SPAKEError
 
 PROTOCOL = 2
 _LABEL = b"imprint-sync/2"
@@ -90,8 +88,8 @@ class KeyExchange:
             raise KeyExchangeError("missing key-exchange message")
         try:
             key = self._spake.finish(base64.b64decode(peer_message, validate=True))
-        except (SPAKEError, ValueError, binascii.Error) as e:
-            raise KeyExchangeError(f"malformed key-exchange message: {e}") from None
+        except Exception as e:  # decoding, side, group and curve checks all mean a bad message
+            raise KeyExchangeError(f"malformed key-exchange message ({type(e).__name__})") from None
         to_provider, to_consumer = _derive(key, b"consumer->provider"), _derive(key, b"provider->consumer")
         if self._role == "consumer":
             return Cipher(to_provider, to_consumer)

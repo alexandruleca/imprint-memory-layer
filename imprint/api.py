@@ -948,20 +948,30 @@ async def api_sync_import_upload(file: UploadFile = File(...)):
 
 # ── Sync: live relay sessions (SSE) ──────────────────────────
 
-@app.get("/api/sync/serve")
-async def api_sync_serve(workspace: str = "", direction: str = "both", relay: str = ""):
+@app.post("/api/sync/serve")
+async def api_sync_serve(request: Request):
     """SSE stream for provider (serve) mode. Connects to relay, yields events.
 
-    Serves an existing ``workspace`` (default: active, captured now) under
-    ``direction`` = ``both`` | ``send`` | ``receive`` through ``relay``
-    (default: the public relay).
+    Body (all optional): ``workspace`` (an existing one; default: active,
+    captured now), ``direction`` = ``both`` | ``send`` | ``receive`` and
+    ``relay`` (default: the public relay). A POST with a JSON body, so a
+    cross-site page cannot start a session.
     """
     from .sync_ws import SyncPolicy, parse_relay, serve_session, sync_workspace
 
     try:
-        policy = SyncPolicy.parse(direction)
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "JSON object body required"}, status_code=400)
+    try:
+        policy = SyncPolicy.parse(body.get("direction", "both"))
+        relay = body.get("relay") or ""
+        if not isinstance(relay, str):
+            raise ValueError("relay must be a string")
         endpoint = parse_relay(relay)
-        ws, exists = sync_workspace(workspace)
+        ws, exists = sync_workspace(body.get("workspace"))
         if not exists:
             raise ValueError(f"workspace {ws!r} does not exist")
     except ValueError as e:

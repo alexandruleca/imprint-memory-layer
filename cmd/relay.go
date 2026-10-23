@@ -24,6 +24,16 @@ var (
 	roomsMu sync.Mutex
 )
 
+const (
+	// Peers cap frames at 64 MiB (imprint/sync_ws.py MAX_FRAME_BYTES); this
+	// leaves room for framing and refuses anything larger.
+	relayMaxMessage = 80 << 20
+	// A peer that stops reading must not hold a forwarded frame forever.
+	relayWriteTimeout = 5 * time.Minute
+	// A room still waiting for its second peer after this long is closed.
+	relayUnpairedTTL = time.Hour
+)
+
 func Relay(args []string) {
 	port := 8430
 	for i, arg := range args {
@@ -35,23 +45,25 @@ func Relay(args []string) {
 		}
 	}
 
-	// Clean expired rooms
+	// Close rooms that never paired. Paired rooms live as long as their
+	// transfer: closing them would cut off a large sync mid-stream.
 	go func() {
 		for {
 			time.Sleep(5 * time.Minute)
 			roomsMu.Lock()
 			for id, room := range rooms {
-				if time.Since(room.created) > 1*time.Hour {
-					room.mu.Lock()
+				room.mu.Lock()
+				unpaired := room.provider == nil || room.consumer == nil
+				if unpaired && time.Since(room.created) > relayUnpairedTTL {
 					if room.provider != nil {
 						room.provider.Close(websocket.StatusGoingAway, "expired")
 					}
 					if room.consumer != nil {
 						room.consumer.Close(websocket.StatusGoingAway, "expired")
 					}
-					room.mu.Unlock()
 					delete(rooms, id)
 				}
+				room.mu.Unlock()
 			}
 			roomsMu.Unlock()
 		}
@@ -71,7 +83,7 @@ func Relay(args []string) {
 	fmt.Println()
 	output.Header("═══ Imprint Relay ═══")
 	fmt.Printf("  Listening on %s\n", addr)
-	fmt.Printf("  Rooms expire after 1 hour\n")
+	fmt.Printf("  Unpaired rooms expire after 1 hour\n")
 	fmt.Println()
 
 	server := &http.Server{Addr: addr, Handler: mux}
@@ -87,6 +99,10 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := r.URL.Query().Get("role")
+	if role != "provider" && role != "consumer" {
+		http.Error(w, "role must be provider or consumer", 400)
+		return
+	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -94,8 +110,8 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	// Disable 32 KiB default — sync payloads are MBs.
-	conn.SetReadLimit(-1)
+	// Above the 32 KiB default — sync batches are MBs — but bounded.
+	conn.SetReadLimit(relayMaxMessage)
 
 	roomsMu.Lock()
 	room, exists := rooms[id]
@@ -103,15 +119,23 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 		room = &relayRoom{created: time.Now()}
 		rooms[id] = room
 	}
-	roomsMu.Unlock()
-
 	room.mu.Lock()
+	slot := &room.consumer
 	if role == "provider" {
-		room.provider = conn
-	} else {
-		room.consumer = conn
+		slot = &room.provider
+	}
+	// A taken role is refused: a later connection must not replace the
+	// peer a session is already talking to.
+	taken := *slot != nil
+	if !taken {
+		*slot = conn
 	}
 	room.mu.Unlock()
+	roomsMu.Unlock()
+	if taken {
+		conn.Close(websocket.StatusPolicyViolation, "role already taken in this room")
+		return
+	}
 
 	// Forward messages from this conn to the peer
 	ctx := context.Background()
@@ -132,7 +156,10 @@ func relayHandler(w http.ResponseWriter, r *http.Request) {
 		if peer == nil {
 			continue
 		}
-		if err := peer.Write(ctx, msgType, data); err != nil {
+		writeCtx, cancel := context.WithTimeout(ctx, relayWriteTimeout)
+		err = peer.Write(writeCtx, msgType, data)
+		cancel()
+		if err != nil {
 			break
 		}
 	}

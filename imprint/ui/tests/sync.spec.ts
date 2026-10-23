@@ -12,10 +12,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('serve a chosen workspace send-only, with policy-aware approval and refusals', async ({ page }) => {
-  const queries: URLSearchParams[] = [];
-  await page.route('**/api/sync/serve?**', async route => {
-    queries.push(new URL(route.request().url()).searchParams);
-    await route.fulfill(stream(queries.length === 1 ? [
+  const bodies: Record<string, unknown>[] = [];
+  await page.route('**/api/sync/serve', async route => {
+    expect(route.request().method()).toBe('POST');
+    bodies.push(route.request().postDataJSON());
+    await route.fulfill(stream(bodies.length === 1 ? [
       { type: 'room', room_id: 'a1b2c3d4', target: 'wss://sync.example.com/a1b2c3d4', pin: 'Ab3xY9Kq', session_id: 's1', workspace: 'team', pull: true, push: false },
       { type: 'status', status: 'waiting' },
       { type: 'approval_required', hostname: 'colleague', os: 'linux', fingerprint: 'cafebabe', user: 'bob' },
@@ -37,9 +38,7 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
   await panel.getByRole('button', { name: 'Start Serving' }).click();
   await expect(panel.getByText('Send only — peers can pull, pushes are refused')).toBeVisible();
   await expect(panel.getByText('Anything it pushes is refused.')).toContainText('read workspace “team”');
-  expect(queries[0].get('workspace')).toBe('team');
-  expect(queries[0].get('direction')).toBe('send');
-  expect(queries[0].get('relay')).toBe('sync.example.com');
+  expect(bodies[0]).toEqual({ workspace: 'team', direction: 'send', relay: 'sync.example.com' });
 
   // A second session: the peer is trusted and an old client pushes anyway.
   await page.reload();
@@ -53,7 +52,7 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
 });
 
 test('a custom relay is shown as the full address to share', async ({ page }) => {
-  await page.route('**/api/sync/serve?**', route => route.fulfill(stream([
+  await page.route('**/api/sync/serve', route => route.fulfill(stream([
     { type: 'room', room_id: 'a1b2c3d4', target: 'wss://sync.example.com/a1b2c3d4', pin: 'Ab3xY9Kq', session_id: 's9', workspace: 'default', pull: true, push: true },
     { type: 'status', status: 'waiting' },
   ])));

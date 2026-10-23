@@ -51,13 +51,14 @@ sequenceDiagram
     Note over A,B: a request outside the grant gets 403 and ends the session<br/>a frame that fails authentication ends the session, nothing from it is stored
 ```
 
-The public relay at `wss://imprint.alexandruleca.com` is the default — pass `--relay` to use your own. Room IDs expire after 1 hour.
+The public relay at `wss://imprint.alexandruleca.com` is the default — pass `--relay` to use your own. The relay pairs one provider and one consumer per room and refuses a second connection for a taken role, caps messages at 80 MiB, and closes rooms still waiting for their second peer after 1 hour (a paired transfer runs as long as it needs).
 
 **What transfers** (from the selected workspace only):
 
 - Qdrant points — content, metadata **and the stored vector**, streamed in batches. Each record carries the sender's `embedding_identity`; the importer rejects a missing or mismatched identity before any upsert, so both machines need the same embedding profile (see [embedding profile compatibility](#embedding-profile-compatibility)). Imports dedup by the record's logical ID.
 - Knowledge graph facts (SQLite `facts` table) — streamed in batches, deduped by `(subject, predicate, object, valid_from)`.
 - **Not** transferred: other workspaces, the WAL, config, the trust list, workspace roots and purge exclusions.
+- Imported records are evidence, not authority: `imprint refresh-urls` (and the MCP refresh) re-fetch only URLs this device recorded, never URLs that arrived through sync.
 
 **Payload framing:** inside the sealed channel, data is newline-delimited JSON — `{"kind":"meta",...}`, `{"kind":"batch","dataset":"memories"|"facts","seq":N,"records":[...]}`, `{"kind":"done"}`, or `{"kind":"error","message":"..."}` when the sender cannot export. Batches hold 500 records; a frame may be up to 64 MiB.
 
@@ -70,9 +71,9 @@ The serving machine generates a one-time 8-character PIN per session. Both machi
 - HKDF-SHA256 derives a key per direction; every later frame is **AES-256-GCM** with the frame count as nonce, so a frame that is altered, dropped, replayed or reordered fails to open and the session stops. Nothing from a failed stream is stored.
 - A wrong PIN shows as *Wrong PIN from peer* on the serving side and *Handshake rejected: wrong PIN* on the joining side.
 
-**What the relay can see:** the room ID, the two key-exchange messages, the number, sizes and timing of ciphertext frames, and the machines' IP addresses. Not the PIN, hostnames, users, fingerprints, memories, vectors or facts. A relay can always refuse to forward (deny service). Run [your own relay](./docker.md) if metadata such as transfer size and timing matters to you.
+**What the relay can see:** the room ID, the two key-exchange messages, the number, sizes and timing of ciphertext frames, and the machines' IP addresses. Not the PIN, hostnames, users, fingerprints, memories, vectors or facts. A relay can always refuse to forward (deny service), and before the session is sealed it can send a plaintext notice that ends the handshake; notices are shown as fixed text, never as what the frame says. Text from the peer (device names, error messages) is stripped of control characters before it is shown. Run [your own relay](./docker.md) if metadata such as transfer size and timing matters to you.
 
-**Compatibility:** this is sync protocol 2. Versions before it sent the PIN and data in clear and are rejected on both sides — there is no unencrypted fallback a relay could force. An older joining machine gets *update Imprint on both machines: live sync is now end-to-end encrypted* (status 426); a newer joining machine tells you when the serving one is older. Update both machines.
+**Compatibility:** this is sync protocol 2. Versions before it sent the PIN and data in clear and are rejected on both sides — there is no unencrypted fallback a relay could force. An older joining machine gets *update Imprint on both machines: live sync is now end-to-end encrypted* (status 426); a newer joining machine tells you when the serving one is older. **Update both machines before syncing.** An older joining machine sends the PIN in clear before it can learn that the other side is newer, so a malicious relay could capture it and complete the session in its place — the protection holds only when both machines run protocol 2.
 
 ### Direction: two-way or one-way
 
@@ -94,11 +95,11 @@ Each machine states what **it** is willing to do. The default is two-way; `--sen
 `--workspace NAME` syncs that workspace without changing the active one. Without it, the session uses the active workspace, captured once at start so a later `imprint workspace switch` or dashboard switch cannot redirect it. The workspace is passed explicitly through export and import, and both front-ends show which one is being synced.
 
 - **Serving** requires an existing workspace.
-- **Joining** may name a new workspace as the destination for the peer's memories. It is registered (not switched to) just before the first pulled data is stored. A send-only join, or a plan that only pushes, needs an existing workspace to send from.
+- **Joining** may name a new workspace as the destination for the peer's memories. It is registered (not switched to) when the pull starts. A send-only join, or a plan that only pushes, needs an existing workspace to send from.
 
 ### Resuming an interrupted download
 
-The CLI writes a pulled stream to `data/sync-buffer.jsonl` (via a `.tmp` file renamed only once the stream is complete) and deletes it once stored. If storing fails, the download is kept, and the next `imprint sync … --workspace W` stores it locally without the peer — whose room has closed by then — and without a PIN. The buffer records its destination workspace; a run for a different workspace is refused until you finish it (`--workspace <that one>`) or discard it (`--fresh`). Buffers from versions before `--workspace` carry no workspace and resume into the active one. A `--send-only` join leaves the buffer untouched. The dashboard stores pulls from a temporary file instead.
+Every run downloads into an owner-only file of its own in the data directory and stores from it, so concurrent runs never share a download. If storing fails, the CLI keeps the download as `data/sync-buffer.jsonl`, and the next `imprint sync … --workspace W` stores it locally without the peer — whose room has closed by then — and without a PIN. Every line of the stream is validated (one header with vectors, batches, then `done`) and written re-serialised, so a malformed or hostile stream is rejected instead of kept. The buffer records its destination workspace; a run for a different workspace is refused until you finish it (`--workspace <that one>`) or discard it (`--fresh`). Buffers from versions before `--workspace` carry no workspace and resume into the active one. A `--send-only` join leaves the buffer untouched. The dashboard stores pulls from a temporary file instead.
 
 ### Share part of your memory
 

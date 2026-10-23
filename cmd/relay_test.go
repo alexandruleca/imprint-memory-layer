@@ -135,3 +135,56 @@ func TestRelayClosesPeerOnDisconnect(t *testing.T) {
 		t.Fatalf("consumer Read timed out — relay did not close peer (got ctx err %v)", ctx.Err())
 	}
 }
+
+func TestRelayRejectsUnknownRole(t *testing.T) {
+	base := newTestRelay(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, resp, err := websocket.Dial(ctx, fmt.Sprintf("%s/%s?role=observer", base, nextRoom(t)), nil)
+	if err == nil {
+		t.Fatal("dial with an unknown role succeeded")
+	}
+	if resp == nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %v", resp)
+	}
+}
+
+// TestRelayRefusesATakenRole: a second consumer must not replace the one a
+// session is already talking to.
+func TestRelayRefusesATakenRole(t *testing.T) {
+	base := newTestRelay(t)
+	room := nextRoom(t)
+	provider := dialRole(t, base, room, "provider")
+	first := dialRole(t, base, room, "consumer")
+	intruder := dialRole(t, base, room, "consumer")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, _, err := intruder.Read(ctx); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("intruder not refused: %v", err)
+	}
+	if err := provider.Write(ctx, websocket.MessageBinary, []byte("for the first consumer")); err != nil {
+		t.Fatalf("provider write: %v", err)
+	}
+	_, got, err := first.Read(ctx)
+	if err != nil || string(got) != "for the first consumer" {
+		t.Fatalf("first consumer lost its session: %q, %v", got, err)
+	}
+}
+
+// TestRelayClosesOversizedMessages bounds what one client can make the
+// relay buffer.
+func TestRelayClosesOversizedMessages(t *testing.T) {
+	base := newTestRelay(t)
+	room := nextRoom(t)
+	_ = dialRole(t, base, room, "consumer")
+	provider := dialRole(t, base, room, "provider")
+	provider.SetReadLimit(-1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = provider.Write(ctx, websocket.MessageBinary, make([]byte, relayMaxMessage+1))
+	if _, _, err := provider.Read(ctx); websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
+		t.Fatalf("oversized message not refused: %v", err)
+	}
+}

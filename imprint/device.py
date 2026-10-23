@@ -92,6 +92,14 @@ def provenance(record):
     return {key: record.get(key) for key in FIELDS}
 
 
+def recorded_here(record):
+    """Whether this device recorded the record. Imported records always carry
+    their origin (unknown when the sender had none); a record without one
+    predates provenance and was stored locally."""
+    origin = record.get('recorded_device')
+    return origin is None or _identity(origin)['id'] == current()['id']
+
+
 def local_source(record):
     return bool(record.get('source_path_local') and
                 _identity(record.get('source_device'))['id'] == current()['id'])

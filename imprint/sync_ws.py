@@ -52,7 +52,6 @@ from .sync_crypto import PROTOCOL, Cipher, FrameError, KeyExchange, KeyExchangeE
 
 DEFAULT_RELAY_HOST = "imprint.alexandruleca.com"
 DEFAULT_BATCH_SIZE = 500
-EMBED_CHUNK = 32
 PIN_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 # A batch of 500 memories with 1024-dim vectors is roughly 15 MB of JSON.
 MAX_FRAME_BYTES = 64 * 1024 * 1024
@@ -119,7 +118,9 @@ def _split_scheme(raw: str) -> tuple[str, str]:
 
 def _default_scheme(host: str) -> str:
     # Plain WebSocket only for a relay on this machine.
-    return "ws" if host.startswith(("localhost", "127.")) else "wss"
+    name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    local = name in ("localhost", "[::1]") or re.fullmatch(r"127(\.\d{1,3}){3}", name)
+    return "ws" if local else "wss"
 
 
 def _checked_host(host: str) -> str:
@@ -287,11 +288,12 @@ def load_trusted_devices() -> dict[str, dict]:
     return out
 
 
-def save_trusted_device(hello: dict) -> None:
-    """Append or refresh a device in the trust list."""
+def save_trusted_device(hello: dict) -> bool:
+    """Append or refresh a device in the trust list. Returns False when the
+    device has no fingerprint to remember."""
     fp = hello.get("fingerprint")
     if not fp:
-        return
+        return False
     data_dir = config.get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     existing = load_trusted_devices()
@@ -303,6 +305,7 @@ def save_trusted_device(hello: dict) -> None:
     (data_dir / "trusted_devices.json").write_text(
         json.dumps(list(existing.values()), indent=2)
     )
+    return True
 
 
 def submit_approval(session_id: str, decision: str) -> bool:
@@ -360,7 +363,7 @@ class _Channel:
     async def recv_line(self, timeout: float | None = None) -> str:
         frame = await asyncio.wait_for(self.ws.recv(), timeout)
         if isinstance(frame, str):
-            raise PeerNotice(_notice_text(frame))
+            raise PeerNotice(_notice(frame))
         return self.cipher.open(frame).decode()
 
     async def recv(self, timeout: float | None = None) -> dict:
@@ -371,7 +374,50 @@ class _Channel:
 
 
 def _connect(relay: Relay, room_id: str, role: str):
-    return ws_connect(relay.url(room_id, role), max_size=MAX_FRAME_BYTES)
+    # max_queue bounds what a fast sender can make this side buffer. A session
+    # that ends early leaves frames unread, so the close reply may never be
+    # read either: keep the close wait short.
+    return ws_connect(relay.url(room_id, role), max_size=MAX_FRAME_BYTES, max_queue=2, close_timeout=2)
+
+
+def _printable(value: object, limit: int = 200) -> str:
+    """Peer- and relay-supplied text made safe to show: no control or
+    escape characters, bounded length."""
+    return "".join(c if c.isprintable() else " " for c in str(value))[:limit]
+
+
+_DEVICE_ID = re.compile(r"[A-Za-z0-9_-]{8,128}")
+_HELLO_FIELDS = {"hostname": 128, "user": 64, "os": 32}
+
+
+def _peer_info(hello: dict) -> dict:
+    """The peer's identity from its sealed HELLO. Raises HandshakeError
+    when the fields are not what a peer sends."""
+    fingerprint = hello.get("fingerprint")
+    if not isinstance(fingerprint, str) or not _DEVICE_ID.fullmatch(fingerprint):
+        raise HandshakeError("Peer sent a malformed greeting")
+    info = {"fingerprint": fingerprint}
+    for key, limit in _HELLO_FIELDS.items():
+        value = hello.get(key, "")
+        if not isinstance(value, str):
+            raise HandshakeError("Peer sent a malformed greeting")
+        info[key] = _printable(value, limit)
+    return info
+
+
+# Notices are unauthenticated (anyone between the machines can send one), so
+# they are shown as fixed local text, never as what the frame says.
+_NOTICES = {
+    400: "the other machine could not read this machine's key exchange",
+    403: "wrong PIN",
+    426: OUTDATED,
+}
+
+
+def _notice(frame: object) -> str:
+    msg = _plain(frame)
+    status = msg.get("status") if msg else None
+    return _NOTICES.get(status, "the other machine ended the handshake")
 
 
 def _plain(frame: object) -> dict | None:
@@ -383,12 +429,6 @@ def _plain(frame: object) -> dict | None:
     except ValueError:
         return None
     return msg if isinstance(msg, dict) else None
-
-
-def _notice_text(frame: str) -> str:
-    msg = _plain(frame)
-    body = msg.get("body") if msg else None
-    return str(body if body else frame)[:200]
 
 
 async def _notify(ws, status: int, body: str) -> None:
@@ -423,7 +463,7 @@ async def _accept(ws, room_id: str, pin: str) -> tuple[_Channel, dict]:
         raise HandshakeError("Peer did not complete the handshake") from None
     if hello.get("method") != "HELLO":
         raise HandshakeError("Peer skipped the handshake")
-    return channel, hello
+    return channel, _peer_info(hello)
 
 
 async def _join(ws, room_id: str, pin: str, identity: dict) -> _Channel:
@@ -438,7 +478,7 @@ async def _join(ws, room_id: str, pin: str, identity: dict) -> _Channel:
     reply = _plain(frame)
     if reply is None or reply.get("method") != "PAKE":
         if reply is not None and reply.get("version") == PROTOCOL:
-            raise HandshakeError(f"Handshake rejected: {_notice_text(frame)}")
+            raise HandshakeError(f"Handshake rejected: {_notice(frame)}")
         raise HandshakeError("The other machine runs an older Imprint without encrypted sync; " + OUTDATED)
     try:
         cipher = exchange.finish(reply.get("msg"))
@@ -553,8 +593,9 @@ def process_import_buffer(
     ``workspace``.
 
     Returns stats dict: {memories: {inserted, skipped}, facts: {inserted, skipped}}.
-    ``on_progress`` is called after each stored chunk; an exception it raises
-    stops the import there.
+    ``on_progress`` is called after each stored batch; an exception it raises
+    stops the import there. Every memory must carry its vector (every
+    release that streams memories sends them); none is embedded here.
     """
     from . import vectorstore as vs
 
@@ -568,7 +609,6 @@ def process_import_buffer(
         "facts": {"inserted": 0, "skipped": 0},
     }
     totals: dict[str, int] = {"memories": 0, "facts": 0}
-    has_vectors = False
 
     def progress(dataset: str) -> None:
         if on_progress:
@@ -579,9 +619,10 @@ def process_import_buffer(
         if not records:
             return
         from .device import TRANSFER_FIELDS, prepare
-        use_precomputed = has_vectors and records[0].get("vector") is not None
         payloads = []
         for r in records:
+            if not isinstance(r.get("vector"), list):
+                raise ValueError("received a memory without its vector")
             p = {
                 "content": r.get("content", ""),
                 "project": r.get("project", ""),
@@ -590,20 +631,16 @@ def process_import_buffer(
                 "source": r.get("source", ""),
                 "chunk_index": r.get("chunk_index", 0),
                 "source_mtime": r.get("source_mtime", 0),
+                "vector": r["vector"],
+                "id": r.get("id"),
+                "embedding_identity": r.get("embedding_identity"),
             }
-            if use_precomputed:
-                p["vector"] = r["vector"]
-                p["id"] = r.get("id")
-                p["embedding_identity"] = r.get("embedding_identity")
             p.update({key: r[key] for key in TRANSFER_FIELDS if key in r})
             payloads.append(prepare(p, imported=True))
-        chunk = len(payloads) if use_precomputed else EMBED_CHUNK
-        store_fn = vs.store_batch_precomputed if use_precomputed else vs.store_batch
-        for i in range(0, len(payloads), chunk):
-            ins, sk = store_fn(payloads[i:i + chunk], workspace=workspace)
-            stats["memories"]["inserted"] += int(ins)
-            stats["memories"]["skipped"] += int(sk)
-            progress("memories")
+        ins, sk = vs.store_batch_precomputed(payloads, workspace=workspace)
+        stats["memories"]["inserted"] += int(ins)
+        stats["memories"]["skipped"] += int(sk)
+        progress("memories")
 
     def import_facts(records: list[dict]) -> None:
         if not records:
@@ -637,8 +674,6 @@ def process_import_buffer(
                 ds = msg.get("datasets") or {}
                 for k, v in ds.items():
                     totals[k] = int(v)
-                if msg.get("vectors"):
-                    has_vectors = True
                 continue
             if kind == "done":
                 break
@@ -694,15 +729,23 @@ async def _store(path: str, workspace: str, phase: str, cancel: asyncio.Event, r
 
 # ── Resumable downloads (CLI consumer) ────────────────────────────
 #
-# The CLI keeps a pulled stream on disk until it is stored, so an
-# interrupted import can finish later without the peer (whose room closes
-# once it has sent everything). One pending download at a time: the serving
-# side rotates its room ID per run, so keying by room would orphan files.
-# The first line records the destination workspace; files from releases
-# that predate --workspace have none and belong to the active workspace.
+# A pulled stream that fails to store is kept, so the import can finish
+# later without the peer (whose room closes once it has sent everything).
+# One pending download at a time: the serving side rotates its room ID per
+# run, so keying by room would orphan files. The first line records the
+# destination workspace; files from releases that predate --workspace have
+# none and belong to the active workspace.
 
 def pending_buffer_path() -> Path:
     return config.get_data_dir() / "sync-buffer.jsonl"
+
+
+def _temp_buffer() -> tuple[int, str]:
+    """An owner-only scratch file for one stream, in the data directory
+    rather than a shared temp directory."""
+    directory = config.get_data_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    return tempfile.mkstemp(prefix="sync-", suffix=".jsonl.tmp", dir=directory)
 
 
 @dataclass(frozen=True)
@@ -722,16 +765,19 @@ def pending_download(path: Path) -> PendingDownload | None:
         with open(path) as f:
             first = json.loads(f.readline())
             meta = json.loads(f.readline()) if first.get("kind") == "buffer" else first
+        if meta.get("kind") != "meta":
+            raise ValueError("it does not start with a stream header")
+        workspace = first.get("workspace") if first.get("kind") == "buffer" else None
+        if workspace is not None and config.validate_workspace_name(workspace):
+            raise ValueError("it names an invalid workspace")
+        datasets = meta.get("datasets") or {}
+        memories, facts = int(datasets.get("memories", 0)), int(datasets.get("facts", 0))
     except FileNotFoundError:
         return None
-    except (OSError, ValueError, AttributeError) as e:
-        raise ValueError(f"unreadable sync buffer {path}: {e}; discard it with --fresh") from e
-    if meta.get("kind") != "meta":
-        raise ValueError(f"sync buffer {path} does not start with a stream header; discard it with --fresh")
-    workspace = first.get("workspace") if first.get("kind") == "buffer" else None
-    datasets = meta.get("datasets") or {}
-    return PendingDownload(path, workspace or config.get_active_workspace(), int(datasets.get("memories", 0)),
-                           int(datasets.get("facts", 0)), stat.st_size, stat.st_mtime)
+    except Exception as e:
+        raise ValueError(f"unreadable sync buffer {path} ({e}); discard it with --fresh") from None
+    return PendingDownload(path, workspace or config.get_active_workspace(), memories, facts,
+                           stat.st_size, stat.st_mtime)
 
 
 def discard_pending(path: Path) -> list[Path]:
@@ -776,8 +822,8 @@ async def _send_export(channel: _Channel, workspace: str, phase: str, cancel: as
     """Stream this workspace to the peer, yielding ``progress`` events."""
     try:
         lines = await asyncio.to_thread(stream_export_lines, workspace)
-    except Exception as e:
-        await channel.send({"kind": "error", "message": f"the other machine could not export: {e}"})
+    except Exception:
+        await channel.send({"kind": "error", "message": "the other machine could not export its memories"})
         raise
     totals: dict[str, int] = {}
     sent: dict[str, int] = {}
@@ -802,22 +848,42 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
     received: dict[str, int] = {}
     while True:
         _check_cancel(cancel)
-        line = await channel.recv_line()
-        msg = json.loads(line)
-        kind = msg.get("kind") if isinstance(msg, dict) else None
+        msg = await channel.recv()
+        kind = msg.get("kind")
         if kind == "error":
-            raise RuntimeError(msg.get("message", "peer export error"))
-        if kind not in ("meta", "batch", "done"):
-            raise RuntimeError(str(msg.get("body") if isinstance(msg, dict) and msg.get("body") else "unexpected frame in data stream"))
-        out.write(line + "\n")
+            raise RuntimeError(_printable(msg.get("message", "peer export error")))
+        if not _stream_line_ok(msg, bool(totals)):
+            raise RuntimeError(_printable(msg.get("body") or "unexpected frame in data stream"))
+        # Re-serialised, so the buffer holds exactly one JSON value per line.
+        out.write(json.dumps(msg, separators=(",", ":")) + "\n")
         if kind == "meta":
-            totals = msg.get("datasets", {})
+            totals = msg["datasets"]
         elif kind == "batch":
-            ds = msg.get("dataset", "")
-            received[ds] = received.get(ds, 0) + len(msg.get("records", []))
+            ds = msg["dataset"]
+            received[ds] = received.get(ds, 0) + len(msg["records"])
             yield {"type": "progress", "phase": phase, "dataset": ds, "done": received[ds], "total": totals.get(ds, 0)}
         elif kind == "done":
             return
+
+
+def _stream_line_ok(msg: dict, after_meta: bool) -> bool:
+    """A data stream is one meta line (with vectors), batches of records,
+    then done."""
+    kind = msg.get("kind")
+    if kind == "meta":
+        datasets = msg.get("datasets")
+        return (not after_meta and msg.get("vectors") is True and isinstance(datasets, dict)
+                and all(k in ("memories", "facts") and type(v) is int and v >= 0 for k, v in datasets.items()))
+    if not after_meta:
+        return False
+    if kind == "batch":
+        records = msg.get("records")
+        if msg.get("dataset") not in ("memories", "facts") or not isinstance(records, list):
+            return False
+        if not all(isinstance(r, dict) for r in records):
+            return False
+        return msg["dataset"] == "facts" or all(isinstance(r.get("vector"), list) for r in records)
+    return kind == "done"
 
 
 async def serve_session(
@@ -846,23 +912,17 @@ async def serve_session(
             yield {"type": "status", "status": "waiting"}
 
             try:
-                channel, hello = await _accept(ws, room_id, pin)
+                channel, peer_info = await _accept(ws, room_id, pin)
             except HandshakeError as e:
                 yield {"type": "error", "message": str(e)}
                 return
             _check_cancel(cancel)
 
             # Fingerprint trust check. Auto-accept previously-trusted devices.
-            fp = hello.get("fingerprint", "")
+            fp = peer_info["fingerprint"]
             trusted = load_trusted_devices()
-            peer_info = {
-                "hostname": hello.get("hostname", ""),
-                "os": hello.get("os", ""),
-                "fingerprint": fp,
-                "user": hello.get("user", ""),
-            }
 
-            if fp and fp in trusted:
+            if fp in trusted:
                 yield {"type": "auto_accepted", **peer_info}
             else:
                 # Ask the front-end (TTY via CLI, UI via /api/sync/approve)
@@ -895,8 +955,8 @@ async def serve_session(
                     return
                 if decision == "trust":
                     try:
-                        save_trusted_device(hello)
-                        yield {"type": "trusted", **peer_info}
+                        if save_trusted_device(peer_info):
+                            yield {"type": "trusted", **peer_info}
                     except Exception as exc:
                         yield {"type": "warning", "message": f"Could not persist trust: {exc}"}
 
@@ -904,7 +964,8 @@ async def serve_session(
             await channel.send({"status": 200, "body": policy.grant()})
             yield {"type": "peer_connected", **peer_info}
 
-            # Request loop
+            # Request loop: each phase at most once per session.
+            served: set[str] = set()
             while True:
                 _check_cancel(cancel)
                 try:
@@ -917,6 +978,11 @@ async def serve_session(
 
                 _check_cancel(cancel)
                 path = req.get("path", "")
+                if path in served:
+                    await channel.send({"status": 409, "body": "each phase runs once per session"})
+                    yield {"type": "error", "message": "Peer repeated a request; session ended"}
+                    return
+                served.add(path)
 
                 if path == "/sync/pull":
                     if not policy.send:
@@ -934,7 +1000,7 @@ async def serve_session(
                         yield {"type": "refused", "request": "push", "message": REFUSED_PUSH}
                         break
                     yield {"type": "status", "status": "receiving"}
-                    fd, tmp_path = tempfile.mkstemp(prefix="imprint-sync-", suffix=".jsonl")
+                    fd, tmp_path = _temp_buffer()
                     try:
                         try:
                             with os.fdopen(fd, "w") as out:
@@ -952,7 +1018,7 @@ async def serve_session(
                         except asyncio.CancelledError:
                             raise
                         except Exception as e:
-                            await channel.send({"status": 500, "body": f"import failed: {e}"})
+                            await channel.send({"status": 500, "body": "the other machine could not store the push"})
                             yield {"type": "error", "message": f"Storing failed: {e}"}
                             return
 
@@ -996,12 +1062,12 @@ async def receive_session(
     session on ``workspace``.
 
     Runs only the phases in the plan: the provider's grant intersected with
-    ``policy``. A workspace that does not exist yet is registered just
-    before the first pulled record is stored.
+    ``policy``. A workspace that does not exist yet is registered when the
+    pull starts.
 
-    ``buffer`` keeps the pulled stream at that path until it is stored, so
-    a failed import can be resumed (:func:`resume_session`); without it the
-    stream goes to a temporary file.
+    ``buffer``: where a pulled stream that failed to store is kept, so the
+    import can be resumed (:func:`resume_session`); without it a failed
+    download is discarded.
     """
     sid = _session_id()
     cancel = asyncio.Event()
@@ -1029,7 +1095,7 @@ async def receive_session(
                 yield {"type": "error", "message": f"Handshake rejected: {notice}"}
                 return
             if resp.get("status") != 200:
-                body = resp.get("body", "rejected")
+                body = _printable(resp.get("body") or "rejected")
                 yield {"type": "error", "message": f"Handshake rejected: {body}"}
                 return
 
@@ -1057,49 +1123,37 @@ async def receive_session(
                 yield {"type": "status", "status": "pulling"}
                 await channel.send({"method": "GET", "path": "/sync/pull"})
 
-                if buffer is None:
-                    fd, path = tempfile.mkstemp(prefix="imprint-sync-", suffix=".jsonl")
-                    partial = path
-                    out = os.fdopen(fd, "w")
-                else:
-                    path, partial = str(buffer), str(buffer) + ".tmp"
-                    buffer.parent.mkdir(parents=True, exist_ok=True)
-                    out = open(partial, "w")
+                # Each run downloads into a file of its own, so concurrent
+                # runs never share one; it is published as the resumable
+                # download only if storing it fails.
+                fd, path = _temp_buffer()
                 try:
-                    with out:
+                    with os.fdopen(fd, "w") as out:
                         out.write(json.dumps({"kind": "buffer", "workspace": workspace}) + "\n")
                         async for event in _receive_stream(channel, out, "pull", cancel):
                             yield event
-                    if partial != path:
-                        # Only a complete stream ever sits at the resumable path.
-                        os.replace(partial, path)
-                except BaseException as e:
+                    yield {"type": "status", "status": "storing"}
+                    result: dict = {}
                     try:
-                        os.unlink(partial)
-                    except OSError:
-                        pass
-                    if isinstance(e, RuntimeError):
-                        yield {"type": "error", "message": f"Pull failed: {e}"}
+                        async for event in _store(path, workspace, "store", cancel, result):
+                            yield event
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        if buffer is None:
+                            yield {"type": "error", "message": f"Storing failed: {e}"}
+                        else:
+                            os.replace(path, buffer)
+                            yield {"type": "error", "message": f"Storing failed: {e}; the download is kept for the next run"}
                         return
-                    raise
-
-                yield {"type": "status", "status": "storing"}
-                result: dict = {}
-                try:
-                    async for event in _store(path, workspace, "store", cancel, result):
-                        yield event
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    kept = "; the download is kept for the next run" if buffer is not None else ""
-                    yield {"type": "error", "message": f"Storing failed: {e}{kept}"}
+                except RuntimeError as e:
+                    yield {"type": "error", "message": f"Pull failed: {e}"}
                     return
                 finally:
-                    if buffer is None or "stats" in result:
-                        try:
-                            os.unlink(path)
-                        except OSError:
-                            pass
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
                 pull_stats = result["stats"]
                 yield {"type": "pull_complete", "stats": pull_stats}
 
@@ -1121,7 +1175,7 @@ async def receive_session(
                         push_stats = body
                         yield {"type": "push_complete", "stats": push_stats}
                     else:
-                        yield {"type": "warning", "message": f"Push not stored by provider (status {ack.get('status')}): {body}"}
+                        yield {"type": "warning", "message": f"Push not stored by provider (status {_printable(ack.get('status'), 8)}): {_printable(body)}"}
 
         yield {"type": "done", "pull_stats": pull_stats, "push_stats": push_stats}
 

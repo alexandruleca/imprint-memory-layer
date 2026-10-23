@@ -839,17 +839,19 @@ def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:
 def get_url_sources(workspace: str | None = None) -> dict[str, dict]:
     """Return {source_url: {etag, last_modified, source, project}} for URL refresh.
 
-    Only includes records with source_type == "url". Deduplicates on
-    source_url (picks first hit per URL — all chunks of one URL share
-    the same etag/last_modified).
+    Only includes records with source_type == "url" that this device
+    recorded: an imported record (from sync) is evidence, not authority to
+    fetch on this machine. Deduplicates on source_url (picks first hit per
+    URL — all chunks of one URL share the same etag/last_modified).
     """
+    from .device import recorded_here
     out: dict[str, dict] = {}
     try:
         for pl in _scroll_all(
-            ["source", "source_url", "source_type", "etag", "last_modified", "project"],
+            ["source", "source_url", "source_type", "etag", "last_modified", "project", "recorded_device"],
             workspace=workspace,
         ):
-            if pl.get("source_type") != "url":
+            if pl.get("source_type") != "url" or not recorded_here(pl):
                 continue
             url = pl.get("source_url") or pl.get("source")
             if not url or url in out:

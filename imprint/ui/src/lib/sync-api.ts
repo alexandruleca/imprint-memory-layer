@@ -87,9 +87,10 @@ export function streamSyncServe(
   onEvent: (ev: SyncEvent) => void,
 ): AbortController {
   const ctrl = new AbortController();
-  const query = new URLSearchParams({ workspace: options.workspace, direction: options.direction });
-  if (options.relay) query.set("relay", options.relay);
-  fetch(`${API_BASE}/api/sync/serve?${query}`, {
+  fetch(`${API_BASE}/api/sync/serve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace: options.workspace, direction: options.direction, relay: options.relay || "" }),
     signal: ctrl.signal,
   }).then(async (res) => {
     if (!res.ok) {

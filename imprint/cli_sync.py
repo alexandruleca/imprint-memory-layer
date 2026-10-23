@@ -412,41 +412,47 @@ async def _join(args) -> int:
             return kind in ("session", "status")
         return True
 
-    # A completed download that failed to store is finished locally first:
-    # the peer's room is gone by now. It holds a pull, so --send-only keeps it.
-    buffer = sync_ws.pending_buffer_path()
-    if policy.receive:
-        if args.fresh:
-            removed = sync_ws.discard_pending(buffer)
-            _info("--fresh: " + (f"cleared {', '.join(map(str, removed))}" if removed
-                                 else "no buffer to clear, will download fresh"))
-        else:
-            try:
-                pending = sync_ws.pending_download(buffer)
-            except ValueError as e:
-                _fail(str(e))
-                return 1
-            if pending is not None:
-                if pending.workspace != workspace:
-                    _fail(f"An unfinished download into workspace {pending.workspace!r} is waiting to be stored. "
-                          f"Finish it with --workspace {pending.workspace}, or discard it with --fresh.")
-                    return 1
-                _info(f"Found local buffer: {pending.memories} memories, {pending.facts} facts "
-                      f"(downloaded {_duration(time.time() - pending.modified)} ago, {_size(pending.size)})")
-                _info("Resuming local processing — peer not needed (run with --fresh to redownload)")
-                code = await _render(sync_ws.resume_session(pending), on_event)
-                if code == 0:
-                    _info("To push local changes back to a peer, run `imprint sync <id> --pin <pin>` again "
-                          "when a peer is serving.")
-                return code
+    if not policy.receive:
+        return await _connect_and_sync(args, relay, room_id, workspace, policy, None, on_event)
+    return await _receive(args, relay, room_id, workspace, policy, on_event)
 
+
+async def _receive(args, relay, room_id, workspace, policy, on_event) -> int:
+    """A joining run that may import. A completed download that failed to
+    store is finished locally first: the peer's room is gone by now."""
+    buffer = sync_ws.pending_buffer_path()
+    if args.fresh:
+        removed = sync_ws.discard_pending(buffer)
+        _info("--fresh: " + (f"cleared {', '.join(map(str, removed))}" if removed
+                             else "no buffer to clear, will download fresh"))
+        return await _connect_and_sync(args, relay, room_id, workspace, policy, buffer, on_event)
+    try:
+        pending = sync_ws.pending_download(buffer)
+    except ValueError as e:
+        _fail(str(e))
+        return 1
+    if pending is None:
+        return await _connect_and_sync(args, relay, room_id, workspace, policy, buffer, on_event)
+    if pending.workspace != workspace:
+        _fail(f"An unfinished download into workspace {pending.workspace!r} is waiting to be stored. "
+              f"Finish it with --workspace {pending.workspace}, or discard it with --fresh.")
+        return 1
+    _info(f"Found local buffer: {pending.memories} memories, {pending.facts} facts "
+          f"(downloaded {_duration(time.time() - pending.modified)} ago, {_size(pending.size)})")
+    _info("Resuming local processing — peer not needed (run with --fresh to redownload)")
+    code = await _render(sync_ws.resume_session(pending), on_event)
+    if code == 0:
+        _info("To push local changes back to a peer, run `imprint sync <id> --pin <pin>` again "
+              "when a peer is serving.")
+    return code
+
+
+async def _connect_and_sync(args, relay, room_id, workspace, policy, buffer, on_event) -> int:
     if not args.pin:
         _fail("--pin <pin> is required for a fresh sync (shown on the provider machine)")
         return 1
     _info(f"Connecting to {relay}/{room_id}...")
-    session = sync_ws.receive_session(relay, room_id, args.pin, workspace, policy,
-                                      buffer if policy.receive else None)
-    return await _render(session, on_event)
+    return await _render(sync_ws.receive_session(relay, room_id, args.pin, workspace, policy, buffer), on_event)
 
 
 def _policy(args) -> "sync_ws.SyncPolicy":

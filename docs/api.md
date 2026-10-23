@@ -157,7 +157,7 @@ dedup/replace by `name`, and avoids a trip through the job queue. See
 | POST | `/api/sync/import` | Restore from a server-side bundle path. |
 | GET | `/api/sync/export/download` | Stream a zipped snapshot to the browser. |
 | POST | `/api/sync/import/upload` | Multipart upload of a zip bundle. |
-| GET | `/api/sync/serve` | SSE stream: serve one workspace for live sync. Query (optional): `workspace` (an existing workspace; default: active, captured at start), `direction` = `both` \| `send` \| `receive` (default `both`) and `relay` (host, default: the public relay). Invalid values return 400. |
+| POST | `/api/sync/serve` | SSE stream: serve one workspace for live sync. JSON body (all optional): `workspace` (an existing workspace; default: active, captured at start), `direction` = `both` \| `send` \| `receive` (default `both`) and `relay` (host, default: the public relay). Invalid values return 400. A POST with a JSON body so a cross-site page cannot start a session. |
 | POST | `/api/sync/receive` | SSE stream: join a served room. Body: `{"room_id", "pin"}` — `room_id` takes what the serving side shows: `<room>`, `<host>/<room>` or `wss://<host>/<room>` — plus optional `workspace` (default: active; a new name is created when data arrives) and `direction`. A send-only receive needs an existing workspace. |
 | POST | `/api/sync/cancel` | Cancel an active peer-sync session by `session_id`. |
 | POST | `/api/sync/approve` | Resolve the provider-side `[y/n/t]` prompt. Body: `{"session_id": "...", "decision": "accept" \| "trust" \| "reject"}`. |

@@ -5,6 +5,7 @@ what an untrusted relay sees, and can alter, drop or replay frames.
 """
 import argparse
 import asyncio
+import base64
 import contextlib
 import io
 import json
@@ -211,9 +212,130 @@ class LiveSyncTests(unittest.TestCase):
         notice = json.dumps({'status': 200, 'body': {'pull': True, 'push': True}})
         _, consumer, _ = self.sync(alter=lambda role, index, frame:
                                    notice if (role, index) == ('provider', 1) else frame)
-        self.assertEqual(consumer[-1]['message'], f"Handshake rejected: {{'pull': True, 'push': True}}")
+        self.assertEqual(consumer[-1]['message'], 'Handshake rejected: the other machine ended the handshake')
         self.importer.assert_not_called()
         self.export.assert_not_called()
+
+    def test_relay_text_is_never_echoed(self):
+        # A relay forging a notice gets fixed local text, never its own bytes on the terminal.
+        hostile = json.dumps({'status': 403, 'body': '\x1b]52;c;Y3VybCB8IHNo\x07\x1b[1A', 'version': 2})
+        _, consumer, _ = self.sync(alter=lambda role, index, frame:
+                                   hostile if (role, index) == ('provider', 0) else frame)
+        self.assertEqual(consumer[-1], {'type': 'error', 'message': 'Handshake rejected: wrong PIN'})
+
+    # ── Hostile peers that know the PIN ───────────────────────────
+
+    @staticmethod
+    def raw_consumer(hello, *requests):
+        """A protocol-2 consumer driven by hand: key exchange, the given HELLO,
+        then each request. Returns the provider's replies."""
+        async def side(endpoint, room):
+            replies = []
+            async with connect(endpoint.url(room['room_id'], 'consumer')) as ws:
+                exchange = KeyExchange('consumer', room['pin'], room['room_id'])
+                await ws.send(json.dumps({'method': 'PAKE', 'version': 2, 'msg': exchange.message}))
+                cipher = exchange.finish(json.loads(await ws.recv())['msg'])
+                await ws.send(cipher.seal(json.dumps(hello).encode()))
+                try:
+                    replies.append(json.loads(cipher.open(await ws.recv())))
+                    for request in requests:
+                        await ws.send(cipher.seal(json.dumps(request).encode()))
+                        while True:
+                            reply = json.loads(cipher.open(await ws.recv()))
+                            replies.append(reply)
+                            if 'status' in reply or reply.get('kind') == 'done':
+                                break
+                except websockets.exceptions.ConnectionClosed:
+                    pass
+            return replies
+        return side
+
+    def test_peer_identity_is_validated_and_sanitised(self):
+        hello = {'method': 'HELLO', 'hostname': 'evil\x1b]52;c;abc\x07' + 'x' * 500, 'user': 'u', 'os': 'linux',
+                 'fingerprint': 'deadbeef'}
+        provider, _, _ = self.sync(consumer_side=self.raw_consumer(hello))
+        asked = next(event for event in provider if event['type'] == 'approval_required')
+        self.assertNotIn('\x1b', asked['hostname'])
+        self.assertLessEqual(len(asked['hostname']), 128)
+        for bad in ({'fingerprint': ['x']}, {'fingerprint': 'short'}, {'fingerprint': 'deadbeef', 'user': 7}):
+            provider, _, _ = self.sync(consumer_side=self.raw_consumer({'method': 'HELLO', **bad}))
+            self.assertEqual(provider[-1], {'type': 'error', 'message': 'Peer sent a malformed greeting'}, bad)
+            self.assertNotIn('approval_required', self.kinds(provider))
+
+    def test_each_phase_runs_once_per_session(self):
+        hello = {'method': 'HELLO', 'hostname': 'h', 'user': 'u', 'os': 'linux', 'fingerprint': 'deadbeef'}
+        pull = {'method': 'GET', 'path': '/sync/pull'}
+        provider, replies, _ = self.sync(consumer_side=self.raw_consumer(hello, pull, pull))
+        self.assertEqual(replies[-1]['status'], 409)
+        self.assertEqual(provider[-1], {'type': 'error', 'message': 'Peer repeated a request; session ended'})
+        self.export.assert_called_once_with('team')
+
+    def test_memories_without_vectors_are_refused(self):
+        self.export.return_value = [EXPORT[0], json.dumps({'kind': 'batch', 'dataset': 'memories', 'seq': 1,
+                                                           'records': [{'content': 'no vector'}]}), EXPORT[2]]
+        _, consumer, _ = self.sync(provider=SEND)
+        self.assertEqual(consumer[-1], {'type': 'error', 'message': 'Pull failed: unexpected frame in data stream'})
+        self.importer.assert_not_called()
+
+    def test_malformed_stream_header_leaves_no_buffer(self):
+        buffer = sync_ws.pending_buffer_path()
+        self.export.return_value = [json.dumps({'kind': 'meta', 'datasets': {'memories': [1]}, 'vectors': True}),
+                                    EXPORT[2]]
+        _, consumer, _ = self.sync(provider=SEND, buffer=buffer)
+        self.assertEqual(consumer[-1]['message'], 'Pull failed: unexpected frame in data stream')
+        self.assertIsNone(sync_ws.pending_download(buffer))
+        self.importer.assert_not_called()
+
+    def test_unreadable_buffer_asks_for_fresh_instead_of_crashing(self):
+        buffer = sync_ws.pending_buffer_path()
+        buffer.write_text(json.dumps({'kind': 'meta', 'datasets': {'memories': [1]}}) + '\n')
+        with self.assertRaisesRegex(ValueError, '--fresh'):
+            sync_ws.pending_download(buffer)
+
+    def test_concurrent_receiving_runs_never_share_a_download(self):
+        config.register_workspace('other')
+
+        def export(workspace):
+            batch = {'kind': 'batch', 'dataset': 'memories', 'seq': 1,
+                     'records': [{'content': f'FROM-{workspace}-' + 'x' * 200_000, 'vector': [0.5]}] * 3}
+            return [EXPORT[0], json.dumps(batch), EXPORT[2]]
+
+        self.export.side_effect = export
+        relay, buffer = Relay(), sync_ws.pending_buffer_path()
+
+        async def pair(endpoint, served, destination):
+            ready = asyncio.get_running_loop().create_future()
+
+            async def provide():
+                room = {}
+                async for event in sync_ws.serve_session(served, SEND, endpoint):
+                    if event['type'] == 'room':
+                        room = event
+                    elif event.get('status') == 'waiting':
+                        ready.set_result(room)
+                    elif event['type'] == 'approval_required':
+                        sync_ws.submit_approval(room['session_id'], 'accept')
+
+            task = asyncio.create_task(provide())
+            room = await ready
+            events = [e async for e in sync_ws.receive_session(endpoint, room['room_id'], room['pin'], destination,
+                                                               RECEIVE, buffer)]
+            await task
+            return events
+
+        async def run():
+            async with serve(relay.handler, '127.0.0.1', 0) as server:
+                endpoint = sync_ws.Relay('ws', f"127.0.0.1:{server.sockets[0].getsockname()[1]}")
+                return await asyncio.gather(pair(endpoint, 'team', 'dsta'), pair(endpoint, 'other', 'dstb'))
+
+        for events in asyncio.run(run()):
+            self.assertEqual(events[-1]['type'], 'done', events[-1])
+        imported = dict(self.received)
+        self.assertIn('FROM-team', imported['dsta'])
+        self.assertNotIn('FROM-other', imported['dsta'])
+        self.assertIn('FROM-other', imported['dstb'])
+        self.assertNotIn('FROM-team', imported['dstb'])
+        self.assertEqual(list(self.data.glob('sync-*.jsonl.tmp')), [])
 
     # ── Older peers ───────────────────────────────────────────────
 
@@ -301,6 +423,7 @@ class LiveSyncTests(unittest.TestCase):
         self.assertIn('kept for the next run', consumer[-1]['message'])
         pending = sync_ws.pending_download(buffer)
         self.assertEqual((pending.workspace, pending.memories, pending.facts), ('team', 1, 0))
+        self.assertEqual(buffer.stat().st_mode & 0o777, 0o600)
 
         self.importer.side_effect = lambda path, workspace, on_progress=None: STATS
         events = asyncio.run(self.collect(sync_ws.resume_session(pending)))
@@ -311,7 +434,7 @@ class LiveSyncTests(unittest.TestCase):
         buffer = sync_ws.pending_buffer_path()
         self.sync(provider=SEND, buffer=buffer)
         self.assertIsNone(sync_ws.pending_download(buffer))
-        self.assertFalse(Path(str(buffer) + '.tmp').exists())
+        self.assertEqual(list(self.data.glob('sync-*.jsonl.tmp')), [])
 
     def test_buffer_from_a_release_without_workspaces_belongs_to_the_active_one(self):
         buffer = sync_ws.pending_buffer_path()
@@ -390,6 +513,9 @@ class RelayAddressTests(unittest.TestCase):
             'ws://sync.example.com:8430': ('ws', 'sync.example.com:8430'),
             'localhost:8430': ('ws', 'localhost:8430'),
             '127.0.0.1:8430': ('ws', '127.0.0.1:8430'),
+            '[::1]': ('ws', '[::1]'),
+            'localhost.evil.com:8430': ('wss', 'localhost.evil.com:8430'),
+            '127.0.0.1.evil.com': ('wss', '127.0.0.1.evil.com'),
         }
         for raw, expected in cases.items():
             relay = sync_ws.parse_relay(raw)
@@ -440,7 +566,8 @@ class KeyExchangeTests(unittest.TestCase):
 
     def test_malformed_messages_are_rejected(self):
         from imprint.sync_crypto import KeyExchangeError
-        for message in (None, '', '!!', KeyExchange('provider', 'pin', 'r').message):
+        off_curve = base64.b64encode(b'A' + b'\xff' * 32).decode()
+        for message in (None, '', '!!', off_curve, KeyExchange('provider', 'pin', 'r').message):
             with self.assertRaises(KeyExchangeError):
                 KeyExchange('provider', 'pin', 'r').finish(message)
 

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -113,15 +114,37 @@ class WorkspaceSyncStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'does not exist'):
             cli_migrate.migrate('nowhere', 'curated', project='shared')
 
+    def test_synced_url_records_do_not_drive_local_refresh(self):
+        self.prepare()
+        local = {'content': 'local page', 'project': 'web', 'source': 'https://docs.example.com/a',
+                 'source_type': 'url', 'source_url': 'https://docs.example.com/a', 'chunk_index': 0}
+        vs.store_batch([local])
+        lines = [json.dumps({'kind': 'meta', 'datasets': {'memories': 1, 'facts': 0}, 'vectors': True}),
+                 json.dumps({'kind': 'batch', 'dataset': 'memories', 'seq': 1, 'records': [{
+                     'content': 'planted', 'project': 'web', 'source': 'http://169.254.169.254/latest/meta-data/',
+                     'source_type': 'url', 'source_url': 'http://169.254.169.254/latest/meta-data/',
+                     'vector': [1., 0., 0.], 'embedding_identity': config.embedding_identity(),
+                     'recorded_device': {'id': 'attacker1', 'name': 'x', 'os': 'linux'}}]}),
+                 json.dumps({'kind': 'done'})]
+        with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as buffer:
+            buffer.write('\n'.join(lines) + '\n')
+        self.addCleanup(os.unlink, buffer.name)
+        self.assertEqual(sync_ws.process_import_buffer(buffer.name, 'default')['memories']['inserted'], 1)
+        self.assertEqual(list(vs.get_url_sources()), ['https://docs.example.com/a'])
+
     def test_http_sync_endpoints_validate_workspace_and_direction(self):
         from imprint.api import app
         self.prepare()
 
         async def requests():
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8420') as client:
-                for query in ('direction=sideways', 'workspace=missing', 'workspace=Bad_Name', 'relay=bad%20host'):
-                    response = await client.get(f'/api/sync/serve?{query}')
-                    self.assertEqual(response.status_code, 400, query)
+                for body in ({'direction': 'sideways'}, {'workspace': 'missing'}, {'workspace': 'Bad_Name'},
+                             {'relay': 'bad host'}, {'relay': 7}, ['not', 'an', 'object']):
+                    response = await client.post('/api/sync/serve', json=body)
+                    self.assertEqual(response.status_code, 400, body)
+                # A cross-site page could fire a GET; the endpoint does not take one.
+                response = await client.get('/api/sync/serve?workspace=default')
+                self.assertEqual(response.status_code, 405)
                 body = {'room_id': 'room', 'pin': 'PIN'}
                 for extra in ({'direction': 'up'}, {'workspace': 7}, {'workspace': 'missing', 'direction': 'send'},
                               {'room_id': 'host/room?x=1'}):
