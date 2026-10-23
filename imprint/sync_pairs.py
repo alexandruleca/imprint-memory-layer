@@ -210,7 +210,8 @@ async def exchange(channel, pair, peer, *, provider):
         raise ValueError('Paired device identity changed; pair again explicitly')
     active = pair['state'] == 'active' and pair['enabled']
     local = {'pair_id': pair['id'], 'state': pair['state'], 'enabled': active,
-             'workspace': pair['workspace'], 'digest': await asyncio.to_thread(digest, pair['workspace']) if active else None}
+             'workspace': pair['workspace'], 'digest': await asyncio.to_thread(digest, pair['workspace']) if active else None,
+             'last_local_digest': pair.get('local_digest'), 'last_remote_digest': pair.get('remote_digest')}
     if provider:
         await channel.send(local)
         remote = await channel.recv(timeout=60)
@@ -234,7 +235,10 @@ async def exchange(channel, pair, peer, *, provider):
     if not isinstance(remote_digest, str) or len(remote_digest) != 64:
         raise ValueError('Malformed paired workspace digest')
     pair['_local_digest'], pair['_remote_digest'] = local['digest'], remote_digest
-    changed = local['digest'] != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
+    # Both endpoints must make the SAME decision. One side may have failed to
+    # store/acknowledge an earlier transfer even though the other checkpointed.
+    changed = (local['digest'] != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
+               or remote_digest != remote.get('last_local_digest') or local['digest'] != remote.get('last_remote_digest'))
     return pair if changed else False
 
 

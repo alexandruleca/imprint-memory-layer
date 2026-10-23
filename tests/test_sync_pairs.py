@@ -129,6 +129,12 @@ class PairedSyncTests(unittest.TestCase):
             self.imports.clear()
             await self.repeat()  # unchanged signatures: control only
             self.assertEqual(self.imports, [])
+            # A failed import/checkpoint on just one endpoint must make BOTH
+            # endpoints retry, rather than one closing an apparently idle room.
+            sync_pairs.update(pair['id'], local_digest=None)
+            await self.repeat()
+            self.assertEqual(len(self.imports), 2)
+            self.imports.clear()
             self.digests['a'] = 'c' * 64
             await self.repeat()
             self.assertEqual(len(self.imports), 2)
