@@ -47,6 +47,38 @@ Executed on Linux x64/WSL2 with managed Python 3.12.15, pinned CPU dependencies 
 
 This is functional CPU validation, not a retrieval-quality comparison, helper benchmark or peak-memory guarantee. Native Windows/macOS/ARM/GPU execution of these new model defaults remains pending. Existing release native gates will exercise default ONNX store/search when run; the optional helper smoke is opt-in and has not been added to every installer job. Multi-process model sharing and transactional model migration remain proposed work in ADR 0009.
 
+## Local service network boundaries — 2026-10-23
+
+Validated on Linux x64/WSL2 with Python 3.12.15, disposable data directories and ephemeral ports; see [ADR 0024](adr/0024-enforce-local-service-boundaries.md). The full Python suite passed 156 tests; the final focused security run passed 14 tests after adding the public-launcher rejection case. Runtime smoke passed the 16-tool stdio MCP handshake, dashboard/static serving, Origin rejection and actual Qdrant write/read using the cached pinned native binary.
+
+Native socket inspection confirmed that managed Qdrant HTTP/gRPC listened only on `127.0.0.1`, with no cluster listener even when inherited configuration requested one. Both ports refused connections through the machine's non-loopback interface; the HTTP response omitted wildcard CORS. The API's normal loopback listener answered local HTTP and refused non-loopback TCP. A deliberately public direct uvicorn listener with proxy headers disabled rejected non-loopback requests carrying forged local Host, Origin and X-Forwarded-For headers on API, static and documentation routes.
+
+The separately managed local Ollama service was moved from its bridge address to `127.0.0.1:11434` through a persistent systemd user override. After restart, `/api/tags` returned 200 locally and the old address refused TCP connections. This verifies binding and availability, not model inference. The separate Naming AI native-client endpoint was updated; its stopped containerized API/worker still need a secured connection arrangement to reach a host loopback service.
+
+The full Docker image rebuilt successfully from source. `scripts/smoke-container.sh imprint-loopback-check:local` passed in disposable containers, including actual host-loopback publication/NAT access, dashboard/static serving, remote Origin and Host rejection, doctor/MCP discovery and native Qdrant download/start/write/read. Container mode still requires trusted internal networking and loopback publication; these checks do not establish an authenticated remote mode.
+
+Native Windows/macOS/ARM execution of these changes remains pending. Existing historical native release results below do not validate this follow-up.
+
+## Desktop startup and service ownership — 2026-10-23
+
+See [ADR 0025](adr/0025-desktop-owned-background-service.md). Linux x64/WSL2 validation used disposable data directories and separate build output; existing memories, client profiles, `bin/` and dashboard export output were not changed.
+
+| Check | Result | Scope |
+| --- | --- | --- |
+| Go tests/vet | Passed | Includes a native executable fixture proving `ui open` launches the shell before provisioning an API daemon and passes the resolved writable Python path. |
+| Electron Node tests | Passed, 14 tests | Navigation boundaries, hidden/logged spawn, lifetime-pipe shutdown, splash-before-probe ordering, packaged/development arguments, hide/reopen, explicit Quit, independent daemon reuse, startup cancellation, crash recovery and missing runtime. Window/process doubles do not establish native GUI behavior. |
+| Python suite and lifetime tests | Passed, 160 tests in the full run | Actual loopback API stays up while the parent pipe is open and releases its port after EOF; a stalled process exits within its shutdown bound. A subsequent focused three-test release-validator run also passes, including the new required desktop entry point. |
+| Dashboard lint and isolated production build | Passed | New desktop Quit action and hide label compile; generated output stays outside the repository. |
+| Playwright Chromium | Passed, two desktop scenarios | Hide and Quit use distinct bridge calls; browser-only dashboards have neither desktop control. Preload bridge is mocked. |
+| Splash/recovery rendering | Passed | Local startup page renders under its CSP without browser exceptions; loading and retry/log states inspected at 520×360. This is Chromium rendering, not a native Electron launch. |
+| Linux x64 Electron directory package and ASAR inspection | Passed | Packaged app includes `service.js`, preload/navigation and all three startup assets; graphical launch was not exercised. |
+| Native Windows PowerShell 5.1 launcher fixture | Passed via WSL interoperability | A disposable ready install directly launches a native GUI executable fixture with source/data/Python paths preserved, including spaces and an apostrophe. The fixture was cross-compiled, then actually executed on Windows; no real client setup ran. This does not exercise Electron or prove absence of console flashes. |
+| Workflow validation and macOS launcher syntax | Passed | Native CI now includes these regressions on five targets and the Windows launcher fixture; release ASAR checks require startup assets. |
+
+Before pushing, the change was rebased onto current main (`b92f0e8`), preserving the update dashboard and automatic-sync work. Combined validation passed 191 Python tests, Go tests/vet, 14 Electron tests, dashboard lint and an isolated production build, workflow lint, and six Chromium desktop/update scenarios. ADR numbers were advanced to 0024/0025 to preserve the intervening decisions.
+
+Interactive Windows/macOS/Linux desktop execution of the updated shell, console visibility, tray/Dock reopening, quitting with active jobs, app-crash recovery and upgrades remains pending. Windows/macOS Python lifecycle execution awaits the native CI jobs. A pre-existing CLI daemon intentionally survives desktop Quit; shared Qdrant also remains independent. First-run bootstrap still uses the existing setup UI, and OS/portable-executable startup can precede the Electron splash.
+
 ## Native release validation
 
 Follow-up 2026-10-23: release run `39910991520` established successful Linux x64/ARM and macOS ARM native execution, then exposed the Intel ONNX wheel failure and silent Windows installer hang. The obsolete run was cancelled after logs were retained. [Replacement build 39923142177](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39923142177) is build-only: both macOS installers and both Linux runtime jobs pass, including real default-model inference. Its Windows job now terminates and preserves logs, exposing a separate Windows PowerShell 5.1 native-stderr handling error. That helper path is corrected and covered by `scripts/test-windows-setup.ps1`; subsequent native results are recorded below when complete. See ADR 0012. The following table is the original validation baseline, not the current run status.

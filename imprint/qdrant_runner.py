@@ -36,6 +36,7 @@ from pathlib import Path
 from . import config
 from .processes import is_alive
 from .downloads import expected_digest, verify_archive
+from .http_security import loopback_address
 
 log = logging.getLogger("imprint.qdrant_runner")
 
@@ -75,9 +76,14 @@ def _snapshots_dir() -> Path:
 
 
 # ── Health probe ───────────────────────────────────────────────
+def _server_url() -> str:
+    host = f"[{QDRANT_HOST}]" if ":" in QDRANT_HOST else QDRANT_HOST
+    return f"http://{host}:{QDRANT_PORT}"
+
+
 def is_running() -> bool:
     """Cheap HTTP probe — returns True if /readyz responds 200."""
-    url = f"http://{QDRANT_HOST}:{QDRANT_PORT}/readyz"
+    url = f"{_server_url()}/readyz"
     try:
         with urllib.request.urlopen(url, timeout=1.0) as resp:
             return 200 <= resp.status < 300
@@ -170,8 +176,17 @@ def _download_binary() -> Path:
 
 
 # ── Daemon spawn ──────────────────────────────────────────────
+def _validate_managed_host() -> None:
+    if QDRANT_HOST != "localhost" and not loopback_address(QDRANT_HOST):
+        raise ValueError(
+            "Auto-spawned Qdrant requires a loopback host (127.0.0.1 or ::1). "
+            "For an independently secured external server, set qdrant.no_spawn=true."
+        )
+
+
 def _spawn(binary: Path) -> int:
     """Launch qdrant detached from this process. Returns PID."""
+    _validate_managed_host()
     storage = _storage_dir()
     snapshots = _snapshots_dir()
     storage.mkdir(parents=True, exist_ok=True)
@@ -179,13 +194,17 @@ def _spawn(binary: Path) -> int:
 
     env = os.environ.copy()
     # Configure via env so we don't ship a YAML file.
-    env["QDRANT__SERVICE__HOST"] = QDRANT_HOST
+    env["QDRANT__SERVICE__HOST"] = "127.0.0.1" if QDRANT_HOST == "localhost" else QDRANT_HOST
     env["QDRANT__SERVICE__HTTP_PORT"] = str(QDRANT_PORT)
     env["QDRANT__SERVICE__GRPC_PORT"] = str(QDRANT_GRPC_PORT)
     env["QDRANT__STORAGE__STORAGE_PATH"] = str(storage)
     env["QDRANT__STORAGE__SNAPSHOTS_PATH"] = str(snapshots)
     # Don't print bright ANSI banner to log file
     env["QDRANT__SERVICE__ENABLE_TLS"] = "false"
+    # This managed daemon is single-node and is not a browser API. Inherited
+    # Qdrant settings must not open a cluster listener or enable wildcard CORS.
+    env["QDRANT__CLUSTER__ENABLED"] = "false"
+    env["QDRANT__SERVICE__ENABLE_CORS"] = "false"
     env["RUST_LOG"] = env.get("RUST_LOG", "warn,qdrant=info")
 
     log_path = _log_file()
@@ -218,6 +237,8 @@ def _is_pid_alive(pid: int) -> bool:
 # ── Public API ────────────────────────────────────────────────
 def ensure_running() -> tuple[str, int]:
     """Serialize first startup across CLI, API and MCP processes."""
+    if not DISABLE_SPAWN:
+        _validate_managed_host()
     if is_running():
         return QDRANT_HOST, QDRANT_PORT
     from .queue_lock import _lock, _unlock
@@ -245,12 +266,14 @@ def _ensure_running_locked() -> tuple[str, int]:
     Spawns one (downloading the binary if needed) when nothing answers.
     Returns (host, port) suitable for QdrantClient(host=..., port=...).
     """
+    if not DISABLE_SPAWN:
+        _validate_managed_host()
     if is_running():
         return QDRANT_HOST, QDRANT_PORT
 
     if DISABLE_SPAWN:
         raise RuntimeError(
-            f"Qdrant server not reachable at http://{QDRANT_HOST}:{QDRANT_PORT} "
+            f"Qdrant server not reachable at {_server_url()} "
             "and IMPRINT_QDRANT_NO_SPAWN=1 disables auto-spawn. "
             "Start the server manually or unset the flag."
         )

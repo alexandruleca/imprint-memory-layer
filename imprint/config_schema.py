@@ -48,7 +48,7 @@ SETTINGS: list[Setting] = [
     Setting("model.output",     "IMPRINT_MODEL_OUTPUT",     "auto",           str,   "ONNX output name (auto = preferred pooled/token output)"),
 
     # ── Qdrant ────────────────────────────────────────────────
-    Setting("qdrant.host",      "IMPRINT_QDRANT_HOST",      "127.0.0.1",      str,   "Qdrant bind/connect host"),
+    Setting("qdrant.host",      "IMPRINT_QDRANT_HOST",      "127.0.0.1",      str,   "Qdrant host (auto-spawn requires loopback)"),
     Setting("qdrant.port",      "IMPRINT_QDRANT_PORT",      6333,             int,   "Qdrant HTTP port"),
     Setting("qdrant.grpc_port", "IMPRINT_QDRANT_GRPC_PORT", 6334,             int,   "Qdrant gRPC port"),
     Setting("qdrant.version",   "IMPRINT_QDRANT_VERSION",   "v1.17.1",        str,   "Pinned Qdrant release for auto-download"),

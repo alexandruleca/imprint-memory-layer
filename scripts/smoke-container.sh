@@ -27,5 +27,13 @@ else:
     raise AssertionError('Non-loopback Host was accepted')
 print('Container entry point, API/static serving and Host boundary passed')
 PY
+# Exercise the NAT peer exception through the actual loopback publication.
+published_port=$(docker port "$container_id" 8420/tcp)
+test "${published_port%:*}" = 127.0.0.1
+base_url="http://$published_port"
+curl --fail --silent "$base_url/api/ping" >/dev/null
+curl --fail --silent "$base_url/" >/dev/null
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Origin: https://attacker.example' "$base_url/api/ping")" = 403
+echo 'Container host loopback publication, NAT access and Origin boundary passed'
 docker exec "$container_id" imprint doctor --json --probe-mcp
 docker run --rm -i --entrypoint python "$image" - --with-storage < scripts/smoke-runtime.py

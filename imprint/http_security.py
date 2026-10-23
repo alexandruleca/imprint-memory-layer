@@ -1,5 +1,16 @@
-"""Origin checks for the local dashboard's filesystem and command API."""
+"""Network and browser boundaries for local Imprint services."""
+from ipaddress import ip_address
 from urllib.parse import urlsplit
+
+
+def loopback_address(address: str) -> bool:
+    """Check a literal peer/bind IP without trusting DNS or forwarded headers."""
+    try:
+        ip = ip_address(address)
+        mapped = getattr(ip, 'ipv4_mapped', None)
+        return (mapped or ip).is_loopback
+    except ValueError:
+        return False
 
 
 def local_origin(origin: str) -> bool:

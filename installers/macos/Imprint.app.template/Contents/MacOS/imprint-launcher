@@ -115,8 +115,8 @@ if [ ! -f "$SENTINEL" ] || [ ! -x "$VENV_PY" ]; then
     exit 0
 fi
 
-# `imprint ui open` boots the Qdrant daemon + UI server and opens the
-# browser. The launcher itself exits immediately — services keep running.
+# `imprint ui open` opens the shell and splash before starting its hidden API.
+# Hiding the dashboard keeps it running; Quit stops the shell-owned API.
 "$BIN" ui open >/dev/null 2>&1 &
 disown 2>/dev/null || true
 exit 0

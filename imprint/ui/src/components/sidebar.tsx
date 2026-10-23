@@ -16,6 +16,7 @@ import {
   Settings,
   Terminal,
   ListOrdered,
+  Power,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
 
@@ -25,6 +26,7 @@ declare global {
       isElectron: boolean;
       platform: string;
       close: () => void;
+      quit: () => void;
       minimize: () => void;
       maximize: () => void;
     };
@@ -47,7 +49,7 @@ const NAV_ITEMS = [
 
 function TrafficLights() {
   const buttons = [
-    { color: "#ff5f57", label: "×", title: "Close",    action: () => window.electronAPI?.close() },
+    { color: "#ff5f57", label: "×", title: "Hide window (keep Imprint running)", action: () => window.electronAPI?.close() },
     { color: "#febc2e", label: "−", title: "Minimize", action: () => window.electronAPI?.minimize() },
     { color: "#28c840", label: "+", title: "Maximize", action: () => window.electronAPI?.maximize() },
   ];
@@ -61,6 +63,7 @@ function TrafficLights() {
         <button
           key={title}
           title={title}
+          aria-label={title}
           onClick={action}
           className="group w-3 h-3 rounded-full flex items-center justify-center transition-opacity hover:opacity-80"
           style={{ background: color, WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -123,6 +126,20 @@ export function Sidebar() {
           );
         })}
       </nav>
+      {isElectron && (
+        <div className="p-2 border-t border-border">
+          <button
+            type="button"
+            onClick={() => window.electronAPI?.quit()}
+            aria-label="Quit Imprint"
+            title="Quit Imprint and stop its background service"
+            className="flex w-full items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          >
+            <Power className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span className="hidden sm:inline">Quit Imprint</span>
+          </button>
+        </div>
+      )}
       <div className="p-3 border-t border-border text-xs text-muted-foreground">
         Imprint {version ? version : "…"}
       </div>

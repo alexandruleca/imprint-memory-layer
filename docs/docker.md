@@ -168,7 +168,7 @@ Available tags on both images:
 
 ## Dashboard access boundary
 
-The dashboard validates loopback Host and Origin and has no authenticated remote mode. The container entry point uses `--container-bind` solely to listen on its network namespace; publish the host port on `127.0.0.1`. The dashboard cannot be exposed through an arbitrary remote domain using the relay TLS examples below. TLS alone is not authentication. The full image now builds its dashboard from source and installs a Python 3.12 venv from the hashed CPU lock; CLI and API share `/data`.
+The dashboard validates loopback Host and Origin and has no authenticated remote mode. The container entry point uses `--container-bind` to listen on its network namespace and explicitly accept Docker NAT peers; publish the host port on `127.0.0.1` and keep its container network trusted. Unlike the normal native launcher, container mode cannot require loopback peer addresses. A remote client can forge local Host/Origin headers, so publishing `8420:8420` on all host interfaces is unsafe. Qdrant HTTP/gRPC stay on container loopback and are not published. The dashboard cannot be exposed through an arbitrary remote domain using the relay TLS examples below. TLS alone is not authentication. The full image now builds its dashboard from source and installs a Python 3.12 venv from the hashed CPU lock; CLI and API share `/data`.
 
 ## TLS termination (relay)
 

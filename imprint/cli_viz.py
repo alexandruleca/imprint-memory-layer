@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import config, vectorstore as vs, imprint_graph as kg
 from imprint import chat as chat_mod, chat_store
+from imprint.http_security import local_host, local_origin, loopback_address
 from qdrant_client import models as qm
 
 DEFAULT_PORT = 8420
@@ -3209,6 +3210,16 @@ boot();
 # ── HTTP handler ──────────────────────────────────────────────
 
 class VizHandler(http.server.BaseHTTPRequestHandler):
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        origin = self.headers.get("Origin")
+        if (not loopback_address(self.client_address[0])
+                or not local_host(self.headers.get("Host", ""))
+                or (origin is not None and not local_origin(origin))):
+            self.send_error(403, "Only local dashboard requests are allowed")
+            return False
+        return True
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -3356,7 +3367,6 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             try:
                 while True:
@@ -3378,7 +3388,6 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
             # Serve HTML page
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
-            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode())
 
@@ -3467,7 +3476,6 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.close_connection = True
 
@@ -3508,7 +3516,6 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
         body = json.dumps(data).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 

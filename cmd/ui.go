@@ -32,7 +32,7 @@ type uiState struct {
 //	imprint ui start [--port N]  — background daemon, detached
 //	imprint ui stop              — stop the background daemon
 //	imprint ui status            — show pid + URL + reachability
-//	imprint ui open [--port N]   — start if stopped, then open a browser window
+//	imprint ui open [--port N]   — open the desktop app (browser fallback)
 //	imprint ui log               — print the log file path (for `tail -f`)
 func UI(args []string) {
 	if len(args) > 0 {
@@ -215,6 +215,21 @@ func uiOpen(args []string) {
 	port := parsePort(args, 0)
 
 	st, ok := readUIState(dataDir)
+	// Open the shell before waiting for Python. Electron owns its service and
+	// displays startup progress; an explicitly started daemon stays independent.
+	if port == 0 {
+		port = defaultUIPort
+		if ok && uiHealthy(st.Port) {
+			port = st.Port
+		}
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	if launchElectron(projectDir, dataDir, url) {
+		output.Success("Opened " + url)
+		return
+	}
+
+	// Browser-only distributions retain the explicit background-daemon model.
 	needStart := !ok || !uiHealthy(st.Port) || (port != 0 && st.Port != port)
 
 	if needStart {
@@ -233,8 +248,8 @@ func uiOpen(args []string) {
 		output.Fail(fmt.Sprintf("Server state says pid %d on port %d but it isn't answering — check `imprint ui log`", st.PID, st.Port))
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:%d", st.Port)
-	launchBrowser(projectDir, dataDir, url)
+	url = fmt.Sprintf("http://127.0.0.1:%d", st.Port)
+	launchChromeFallback(projectDir, dataDir, url)
 	output.Success("Opened " + url)
 }
 
@@ -346,13 +361,6 @@ func stripPort(args []string) []string {
 	return out
 }
 
-func launchBrowser(projectDir, dataDir, url string) {
-	if launchElectron(projectDir, dataDir, url) {
-		return
-	}
-	launchChromeFallback(projectDir, dataDir, url)
-}
-
 // launchElectron tries to open the Imprint Electron app. Resolution order:
 //  1. $IMPRINT_ELECTRON env var (explicit binary path)
 //  2. imprint-ui / imprint-ui.exe / imprint-ui.app next to the running imprint binary
@@ -362,6 +370,8 @@ func launchElectron(projectDir, dataDir, url string) bool {
 		"--imprint-url=" + url,
 		"--project-dir=" + projectDir,
 		"--data-dir=" + dataDir,
+		// The writable venv is outside the source bundle on installed macOS.
+		"--python=" + platform.VenvPython(projectDir),
 	}
 
 	// 1. Explicit override

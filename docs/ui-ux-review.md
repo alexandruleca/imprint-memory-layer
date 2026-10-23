@@ -20,6 +20,7 @@ A user should understand whether Imprint is connected, what was indexed, how fre
 | Memory/destructive dialogs lacked dependable focus behavior | Native modal, labels, Escape, focus trap/restoration and confirmation reset on reopen. |
 | Connection failure was hidden | Visible service banner with retry and bounded health requests. |
 | Navigation consumed narrow screens | Compact mobile sidebar, labels/current page, responsive search/stats and skip link. |
+| Desktop startup waited without feedback and had unclear shutdown | The shell opens a splash before API startup, retains it until dashboard load, exposes retry/log access, and separates hide from explicit Quit in the sidebar/tray. See ADR 0025; native graphical verification remains pending. |
 | Existing React lifecycle lint failures | Derived state, keyed request results and deliberate client hydration replace synchronous effect resets. Lint is a CI gate. |
 | Container builds failed in Google's dynamic font import | Bundle the pinned, OFL-licensed Inter variable font (the website's face) through `next/font/local`; build and browser font loading use local assets. See ADR 0008. |
 | The dashboard looked unlike the website | One light, black-and-white theme: near-white background, white cards, black primary actions, neutral greys for data, and status colours kept for state only. The graph uses neutral node shades on a light canvas. |

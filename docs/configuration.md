@@ -62,7 +62,7 @@ imprint config reset --all
 | `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |
 | `model.output` | `auto` | Named ONNX output selection |
 | **Qdrant** | | |
-| `qdrant.host` | `127.0.0.1` | Qdrant bind/connect host |
+| `qdrant.host` | `127.0.0.1` | Qdrant host; auto-spawn requires a literal loopback IP or `localhost` |
 | `qdrant.port` | `6333` | Qdrant HTTP port |
 | `qdrant.grpc_port` | `6334` | Qdrant gRPC port |
 | `qdrant.version` | `v1.17.1` | Pinned Qdrant release for auto-download |
@@ -123,6 +123,14 @@ imprint config reset --all
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
 Each setting also has an `IMPRINT_*` env var (shown via `imprint config get <key>`). Env vars still work and take priority over config.json.
+
+## Local service boundaries
+
+Managed Qdrant binds both HTTP and gRPC to loopback, disables cluster mode and browser CORS, and refuses nonlocal `qdrant.host` values before connecting or spawning. `localhost` is bound as `127.0.0.1`. Using an external Qdrant requires explicitly setting `qdrant.no_spawn=true`; its network isolation, authentication and TLS are then the operator's responsibility. Imprint cannot establish the bind policy of an already-running or independently managed server.
+
+The dashboard and its API share a loopback listener on port 8420. Requests must have a loopback connection address and local Host/Origin headers. The supported launcher ignores forwarded client headers. Container mode is an explicit exception to the connection-address check because Docker NAT changes the peer address: publish only `127.0.0.1:8420:8420` and use a trusted container network. Host/Origin checks do not authenticate a remote client that forges those headers. See [Docker](docker.md) and [ADR 0024](adr/0024-enforce-local-service-boundaries.md).
+
+Ollama is independently managed. Imprint's Ollama endpoints default to `http://localhost:11434/v1`; configure the Ollama process itself with `OLLAMA_HOST=127.0.0.1:11434`, then restart it. A local client URL does not constrain the server's listening interfaces. See [Ollama's server configuration](https://docs.ollama.com/faq#how-do-i-configure-ollama-server).
 
 ## Env-only settings
 

@@ -6,7 +6,7 @@ Adds endpoints for CLI command execution and config management.
 Usage:
     python -m imprint.api [--port 8420]
     # Or via uvicorn:
-    uvicorn imprint.api:app --host 127.0.0.1 --port 8420
+    uvicorn imprint.api:app --host 127.0.0.1 --port 8420 --no-proxy-headers
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from . import chat as chat_mod
 from . import chat_store
 from . import queue as job_queue
 from . import updates
-from .http_security import local_origin, local_host
+from .http_security import local_origin, local_host, loopback_address
 from .processes import is_alive
 
 from .cli_viz import (
@@ -62,6 +62,7 @@ from .cli_viz import (
 )
 
 app = FastAPI(title="Imprint API", version="1.0.0")
+app.state.container_bind = False
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,12 +75,19 @@ app.add_middleware(
 
 @app.middleware("http")
 async def reject_remote_origin(request: Request, call_next):
+    # Host and Origin are attacker-controlled HTTP headers, not proof that a
+    # connection came from this machine. Container NAT is an explicit exception;
+    # its host-side port publication must enforce the loopback boundary.
+    if not app.state.container_bind and (
+        request.client is None or not loopback_address(request.client.host)
+    ):
+        return JSONResponse({"detail": "Only loopback connections are allowed"}, status_code=403)
     # CORS alone only controls reading responses; it does not prevent a
     # malicious website from submitting requests to the local command API.
     if not local_host(request.headers.get("host", "")):
         return JSONResponse({"detail": "The dashboard requires a loopback host"}, status_code=403)
     origin = request.headers.get("origin")
-    if origin and not local_origin(origin):
+    if origin is not None and not local_origin(origin):
         return JSONResponse({"detail": "Only local dashboard origins are allowed"}, status_code=403)
     return await call_next(request)
 
@@ -1355,6 +1363,7 @@ def main():
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "localhost", "::1"} and not (args.container_bind and args.host == "0.0.0.0"):
         parser.error("The dashboard supports loopback access only; authenticated remote mode is not implemented")
+    app.state.container_bind = args.container_bind and args.host == "0.0.0.0"
 
     if not args.dev:
         mount_static()
@@ -1389,7 +1398,7 @@ def main():
         threading.Timer(0.8, lambda: _launch_browser(url)).start()
 
     import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info", proxy_headers=False)
 
 
 if __name__ == "__main__":

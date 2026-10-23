@@ -51,6 +51,16 @@ irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/in
 
 This downloads the pre-built imprint binary + bundled `uv`, prompts for the install profile (CPU / GPU + optional local LLM tagger — auto-skipped in `curl | bash` mode), provisions a Python venv via `uv`, installs the selected dependencies, registers the MCP server, configures Claude Code hooks, and sets up shell aliases. One command, everything ready.
 
+### Desktop startup and background operation
+
+Open the installed Imprint shortcut/app, or run `imprint ui open`. The desktop shell shows a loading screen while its hidden local service starts and the dashboard loads. Startup errors offer **Try again** and **View startup log**; cancelling startup exits the app. Ready Windows installs launch the GUI directly without opening a CLI console.
+
+Closing the dashboard hides it and keeps the service running. Reopen it from the tray, macOS Dock or the Imprint shortcut. Choose **Quit Imprint** at the bottom of the sidebar or in the tray menu to exit and stop the app's service. On Linux desktops without a tray, close minimizes the window so you can reopen it from the taskbar.
+
+If you previously ran `imprint ui start`, the app reuses that independent service and leaves it running on Quit; stop it with `imprint ui stop`. `imprint ui status` describes that explicit daemon, not the app-owned service. Both write startup diagnostics to `imprint_ui.log` under the data directory (`imprint ui log` shows the location). Qdrant is shared with CLI/MCP clients and remains independent of the dashboard. Browser-only distributions continue to use the explicit daemon lifecycle.
+
+See [ADR 0025](adr/0025-desktop-owned-background-service.md) and [platform validation](platform-validation.md) for ownership and native GUI limitations.
+
 ### Profile & extras flags
 
 Skip the interactive prompt with CLI flags:

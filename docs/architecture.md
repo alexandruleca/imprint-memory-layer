@@ -170,6 +170,7 @@ sequenceDiagram
 - **First call**: downloads the pinned Qdrant binary (~50 MB) from GitHub releases into `data/qdrant-bin/`, then `subprocess.Popen([..., start_new_session=True])` so the daemon survives the parent process. Logs to `data/qdrant.log`, PID written to `data/qdrant.pid`.
 - **Subsequent calls**: cheap HTTP probe to `/readyz` — returns immediately if alive.
 - **Storage**: `data/qdrant_storage/` (collection data) + `data/qdrant_snapshots/`. Both gitignored.
+- **Network**: managed HTTP/gRPC bind only to loopback; nonlocal auto-spawn settings fail before probing/downloading. Cluster mode and browser CORS are explicitly disabled, including when inherited Qdrant environment settings enable them. See [ADR 0024](adr/0024-enforce-local-service-boundaries.md).
 - **Shutdown**: `imprint server stop` (or `imprint disable`) sends SIGTERM via the PID file.
 
 | Env var | Default | Purpose |
@@ -183,7 +184,7 @@ sequenceDiagram
 
 **Why server mode and not embedded?** Embedded mode pins a filesystem lock and rejects any second client — this conflicts with Claude Code (always-on MCP) running alongside `imprint ingest`, hooks writing decisions, and tools like `imprint ui` reading the collection. Server mode supports unlimited concurrent connections at the cost of a single ~50 MB binary in your data dir and a ~50 MB resident process. Worth it.
 
-**Bring your own server**: set `IMPRINT_QDRANT_NO_SPAWN=1` and point `IMPRINT_QDRANT_HOST` at a Docker (`docker run -p 6333:6333 qdrant/qdrant`) or remote Qdrant. Auto-spawn is disabled and the runner connects directly.
+**Bring your own server**: set `IMPRINT_QDRANT_NO_SPAWN=1` and point `IMPRINT_QDRANT_HOST` at a separately managed Qdrant. For local Docker, publish `docker run -p 127.0.0.1:6333:6333 qdrant/qdrant`. Remote server isolation, authentication and TLS are the operator's responsibility; changing the client host does not secure that server.
 
 ## Concurrency: Command Queue (OOM guard)
 

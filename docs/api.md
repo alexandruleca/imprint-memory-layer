@@ -4,12 +4,12 @@ description: Reference for the Imprint dashboard HTTP API, with a downloadable P
 ---
 The Imprint container runs a FastAPI server on port **8420**. Everything the
 built-in dashboard does — search, ingest, retag, graph walks, sync, chat — is
-available over plain HTTP for any external client: a backend service pushing
+available over local HTTP for clients on the same machine: a backend service pushing
 data, a CI job retagging after a merge, your own UI, or a quick `curl` to see
 what's in memory.
 
 :::note
-The dashboard API supports loopback access. It validates Host and browser Origin; there is no authenticated remote dashboard mode. Container ports should be published on `127.0.0.1`. TLS alone does not add authentication.
+The dashboard API supports loopback access. It validates the connection address, Host and browser Origin; there is no authenticated remote dashboard mode. The supported launcher disables proxy-header interpretation. Container mode explicitly permits NAT peers and relies on host ports published on `127.0.0.1` plus a trusted container network. Host/Origin headers can be forged by a remote HTTP client, so they do not replace network isolation. TLS alone does not add authentication.
 :::
 
 ## Get started
@@ -229,11 +229,11 @@ transports. Pick the one that matches your integration:
 |---|---|---|
 | Consumer | Coding agents (Claude Code, Cursor, Copilot, Cline, OpenClaw) | Anything that speaks HTTP |
 | Transport | JSON-RPC over stdio | REST + SSE |
-| Auth | None (local process) | None by default — terminate TLS + auth at a proxy |
+| Auth | None (local process) | Local access only; no supported authenticated remote mode |
 | Ingest content | [`ingest_content`](./mcp.md#writes) | `POST /api/commands/ingest*` (job queue) |
 | Search | `search` | `GET /api/search` |
 | Streaming | Native | SSE |
-| Best for | Agent integrations | External services, CI, dashboards |
+| Best for | Agent integrations | Local services, CI, dashboards |
 
 ## Versioning
 

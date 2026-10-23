@@ -115,5 +115,22 @@ if (-not (Test-Path $Sentinel) -or -not (Test-Path (Join-Path $InstallDir '.venv
     }
 }
 
-# `imprint ui open` starts Qdrant + UI daemon and opens the default browser.
-Start-Process -FilePath $Bin -ArgumentList "ui", "open" -WindowStyle Hidden
+# Launch the GUI directly so a console-subsystem CLI never owns normal desktop
+# startup. Electron shows its splash, starts a hidden API and manages its life.
+$Desktop = Join-Path $InstallDir 'bin\imprint-ui.exe'
+if (Test-Path $Desktop) {
+    $DataDir = Join-Path $InstallDir 'data'
+    if ($env:IMPRINT_DATA_DIR) { $DataDir = $env:IMPRINT_DATA_DIR }
+    $Python = Join-Path $InstallDir '.venv\Scripts\python.exe'
+    # Start-Process joins ArgumentList into a command line on Windows. Quote
+    # complete arguments to preserve paths containing spaces.
+    $DesktopArgs = @(
+        '"--project-dir={0}"' -f $InstallDir
+        '"--data-dir={0}"' -f $DataDir
+        '"--python={0}"' -f $Python
+    )
+    Start-Process -FilePath $Desktop -ArgumentList $DesktopArgs -WorkingDirectory $InstallDir
+} else {
+    # Browser-only archives retain the explicit daemon behavior.
+    Start-Process -FilePath $Bin -ArgumentList "ui", "open" -WindowStyle Hidden
+}

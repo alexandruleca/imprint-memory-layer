@@ -25,6 +25,10 @@
       "main.js",
       "preload.js",
       "navigation.js",
+      "service.js",
+      "startup.html",
+      "startup.css",
+      "startup.js",
       "assets/**"
     ],
     "extraMetadata": {

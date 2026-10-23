@@ -46,7 +46,7 @@ def main():
                 print(f'Stdio MCP handshake and discovery passed ({len(names)} tools)')
         asyncio.run(discover())
         mount_static()
-        with TestClient(app, base_url='http://127.0.0.1:8420') as client:
+        with TestClient(app, base_url='http://127.0.0.1:8420', client=('127.0.0.1', 50000)) as client:
             assert client.get('/api/ping').status_code == 200
             page = client.get('/')
             assert page.status_code == 200 and '<html' in page.text

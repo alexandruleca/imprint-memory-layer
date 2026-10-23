@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'">
+  <title>Imprint</title>
+  <link rel="stylesheet" href="startup.css">
+  <script src="startup.js" defer></script>
+</head>
+<body>
+  <button id="close" aria-label="Cancel startup and quit Imprint">×</button>
+  <main>
+    <img src="assets/icon.png" width="56" height="56" alt="">
+    <h1>Imprint</h1>
+    <div id="spinner" aria-hidden="true"></div>
+    <p id="status" role="status">Starting your local service…</p>
+    <p id="hint">Preparing your local dashboard.</p>
+    <div id="actions" hidden>
+      <button id="log" hidden>View startup log</button>
+      <button id="retry">Try again</button>
+    </div>
+  </main>
+</body>
+</html>

@@ -18,7 +18,7 @@ def executable(machine):
 
 class ReleaseValidationTests(unittest.TestCase):
     def tree(self, root):
-        for rel in ('imprint/__main__.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/gpu.txt',
+        for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/gpu.txt',
                     'requirements/llm.txt', 'requirements/gpu.lock.txt', 'requirements/llm.lock.txt',
                     'requirements/runtime-manifest.json', 'LICENSE', 'licenses/uv/LICENSE-APACHE',
                     'licenses/uv/LICENSE-MIT', 'imprint/ui/out/index.html', 'imprint/ui/out/_next/app.js'):
@@ -40,6 +40,14 @@ class ReleaseValidationTests(unittest.TestCase):
                 VALIDATOR.validate(root, 'linux/arm64')
             (root / 'imprint/ui/out/index.html').unlink()
             with self.assertRaisesRegex(ValueError, 'Missing/empty'):
+                VALIDATOR.validate(root, 'linux/amd64')
+
+    def test_desktop_service_entry_point_is_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.tree(root)
+            (root / 'imprint/desktop_server.py').unlink()
+            with self.assertRaisesRegex(ValueError, 'Missing/empty.*desktop_server'):
                 VALIDATOR.validate(root, 'linux/amd64')
 
     def test_wrong_electron_and_private_state_rejected(self):

@@ -74,6 +74,10 @@ jobs:
           node ui-electron/node_modules/@electron/asar/bin/asar.js list "dist/electron/$UNPACKED/resources/app.asar" > /tmp/asar-files
           grep -Fx /preload.js /tmp/asar-files
           grep -Fx /navigation.js /tmp/asar-files
+          grep -Fx /service.js /tmp/asar-files
+          grep -Fx /startup.html /tmp/asar-files
+          grep -Fx /startup.css /tmp/asar-files
+          grep -Fx /startup.js /tmp/asar-files
       - uses: actions/upload-artifact@v4
         with:
           name: electron-linux-${{ matrix.arch }}
