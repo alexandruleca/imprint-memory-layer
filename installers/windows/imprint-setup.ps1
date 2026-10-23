@@ -34,7 +34,7 @@ $Log      = Join-Path $InstallDir "first-run.log"
 $ResultFile = Join-Path $InstallDir ".setup-result"
 
 trap {
-    "FAILED: $_" | Out-File -FilePath $Log -Append -Encoding ascii
+    "FAILED: $_" | Out-File -FilePath $Log -Append -Encoding utf8
     Set-Content -Path $ResultFile -Value '1' -Encoding ascii
     exit 1
 }
@@ -42,7 +42,7 @@ trap {
 function Log-Line {
     param([string]$Msg)
     $stamped = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $Msg
-    $stamped | Out-File -FilePath $Log -Append -Encoding ascii
+    $stamped | Out-File -FilePath $Log -Append -Encoding utf8
     Write-Host $stamped
 }
 
@@ -60,7 +60,27 @@ function Fail-Exit {
     exit 1
 }
 
-"" | Out-File -FilePath $Log -Encoding ascii  # truncate
+function Invoke-Imprint {
+    param([string[]]$Arguments)
+    # Windows PowerShell 5.1 wraps native stderr as NativeCommandError.
+    # Progress on stderr is normal; judge the native process by its exit code.
+    $previousPreference = $ErrorActionPreference
+    $nativeExit = $null
+    try {
+        $ErrorActionPreference = 'Continue'
+        $LASTEXITCODE = $null
+        & $Bin @Arguments 2>&1 | ForEach-Object {
+            "$_" | Out-File -FilePath $Log -Append -Encoding utf8
+        }
+        $nativeExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($null -eq $nativeExit) { throw 'Could not execute imprint.exe' }
+    return [int]$nativeExit
+}
+
+"" | Out-File -FilePath $Log -Encoding utf8  # truncate
 Remove-Item $ResultFile -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
@@ -95,12 +115,12 @@ elseif ($NoLlm) { $BootstrapArgs += "--no-llm" }
 $BootstrapArgs += "--non-interactive"
 
 Log-Line "Running: imprint $($BootstrapArgs -join ' ')"
-& $Bin @BootstrapArgs *>> $Log
-if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint bootstrap failed (exit=$LASTEXITCODE) - see $Log" }
+$bootstrapExit = Invoke-Imprint -Arguments $BootstrapArgs
+if ($bootstrapExit -ne 0) { Fail-Exit "imprint bootstrap failed (exit=$bootstrapExit) - see $Log" }
 
 Log-Line "Registering Imprint with Claude Code..."
-& $Bin setup --non-interactive *>> $Log
-if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint setup failed (exit=$LASTEXITCODE)" }
+$setupExit = Invoke-Imprint -Arguments @('setup', '--non-interactive')
+if ($setupExit -ne 0) { Fail-Exit "imprint setup failed (exit=$setupExit)" }
 
 New-Item -ItemType File -Path $Sentinel -Force | Out-Null
 Log-Line "Setup complete."

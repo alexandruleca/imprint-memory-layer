@@ -34,6 +34,8 @@ The base interpreter is managed Python 3.12. Base/GPU/LLM profile locks enforce 
 
 Intel macOS uses ONNX Runtime 1.23.2 through platform markers because newer releases no longer publish its CPython 3.12 wheel. Other CPU targets retain the current runtime. Windows silent installation skips interactive wizard pages and has a 15-minute CI deadline with process-tree cleanup and retained installer/bootstrap logs. Native package jobs and runtime checks have explicit timeouts; see [ADR 0012](adr/0012-native-package-runtime-and-silent-installs.md).
 
+The Windows setup helper logs ordinary native stderr as progress and uses exit codes to detect failure; Windows PowerShell 5.1 must not turn bootstrap's stderr banner into a terminating error. The Windows native CI job runs `scripts/test-windows-setup.ps1` against both successful stderr output and a real nonzero exit before runtime provisioning.
+
 ## Release workflow
 
 Stable (`release.yml`) and dev (`dev-release.yml`) select versions and call `build-release.yml`. Stable conventional commits retain the existing bump rules: `feat` minor, `fix`/`perf` patch, breaking changes major; documentation-only changes do not release. Dev uses `vX.Y.Z-dev.N`.

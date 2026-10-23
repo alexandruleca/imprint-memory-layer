@@ -90,6 +90,8 @@ These services are called via their official SDKs with user-supplied API keys. T
 
 ## Attribution Obligations Summary
 
+The dashboard vendors the static `shadcn@4.22.1` stylesheet at `imprint/ui/src/styles/shadcn.css` without its generator/runtime dependency tree. Its upstream MIT license is retained alongside it in `shadcn-LICENSE.txt`. The stylesheet's CSS body is copied from the pinned npm package; update it deliberately with the attribution intact.
+
 | License | Applies to | Obligation met by |
 |---|---|---|
 | MIT / BSD-3-Clause | Python deps, `uv` (MIT branch), nhooyr/websocket | This file lists the packages + upstream repo URLs (where full LICENSE texts live) |

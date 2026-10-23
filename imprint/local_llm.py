@@ -65,6 +65,9 @@ def load(path: Path, n_ctx: int, n_gpu_layers: int, *, expected_sha256: str | No
                               n_gpu_layers=n_gpu_layers, n_threads=4, n_threads_batch=4,
                               n_batch=256, verbose=False)
         try:
+            # Never deserialize a disk-backed prompt/state cache. The optional
+            # binding still depends on unfixed diskcache (CVE-2025-69872).
+            llm.set_cache(None)
             # Render the embedded template with thinking explicitly disabled.
             # Qwen3.5 does not implement the old /no_think prompt switch.
             from llama_cpp.llama_chat_format import Jinja2ChatFormatter

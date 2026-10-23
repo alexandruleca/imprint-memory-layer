@@ -25,6 +25,10 @@ jobs:
           python-version: '3.12'
       - run: go vet ./...
       - run: go test ./...
+      - name: Windows PowerShell setup regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-setup.ps1
       - run: go build -o build/ .
       - run: python -m pip install --require-hashes -r requirements/base.lock.txt
       - run: python -m pip check
@@ -61,6 +65,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify relay runs as non-root and serves health
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -t imprint-relay-ci .
+          docker run --rm -d --name imprint-relay-ci -p 127.0.0.1:8430:8430 imprint-relay-ci
+          trap 'docker rm -f imprint-relay-ci' EXIT
+          test "$(docker exec imprint-relay-ci id -u)" != 0
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8430/health
       - run: docker build -f Dockerfile.imprint -t imprint-ci:local .
       - run: bash scripts/smoke-container.sh imprint-ci:local
 

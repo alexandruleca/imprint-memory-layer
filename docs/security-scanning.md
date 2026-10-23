@@ -22,6 +22,12 @@ Initial local baseline, 2026-10-23: 60 dependency findings and two Dockerfile fi
 
 The [first hosted run](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39921877128) successfully uploaded its reports and published 62 results to GitHub Security, then failed at the severity gate as intended. Use that run's artifact and the Security tab to review the baseline.
 
+## Remediation follow-up
+
+The 2026-10-23 remediation updates Astro/Starlight/MDX/Sharp and their locked dependencies, removes the dashboard generator/glob lint dependency chain, and fixes the relay's root-user and missing-healthcheck findings. Dashboard static styles remain as an attributed vendored asset; lint retains JavaScript/TypeScript, React Hooks/compiler and the prior accessibility checks. The website uses Node 24 LTS. See [ADR 0013](adr/0013-remediate-security-scan-dependencies.md).
+
+A fresh local Trivy scan reports **zero high/critical findings** and one remaining medium finding: `CVE-2025-69872` in optional `diskcache==5.6.3`, required by llama-cpp-python. There is no published patched release. The shared helper explicitly calls `set_cache(None)` and never creates a disk-backed llama cache, so it does not read the vulnerable serialized cache path. The package remains installed in the optional LLM profile; its finding remains visible with no ignore/VEX suppression. Reassess before adding caching or changing bindings, and upgrade when a reviewed upstream fix becomes available. This is a constrained exposure, not a claim that the dependency itself is patched.
+
 ## Reproduction and maintenance
 
 Use the workflow's pinned Trivy version (initially 0.76.1), with a separate output directory:

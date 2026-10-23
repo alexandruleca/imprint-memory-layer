@@ -2,6 +2,8 @@
 title: Docker
 description: Deploy Imprint with Docker — full runtime (dashboard + API + auto-Qdrant) and stateless sync relay. Pinned tags, compose files, TLS termination, and health checks.
 ---
+The lightweight relay image runs as the unprivileged `imprint` user and probes `/health` with a Docker healthcheck. Hosted CI verifies both effective user and HTTP health. The all-in-one image has its own non-root user and API health probe.
+
 Two images are published to GHCR on every release:
 
 | Image | What it runs | When to use |

@@ -108,6 +108,7 @@ class LocalHelperTests(unittest.TestCase):
             second = local_llm.load(Path(directory) / 'model.gguf', 8192, 0)
             self.assertIs(first, second)
             llama.Llama.assert_called_once()
+            llm.set_cache.assert_called_once_with(None)
             self.assertIn('set enable_thinking = false', formatter_module.Jinja2ChatFormatter.call_args.kwargs['template'])
 
     def test_context_budget_discards_history_and_rejects_oversized_current_input(self):
