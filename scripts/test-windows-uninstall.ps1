@@ -40,6 +40,9 @@ func main(){
     Remove-Item "$root/bin/imprint.exe"
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$root/imprint-uninstall.ps1" -InstallDir $root
     if ($LASTEXITCODE -eq 0) { throw 'Missing CLI must block uninstall' }
+    # GitHub Actions exits with the last native code after the script returns.
+    # The missing-CLI failure above is expected and has been asserted.
+    $global:LASTEXITCODE = 0
     Write-Host 'Windows uninstall cleanup regression passed'
 } finally {
     Remove-Item Env:IMPRINT_UNINSTALL_TEST_FAIL, Env:IMPRINT_UNINSTALL_TEST_ARGS -ErrorAction SilentlyContinue
