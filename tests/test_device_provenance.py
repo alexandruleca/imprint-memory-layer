@@ -47,7 +47,7 @@ class DevicePathTests(unittest.TestCase):
             policy.map_project('project', str(self.checkout))
             view = device.context(record, cwd=self.checkout)
             self.assertEqual(view['path_status'], 'foreign-mapped')
-            self.assertEqual(view['local_source_path'], str(self.checkout / 'app.py'))
+            self.assertEqual(view['local_source_path'], str((self.checkout / 'app.py').resolve()))
             self.assertEqual(view['recorded_device'], A)
             self.assertEqual(view['original_source_path'], record['source_path'])
             self.assertEqual(device.context(record, cwd=self.root / 'different-project')['local_source_path'], '')

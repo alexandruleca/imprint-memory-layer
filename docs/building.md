@@ -40,6 +40,8 @@ The Windows setup helper logs ordinary native stderr as progress and uses the gl
 
 Stable (`release.yml`) selects versions from main and calls `build-release.yml`. Conventional commits retain the existing bump rules: `feat` minor, `fix`/`perf` patch, breaking changes major; documentation-only changes do not release. Automatic dev releases have been removed. Historical dev assets remain available. See [ADR 0014](adr/0014-main-only-release-packaging.md).
 
+Analysis reads every commit since the last stable tag with Git's NUL record delimiter. A later fix or documentation commit cannot hide an earlier feature/breaking change. `scripts/test-release-versioning.py` exercises the actual workflow script against disposable Git histories, including precedence, a forced bump and the first release.
+
 The reusable workflow builds the dashboard and platform shells, creates validated archives, builds native `.pkg`/`.exe` installers, provisions/exercises native runtimes, and only then publishes a release and `SHA256SUMS` covering all archives and installers. macOS app bundles travel between runners as tar archives to preserve symlinks. Website/container follow-up workflows run after a successful parent release. Native build failures leave no newly published release from this pipeline.
 
 Use the **Build release artifacts** manual workflow on main for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on hosted Linux x64/ARM, macOS Intel/ARM and Windows x64 runners; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).

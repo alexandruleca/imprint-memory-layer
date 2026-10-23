@@ -71,7 +71,7 @@ jobs:
             if printf '%s\n' "$SUBJECT" | grep -qE '^(fix|perf)(\([^)]+\))?:'; then
               HAS_PATCH=1; continue
             fi
-          done < <(git log "${RANGE_ARGS[@]}" --pretty=format:'%B%x00')
+          done < <(git log "${RANGE_ARGS[@]}" --format='%B' -z)
 
           if [ "${FORCE_BUMP:-auto}" != "auto" ] && [ -n "${FORCE_BUMP:-}" ]; then
             BUMP="$FORCE_BUMP"

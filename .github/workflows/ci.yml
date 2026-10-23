@@ -92,3 +92,5 @@ jobs:
           go-version-file: go.mod
       - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - run: actionlint -shellcheck=''
+      - name: Release version history regression
+        run: python3 scripts/test-release-versioning.py
