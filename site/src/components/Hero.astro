@@ -1,11 +1,11 @@
 ---
 import benchmarks from '../data/benchmarks.json';
 import releases from '../data/releases.json';
+import Icon from './Icon.astro';
+import { signed } from '../lib/format';
 
-const tokenPct = benchmarks.overall?.tokenPct ?? '−70.4%';
-const costPct = benchmarks.overall?.costPct ?? '−31.7%';
-const costOff = benchmarks.overall?.costOff?.toFixed(2) ?? '2.84';
-const costOn = benchmarks.overall?.costOn?.toFixed(2) ?? '1.94';
+const tokenPct = signed(benchmarks.overall?.tokenPct, '-70.4%');
+const costPct = signed(benchmarks.overall?.costPct, '-31.7%');
 
 const latestTag = releases.latestStable?.tag ?? '';
 
@@ -21,141 +21,164 @@ const oneLiners = [
     cmd: 'irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex',
   },
 ];
+
+const proof = [
+  { value: tokenPct, label: 'tokens' },
+  { value: costPct, label: 'cost' },
+  { value: '7', label: 'agent hosts' },
+  { value: '100%', label: 'local by default' },
+];
 ---
 
 <section class="relative overflow-hidden">
-  <div class="absolute inset-0 dot-grid opacity-40 [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,black,transparent)]"></div>
-  <div class="relative max-w-6xl mx-auto px-6 pt-20 pb-16 sm:pt-28 sm:pb-24 text-center">
-    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[color:var(--color-border)] bg-[color:var(--color-surface)]/60 text-xs font-medium text-[color:var(--color-text-muted)] mb-8">
-      <span class="w-1.5 h-1.5 rounded-full bg-[color:var(--color-success)] animate-pulse"></span>
-      MCP memory layer · works with Claude Code, Cursor, Copilot, Codex, Cline
-    </div>
-
-    <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.05] max-w-5xl mx-auto">
-      The context window is dying.
-      <span class="grad-text">Imprint replaces it.</span>
-    </h1>
-
-    <p class="mt-6 text-lg sm:text-xl text-[color:var(--color-text-muted)] max-w-2xl mx-auto">
-      Persistent, semantic memory for your AI coding tools.
-      <span class="text-white font-medium">{tokenPct} tokens, {costPct} cost</span>
-      across 150 benchmark runs. 100% local by default.
-    </p>
-
-    <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-center">
+  <div class="absolute inset-0 dot-grid opacity-50 [mask-image:radial-gradient(ellipse_60%_55%_at_50%_0%,black,transparent)]"></div>
+  <div class="relative wrap pt-16 pb-20 sm:pt-24 sm:pb-28 grid gap-14 lg:grid-cols-[1.05fr_1fr] lg:gap-12 items-center">
+    <div class="stagger min-w-0">
       <a
-        href="#install"
-        class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-semibold bg-gradient-to-r from-violet-500 to-indigo-500 text-white hover:from-violet-400 hover:to-indigo-400 transition shadow-[0_0_40px_-10px_rgba(139,92,246,0.7)]"
+        href={releases.latestStable?.htmlUrl ?? '/download'}
+        class="chip !text-[13px] !py-1 hover:!border-[color:var(--color-accent)] transition"
       >
-        Install {latestTag}
-        <span aria-hidden>↓</span>
+        <span class="w-1.5 h-1.5 rounded-full bg-[color:var(--color-success)]"></span>
+        Open-source MCP memory layer
+        {latestTag && <span class="font-mono text-[color:var(--color-text)]">{latestTag}</span>}
       </a>
-      <a
-        href="/benchmarks"
-        class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-medium border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white text-[color:var(--color-text-muted)] transition"
-      >
-        See the benchmark numbers
-      </a>
-    </div>
 
-    <div class="mt-6 max-w-2xl mx-auto">
-      <div class="flex items-center justify-center gap-1 mb-2" role="tablist">
-        {oneLiners.map((o, i) => (
+      <h1 class="mt-7 text-[2.6rem] leading-[1.03] sm:text-6xl lg:text-[3.55rem] xl:text-[3.9rem] font-extrabold tracking-[-0.035em]">
+        Remember once.<br />
+        <span class="grad-text">Recall everywhere.</span>
+      </h1>
+
+      <p class="mt-6 text-lg text-[color:var(--color-text-muted)] max-w-xl leading-relaxed">
+        Imprint gives your AI coding agents one persistent memory. The decisions, fixes and context they
+        learn come back in every session and every tool, sync to your other machines, and can be handed
+        to a teammate in one command. It all runs on your machine.
+      </p>
+
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a href="#install" class="btn btn-primary">
+          Install {latestTag}
+          <Icon name="arrowRight" size={16} />
+        </a>
+        <a href="#benefits" class="btn btn-ghost">See how it works</a>
+      </div>
+
+      <div class="mt-6 max-w-xl">
+        <div class="flex items-center gap-1 mb-2" role="tablist" aria-label="Install command platform">
+          {oneLiners.map((o, i) => (
+            <button
+              data-hero-oneliner-tab={o.id}
+              class="px-2.5 py-1 text-xs font-medium rounded-md transition text-[color:var(--color-text-dim)] hover:text-white aria-selected:bg-white/5 aria-selected:text-white"
+              role="tab"
+              aria-selected={i === 0 ? 'true' : 'false'}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div class="flex items-center gap-2 rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] p-1.5 pl-3">
+          <span class="font-mono text-sm text-[color:var(--color-accent)] select-none" aria-hidden="true">$</span>
+          <pre class="flex-1 overflow-x-auto text-[13px] font-mono py-2 whitespace-nowrap [scrollbar-width:none]"><code data-hero-oneliner-cmd>{oneLiners[0].cmd}</code></pre>
           <button
-            data-hero-oneliner-tab={o.id}
-            class={`px-3 py-1 text-xs font-medium rounded-md transition ${
-              i === 0
-                ? 'bg-[color:var(--color-bg-elevated)] text-white border border-[color:var(--color-border)]'
-                : 'text-[color:var(--color-text-muted)] hover:text-white'
-            }`}
-            role="tab"
-            aria-selected={i === 0 ? 'true' : 'false'}
+            data-hero-oneliner-copy
+            class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-[color:var(--color-text-muted)] hover:text-white transition"
+            aria-label="Copy install command"
           >
-            {o.label}
+            <Icon name="copy" size={14} />
+            <span data-copy-label>Copy</span>
           </button>
+        </div>
+      </div>
+
+      <ul class="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4 max-w-xl">
+        {proof.map((p) => (
+          <li class="flex flex-col">
+            <span class="text-xl font-semibold tracking-tight text-[color:var(--color-text)]">{p.value}</span>
+            <span class="text-xs text-[color:var(--color-text-dim)]">{p.label}</span>
+          </li>
         ))}
-      </div>
-      <div class="flex items-stretch gap-2 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-1.5">
-        <pre class="flex-1 overflow-x-auto text-xs sm:text-sm font-mono px-3 py-2.5 whitespace-nowrap text-left"><code data-hero-oneliner-cmd>{oneLiners[0].cmd}</code></pre>
-        <button
-          data-hero-oneliner-copy
-          class="shrink-0 px-3 text-xs rounded-lg hover:bg-[color:var(--color-bg-elevated)] text-[color:var(--color-text-muted)] hover:text-white border border-[color:var(--color-border)]"
-          aria-label="Copy install command"
-        >
-          Copy
-        </button>
-      </div>
+      </ul>
     </div>
 
-    <script define:vars={{ oneLiners }}>
-      // --- OS detection for one-liner default tab ---
-      const ua = navigator.userAgent;
-      let os = 'macos';
-      if (/Windows/i.test(ua)) os = 'windows';
-      else if (/Linux|X11/i.test(ua)) os = 'linux';
-      else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macos';
+    <!-- Illustrative agent session: a decision recalled from memory synced from another machine. -->
+    <div class="relative min-w-0">
+      <div class="absolute -inset-10 bg-[radial-gradient(closest-side,rgba(139,92,246,0.22),transparent)] blur-2xl pointer-events-none" aria-hidden="true"></div>
+      <figure class="relative term" aria-label="Example: an agent answers from Imprint memory">
+        <div class="term-bar">
+          <span class="term-dots"><i></i><i></i><i></i></span>
+          <span class="font-mono">claude — ~/code/imprint</span>
+        </div>
+        <div class="term-body stagger !text-[12.5px] sm:!text-[13px]">
+          <div>
+            <span class="prompt">›</span>
+            <span class="hl">Why does Imprint run Qdrant as a server instead of embedded?</span>
+          </div>
 
-      const preferWin = os === 'windows';
-      const cmdEl = document.querySelector('[data-hero-oneliner-cmd]');
-      const tabs = document.querySelectorAll('[data-hero-oneliner-tab]');
-      const copyBtn = document.querySelector('[data-hero-oneliner-copy]');
+          <div class="mt-4 flex items-baseline gap-2">
+            <span class="text-[color:var(--color-cyan)]">●</span>
+            <span><span class="hl">imprint</span> · search <span class="text-[color:var(--color-text-dim)]">"qdrant server vs embedded"</span></span>
+          </div>
+          <div class="mt-2 ml-4 rounded-lg border border-[color:var(--color-border-strong)] bg-white/[0.02] p-3 font-sans text-[13px] leading-relaxed">
+            <div class="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+              <span class="px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200">decision</span>
+              <span class="px-1.5 py-0.5 rounded bg-white/5 text-[color:var(--color-text-muted)]">imprint</span>
+              <span class="px-1.5 py-0.5 rounded bg-white/5 text-[color:var(--color-text-muted)]">docs/architecture.md</span>
+            </div>
+            <p class="mt-2 text-[color:var(--color-text)]">
+              Embedded Qdrant is single-writer: the MCP server, hooks and <code class="font-mono text-[12px]">imprint ingest</code>
+              can't share its on-disk lock. Auto-spawn a local server on 127.0.0.1:6333 instead.
+            </p>
+            <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-[color:var(--color-text-dim)]">
+              <span class="inline-flex items-center gap-1.5"><Icon name="clock" size={13} /> stored 3 weeks ago</span>
+              <span class="inline-flex items-center gap-1.5 text-[color:var(--color-cyan)]"><Icon name="sync" size={13} /> synced from workstation</span>
+            </div>
+          </div>
 
-      function activate(id) {
-        const entry = oneLiners.find((o) => o.id === id);
-        if (!entry || !cmdEl) return;
-        cmdEl.textContent = entry.cmd;
-        tabs.forEach((t) => {
-          const active = t.getAttribute('data-hero-oneliner-tab') === id;
-          t.setAttribute('aria-selected', active ? 'true' : 'false');
-          t.classList.toggle('bg-[color:var(--color-bg-elevated)]', active);
-          t.classList.toggle('text-white', active);
-          t.classList.toggle('border', active);
-          t.classList.toggle('border-[color:var(--color-border)]', active);
-          t.classList.toggle('text-[color:var(--color-text-muted)]', !active);
-        });
-      }
+          <div class="mt-4 flex items-baseline gap-2">
+            <span class="text-[color:var(--color-text)]">●</span>
+            <span class="font-sans text-[13.5px] text-[color:var(--color-text)] leading-relaxed">
+              Embedded mode locks the store to a single process. Imprint runs a local Qdrant server so your
+              agent, its hooks and background ingests can all read and write at the same time.
+            </span>
+          </div>
 
-      if (preferWin) activate('win');
-
-      tabs.forEach((t) => {
-        t.addEventListener('click', () => activate(t.getAttribute('data-hero-oneliner-tab')));
-      });
-
-      if (copyBtn && cmdEl) {
-        copyBtn.addEventListener('click', async () => {
-          try {
-            await navigator.clipboard.writeText(cmdEl.textContent || '');
-            const prev = copyBtn.textContent;
-            copyBtn.textContent = 'Copied';
-            setTimeout(() => { copyBtn.textContent = prev || 'Copy'; }, 1300);
-          } catch { /* ignore */ }
-        });
-      }
-    </script>
-
-    <!-- Cost comparison card -->
-    <div class="mt-14 max-w-2xl mx-auto grad-border rounded-2xl p-6 sm:p-8">
-      <div class="text-xs uppercase tracking-widest text-[color:var(--color-text-muted)] mb-4">
-        Full benchmark suite · 150 runs · Claude Sonnet
-      </div>
-      <div class="grid grid-cols-3 items-center gap-4">
-        <div class="text-left">
-          <div class="text-xs text-[color:var(--color-text-muted)] mb-1">Without Imprint</div>
-          <div class="text-3xl sm:text-4xl font-bold font-mono text-[color:var(--color-danger)] line-through decoration-2">
-            ${costOff}
+          <div class="mt-4 ml-4 inline-flex items-center gap-2 text-[12px] ok">
+            <Icon name="check" size={14} /> answered from memory · no files re-read
           </div>
         </div>
-        <div class="text-center text-3xl sm:text-4xl text-[color:var(--color-accent)]" aria-hidden>→</div>
-        <div class="text-right">
-          <div class="text-xs text-[color:var(--color-text-muted)] mb-1">With Imprint</div>
-          <div class="text-3xl sm:text-4xl font-bold font-mono text-[color:var(--color-success)]">
-            ${costOn}
-          </div>
-        </div>
-      </div>
-      <div class="mt-4 text-sm text-[color:var(--color-text-muted)]">
-        Same prompts. Same model. Memory-served answers replace raw file reads.
-      </div>
+      </figure>
     </div>
   </div>
+
+  <script define:vars={{ oneLiners }}>
+    const ua = navigator.userAgent;
+    const cmdEl = document.querySelector('[data-hero-oneliner-cmd]');
+    const tabs = document.querySelectorAll('[data-hero-oneliner-tab]');
+    const copyBtn = document.querySelector('[data-hero-oneliner-copy]');
+    const copyLabel = copyBtn?.querySelector('[data-copy-label]');
+
+    function activate(id) {
+      const entry = oneLiners.find((o) => o.id === id);
+      if (!entry || !cmdEl) return;
+      cmdEl.textContent = entry.cmd;
+      tabs.forEach((t) => {
+        t.setAttribute('aria-selected', t.getAttribute('data-hero-oneliner-tab') === id ? 'true' : 'false');
+      });
+    }
+
+    if (/Windows/i.test(ua)) activate('win');
+
+    tabs.forEach((t) => {
+      t.addEventListener('click', () => activate(t.getAttribute('data-hero-oneliner-tab')));
+    });
+
+    if (copyBtn && cmdEl && copyLabel) {
+      copyBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(cmdEl.textContent || '');
+          copyLabel.textContent = 'Copied';
+          setTimeout(() => { copyLabel.textContent = 'Copy'; }, 1300);
+        } catch { /* clipboard unavailable */ }
+      });
+    }
+  </script>
 </section>

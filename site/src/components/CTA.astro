@@ -1,28 +1,26 @@
 ---
+import Icon from './Icon.astro';
 ---
 
-<section class="py-24">
-  <div class="max-w-4xl mx-auto px-6 text-center">
-    <div class="grad-border rounded-3xl p-10 sm:p-14">
-      <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
-        Give your agent a <span class="grad-text">memory worth remembering</span>.
-      </h2>
-      <p class="mt-4 text-[color:var(--color-text-muted)] max-w-xl mx-auto">
-        Apache 2.0. Self-updating. Uninstall with one command. Start on your laptop, sync to a VPS when you're ready.
-      </p>
-      <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-        <a
-          href="/installation"
-          class="inline-flex items-center gap-2 px-5 py-3 rounded-lg font-semibold bg-gradient-to-r from-violet-500 to-indigo-500 text-white hover:from-violet-400 hover:to-indigo-400 transition"
-        >
-          Install Imprint
-        </a>
-        <a
-          href="https://github.com/alexandruleca/imprint-memory-layer"
-          class="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white text-[color:var(--color-text-muted)] transition"
-        >
-          Star on GitHub ↗
-        </a>
+<section class="pb-24 sm:pb-32">
+  <div class="wrap max-w-5xl">
+    <div class="relative overflow-hidden rounded-3xl border border-violet-400/30 bg-[color:var(--color-surface)] px-6 py-14 sm:px-14 sm:py-16 text-center">
+      <div class="absolute inset-0 bg-[radial-gradient(ellipse_60%_80%_at_50%_0%,rgba(139,92,246,0.22),transparent_70%)] pointer-events-none" aria-hidden="true"></div>
+      <div class="absolute inset-0 dot-grid opacity-40 [mask-image:radial-gradient(ellipse_50%_70%_at_50%_0%,black,transparent)] pointer-events-none" aria-hidden="true"></div>
+      <div class="relative">
+        <h2 class="text-3xl sm:text-[2.75rem] font-bold tracking-tight leading-tight text-balance">
+          Teach it once. <span class="grad-text">Every agent, machine and teammate remembers.</span>
+        </h2>
+        <p class="mt-5 text-[color:var(--color-text-muted)] max-w-xl mx-auto leading-relaxed">
+          Apache 2.0, self-updating, and removable with one command. Start on your laptop and sync to the rest
+          of your machines, or your team, when you're ready.
+        </p>
+        <div class="mt-9 flex flex-col sm:flex-row gap-3 justify-center">
+          <a href="#install" class="btn btn-primary">Install Imprint <Icon name="arrowRight" size={16} /></a>
+          <a href="https://github.com/alexandruleca/imprint-memory-layer" class="btn btn-ghost">
+            <Icon name="github" size={16} /> Star on GitHub
+          </a>
+        </div>
       </div>
     </div>
   </div>

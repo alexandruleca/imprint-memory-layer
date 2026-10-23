@@ -1,0 +1,109 @@
+---
+import { Image } from 'astro:assets';
+import benchmarks from '../data/benchmarks.json';
+import Icon from './Icon.astro';
+import { signed } from '../lib/format';
+import graphShot from '../assets/dashboard-graph.png';
+import searchShot from '../assets/dashboard-search.png';
+import overviewShot from '../assets/dashboard-overview.png';
+
+const shots = [
+  { id: 'graph', label: 'Graph', src: graphShot, alt: 'Imprint dashboard graph: four projects linked by shared topics, with the qdrant topic open in a side panel' },
+  { id: 'search', label: 'Search', src: searchShot, alt: 'Imprint dashboard search: six ranked results for a question about Qdrant, the first open with its source, fingerprint and similarity' },
+  { id: 'overview', label: 'Overview', src: overviewShot, alt: 'Imprint dashboard overview: memory totals and breakdowns by project, language, domain and type' },
+];
+
+const crossCat = benchmarks.categories?.find((c: any) => c.key === 'cross');
+
+const features = [
+  {
+    icon: 'search',
+    title: 'Search with receipts',
+    body: 'Hybrid semantic and exact-term ranking. Every hit carries its source, hash and age, so the agent can check the live file before it edits.',
+  },
+  {
+    icon: 'clock',
+    title: 'Facts with a timeline',
+    body: 'A temporal knowledge graph stores subject → predicate → object with start and end dates, so a superseded decision doesn’t come back as current.',
+  },
+  {
+    icon: 'graph',
+    title: 'Cross-project recall',
+    body: `Reuse the fix you already shipped in another repo. Cross-project questions used ${signed(crossCat?.avgTokens, '-90.6%')} tokens in the benchmark.`,
+  },
+  {
+    icon: 'monitor',
+    title: 'A dashboard for humans',
+    body: 'Browse the graph, search, topics and sources, run sync and ingest jobs, or chat with your memory using an optional local model.',
+  },
+] as const;
+---
+
+<section id="recall" class="section border-t border-[color:var(--color-border)]">
+  <div class="wrap">
+    <div class="max-w-2xl">
+      <div class="eyebrow">Recall</div>
+      <h2 class="h2">Answers with sources, not guesses.</h2>
+      <p class="lede">
+        Your agent gets the few chunks that matter, with enough provenance to verify them. You get a dashboard
+        to see exactly what it knows. Run <code class="cmd">imprint ui</code>.
+      </p>
+    </div>
+
+    <figure class="mt-12" data-shots>
+      <div class="rounded-2xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] p-1.5 sm:p-2 shadow-[0_50px_100px_-40px_rgba(0,0,0,0.9)]">
+        <div class="flex items-center gap-3 px-2 sm:px-3 py-1.5">
+          <span class="term-dots hidden sm:inline-flex"><i></i><i></i><i></i></span>
+          <div class="flex gap-1 sm:mx-auto" role="tablist" aria-label="Dashboard views">
+            {shots.map((sh, i) => (
+              <button
+                role="tab"
+                aria-selected={i === 0 ? 'true' : 'false'}
+                aria-controls={`shot-${sh.id}`}
+                data-shot-tab={sh.id}
+                class="px-3 py-1 text-xs font-medium rounded-md text-[color:var(--color-text-muted)] hover:text-white aria-selected:bg-white/[0.07] aria-selected:text-white transition"
+              >
+                {sh.label}
+              </button>
+            ))}
+          </div>
+          <span class="hidden sm:block ml-auto sm:ml-0 font-mono text-[11px] text-[color:var(--color-text-dim)]">localhost:8420</span>
+        </div>
+        {shots.map((sh, i) => (
+          <div id={`shot-${sh.id}`} role="tabpanel" data-shot-panel={sh.id} class={i === 0 ? '' : 'hidden'}>
+            <Image
+              src={sh.src}
+              alt={sh.alt}
+              widths={[800, 1400, 2240]}
+              sizes="(min-width: 1152px) 1120px, 100vw"
+              class="w-full h-auto rounded-xl border border-[color:var(--color-border)]"
+            />
+          </div>
+        ))}
+      </div>
+      <figcaption class="mt-3 text-center text-xs text-[color:var(--color-text-dim)]">The real dashboard, shown with a sample workspace.</figcaption>
+    </figure>
+
+    <ul class="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+      {features.map((f) => (
+        <li>
+          <span class="icon-tile"><Icon name={f.icon} size={19} /></span>
+          <h3 class="mt-4 font-semibold">{f.title}</h3>
+          <p class="mt-1.5 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">{f.body}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<script>
+  const shotTabs = document.querySelectorAll<HTMLButtonElement>('[data-shot-tab]');
+  const shotPanels = document.querySelectorAll<HTMLElement>('[data-shot-panel]');
+  shotTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const id = tab.dataset.shotTab;
+      shotTabs.forEach((t) => t.setAttribute('aria-selected', t.dataset.shotTab === id ? 'true' : 'false'));
+      shotPanels.forEach((p) => p.classList.toggle('hidden', p.dataset.shotPanel !== id));
+    });
+  });
+</script>

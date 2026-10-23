@@ -1,0 +1,113 @@
+---
+import Icon from './Icon.astro';
+
+const sources = [
+  {
+    icon: 'sparkles',
+    title: 'While your agent works',
+    body: 'Agents store decisions, patterns and bug fixes through MCP. In Claude Code, hooks also extract them after each response and save context before compaction.',
+    cmd: 'automatic',
+  },
+  {
+    icon: 'code',
+    title: 'Your codebases',
+    body: 'Code is split along functions and classes, prose by meaning. Refresh re-indexes only the files that changed.',
+    cmd: 'imprint ingest .',
+  },
+  {
+    icon: 'message',
+    title: 'Past conversations',
+    body: 'Bring in your Claude Code history plus Claude and ChatGPT data exports: one searchable memory per conversation.',
+    cmd: 'imprint learn --desktop',
+  },
+  {
+    icon: 'globe',
+    title: 'Docs and web pages',
+    body: 'PDFs, office documents and URLs. Stored pages are re-fetched only when their ETag or Last-Modified changes.',
+    cmd: 'imprint ingest-url <url>',
+  },
+  {
+    icon: 'braces',
+    title: 'Anything else',
+    body: 'Push text, Markdown, CSV, JSON or code from your own services through MCP or the HTTP API.',
+    cmd: 'ingest_content',
+  },
+] as const;
+
+const stages = [
+  { label: 'chunk', detail: 'tree-sitter · func RetryWithBackoff' },
+  { label: 'embed', detail: 'Qwen3 Embedding · 1024-dim · on-device' },
+  { label: 'tag', detail: 'deterministic rules + zero-shot labels' },
+  { label: 'store', detail: 'local Qdrant · facts in SQLite graph' },
+];
+
+const tags = [
+  ['lang', 'go'],
+  ['layer', 'api'],
+  ['kind', 'source'],
+  ['domain', 'payments · perf'],
+  ['topics', 'retry-policy · idempotency'],
+];
+---
+
+<section id="capture" class="section border-t border-[color:var(--color-border)]">
+  <div class="wrap">
+    <div class="max-w-2xl">
+      <div class="eyebrow">Capture</div>
+      <h2 class="h2">Memory that builds itself.</h2>
+      <p class="lede">
+        You don't curate notes. Imprint indexes what already exists and keeps learning while you work, then
+        tags every chunk so agents can filter by language, layer, domain and topic.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14 items-start">
+      <ul class="grid gap-3">
+        {sources.map((s) => (
+          <li class="card p-5 flex gap-4">
+            <span class="icon-tile"><Icon name={s.icon} size={19} /></span>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                <h3 class="font-semibold">{s.title}</h3>
+                <code class={`cmd !text-[12px] ${s.cmd === 'automatic' ? '!text-emerald-200 !border-emerald-400/30 !bg-emerald-400/5' : ''}`}>{s.cmd}</code>
+              </div>
+              <p class="mt-1.5 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">{s.body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <figure class="card p-6 sm:p-7 lg:sticky lg:top-24" aria-label="Example: one source file becomes a tagged memory">
+        <div class="flex items-center gap-2 text-xs font-mono text-[color:var(--color-text-dim)]">
+          <Icon name="file" size={14} />
+          billing-api/internal/retry/backoff.go
+        </div>
+        <ol class="mt-5 space-y-0">
+          {stages.map((st, i) => (
+            <li class="relative flex gap-3.5 pb-5">
+              {i < stages.length - 1 && (
+                <span class="absolute left-[7px] top-5 bottom-0 w-px bg-gradient-to-b from-violet-400/50 to-violet-400/10" aria-hidden="true"></span>
+              )}
+              <span class="mt-1 w-[15px] h-[15px] rounded-full border-2 border-violet-400/70 bg-[color:var(--color-surface)] shrink-0"></span>
+              <div>
+                <div class="font-mono text-sm text-[color:var(--color-text)]">{st.label}</div>
+                <div class="text-[13px] text-[color:var(--color-text-dim)]">{st.detail}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div class="rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg)] p-4">
+          <div class="text-[11px] uppercase tracking-[0.14em] text-[color:var(--color-text-dim)] mb-2.5">Payload tags</div>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 font-mono text-[12.5px]">
+            {tags.map(([k, v]) => (
+              <>
+                <dt class="text-[color:var(--color-text-dim)]">{k}</dt>
+                <dd class="text-violet-200">{v}</dd>
+              </>
+            ))}
+          </dl>
+        </div>
+      </figure>
+    </div>
+  </div>
+</section>

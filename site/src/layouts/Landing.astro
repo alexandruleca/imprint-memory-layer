@@ -16,7 +16,7 @@ const {
   description,
   pathname = '/',
   noindex = false,
-  keywords = 'MCP memory layer, Claude Code memory, Cursor memory, Copilot memory, semantic code search, vector memory for AI agents, Qdrant, ONNX embeddings, local AI memory, token savings, developer productivity',
+  keywords = 'MCP memory layer, Claude Code memory, Cursor memory, Copilot memory, shared AI memory, team memory for AI agents, sync AI memory across devices, semantic code search, vector memory for AI agents, Qdrant, ONNX embeddings, local AI memory, token savings, developer productivity',
 } = Astro.props;
 const siteOrigin = 'https://imprintmcp.alexandruleca.com';
 const canonical = new URL(pathname, Astro.site ?? siteOrigin).toString();
@@ -32,7 +32,7 @@ const ogImage = new URL('/og.png', Astro.site ?? siteOrigin).toString();
     <meta name="description" content={description} />
     <meta name="keywords" content={keywords} />
     <meta name="author" content="Alexandru Leca" />
-    <meta name="theme-color" content="#0f1020" />
+    <meta name="theme-color" content="#07070c" />
     <meta name="color-scheme" content="dark" />
     <meta name="generator" content={Astro.generator} />
     {noindex ? (

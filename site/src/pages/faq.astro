@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'Does my code ever leave my machine?',
-    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via ONNX Runtime — no network call. The knowledge graph is local SQLite. If you want LLM-powered topic tagging (better granularity, not required) you opt in explicitly with `imprint config set tagger.llm true` and pick a provider (Anthropic, OpenAI, Gemini, Ollama, vLLM).',
+    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via ONNX Runtime — no network call. The knowledge graph is local SQLite. Two things send data out, and only when you ask: `imprint sync` streams the workspace you choose through a relay, end-to-end encrypted with the session PIN so the relay sees only ciphertext, and opt-in LLM topic tagging (`imprint config set tagger.llm true`) calls the provider you pick (Anthropic, OpenAI, Gemini, or local Ollama / vLLM).',
   },
   {
     q: 'Why not just wait for bigger context windows?',
@@ -26,11 +26,15 @@ const faqs = [
   },
   {
     q: 'Which agents does it work with?',
-    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with hard enforcement via a PreToolUse hook), Cursor, Copilot (VSCode agent mode), Codex CLI, and Cline. Adding a new host is a config file and a CLI subcommand away.',
+    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with hard enforcement via a PreToolUse hook), Claude Desktop, Cursor, GitHub Copilot (VS Code agent mode), Codex CLI, Cline and OpenClaw. Adding a new host is a config file and a CLI subcommand away.',
   },
   {
-    q: 'What about teams and multiple machines?',
-    a: 'Project identity is derived from the manifest (package.json, go.mod, pyproject.toml, etc.), so the same project on two laptops has the same identity. `imprint sync serve --relay <host>` runs a WebSocket forwarder and pushes memory deltas between peers. Per-workspace isolation keeps client projects separate.',
+    q: 'Can I share memory across my machines or with my team?',
+    a: 'Yes. `imprint sync serve` prints a room ID and a one-time PIN; the other machine joins with `imprint sync <room> --pin <PIN>`, the serving side approves its device, and both sides merge, deduplicated. Add `--send-only` or `--receive-only` on either side for one-way sync. Sessions are end-to-end encrypted: the PIN becomes the key (SPAKE2) and never crosses the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Sync is on demand, not a live shared database.',
+  },
+  {
+    q: 'Can I share only part of my memory?',
+    a: 'Yes, through workspaces. Each workspace is a separate memory with its own vector collection and fact graph. Copy a project, topic or single source into a dedicated workspace with `imprint migrate --from default --to team --project <name> --copy`, then sync just that one with `imprint sync serve --workspace team --send-only`. Your own workspace keeps everything, and nothing else is sent. The dashboard has the same controls.',
   },
   {
     q: 'Will it slow my agent down?',
@@ -42,7 +46,7 @@ const faqs = [
   },
   {
     q: 'What does uninstalling look like?',
-    a: '`imprint disable` tears down every MCP entry from every host config it previously wrote, stops the Qdrant daemon, and preserves `data/` and `.venv/` so `imprint enable` brings everything back instantly. Full removal is one extra `imprint wipe` — everything is under `data/`.',
+    a: '`imprint disable` tears down every MCP entry from every host config it previously wrote, stops the Qdrant daemon, and preserves `data/` and `.venv/` so `imprint enable` brings everything back instantly. Full removal is `imprint uninstall`, which also deletes the venv and data; add `--keep-data` to keep your memories.',
   },
 ];
 ---
@@ -63,7 +67,9 @@ const faqs = [
             <span class="font-semibold">{item.q}</span>
             <span class="text-[color:var(--color-text-muted)] group-open:rotate-45 transition-transform text-xl leading-none">+</span>
           </summary>
-          <div class="px-5 pb-5 text-[color:var(--color-text-muted)] leading-relaxed">{item.a}</div>
+          <div class="px-5 pb-5 text-[color:var(--color-text-muted)] leading-relaxed">
+            {item.a.split('`').map((part, i) => (i % 2 ? <code class="cmd">{part}</code> : part))}
+          </div>
         </details>
       ))}
     </div>
@@ -76,7 +82,7 @@ const faqs = [
         mainEntity: faqs.map((f) => ({
           '@type': 'Question',
           name: f.q,
-          acceptedAnswer: { '@type': 'Answer', text: f.a },
+          acceptedAnswer: { '@type': 'Answer', text: f.a.replaceAll('`', '') },
         })),
       })}
     />

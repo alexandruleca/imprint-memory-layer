@@ -1,0 +1,135 @@
+---
+import Icon from './Icon.astro';
+
+const steps = [
+  {
+    title: 'Serve',
+    body: 'One machine runs the command below and prints a room ID plus a fresh PIN.',
+    cmd: 'imprint sync serve',
+  },
+  {
+    title: 'Join',
+    body: 'The other side joins: your desktop, a cloud VPS, or a teammate’s laptop.',
+    cmd: 'imprint sync <room> --pin <PIN>',
+  },
+  {
+    title: 'Approve',
+    body: 'The serving side sees the device’s hostname, user, OS and fingerprint. Accept once, or trust it for next time.',
+  },
+  {
+    title: 'Merge',
+    body: 'Memories and facts stream both ways by default and are deduplicated on arrival. Add --send-only or --receive-only on either side to make it one-way.',
+  },
+];
+
+const details = [
+  {
+    icon: 'lock',
+    title: 'End-to-end encrypted',
+    body: 'A fresh PIN per session becomes the key (SPAKE2); every frame is AES-256-GCM. The relay only ever sees ciphertext.',
+  },
+  {
+    icon: 'merge',
+    title: 'No duplicates',
+    body: 'Memories dedupe by content hash; facts by subject, predicate, object and start date.',
+  },
+  {
+    icon: 'arrowRight',
+    title: 'One way when you want it',
+    body: 'Each side chooses send-only, receive-only or both. The serving side enforces its choice, so nothing is merged into it without consent.',
+  },
+  {
+    icon: 'archive',
+    title: 'Self-host or go offline',
+    body: 'Run the stateless relay from a small Docker image on your own domain, or move zipped snapshots instead.',
+  },
+] as const;
+---
+
+<section id="sync" class="section relative border-t border-[color:var(--color-border)] overflow-hidden">
+  <div class="absolute inset-x-0 top-0 h-[480px] bg-[radial-gradient(ellipse_50%_60%_at_80%_0%,rgba(34,211,238,0.08),transparent)] pointer-events-none" aria-hidden="true"></div>
+  <div class="relative wrap">
+    <div class="max-w-2xl">
+      <div class="eyebrow !text-cyan-300"><Icon name="sync" size={14} /> Sync & share</div>
+      <h2 class="h2">Share what your agent has learned, across devices and colleagues.</h2>
+      <p class="lede">
+        Pair two machines through a relay and Imprint merges their memories, both ways or just one, end-to-end
+        encrypted. Keep your laptop and workstation in step, or give a new teammate's agent the project's history
+        on day one.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-14 items-start">
+      <ol class="space-y-2">
+        {steps.map((s, i) => (
+          <li class="relative flex gap-4 pb-6 last:pb-0">
+            {i < steps.length - 1 && (
+              <span class="absolute left-[15px] top-9 bottom-1 w-px bg-[color:var(--color-border-strong)]" aria-hidden="true"></span>
+            )}
+            <span class="relative z-10 w-8 h-8 shrink-0 rounded-full grid place-items-center text-sm font-semibold bg-cyan-400/10 text-cyan-200 border border-cyan-300/30">
+              {i + 1}
+            </span>
+            <div class="pt-1">
+              <h3 class="font-semibold">{s.title}</h3>
+              <p class="mt-1 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">{s.body}</p>
+              {s.cmd && <code class="cmd mt-2.5 inline-block !text-[13px]">{s.cmd}</code>}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div class="relative">
+        <figure class="term" aria-label="Example: serving a sync session and approving a teammate's device">
+          <div class="term-bar">
+            <span class="term-dots"><i></i><i></i><i></i></span>
+            <span class="font-mono">you@laptop</span>
+          </div>
+          <div class="term-body">
+            <div><span class="prompt">$</span> <span class="hl">imprint sync serve</span></div>
+            <div class="mt-1 text-[color:var(--color-text-dim)]">═══ Imprint Sync Server ═══</div>
+            <div class="ok">✓ Connected! Share this with the other machine:</div>
+            <div class="my-1.5 pl-4 hl">imprint sync 7f3a9c21 --pin Ab3xY9Kq</div>
+            <div class="pl-4">This device: laptop (id: a3f2c1d4)</div>
+            <div class="mt-3 text-[color:var(--color-text-dim)]">═══ Incoming Sync Request ═══</div>
+            <div class="pl-4">Device:&nbsp;&nbsp; <span class="hl">sam-workstation</span></div>
+            <div class="pl-4">User:&nbsp;&nbsp;&nbsp;&nbsp; sam · OS: linux · ID: 5e19b07c</div>
+            <div class="pl-4">Accept? [y]es / [n]o / [t]rust &amp; accept: <span class="hl">t</span></div>
+            <div class="ok">✓ Merged peer data</div>
+          </div>
+          <div class="hidden lg:block h-6" aria-hidden="true"></div>
+        </figure>
+
+        <figure class="term mt-4 lg:-mt-6 lg:ml-14 relative" aria-label="Example: a teammate joins the sync session">
+          <div class="term-bar">
+            <span class="term-dots"><i></i><i></i><i></i></span>
+            <span class="font-mono">sam@workstation</span>
+          </div>
+          <div class="term-body">
+            <div><span class="prompt">$</span> <span class="hl">imprint sync 7f3a9c21 --pin Ab3xY9Kq</span></div>
+            <div class="ok">✓ Handshake accepted</div>
+            <div class="ok">✓ Merged remote → local</div>
+            <div class="ok">✓ Pushed local → remote</div>
+            <div class="text-[color:var(--color-text-dim)]">═══ Sync Complete ═══</div>
+          </div>
+        </figure>
+      </div>
+    </div>
+
+    <ul class="mt-16 grid gap-px rounded-2xl overflow-hidden border border-[color:var(--color-border)] bg-[color:var(--color-border)] sm:grid-cols-2 lg:grid-cols-4">
+      {details.map((d) => (
+        <li class="bg-[color:var(--color-surface)] p-6">
+          <Icon name={d.icon} size={20} class="text-cyan-300" />
+          <h3 class="mt-3 font-semibold text-[15px]">{d.title}</h3>
+          <p class="mt-1.5 text-sm leading-relaxed text-[color:var(--color-text-muted)]">{d.body}</p>
+        </li>
+      ))}
+    </ul>
+
+    <p class="mt-5 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
+      The PIN never crosses the relay, and the relay — including the default one — never sees your devices or
+      your memories; a wrong PIN or an altered frame ends the session. Vectors travel with each record, so the
+      receiving machine doesn't re-embed anything; both sides need the same embedding model.
+      <a href="/sync" class="underline underline-offset-2 hover:text-white">Read the sync docs</a>.
+    </p>
+  </div>
+</section>

@@ -1,0 +1,21 @@
+---
+import InstallTabs from './InstallTabs.astro';
+---
+
+<section id="install" class="section border-t border-[color:var(--color-border)]">
+  <div class="wrap max-w-4xl">
+    <div class="text-center max-w-2xl mx-auto">
+      <div class="eyebrow">Install</div>
+      <h2 class="h2">One command. No sudo, no system pollution.</h2>
+      <p class="lede">
+        A self-contained <code class="cmd">.venv</code>, an auto-downloaded Qdrant binary, and every installed host
+        wired in one run. Pin a version with <code class="cmd">IMPRINT_VERSION=vX.Y.Z</code>, or grab a
+        <a href="/download" class="underline underline-offset-2 hover:text-white">desktop installer</a>.
+      </p>
+    </div>
+
+    <div class="mt-10">
+      <InstallTabs />
+    </div>
+  </div>
+</section>

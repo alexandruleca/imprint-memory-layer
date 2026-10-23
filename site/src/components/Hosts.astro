@@ -1,0 +1,16 @@
+---
+const hosts = ['Claude Code', 'Claude Desktop', 'Cursor', 'GitHub Copilot', 'Codex CLI', 'Cline', 'OpenClaw'];
+---
+
+<section class="border-y border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated)]/60">
+  <div class="wrap py-7 flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-10">
+    <p class="text-sm text-[color:var(--color-text-dim)] shrink-0">
+      One memory for every MCP agent · <code class="cmd">imprint setup all</code>
+    </p>
+    <ul class="flex flex-wrap gap-x-7 gap-y-2.5">
+      {hosts.map((h) => (
+        <li class="text-[15px] font-semibold tracking-tight text-[color:var(--color-text-muted)]">{h}</li>
+      ))}
+    </ul>
+  </div>
+</section>

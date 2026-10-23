@@ -1,82 +1,143 @@
 ---
-import benchmarks from '../data/benchmarks.json';
+import Icon from './Icon.astro';
 
-const debugCat = benchmarks.categories?.find((c: any) => c.key === 'debug');
-const crossCat = benchmarks.categories?.find((c: any) => c.key === 'cross');
-
-const cards = [
-  {
-    label: 'Local-first',
-    title: 'Your code never leaves the box',
-    body: 'Qwen3 Embedding runs on your CPU/GPU. Qdrant is a local daemon on 127.0.0.1. SQLite on disk. Nothing is sent to a paid API unless you explicitly opt in.',
-    accent: 'from-emerald-400/20 to-emerald-400/0',
-    ring: 'ring-emerald-400/30',
-  },
-  {
-    label: 'Cost',
-    title: `${benchmarks.overall?.costPct ?? '−31.7%'} cost across 150 runs`,
-    body: 'Debug queries alone drop by ' + (debugCat?.avgCost ?? '−68.3%') + ' cost because known failure modes are served from memory instead of re-read from disk.',
-    accent: 'from-violet-400/20 to-violet-400/0',
-    ring: 'ring-violet-400/30',
-  },
-  {
-    label: 'Tokens',
-    title: `${benchmarks.overall?.tokenPct ?? '−70.4%'} tokens end-to-end`,
-    body: 'Cross-project questions drop by ' + (crossCat?.avgTokens ?? '−90.6%') + ' tokens. Semantic search returns the 5 chunks that matter, not the 3 files that contain them.',
-    accent: 'from-indigo-400/20 to-indigo-400/0',
-    ring: 'ring-indigo-400/30',
-  },
-  {
-    label: 'Zero-config',
-    title: 'One command wires every host',
-    body: '`imprint setup all` auto-detects Claude Code, Cursor, Codex CLI, Copilot, and Cline. No sudo. Self-managed .venv. Qdrant auto-spawned. Nothing leaks into your system install.',
-    accent: 'from-amber-400/20 to-amber-400/0',
-    ring: 'ring-amber-400/30',
-  },
-  {
-    label: 'Same identity, any machine',
-    title: 'Project detection that survives renames',
-    body: 'Canonical project name from manifests (package.json, go.mod, pyproject.toml), not path. Sync memory between your laptop and a cloud VPS and everything lines up.',
-    accent: 'from-sky-400/20 to-sky-400/0',
-    ring: 'ring-sky-400/30',
-  },
-  {
-    label: 'Temporal graph',
-    title: 'Not just vectors — facts with a timeline',
-    body: 'A SQLite knowledge graph tracks subject → predicate → object with validity windows. Decisions, bug fixes, and patterns are recalled with the context of when they were true.',
-    accent: 'from-pink-400/20 to-pink-400/0',
-    ring: 'ring-pink-400/30',
-  },
+const tools = ['Claude Code', 'Cursor', 'Copilot', 'Codex', 'Cline'];
+const devices = [
+  { icon: 'laptop', label: 'laptop' },
+  { icon: 'monitor', label: 'desktop' },
+  { icon: 'server', label: 'VPS' },
+] as const;
+const teammates = [
+  { initial: 'A', tone: 'bg-violet-500/25 text-violet-100' },
+  { initial: 'S', tone: 'bg-cyan-500/20 text-cyan-100' },
+  { initial: 'M', tone: 'bg-indigo-500/25 text-indigo-100' },
 ];
 ---
 
-<section id="benefits" class="relative py-20 sm:py-28">
-  <div class="max-w-6xl mx-auto px-6">
+<section id="benefits" class="section">
+  <div class="wrap">
     <div class="max-w-2xl">
-      <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">Why Imprint</div>
-      <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">
-        Your agent keeps re-reading the same files. Fix that.
-      </h2>
-      <p class="mt-4 text-[color:var(--color-text-muted)]">
-        Every session starts blank. Claude Code reads <code class="font-mono text-sm">chunker.py</code> for the tenth time. Imprint gives every MCP-capable agent a semantic, local, persistent brain — searched, not grepped.
+      <div class="eyebrow">Why Imprint</div>
+      <h2 class="h2">Memory that isn't trapped in one chat window.</h2>
+      <p class="lede">
+        Built-in agent memory lives in one tool, on one machine, for one person. Every new session starts
+        blank and your agent re-reads the same files. Imprint keeps what it learns and takes it with you.
       </p>
     </div>
 
-    <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {cards.map((c) => (
-        <article
-          class={`relative rounded-2xl p-6 bg-[color:var(--color-surface)] border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)]/60 transition group overflow-hidden`}
-        >
-          <div class={`absolute inset-0 bg-gradient-to-br ${c.accent} opacity-0 group-hover:opacity-100 transition pointer-events-none`}></div>
-          <div class="relative">
-            <div class={`inline-block text-[11px] uppercase tracking-widest px-2 py-1 rounded-md ring-1 ${c.ring} text-white/90 mb-4`}>
-              {c.label}
-            </div>
-            <h3 class="text-lg font-semibold leading-snug">{c.title}</h3>
-            <p class="mt-3 text-sm text-[color:var(--color-text-muted)] leading-relaxed">{c.body}</p>
+    <div class="mt-14 grid gap-5 md:grid-cols-2">
+      <!-- Sessions -->
+      <article class="card p-6 sm:p-7">
+        <div class="h-36 flex items-center">
+          <ol class="relative w-full grid grid-cols-3 gap-3 text-center">
+            <span class="absolute left-[16%] right-[16%] top-[13px] h-px bg-gradient-to-r from-violet-400/50 via-violet-400/30 to-cyan-400/60" aria-hidden="true"></span>
+            <li class="relative flex flex-col items-center gap-2.5">
+              <span class="w-[27px] h-[27px] rounded-full bg-[color:var(--color-surface-2)] border border-[color:var(--color-border-strong)] grid place-items-center text-[10px] font-mono text-[color:var(--color-text-muted)]">Mon</span>
+              <span class="chip !text-[11px]">+ decision</span>
+            </li>
+            <li class="relative flex flex-col items-center gap-2.5">
+              <span class="w-[27px] h-[27px] rounded-full bg-[color:var(--color-surface-2)] border border-[color:var(--color-border-strong)] grid place-items-center text-[10px] font-mono text-[color:var(--color-text-muted)]">Tue</span>
+              <span class="chip !text-[11px]">+ bug fix</span>
+            </li>
+            <li class="relative flex flex-col items-center gap-2.5">
+              <span class="w-[27px] h-[27px] rounded-full bg-cyan-400/15 border border-cyan-300/50 grid place-items-center text-cyan-200"><Icon name="check" size={13} /></span>
+              <span class="chip !text-[11px] !border-cyan-300/40 !text-cyan-100">recalls both</span>
+            </li>
+          </ol>
+        </div>
+        <div class="flex items-center gap-2 text-sm font-semibold text-[color:var(--color-accent)]">
+          <Icon name="history" size={16} /> Across sessions
+        </div>
+        <h3 class="mt-2 text-xl font-semibold tracking-tight">Tomorrow starts where today left off.</h3>
+        <p class="mt-2 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">
+          Hooks capture decisions as you work and save context before the window compacts. Your agent searches
+          memory first, so it stops rediscovering the same answers.
+        </p>
+      </article>
+
+      <!-- Tools -->
+      <article class="card p-6 sm:p-7">
+        <div class="h-36 flex flex-col items-center justify-center gap-3">
+          <ul class="flex flex-wrap justify-center gap-1.5">
+            {tools.map((t) => <li class="chip !text-[11px]">{t}</li>)}
+          </ul>
+          <span class="h-5 w-px bg-gradient-to-b from-violet-400/60 to-violet-400/0" aria-hidden="true"></span>
+          <span class="inline-flex items-center gap-2 rounded-lg border border-violet-400/40 bg-violet-500/10 px-3 py-1.5 text-xs font-medium text-violet-100">
+            <img src="/logo.svg" alt="" width="16" height="16" /> one shared store
+          </span>
+        </div>
+        <div class="flex items-center gap-2 text-sm font-semibold text-[color:var(--color-accent)]">
+          <Icon name="layers" size={16} /> Across tools
+        </div>
+        <h3 class="mt-2 text-xl font-semibold tracking-tight">Switch editors without starting over.</h3>
+        <p class="mt-2 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">
+          Claude Code, Cursor, Copilot, Codex, Cline and other MCP hosts read and write the same memory. What
+          one agent learns, the next one already knows.
+        </p>
+      </article>
+
+      <!-- Machines -->
+      <article class="card p-6 sm:p-7">
+        <div class="h-36 flex items-center justify-center">
+          <ul class="flex w-full max-w-sm items-center gap-1 sm:gap-2">
+            {devices.map((d, i) => (
+              <>
+                {i > 0 && (
+                  <li class="flex flex-1 min-w-6 items-center text-cyan-300/80" aria-hidden="true">
+                    <span class="flex-1 border-t border-dashed border-cyan-300/40"></span>
+                    <Icon name="sync" size={14} class="shrink-0" />
+                    <span class="flex-1 border-t border-dashed border-cyan-300/40"></span>
+                  </li>
+                )}
+                <li class="flex flex-col items-center gap-2">
+                  <span class="w-12 h-12 rounded-xl bg-[color:var(--color-surface-2)] border border-[color:var(--color-border-strong)] grid place-items-center text-[color:var(--color-text)]">
+                    <Icon name={d.icon} size={22} />
+                  </span>
+                  <span class="text-[11px] font-mono whitespace-nowrap text-[color:var(--color-text-dim)]">{d.label}</span>
+                </li>
+              </>
+            ))}
+          </ul>
+        </div>
+        <div class="flex items-center gap-2 text-sm font-semibold text-[color:var(--color-accent)]">
+          <Icon name="laptop" size={16} /> Across machines
+        </div>
+        <h3 class="mt-2 text-xl font-semibold tracking-tight">Your memory, on every machine you code on.</h3>
+        <p class="mt-2 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">
+          Pair a laptop, a desktop and a cloud box with a room ID and a one-time PIN. Memories and facts merge
+          both ways, or one way, without duplicates, end-to-end encrypted. Projects are identified by their manifest, not their path, so they
+          line up everywhere.
+        </p>
+      </article>
+
+      <!-- Team -->
+      <article class="card p-6 sm:p-7">
+        <div class="h-40 sm:h-36 flex flex-col sm:flex-row items-center justify-center gap-1.5 sm:gap-3">
+          <div class="flex -space-x-2.5 shrink-0">
+            {teammates.map((t) => (
+              <span class={`w-9 h-9 sm:w-11 sm:h-11 rounded-full ring-4 ring-[color:var(--color-surface)] grid place-items-center text-sm font-semibold ${t.tone}`}>{t.initial}</span>
+            ))}
           </div>
-        </article>
-      ))}
+          <span class="flex flex-col sm:flex-row sm:flex-1 sm:min-w-8 sm:max-w-24 items-center text-violet-300/80" aria-hidden="true">
+            <span class="hidden sm:block flex-1 border-t border-dashed border-violet-300/40"></span>
+            <Icon name="merge" size={16} class="shrink-0" />
+            <span class="hidden sm:block flex-1 border-t border-dashed border-violet-300/40"></span>
+          </span>
+          <div class="shrink-0 whitespace-nowrap rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-surface-2)] px-3 py-2.5 text-[11px] leading-5 font-mono text-[color:var(--color-text-muted)]">
+            <div class="text-[color:var(--color-text)] font-sans font-semibold text-xs mb-0.5">workspace: team</div>
+            decisions · fixes<br />docs · facts
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-sm font-semibold text-[color:var(--color-accent)]">
+          <Icon name="users" size={16} /> Across your team
+        </div>
+        <h3 class="mt-2 text-xl font-semibold tracking-tight">Onboard a teammate's agent in one sync.</h3>
+        <p class="mt-2 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">
+          Give a colleague what your agent has learned about a codebase: decisions, fixes and indexed docs.
+          Copy just that project into a team workspace and send it, one way if you like. Everything else
+          stays where it is.
+        </p>
+      </article>
     </div>
   </div>
 </section>

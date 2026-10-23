@@ -1,80 +1,192 @@
 ---
 import benchmarks from '../data/benchmarks.json';
+import { signed } from '../lib/format';
 
 type Cat = {
   key: string;
   label: string;
   avgTokens?: string;
   avgCost?: string;
+  rows?: unknown[];
 };
 
-const cats = (benchmarks.categories ?? []) as Cat[];
+const overall = benchmarks.overall;
+const runs = (benchmarks.categories ?? []).reduce((n: number, c: Cat) => n + (c.rows?.length ?? 0), 0) * 10;
 
-function toPct(s?: string): number {
-  if (!s) return 0;
-  return parseFloat(s.replace('%', ''));
-}
+// Diverging scale: 0 sits mid-track, ±100% reaches either end. Larger
+// increases are clipped at the end and drawn with a break mark.
+const DOMAIN = 100;
+const rows = ((benchmarks.categories ?? []) as Cat[])
+  .map((c) => {
+    const pct = parseFloat(c.avgTokens ?? '0');
+    return {
+      label: c.label,
+      tokens: signed(c.avgTokens),
+      cost: signed(c.avgCost),
+      prompts: c.rows?.length ?? 0,
+      fewer: pct < 0,
+      width: (Math.min(Math.abs(pct), DOMAIN) / DOMAIN) * 50,
+      clipped: Math.abs(pct) > DOMAIN,
+      pct,
+    };
+  })
+  .sort((a, b) => a.pct - b.pct);
 
-function barColor(pct: number) {
-  if (pct <= -80) return 'from-emerald-400 to-emerald-600';
-  if (pct <= -50) return 'from-indigo-400 to-violet-500';
-  if (pct < 0) return 'from-sky-400 to-indigo-400';
-  return 'from-amber-400 to-rose-500';
-}
-
-const rows = cats.map((c) => {
-  const pct = toPct(c.avgTokens);
-  const abs = Math.min(100, Math.abs(pct));
-  return { ...c, pct, abs, color: barColor(pct) };
-});
+const fmtM = (n?: number) => (typeof n === 'number' ? `${(n / 1e6).toFixed(1)}M` : '—');
+const ticks = [-100, -50, 0, 50, 100];
 ---
 
-<section id="benchmarks" class="relative py-20 sm:py-28 border-t border-[color:var(--color-border)]/60">
-  <div class="max-w-6xl mx-auto px-6">
-    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+<section id="benchmarks" class="section border-t border-[color:var(--color-border)]">
+  <div class="wrap">
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
       <div class="max-w-2xl">
-        <div class="text-xs uppercase tracking-widest text-[color:var(--color-accent)] font-semibold">Benchmarks</div>
-        <h2 class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">Real numbers, reproducible in one command.</h2>
-        <p class="mt-4 text-[color:var(--color-text-muted)]">
-          Every prompt runs 5 times in each mode. Medians are reported. Raw JSON per run is checked in. See
-          <a href="/benchmarks" class="underline hover:text-white">the full deep-dive</a> or
-          <a href="https://github.com/alexandruleca/imprint-memory-layer/blob/main/BENCHMARK.md" class="underline hover:text-white">BENCHMARK.md</a>
-          on GitHub.
+        <div class="eyebrow">Benchmarks</div>
+        <h2 class="h2">Smaller context, smaller bill. Measured.</h2>
+        <p class="lede">
+          {rows.reduce((n, r) => n + r.prompts, 0)} prompts across {rows.length} categories, each run 5 times with
+          Imprint on and off in Claude Code (Sonnet). Medians are reported and the raw JSON for every run is in the repo.
         </p>
       </div>
-      <a
-        href="/benchmarks"
-        class="self-start md:self-end inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] text-sm"
-      >
-        See every prompt →
-      </a>
+      <a href="/benchmarks" class="btn btn-ghost !text-sm self-start md:self-end shrink-0">See every prompt →</a>
     </div>
 
-    <div class="grid gap-4">
-      {rows.map((r) => (
-        <div class="grid grid-cols-12 items-center gap-4 p-4 rounded-xl bg-[color:var(--color-surface)] border border-[color:var(--color-border)]">
-          <div class="col-span-12 sm:col-span-3 font-semibold">{r.label}</div>
-          <div class="col-span-10 sm:col-span-7">
-            <div class="relative h-3 rounded-full bg-[color:var(--color-bg-elevated)] overflow-hidden">
-              <div
-                class={`absolute inset-y-0 left-0 bg-gradient-to-r ${r.color}`}
-                style={`width: ${r.abs}%`}
-              ></div>
-            </div>
-          </div>
-          <div class="col-span-2 text-right font-mono text-sm tabular-nums">
-            <div class={r.pct < 0 ? 'text-[color:var(--color-success)]' : 'text-[color:var(--color-warning)]'}>
-              {r.avgTokens}
-            </div>
-            <div class="text-[11px] text-[color:var(--color-text-muted)]">{r.avgCost}</div>
+    <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="card p-6 sm:col-span-2 lg:col-span-1">
+        <div class="text-sm text-[color:var(--color-text-muted)]">Total tokens</div>
+        <div class="mt-1 text-5xl sm:text-6xl font-bold tracking-tight">{signed(overall?.tokenPct)}</div>
+        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">{fmtM(overall?.tokensOff)} → {fmtM(overall?.tokensOn)}</div>
+      </div>
+      <div class="card p-6">
+        <div class="text-sm text-[color:var(--color-text-muted)]">Cost</div>
+        <div class="mt-1 text-4xl font-bold tracking-tight">{signed(overall?.costPct)}</div>
+        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">${overall?.costOff?.toFixed(2)} → ${overall?.costOn?.toFixed(2)} for the suite</div>
+      </div>
+      <div class="card p-6">
+        <div class="text-sm text-[color:var(--color-text-muted)]">Answer quality</div>
+        <div class="mt-1 text-4xl font-bold tracking-tight">{overall?.qualityPct ?? '—'}</div>
+        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">vs. memory off, judged by an LLM</div>
+      </div>
+      <div class="card p-6">
+        <div class="text-sm text-[color:var(--color-text-muted)]">Runs</div>
+        <div class="mt-1 text-4xl font-bold tracking-tight">{runs}</div>
+        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">reproduce with <code class="cmd">benchmark/run.sh</code></div>
+      </div>
+    </div>
+
+    <figure class="relative mt-4 card p-5 sm:p-7" data-bench-chart>
+      <figcaption class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <span class="font-semibold">Token change by category, Imprint on vs. off</span>
+        <span class="flex items-center gap-4 text-xs text-[color:var(--color-text-muted)]">
+          <span class="inline-flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-[2px] bg-[color:var(--color-fewer)]"></i> fewer tokens</span>
+          <span class="inline-flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-[2px] bg-[color:var(--color-more)]"></i> more tokens</span>
+        </span>
+      </figcaption>
+
+      <div class="relative mt-6">
+        <ul class="space-y-1">
+          {rows.map((r) => (
+            <li
+              class="grid grid-cols-[1fr_auto] sm:grid-cols-[9.5rem_1fr_6.5rem] items-center gap-x-4 gap-y-1 rounded-lg px-2 py-2 -mx-2 outline-none hover:bg-white/[0.03] focus-visible:bg-white/[0.05] focus-visible:ring-1 focus-visible:ring-[color:var(--color-accent)]"
+              tabindex="0"
+              data-bench-row
+              data-label={r.label}
+              data-tokens={r.tokens}
+              data-cost={r.cost}
+              data-prompts={r.prompts}
+            >
+              <span class="text-sm font-medium">{r.label}</span>
+              <span class="sm:order-last text-right text-xs text-[color:var(--color-text-muted)] tabular-nums">{r.cost} cost</span>
+              <span class="col-span-2 sm:col-span-1 relative h-6 mx-14">
+                <span class="sm:hidden absolute inset-y-0 left-1/2 w-px bg-[color:var(--color-text-dim)]/60" aria-hidden="true"></span>
+                <span
+                  class={`absolute top-[5px] h-3.5 ${r.fewer ? 'rounded-l-[4px] bg-[color:var(--color-fewer)]' : 'rounded-r-[4px] bg-[color:var(--color-more)]'}`}
+                  style={r.fewer ? `right:50%;width:${r.width}%` : `left:50%;width:${r.width}%`}
+                  data-bench-bar
+                ></span>
+                {r.clipped && (
+                  <span class="absolute top-[3px] h-[18px] w-[5px] -skew-x-[20deg] bg-[color:var(--color-surface)]" style="right:7%" aria-hidden="true"></span>
+                )}
+                <span
+                  class={`absolute top-0 leading-6 text-xs font-medium tabular-nums text-[color:var(--color-text)] ${r.fewer ? 'text-right' : ''}`}
+                  style={r.fewer ? `right:calc(50% + ${r.width}% + 6px)` : `left:calc(50% + ${r.width}% + 6px)`}
+                >{r.tokens}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        <!-- Baseline and gridlines span the bar column only. -->
+        <div class="hidden sm:block pointer-events-none absolute inset-y-0 left-[calc(9.5rem+1rem)] right-[calc(6.5rem+1rem)]" aria-hidden="true">
+          <div class="absolute inset-y-0 left-14 right-14">
+            {ticks.map((t) => (
+              <span
+                class={`absolute inset-y-0 w-px ${t === 0 ? 'bg-[color:var(--color-text-dim)]/60' : 'bg-white/[0.05]'}`}
+                style={`left:${50 + t / 2}%`}
+              ></span>
+            ))}
           </div>
         </div>
-      ))}
-    </div>
+      </div>
 
-    <div class="mt-6 text-xs text-[color:var(--color-text-muted)]">
-      Token % first, cost % below. Both measured as ON vs OFF medians per category.
-      <span class="ml-2">Session Summary and Creation are honest losses — ON mode explored more context than it needed.</span>
-    </div>
+      <div class="hidden sm:block relative h-5 mt-1 ml-[calc(9.5rem+1rem)] mr-[calc(6.5rem+1rem)]" aria-hidden="true">
+        <div class="absolute inset-y-0 left-14 right-14">
+          {ticks.map((t) => (
+            <span class="absolute -translate-x-1/2 text-[11px] tabular-nums text-[color:var(--color-text-dim)]" style={`left:${50 + t / 2}%`}>
+              {t > 0 ? `+${t}%` : t < 0 ? `−${-t}%` : '0'}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div
+        class="pointer-events-none absolute z-10 hidden rounded-lg border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-xs shadow-xl shadow-black/50"
+        data-bench-tip
+        aria-hidden="true"
+      >
+        <div class="text-sm font-semibold text-[color:var(--color-text)]" data-tip-tokens></div>
+        <div class="text-[color:var(--color-text-muted)]" data-tip-cost></div>
+        <div class="mt-1 text-[color:var(--color-text-dim)]" data-tip-label></div>
+      </div>
+
+      <p class="mt-5 text-sm leading-relaxed text-[color:var(--color-text-dim)]">
+        Two categories cost more, and we show them. Session summary is a single prompt where the memory-on run
+        explored far more context than it needed (bar clipped at +100%). Creation tasks still have to read the
+        code they change. Full per-prompt tables are on the <a href="/benchmarks" class="underline underline-offset-2 hover:text-white">benchmarks page</a>.
+      </p>
+    </figure>
   </div>
 </section>
+
+<script>
+  const chart = document.querySelector<HTMLElement>('[data-bench-chart]');
+  const tip = chart?.querySelector<HTMLElement>('[data-bench-tip]');
+  if (chart && tip) {
+    const tokensEl = tip.querySelector<HTMLElement>('[data-tip-tokens]')!;
+    const costEl = tip.querySelector<HTMLElement>('[data-tip-cost]')!;
+    const labelEl = tip.querySelector<HTMLElement>('[data-tip-label]')!;
+
+    const show = (row: HTMLElement) => {
+      const { label = '', tokens = '', cost = '', prompts = '' } = row.dataset;
+      tokensEl.textContent = `${tokens} tokens`;
+      costEl.textContent = `${cost} cost`;
+      labelEl.textContent = `${label} · ${prompts} prompt${prompts === '1' ? '' : 's'} × 5 runs per mode`;
+      const bar = row.querySelector<HTMLElement>('[data-bench-bar]')!.getBoundingClientRect();
+      const box = chart.getBoundingClientRect();
+      tip.classList.remove('hidden');
+      const left = Math.min(
+        Math.max(bar.left + bar.width / 2 - box.left - tip.offsetWidth / 2, 8),
+        box.width - tip.offsetWidth - 8,
+      );
+      tip.style.left = `${left}px`;
+      tip.style.top = `${bar.top - box.top - tip.offsetHeight - 10}px`;
+    };
+    const hide = () => tip.classList.add('hidden');
+
+    chart.querySelectorAll<HTMLElement>('[data-bench-row]').forEach((row) => {
+      row.addEventListener('pointerenter', () => show(row));
+      row.addEventListener('pointerleave', hide);
+      row.addEventListener('focus', () => show(row));
+      row.addEventListener('blur', hide);
+    });
+  }
+</script>

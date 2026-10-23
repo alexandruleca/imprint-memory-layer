@@ -4,9 +4,10 @@ The marketing + docs site deployed to https://imprintmcp.alexandruleca.com via G
 
 ## Stack
 
-- **Astro 6** — static site generator, zero JS by default.
-- **Starlight 0.38** — docs UI with Pagefind search; reads from `src/content/docs/` which is a symlink to the repo-root `../docs/` folder so Markdown stays the single source of truth.
-- **Tailwind CSS v4** — landing/benchmarks/FAQ styling.
+- **Astro 7** — static site generator, zero JS by default. `compressHTML: true` keeps HTML whitespace semantics in the `.astro` templates (Astro 7's default JSX rules would drop spaces between inline elements).
+- **Starlight 0.42** — docs UI with Pagefind search; reads from `src/content/docs/` which is a symlink to the repo-root `../docs/` folder so Markdown stays the single source of truth. Markdown runs through Sätteri; a small mdast plugin in `astro.config.mjs` turns ```` ```mermaid ```` fences into `<pre class="mermaid">` before Expressive Code highlights code, and a head script renders them.
+- **Tailwind CSS v4** — landing/benchmarks/FAQ styling. Design tokens and shared classes (`.wrap`, `.section`, `.card`, `.btn`, `.term`, …) live in `src/styles/global.css`; icons are inline SVG via `src/components/Icon.astro`.
+- **Dashboard screenshots** in `src/assets/` are optimized by `astro:assets` at build time. They show the real dashboard with a sample workspace.
 - `scripts/build-benchmarks.mjs` parses `../BENCHMARK.md` into `src/data/benchmarks.json` at build time so hero numbers, the benchmarks page, and the benefit cards stay in sync with reality.
 
 ## Pages

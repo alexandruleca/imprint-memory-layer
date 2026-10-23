@@ -1,0 +1,111 @@
+---
+import Icon from './Icon.astro';
+
+const mine = [
+  { name: 'billing-api', picked: true },
+  { name: 'web-dashboard', picked: false },
+  { name: 'client-acme', picked: false },
+  { name: 'personal-notes', picked: false },
+];
+
+const steps = [
+  {
+    title: 'Curate',
+    body: 'Copy a project, a topic or a single source into its own workspace. Your workspace keeps everything; add --dry-run to preview.',
+    cmd: 'imprint migrate --from default --to team --project billing-api --copy',
+  },
+  {
+    title: 'Share one way',
+    body: 'Serve only that workspace. Your active workspace doesn’t change, and anything pushed back is refused.',
+    cmd: 'imprint sync serve --workspace team --send-only',
+  },
+  {
+    title: 'Receive',
+    body: 'Your teammate merges it into the workspace they work in, or keeps it apart with --workspace.',
+    cmd: 'imprint sync <room> --pin <PIN>',
+  },
+];
+---
+
+<section id="workspaces" class="section border-t border-[color:var(--color-border)]">
+  <div class="wrap">
+    <div class="max-w-2xl">
+      <div class="eyebrow"><Icon name="folder" size={14} /> Workspaces</div>
+      <h2 class="h2">Share only the pieces you choose.</h2>
+      <p class="lede">
+        A workspace is a separate memory with its own vector collection and fact graph. Keep client work, side
+        projects and team knowledge apart. When you want to share, copy exactly what belongs into its own
+        workspace and sync only that, one way if you prefer.
+      </p>
+    </div>
+
+    <figure class="mt-12 card p-5 sm:p-8" aria-label="Example: copying one project into a team workspace and sending it to a teammate">
+      <div class="grid gap-4 lg:grid-cols-[1fr_auto_1fr_auto_0.8fr] items-center">
+        <div class="rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg)] p-4">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-mono text-[color:var(--color-text)]">workspace: default</span>
+            <span class="text-[color:var(--color-text-dim)]">yours</span>
+          </div>
+          <ul class="mt-3 grid grid-cols-2 gap-2">
+            {mine.map((p) => (
+              <li class={`rounded-lg px-2.5 py-2 text-xs font-mono border truncate ${p.picked ? 'border-violet-400/50 bg-violet-500/10 text-violet-100' : 'border-[color:var(--color-border)] text-[color:var(--color-text-muted)]'}`}>
+                {p.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div class="flex lg:flex-col items-center justify-center gap-2 text-[11px] font-mono text-violet-300" aria-hidden="true">
+          <span class="hidden lg:block w-12 border-t border-dashed border-violet-300/50"></span>
+          <span class="lg:hidden h-6 border-l border-dashed border-violet-300/50"></span>
+          <span>copy</span>
+        </div>
+
+        <div class="rounded-xl border border-violet-400/40 bg-violet-500/[0.06] p-4">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-mono text-[color:var(--color-text)]">workspace: team</span>
+            <span class="text-violet-200">to share</span>
+          </div>
+          <ul class="mt-3 grid gap-2">
+            <li class="rounded-lg px-2.5 py-2 text-xs font-mono border border-violet-400/50 bg-violet-500/10 text-violet-100">billing-api</li>
+            <li class="text-[11px] text-[color:var(--color-text-dim)]">memories, vectors and their facts</li>
+          </ul>
+        </div>
+
+        <div class="flex lg:flex-col items-center justify-center gap-2 text-[11px] font-mono text-cyan-300" aria-hidden="true">
+          <span class="hidden lg:block w-12 border-t border-dashed border-cyan-300/50"></span>
+          <span class="lg:hidden h-6 border-l border-dashed border-cyan-300/50"></span>
+          <span>send-only</span>
+        </div>
+
+        <div class="rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg)] p-4 flex items-center gap-3">
+          <span class="w-10 h-10 rounded-full grid place-items-center text-sm font-semibold bg-cyan-500/20 text-cyan-100 shrink-0">S</span>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold">Sam's laptop</div>
+            <div class="text-xs text-[color:var(--color-text-dim)]">receives billing-api only</div>
+          </div>
+        </div>
+      </div>
+    </figure>
+
+    <ol class="mt-10 divide-y divide-[color:var(--color-border)] border-y border-[color:var(--color-border)]">
+      {steps.map((s, i) => (
+        <li class="py-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:gap-10 lg:items-center">
+          <div class="flex gap-4">
+            <span class="w-8 h-8 shrink-0 rounded-full grid place-items-center text-sm font-semibold bg-violet-500/15 text-violet-200 border border-violet-400/30">{i + 1}</span>
+            <div>
+              <h3 class="font-semibold">{s.title}</h3>
+              <p class="mt-1 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">{s.body}</p>
+            </div>
+          </div>
+          <code class="block rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-bg)] px-3.5 py-2.5 text-[12.5px] font-mono text-[color:var(--color-text)] overflow-x-auto whitespace-nowrap"><span class="text-[color:var(--color-accent)] select-none">$ </span>{s.cmd}</code>
+        </li>
+      ))}
+    </ol>
+
+    <p class="mt-8 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
+      The dashboard has the same controls: copy or move memories between workspaces, and pick the workspace
+      and direction on the Sync page. <a href="/workspaces" class="underline underline-offset-2 hover:text-white">Workspace docs</a>.
+    </p>
+  </div>
+</section>
