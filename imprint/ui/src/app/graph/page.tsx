@@ -1,55 +1,62 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
+import { ChevronDown, ChevronUp, Network, RotateCw, Search as SearchIcon, X } from "lucide-react";
 import { getGraphScope, getMemory, getTopicDetail } from "@/lib/api";
 import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
-import { GraphSkeleton } from "@/components/loaders";
-import type {
-  GraphEdge,
-  GraphNode,
-  GraphScopeData,
-  GraphNodeKind,
-  MemoryNode,
-} from "@/lib/types";
-import {
-  GraphBreadcrumbs,
-  type ScopeCrumb,
-} from "./_components/breadcrumbs";
-import {
-  GraphControls,
-  type GraphForces,
-  type GraphToggles,
-} from "./_components/controls";
-import { PanelRight, Search as SearchIcon } from "lucide-react";
+import { GraphSkeleton, Spinner } from "@/components/loaders";
+import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeKind, GraphScopeData, MemoryNode } from "@/lib/types";
+import { GraphBreadcrumbs, scopeKind, type ScopeCrumb } from "./_components/breadcrumbs";
+import { GraphCanvas, type GraphCanvasHandle, type GraphForces } from "./_components/graph-canvas";
+import { GraphLegend } from "./_components/graph-legend";
+import { GraphToolbar, type GraphSettings } from "./_components/graph-toolbar";
+import { NodeDetails } from "./_components/node-details";
+import { KINDS } from "./_components/graph-style";
 
-const DEFAULT_FORCES: GraphForces = { repel: 1200, collide: 24, centerStrength: 0.05 };
-const DEFAULT_TOGGLES: GraphToggles = {
-  showLabels: true,
-  showEdges: true,
-  showChunks: true,
-  showSources: true,
-  showTopics: true,
-  showProjects: true,
-  localMode: false,
-};
-const STORAGE_KEY = "imprint:graph:state:v1";
+const DEFAULT_FORCES: GraphForces = { repel: 900, collide: 14, centerStrength: 0.06 };
+const DEFAULT_SETTINGS: GraphSettings = { showLabels: true, showEdges: true, depth: 1, forces: DEFAULT_FORCES };
+const STORAGE_KEY = "imprint:graph:v2";
+const ROOT: ScopeCrumb = { scope: "root", label: "Overview" };
+const EDGE_ORDER: GraphEdgeKind[] = ["contains", "relates", "sequence", "similar"];
+/** Height of the details bottom sheet on narrow screens, as a fraction of the canvas. */
+const SHEET_HEIGHT = 0.55;
 
-const KIND_SIZE: Record<GraphNodeKind, { base: number; scale: number; min: number; max: number }> = {
-  project: { base: 28, scale: 60, min: 32, max: 110 },
-  topic: { base: 18, scale: 36, min: 22, max: 70 },
-  source: { base: 14, scale: 22, min: 18, max: 44 },
-  chunk: { base: 10, scale: 8, min: 10, max: 18 },
-};
-
-function sizeFor(n: GraphNode, maxCount: number): number {
-  const cfg = KIND_SIZE[n.kind];
-  const ratio = maxCount > 0 ? Math.sqrt(Math.max(1, n.count) / maxCount) : 0;
-  return Math.max(cfg.min, Math.min(cfg.max, cfg.base + ratio * cfg.scale));
+interface SavedState {
+  settings?: Partial<GraphSettings>;
+  hidden?: GraphNodeKind[];
 }
 
-function savedGraphState(): Partial<{ depth: number; forces: GraphForces; toggles: GraphToggles; panelOpen: boolean }> {
+function savedState(): SavedState {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
+}
+
+const NARROW = "(max-width: 639px)";
+
+/** Below the sm breakpoint the details panel is a bottom sheet. */
+function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (notify) => { const q = window.matchMedia(NARROW); q.addEventListener("change", notify); return () => q.removeEventListener("change", notify); },
+    () => window.matchMedia(NARROW).matches,
+    () => false,
+  );
+}
+
+function scopeFromUrl(): string {
+  return new URLSearchParams(window.location.search).get("scope") || "root";
+}
+
+function crumbFor(scope: string): ScopeCrumb {
+  const value = scope.slice(scope.indexOf(":") + 1);
+  const kind = scopeKind(scope);
+  return { scope, label: kind === "source" ? value.split("/").pop() || value : kind === "chunk" ? "Chunk" : value };
+}
+
+function scopeOf(node: GraphNode): string {
+  if (node.kind === "project") return `project:${node.label}`;
+  if (node.kind === "topic") return `topic:${node.label}`;
+  if (node.kind === "source") return `source:${node.fullPath || node.label}`;
+  return `chunk:${node.id.replace(/^chunk:/, "")}`;
 }
 
 export default function GraphPage() {
@@ -58,506 +65,315 @@ export default function GraphPage() {
 }
 
 function GraphPageContent() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [crumbs, setCrumbs] = useState<ScopeCrumb[]>([{ scope: "root", label: "root" }]);
-  const [saved] = useState(savedGraphState);
+  const canvas = useRef<GraphCanvasHandle>(null);
+  const findRef = useRef<HTMLInputElement>(null);
+  const narrow = useNarrow();
+  const [saved] = useState(savedState);
+  const [trail, setTrail] = useState<ScopeCrumb[]>(() => {
+    const scope = scopeFromUrl();
+    return scope === "root" ? [ROOT] : [ROOT, crumbFor(scope)];
+  });
+  const [settings, setSettings] = useState<GraphSettings>(() => {
+    const s = { ...DEFAULT_SETTINGS, ...saved.settings };
+    return { ...s, depth: [1, 2, 3].includes(s.depth) ? s.depth : 1, forces: { ...DEFAULT_FORCES, ...saved.settings?.forces } };
+  });
+  const [hidden, setHidden] = useState<Set<GraphNodeKind>>(() => new Set((saved.hidden ?? []).filter((k) => k in KINDS)));
   const [graphResult, setGraphResult] = useState<{ key: string; data: GraphScopeData | null; error?: string }>({ key: "", data: null });
-  const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [reload, setReload] = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [neighborhood, setNeighborhood] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(-1);
   const [chunkDialog, setChunkDialog] = useState<ChunkPreview | null>(null);
   const [topicResult, setTopicResult] = useState<{ key: string; nodes: MemoryNode[] }>({ key: "", nodes: [] });
-  const [depth, setDepth] = useState(saved.depth && saved.depth > 0 && saved.depth <= 3 ? saved.depth : 1);
-  const [forces, setForces] = useState<GraphForces>({ ...DEFAULT_FORCES, ...saved.forces });
-  const [toggles, setToggles] = useState<GraphToggles>({ ...DEFAULT_TOGGLES, ...saved.toggles });
-  const [panelOpen, setPanelOpen] = useState(saved.panelOpen !== false);
-  const [query, setQuery] = useState("");
-
-  const graphRef = useRef<unknown>(null);
-  const resizeObsRef = useRef<ResizeObserver | null>(null);
-  const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
-
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ depth, forces, toggles, panelOpen }),
-      );
-    } catch {}
-  }, [depth, forces, toggles, panelOpen]);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, hidden: [...hidden] })); } catch {}
+  }, [settings, hidden]);
 
-  const scope = crumbs[crumbs.length - 1]?.scope || "root";
-
-  // Derive the current project from breadcrumbs (most recent project:* crumb)
-  const currentProject = useMemo(() => {
-    const pc = [...crumbs].reverse().find((c) => c.scope.startsWith("project:"));
-    return pc ? pc.scope.slice("project:".length) : null;
-  }, [crumbs]);
-
-  const topicKey = selected?.kind === "topic" ? `${currentProject}:${selected.id}` : "";
-  const topicLoading = !!topicKey && topicResult.key !== topicKey;
-  const topicChunks = topicKey && topicResult.key === topicKey ? topicResult.nodes : null;
-  const graphKey = `${scope}:${depth}`;
+  const scope = trail[trail.length - 1].scope;
+  const graphKey = `${scope}:${settings.depth}:${reload}`;
   const loading = graphResult.key !== graphKey;
-  const data = loading ? null : graphResult.data;
+  // While a scope loads, the previous graph stays on screen.
+  const data = graphResult.data;
 
+  useEffect(() => {
+    let cancelled = false;
+    getGraphScope(scope, settings.depth).then((result) => {
+      if (!cancelled) setGraphResult({ key: graphKey, data: result });
+    }).catch((error) => {
+      if (!cancelled) setGraphResult((prev) => ({ key: graphKey, data: prev.data, error: error instanceof Error ? error.message : String(error) }));
+    });
+    return () => { cancelled = true; };
+  }, [scope, settings.depth, graphKey]);
+
+  // Back/forward move along the trail; an unknown scope starts a new one.
+  useEffect(() => {
+    const onPop = () => {
+      const next = scopeFromUrl();
+      setTrail((t) => {
+        const i = t.findIndex((c) => c.scope === next);
+        return i >= 0 ? t.slice(0, i + 1) : next === "root" ? [ROOT] : [ROOT, crumbFor(next)];
+      });
+      setSelectedId(null);
+      setNeighborhood(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const goTo = useCallback((next: ScopeCrumb[]) => {
+    const target = next[next.length - 1].scope;
+    window.history.pushState(null, "", target === "root" ? window.location.pathname : `?scope=${encodeURIComponent(target)}`);
+    setTrail(next);
+    setSelectedId(null);
+    setNeighborhood(false);
+    setQuery("");
+  }, []);
+
+  const counts = useMemo(() => {
+    const c = { project: 0, topic: 0, source: 0, chunk: 0 } as Record<GraphNodeKind, number>;
+    for (const n of data?.nodes ?? []) c[n.kind] += 1;
+    return c;
+  }, [data]);
+
+  // Only the neighbourhood filter depends on the selection, so selecting
+  // a node never re-runs the layout otherwise.
+  const anchor = neighborhood ? selectedId ?? data?.center ?? "" : "";
+  const visible = useMemo(() => {
+    if (!data) return { nodes: [] as GraphNode[], edges: [] as GraphEdge[] };
+    let nodes = data.nodes.filter((n) => !hidden.has(n.kind) || n.focus);
+    if (anchor) {
+      const ring = new Set([anchor]);
+      for (const e of data.edges) {
+        if (e.source === anchor) ring.add(e.target);
+        if (e.target === anchor) ring.add(e.source);
+      }
+      nodes = nodes.filter((n) => ring.has(n.id));
+    }
+    const ids = new Set(nodes.map((n) => n.id));
+    return { nodes, edges: data.edges.filter((e) => ids.has(e.source) && ids.has(e.target)) };
+  }, [data, hidden, anchor]);
+
+  const matchList = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? visible.nodes.filter((n) => n.label.toLowerCase().includes(q) || n.fullPath?.toLowerCase().includes(q)) : null;
+  }, [query, visible.nodes]);
+  const matches = useMemo(() => (matchList ? new Set(matchList.map((n) => n.id)) : null), [matchList]);
+
+  const selected = (selectedId && visible.nodes.find((n) => n.id === selectedId)) || null;
+  const neighbors = useMemo(() => {
+    if (!selected) return [];
+    const ids = new Set<string>();
+    for (const e of visible.edges) {
+      if (e.source === selected.id) ids.add(e.target);
+      if (e.target === selected.id) ids.add(e.source);
+    }
+    return visible.nodes.filter((n) => ids.has(n.id)).sort((a, b) => b.count - a.count);
+  }, [selected, visible]);
+
+  const currentProject = useMemo(() => {
+    const crumb = [...trail].reverse().find((c) => c.scope.startsWith("project:"));
+    return crumb ? crumb.scope.slice("project:".length) : null;
+  }, [trail]);
+  const topicKey = selected?.kind === "topic" ? `${currentProject}:${selected.id}` : "";
+  const topicChunks = topicKey && topicResult.key === topicKey ? topicResult.nodes : null;
   useEffect(() => {
     if (!selected || selected.kind !== "topic") return;
     let cancelled = false;
     getTopicDetail(selected.label).then((result) => {
-      if (!cancelled) setTopicResult({ key: topicKey, nodes: currentProject ? result.nodes.filter((node) => node.project === currentProject) : result.nodes });
+      if (!cancelled) setTopicResult({ key: topicKey, nodes: currentProject ? result.nodes.filter((n) => n.project === currentProject) : result.nodes });
     }).catch(() => { if (!cancelled) setTopicResult({ key: topicKey, nodes: [] }); });
     return () => { cancelled = true; };
   }, [selected, currentProject, topicKey]);
 
-  useEffect(() => {
-    let cancelled = false;
-    getGraphScope(scope, depth).then((result) => {
-      if (!cancelled) setGraphResult({ key: graphKey, data: result });
-    }).catch((error) => { if (!cancelled) setGraphResult({ key: graphKey, data: null, error: String(error) }); });
-    return () => { cancelled = true; };
-  }, [scope, depth, graphKey]);
-
-  // Filter nodes/edges based on toggles + local mode + search
-  const filtered = useMemo(() => {
-    if (!data) return { nodes: [] as GraphNode[], edges: [] as GraphEdge[] };
-    const allowKind = (k: GraphNodeKind) =>
-      (k === "project" && toggles.showProjects) ||
-      (k === "topic" && toggles.showTopics) ||
-      (k === "source" && toggles.showSources) ||
-      (k === "chunk" && toggles.showChunks);
-
-    let nodes = data.nodes.filter((n) => allowKind(n.kind) || n.focus);
-    const q = query.trim().toLowerCase();
-    if (q) {
-      const match = new Set(
-        nodes.filter((n) => n.label.toLowerCase().includes(q)).map((n) => n.id),
-      );
-      const neighbors = new Set<string>(match);
-      data.edges.forEach((e) => {
-        if (match.has(e.source)) neighbors.add(e.target);
-        if (match.has(e.target)) neighbors.add(e.source);
-      });
-      nodes = nodes.filter((n) => neighbors.has(n.id));
-    }
-    if (toggles.localMode && data.center) {
-      const ring = new Set<string>([data.center]);
-      data.edges.forEach((e) => {
-        if (e.source === data.center) ring.add(e.target);
-        if (e.target === data.center) ring.add(e.source);
-      });
-      nodes = nodes.filter((n) => ring.has(n.id));
-    }
-    const nodeIds = new Set(nodes.map((n) => n.id));
-    const edges = data.edges.filter(
-      (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
-    );
-    return { nodes, edges };
-  }, [data, toggles, query]);
-
-  // Build adjacency for hover fade
-  useEffect(() => {
-    const map = new Map<string, Set<string>>();
-    for (const e of filtered.edges) {
-      if (!map.has(e.source)) map.set(e.source, new Set());
-      if (!map.has(e.target)) map.set(e.target, new Set());
-      map.get(e.source)!.add(e.target);
-      map.get(e.target)!.add(e.source);
-    }
-    adjacencyRef.current = map;
-  }, [filtered.edges]);
-
-  const drill = useCallback(
-    (node: GraphNode) => {
-      const scopeStr =
-        node.kind === "project"
-          ? `project:${node.label}`
-          : node.kind === "topic"
-            ? `topic:${node.label}`
-            : node.kind === "source"
-              ? `source:${node.fullPath || node.label}`
-              : `chunk:${node.id.replace(/^chunk:/, "")}`;
-      setCrumbs((c) => [...c, { scope: scopeStr, label: node.label }]);
-      setSelected(null);
-    },
-    [],
-  );
-
-  const goToCrumb = useCallback((index: number) => {
-    setCrumbs((c) => c.slice(0, index + 1));
-    setSelected(null);
+  const readChunk = useCallback((node: GraphNode) => {
+    const fallback = { label: node.label, source: node.fullPath, project: node.project, content: node.content || "" };
+    getMemory(node.id.replace(/^chunk:/, ""))
+      .then((m) => setChunkDialog({ ...fallback, content: m.content || fallback.content }))
+      .catch(() => setChunkDialog(fallback));
   }, []);
 
-  const resetDefaults = useCallback(() => {
-    setForces(DEFAULT_FORCES);
-    setToggles(DEFAULT_TOGGLES);
-    setDepth(1);
+  const open = useCallback((node: GraphNode) => {
+    if (node.kind === "chunk") readChunk(node);
+    else goTo([...trail, { scope: scopeOf(node), label: node.label }]);
+  }, [goTo, readChunk, trail]);
+
+  const openById = useCallback((id: string) => {
+    const node = visible.nodes.find((n) => n.id === id);
+    if (node) open(node);
+  }, [open, visible.nodes]);
+
+  const select = useCallback((id: string | null) => {
+    setSelectedId(id);
+    if (id) canvas.current?.focus(id);
   }, []);
 
-  // Render G6
+  const stepMatch = useCallback((direction: 1 | -1) => {
+    if (!matchList?.length) return;
+    const next = (matchIndex + direction + matchList.length) % matchList.length;
+    setMatchIndex(next);
+    select(matchList[next].id);
+  }, [matchIndex, matchList, select]);
+
+  // "/" finds, Escape clears the query, then the selection.
   useEffect(() => {
-    if (!containerRef.current || !data) return;
-    let cancelled = false;
-
-    import("@antv/g6").then(({ Graph }) => {
-      if (cancelled || !containerRef.current) return;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const prev = graphRef.current as any;
-      if (prev?.destroy) prev.destroy();
-      resizeObsRef.current?.disconnect();
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const width = rect.width || 800;
-      const height = rect.height || 600;
-      const cx = width / 2;
-      const cy = height / 2;
-
-      if (filtered.nodes.length === 0) {
-        graphRef.current = null;
-        return;
+    const onKey = (event: KeyboardEvent) => {
+      if (chunkDialog) return;
+      const typing = event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]");
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        findRef.current?.focus();
+      } else if (event.key === "Escape") {
+        if (query) { setQuery(""); setMatchIndex(-1); } else if (selectedId) setSelectedId(null);
       }
-
-      const maxCount = Math.max(...filtered.nodes.map((n) => n.count || 1), 1);
-      const spread = Math.min(cx, cy) * 0.75;
-
-      const centerId = data.center;
-      const nodes = filtered.nodes.map((n, i) => {
-        const size = sizeFor(n, maxCount);
-        const isCenter = n.id === centerId;
-        const angle = (2 * Math.PI * i) / filtered.nodes.length;
-        const x = isCenter ? cx : cx + spread * Math.cos(angle);
-        const y = isCenter ? cy : cy + spread * Math.sin(angle);
-        const isRing = n.kind === "topic";
-        return {
-          id: n.id,
-          data: { ...n, _size: size },
-          style: {
-            x,
-            y,
-            size,
-            fill: isRing ? "transparent" : n.color + (n.kind === "project" ? "55" : "44"),
-            stroke: n.color,
-            lineWidth: isCenter ? 4 : isRing ? 3 : 2,
-            lineDash: isRing ? [6, 4] : undefined,
-            labelText: toggles.showLabels ? n.label : "",
-            labelFontSize: n.kind === "project" ? 12 : n.kind === "topic" ? 10 : 9,
-            labelFill: "#e2e8f0",
-            labelPlacement: "center" as const,
-            labelWordWrap: true,
-            labelMaxLines: 2,
-            labelBackground: true,
-            labelBackgroundFill: "rgba(10,10,26,0.75)",
-            labelBackgroundRadius: 3,
-            labelPadding: [1, 4] as [number, number],
-            cursor: "pointer" as const,
-          },
-        };
-      });
-
-      const maxWeight = Math.max(...filtered.edges.map((e) => e.weight || 1), 1);
-      const edges = toggles.showEdges
-        ? filtered.edges.map((e) => ({
-            id: e.id,
-            source: e.source,
-            target: e.target,
-            data: { ...e },
-            style: {
-              stroke:
-                e.kind === "sequence"
-                  ? "#f59e0b"
-                  : e.kind === "similar"
-                    ? "#22d3ee"
-                    : e.kind === "contains"
-                      ? "#6366f1"
-                      : "#475569",
-              lineWidth: Math.max(
-                0.5,
-                Math.min(3, (e.weight / maxWeight) * 2.5),
-              ),
-              strokeOpacity: 0.45,
-              endArrow: e.kind === "sequence",
-            },
-          }))
-        : [];
-
-      const graph = new Graph({
-        container: containerRef.current,
-        width,
-        height,
-        data: { nodes, edges },
-        autoFit: "view",
-        layout: {
-          type: "d3-force",
-          centerX: cx,
-          centerY: cy,
-          centerStrength: forces.centerStrength,
-          collide: {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            radius: (d: any) => (d?.data?._size ?? 30) / 2 + forces.collide,
-            strength: 1,
-          },
-          manyBody: { strength: -forces.repel },
-          link: {
-            distance: 140,
-            strength: 0.3,
-          },
-          alphaDecay: 0.03,
-          animation: false,
-        },
-        node: { style: {} },
-        behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      graph.on("node:click", (evt: any) => {
-        const id = evt?.target?.id;
-        if (!id) return;
-        const n = filtered.nodes.find((x) => x.id === id);
-        if (!n) return;
-        if (evt?.originalEvent?.shiftKey) {
-          setToggles((t) => ({ ...t, localMode: true }));
-          setSelected(n);
-          return;
-        }
-        setSelected(n);
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      graph.on("node:dblclick", (evt: any) => {
-        const id = evt?.target?.id;
-        if (!id) return;
-        const n = filtered.nodes.find((x) => x.id === id);
-        if (!n) return;
-        if (n.kind === "chunk") {
-          const mid = n.id.replace(/^chunk:/, "");
-          getMemory(mid)
-            .then((m) => {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const mm = m as any;
-              setChunkDialog({ label: n.label, source: n.fullPath, project: n.project, content: mm?.content || n.content || "" });
-            })
-            .catch(() =>
-              setChunkDialog({ label: n.label, source: n.fullPath, project: n.project, content: n.content || "" }),
-            );
-          return;
-        }
-        drill(n);
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      graph.on("node:pointerenter", (evt: any) => {
-        const id = evt?.target?.id;
-        if (!id) return;
-        const adj = adjacencyRef.current.get(id) || new Set();
-        const keep = new Set<string>([id, ...adj]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const g = graph as any;
-        filtered.nodes.forEach((n) => {
-          g.updateNodeData?.([
-            {
-              id: n.id,
-              style: { opacity: keep.has(n.id) ? 1 : 0.18 },
-            },
-          ]);
-        });
-        filtered.edges.forEach((e) => {
-          g.updateEdgeData?.([
-            {
-              id: e.id,
-              style: {
-                strokeOpacity:
-                  e.source === id || e.target === id ? 0.85 : 0.08,
-              },
-            },
-          ]);
-        });
-        g.draw?.();
-      });
-
-      graph.on("node:pointerleave", () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const g = graph as any;
-        filtered.nodes.forEach((n) => {
-          g.updateNodeData?.([{ id: n.id, style: { opacity: 1 } }]);
-        });
-        filtered.edges.forEach((e) => {
-          g.updateEdgeData?.([{ id: e.id, style: { strokeOpacity: 0.45 } }]);
-        });
-        g.draw?.();
-      });
-
-      graph.render();
-      graphRef.current = graph;
-
-      const ro = new ResizeObserver(() => {
-        const r = containerRef.current?.getBoundingClientRect();
-        if (!r || r.width === 0 || r.height === 0) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const g = graph as any;
-        if (typeof g.setSize === "function") g.setSize(r.width, r.height);
-        if (typeof g.fitView === "function") g.fitView();
-      });
-      ro.observe(containerRef.current);
-      resizeObsRef.current = ro;
-    });
-
-    return () => {
-      cancelled = true;
-      resizeObsRef.current?.disconnect();
-      resizeObsRef.current = null;
     };
-  }, [data, filtered, forces, toggles.showLabels, toggles.showEdges, drill]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chunkDialog, query, selectedId]);
+
+  const centerNode = data?.nodes.find((n) => n.id === data.center);
+  const crumbs = trail.map((c, i) => (i === trail.length - 1 && centerNode && !loading ? { ...c, label: centerNode.label } : c));
+  const edgeKinds = EDGE_ORDER.filter((k) => visible.edges.some((e) => e.kind === k));
+  const kind = scopeKind(scope);
+  const empty = !loading && !graphResult.error && data && data.nodes.length === 0;
+  const allHidden = data && data.nodes.length > 0 && visible.nodes.length === 0;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-border flex items-center gap-3 flex-wrap">
-        <h2 className="text-lg font-bold">Graph</h2>
-        <GraphBreadcrumbs crumbs={crumbs} onGo={goToCrumb} />
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded">
-            <SearchIcon className="h-3 w-3 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="filter"
-              className="bg-transparent outline-none text-sm w-32"
-            />
-          </div>
-          <button
-            onClick={() => setPanelOpen((v) => !v)}
-            className="p-1.5 rounded hover:bg-muted"
-            aria-label="Toggle controls"
-          >
-            <PanelRight className="h-4 w-4" />
-          </button>
+    <div className="flex h-full flex-col">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2.5">
+        <h2 className="text-lg font-semibold">Graph</h2>
+        <GraphBreadcrumbs crumbs={crumbs} onGo={(i) => goTo(trail.slice(0, i + 1))} />
+        <div className="flex w-full items-center gap-1 rounded-lg border border-input bg-input/30 px-2.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 sm:ml-auto sm:w-72">
+          <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <input
+            ref={findRef}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setMatchIndex(-1); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); stepMatch(e.shiftKey ? -1 : 1); } }}
+            placeholder="Find in graph"
+            aria-label="Find in graph"
+            className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {matchList ? (
+            <>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground" role="status">
+                {matchList.length === 0 ? "No matches" : `${matchIndex >= 0 ? matchIndex + 1 : 0}/${matchList.length}`}
+              </span>
+              <button type="button" aria-label="Previous match" onClick={() => stepMatch(-1)} disabled={!matchList.length} className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40"><ChevronUp className="size-3.5" /></button>
+              <button type="button" aria-label="Next match" onClick={() => stepMatch(1)} disabled={!matchList.length} className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40"><ChevronDown className="size-3.5" /></button>
+              <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); setMatchIndex(-1); }} className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+            </>
+          ) : (
+            <kbd className="hidden shrink-0 rounded border border-border px-1.5 font-mono text-[10px] text-muted-foreground sm:block">/</kbd>
+          )}
         </div>
-      </div>
+      </header>
 
-      <div className="flex-1 relative">
-        {!loading && graphResult.error && <p role="alert" className="absolute bottom-4 left-4 right-4 z-20 rounded border border-destructive bg-background p-3 text-sm">Graph could not load: {graphResult.error}</p>}
-        {loading && !data ? (
-          <GraphSkeleton />
-        ) : (
-          <div ref={containerRef} className="absolute inset-0 bg-[#0a0a1a]" />
+      <div className="relative flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,oklch(0.19_0_0),var(--background)_70%)]">
+        <GraphCanvas
+          ref={canvas}
+          nodes={visible.nodes}
+          edges={visible.edges}
+          showLabels={settings.showLabels}
+          showEdges={settings.showEdges}
+          forces={settings.forces}
+          selectedId={selectedId}
+          matches={matches}
+          insetBottom={narrow && selected ? SHEET_HEIGHT : 0}
+          onSelect={narrow ? select : setSelectedId}
+          onOpen={openById}
+        />
+
+        {!data && !graphResult.error && <div className="absolute inset-0 grid"><GraphSkeleton /></div>}
+        {loading && data && (
+          <div className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur" role="status">
+            <Spinner className="size-3.5" /> Loading {kind ? KINDS[kind].label.toLowerCase() : "overview"}…
+          </div>
+        )}
+        {!loading && graphResult.error && (
+          <div role="alert" aria-label="Graph error" className="absolute left-1/2 top-3 z-20 flex w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-xl border border-destructive/50 bg-card/95 p-3 text-sm shadow-lg backdrop-blur">
+            <span className="min-w-0 flex-1">The graph could not load: {graphResult.error}</span>
+            <button type="button" onClick={() => setReload((r) => r + 1)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-muted">
+              <RotateCw className="size-3.5" aria-hidden /> Retry
+            </button>
+          </div>
+        )}
+        {empty && (
+          <CenteredNote title={scope === "root" ? "No memories in this workspace yet" : "Nothing to show here"}>
+            {scope === "root" ? (
+              <>Index a project with <code className="rounded bg-muted px-1 font-mono text-xs">imprint ingest &lt;dir&gt;</code> or use quick ingest on the <Link href="/" className="underline underline-offset-4 hover:text-foreground">dashboard</Link>; projects and their topics appear here.</>
+            ) : "This scope has no connected memories."}
+          </CenteredNote>
+        )}
+        {allHidden && (
+          <CenteredNote title="Every kind is hidden">
+            <button type="button" onClick={() => setHidden(new Set())} className="mt-1 rounded-lg border border-border px-3 py-1 text-xs text-foreground hover:bg-muted">Show all</button>
+          </CenteredNote>
         )}
 
-        {panelOpen && (
-          <div className="absolute top-3 left-3 w-64 bg-background/95 backdrop-blur border border-border rounded-lg p-3 shadow-lg z-10 max-h-[calc(100%-1.5rem)] overflow-y-auto">
-            <GraphControls
-              depth={depth}
-              onDepth={setDepth}
-              forces={forces}
-              onForces={setForces}
-              toggles={toggles}
-              onToggles={setToggles}
-              onReset={resetDefaults}
+        {neighborhood && selected && (
+          <div className="absolute left-1/2 top-3 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 py-1 pl-3 pr-1 text-xs shadow-lg backdrop-blur">
+            <Network className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">Connections of <span className="font-medium">{selected.label}</span></span>
+            <button type="button" onClick={() => setNeighborhood(false)} className="shrink-0 rounded-full px-2 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">Show all</button>
+          </div>
+        )}
+
+        {data && data.nodes.length > 0 && (
+          <div className={`absolute bottom-3 left-3 z-10 ${selected ? "hidden sm:block" : ""}`}>
+            <GraphLegend
+              counts={counts}
+              hidden={hidden}
+              onToggle={(k) => setHidden((h) => { const next = new Set(h); if (next.has(k)) next.delete(k); else next.add(k); return next; })}
+              edgeKinds={edgeKinds}
+              shown={{ nodes: visible.nodes.length, edges: settings.showEdges ? visible.edges.length : 0 }}
             />
           </div>
         )}
+
+        <div className={`absolute bottom-3 right-3 z-10 ${!data?.nodes.length ? "hidden" : selected ? "hidden sm:block sm:right-[21.75rem]" : ""}`}>
+          <GraphToolbar
+            settings={settings}
+            onSettings={setSettings}
+            breadthApplies={kind === "project" || kind === "topic" || kind === "source"}
+            onZoom={(r) => canvas.current?.zoomBy(r)}
+            onFit={() => canvas.current?.fit()}
+            onRelayout={() => canvas.current?.relayout()}
+            onReset={() => { setSettings(DEFAULT_SETTINGS); setHidden(new Set()); }}
+          />
+        </div>
 
         {selected && (
-          <div className="absolute top-3 right-3 w-72 bg-background/95 backdrop-blur border border-border rounded-lg p-4 space-y-3 shadow-lg z-10">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium truncate" title={selected.label}>
-                {selected.label}
-              </h3>
-              <button
-                onClick={() => setSelected(null)}
-                className="text-muted-foreground hover:text-foreground text-lg leading-none px-1"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="capitalize">
-                {selected.kind}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {selected.count.toLocaleString()} memories
-              </span>
-            </div>
-            {selected.fullPath && (
-              <p className="text-xs text-muted-foreground break-all">
-                {selected.fullPath}
-              </p>
-            )}
-            {selected.content && (
-              <p className="text-xs text-foreground/80 line-clamp-6 whitespace-pre-wrap">
-                {selected.content}
-              </p>
-            )}
-            {selected.kind === "topic" && (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium">
-                  {currentProject ? `Chunks in ${currentProject}` : "Chunks"}
-                  {topicChunks && ` (${topicChunks.length})`}
-                </p>
-                {topicLoading && (
-                  <p className="text-xs text-muted-foreground">Loading…</p>
-                )}
-                {topicChunks && topicChunks.length === 0 && !topicLoading && (
-                  <p className="text-xs text-muted-foreground">No chunks found.</p>
-                )}
-                {topicChunks && topicChunks.length > 0 && (
-                  <div className="max-h-48 overflow-y-auto space-y-0.5 rounded border border-border">
-                    {topicChunks.map((chunk) => (
-                      <button
-                        key={chunk.id}
-                        onClick={() => setChunkDialog(chunk)}
-                        className="w-full text-left px-2 py-1.5 text-xs hover:bg-muted/60 truncate block border-b border-border/40 last:border-0"
-                        title={chunk.label}
-                      >
-                        <span className="text-muted-foreground font-mono mr-1.5">#{chunk.chunk_index}</span>
-                        {chunk.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex gap-2 pt-1">
-              {selected.kind !== "chunk" ? (
-                <button
-                  onClick={() => drill(selected)}
-                  className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:opacity-90"
-                >
-                  Open
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    const mid = selected.id.replace(/^chunk:/, "");
-                    getMemory(mid)
-                      .then((m) =>
-                        setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: m.content || selected.content || "" }),
-                      )
-                      .catch(() =>
-                        setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: selected.content || "" }),
-                      );
-                  }}
-                  className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:opacity-90"
-                >
-                  View memory
-                </button>
-              )}
-              <button
-                onClick={() =>
-                  setToggles((t) => ({ ...t, localMode: !t.localMode }))
-                }
-                className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/70"
-              >
-                {toggles.localMode ? "Exit local" : "Local graph"}
-              </button>
-            </div>
+          <div className="absolute inset-x-2 bottom-2 z-20 max-h-[55%] sm:inset-x-auto sm:bottom-3 sm:right-3 sm:top-3 sm:max-h-none sm:w-80">
+            <NodeDetails
+              node={selected}
+              neighbors={neighbors}
+              topicChunks={topicChunks}
+              topicContext={currentProject}
+              neighborhood={neighborhood}
+              onClose={() => setSelectedId(null)}
+              onOpen={open}
+              onSelect={select}
+              onReadChunk={(chunk) => setChunkDialog(chunk)}
+              onNeighborhood={() => setNeighborhood((v) => !v)}
+            />
           </div>
         )}
+      </div>
 
-        <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
+      <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
+    </div>
+  );
+}
 
-        <div className="absolute bottom-3 right-3 z-10 text-xs text-muted-foreground bg-background/80 backdrop-blur border border-border rounded px-2 py-1 pointer-events-none">
-          {filtered.nodes.length} nodes · {filtered.edges.length} edges
-          {loading && " · loading…"}
-        </div>
+function CenteredNote({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-6">
+      <div className="pointer-events-auto max-w-sm rounded-xl border border-border bg-card/90 p-5 text-center shadow-lg backdrop-blur">
+        <Network className="mx-auto size-6 text-muted-foreground" aria-hidden />
+        <p className="mt-2 font-medium">{title}</p>
+        <div className="mt-1 text-sm text-muted-foreground">{children}</div>
       </div>
     </div>
   );

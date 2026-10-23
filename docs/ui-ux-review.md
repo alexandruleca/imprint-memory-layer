@@ -22,6 +22,8 @@ A user should understand whether Imprint is connected, what was indexed, how fre
 | Navigation consumed narrow screens | Compact mobile sidebar, labels/current page, responsive search/stats and skip link. |
 | Existing React lifecycle lint failures | Derived state, keyed request results and deliberate client hydration replace synchronous effect resets. Lint is a CI gate. |
 | Container builds failed in Google's dynamic font import | Bundle the pinned, OFL-licensed Roboto variable font through `next/font/local`; build and browser font loading use local assets. See ADR 0008. |
+| Graph labels were unreadable and controls covered the canvas | Labels sit below nodes and overlapping ones give way to bigger nodes; projects keep their colour, topics are rings, edges are tinted by the project they leave; the canvas matches the app. A toolbar (zoom, fit, re-run layout) and a settings popover replace the always-open physics panel, and the legend doubles as the node-kind filter. Small scopes show at natural size instead of being zoomed to fill. |
+| Graph navigation was hard to follow | The scope lives in the URL, so back/forward and links work; breadcrumbs name each kind. Find highlights and cycles matches (`/` to focus, Enter, Escape). A details panel lists connections by kind, copies source paths and can limit the graph to a node's connections. Display toggles restyle without re-running the layout; a loading scope keeps the previous graph visible; empty and failed loads say so, with retry. On phones the details are a bottom sheet and the focused node stays above it. |
 
 Browser checks exercise mobile overflow, empty/error/retry, filters, stale responses, full-memory modal and reconnection. They mock API responses to test interaction deterministically; backend/native-model smoke provides separate retrieval evidence. This is not a full accessibility certification or native desktop GUI test.
 
@@ -33,7 +35,7 @@ Browser checks exercise mobile overflow, empty/error/retry, filters, stale respo
 | P1 | Freshness and queue progress | Show last successful source refresh, retained stale chunks after failure, extractor/model download phase, bytes/progress and actionable retry. |
 | P1 | Workspace clarity | Persistent visible workspace in every read/write flow; warn when switching with queued jobs; show each job's captured workspace. |
 | P1 | Destructive action review | Screen-reader/keyboard walkthrough for wipe, project/source deletion, migration and workspace removal; cancellation and error recovery retain context. |
-| P1 | Accessible graph alternative | Searchable list/table exposing the same projects/topics/sources without relying on canvas, color or pointer interaction. |
+| P1 | Accessible graph alternative | Searchable list/table exposing the same projects/topics/sources without relying on canvas, color or pointer interaction. Find, the legend and the details panel's connection list are keyboard-usable already; the canvas itself is not. |
 | P2 | Search refinement | Project picker, source filter, result pagination/diversity and provenance-to-live-source comparison; preserve query/filter state in navigation. |
 | P2 | Consistent async UX | Apply visible loading/empty/error/retry conventions to all pages; graph topic errors currently need richer distinction from no data. |
 | P2 | Resource and privacy controls | Show selected paths/exclusions, model disk budget, optional remote-provider use and retention controls before work starts. |

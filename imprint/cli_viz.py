@@ -954,6 +954,8 @@ def build_graph_scope(
                     "count": 0,
                     "color": _project_color(proj),
                 })
+                if src:
+                    edge(f"proj:{proj}", f"src:{src}", 1, "contains")
             for t in ((mem.get("tags") or {}).get("topics") or []):
                 if not t:
                     continue
