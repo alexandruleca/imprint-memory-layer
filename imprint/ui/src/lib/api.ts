@@ -1,5 +1,24 @@
 import { API_BASE } from "./api-base";
 
+export type WorkspaceScope = {
+  workspace: string; roots: string[];
+  exclusions: { kind: "path" | "source"; path: string; recursive: boolean }[];
+};
+export type PurgePreview = {
+  workspace: string; target: string; kind: "path" | "source"; recursive: boolean;
+  chunks: number; sources: number; applied: boolean;
+  sample: { project: string; source: string }[];
+};
+export function getWorkspaceScope(workspace: string) {
+  return fetchAPI<WorkspaceScope>(`/api/workspace/roots?workspace=${encodeURIComponent(workspace)}`);
+}
+export function changeWorkspaceRoot(body: { workspace: string; path: string; action: "add" | "remove" | "restore"; allow_overlap?: boolean; kind?: "path" | "source" }) {
+  return fetchAPI<WorkspaceScope>("/api/workspace/roots", { method: "POST", body: JSON.stringify(body) });
+}
+export function purgeSources(body: { workspace: string; target: string; kind: "path" | "source"; recursive: boolean; apply?: boolean }) {
+  return fetchAPI<PurgePreview>("/api/sources/purge", { method: "POST", body: JSON.stringify(body) });
+}
+
 async function fetchAPI<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,

@@ -21,7 +21,7 @@ import (
 //  2. IMPRINT_QUEUE_FOREGROUND=1 (set by the dispatcher when it spawns a
 //     child) → wait-poll the lock so the subprocess doesn't re-enqueue
 //     itself into the API and loop forever.
-//  3. If ``enqueueArgs`` is non-nil and the UI server is running, POST the
+//  3. If “enqueueArgs“ is non-nil and the UI server is running, POST the
 //     command to /api/commands/<cmd>, print the job id, and exit 0 so the
 //     user's terminal isn't tied to a waiting job.
 //  4. Otherwise fall back to wait-poll in the foreground.
@@ -92,7 +92,7 @@ func enqueueViaAPI(dataDir, command string, args []string) (string, int, error) 
 	if !ok {
 		return "", 0, errors.New("ui server not running")
 	}
-	body, _ := json.Marshal(map[string]any{"args": args})
+	body, _ := json.Marshal(map[string]any{"args": args, "workspace": os.Getenv("IMPRINT_WORKSPACE")})
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/commands/%s", st.Port, command)
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Post(url, "application/json", bytes.NewReader(body))

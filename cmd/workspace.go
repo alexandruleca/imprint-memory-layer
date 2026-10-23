@@ -85,6 +85,13 @@ func Workspace(args []string) {
 	}
 
 	switch args[0] {
+	case "roots", "exclusions":
+		action := args[0]
+		tail := args[1:]
+		if len(tail) > 0 && (tail[0] == "add" || tail[0] == "remove" || tail[0] == "restore") {
+			action, tail = tail[0], tail[1:]
+		}
+		runWorkspacePolicy(append([]string{action}, tail...), false)
 	case "list":
 		workspaceList(dataDir)
 	case "switch":
@@ -227,6 +234,13 @@ except Exception as e:
 		}
 	}
 
+	if platform.FileExists(venvPython) {
+		_, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir, "IMPRINT_DATA_DIR=" + dataDir},
+			"-c", fmt.Sprintf("from imprint.workspace_policy import remove_workspace; remove_workspace(%q)", name))
+		if err != nil {
+			output.Fail("Could not remove workspace policy: " + err.Error())
+		}
+	}
 	// Remove from known list
 	var newKnown []string
 	for _, ws := range cfg.Known {

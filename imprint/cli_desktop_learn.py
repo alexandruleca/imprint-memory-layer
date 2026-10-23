@@ -70,7 +70,8 @@ _CANDIDATE_FILENAME_RE = re.compile(
 # not conversation dumps and processing them would blow through memory.
 _MAX_ZIP_SIZE = 500 * 1024 * 1024  # 500 MB
 
-_TRACKER = "desktop_exports.json"
+def _tracker_name():
+    return f'desktop_exports_{config.get_active_workspace()}.json'
 
 
 def _downloads_roots() -> list[Path]:
@@ -106,7 +107,7 @@ def _downloads_roots() -> list[Path]:
 
 
 def _load_tracker() -> dict:
-    path = config.get_data_dir() / _TRACKER
+    path = config.get_data_dir() / _tracker_name()
     if not path.exists():
         return {"seen": {}}
     try:
@@ -116,7 +117,7 @@ def _load_tracker() -> dict:
 
 
 def _save_tracker(data: dict) -> None:
-    path = config.get_data_dir() / _TRACKER
+    path = config.get_data_dir() / _tracker_name()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2))
 
@@ -177,7 +178,7 @@ def _iter_candidate_zips(roots: list[Path]):
             continue
 
 
-def _ingest_json_file(file_path: Path, project: str) -> int:
+def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> int:
     """Run the existing JSON extractor + chunker pipeline on one file.
     Returns the number of chunks inserted."""
     try:
@@ -225,6 +226,7 @@ def _ingest_json_file(file_path: Path, project: str) -> int:
                 "type": mem_type,
                 "tags": tags,
                 "source": source_key,
+                "source_path": source_path,
                 "source_type": "desktop-export",
                 "doc_metadata": meta,
                 "chunk_index": chunk_idx,
@@ -239,6 +241,11 @@ def _ingest_json_file(file_path: Path, project: str) -> int:
 
 def _process_zip(zip_path: Path, origin: str) -> int:
     """Extract + index one export zip. Returns chunks inserted."""
+    from .workspace_policy import path_allowed, is_excluded
+    if not path_allowed(zip_path):
+        raise ValueError('Desktop export is outside approved workspace roots')
+    if is_excluded(path=str(zip_path)):
+        return 0
     project = {
         "claude": "claude-desktop-convos",
         "chatgpt": "chatgpt-desktop-convos",
@@ -256,7 +263,7 @@ def _process_zip(zip_path: Path, origin: str) -> int:
 
         for json_path in tmp_dir.rglob("conversations.json"):
             print(f"  {C_DIM}→ {json_path.relative_to(tmp_dir)}{C_RESET}")
-            total += _ingest_json_file(json_path, project)
+            total += _ingest_json_file(json_path, project, str(zip_path.resolve()))
     return total
 
 
@@ -302,6 +309,9 @@ def _scan_once(extra_paths: list[str], *, verbose: bool = True) -> dict:
     }
 
     for zip_path in _iter_candidate_zips(roots):
+        from .workspace_policy import path_allowed
+        if not path_allowed(zip_path):
+            continue
         result["scanned"] += 1
         digest = _sha256(zip_path)
         if digest in seen:

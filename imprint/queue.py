@@ -173,7 +173,9 @@ def enqueue(command: str, body: dict | None) -> str:
     job_id = uuid.uuid4().hex
     from . import config
     # Capture the workspace now, rather than when this job eventually runs.
-    body_json = json.dumps({**(body or {}), "_workspace": config.get_active_workspace()})
+    from .workspace_policy import workspace_name
+    workspace = workspace_name((body or {}).get('workspace'))
+    body_json = json.dumps({**(body or {}), "_workspace": workspace})
     now = time.time()
     with _db_lock, _connect() as conn:
         conn.execute(

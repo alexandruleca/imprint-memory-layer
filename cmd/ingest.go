@@ -67,6 +67,7 @@ func Ingest(args []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
+	pinWorkspace(dataDir)
 
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
@@ -231,6 +232,7 @@ func migrateScript(projectDir, dataDir string) string {
 import os, sys, json
 from pathlib import Path
 from imprint import vectorstore as vs
+from imprint.workspace_policy import transcript_allowed
 
 claude_dir = Path.home() / ".claude" / "projects"
 if not claude_dir.exists():
@@ -243,6 +245,10 @@ for project_dir in claude_dir.iterdir():
         continue
     mem_dir = project_dir / "memory"
     if not mem_dir.exists():
+        continue
+    # Claude's folder encoding is ambiguous. Require real transcript cwd
+    # evidence for this project before importing its auto-memory files.
+    if not any(transcript_allowed(path) for path in project_dir.glob("*.jsonl")):
         continue
 
     # Derive project name
@@ -257,7 +263,10 @@ for project_dir in claude_dir.iterdir():
         content = f.read_text(errors="ignore").strip()
         if not content:
             continue
-        vs.store(content=content, project=project, type="decision", source=f"memory/{f.name}")
+        from imprint.workspace_policy import is_excluded
+        if is_excluded(path=str(f), source=f"memory/{f.name}"):
+            continue
+        vs.store(content=content, project=project, type="decision", source=f"memory/{f.name}", source_path=str(f.resolve()), source_type="memory")
         stored += 1
 
 print(f"  Migrated {stored} memory files")

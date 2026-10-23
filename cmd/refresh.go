@@ -40,6 +40,7 @@ Examples:
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
+	pinWorkspace(dataDir)
 
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")

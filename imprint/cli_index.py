@@ -471,6 +471,11 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
         print(f"  {C_YELLOW}File not found:{C_RESET} {file_path}")
         sys.exit(1)
 
+    from . import workspace_policy as policy
+    policy.ensure_ingest_paths([file_path])
+    if policy.is_excluded(path=file_path, source=f'{project}/{os.path.basename(file_path)}'):
+        raise ValueError('Source is excluded after purge; restore its workspace exclusion before ingesting')
+
     if not allowed_source(file_path):
         raise ValueError("Secret-bearing files cannot be indexed")
     snapshot = fingerprint(file_path)
@@ -735,6 +740,10 @@ def _main(command: str = "ingest"):
         dir_path, project = arg.rsplit(":", 1)
         pairs.append((dir_path, project))
 
+    from . import workspace_policy as policy
+    policy.ensure_ingest_paths([target, *(path for path, _ in pairs)])
+    exclusion_rules = policy.exclusions()
+
     # Recover per-project exclude_paths (root-fallback projects need to skip
     # manifested sub-project roots so files aren't double-indexed). The Go
     # wire format only passes path:name, so re-invoke find_projects to get
@@ -756,6 +765,8 @@ def _main(command: str = "ingest"):
         meta = _project_meta.get(os.path.realpath(dir_path), {})
         excl = meta.get("exclude_paths", [])
         files = scan_dir(dir_path, exclude_paths=excl)
+        files = [(rel, path) for rel, path in files if not policy.is_excluded(
+            path=path, source=f'{project}/{rel}', rules=exclusion_rules)]
         project_files[project] = files
         grand_total += len(files)
 

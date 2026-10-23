@@ -190,6 +190,9 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
     transcript instead of one per exchange. Big throughput win because
     `imprint ingest` walks hundreds of transcripts before touching code.
     """
+    from .workspace_policy import transcript_allowed, is_excluded
+    if not transcript_allowed(transcript_path) or is_excluded(path=transcript_path, source=f'conversation/{Path(transcript_path).stem[:8]}'):
+        return 0, 0
     exchanges = parse_exchanges(transcript_path)
     stored = 0
     skipped = 0
@@ -230,6 +233,7 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
                 "project": project,
                 "type": mem_type,
                 "source": f"conversation/{session_id}",
+                "source_path": str(Path(transcript_path).resolve()),
                 "chunk_index": ci,
                 "source_mtime": source_mtime,
                 "tags": tags,
@@ -275,7 +279,8 @@ def main():
         sys.exit(1)
 
     # Index all transcripts
-    transcripts = find_all_transcripts()
+    from .workspace_policy import transcript_allowed
+    transcripts = [(path, project) for path, project in find_all_transcripts() if transcript_allowed(path)]
     if not transcripts:
         print("  No transcripts found.")
         return

@@ -29,3 +29,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0012](0012-native-package-runtime-and-silent-installs.md) | Accepted | Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke. |
 | [0013](0013-remediate-security-scan-dependencies.md) | Accepted | Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching. |
 | [0014](0014-main-only-release-packaging.md) | Accepted | Compile/test branches; package and publish release artifacts only from main. |
+| [0015](0015-workspace-roots-and-source-purge.md) | Accepted | Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. |

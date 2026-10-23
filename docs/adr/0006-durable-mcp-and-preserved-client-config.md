@@ -5,6 +5,7 @@ description: Honest write acknowledgements, bounded reads, workspace binding and
 
 - Status: Accepted
 - Date: 2026-10-23
+- Follow-up: Workspace binding is extended by [ADR 0015](0015-workspace-roots-and-source-purge.md); the original rationale below is retained.
 
 ## Context
 

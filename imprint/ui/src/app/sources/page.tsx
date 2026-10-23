@@ -11,6 +11,7 @@ import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MigrateDialog } from "@/components/migrate-dialog";
 import { ChunkDialog } from "@/components/chunk-dialog";
+import { WorkspaceSources } from "@/components/workspace-sources";
 import type { SourceEntry, SourceSummary, SourceLineage, MemoryNode } from "@/lib/types";
 
 export default function SourcesPage() {
@@ -64,6 +65,11 @@ export default function SourcesPage() {
       <h2 className="text-2xl font-bold">
         Sources ({sources.length.toLocaleString()} files)
       </h2>
+      <WorkspaceSources selectedSource={selected} onPurged={async () => {
+        setSelected(null); setSummary(null); setLineage(null); setChunkDialog(null);
+        const data = await listSources({ limit: 500 });
+        setSources(data.sources);
+      }} />
 
       <div className="grid grid-cols-3 gap-4" style={{ minHeight: 500 }}>
         {/* Left panel: source list */}

@@ -103,4 +103,39 @@ imprint wipe --workspace research  # wipe a specific workspace
 imprint wipe --all                 # stop Qdrant, delete all data, restart fresh
 ```
 
-The MCP server detects workspace changes dynamically — if you run `imprint workspace switch` in a terminal, the next MCP tool call picks up the new workspace automatically. Config is stored in `data/workspace.json`.
+The MCP process pins its default workspace at startup, so another window's `workspace switch` cannot redirect it. Restart the client connection after switching, set `IMPRINT_WORKSPACE` in the client's server environment, or pass a tool's explicit `workspace`. CLI ingestion captures its workspace before waiting/queueing. Selection is stored in `data/workspace.json`.
+
+## Approved roots and sharing
+
+The first ingest binds a directory (a single file binds its parent). Later ingest/refresh targets must stay inside approved roots. Additional roots require explicit approval:
+
+```bash
+imprint workspace roots
+imprint workspace roots add /code/my-project --workspace research
+imprint workspace roots add /code/shared --workspace research --allow-overlap
+imprint workspace roots remove /code/my-project --workspace research
+```
+
+Roots resolve symlinks and use path-component boundaries. An overlap error identifies the other workspaces; `--allow-overlap` explicitly confirms sharing. The dashboard's **Sources → Workspace roots and cleanup** panel offers the same action with confirmation. Removing a root retains indexed data. Policy is stored separately in `data/workspace-policy.sqlite3`.
+
+Existing data is retained; old provenance does not automatically establish ownership. Approve intended roots and purge mistakes. `learn` requires roots first, imports transcripts only when their recorded cwd stays inside approved roots, and skips cwd-less/mixed-outside transcripts. Auto-memory import requires that project evidence. Desktop exports must live under approved roots, with per-workspace import tracking. Inline/URL content and deliberate migrations use the selected workspace directly.
+
+## Purge mistaken files or directories
+
+Preview the scope/count, then apply to the same workspace:
+
+```bash
+imprint purge /code/wrong-project --workspace research
+imprint purge /code/wrong-project --workspace research --apply
+# Use --recursive for a deleted directory whose type cannot be detected.
+imprint purge /code/deleted --recursive --workspace research --apply
+# Logical source keys also work for legacy or foreign-machine provenance.
+imprint purge project/private-dir --source --recursive --workspace research
+imprint purge project/private-dir --source --recursive --workspace research --apply
+imprint workspace exclusions --workspace research
+imprint workspace exclusions restore project/private-dir --source --workspace research
+```
+
+Purge removes indexed chunks and source-linked graph facts from that workspace. Original files and other workspaces stay intact. Directory matching preserves similarly named siblings. Apply records an exclusion so refresh and sync/import cannot silently restore those sources. **Allow re-ingestion** in the dashboard, or `workspace exclusions restore`, removes that exact exclusion; reindex afterward.
+
+The Sources panel supports path/source selection, recursion, count/sample preview and typed workspace confirmation. MCP `purge_sources` defaults to preview; agents must obtain user confirmation and name the reviewed workspace for apply. Cleanup does not load embeddings and works on old-model collections. Partial failures remain visible and preserve the protective exclusion for retry. Backups, exported bundles and logs are not erased. See [ADR 0015](adr/0015-workspace-roots-and-source-purge.md).

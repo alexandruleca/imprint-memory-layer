@@ -5,6 +5,8 @@ description: Source lifecycle, freshness, ranking, migration, evaluation and kno
 
 ## Source lifecycle
 
+Filesystem ingestion is restricted to approved workspace roots; overlapping roots require explicit sharing confirmation. Purged files/directories are excluded from refresh until restored, and storage/import checks reject their reintroduction. Workspace selection remains fixed through source replacement even when another window switches the active workspace. See [workspace roots and purge](workspaces.md) and ADR 0015.
+
 `imprint ingest <dir>` and `imprint refresh <dir>` use the same pipeline. Scan selected roots, respect git tracked/ignore boundaries, filter generated/secret filenames and reject symlinks escaping a root. Git filenames use NUL delimiters. Non-git walking propagates scan errors. Known secret names are a conservative exclusion, not a credential scanner; review selected sources before indexing.
 
 Fingerprint bytes with SHA256 and store `source_hash`, `source_size`, `source_path` and `source_mtime` on local file chunks. Compare fingerprints rather than mtime alone, including timestamp-preserving edits. Check again after extraction. Text files are UTF-8; undecodable input fails visibly and retains prior chunks. Source text defaults to 2,000,000 bytes (`imprint config set ingest.max_file_bytes 4000000` changes it). Documents have the separate `ingest.max_doc_size_mb` extraction policy.

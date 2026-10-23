@@ -106,6 +106,9 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/workspaces` | List all workspaces + active one. |
+| GET | `/api/workspace/roots?workspace=NAME` | Approved roots and purge exclusions for one workspace. |
+| POST | `/api/workspace/roots` | Add/remove a root or restore an exclusion. JSON: workspace, path, action; add accepts explicit boolean `allow_overlap`. |
+| POST | `/api/sources/purge` | Preview by default. JSON: target, workspace, kind (`path`/`source`), recursive, apply. Apply requires an explicit workspace and boolean confirmation. |
 | POST | `/api/workspace/switch` | Switch active workspace. Body: `{"name": "..."}`. |
 | POST | `/api/workspace/create` | Create a new workspace. Body: `{"name": "..."}`. |
 

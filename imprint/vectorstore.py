@@ -321,6 +321,7 @@ def store(
     doc_metadata: dict | None = None,
     etag: str = "",
     last_modified: str = "",
+    source_path: str = "",
     workspace: str | None = None,
 ) -> str:
     """Store a single memory. Returns the 16-hex logical id.
@@ -331,6 +332,9 @@ def store(
         doc_metadata: flat dict (title/author/page_count/etc)
         etag / last_modified: HTTP cache headers for URL refresh
     """
+    from .workspace_policy import check_records, workspace_name
+    workspace = workspace_name(workspace)
+    check_records([{'source': source, 'source_path': source_path}], workspace)
     client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
     if memory_id in _live_existing_ids(client, coll, [memory_id]):
@@ -346,6 +350,7 @@ def store(
         "type": type,
         "tags": _normalize_tags(tags),
         "source": source,
+        "source_path": source_path,
         "source_type": source_type,
         "source_url": source_url,
         "doc_metadata": dict(doc_metadata) if doc_metadata else {},
@@ -420,6 +425,9 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
                   source_mtime?}. tags may be dict or comma-string.
     Returns (inserted, skipped).
     """
+    from .workspace_policy import check_records, workspace_name
+    workspace = workspace_name(workspace)
+    check_records(records, workspace)
     client, coll = _ensure_collection(workspace)
     existing = set() if force else _live_existing_ids(client, coll, (
         _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
@@ -513,6 +521,8 @@ def replace_source(records: list[dict], source: str, project: str,
         raise ValueError("Refusing to replace a source with no prepared chunks")
     if any(r.get("source") != source or r.get("project", "") != project for r in records):
         raise ValueError("Replacement records must belong to the specified source and project")
+    from .workspace_policy import workspace_name
+    workspace = workspace_name(workspace)
     inserted, skipped = store_batch(records, workspace=workspace, **({"force": True} if force else {}))
     client, coll = _ensure_collection(workspace)
     ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
@@ -560,6 +570,9 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     # have different identities even when their payload chunk_index is zero.
     for record in records:
         record_id(record)
+    from .workspace_policy import check_records, workspace_name
+    workspace = workspace_name(workspace)
+    check_records(records, workspace)
     client, coll = _ensure_collection(workspace)
     existing = _live_existing_ids(client, coll, (
         record_id(r)

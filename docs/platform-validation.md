@@ -47,21 +47,21 @@ Executed on Linux x64/WSL2 with managed Python 3.12.15, pinned CPU dependencies 
 
 This is functional CPU validation, not a retrieval-quality comparison, helper benchmark or peak-memory guarantee. Native Windows/macOS/ARM/GPU execution of these new model defaults remains pending. Existing release native gates will exercise default ONNX store/search when run; the optional helper smoke is opt-in and has not been added to every installer job. Multi-process model sharing and transactional model migration remain proposed work in ADR 0009.
 
-## Native release gates added, not executed here
+## Native release validation
 
 Follow-up 2026-10-23: release run `39910991520` established successful Linux x64/ARM and macOS ARM native execution, then exposed the Intel ONNX wheel failure and silent Windows installer hang. The obsolete run was cancelled after logs were retained. [Replacement build 39923142177](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39923142177) is build-only: both macOS installers and both Linux runtime jobs pass, including real default-model inference. Its Windows job now terminates and preserves logs, exposing a separate Windows PowerShell 5.1 native-stderr handling error. That helper path is corrected and covered by `scripts/test-windows-setup.ps1`; subsequent native results are recorded below when complete. See ADR 0012. The following table is the original validation baseline, not the current run status.
 
-The shared release workflow now builds installers before publication and runs the following checks in disposable hosted runners:
+The shared release workflow builds installers before publication. Following the main-only packaging decision (ADR 0014), further native installer validation runs on main; branch CI compiles and tests without packaging. [Branch CI 39926994202](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/39926994202) passes on all five native targets, including Windows PowerShell stderr/exit-code regression, Go/Python tests and MCP/API/Qdrant smoke. The frontend/browser and workflow jobs pass too.
 
 | Target | Native check | Current evidence |
 | --- | --- | --- |
-| Windows x64 | Compile Inno installer, silent install in a path containing spaces, verify final setup result, initialize MCP/API/Qdrant and perform default-model store/search | Workflow implemented; Windows execution pending. |
-| macOS Intel | Compile package/helper, install `.pkg`, provision writable user runtime, initialize MCP/API/Qdrant and default-model store/search | Workflow implemented; Intel macOS execution pending. |
-| macOS ARM | Same native package/runtime checks on ARM | Workflow implemented; ARM macOS execution pending. |
-| Linux x64 | Extract archive, bootstrap with bundled uv, initialize MCP/API/Qdrant and default-model store/search | Local equivalents passed; hosted workflow execution pending. |
-| Linux ARM | Same archive/runtime checks on native ARM | Build/architecture checks passed locally; native execution pending. |
+| Windows x64 | Inno silent install in a path containing spaces, final setup result, MCP/API/Qdrant and default-model store/search | Hour-long hang fixed. A follow-up exposed stderr/exit-code wrapper errors; native regression now passes. Full corrected installer rerun on main pending. |
+| macOS Intel | Build/install `.pkg`, writable user runtime, MCP/API/Qdrant and default-model store/search | Passed in replacement builds 39923142177 and 39924894171, using the Intel wheel pin. |
+| macOS ARM | Same native package/runtime checks on ARM | Passed in both replacement builds. |
+| Linux x64 | Extract archive, bundled-uv bootstrap, MCP/API/Qdrant and default-model store/search | Passed locally and in both hosted replacement builds. |
+| Linux ARM | Same archive/runtime checks on native ARM | Passed in both hosted replacement builds. |
 
-PR CI additionally runs native Go/Python tests and a lighter MCP/API/Qdrant smoke across these targets. Use the manual **Build release artifacts** workflow to validate the changed release pipeline without publishing once the branch is available on GitHub. Workflow files passing actionlint do not establish that their native jobs have run.
+Branch CI runs native Go/Python tests and a lighter MCP/API/Qdrant smoke across these targets. Use the manual **Build release artifacts** workflow on main to validate packaging without publishing. Non-main refs are rejected before artifact building. Workflow syntax alone does not establish native execution.
 
 The first remediation CI run exposed two additional native differences: macOS `/var` provenance needed the same canonicalization as scanned roots for missing-source pruning, and the Windows hook execution fixture needed raw `cmd.exe` command-line syntax instead of Go's default CRT argument quoting. Pruning now normalizes both sides with a symlink-boundary regression; the Windows fixture invokes the generated hook using cmd's native quoting. The updated local Python suite passes 59 tests; native rerun results follow below.
 
@@ -71,7 +71,7 @@ macOS: corrected setup-helper path, initialized the Cocoa application, safely qu
 
 Windows: corrected early completion signaling, added final result/error/timeout handling, explicit silent setup and no-LLM choice, preserved repair choices and added venv checks. Hooks no longer depend on unquoted POSIX snippets. Still verify interactive profile selection/progress, interrupted installs, cancellation of descendants, repair, uninstall and upgrade with existing memories. Silent installer completion must be checked using `.setup-result`, not just the installer process exit code.
 
-Linux: archive/bootstrap/dashboard and actual semantic retrieval work on the local x64 host. Test graphical Electron startup, tray behavior, FUSE/AppImage behavior and browser fallback on supported desktop distributions. No GUI session was available here. Native ARM, GPU and OCR profiles remain unverified; the Qwen follow-up above validates the local helper on Linux x64 CPU.
+Linux: archive/bootstrap/dashboard and actual semantic retrieval pass on x64 and hosted native ARM. Graphical Electron startup, tray, FUSE/AppImage and browser fallback still need desktop checks; no local GUI session was available. GPU and OCR profiles remain unverified; optional local helper inference is validated on Linux x64 CPU.
 
 ## Dependency audit snapshot
 

@@ -324,6 +324,59 @@ async def api_workspace_create(request: Request):
     }
 
 
+@app.get('/api/workspace/roots')
+def api_workspace_roots(workspace: str = ''):
+    from . import workspace_policy as policy
+    try:
+        ws = policy.workspace_name(workspace)
+        return {'workspace': ws, 'roots': policy.roots(ws), 'exclusions': policy.exclusions(ws)}
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.post('/api/workspace/roots')
+async def api_workspace_root_change(request: Request):
+    from . import workspace_policy as policy
+    body = await request.json()
+    try:
+        ws = policy.workspace_name(body.get('workspace'))
+        action = body.get('action', 'add')
+        if action == 'add':
+            if not isinstance(body.get('allow_overlap', False), bool):
+                raise ValueError('allow_overlap must be a boolean confirmation')
+            return policy.add_root(body.get('path'), ws, allow_overlap=body.get('allow_overlap', False))
+        if action == 'remove':
+            return policy.remove_root(body.get('path'), ws)
+        if action == 'restore':
+            kind = body.get('kind', 'path')
+            if kind not in ('path', 'source'):
+                raise ValueError('kind must be path or source')
+            policy.restore(body.get('path'), kind, ws)
+            return {'workspace': ws, 'roots': policy.roots(ws), 'exclusions': policy.exclusions(ws)}
+        raise ValueError('action must be add, remove or restore')
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.post('/api/sources/purge')
+async def api_sources_purge(request: Request):
+    from .purge import run_purge
+    body = await request.json()
+    try:
+        if not isinstance(body.get('apply', False), bool) or not isinstance(body.get('recursive', False), bool):
+            raise ValueError('apply and recursive must be booleans')
+        if body.get('apply') and not body.get('workspace'):
+            raise ValueError('Apply requires the explicit workspace returned by preview')
+        result = await asyncio.to_thread(run_purge, body.get('target'), workspace=body.get('workspace'),
+                                        kind=body.get('kind', 'path'), recursive=body.get('recursive', False),
+                                        apply=body.get('apply', False))
+        if result['applied']:
+            _reset_after_wipe()
+        return result
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
 # ── Chat ───────────────────────────────────────────────────────
 
 @app.get("/api/chat/status")
@@ -767,7 +820,10 @@ async def api_run_command(command: str, request: Request):
     if command not in _ALLOWED_COMMANDS:
         return JSONResponse({"error": f"unknown command '{command}'"}, status_code=404)
 
-    job_id = job_queue.enqueue(command, body)
+    try:
+        job_id = job_queue.enqueue(command, body)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
     snapshot = job_queue.list_queue(recent_limit=0)
     position = 0
     if snapshot["active"] and snapshot["active"]["id"] != job_id:

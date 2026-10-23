@@ -22,6 +22,7 @@ func Learn(args []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
+	pinWorkspace(dataDir)
 
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
@@ -34,6 +35,11 @@ func Learn(args []string) {
 		"PYTHONPATH=" + projectDir,
 		"IMPRINT_DATA_DIR=" + dataDir,
 	}
+	runPython(venvPython, envVars, `
+from imprint.workspace_policy import roots
+if not roots():
+    raise ValueError("Approve this workspace's project/export roots first: imprint workspace roots add <directory>")
+`)
 
 	desktop := false
 	watch := false
@@ -83,7 +89,9 @@ func Learn(args []string) {
 	ccCmd.Stdout = os.Stdout
 	ccCmd.Stderr = os.Stderr
 	ccCmd.Stdin = os.Stdin
-	ccCmd.Run()
+	if err := ccCmd.Run(); err != nil {
+		output.Fail("Conversation learning failed: " + err.Error())
+	}
 	fmt.Println()
 
 	if desktop {
@@ -97,7 +105,9 @@ func Learn(args []string) {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			output.Fail("Desktop learning failed: " + err.Error())
+		}
 		fmt.Println()
 	}
 

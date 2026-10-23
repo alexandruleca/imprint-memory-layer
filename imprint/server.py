@@ -445,6 +445,27 @@ def delete(memory_id: str, workspace: str = "") -> str:
     return f"Not found: {memory_id}"
 
 
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
+def purge_sources(target: Annotated[str, Field(min_length=1, max_length=4096)], workspace: str = '', kind: str = 'source', recursive: bool = False, apply: bool = False) -> str:
+    """Preview or purge a file/directory from one workspace. Preview first and
+    obtain the user's confirmation before apply=True. kind='source' matches
+    logical source keys; kind='path' matches recorded absolute file paths.
+    recursive includes descendants at directory boundaries. Apply also excludes
+    re-ingestion. Original files, other workspaces and backup files are untouched.
+    """
+    ws, error = _validate_ws(workspace)
+    if error:
+        return error
+    if apply and not workspace:
+        return 'Error: apply requires the explicit workspace reviewed in the preview'
+    from .purge import run_purge
+    import json
+    try:
+        return json.dumps(run_purge(target, workspace=ws, kind=kind, recursive=recursive, apply=apply))
+    except ValueError as error:
+        return f'Error: {error}'
+
+
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 def get_memory(memory_id: str, workspace: str = "") -> str:
     """Read one memory by the ID returned from search. Content is bounded to 12000 chars."""
