@@ -1,19 +1,16 @@
-"""ONNX Runtime embedding for any HuggingFace model.
-
-Default: EmbeddingGemma-300M (768-dim, 2048 ctx). Also works with BGE-M3
-(1024-dim, int8/fp16 variants) and other ONNX models. Model, dimension,
-and pooling strategy are configurable via `imprint config`.
-"""
+"""Bounded ONNX embeddings with explicit Qwen query and pooling semantics."""
 
 from __future__ import annotations
 
 import gc
 import hashlib
 import os
+import threading
 
 import numpy as np
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
+from huggingface_hub.errors import EntryNotFoundError
 from tokenizers import Tokenizer
 
 from . import config
@@ -23,6 +20,7 @@ _cpu_session = None  # Lazy CPU fallback for GPU OOM on single items
 _tokenizer = None
 _gpu_retries = 0  # Count of batch reductions (reported after progress bar)
 _model_path = None
+_load_lock = threading.RLock()
 
 _PRETRIM_CHARS = max(2048, config.MAX_SEQ_LENGTH * 8)
 
@@ -106,6 +104,11 @@ def _resolve_providers() -> list:
 
 
 def _load():
+    with _load_lock:
+        _load_locked()
+
+
+def _load_locked():
     global _session, _tokenizer, _model_path
     if _session is not None:
         return
@@ -113,28 +116,43 @@ def _load():
     # ORT validates external-data paths against the real graph directory;
     # those symlinks can make a legitimate companion file look like an escape.
     # local_dir materializes regular files together and retains download metadata.
-    model_key = hashlib.sha256(config.MODEL_NAME.encode()).hexdigest()[:16]
+    model_key = hashlib.sha256(f"{config.MODEL_NAME}@{config.MODEL_REVISION}".encode()).hexdigest()[:16]
     model_dir = config.get_data_dir() / "models" / "embeddings" / model_key
-    model_path = hf_hub_download(config.MODEL_NAME, config.MODEL_FILE, local_dir=model_dir)
+    def download(filename):
+        return hf_hub_download(config.MODEL_NAME, filename, revision=config.MODEL_REVISION, local_dir=model_dir)
+    model_path = download(config.MODEL_FILE)
+    from . import model_profiles as profiles
+    if (config.MODEL_NAME, config.MODEL_REVISION, config.MODEL_FILE) == (profiles.EMBEDDING_REPO, profiles.EMBEDDING_REVISION, profiles.EMBEDDING_FILE):
+        from .downloads import verify_archive
+        from pathlib import Path
+        verify_archive(Path(model_path), profiles.EMBEDDING_SHA256)
     # Some models ship a companion data file (model.onnx_data) alongside the
     # main graph. Pull it into the same cache dir so ORT finds it.
     try:
-        hf_hub_download(config.MODEL_NAME, config.MODEL_FILE + "_data", local_dir=model_dir)
-    except Exception:
+        download(config.MODEL_FILE + "_data")
+    except EntryNotFoundError:
         pass
-    tok_path = hf_hub_download(config.MODEL_NAME, "tokenizer.json", local_dir=model_dir)
-    _session = ort.InferenceSession(
+    tok_path = download("tokenizer.json")
+    session = ort.InferenceSession(
         model_path,
         sess_options=_build_session_options(),
         providers=_resolve_providers(),
     )
-    _tokenizer = Tokenizer.from_file(tok_path)
-    _tokenizer.enable_padding()
-    _tokenizer.enable_truncation(max_length=config.MAX_SEQ_LENGTH)
+    tokenizer = Tokenizer.from_file(tok_path)
+    pad_id = tokenizer.token_to_id("<|endoftext|>") if config.MODEL_FAMILY == "qwen3" else None
+    tokenizer.enable_padding(pad_id=pad_id or 0, pad_token="<|endoftext|>" if pad_id is not None else "[PAD]")
+    tokenizer.enable_truncation(max_length=config.MAX_SEQ_LENGTH)
     _model_path = model_path
+    _tokenizer = tokenizer
+    _session = session  # Publish only after tokenizer initialization succeeds.
 
 
 def _get_cpu_session() -> ort.InferenceSession:
+    with _load_lock:
+        return _get_cpu_session_locked()
+
+
+def _get_cpu_session_locked() -> ort.InferenceSession:
     """Lazy CPU-only session for GPU OOM fallback on single items."""
     global _cpu_session
     if _cpu_session is not None:
@@ -160,11 +178,15 @@ def _pool(embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
     if embeddings.ndim == 2:
         # Already pooled by the model (e.g. some ONNX exports)
         return embeddings
+    if embeddings.ndim != 3 or embeddings.shape[:2] != attention_mask.shape:
+        raise ValueError(f"Unsupported embedding output shape: {embeddings.shape}")
 
     mode = config.POOLING
     if mode == "auto":
         # BGE-M3 → CLS, others → mean
-        if "bge-m3" in config.MODEL_NAME.lower():
+        if config.MODEL_FAMILY == "qwen3":
+            mode = "last"
+        elif config.MODEL_FAMILY == "bge-m3":
             mode = "cls"
         else:
             mode = "mean"
@@ -173,12 +195,16 @@ def _pool(embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
         return embeddings[:, 0, :]
     elif mode == "last":
         # Last non-padding token per sequence
-        lengths = attention_mask.sum(axis=1).astype(int) - 1
-        return embeddings[np.arange(len(embeddings)), lengths, :]
-    else:
+        positions = np.broadcast_to(np.arange(attention_mask.shape[1]), attention_mask.shape)
+        last = np.where(attention_mask != 0, positions, -1).max(axis=1)
+        if np.any(last < 0):
+            raise ValueError("Cannot pool an empty token sequence")
+        return embeddings[np.arange(len(embeddings)), last, :]
+    elif mode == "mean":
         # Mean pooling — mask out padding tokens
         mask = attention_mask[:, :, np.newaxis].astype(np.float32)
         return (embeddings * mask).sum(axis=1) / mask.sum(axis=1).clip(min=1e-9)
+    raise ValueError(f"Unsupported pooling strategy: {mode}")
 
 
 def _run_session(session: ort.InferenceSession, texts: list[str]) -> np.ndarray:
@@ -195,12 +221,38 @@ def _run_session(session: ort.InferenceSession, texts: list[str]) -> np.ndarray:
         inputs["attention_mask"] = attention_mask
     if "token_type_ids" in input_names:
         inputs["token_type_ids"] = np.zeros_like(input_ids)
+    if "position_ids" in input_names:
+        inputs["position_ids"] = np.maximum(attention_mask.cumsum(axis=1) - 1, 0)
+    # The pinned Qwen export exposes decoder KV inputs. Embedding is a full
+    # sequence pass with no preceding context, so supply zero-length caches.
+    if config.MODEL_FAMILY == "qwen3":
+        for node in session.get_inputs():
+            if node.name.startswith("past_key_values."):
+                shape = node.shape
+                dtype = {"tensor(float)": np.float32, "tensor(float16)": np.float16}.get(node.type)
+                if len(shape) != 4 or not isinstance(shape[1], int) or not isinstance(shape[3], int) or dtype is None:
+                    raise ValueError(f"Unsupported Qwen KV input: {node.name} {shape} {node.type}")
+                inputs[node.name] = np.zeros((len(texts), shape[1], 0, shape[3]), dtype=dtype)
+    if input_names - inputs.keys():
+        raise ValueError(f"Unsupported ONNX inputs: {sorted(input_names - inputs.keys())}")
 
-    outputs = session.run(None, inputs)
+    names = [output.name for output in session.get_outputs()]
+    output_name = config.MODEL_OUTPUT
+    if output_name == "auto":
+        output_name = next((name for name in ("sentence_embedding", "sentence_embeddings", "last_hidden_state", "token_embeddings", "pooler_output") if name in names), names[0])
+    if output_name not in names:
+        raise ValueError(f"ONNX output {output_name!r} missing; available: {names}")
+    outputs = session.run([output_name], inputs)
     raw = outputs[0]
 
-    pooled = _pool(raw, attention_mask)
+    pooled = _pool(raw, attention_mask).astype(np.float32)
+    if config.MODEL_FAMILY == "qwen3" and 32 <= config.EMBEDDING_DIM <= pooled.shape[-1]:
+        pooled = pooled[:, :config.EMBEDDING_DIM]
+    if pooled.shape != (len(texts), config.EMBEDDING_DIM) or not np.isfinite(pooled).all():
+        raise ValueError(f"Invalid embedding output {pooled.shape}; expected ({len(texts)}, {config.EMBEDDING_DIM}) finite values")
     norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+    if np.any(norms <= 1e-9):
+        raise ValueError("Embedding model returned a zero vector")
     result = pooled / np.clip(norms, 1e-9, None)
 
     del encoded, input_ids, attention_mask, outputs, raw, pooled, norms
@@ -226,17 +278,22 @@ def embed_document(text: str) -> list[float]:
 
 def embed_query(text: str) -> list[float]:
     """Embed a search query into a dense vector."""
-    return _embed_raw([text[:_PRETRIM_CHARS]])[0].tolist()
+    query = text[:_PRETRIM_CHARS]
+    if config.QUERY_INSTRUCTION:
+        query = f"Instruct: {config.QUERY_INSTRUCTION}\nQuery: {query}"
+    return _embed_raw([query])[0].tolist()
 
 
 def embed_documents_batch(texts: list[str], batch_size: int | None = None) -> list[list[float]]:
-    """batch_size None → auto from config (default: 32 GPU, 16 CPU)."""
+    """Conservative auto batches; explicit overrides remain available."""
     if batch_size is None:
         cfg_bs = config.BATCH_SIZE
         if cfg_bs > 0:
             batch_size = cfg_bs
         else:
-            batch_size = 32 if config.DEVICE != "cpu" else 16
+            batch_size = 4 if config.DEVICE == "gpu" else 1
+    if batch_size < 1:
+        raise ValueError("Embedding batch size must be positive")
     return _embed_documents_batch(texts, batch_size)
 
 

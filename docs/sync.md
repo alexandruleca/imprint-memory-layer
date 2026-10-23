@@ -119,3 +119,9 @@ imprint ui
 ```
 
 Opens the Imprint dashboard (FastAPI + Next.js) with memory browsing, search, stats, and chat.
+
+## Embedding profile compatibility
+
+Vector transfers require the same encoding identity (ADR 0010). New stream records carry `embedding_identity`; unknown or mismatched precomputed vectors fail before upsert. Snapshot manifests also carry identity and are checked before recovery. Legacy streams/bundles require reindexing/export with matching settings. Workspace migration retains vectors and therefore requires compatible collections; it is not a model conversion. Raw text/source reingestion is the rebuild path. Identity is a compatibility check, not proof of peer trust.
+
+Precomputed imports preserve a supplied logical ID only when it matches the content/project/source identity, with or without the supplied chunk position. This keeps a manually stored note distinct from an indexed chunk at position zero and prevents sync from duplicating a note under a recalculated chunk ID. Conflicting IDs fail before upsert.

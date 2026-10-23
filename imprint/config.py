@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import hashlib
 from pathlib import Path
 
 
@@ -24,6 +25,7 @@ def get_data_dir() -> Path:
 # All settings now go through config_schema.resolve() which checks:
 #   env var > data/config.json > hardcoded default
 from .config_schema import resolve as _resolve
+from . import model_profiles as _profiles
 
 
 def _get(key: str):
@@ -34,6 +36,9 @@ def _get(key: str):
 # ── Embedding model ─────────────────────────────────────────────
 MODEL_NAME = _get("model.name")
 DEVICE = str(_get("model.device")).lower()
+MODEL_FAMILY = _profiles.family(MODEL_NAME)
+_revision_raw = _get("model.revision")
+MODEL_REVISION = (_profiles.EMBEDDING_REVISION if MODEL_NAME == _profiles.EMBEDDING_REPO else "main") if _revision_raw == "auto" else _revision_raw
 
 
 def _default_model_file() -> str:
@@ -43,6 +48,8 @@ def _default_model_file() -> str:
     and most other models have a single onnx/model.onnx.
     """
     model_lower = MODEL_NAME.lower()
+    if MODEL_NAME == _profiles.EMBEDDING_REPO:
+        return _profiles.EMBEDDING_FILE
     if "bge-m3" in model_lower:
         if DEVICE == "cpu":
             return "onnx/model_int8.onnx"
@@ -61,9 +68,23 @@ def _default_model_file() -> str:
 
 _model_file_raw = _get("model.file")
 MODEL_FILE = _default_model_file() if _model_file_raw == "auto" else _model_file_raw
-EMBEDDING_DIM = _get("model.dim")
+EMBEDDING_DIM, _dim_source = _resolve("model.dim")
+if _dim_source == "default" and MODEL_FAMILY == "embeddinggemma":
+    EMBEDDING_DIM = 768
 MAX_SEQ_LENGTH = _get("model.seq_length")
 POOLING = str(_get("model.pooling")).lower()
+QUERY_INSTRUCTION = _get("model.query_instruction")
+if QUERY_INSTRUCTION == "auto":
+    QUERY_INSTRUCTION = _profiles.QUERY_INSTRUCTION if MODEL_FAMILY == "qwen3" else ""
+MODEL_OUTPUT = _get("model.output")
+
+
+def embedding_identity() -> str:
+    """Fingerprint vector semantics, including templates and truncation policy."""
+    profile = {"encoder": 1, "repo": MODEL_NAME, "revision": MODEL_REVISION,
+               "file": MODEL_FILE, "dim": EMBEDDING_DIM, "seq_length": MAX_SEQ_LENGTH,
+               "pooling": POOLING, "instruction": QUERY_INSTRUCTION, "output": MODEL_OUTPUT}
+    return hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()
 
 # ── Qdrant ──────────────────────────────────────────────────────
 QDRANT_COLLECTION = _get("collection")

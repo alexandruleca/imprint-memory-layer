@@ -111,6 +111,8 @@ export default defineConfig({
             { label: 'Repository assessment', slug: 'repository-assessment' },
             { label: 'Audit remediation', slug: 'audit-remediation' },
             { label: 'Indexing and retrieval', slug: 'indexing-retrieval' },
+            { label: 'Local model selection', slug: 'local-model-selection' },
+            { label: 'Local helper models', slug: 'local-models' },
             { label: 'UI and UX review', slug: 'ui-ux-review' },
             { label: 'Integrations', slug: 'integrations' },
             { label: 'Quality roadmap', slug: 'quality-roadmap' },

@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .model_profiles import EMBEDDING_REPO, HELPER_REPO, HELPER_FILE
+
 
 @dataclass(frozen=True)
 class Setting:
@@ -31,16 +33,19 @@ class Setting:
 
 SETTINGS: list[Setting] = [
     # ── Embedding model ───────────────────────────────────────
-    Setting("model.name",       "IMPRINT_MODEL_NAME",       "onnx-community/embeddinggemma-300m-ONNX",  str,   "HuggingFace embedding model repo"),
+    Setting("model.name",       "IMPRINT_MODEL_NAME",       EMBEDDING_REPO,  str,   "HuggingFace embedding model repo"),
+    Setting("model.revision",   "IMPRINT_MODEL_REVISION",   "auto",           str,   "HF revision (auto = pinned default export, main for custom repos)"),
     Setting("model.file",       "IMPRINT_MODEL_FILE",       "auto",           str,   "ONNX model file (auto = pick by model/device)"),
-    Setting("model.device",     "IMPRINT_DEVICE",           "auto",           str,   "Compute device: auto / cpu / gpu"),
-    Setting("model.dim",        "IMPRINT_EMBEDDING_DIM",    768,              int,   "Embedding vector dimension"),
+    Setting("model.device",     "IMPRINT_DEVICE",           "cpu",            str,   "Compute device: auto / cpu / gpu"),
+    Setting("model.dim",        "IMPRINT_EMBEDDING_DIM",    1024,             int,   "Embedding vector dimension (known model defaults inferred unless overridden)"),
     Setting("model.seq_length", "IMPRINT_MAX_SEQ_LENGTH",   2048,             int,   "Token cap per embed call"),
     Setting("model.threads",    "IMPRINT_ONNX_THREADS",     4,                int,   "CPU intra-op threads for ONNX"),
     Setting("model.gpu_mem_mb", "IMPRINT_GPU_MEM_MB",       2048,             int,   "VRAM cap for ORT CUDA arena (MB)"),
     Setting("model.gpu_device", "IMPRINT_GPU_DEVICE",       0,                int,   "CUDA device ID"),
-    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = auto: 32 GPU, 16 CPU)"),
+    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = conservative auto: 1 CPU, 4 GPU)"),
     Setting("model.pooling",    "IMPRINT_POOLING",          "auto",           str,   "Pooling strategy: auto / cls / mean / last"),
+    Setting("model.query_instruction", "IMPRINT_QUERY_INSTRUCTION", "auto", str, "Query instruction (auto = model-specific; Qwen wraps Instruct/Query)"),
+    Setting("model.output",     "IMPRINT_MODEL_OUTPUT",     "auto",           str,   "ONNX output name (auto = preferred pooled/token output)"),
 
     # ── Qdrant ────────────────────────────────────────────────
     Setting("qdrant.host",      "IMPRINT_QDRANT_HOST",      "127.0.0.1",      str,   "Qdrant bind/connect host"),
@@ -59,13 +64,13 @@ SETTINGS: list[Setting] = [
     # ── Tagger ────────────────────────────────────────────────
     Setting("tagger.zero_shot",    "IMPRINT_ZERO_SHOT_TAGS",        True,        bool, "Enable zero-shot topic tagging"),
     Setting("tagger.llm",          "IMPRINT_LLM_TAGS",              False,       bool, "Enable LLM topic tagging (replaces zero-shot)"),
-    Setting("tagger.llm_provider", "IMPRINT_LLM_TAGGER_PROVIDER",   "anthropic", str,  "LLM provider: anthropic / openai / ollama / vllm / gemini"),
-    Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "claude-haiku-4-5", str, "LLM tagger model name"),
+    Setting("tagger.llm_provider", "IMPRINT_LLM_TAGGER_PROVIDER",   "local",     str,  "LLM provider: local / anthropic / openai / ollama / vllm / gemini"),
+    Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "",          str,  "Server model override (default per provider); local uses GGUF settings"),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
 
     # ── Tagger local model (llama-cpp) ───────────────────────
-    Setting("tagger.local.model_repo",   "IMPRINT_TAGGER_MODEL_REPO",       "unsloth/Qwen3-1.7B-GGUF",      str,  "HF repo for local tagger GGUF"),
-    Setting("tagger.local.model_file",   "IMPRINT_TAGGER_MODEL_FILE",       "Qwen3-1.7B-Q4_K_M.gguf",       str,  "GGUF filename within repo"),
+    Setting("tagger.local.model_repo",   "IMPRINT_TAGGER_MODEL_REPO",       HELPER_REPO,                    str,  "HF repo for local tagger GGUF"),
+    Setting("tagger.local.model_file",   "IMPRINT_TAGGER_MODEL_FILE",       HELPER_FILE,                    str,  "GGUF filename within repo"),
     Setting("tagger.local.model_path",   "IMPRINT_TAGGER_MODEL_PATH",       "",                              str,  "Absolute path to GGUF (overrides repo/file)"),
     Setting("tagger.local.n_ctx",        "IMPRINT_TAGGER_N_CTX",            8192,                            int,  "Tagger model context window tokens"),
     Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)"),
@@ -86,15 +91,15 @@ SETTINGS: list[Setting] = [
     Setting("ingest.url_follow_depth", "IMPRINT_INGEST_URL_FOLLOW_DEPTH", 1,     int,  "Max link-follow depth (1 = links on seed pages only)"),
     Setting("ingest.url_follow_max",   "IMPRINT_INGEST_URL_FOLLOW_MAX",   20,    int,  "Max discovered URLs to queue per ingest run"),
 
-    # ── Chat (local Gemma agent in dashboard) ────────────────────
+    # ── Chat (optional local helper in dashboard) ───────────────
     Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),
     Setting("chat.provider",       "IMPRINT_CHAT_PROVIDER",       "local",                          str,   "Chat provider: local / vllm / openai / ollama / gemini / anthropic"),
     Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)"),
     Setting("chat.base_url",       "IMPRINT_CHAT_BASE_URL",       "",                               str,   "Base URL override for OpenAI-compat providers"),
-    Setting("chat.model_repo",     "IMPRINT_CHAT_MODEL_REPO",     "unsloth/gemma-4-E4B-it-GGUF",    str,   "HF repo for GGUF auto-download (local provider)"),
-    Setting("chat.model_file",     "IMPRINT_CHAT_MODEL_FILE",     "gemma-4-E4B-it-Q4_K_M.gguf",     str,   "GGUF filename within repo (local provider)"),
+    Setting("chat.model_repo",     "IMPRINT_CHAT_MODEL_REPO",     HELPER_REPO,                      str,   "HF repo for GGUF auto-download (local provider)"),
+    Setting("chat.model_file",     "IMPRINT_CHAT_MODEL_FILE",     HELPER_FILE,                      str,   "GGUF filename within repo (local provider)"),
     Setting("chat.model_path",     "IMPRINT_CHAT_MODEL_PATH",     "",                               str,   "Absolute path to GGUF (overrides repo/file, local provider)"),
-    Setting("chat.n_ctx",          "IMPRINT_CHAT_N_CTX",          16384,                            int,   "Chat context window tokens"),
+    Setting("chat.n_ctx",          "IMPRINT_CHAT_N_CTX",          8192,                             int,   "Chat context window tokens"),
     Setting("chat.n_gpu_layers",   "IMPRINT_CHAT_N_GPU_LAYERS",   -1,                               int,   "GPU layers to offload (-1 = all)"),
     Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
@@ -102,11 +107,11 @@ SETTINGS: list[Setting] = [
 
     # ── Session summarizer (opt-in, local-first) ─────────────
     Setting("summarizer.enabled",       "IMPRINT_SUMMARIZER_ENABLED",       False,              bool, "Enable LLM-based session summarizer (runs on Stop hook)"),
-    Setting("summarizer.provider",      "IMPRINT_SUMMARIZER_PROVIDER",      "ollama",           str,  "Provider: ollama / vllm / anthropic / openai / gemini. Default local."),
-    Setting("summarizer.model",         "IMPRINT_SUMMARIZER_MODEL",         "qwen3:1.7b",       str,  "Model name for chosen provider"),
+    Setting("summarizer.provider",      "IMPRINT_SUMMARIZER_PROVIDER",      "local",            str,  "Provider: local (shares tagger model) / ollama / vllm / anthropic / openai / gemini"),
+    Setting("summarizer.model",         "IMPRINT_SUMMARIZER_MODEL",         "qwen3.5:4b",       str,  "Model name for server providers; local uses tagger.local settings"),
     Setting("summarizer.base_url",      "IMPRINT_SUMMARIZER_BASE_URL",      "",                 str,  "API base URL override"),
     Setting("summarizer.min_messages",  "IMPRINT_SUMMARIZER_MIN_MSGS",      5,                  int,  "Skip sessions with fewer messages"),
-    Setting("summarizer.max_input_tokens","IMPRINT_SUMMARIZER_MAX_IN",      20000,              int,  "Truncate transcript to this many tokens before summarizing"),
+    Setting("summarizer.max_input_tokens","IMPRINT_SUMMARIZER_MAX_IN",      5000,               int,  "Estimated transcript token budget before summarizing (local also checks actual context)"),
 
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),

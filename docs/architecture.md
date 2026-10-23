@@ -84,7 +84,7 @@ graph LR
 |---|---|---|
 | Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe |
 | Server runner | `qdrant_runner.py` | Downloads + spawns + supervises the local Qdrant daemon |
-| Embeddings | EmbeddingGemma-300M via ONNX Runtime | 768-dim, 2048 ctx. Configurable model via `imprint config` |
+| Embeddings | Qwen3-Embedding-0.6B via ONNX Runtime | 1024-dim, 2048 runtime ctx, pinned q8 ONNX, CPU default. See [embeddings](embeddings.md) for rebuilding. |
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |

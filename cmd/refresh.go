@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
@@ -12,8 +13,11 @@ import (
 )
 
 func Refresh(args []string) {
+	originalArgs := append([]string(nil), args...)
+	batchSize, args := parseBatchSizeFlag(args)
+	force, args := parseForceFlag(args)
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, `Usage: imprint refresh <directory>
+		fmt.Fprintf(os.Stderr, `Usage: imprint refresh <directory> [--force] [--batch-size N]
 
 Re-indexes only files that changed since last indexing.
 
@@ -41,7 +45,7 @@ Examples:
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
-	lock := acquireOrEnqueue(dataDir, "refresh", args)
+	lock := acquireOrEnqueue(dataDir, "refresh", originalArgs)
 	defer lock.Release()
 
 	envVars := []string{
@@ -75,7 +79,14 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 		output.Fail("No projects found in " + targetDir)
 	}
 
-	pyArgs := []string{"-m", "imprint.cli_refresh", targetDir}
+	pyArgs := []string{"-m", "imprint.cli_refresh"}
+	if force {
+		pyArgs = append(pyArgs, "--force")
+	}
+	if batchSize > 0 {
+		pyArgs = append(pyArgs, "--batch-size", strconv.Itoa(batchSize))
+	}
+	pyArgs = append(pyArgs, targetDir)
 	for _, p := range projects {
 		pyArgs = append(pyArgs, p.Path+":"+p.Name)
 	}
@@ -84,5 +95,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		output.Fail("Refresh failed: " + err.Error())
+	}
 }

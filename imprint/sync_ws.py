@@ -208,6 +208,7 @@ def stream_export_lines(batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
                 "chunk_index": pl.get("chunk_index", 0),
                 "source_mtime": pl.get("source_mtime", 0),
                 "timestamp": pl.get("timestamp", 0),
+                "embedding_identity": config.embedding_identity(),
             }
             vec = pl.get("_vector")
             if vec is not None:
@@ -291,6 +292,8 @@ def process_import_buffer(
             }
             if use_precomputed:
                 p["vector"] = r["vector"]
+                p["id"] = r.get("id")
+                p["embedding_identity"] = r.get("embedding_identity")
             payloads.append(p)
         chunk = len(payloads) if use_precomputed else EMBED_CHUNK
         store_fn = vs.store_batch_precomputed if use_precomputed else vs.store_batch

@@ -260,22 +260,27 @@ _PROTOTYPE_TAGS = [
 ]
 
 _prototype_matrix = None
+_prototype_identity = None
 
 
 def _load_prototypes():
-    global _prototype_matrix
-    if _prototype_matrix is not None:
+    global _prototype_matrix, _prototype_identity
+    from . import config as _cfg
+    import hashlib
+    identity = hashlib.sha256((_cfg.embedding_identity() + repr(_PROTOTYPE_LABELS)).encode()).hexdigest()
+    if _prototype_matrix is not None and _prototype_identity == identity:
         return _prototype_matrix
 
     from . import config as _cfg
     import numpy as np
 
-    cache_path = _cfg.get_data_dir() / "label_prototypes.npy"
+    cache_path = _cfg.get_data_dir() / "models" / "prototypes" / f"{identity}.npy"
     if cache_path.exists():
         try:
             mat = np.load(cache_path)
             if mat.shape == (len(_PROTOTYPE_LABELS), _cfg.EMBEDDING_DIM):
                 _prototype_matrix = mat
+                _prototype_identity = identity
                 return mat
         except Exception:
             pass
@@ -291,6 +296,7 @@ def _load_prototypes():
     except Exception:
         pass
     _prototype_matrix = mat
+    _prototype_identity = identity
     return mat
 
 
@@ -326,28 +332,19 @@ _PROVIDER_DEFAULTS: dict[str, dict] = {
     "gemini":    {"model": "gemini-2.0-flash",  "key_env": "GOOGLE_API_KEY", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
     "ollama":    {"model": "llama3.2",          "key_env": None, "base_url": "http://localhost:11434/v1"},
     "vllm":      {"model": "default",           "key_env": None, "base_url": "http://localhost:8000/v1"},
-    "local":     {"model": "qwen3-1.7b",        "key_env": None},
+    "local":     {"model": "qwen3.5:4b",        "key_env": None},
 }
 
 
 def _get_llm_provider() -> str:
     from .config_schema import resolve
-    val, source = resolve("tagger.llm_provider")
-    provider = str(val).lower()
-    if source != "default":
-        return provider
-    # Auto-detect: prefer local when llama_cpp is available
-    try:
-        import llama_cpp  # type: ignore  # noqa: F401
-        return "local"
-    except ImportError:
-        return provider
+    return str(resolve("tagger.llm_provider")[0]).lower()
 
 
 def _get_llm_model() -> str:
     from .config_schema import resolve
     val, source = resolve("tagger.llm_model")
-    if source != "default":
+    if source != "default" and val:
         return str(val)
     # If user didn't override model, use provider-specific default
     provider = _get_llm_provider()
@@ -499,11 +496,11 @@ def _derive_llm_openai_compat_raw(full_input: str) -> list[str]:
 
 
 
-# ── 4b. Local LLM tagger (llama-cpp, Qwen3 1.7B) ─────────────
+# ── 4b. Local LLM tagger (llama-cpp, shared local helper) ─────────────
 
 _tagger_llm: Any = None
 _tagger_llm_lock = threading.Lock()
-_tagger_inference_lock = threading.Lock()
+from .local_llm import INFERENCE_LOCK as _tagger_inference_lock
 _tagger_load_error_logged = False
 
 
@@ -538,51 +535,13 @@ def _download_tagger_model() -> tuple[Path | None, str | None]:
     if target.exists():
         return target, None
 
-    fname = _tagger_cfg("tagger.local.model_file")
-    repo = _tagger_cfg("tagger.local.model_repo")
-    if not repo:
-        return None, "tagger.local.model_repo is empty"
-
+    if _tagger_cfg("tagger.local.model_path"):
+        return None, f"tagger model_path does not exist: {target}"
     try:
-        import httpx  # type: ignore
-    except ImportError as e:
-        return None, f"httpx required for model download ({e})"
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".part")
-    url = f"https://huggingface.co/{repo}/resolve/main/{fname}"
-
-    print(f"  Downloading tagger model {fname} …", file=sys.stderr, flush=True)
-    try:
-        with httpx.stream(
-            "GET", url, follow_redirects=True,
-            timeout=httpx.Timeout(60.0, read=300.0),
-        ) as resp:
-            resp.raise_for_status()
-            total = int(resp.headers.get("Content-Length") or 0)
-            done = 0
-            with open(tmp, "wb") as f:
-                for chunk in resp.iter_bytes(chunk_size=1024 * 1024):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    done += len(chunk)
-                    if total:
-                        pct = done * 100 // total
-                        print(
-                            f"\r  Downloading tagger model … {pct}%"
-                            f" ({done // (1024*1024)}/{total // (1024*1024)} MB)",
-                            end="", file=sys.stderr, flush=True,
-                        )
-            print(file=sys.stderr)  # newline after progress
-        tmp.rename(target)
-        return target, None
-    except Exception as e:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return None, f"tagger model download failed: {e}"
+        from .local_llm import download
+        return download(_tagger_cfg("tagger.local.model_repo"), _tagger_cfg("tagger.local.model_file"), target), None
+    except Exception as exc:
+        return None, f"tagger model download failed: {exc}"
 
 
 def _load_tagger_model() -> tuple[Any, str | None]:
@@ -614,22 +573,10 @@ def _load_tagger_model() -> tuple[Any, str | None]:
         n_gpu = int(_tagger_cfg("tagger.local.n_gpu_layers"))
 
         try:
-            # Suppress C++ layer warnings (e.g. "n_ctx_seq < n_ctx_train")
-            # that verbose=False doesn't catch.
-            _stderr = os.dup(2)
-            _devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(_devnull, 2)
-            try:
-                _tagger_llm = llama_cpp.Llama(
-                    model_path=str(path),
-                    n_ctx=n_ctx,
-                    n_gpu_layers=n_gpu,
-                    verbose=False,
-                )
-            finally:
-                os.dup2(_stderr, 2)
-                os.close(_stderr)
-                os.close(_devnull)
+            from .local_llm import load
+            from . import model_profiles as profiles
+            managed = not _tagger_cfg("tagger.local.model_path") and (_tagger_cfg("tagger.local.model_repo"), _tagger_cfg("tagger.local.model_file")) == (profiles.HELPER_REPO, profiles.HELPER_FILE)
+            _tagger_llm = load(path, n_ctx, n_gpu, expected_sha256=profiles.HELPER_SHA256 if managed else None)
         except Exception as e:
             return None, f"tagger model load failed: {e}"
 
@@ -637,12 +584,12 @@ def _load_tagger_model() -> tuple[Any, str | None]:
 
 
 def _derive_llm_local(content: str, max_chars: int) -> list[str]:
-    """Classify content using local Qwen3 1.7B model."""
+    """Classify content using local shared local helper model."""
     return _derive_llm_local_raw(_LLM_PROMPT + content[:max_chars])
 
 
 def _derive_llm_local_raw(full_input: str) -> list[str]:
-    """Classify using local Qwen3 1.7B model — raw input."""
+    """Classify using local shared local helper model — raw input."""
     global _tagger_load_error_logged
     llm, err = _load_tagger_model()
     if err or llm is None:
@@ -657,7 +604,7 @@ def _derive_llm_local_raw(full_input: str) -> list[str]:
     with _tagger_inference_lock:
         try:
             resp = llm.create_chat_completion(
-                messages=[{"role": "user", "content": "/no_think\n" + full_input}],
+                messages=[{"role": "user", "content": full_input}],
                 max_tokens=60,
                 temperature=0.1,
             )
@@ -680,7 +627,7 @@ def derive_llm(
     Provider controlled by IMPRINT_LLM_TAGGER_PROVIDER (default: anthropic).
     Model controlled by IMPRINT_LLM_TAGGER_MODEL (default per provider).
     Base URL override: IMPRINT_LLM_TAGGER_BASE_URL.
-    The ``local`` provider runs Qwen3 1.7B via llama-cpp-python.
+    The ``local`` provider runs shared local helper via llama-cpp-python.
     """
     # Build context-aware prompt
     prompt = _LLM_PROMPT
@@ -727,6 +674,7 @@ _LLM_CLASSIFY_PROMPT = (
     "  Kinds: source, test, migration, readme, types, module, document, web, qa, auto-extract\n"
     "\n"
     "Rules:\n"
+    "- type: use decision for an explicitly adopted choice and its rationale; preference for personal tastes without an adopted choice; bug for a defect/root cause; pattern for a reusable technique; finding for an observation.\n"
     "- All values lowercase, short noun-phrases (e.g. 'auth', 'redis-cache')\n"
     "- Never return numbers, single characters, or content copied verbatim\n"
     "- lang/layer/kind must each be a single token from the taxonomy when possible\n"
@@ -748,14 +696,15 @@ def _call_llm_raw_text(full_input: str) -> str:
         llm, err = _load_tagger_model()
         if err or llm is None:
             return ""
-        with _tagger_inference_lock:
-            resp = llm.create_chat_completion(
-                messages=[{"role": "user", "content": "/no_think\n" + full_input}],
-                max_tokens=200,
-                temperature=0.1,
-            )
-            return (resp["choices"][0]["message"]["content"]
-                    if resp.get("choices") else "")
+        from .local_llm import complete_json
+        schema = {
+            "type": "object", "additionalProperties": False,
+            "properties": {key: ({"type": "array", "items": {"type": "string"}, "maxItems": 5 if key == "domains" else 4}
+                                 if key in ("domains", "topics") else {"type": "string"})
+                           for key in _CLASSIFY_FALLBACK},
+            "required": list(_CLASSIFY_FALLBACK),
+        }
+        return complete_json(llm, full_input, schema)
 
     if provider == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY")

@@ -1452,7 +1452,7 @@ body { background: var(--bg-primary); color: var(--text-primary); font-family: -
         <div id="chat-messages">
           <div id="chat-empty">
             <h3>Ask your memory anything</h3>
-            <p>Runs <code>gemma-4-E4B</code> locally. Has access to <code>search</code>, <code>kg_query</code>, <code>status</code>, <code>wake_up</code>.</p>
+            <p>Runs <code>Qwen3.5-4B</code> locally. Has access to <code>search</code>, <code>kg_query</code>, <code>status</code>, <code>wake_up</code>.</p>
           </div>
         </div>
         <div id="chat-input-row">

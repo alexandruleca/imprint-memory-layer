@@ -85,3 +85,5 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 New submissions store their workspace in the job body as `_workspace`. The dispatcher pins `IMPRINT_WORKSPACE` in the child; switching the dashboard's active workspace does not redirect an already queued job. Old jobs missing this field keep the previous active-at-execution behavior. Go and Python honor the same `IMPRINT_DATA_DIR`.
 
 Stale metadata cleanup acquires the original lock inode before truncation and never unlinks it. Qdrant first startup has a separate shared lock with a health recheck, preventing competing CLI/API/MCP processes from starting two daemons. PID reuse, crash stress and complete Windows descendant cancellation still need dedicated tests; liveness alone is not process identity.
+
+Queued `ingest` and `refresh` accept `force: true` and `batch_size: N`; equivalent CLI flags are preserved when enqueueing. Forced runs re-embed unchanged content within the same model profile.

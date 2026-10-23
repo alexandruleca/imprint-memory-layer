@@ -1,6 +1,6 @@
 # Imprint Memory Layer
 
-Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + EmbeddingGemma-300M ONNX embeddings + Chonkie hybrid chunker + structured tag payloads.
+Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + Qwen3-Embedding-0.6B ONNX embeddings + Chonkie hybrid chunker + structured tag payloads.
 
 ## Working agreement
 
@@ -37,7 +37,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 ## Architecture
 
 - **Vector store**: Qdrant server, auto-spawned local daemon on `127.0.0.1:6333` via [`qdrant_runner.py`](imprint/qdrant_runner.py). Int8 scalar quantization, on-disk payload, payload indexes on `project`/`type`/`source`/`tags.*`
-- **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (768-dim, 2048 ctx). Configure via `imprint config set model.name/dim/pooling`. Auto GPU if available.
+- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime (1024-dim, 2048 runtime ctx). Configure via `imprint config set model.name/dim/pooling`. CPU by default; GPU is opt-in. See docs/embeddings.md before reindexing.
 - **Chunker**: Chonkie hybrid — `CodeChunker` (tree-sitter) for code, `SemanticChunker` for prose. Sliding overlap.
 - **Tagger**: `{lang, layer, kind, domain[], topics[]}`. Deterministic + keyword dict always on; zero-shot on by default; LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`). Providers: anthropic/openai/ollama/vllm/gemini. Default local: Qwen3 1.7B Q4_K_M.
 - **Imprint graph**: SQLite temporal facts (per workspace)

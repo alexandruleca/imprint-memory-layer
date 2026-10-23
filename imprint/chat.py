@@ -4,8 +4,7 @@ Supports multiple providers:
 - **local**: Runs a GGUF model in-process via llama-cpp-python (fully offline)
 - **vllm / openai / ollama / gemini / anthropic**: Remote via OpenAI-compat API
 
-All providers share the same agentic tool loop backed by Imprint's read-only
-MCP tools (search / kg_query / status / wake_up).
+All providers share the same tool loop backed by Imprint's MCP tools.
 
 Structured so the import is cheap: we only try to import `llama_cpp` and
 `huggingface_hub` at call time via helpers; the dashboard still works if they're missing.
@@ -76,12 +75,15 @@ def _is_remote_provider() -> bool:
 
 def _tool_search(query: str, workspace: str = "", **kwargs: Any) -> str:
     # Skip the auto-wake preamble that search() prepends on first call.
-    # The chat agent has limited context (16k) — the full wake_up output
+    # The chat agent has limited context (8k) — the full wake_up output
     # (project stats, essential context, facets) easily eats 3-4k chars,
     # leaving little room for actual results. The agent can call wake_up
     # or status explicitly when it needs an overview.
-    _mcp_server._session_woken = True
-    allowed = {"project", "type", "lang", "layer", "kind", "domain", "limit"}
+    ws, error = _mcp_server._validate_ws(workspace)
+    if error:
+        return error
+    _mcp_server._woken_workspaces.add(ws)
+    allowed = {"project", "type", "lang", "layer", "kind", "domain", "limit", "source", "mode", "offset"}
     filtered = {k: v for k, v in kwargs.items() if k in allowed}
     return _mcp_server.search(query=query, workspace=workspace, **filtered)
 
@@ -253,43 +255,13 @@ def download_model(progress_cb: Callable[[int, int], None] | None = None,
     if target.exists():
         return target, None
 
-    fname = _cfg("chat.model_file")
-    repo = _cfg("chat.model_repo")
-    if not repo:
-        return None, "chat.model_repo is empty (and model not cached)"
-
+    if _cfg("chat.model_path"):
+        return None, f"model_path does not exist: {target}"
     try:
-        import httpx  # type: ignore
-    except Exception as e:
-        return None, f"httpx required for model download ({e})"
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".part")
-    url = f"https://huggingface.co/{repo}/resolve/main/{fname}"
-
-    try:
-        with httpx.stream(
-            "GET", url, follow_redirects=True, timeout=httpx.Timeout(60.0, read=300.0),
-        ) as resp:
-            resp.raise_for_status()
-            total = int(resp.headers.get("Content-Length") or 0)
-            done = 0
-            with open(tmp, "wb") as f:
-                for chunk in resp.iter_bytes(chunk_size=1024 * 1024):
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    done += len(chunk)
-                    if progress_cb:
-                        progress_cb(done, total)
-        tmp.rename(target)
-        return target, None
-    except Exception as e:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return None, f"download failed: {e}"
+        from .local_llm import download
+        return download(_cfg("chat.model_repo"), _cfg("chat.model_file"), target, progress_cb), None
+    except Exception as exc:
+        return None, f"download failed: {exc}"
 
 
 def _resolve_model_path() -> tuple[Path | None, str | None]:
@@ -320,12 +292,11 @@ def load_model() -> tuple[Any, str | None]:
             return None, err or "could not resolve model path"
 
         try:
-            _llm = llama_cpp.Llama(
-                model_path=str(path),
-                n_ctx=int(_cfg("chat.n_ctx")),
-                n_gpu_layers=int(_cfg("chat.n_gpu_layers")),
-                verbose=False,
-            )
+            from .local_llm import load
+            from . import model_profiles as profiles
+            managed = not _cfg("chat.model_path") and (_cfg("chat.model_repo"), _cfg("chat.model_file")) == (profiles.HELPER_REPO, profiles.HELPER_FILE)
+            _llm = load(path, int(_cfg("chat.n_ctx")), int(_cfg("chat.n_gpu_layers")),
+                        expected_sha256=profiles.HELPER_SHA256 if managed else None)
         except Exception as e:
             return None, f"model load failed: {e}"
 
@@ -472,21 +443,24 @@ def _stream_remote(messages: list[dict], max_tokens: int, temperature: float,
 def _stream_local(llm: Any, messages: list[dict], max_tokens: int,
                   temperature: float) -> Generator[str, None, None]:
     """Stream tokens from local llama-cpp model. Yields token strings."""
-    stream = llm.create_chat_completion(
-        messages=messages,
-        stream=True,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        stop=[_TOOL_CLOSE],
-    )
-    for chunk in stream:
-        choices = chunk.get("choices") or []
-        if not choices:
-            continue
-        delta = choices[0].get("delta") or {}
-        text = delta.get("content") or ""
-        if text:
-            yield text
+    from .local_llm import INFERENCE_LOCK, fit_messages
+    with INFERENCE_LOCK:
+        messages = fit_messages(llm, messages, max_tokens)
+        stream = llm.create_chat_completion(
+            messages=messages,
+            stream=True,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=[_TOOL_CLOSE],
+        )
+        for chunk in stream:
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            text = delta.get("content") or ""
+            if text:
+                yield text
 
 
 # ── Streaming tool loop ──────────────────────────────────────

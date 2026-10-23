@@ -71,7 +71,9 @@ obscura is an external CLI binary that provides JS-rendered HTML extraction for 
 
 | Model | License | Source |
 |---|---|---|
-| **EmbeddingGemma-300M** (default) | [Gemma Terms of Use](https://ai.google.dev/gemma/terms) + [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) | https://huggingface.co/google/embeddinggemma-300m (ONNX: https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX) |
+| **Qwen3-Embedding-0.6B** (default) | Apache-2.0 | https://huggingface.co/Qwen/Qwen3-Embedding-0.6B (ONNX: https://huggingface.co/onnx-community/Qwen3-Embedding-0.6B-ONNX) |
+| **Qwen3.5-4B** (optional local helper default) | Apache-2.0 | https://huggingface.co/Qwen/Qwen3.5-4B (GGUF: https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) |
+| **EmbeddingGemma-300M** (optional legacy model) | [Gemma Terms of Use](https://ai.google.dev/gemma/terms) + [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) | https://huggingface.co/google/embeddinggemma-300m (ONNX: https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX) |
 | BGE-M3 (alternative) | MIT | https://huggingface.co/BAAI/bge-m3 |
 | Model2Vec static embedder (used by chunker) | MIT | https://huggingface.co/minishlab |
 

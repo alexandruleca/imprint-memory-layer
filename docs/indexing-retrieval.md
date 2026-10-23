@@ -15,6 +15,8 @@ Replacement is not a database transaction. A reader may briefly see old and new 
 
 The public ID hashes complete stripped content, project, source and optional chunk position. Different long chunks sharing a prefix and identical text at separate positions remain distinct. Single memories have no position component. Existing logical IDs/point UUIDs remain readable. Source refresh replaces legacy chunk IDs without a bulk migration; independently re-saving an old note may create a new identity. Dedup checks retrieve the requested IDs from storage rather than trusting a process-local cache that another process can invalidate.
 
+`--force` on ingest/refresh bypasses both fingerprint skipping and existing-vector dedup within a compatible profile. After changing embedding identity, rebuild in a fresh workspace; see [embeddings](embeddings.md). Indexing failures propagate nonzero through the Go CLI.
+
 ## Ranking contract
 
 MCP and dashboard call the same vectorstore search. Default `hybrid` uses the existing ONNX semantic vector, Qdrant full-text candidates and deterministic reciprocal rank fusion. Lexical scoring considers term coverage/frequency and exact identifier, path and phrase signals. `semantic` remains available for comparison. Filters apply before ranking. At most 256 candidates per channel are read, query terms cap at 12, pages at 50, and offsets at 255.

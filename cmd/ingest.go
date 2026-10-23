@@ -46,8 +46,23 @@ func parseBatchSizeFlag(args []string) (int, []string) {
 	return batchSize, out
 }
 
+func parseForceFlag(args []string) (bool, []string) {
+	force := false
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--force" {
+			force = true
+		} else {
+			out = append(out, arg)
+		}
+	}
+	return force, out
+}
+
 func Ingest(args []string) {
+	originalArgs := append([]string(nil), args...)
 	batchSize, args := parseBatchSizeFlag(args)
+	force, args := parseForceFlag(args)
 
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
@@ -58,10 +73,10 @@ func Ingest(args []string) {
 	}
 
 	if len(args) == 0 {
-		output.Fail("Usage: imprint ingest <path> [--batch-size N]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
+		output.Fail("Usage: imprint ingest <path> [--batch-size N] [--force]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
 	}
 
-	lock := acquireOrEnqueue(dataDir, "ingest", args)
+	lock := acquireOrEnqueue(dataDir, "ingest", originalArgs)
 	defer lock.Release()
 
 	envVars := []string{
@@ -83,10 +98,10 @@ func Ingest(args []string) {
 
 	if info.IsDir() {
 		output.Info("Indexing project files...")
-		indexDir(venvPython, envVars, target, projectDir, dataDir, batchSize)
+		indexDir(venvPython, envVars, target, projectDir, dataDir, batchSize, force)
 	} else {
 		output.Info("Indexing single file...")
-		indexFile(venvPython, envVars, target, projectDir, batchSize)
+		indexFile(venvPython, envVars, target, projectDir, batchSize, force)
 	}
 
 	fmt.Println()
@@ -107,10 +122,12 @@ func runPython(venvPython string, envVars []string, script string) {
 	cmd := runner.CommandWithEnv(venvPython, []string{"-c", script}, envVars...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		output.Fail("Indexing command failed: " + err.Error())
+	}
 }
 
-func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDir string, batchSize int) {
+func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDir string, batchSize int, force bool) {
 	if !platform.DirExists(targetDir) {
 		output.Warn("Directory not found: " + targetDir)
 		return
@@ -127,7 +144,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 
 	out, err := runner.RunCapture(venvPython, "-c", detectScript)
 	if err != nil {
-		output.Warn("Project detection failed: " + err.Error())
+		output.Fail("Project detection failed: " + err.Error())
 		return
 	}
 
@@ -137,7 +154,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal([]byte(out), &projects); err != nil {
-		output.Warn("Cannot parse projects: " + err.Error())
+		output.Fail("Cannot parse projects: " + err.Error())
 		return
 	}
 
@@ -149,6 +166,9 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 	output.Info(fmt.Sprintf("Found %d projects", len(projects)))
 
 	pyArgs := []string{"-m", "imprint.cli_index"}
+	if force {
+		pyArgs = append(pyArgs, "--force")
+	}
 	if batchSize > 0 {
 		pyArgs = append(pyArgs, "--batch-size", strconv.Itoa(batchSize))
 	}
@@ -161,10 +181,12 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		output.Fail("Indexing command failed: " + err.Error())
+	}
 }
 
-func indexFile(venvPython string, envVars []string, filePath, projectDir string, batchSize int) {
+func indexFile(venvPython string, envVars []string, filePath, projectDir string, batchSize int, force bool) {
 	// Detect project from the file's parent directory
 	parentDir := filepath.Dir(filePath)
 	detectScript := fmt.Sprintf(`
@@ -188,6 +210,9 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 	}
 
 	pyArgs := []string{"-m", "imprint.cli_index", "--file", filePath, "--project", projectName}
+	if force {
+		pyArgs = append(pyArgs, "--force")
+	}
 	if batchSize > 0 {
 		pyArgs = append(pyArgs, "--batch-size", strconv.Itoa(batchSize))
 	}
@@ -196,7 +221,9 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		output.Fail("Indexing command failed: " + err.Error())
+	}
 }
 
 func migrateScript(projectDir, dataDir string) string {

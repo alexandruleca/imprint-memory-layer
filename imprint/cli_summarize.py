@@ -4,7 +4,7 @@ Reads a Claude Code transcript JSONL, extracts decisions/patterns/bugs via
 a single LLM call, and stores them as memories plus one `type:summary`
 record. Runs on Stop hook only when ``summarizer.enabled`` is true.
 
-Defaults to a LOCAL provider (ollama) so the feature is zero-API-cost.
+Defaults to the shared local GGUF helper so the feature is zero-API-cost.
 Remote providers (anthropic/openai/gemini) are opt-in and will warn when
 invoked.
 
@@ -161,9 +161,38 @@ def _extract_transcript_text(path: Path, max_tokens: int) -> str:
 
 def _call_summarizer_llm(full_input: str) -> str:
     """Call the configured summarizer provider. Returns raw text (expected JSON)."""
-    provider = config_schema.resolve("summarizer.provider")[0] or "ollama"
-    model = config_schema.resolve("summarizer.model")[0] or "qwen3:1.7b"
+    provider = config_schema.resolve("summarizer.provider")[0] or "local"
+    model = config_schema.resolve("summarizer.model")[0] or "qwen3.5:4b"
     base_url = config_schema.resolve("summarizer.base_url")[0]
+
+    if provider == "local":
+        from .tagger import _load_tagger_model
+        from .local_llm import complete_json, INFERENCE_LOCK
+        llm, error = _load_tagger_model()
+        if error or llm is None:
+            raise RuntimeError(error or "Local summarizer unavailable")
+        entry = {"type": "object", "properties": {"content": {"type": "string"}, "why": {"type": "string"}},
+                 "required": ["content", "why"], "additionalProperties": False}
+        fact = {"type": "object", "properties": {key: {"type": "string"} for key in ("subject", "predicate", "object")},
+                "required": ["subject", "predicate", "object"], "additionalProperties": False}
+        schema = {"type": "object", "properties": {
+            **{key: {"type": "array", "items": entry, "maxItems": 8} for key in ("decisions", "bugs", "patterns")},
+            "facts": {"type": "array", "items": fact, "maxItems": 8}, "summary": {"type": "string"}},
+            "required": ["decisions", "bugs", "patterns", "facts", "summary"], "additionalProperties": False}
+        with INFERENCE_LOCK:
+            # Preserve instructions and the newest transcript tokens. The estimate
+            # used during extraction can underestimate code/multilingual input.
+            if full_input.startswith(_SUMMARIZER_PROMPT):
+                body = full_input[len(_SUMMARIZER_PROMPT):]
+                tokens = llm.tokenize(body.encode(), add_bos=False)
+                overhead = len(llm.tokenize(_SUMMARIZER_PROMPT.encode(), add_bos=False)) + 512
+                budget = llm.n_ctx() - 1500 - overhead
+                if budget < 1:
+                    raise ValueError("Local summarizer context is too small")
+                if len(tokens) > budget:
+                    body = llm.detokenize(tokens[-budget:]).decode("utf-8", errors="replace")
+                full_input = _SUMMARIZER_PROMPT + body
+            return complete_json(llm, full_input, schema, max_tokens=1500)
 
     is_remote = provider in ("anthropic", "openai", "gemini")
     if is_remote:
@@ -240,7 +269,7 @@ def summarize_transcript(
 
     path = Path(transcript_path)
     min_msgs = int(config_schema.resolve("summarizer.min_messages")[0] or 5)
-    max_in_tok = int(config_schema.resolve("summarizer.max_input_tokens")[0] or 20000)
+    max_in_tok = int(config_schema.resolve("summarizer.max_input_tokens")[0] or 5000)
 
     body = _extract_transcript_text(path, max_in_tok)
     if not body or body.count("\nUSER:") + body.count("USER:\n") < min_msgs:

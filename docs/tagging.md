@@ -50,12 +50,12 @@ Set `IMPRINT_LLM_TAGS=1` and pick a provider:
 
 | Provider | `IMPRINT_LLM_TAGGER_PROVIDER` | Default model | API key env var | Notes |
 |---|---|---|---|---|
-| Anthropic | `anthropic` (default) | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` | Uses native Anthropic SDK |
+| Anthropic | `anthropic` | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` | Uses native Anthropic SDK |
 | OpenAI | `openai` | `gpt-4o-mini` | `OPENAI_API_KEY` | OpenAI SDK |
 | Gemini | `gemini` | `gemini-2.0-flash` | `GOOGLE_API_KEY` | Via OpenAI-compatible endpoint |
 | Ollama | `ollama` | `llama3.2` | — | Local server, no API key needed |
 | vLLM | `vllm` | `default` | — | Local server, no API key needed |
-| Local (llama-cpp) | `local` | `qwen3-1.7b` (auto GGUF download) | — | In-process via `llama-cpp-python`, no server required. Tune via `tagger.local.model_repo`, `tagger.local.model_file`, `tagger.local.model_path`, `tagger.local.n_ctx`, `tagger.local.n_gpu_layers` |
+| Local (llama-cpp) | `local` (default) | `Qwen3.5-4B Q4_K_M` (auto GGUF download) | — | In-process via `llama-cpp-python`, no server required. Tune via `tagger.local.model_repo`, `tagger.local.model_file`, `tagger.local.model_path`, `tagger.local.n_ctx`, `tagger.local.n_gpu_layers` |
 
 **Overrides:**
 

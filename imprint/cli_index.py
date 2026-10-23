@@ -462,7 +462,7 @@ def _parse_file_flags(argv: list[str]) -> tuple[str | None, str | None, list[str
     return file_path, project, remaining
 
 
-def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
+def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, force: bool = False):
     """Index a single file into the vector store."""
     from imprint.chunker import chunk_file
     from imprint.config_schema import resolve
@@ -578,7 +578,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
 
     # Replace any existing chunks for this source
     records = stamp_records(records, file_path, snapshot)
-    inserted, _ = vs.replace_source(records, source_key, project)
+    inserted, _ = vs.replace_source(records, source_key, project, **({"force": True} if force else {}))
 
     clear_progress()
     elapsed = time.time() - t_start
@@ -712,11 +712,13 @@ def main(command: str = "ingest"):
 
 def _main(command: str = "ingest"):
     batch_size, rest = _parse_batch_size(sys.argv[1:], default=32)
+    force = "--force" in rest
+    rest = [arg for arg in rest if arg != "--force"]
     file_path, file_project, rest = _parse_file_flags(rest)
 
     # Single-file mode
     if file_path:
-        ingest_single_file(file_path, file_project or "default", batch_size)
+        ingest_single_file(file_path, file_project or "default", batch_size, force=force)
         return
 
     if len(rest) < 2:
@@ -899,7 +901,7 @@ def _main(command: str = "ingest"):
     filtered = []
     for project, rel, fpath in all_files:
         source_key = f"{project}/{rel}"
-        if unchanged(fingerprint(fpath), known_states.get(source_key)):
+        if not force and unchanged(fingerprint(fpath), known_states.get(source_key)):
             pre_skipped += 1
         else:
             filtered.append((project, rel, fpath))
@@ -922,7 +924,7 @@ def _main(command: str = "ingest"):
         for record in pending_batch:
             grouped.setdefault((record["project"], record["source"]), []).append(record)
         for (project, source), records in grouped.items():
-            inserted, _ = vs.replace_source(records, source, project)
+            inserted, _ = vs.replace_source(records, source, project, **({"force": True} if force else {}))
             stored += inserted
         pending_batch.clear()
 

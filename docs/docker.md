@@ -25,7 +25,7 @@ docker run -d \
 ```
 
 Then browse `http://localhost:8420` for the dashboard. The first request takes
-longer than subsequent ones — Imprint downloads the EmbeddingGemma-300M model
+longer than subsequent ones — Imprint downloads the Qwen3-Embedding-0.6B model
 (~800 MB) and the Qdrant binary (~50 MB) into `/data` on first use, then
 everything is local. Mount `/data` as a volume so the cache + Qdrant storage
 survives container restarts.
@@ -110,7 +110,7 @@ services:
 ### What's lazy (first-run downloads)
 
 - Qdrant binary (v1.17.x, ~50 MB) — written to `/data/qdrant-bin/`
-- EmbeddingGemma-300M ONNX model (~800 MB) — written to `/data/hf-cache/`
+- Qwen3-Embedding-0.6B ONNX model (~614 MB q8) — written to `/data/models/embeddings/`
   via `HF_HOME`
 
 Total first-run network usage is ~900 MB. Pre-warm by invoking a search or

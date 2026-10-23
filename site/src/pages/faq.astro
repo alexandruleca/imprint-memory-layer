@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'Does my code ever leave my machine?',
-    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from EmbeddingGemma-300M via ONNX Runtime — no network call. The knowledge graph is local SQLite. If you want LLM-powered topic tagging (better granularity, not required) you opt in explicitly with `imprint config set tagger.llm true` and pick a provider (Anthropic, OpenAI, Gemini, Ollama, vLLM).',
+    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via ONNX Runtime — no network call. The knowledge graph is local SQLite. If you want LLM-powered topic tagging (better granularity, not required) you opt in explicitly with `imprint config set tagger.llm true` and pick a provider (Anthropic, OpenAI, Gemini, Ollama, vLLM).',
   },
   {
     q: 'Why not just wait for bigger context windows?',

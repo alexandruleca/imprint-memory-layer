@@ -33,12 +33,12 @@
 
 - **Remembers what your AI forgets.** Decisions, patterns, bug fixes, and architectural choices persist across sessions — searched semantically, not grepped.
 - **−70.4% tokens, −31.7% cost.** Measured across 150 runs on Claude Code (Sonnet). Your AI searches memory instead of re-reading files. See [BENCHMARK.md](BENCHMARK.md) for raw numbers.
-- **Runs 100% locally by default.** EmbeddingGemma-300M via ONNX, Qdrant vector DB, Chonkie chunking — all on your machine. No API credits consumed unless you opt in.
+- **Runs 100% locally by default.** Qwen3-Embedding-0.6B via ONNX, Qdrant vector DB, Chonkie chunking — all on your machine. No API credits consumed unless you opt in.
 - **One command, any host.** Wires into Claude Code, Cursor, Codex CLI, Copilot, or Cline via MCP. Same memory, shared across tools.
 
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
-- **Embeddings**: EmbeddingGemma-300M via ONNX Runtime (GPU or CPU), no network calls, no per-token cost.
+- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime (GPU or CPU), no network calls, no per-token cost.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
@@ -58,7 +58,7 @@ graph TB
         CC -->|Stop hook| EXT[Auto-Extract<br/>Decisions]
         CC -->|PreCompact hook| SAVE[Save Before<br/>Compression]
         EXT -->|HTTP| QDB
-        EMB[EmbeddingGemma ONNX<br/>GPU/CPU] -->|768-dim vectors| QDB
+        EMB[Qwen3 Embedding ONNX<br/>GPU/CPU] -->|1024-dim vectors| QDB
         TAG[Tagger<br/>lang/layer/kind/domain/topics] -->|payload| QDB
         CHK[Chonkie Hybrid<br/>CodeChunker + SemanticChunker] -->|chunks| EMB
     end
@@ -202,7 +202,7 @@ Terms used across the docs.
 | Term | Definition |
 |---|---|
 | **Chunk** | A sub-file unit of text (a function, class, markdown section, conversation turn) that gets its own embedding vector. Produced by the chunker. |
-| **Embedding** | Dense numeric vector (default 768-dim) representing the semantic meaning of a chunk. Similar meanings → nearby vectors. |
+| **Embedding** | Dense numeric vector (default 1024-dim) representing the semantic meaning of a chunk. Similar meanings → nearby vectors. |
 | **Qdrant** | The vector database that stores embeddings + payloads. Runs as an auto-spawned local daemon on `127.0.0.1:6333`. |
 | **Collection** | Qdrant's term for a named set of vectors. Each workspace has its own collection (e.g. `memories`, `memories_research`). |
 | **Workspace** | Isolated memory environment — dedicated Qdrant collection + SQLite DB + WAL. Lets you separate research/staging/prod memories. |
@@ -256,7 +256,7 @@ Imprint is licensed under the [Apache License 2.0](LICENSE).
 
 Third-party dependencies retain their own licenses — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full table.
 
-**Default embedding model** ([EmbeddingGemma-300M](https://huggingface.co/google/embeddinggemma-300m)) is governed by the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) — *not* Apache 2.0. Imprint does not bundle weights; they're downloaded at runtime from HuggingFace, where you accept Gemma's terms. Switch to a differently-licensed model (e.g. [BGE-M3](https://huggingface.co/BAAI/bge-m3), MIT) via `imprint config set model.name <repo>`.
+**Default models:** [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B) for retrieval and optional [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) for tags, summaries and dashboard tools declare Apache-2.0. Imprint downloads pinned ONNX/GGUF artifacts on demand. See [embeddings and rebuilding](docs/embeddings.md) and [local helper configuration](docs/local-models.md). Existing indexes require explicit rebuilding; an upgrade does not erase memories.
 
 ## Contact
 

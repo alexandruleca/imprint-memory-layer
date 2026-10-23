@@ -583,9 +583,16 @@ def build_command_args(command: str, body: dict) -> list[str]:
         return [str(x) for x in passthrough]
 
     args: list[str] = []
-    if command == "ingest":
+    if command in ("ingest", "refresh"):
         if body.get("dir"):
             args.append(body["dir"])
+        if body.get("force"):
+            args.append("--force")
+        if body.get("batch_size") is not None:
+            size = int(body["batch_size"])
+            if size < 1:
+                raise ValueError("batch_size must be positive")
+            args.extend(["--batch-size", str(size)])
     elif command == "ingest-url":
         url = body.get("url", "")
         if url:
@@ -600,9 +607,6 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.append("--no-follow")
         if body.get("follow_depth") is not None:
             args.extend(["--follow-depth", str(int(body["follow_depth"]))])
-    elif command == "refresh":
-        if body.get("dir"):
-            args.append(body["dir"])
     elif command == "retag":
         if body.get("project"):
             args.extend(["--project", body["project"]])

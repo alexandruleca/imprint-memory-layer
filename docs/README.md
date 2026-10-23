@@ -7,7 +7,7 @@ This directory is the engineering source of truth. The documentation website rea
 
 Start with the [repository assessment](repository-assessment.md), [integration strategy](integrations.md), [quality roadmap](quality-roadmap.md) and [platform validation](platform-validation.md). The assessment is dated 2026-10-23 and separates source findings, changes implemented, and work still requiring evidence.
 
-Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing and retrieval](indexing-retrieval.md), and [UI/UX review](ui-ux-review.md).
+Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing and retrieval](indexing-retrieval.md), [UI/UX review](ui-ux-review.md), and [local model selection](local-model-selection.md) and [local helper setup](local-models.md).
 
 Existing subsystem references: [architecture](architecture.md), [configuration](configuration.md), [MCP](mcp.md), [HTTP API](api.md), [building and releases](building.md), [installation](installation.md), [workspaces](workspaces.md), [queue](queue.md), [sync](sync.md), [embeddings](embeddings.md), [chunking](chunking.md), [tagging](tagging.md) and [Docker](docker.md).
 

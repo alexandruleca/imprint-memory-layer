@@ -23,3 +23,5 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0006](0006-durable-mcp-and-preserved-client-config.md) | Accepted | Durable writes, workspace binding, diagnostics and preserved profiles. |
 | [0007](0007-verified-runtime-and-desktop-baseline.md) | Accepted | Hashed dependencies/downloads, Electron 45, macOS 13 and container parity. |
 | [0008](0008-dashboard-retrieval-and-accessibility.md) | Accepted | Same-origin dashboard, usable search states and accessible modal behavior. |
+| [0009](0009-model-profiles-and-embedding-identity.md) | Proposed | Evaluate local model profiles with explicit embedding identity and safe re-embedding. |
+| [0010](0010-qwen-defaults-and-explicit-reindex.md) | Accepted | Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. |

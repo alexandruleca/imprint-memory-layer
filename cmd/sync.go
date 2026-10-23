@@ -531,14 +531,14 @@ func streamExport(
 //
 // bufPath controls buffer persistence:
 //   - ""   → ephemeral temp file (deleted on success or failure). Suited for
-//            server-side push receives where each peer is independent and
-//            resume across runs has no meaning.
+//     server-side push receives where each peer is independent and
+//     resume across runs has no meaning.
 //   - path → stable, resume-capable buffer. If `path` already exists, RECEIVE
-//            is skipped entirely and the existing file is processed (resume).
-//            On success the file is deleted; on failure it is preserved so the
-//            next invocation can resume. The caller MUST also skip the
-//            corresponding pull request to the peer when resuming, otherwise
-//            the peer streams data into the void and the protocol desyncs.
+//     is skipped entirely and the existing file is processed (resume).
+//     On success the file is deleted; on failure it is preserved so the
+//     next invocation can resume. The caller MUST also skip the
+//     corresponding pull request to the peer when resuming, otherwise
+//     the peer streams data into the void and the protocol desyncs.
 //
 // Returns the importer's final JSON summary (memories/facts inserted+skipped).
 func streamImport(
@@ -1006,16 +1006,17 @@ func (p *progressCtx) Finish(done, totals map[string]int) {
 // -----------------------------------------------------------------------------
 
 // syncExportStreamScript emits newline-delimited JSON:
-//   {"kind":"meta","datasets":{"memories":N,"facts":M}}
-//   {"kind":"batch","dataset":"memories","seq":i,"records":[...]}   (xN/BATCH)
-//   {"kind":"batch","dataset":"facts","seq":i,"records":[...]}       (xM/BATCH)
-//   {"kind":"done"}
+//
+//	{"kind":"meta","datasets":{"memories":N,"facts":M}}
+//	{"kind":"batch","dataset":"memories","seq":i,"records":[...]}   (xN/BATCH)
+//	{"kind":"batch","dataset":"facts","seq":i,"records":[...]}       (xM/BATCH)
+//	{"kind":"done"}
 func syncExportStreamScript(projectDir, dataDir string, batchSize int) string {
 	return fmt.Sprintf(`
 import os, sys, json
 sys.path.insert(0, %q)
 os.environ["IMPRINT_DATA_DIR"] = %q
-from imprint import vectorstore as vs
+from imprint import vectorstore as vs, config
 try:
     from imprint import imprint_graph as kg
 except Exception:
@@ -1061,6 +1062,7 @@ if mem_total > 0:
             "chunk_index": pl.get("chunk_index", 0),
             "source_mtime": pl.get("source_mtime", 0),
             "timestamp": pl.get("timestamp", 0),
+            "embedding_identity": config.embedding_identity(),
         }
         vec = pl.get("_vector")
         if vec is not None:
@@ -1194,6 +1196,8 @@ def import_memories(records):
         }
         if use_precomputed:
             p["vector"] = r["vector"]
+            p["id"] = r.get("id")
+            p["embedding_identity"] = r.get("embedding_identity")
         payloads.append(p)
     chunk = len(payloads) if use_precomputed else EMBED_CHUNK
     store_fn = vs.store_batch_precomputed if use_precomputed else vs.store_batch

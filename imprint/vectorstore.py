@@ -159,12 +159,24 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
                 ),
                 on_disk_payload=True,
                 hnsw_config=qm.HnswConfigDiff(m=16, ef_construct=128),
+                metadata={"imprint_embedding_identity": config.embedding_identity()},
             )
         except UnexpectedResponse as e:
             # 409 = another concurrent process won the create race. Fine —
             # the collection now exists either way.
             if getattr(e, "status_code", None) != 409 and "already exists" not in str(e):
                 raise
+
+    info = client.get_collection(coll)
+    vectors = info.config.params.vectors
+    dense = vectors.get(config.QDRANT_VECTOR_NAME) if isinstance(vectors, dict) else None
+    identity = (info.config.metadata or {}).get("imprint_embedding_identity")
+    if dense is None or dense.size != config.EMBEDDING_DIM or (identity and identity != config.embedding_identity()):
+        raise ValueError(f"Embedding profile mismatch for collection {coll!r}. Create a new workspace and reindex your sources; --force cannot change a collection's embedding profile. See docs/embeddings.md.")
+    if not identity:
+        if client.count(coll, exact=True).count:
+            raise ValueError(f"Collection {coll!r} has unversioned embeddings. Create a new workspace and reindex, or back up and explicitly wipe this workspace before rebuilding. See docs/embeddings.md.")
+        client.update_collection(coll, metadata={**(info.config.metadata or {}), "imprint_embedding_identity": config.embedding_identity()})
 
     # Payload indexes — server mode honors these and uses them to skip
     # full payload scans on filtered queries. Big speedup for tag-narrow
@@ -401,7 +413,7 @@ def _upsert_chunked(client, coll: str, points: list) -> None:
         client.upsert(collection_name=coll, points=batch, wait=True)
 
 
-def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
+def store_batch(records: list[dict], workspace: str | None = None, *, force: bool = False) -> tuple[int, int]:
     """Store many records with one embed pass. Skips duplicates by logical id.
 
     Each record: {content, project?, type?, tags?, source?, chunk_index?,
@@ -409,7 +421,7 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
     Returns (inserted, skipped).
     """
     client, coll = _ensure_collection(workspace)
-    existing = _live_existing_ids(client, coll, (
+    existing = set() if force else _live_existing_ids(client, coll, (
         _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
         for r in records))
 
@@ -491,7 +503,7 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
 
 
 def replace_source(records: list[dict], source: str, project: str,
-                   workspace: str | None = None) -> tuple[int, int]:
+                   workspace: str | None = None, *, force: bool = False) -> tuple[int, int]:
     """Upsert a complete source before pruning old chunks; failures keep old data.
 
     Readers can briefly see old and new chunks. This is not a multi-point
@@ -501,7 +513,7 @@ def replace_source(records: list[dict], source: str, project: str,
         raise ValueError("Refusing to replace a source with no prepared chunks")
     if any(r.get("source") != source or r.get("project", "") != project for r in records):
         raise ValueError("Replacement records must belong to the specified source and project")
-    inserted, skipped = store_batch(records, workspace=workspace)
+    inserted, skipped = store_batch(records, workspace=workspace, **({"force": True} if force else {}))
     client, coll = _ensure_collection(workspace)
     ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
     # Refresh provenance even when unchanged chunks reused their embeddings.
@@ -528,15 +540,35 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
                   chunk_index?, source_mtime?}.
     Returns (inserted, skipped).
     """
+    if any(r.get("embedding_identity") != config.embedding_identity() for r in records):
+        raise ValueError("Precomputed vector profile mismatch or missing identity. Reindex on the source with the same embedding settings, then export/sync again.")
+    import math
+    if any(len(r.get("vector", [])) != config.EMBEDDING_DIM or
+           not all(math.isfinite(value) for value in r["vector"]) for r in records):
+        raise ValueError("Precomputed vectors must have the configured dimension and finite values")
+    def record_id(record):
+        content, project, source = record["content"], record.get("project", ""), record.get("source", "")
+        positioned = _make_id(content, project, source, record.get("chunk_index"))
+        supplied = record.get("id")
+        if supplied:
+            if supplied not in (positioned, _make_id(content, project, source)):
+                raise ValueError("Synced logical ID does not match record content and provenance")
+            return supplied
+        return positioned
+
+    # Validate every ID before touching storage. Notes and positioned chunks
+    # have different identities even when their payload chunk_index is zero.
+    for record in records:
+        record_id(record)
     client, coll = _ensure_collection(workspace)
     existing = _live_existing_ids(client, coll, (
-        _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
+        record_id(r)
         for r in records))
 
     new_records = []
     pending_ids = set()
     for r in records:
-        mid = _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
+        mid = record_id(r)
         if mid not in existing and mid not in pending_ids:
             pending_ids.add(mid)
             new_records.append({**r, "_mid": mid})

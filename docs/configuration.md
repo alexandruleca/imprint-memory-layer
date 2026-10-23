@@ -7,10 +7,10 @@ All settings can be persisted via `imprint config` instead of setting environmen
 **Precedence:** env var > config.json > hardcoded default. Environment variables always win, so you can override config.json for one-off runs.
 
 ```bash
-# Switch to a different embedding model
-imprint config set model.name nomic-ai/nomic-embed-text-v2-moe
-imprint config set model.dim 768
-imprint config set model.seq_length 512
+# Select the supported Qwen default (then rebuild; see embeddings.md)
+imprint config set model.name onnx-community/Qwen3-Embedding-0.6B-ONNX
+imprint config set model.dim 1024
+imprint config set model.seq_length 2048
 
 # Use local Ollama for LLM tagging
 imprint config set tagger.llm true
@@ -48,16 +48,19 @@ imprint config reset --all
 | Key | Default | Description |
 |-----|---------|-------------|
 | **Embedding model** | | |
-| `model.name` | `onnx-community/embeddinggemma-300m-ONNX` | HuggingFace embedding model repo |
+| `model.name` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | HuggingFace embedding model repo |
+| `model.revision` | `auto` | Pinned default export revision; custom repos use main unless pinned |
 | `model.file` | `auto` | ONNX model file (auto = pick by device) |
-| `model.device` | `auto` | Compute device: auto / cpu / gpu |
-| `model.dim` | `768` | Embedding vector dimension |
+| `model.device` | `cpu` | Compute device: auto / cpu / gpu |
+| `model.dim` | `1024` | Embedding vector dimension |
 | `model.seq_length` | `2048` | Token cap per embed call |
 | `model.threads` | `4` | CPU intra-op threads for ONNX |
 | `model.gpu_mem_mb` | `2048` | VRAM cap for ORT CUDA arena (MB) |
 | `model.gpu_device` | `0` | CUDA device ID |
-| `model.batch_size` | `0` | Embedding batch size (0 = auto: 32 GPU, 16 CPU) |
+| `model.batch_size` | `0` | Embedding batch size (0 = auto: 4 explicit GPU, 1 CPU/auto) |
 | `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last |
+| `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |
+| `model.output` | `auto` | Named ONNX output selection |
 | **Qdrant** | | |
 | `qdrant.host` | `127.0.0.1` | Qdrant bind/connect host |
 | `qdrant.port` | `6333` | Qdrant HTTP port |
@@ -73,12 +76,12 @@ imprint config reset --all
 | **Tagger** | | |
 | `tagger.zero_shot` | `true` | Enable zero-shot topic tagging |
 | `tagger.llm` | `false` | Enable LLM topic tagging (replaces zero-shot during ingest/refresh) |
-| `tagger.llm_provider` | `anthropic` | LLM provider: anthropic / openai / ollama / vllm / gemini / local |
-| `tagger.llm_model` | `claude-haiku-4-5` | LLM tagger model name |
+| `tagger.llm_provider` | `local` | LLM provider: anthropic / openai / ollama / vllm / gemini / local |
+| `tagger.llm_model` | — | Server model override (default per provider); local uses GGUF settings |
 | `tagger.llm_base_url` | — | LLM tagger API base URL override |
 | **Tagger — local model (llama-cpp, provider=`local`)** | | |
-| `tagger.local.model_repo` | `unsloth/Qwen3-1.7B-GGUF` | HF repo for GGUF auto-download |
-| `tagger.local.model_file` | `Qwen3-1.7B-Q4_K_M.gguf` | GGUF filename within the repo |
+| `tagger.local.model_repo` | `unsloth/Qwen3.5-4B-GGUF` | HF repo for GGUF auto-download |
+| `tagger.local.model_file` | `Qwen3.5-4B-Q4_K_M.gguf` | GGUF filename within the repo |
 | `tagger.local.model_path` | — | Absolute path to a local GGUF (overrides repo/file) |
 | `tagger.local.n_ctx` | `8192` | Tagger context window in tokens |
 | `tagger.local.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
@@ -101,21 +104,21 @@ imprint config reset --all
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
 | `chat.model` | — | Model name for remote providers (default per provider) |
 | `chat.base_url` | — | Base URL override for OpenAI-compat providers |
-| `chat.model_repo` | `unsloth/gemma-4-E4B-it-GGUF` | HF repo for GGUF auto-download (local provider) |
-| `chat.model_file` | `gemma-4-E4B-it-Q4_K_M.gguf` | GGUF filename within the repo |
+| `chat.model_repo` | `unsloth/Qwen3.5-4B-GGUF` | HF repo for GGUF auto-download (local provider) |
+| `chat.model_file` | `Qwen3.5-4B-Q4_K_M.gguf` | GGUF filename within the repo |
 | `chat.model_path` | — | Absolute path to a local GGUF (overrides repo/file) |
-| `chat.n_ctx` | `16384` | Chat context window tokens |
+| `chat.n_ctx` | `8192` | Chat context window tokens |
 | `chat.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
 | `chat.max_tokens` | `1024` | Max tokens per chat response |
 | `chat.temperature` | `0.3` | Chat sampling temperature |
 | `chat.max_tool_iters` | `6` | Max tool-call iterations per chat turn |
 | **Session summarizer (opt-in, Stop hook)** | | |
 | `summarizer.enabled` | `false` | Enable the LLM-based session summarizer |
-| `summarizer.provider` | `ollama` | Provider: ollama / vllm / anthropic / openai / gemini |
-| `summarizer.model` | `qwen3:1.7b` | Model name for the chosen provider |
+| `summarizer.provider` | `local` | Provider: local / ollama / vllm / anthropic / openai / gemini |
+| `summarizer.model` | `qwen3.5:4b` | Model name for the chosen provider |
 | `summarizer.base_url` | — | API base URL override |
 | `summarizer.min_messages` | `5` | Skip sessions with fewer messages |
-| `summarizer.max_input_tokens` | `20000` | Truncate transcript before summarizing |
+| `summarizer.max_input_tokens` | `5000` | Truncate transcript before summarizing |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
@@ -136,3 +139,5 @@ These don't live in `config.json` because they're path-shaped infra knobs the co
 `ingest.max_file_bytes` (`IMPRINT_INGEST_MAX_FILE_BYTES`) defaults to 2,000,000 for source-text indexing. Oversize/undecodable sources retain their old chunks and report an incomplete run; there is no silent 50,000-character cutoff. Document extraction keeps `ingest.max_doc_size_mb` separately. LLM tagging remains opt-in even with a local provider; `tagger.zero_shot=false` also disables batch backfill.
 
 `IMPRINT_DATA_DIR` selects persistent storage consistently in Go and Python. `IMPRINT_WORKSPACE` is an operation override used by queued subprocesses; it must name an existing valid workspace. New jobs capture it at submission so a later dashboard switch cannot redirect them. MCP calls resolve their workspace at entry. It does not create persistent per-client/project binding.
+
+See [embedding rebuild instructions](embeddings.md) and [local helper setup](local-models.md). Explicit persisted values override new defaults. Model configuration changes require restarting long-running processes. Local summaries share `tagger.local.*`; local non-thinking and grammar controls do not configure external servers.

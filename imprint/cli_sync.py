@@ -74,6 +74,7 @@ def export_snapshot(
         "snapshot": snap_name,
         "timestamp": time.time(),
         "point_count": _count_points(client, coll),
+        "embedding_identity": config.embedding_identity(),
     }
     (bundle / "manifest.json").write_text(json.dumps(meta, indent=2))
 
@@ -93,6 +94,7 @@ def import_snapshot(
         raise FileNotFoundError(f"Bundle not found: {bundle}")
 
     manifest_path = bundle / "manifest.json"
+    meta = {}
     if manifest_path.exists():
         meta = json.loads(manifest_path.read_text())
         print(
@@ -101,6 +103,8 @@ def import_snapshot(
             file=sys.stderr,
         )
 
+    if meta.get("embedding_identity") != config.embedding_identity():
+        raise ValueError("Snapshot embedding profile mismatch or missing identity; reindex/export with the same model settings before importing")
     client, coll = vectorstore._ensure_collection(workspace)
 
     # Restore Qdrant snapshot

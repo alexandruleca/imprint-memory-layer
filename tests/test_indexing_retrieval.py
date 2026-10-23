@@ -81,6 +81,67 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(len(self.contents()), 3)
         self.assertNotIn('_mid', records[0])
 
+    def test_forced_replacement_updates_vectors_for_identical_content(self):
+        records = self.records(['unchanged source bytes'])
+        vs.replace_source(records, 'project/app.py', 'project')
+        with patch('imprint.embeddings.embed_documents_batch', return_value=[[0., 1., 0.]]) as encode:
+            self.assertEqual(vs.replace_source(records, 'project/app.py', 'project'), (0, 1))
+            encode.assert_not_called()
+            self.assertEqual(vs.replace_source(records, 'project/app.py', 'project', force=True), (1, 0))
+            encode.assert_called_once()
+        rows, _ = self.client.scroll(config.collection_name(), with_vectors=True)
+        self.assertEqual(rows[0].vector['dense'], [0., 1., 0.])
+
+    def test_collection_rejects_equal_dimension_model_changes(self):
+        vs.store_batch(self.records(['indexed with original profile']))
+        vs._collections_ready.clear()
+        with patch.object(config, 'embedding_identity', return_value='different-same-dimension-model'):
+            with self.assertRaisesRegex(ValueError, 'profile mismatch'):
+                vs.store_batch(self.records(['new content']))
+
+    def test_legacy_nonempty_collection_requires_explicit_rebuild(self):
+        self.client.create_collection(config.collection_name(), vectors_config={'dense': models.VectorParams(size=3, distance=models.Distance.COSINE)})
+        self.client.upsert(config.collection_name(), [models.PointStruct(id=1, vector={'dense': [1., 0., 0.]})])
+        with self.assertRaisesRegex(ValueError, 'unversioned'):
+            vs._ensure_collection()
+
+    def test_precomputed_vectors_require_same_profile(self):
+        record = {**self.records(['synced content'])[0], 'vector': [1., 0., 0.]}
+        with self.assertRaisesRegex(ValueError, 'profile mismatch'):
+            vs.store_batch_precomputed([record])
+        record['embedding_identity'] = config.embedding_identity()
+        self.assertEqual(vs.store_batch_precomputed([record]), (1, 0))
+
+    def test_sync_preserves_note_identity_and_rejects_unrelated_ids(self):
+        mid = vs.store('A durable note', project='project', source='manual')
+        record = {'content': 'A durable note', 'project': 'project', 'source': 'manual',
+                  'chunk_index': 0, 'id': mid, 'vector': [1., 0., 0.],
+                  'embedding_identity': config.embedding_identity()}
+        self.assertEqual(vs.store_batch_precomputed([record]), (0, 1))
+        record['id'] = 'aaaaaaaaaaaaaaaa'
+        with self.assertRaisesRegex(ValueError, 'logical ID'):
+            vs.store_batch_precomputed([record])
+
+    def test_force_refresh_bypasses_unchanged_file_hashes(self):
+        from imprint import cli_index
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'app.py'
+            path.write_text('unchanged implementation with useful source content')
+            settings = lambda key: (False, 'env') if key.startswith('tagger.') else (2_000_000, 'default')
+            with patch('sys.argv', ['index', directory, directory + ':fixture']), \
+                 patch('imprint.config_schema.resolve', side_effect=settings), \
+                 patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
+                 patch('imprint.tagger.build_payload_tags', return_value={}), \
+                 patch('imprint.embeddings.embed_documents_batch', return_value=[[1., 0., 0.]]) as encode, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                cli_index.main()
+                encode.reset_mock()
+                cli_index.main(command='refresh')
+                encode.assert_not_called()
+                with patch('sys.argv', ['refresh', '--force', directory, directory + ':fixture']):
+                    cli_index.main(command='refresh')
+                encode.assert_called_once()
+
     def test_replacement_preserves_old_source_on_embedding_failure(self):
         vs.replace_source(self.records(['old complete content']), 'project/app.py', 'project')
         with patch('imprint.embeddings.embed_documents_batch', side_effect=RuntimeError('embedding unavailable')):

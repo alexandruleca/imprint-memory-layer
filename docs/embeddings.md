@@ -1,84 +1,64 @@
 ---
 title: Embeddings
-description: Imprint's local ONNX-powered embeddings — EmbeddingGemma-300M by default, optional GPU acceleration via onnxruntime-gpu, and how to swap models safely.
+description: Pinned Qwen3 embeddings, bounded local inference, model identity and rebuilding an index.
 ---
-The system converts every chunk of text — code, markdown, conversation, decision — into a dense vector (768-dim by default) that captures its meaning. Semantically similar text lands close together in vector space, which is what makes semantic search possible.
 
-```mermaid
-graph LR
-    TXT["text chunk<br/>'JWT token validation'"] --> TOK[XLM-RoBERTa tokenizer<br/>truncate to MAX_SEQ_LENGTH]
-    TOK --> ONNX[EmbeddingGemma ONNX<br/>300M params, fp32]
-    ONNX --> POOL[Pooling<br/>auto: mean / cls / last]
-    POOL --> NORM[L2 normalize<br/>unit-length vector]
-    NORM --> VEC["[0.041, -0.012, 0.087, ...]<br/>768 floats"]
-    VEC --> QDR[(Qdrant<br/>cosine distance)]
+Imprint embeds code, documents, decisions and conversations locally. The default is [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B), Apache-2.0, through the [ONNX Community export](https://huggingface.co/onnx-community/Qwen3-Embedding-0.6B-ONNX). The runtime uses 1024 dimensions, a 2048-token cap, CPU execution and conservative batches. The upstream model's advertised 32K context does not change this runtime cap. Weights are downloaded on first use, not bundled with installers.
 
-    style ONNX fill:#0d1117,stroke:#fbbf24,color:#fff
-    style QDR fill:#1a1a3a,stroke:#60a5fa,color:#fff
-```
+## Encoding contract
 
-**Default model:** [Google EmbeddingGemma-300M](https://huggingface.co/google/embeddinggemma-300m) — 300M params, 768-dim, 2048 token context, trained on 100+ languages from Gemma 3. We use the [ONNX Community export](https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX). Supports fp32, q8, and q4 (no fp16).
+Documents have no instruction prefix. Queries use `Instruct: Retrieve relevant source code, documentation, and engineering decisions for the query\nQuery: <query>`. `model.query_instruction` overrides the task text. Qwen uses the last non-padding token; both left and right padding work. Its decoder export receives empty past-key/value tensors for each full-sequence encoding pass. Only the requested hidden-state output is returned; decoder cache outputs are discarded. Vectors are checked for dimension, finite values and nonzero norm, then L2-normalized. Qwen dimensions from 32 through the exported width can be truncated and renormalized; changing dimensions requires a new index.
 
-> **License note**: EmbeddingGemma weights are governed by the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy), not Apache/MIT. Imprint does not bundle the weights — they're downloaded at runtime from HuggingFace, where you accept Gemma's terms. If you switch to a different model (e.g. BGE-M3, MIT-licensed) you're on that model's license instead.
+The default artifact is `onnx/model_quantized.onnx`, about 614 MB, at revision `c25a394dd583836952667c12f008335071b3f43d`. Its SHA256 is checked against the source-controlled profile. Tokenizer and graph use the same revision. Models are materialized together under `data/models/embeddings/<repo-and-revision-key>/`; this avoids external-weight symlink failures. CPU fallback reuses that graph. Custom repositories use `main` unless `model.revision` is explicitly pinned; only the default artifact has a built-in graph checksum. Pin custom revisions explicitly: updates to a mutable `main` reference cannot be detected by the configuration fingerprint alone.
 
-**Alternative:** [BAAI BGE-M3](https://huggingface.co/BAAI/bge-m3) — 568M params, 1024-dim, 8192 token context. Switch via `imprint config set model.name Xenova/bge-m3 && imprint config set model.dim 1024`.
+The adapter supports `input_ids`, `attention_mask`, optional `token_type_ids`/`position_ids`, and the Qwen decoder cache contract. Named sentence-embedding outputs are preferred over token outputs; `model.output` selects an explicit output. Unknown required inputs fail visibly. Arbitrary multimodal ONNX exports are not interchangeable text encoders. BGE-M3 retains CLS pooling; other custom models default to mean pooling. EmbeddingGemma-300M infers 768 dimensions if `model.dim` is not explicitly set, but its legacy prompt contract is not newly implemented here. Review and test any custom adapter before use.
 
-Swap to any HuggingFace ONNX model via `imprint config set model.name <repo>` — set `model.dim` and `model.seq_length` to match.
+## Rebuild after upgrading
 
-**Pooling** is configurable (`imprint config set model.pooling <strategy>`): `auto` (default — picks per model), `cls` (BGE-M3), `mean`, `last`. If the ONNX model returns pre-pooled 2D output, pooling is skipped automatically.
-
-**Memory & speed safeguards** (set in [embeddings.py](../imprint/embeddings.py)):
-
-- ONNX `enable_cpu_mem_arena=False` + `enable_mem_pattern=False` — releases activations between calls instead of pinning a worst-case arena. Keeps RSS bounded on WSL2/low-RAM boxes.
-- **Length-bucketed batching** in [`embed_documents_batch`](../imprint/embeddings.py) — sorts chunks by length so each batch pads to the longest item in *its* bucket, not the global max. Critical because activation memory scales with `batch × seq_len`.
-- **Per-batch `gc.collect()`** — drops intermediate tensors before the next iteration.
-- **GPU VRAM cap** via `gpu_mem_limit` (default 2 GB) + `arena_extend_strategy=kSameAsRequested` — avoids the unbounded power-of-two arena growth that crashed WSL2 on long ingests.
-
-## GPU Acceleration
-
-Embedding throughput on CPU is sufficient for incremental refresh but slow for initial large ingests. GPU is ~20× faster.
+Existing explicit environment/config settings take precedence over these defaults. Restart MCP/dashboard processes after model configuration changes. To select the new embedding profile explicitly:
 
 ```bash
-# Force GPU
-IMPRINT_DEVICE=gpu imprint ingest ~/code
-
-# Force CPU (e.g. on a headless box without CUDA)
-IMPRINT_DEVICE=cpu imprint ingest ~/code
-
-# Auto-detect (default) — uses GPU if onnxruntime-gpu + CUDAExecutionProvider available
-imprint ingest ~/code
+imprint config set model.name onnx-community/Qwen3-Embedding-0.6B-ONNX
+imprint config set model.revision auto
+imprint config set model.file auto
+imprint config set model.dim 1024
+imprint config set model.pooling auto
+imprint config set model.output auto
+imprint config set model.query_instruction auto
+imprint config set model.device cpu
+imprint config set model.seq_length 2048
+imprint config set model.batch_size 0
+imprint workspace switch qwen-v1
+imprint ingest /path/to/project --batch-size 1
 ```
 
-**Setup checklist (one-time):**
+A new workspace preserves the old workspace's notes, graph and vectors. Reimport conversations, documents, URLs and durable memories you want available there; indexing a code directory does not reconstruct manually stored notes. Workspace migration and vector sync copy existing vectors and cannot convert an old embedding index. Back up irreplaceable memories before choosing to wipe instead. No upgrade automatically wipes, switches workspaces or starts a rebuild.
+
+Qdrant collection metadata stores an embedding fingerprint covering repository, revision, graph, dimensions, pooling, query instruction, output selection, token cap and encoder version. The runtime refuses a different profile, including equal-dimension changes. Nonempty legacy collections without identity require an explicit rebuild; empty compatible collections can acquire identity. Topic prototypes have separate caches keyed by this fingerprint and label inventory, so old prototypes are not reused.
+
+For a complete refresh **within the same profile**, use:
 
 ```bash
-.venv/bin/pip install onnxruntime-gpu \
-    nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 \
-    nvidia-cufft-cu12 nvidia-curand-cu12 \
-    nvidia-cusparse-cu12 nvidia-nvjitlink-cu12 nvidia-cuda-nvrtc-cu12
+imprint ingest /path/to/project --force --batch-size 1
+# Or:
+imprint refresh /path/to/project --force --batch-size 1
 ```
 
-> `onnxruntime-gpu` 1.18+ links against `libnvJitLink.so.12` and friends. On a host running the CUDA 13 driver, the system only ships `.so.13`, so ORT silently fails to find them and falls back to CPU unless the cu12 pip wheels are installed too. `imprint setup` installs all eight wheels automatically when it detects a GPU.
+`--force` bypasses both unchanged-file hashing and logical-ID vector dedup. It also works for single-file ingest and queued ingest/refresh (`force: true`, optional `batch_size`). The CLI batch size controls source flush grouping; `model.batch_size` controls actual ONNX inference batches. It preserves source replacement's upsert-before-prune behavior. It cannot resize or relabel an incompatible collection. Indexing failures exit nonzero through the Go CLI rather than printing a successful completion.
 
-The runtime [`_preload_cuda_libs()`](../imprint/embeddings.py) dlopens the pip-installed CUDA libraries before constructing the ORT session, so you don't need `LD_LIBRARY_PATH` set at process start.
+Snapshot imports and precomputed sync require matching embedding identity. Legacy or mismatched vector transfers fail before vector writes; reindex/export from the source using matching settings. Ordinary profile metadata is an interoperability check, not authentication of an untrusted sync peer.
 
-**Tunables** (also configurable via `imprint config set model.*` — full list in [configuration.md](./configuration.md)):
+## Resource controls
 
-| Setting key | Default | Notes |
-|---|---|---|
-| `model.device` | `auto` | `auto` / `cpu` / `gpu` |
-| `model.gpu_mem_mb` | `2048` | VRAM cap for ORT CUDA arena (WSL2-safe; raise on dedicated GPUs) |
-| `model.gpu_device` | `0` | CUDA device index |
-| `model.threads` | `4` | CPU intra-op threads |
-| `model.batch_size` | `0` (auto) | Embedding batch size. `0` = auto (32 on GPU, 16 on CPU). Raise on dedicated GPUs for faster ingest. |
-| `model.seq_length` | `2048` | Token truncation cap |
-| `model.name` | `onnx-community/embeddinggemma-300m-ONNX` | HF repo (any HuggingFace ONNX model) |
-| `model.dim` | `768` | Embedding dimension (must match model) |
-| `model.file` | auto | Override variant pick |
-| `model.pooling` | auto | Pooling: auto / cls / mean / last |
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `model.device` | `cpu` | `auto` and `gpu` remain explicit choices; CUDA requires the GPU runtime profile. |
+| `model.batch_size` | `0` | Auto uses 1 on CPU/auto and 4 on explicit GPU; raise after measuring memory. |
+| `model.seq_length` | `2048` | Truncates model input; long documents are chunked beforehand. |
+| `model.threads` | `4` | CPU inference threads. |
+| `model.gpu_mem_mb` | `2048` | ORT CUDA arena limit, not a cap on total process or GPU use. |
+| `model.gpu_device` | `0` | CUDA device index. |
 
-## Model files and external weights
+Length-bucketed batches reduce padding. ONNX memory arenas/pattern caching are disabled, and intermediate buffers are collected between batches. CUDA errors trigger batch halving, then CPU fallback for a single item. Auto batching stays conservative even when `model.device=auto` discovers CUDA. Model downloads and runtime overhead still require memory and disk beyond the artifact size.
 
-Model graphs, companion weights and the tokenizer are materialized as regular files under `data/models/embeddings/<model-key>/` using Hugging Face's `local_dir` download mode. This keeps ONNX external data alongside its graph. Hub cache symlinks may point into different blob directories; recent ONNX Runtime path validation rejects that layout even for legitimate model weights. The CPU fallback reuses the same resolved graph without another cache lookup.
-
-This changes the local model location and may download an existing model again on upgrade. It does not pin model revisions or provide an offline model bundle. Verify a real store/search cycle after changing model/runtime dependencies; import and health checks alone do not load the ONNX graph.
+See [local model analysis](local-model-selection.md), [helper setup](local-models.md), [configuration](configuration.md) and accepted [ADR 0010](adr/0010-qwen-defaults-and-explicit-reindex.md). Overall retrieval quality and native GPU/macOS/Windows model inference still require separate evaluation.
