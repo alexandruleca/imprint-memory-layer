@@ -89,6 +89,7 @@ export default defineConfig({
           label: 'Start',
           items: [
             { label: 'Installation', slug: 'installation' },
+            { label: 'Chrome extension (preview)', slug: 'browser-extension' },
             { label: 'MCP tools', slug: 'mcp' },
             { label: 'HTTP API', slug: 'api' },
           ],

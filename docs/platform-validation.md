@@ -11,6 +11,56 @@ The initial GitHub history showed successful recent release jobs and the expecte
 
 ## Executed locally
 
+### Chrome preview ZIP and website — 2026-10-23
+
+The follow-up preview keeps Gmail, PDFs, attachments and Google Docs/Sheets
+marked **Coming soon**. The extension now offers page/selection capture only.
+Three standard-library packaging regressions passed: exact runtime-only file set
+(including exclusion of injected credential/dependency fixtures), deterministic
+ZIP bytes across source mtimes, correct checksum, and preservation of an existing
+artifact when a required source file is absent. Four extension transport/sender
+checks and seven website evidence/download-selection/link tests passed.
+
+The actual generated `dist/imprint-chrome-extension.zip` was extracted and loaded
+in disposable Linux Chromium. Pairing, selected-text save/status and credential
+isolation passed; Gmail and Google Docs were rejected with coming-soon messages.
+The Astro production build passed. Desktop (1440px) and mobile (375px) screenshots
+were inspected and the mobile page had no horizontal overflow. Workflow lint
+passed for the updated release and CI workflows. This validates local Linux
+packaging/browser behavior; native macOS/Windows Chrome installation and the
+new hosted release job still require execution. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
+
+### Chrome capture WIP — 2026-10-23
+
+On `wip/chrome-extension`, Linux x64/WSL2 with Python 3.12.15 and Node 25.9.0:
+14 browser API/worker/storage regressions passed, including token rotation,
+workspace/job isolation, exact origins/preflights, peer/Host rejection, bounded
+inputs, account-aware Gmail identities, revoked-queue failure via the actual
+dispatcher/subprocess, and in-memory Qdrant source replacement/failure preservation
+with deterministic embedding stubs. Existing HTTP boundary (10), indexing/retrieval
+(21), queue lock (1) and locale/dispatcher (2) regressions also passed.
+The final full Python discovery run passed all 215 tests in 31 seconds.
+
+Four extension transport/sender Node checks and the two existing documentation
+link checks passed. The headless Chromium smoke loaded the actual unpacked
+extension in a disposable profile, paired it against a synthetic local API,
+extracted rendered article/selection/Gmail fixtures, sent a capture and read
+job status. Injection into a local fixture verified that content scripts cannot
+read trusted credential storage or use the privileged message bridge. Locally
+Chromium used the already extracted libraries at
+`/tmp/imprint-browser-libs/root/usr/lib/x86_64-linux-gnu` through
+`LD_LIBRARY_PATH`; no system package installation or real browser/client profile
+was used. CI is configured for the same browser smoke after its normal
+Playwright Chromium install; that CI run has not been observed yet.
+
+These checks do not establish live Gmail selector compatibility, full-model
+capture quality, Store approval, native Windows/macOS Chrome execution, real
+toolbar gesture behavior, or PDF/attachment/editor-export support. See
+[browser extension setup and limitations](browser-extension.md) and
+[ADR 0029](adr/0029-paired-browser-capture.md).
+
+### Existing subsystem checks
+
 | Check | Result | What it establishes |
 | --- | --- | --- |
 | `go test ./...`, `go vet ./...` | Passed | Existing tests plus hook quoting, configuration preservation/idempotence, checksum and Go/Python lock interoperability on Linux. |

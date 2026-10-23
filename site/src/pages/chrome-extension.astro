@@ -1,0 +1,124 @@
+---
+import Landing from '../layouts/Landing.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import Icon from '../components/Icon.astro';
+import releases from '../data/releases.json';
+import {latestChromeExtension} from '../lib/chrome-extension.mjs';
+
+const extension = latestChromeExtension(releases);
+const needsPreviewBackend = !extension;
+const title = 'Chrome extension — Save web pages to Imprint';
+const description = 'Save a web page or selected passage to your local Imprint memory. Download the Chrome extension ZIP, preview what you save, and install it manually in a few steps.';
+const comingSoon = [
+  {icon: 'message', title: 'Gmail', body: 'Bring useful emails and conversations into your memory.'},
+  {icon: 'file', title: 'PDFs & attachments', body: 'Capture the documents behind the page, with OCR for scanned text.'},
+  {icon: 'layers', title: 'Google Docs & Sheets', body: 'Save documents and spreadsheets through dedicated export adapters.'},
+  {icon: 'sync', title: 'Background capture', body: 'Choose sites to capture automatically and connect mailbox sync.'},
+  {icon: 'search', title: 'Search in Chrome', body: 'Find what you saved without leaving the page you are reading.'},
+  {icon: 'history', title: 'Offline retries', body: 'Keep a capture ready until your local Imprint is available again.'},
+] as const;
+---
+
+<Landing title={title} description={description} pathname="/chrome-extension/">
+  <Nav />
+  <main>
+    <section class="border-b border-[color:var(--color-border)] overflow-hidden">
+      <div class="wrap py-16 sm:py-24 grid gap-14 lg:grid-cols-2 lg:items-center">
+        <div>
+          <div class="eyebrow"><Icon name="globe" size={14} /> Chrome extension <span class="preview-badge">Preview</span></div>
+          <h1 class="mt-5 text-5xl sm:text-6xl font-extrabold tracking-tight leading-[1.04] text-balance">Keep what<br />you find.</h1>
+          <p class="lede max-w-lg">A useful page. A passage you want to remember. Save it to your local Imprint memory, right from Chrome.</p>
+          <div class="mt-8 flex flex-wrap gap-3">
+            {extension ? (
+              <a href={extension.asset.url} class="btn btn-primary" data-extension-download><Icon name="download" size={17} /> Download Chrome ZIP</a>
+            ) : (
+              <a href={`https://github.com/${releases.repo}/releases`} class="btn btn-primary">View extension releases <Icon name="arrowRight" size={17} /></a>
+            )}
+            <a href="#install" class="btn btn-ghost">How to install <Icon name="arrowRight" size={16} /></a>
+          </div>
+          <p class="mt-4 text-xs text-[color:var(--color-text-dim)]">Manual installation · {extension ? `${extension.asset.sizeLabel} · ${extension.release.tag}` : 'ZIP appears here when published'} · Pages &amp; selected text</p>
+          <div class="mt-7 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-4 max-w-lg text-sm">
+            <strong class="font-semibold">Pair with a browser-enabled Imprint backend.</strong>
+            <p class="mt-1 text-[color:var(--color-text-muted)]">{needsPreviewBackend ? <>This preview uses the backend from the <code class="cmd">wip/chrome-extension</code> branch. The original v0.15.1 desktop release does not include browser pairing. </> : <>Keep the Imprint backend from the matching release running on this computer. </>}<a href="/browser-extension/#install-from-this-checkout" class="underline underline-offset-2">Backend setup →</a></p>
+          </div>
+        </div>
+
+        <figure class="capture-illustration" aria-label="Illustration of saving a page to local Imprint">
+          <div class="browser-frame card">
+            <div class="browser-bar"><span class="window-dots"><i></i><i></i><i></i></span><span class="browser-address"><Icon name="lock" size={12} /> docs.example.com / architecture</span><Icon name="globe" size={17} /></div>
+            <div class="article-sample"><span class="sample-label">FIELD NOTES / 04</span><h2>Good ideas deserve<br />a second visit.</h2><p>The most useful context is often something you have already read.</p><p><mark>Capture the details while they are in front of you.</mark> Keep the source, choose a project, and find them again when they matter.</p><div class="sample-lines" aria-hidden="true"><i></i><i></i><i></i></div></div>
+          </div>
+          <div class="capture-panel island">
+            <div class="flex items-center justify-between gap-3"><img src="/logo-lockup-dark.svg" width="88" height="21" alt="Imprint" /><span class="text-xs text-[color:var(--color-text-dim)]">capture · preview</span></div>
+            <div class="capture-connected"><span></span> Connected to local Imprint</div>
+            <div class="text-xs text-[color:var(--color-text-muted)] mt-5">Project</div><div class="mock-field mt-1">Research</div>
+            <div class="text-xs text-[color:var(--color-text-muted)] mt-4">Content to save</div><div class="mock-field mt-1 leading-relaxed">Capture the details while they are in front of you.</div>
+            <div class="mock-save"><Icon name="check" size={15} /> Save to Imprint</div>
+            <p class="mt-3 text-[11px] text-[color:var(--color-text-dim)]">You choose what becomes memory.</p>
+          </div>
+          <figcaption class="text-xs text-[color:var(--color-text-dim)] mt-4">An illustration of the page-to-memory workflow.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap grid gap-5 md:grid-cols-3">
+        <article class="card p-7"><Icon name="file" size={22} /><h2 class="mt-5 text-lg font-semibold">Save a page or a passage</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Capture readable page text, or highlight just the part you want to keep.</p></article>
+        <article class="card p-7"><Icon name="check" size={22} /><h2 class="mt-5 text-lg font-semibold">Review before you save</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Edit the title and text. Pick a project inside your paired workspace.</p></article>
+        <article class="card p-7"><Icon name="server" size={22} /><h2 class="mt-5 text-lg font-semibold">Keep it in your Imprint</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Captures go to the local service. Recall them from Imprint or your connected coding tools.</p></article>
+      </div>
+    </section>
+
+    <section id="install" class="section border-y border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
+      <div class="wrap grid gap-12 lg:grid-cols-[.8fr_1.2fr]">
+        <div><div class="eyebrow">Manual installation</div><h2 class="mt-3 text-3xl sm:text-4xl font-bold tracking-tight">A ZIP. A folder.<br />Your Chrome toolbar.</h2><p class="mt-5 text-[color:var(--color-text-muted)]">Chrome loads the extracted extension folder. Keep that folder somewhere permanent so it stays installed.</p><a href="/browser-extension/" class="inline-flex items-center gap-2 mt-6 text-sm font-semibold underline underline-offset-4">Full setup &amp; troubleshooting <Icon name="arrowRight" size={15} /></a></div>
+        <ol class="install-steps">
+          <li><span class="step-number">01</span><div><h3>Download and extract</h3><p>Download the latest ZIP above and extract it. Inside is an <code class="cmd">imprint-chrome-extension</code> folder with <code class="cmd">manifest.json</code> and an install guide.</p></div></li>
+          <li><span class="step-number">02</span><div><h3>Load it in Chrome</h3><p>Open <code class="cmd">chrome://extensions</code>, turn on <strong>Developer mode</strong>, then click <strong>Load unpacked</strong>. Select the extracted folder containing the manifest.</p><button class="copy-address" data-copy="chrome://extensions" type="button"><Icon name="copy" size={14} /> Copy chrome://extensions</button></div></li>
+          <li><span class="step-number">03</span><div><h3>Connect your local memory</h3><p>Start your browser-enabled Imprint backend. Open the extension’s <strong>Settings</strong>, run the pairing command it shows for your workspace, and paste the token into <strong>Connect and save</strong>.</p></div></li>
+          <li><span class="step-number">04</span><div><h3>Pin it. Preview it. Save it.</h3><p>Pin Imprint Capture from Chrome’s Extensions menu. On a page, choose <strong>Preview page</strong> or <strong>Preview selection</strong>, review the text, and save.</p></div></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="coming-soon">
+      <div class="wrap"><div class="eyebrow">Coming soon</div><h2 class="mt-3 text-3xl sm:text-4xl font-bold tracking-tight">More of your world,<br />one memory.</h2><p class="mt-4 max-w-2xl text-[color:var(--color-text-muted)]">This preview starts with pages and selected text. These integrations are planned and are not enabled in the downloadable extension yet.</p>
+        <div class="grid gap-4 mt-9 sm:grid-cols-2 lg:grid-cols-3">{comingSoon.map((item) => <article class="card p-6"><div class="flex justify-between items-center gap-3"><Icon name={item.icon} size={21} /><span class="soon-badge">Coming soon</span></div><h3 class="mt-5 font-semibold text-lg">{item.title}</h3><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">{item.body}</p></article>)}</div>
+      </div>
+    </section>
+
+    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">The title, source URL and text you explicitly save go to your local Imprint. The extension does not read cookies or passwords. Captures follow your workspace’s existing sync and model settings, including any remote providers you have chosen.</p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Download the latest ZIP and replace the files in the same extracted folder. Open <code class="cmd">chrome://extensions</code> and click <strong>Reload</strong> for Imprint Capture. Keeping the same folder helps preserve the extension ID and pairing.</p></div></div></section>
+  </main>
+  <Footer />
+</Landing>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy || '');
+        const original = button.innerHTML;
+        button.textContent = 'Copied';
+        setTimeout(() => {button.innerHTML = original;}, 1800);
+      } catch {button.textContent = 'Open chrome://extensions in the address bar';}
+    });
+  });
+</script>
+
+<style>
+  .preview-badge, .soon-badge { border: 1px solid var(--color-border-strong); border-radius: 999px; padding: .2rem .55rem; font-size: .65rem; line-height: 1.4; font-weight: 500; letter-spacing: .025em; text-transform: none; color: var(--color-text-muted); }
+  .capture-illustration { position: relative; padding: 0 0 3rem; min-width: 0; }
+  .browser-frame { overflow: hidden; }
+  .browser-bar { display: flex; align-items: center; gap: .8rem; padding: .9rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface-2); }
+  .window-dots { display: flex; gap: 4px; }.window-dots i { width: 6px; height: 6px; background: var(--color-border-strong); border-radius: 50%; }
+  .browser-address { display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; font: .65rem var(--font-mono); color: var(--color-text-dim); }
+  .article-sample { padding: 2rem 2rem 10rem; }.sample-label { font: .6rem var(--font-mono); letter-spacing: .15em; color: var(--color-text-dim); }
+  .article-sample h2 { margin: 1rem 0; font-size: 1.65rem; font-weight: 700; line-height: 1.2; letter-spacing: -.04em; }.article-sample p { font-size: .8rem; line-height: 1.8; color: var(--color-text-muted); margin: .8rem 0; max-width: 19rem; }.article-sample mark { background: #ececec; color: inherit; padding: .1rem 0; }
+  .sample-lines { display: grid; gap: .5rem; margin-top: 1.2rem; max-width: 17rem; }.sample-lines i { height: 4px; background: var(--color-border); border-radius: 3px; }.sample-lines i:last-child { width: 62%; }
+  .capture-panel { position: absolute; right: -.5rem; bottom: 6rem; width: min(290px, 84%); border: 1px solid var(--color-border); border-radius: 14px; padding: 1.25rem; background: var(--color-surface); box-shadow: 0 18px 45px #0002; }
+  .capture-connected { margin-top: 1.2rem; display: flex; align-items: center; gap: .4rem; color: var(--color-text-muted); font-size: .65rem; }.capture-connected span { height: 5px; width: 5px; border-radius: 50%; background: var(--color-success); }
+  .mock-field { background: var(--color-surface-2); border: 1px solid var(--color-border); padding: .6rem .7rem; border-radius: 6px; font-size: .75rem; }.mock-save { display: flex; justify-content: center; align-items: center; gap: .4rem; padding: .7rem; margin-top: 1rem; border-radius: 6px; background: #fff; color: #111; font-size: .75rem; font-weight: 600; }
+  .install-steps { display: grid; gap: 2rem; }.install-steps li { display: flex; align-items: flex-start; gap: 1.3rem; }.step-number { flex: none; font: .7rem var(--font-mono); padding-top: .25rem; color: var(--color-text-dim); }.install-steps h3 { font-size: 1.05rem; font-weight: 600; }.install-steps p { margin-top: .5rem; font-size: .875rem; line-height: 1.75; color: var(--color-text-muted); }.copy-address { display: inline-flex; align-items: center; gap: .5rem; margin-top: .8rem; padding: .5rem .7rem; border: 1px solid var(--color-border-strong); border-radius: 6px; font-size: .75rem; cursor: pointer; }
+  @media (max-width: 380px) { .article-sample { padding: 1.4rem 1.4rem 11rem; }.capture-panel { right: 0; }.browser-address { font-size: .55rem; } }
+</style>

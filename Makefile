@@ -9,12 +9,16 @@ UI_DIR     := ui-electron
         clean fetch-uv \
         ui-build ui-build-linux ui-build-mac ui-build-win ui-build-all \
         ui-dist ui-dist-linux ui-dist-mac ui-dist-win \
-        site-build dashboard-build \
+        site-build dashboard-build chrome-extension-zip \
         $(PLATFORMS)
 
 # Build for current OS/arch (local dev)
 build:
 	go build -ldflags "$(LDFLAGS)" -o build/imprint .
+
+# Extract the ZIP, then Load unpacked in chrome://extensions.
+chrome-extension-zip:
+	python3 scripts/package_chrome_extension.py
 
 # Cross-compile all platforms into bin/. UI and site have dedicated targets.
 all: $(PLATFORMS)

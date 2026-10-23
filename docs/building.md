@@ -9,6 +9,7 @@ description: Build the CLI, dashboard, desktop shell and native installers, with
 make build                         # current platform CLI
 make all                           # five Go targets
 make dashboard-build               # fresh Next.js static export (Node 22+)
+make chrome-extension-zip           # allowlisted manual-install Chrome ZIP + checksum
 make ui-dist-linux ARCH=amd64       # native shell; arm64 is a separate build
 make ui-dist-mac                    # universal macOS app, on macOS
 make ui-dist-win                    # Windows x64 portable app
@@ -43,6 +44,13 @@ Stable (`release.yml`) selects versions from main and calls `build-release.yml`.
 Analysis reads every commit since the last stable tag with Git's NUL record delimiter. A later fix or documentation commit cannot hide an earlier feature/breaking change. `scripts/test-release-versioning.py` exercises the actual workflow script against disposable Git histories, including precedence, a forced bump and the first release.
 
 The reusable workflow builds the dashboard and platform shells, creates validated archives, builds native `.pkg`/`.exe` installers, provisions/exercises native runtimes, and only then publishes a release and `SHA256SUMS` covering all archives and installers. macOS app bundles travel between runners as tar archives to preserve symlinks. Website/container follow-up workflows run after a successful parent release. Native build failures leave no newly published release from this pipeline.
+
+The same main-only workflow builds `imprint-chrome-extension.zip`, validates its
+contents and loads that exact ZIP after extraction in disposable Chromium. This
+job is required by publication, and the extension ZIP is required in the complete
+asset set and covered by `SHA256SUMS`. Branch CI exercises packaging in temporary
+test directories; it does not publish extension releases. The local packager also
+writes a `.zip.sha256` sidecar. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
 Use the **Build release artifacts** manual workflow on main for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on hosted Linux x64/ARM, macOS Intel/ARM and Windows x64 runners; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
 
