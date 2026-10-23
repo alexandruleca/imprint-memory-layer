@@ -21,6 +21,7 @@ A user should understand whether Imprint is connected, what was indexed, how fre
 | Connection failure was hidden | Visible service banner with retry and bounded health requests. |
 | Navigation consumed narrow screens | Compact mobile sidebar, labels/current page, responsive search/stats and skip link. |
 | Existing React lifecycle lint failures | Derived state, keyed request results and deliberate client hydration replace synchronous effect resets. Lint is a CI gate. |
+| Container builds failed in Google's dynamic font import | Bundle the pinned, OFL-licensed Roboto variable font through `next/font/local`; build and browser font loading use local assets. See ADR 0008. |
 
 Browser checks exercise mobile overflow, empty/error/retry, filters, stale responses, full-memory modal and reconnection. They mock API responses to test interaction deterministically; backend/native-model smoke provides separate retrieval evidence. This is not a full accessibility certification or native desktop GUI test.
 

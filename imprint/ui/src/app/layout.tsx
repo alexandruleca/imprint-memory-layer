@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
-import { Roboto } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { Heartbeat } from "@/components/heartbeat";
 
-const roboto = Roboto({
+const roboto = localFont({
+  src: "./fonts/Roboto-Variable.ttf",
   variable: "--font-roboto",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "700"],
+  weight: "100 900",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
