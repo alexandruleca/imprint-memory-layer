@@ -31,12 +31,7 @@ func TestHookCommandsExecuteWithSpacesAndApostrophes(t *testing.T) {
 	}
 	bp := Paths{ProjectDir: root, VenvPython: interpreter, DataDir: filepath.Join(root, "user's data")}
 	run := func(command string) error {
-		var child *exec.Cmd
-		if runtime.GOOS == "windows" {
-			child = exec.Command("cmd", "/C", command)
-		} else {
-			child = exec.Command("sh", "-c", command)
-		}
+		child := hookShellCommand(command)
 		child.Stdin = bytes.NewBufferString(`{"session_id":"fixture"}`)
 		output, err := child.CombinedOutput()
 		if err != nil {

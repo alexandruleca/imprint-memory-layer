@@ -44,7 +44,13 @@ def unchanged(current: dict, stored: dict | None) -> bool:
 def missing_sources(states: dict[str, dict], roots: list[str]) -> list[str]:
     """Only prune recorded local paths actually gone from a successfully scanned root."""
     resolved = [Path(root).resolve() for root in roots]
-    return [source for source, state in states.items()
-            if state.get('source_path')
-            and any(Path(state['source_path']).is_relative_to(root) for root in resolved)
-            and not Path(state['source_path']).exists()]
+    missing = []
+    for source, state in states.items():
+        if not state.get('source_path'):
+            continue
+        # Normalize both sides: macOS exposes /var through /private/var, and
+        # older provenance may retain an equivalent noncanonical spelling.
+        path = Path(state['source_path']).resolve()
+        if any(path.is_relative_to(root) for root in resolved) and not path.exists():
+            missing.append(source)
+    return missing

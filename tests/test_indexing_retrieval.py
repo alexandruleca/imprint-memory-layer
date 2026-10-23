@@ -30,6 +30,23 @@ class FingerprintTests(unittest.TestCase):
                       'other': {'source_path': str(root.parent / 'elsewhere.py')}, 'legacy': {}}
             self.assertEqual(missing_sources(states, [directory]), ['local'])
 
+    def test_pruning_normalizes_aliases_without_following_escapes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'root'
+            root.mkdir()
+            alias = Path(directory) / 'alias'
+            outside = Path(directory) / 'outside'
+            outside.mkdir()
+            try:
+                alias.symlink_to(root, target_is_directory=True)
+                (root / 'escape').symlink_to(outside, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f'Directory symlinks unavailable: {error}')
+            states = {'local': {'source_path': str(alias / 'gone.py')},
+                      'escape': {'source_path': str(root / 'escape' / 'gone.py')}}
+            self.assertEqual(missing_sources(states, [str(root)]), ['local'])
+            self.assertEqual(missing_sources(states, [str(alias)]), ['local'])
+
     def test_secrets_and_symlink_escape(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
