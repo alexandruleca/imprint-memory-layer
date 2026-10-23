@@ -51,7 +51,7 @@ sequenceDiagram
     Note over A,B: a request outside the grant gets 403 and ends the session<br/>a frame that fails authentication ends the session, nothing from it is stored
 ```
 
-The public relay at `wss://imprint.alexandruleca.com` is the default — pass `--relay` to use your own. The relay pairs one provider and one consumer per room and refuses a second connection for a taken role, caps messages at 80 MiB, and closes rooms still waiting for their second peer after 1 hour (a paired transfer runs as long as it needs).
+The public relay at `wss://imprint.alexandruleca.com` is the default — pass `--relay` to use your own. The relay pairs one provider and one consumer per room and refuses a second connection for a taken role, caps messages at 80 MiB, and closes rooms still waiting for their second peer after 1 hour (a paired transfer runs as long as it needs). Only WebSocket requests reach rooms, so protocol errors go to sync clients alone; a browser on any address of the relay gets a static page that explains it ([`cmd/relay.html`](../cmd/relay.html): no scripts or third-party requests, 404 off the root).
 
 **What transfers** (from the selected workspace only):
 

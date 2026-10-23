@@ -144,7 +144,7 @@ docker run -d \
   ghcr.io/alexandruleca/imprint-relay:latest
 ```
 
-The relay is stateless — no volume required. See [sync.md](./sync.md) for how
+The relay is stateless — no volume required. `/health` reports status, release and open-room count for health checks and deploys; any other plain HTTP request gets the page that explains the relay. See [sync.md](./sync.md) for how
 peers authenticate through it.
 
 Point clients at your host:

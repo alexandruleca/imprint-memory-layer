@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -187,6 +189,34 @@ func TestRelayClosesOversizedMessages(t *testing.T) {
 	_ = provider.Write(ctx, websocket.MessageBinary, make([]byte, relayMaxMessage+1))
 	if _, _, err := provider.Read(ctx); websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
 		t.Fatalf("oversized message not refused: %v", err)
+	}
+}
+
+// TestRelayShowsBrowsersAPage: a browser on any path gets the page about the
+// relay, never the protocol errors meant for sync peers.
+func TestRelayShowsBrowsersAPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(relayHandler))
+	t.Cleanup(srv.Close)
+	for path, want := range map[string]int{
+		"/":                       http.StatusOK,
+		"/asfsafas":               http.StatusNotFound,
+		"/7f3a9c21?role=consumer": http.StatusNotFound,
+	} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if resp.StatusCode != want || resp.Header.Get("Content-Type") != "text/html; charset=utf-8" {
+			t.Errorf("GET %s = %d %q, want %d text/html", path, resp.StatusCode, resp.Header.Get("Content-Type"), want)
+		}
+		if !bytes.Equal(body, relayPage) {
+			t.Errorf("GET %s did not serve the relay page: %.80q", path, body)
+		}
 	}
 }
 
