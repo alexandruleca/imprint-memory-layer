@@ -149,3 +149,18 @@ class LocalHelperTests(unittest.TestCase):
             self.assertIn('example', server._woken_workspaces)
             self.assertEqual(search.call_args.kwargs['offset'], 10)
             self.assertNotIn('unknown', search.call_args.kwargs)
+
+    def test_chat_generation_receives_current_device_and_historical_path_guidance(self):
+        from imprint import chat, device
+        origin = {'id': 'bbbbbbbb', 'name': 'device-B', 'os': 'linux'}
+        with patch.object(chat, '_is_remote_provider', return_value=True), \
+             patch.object(chat, '_get_chat_provider', return_value='ollama'), \
+             patch.object(device, 'current', return_value=origin), \
+             patch.object(chat.os, 'getcwd', return_value='/checkout-B'), \
+             patch.object(chat, '_stream_remote', return_value=iter(['Shared knowledge.'])) as generate:
+            events = list(chat.stream_reply([], 'Recall our old conversation'))
+        prompt = generate.call_args.args[0][0]['content']
+        self.assertIn('device-B', prompt)
+        self.assertIn('/checkout-B', prompt)
+        self.assertIn('Original paths in historical text', prompt)
+        self.assertEqual(events[-1], {'type': 'done'})

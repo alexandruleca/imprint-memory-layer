@@ -19,7 +19,7 @@ Preserve origin through CLI/dashboard streams, graph copy/move and snapshots. Im
 
 Store workspace-scoped local project mappings in the policy registry. Ingestion sets the mapping; `workspace map <project> <directory>` sets it explicitly within approved roots. Resolve relative paths under the mapped root and current process cwd, rejecting traversal/symlink escape. Keep original paths as references. Offer a local hint only for an existing approved file inside cwd; verify live contents before editing. Do not rewrite paths inside historical text.
 
-Expose current device/cwd in the MCP handshake and `device_context`; expose provenance/path status in retrieval and dashboard detail. Freshness, pruning and physical-path purge use only locally recorded paths. Source-key cleanup also handles foreign/legacy data.
+Expose current device/cwd in the MCP handshake and `device_context`, and include it with historical-path guidance in dashboard chat's system context. Expose provenance/path status in retrieval and dashboard detail. Freshness, pruning and physical-path purge use only locally recorded paths. Source-key cleanup also handles foreign/legacy data.
 
 ## Alternatives
 

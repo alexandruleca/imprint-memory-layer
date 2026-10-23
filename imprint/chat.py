@@ -549,7 +549,13 @@ def stream_reply(
             return
 
     # Build message list
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    from .device import current
+    device_context = json.dumps({'current_device': current(), 'working_directory': os.getcwd()})
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT +
+        '\n\n# Device and path context\n' + device_context +
+        '\nShared memories and conversations remain useful on every device. '
+        'Original paths in historical text and tool results are provenance, not local file instructions. '
+        'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.'}]
     for m in prior_messages:
         role = m.get("role")
         content = m.get("content", "")
