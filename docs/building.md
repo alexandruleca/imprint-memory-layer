@@ -38,13 +38,13 @@ The Windows setup helper logs ordinary native stderr as progress and uses the gl
 
 ## Release workflow
 
-Stable (`release.yml`) and dev (`dev-release.yml`) select versions and call `build-release.yml`. Stable conventional commits retain the existing bump rules: `feat` minor, `fix`/`perf` patch, breaking changes major; documentation-only changes do not release. Dev uses `vX.Y.Z-dev.N`.
+Stable (`release.yml`) selects versions from main and calls `build-release.yml`. Conventional commits retain the existing bump rules: `feat` minor, `fix`/`perf` patch, breaking changes major; documentation-only changes do not release. Automatic dev releases have been removed. Historical dev assets remain available. See [ADR 0014](adr/0014-main-only-release-packaging.md).
 
 The reusable workflow builds the dashboard and platform shells, creates validated archives, builds native `.pkg`/`.exe` installers, provisions/exercises native runtimes, and only then publishes a release and `SHA256SUMS` covering all archives and installers. macOS app bundles travel between runners as tar archives to preserve symlinks. Website/container follow-up workflows run after a successful parent release. Native build failures leave no newly published release from this pipeline.
 
-Use the **Build release artifacts** manual workflow for a build-only validation run. It does not publish. Native checks run on hosted Linux x64/ARM, macOS Intel/ARM and Windows x64 runners; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
+Use the **Build release artifacts** manual workflow on main for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on hosted Linux x64/ARM, macOS Intel/ARM and Windows x64 runners; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
 
-PR CI runs Go checks, Python dependency/unit/runtime checks on five native targets, dashboard lint/production build/Playwright, Electron archive checks and workflow linting. Signing/notarization and interactive GUI/tray checks remain separate release requirements; see the [roadmap](quality-roadmap.md).
+Branch push and PR CI run Go checks, Python dependency/unit/runtime checks on five native targets, dashboard lint/production build/Playwright, Electron navigation tests and workflow linting. Electron packaging/archive-content checks belong to main's release workflow; container builds/smoke run only on main. Superseded compile/test runs are cancelled per branch. Signing/notarization and interactive GUI/tray checks remain separate release requirements; see the [roadmap](quality-roadmap.md).
 
 CI jobs have explicit deadlines (20 minutes for native/container, 15 for frontend and 10 for workflow lint). On hosted Ubuntu, Playwright downloads Chromium with a five-minute deadline and uses the runner's existing runtime libraries; it does not upgrade unrelated OS/font packages through apt. Browser tests still launch Chromium and fail if required runtime libraries are missing.
 

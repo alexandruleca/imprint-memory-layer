@@ -24,7 +24,21 @@ permissions:
   contents: read
 
 jobs:
+  branch-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require main for release packaging
+        env:
+          SOURCE_REF: ${{ github.ref }}
+        run: |
+          if [ "$SOURCE_REF" != refs/heads/main ]; then
+            echo '::error::Release artifacts are built only from main. Use CI for branch compile/test checks.'
+            exit 1
+          fi
+
   dashboard:
+    needs: branch-policy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +53,7 @@ jobs:
           if-no-files-found: error
 
   electron-linux:
+    needs: branch-policy
     strategy:
       matrix:
         arch: [amd64, arm64]
@@ -52,12 +67,20 @@ jobs:
         run: sudo apt-get install -y libfuse2
       - name: Build Linux AppImage
         run: make ui-dist-linux ARCH=${{ matrix.arch }}
+      - name: Verify packaged preload and navigation
+        run: |
+          UNPACKED=linux-unpacked
+          if [ '${{ matrix.arch }}' = arm64 ]; then UNPACKED=linux-arm64-unpacked; fi
+          node ui-electron/node_modules/@electron/asar/bin/asar.js list "dist/electron/$UNPACKED/resources/app.asar" > /tmp/asar-files
+          grep -Fx /preload.js /tmp/asar-files
+          grep -Fx /navigation.js /tmp/asar-files
       - uses: actions/upload-artifact@v4
         with:
           name: electron-linux-${{ matrix.arch }}
           path: build/electron/linux-${{ matrix.arch }}/imprint-ui
 
   electron-macos:
+    needs: branch-policy
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +97,7 @@ jobs:
           path: build/electron/imprint-ui.app.tar.gz
 
   electron-windows:
+    needs: branch-policy
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -2,7 +2,7 @@ name: Image
 
 on:
   workflow_run:
-    workflows: ["Release", "Dev Release"]
+    workflows: ["Release"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -27,7 +27,7 @@ permissions:
 jobs:
   resolve:
     # Skip if the triggering release run failed. Always run on manual dispatch.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
     runs-on: [self-hosted, linux, x64]
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -84,6 +84,12 @@ jobs:
             echo "major_minor=v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
           fi
           echo "Resolved version: $VERSION"
+
+      - name: Require source merged into main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        if: steps.version.outputs.version != ''
+        run: git merge-base --is-ancestor "$VERSION" origin/main
 
   build:
     needs: resolve

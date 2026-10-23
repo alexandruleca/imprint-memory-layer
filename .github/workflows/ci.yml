@@ -1,12 +1,17 @@
 name: CI
 
 on:
+  push:
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   native:
@@ -58,15 +63,9 @@ jobs:
         working-directory: imprint/ui
       - run: npm run test:e2e
         working-directory: imprint/ui
-      - name: Build Linux Electron app
-        run: make ui-dist-linux ARCH=amd64
-      - name: Verify preload and navigation ship in the Electron archive
-        run: |
-          node ui-electron/node_modules/@electron/asar/bin/asar.js list dist/electron/linux-unpacked/resources/app.asar > /tmp/asar-files
-          grep -Fx /preload.js /tmp/asar-files
-          grep -Fx /navigation.js /tmp/asar-files
 
   container:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
