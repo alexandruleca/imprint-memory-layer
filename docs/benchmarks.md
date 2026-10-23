@@ -149,3 +149,7 @@ well as the website selector and versioned evidence bundle.
 ## Role on the presentation site
 
 The homepage leads with persistent project memory, local retrieval, encrypted workspace sync and continuity across tools and devices. Benchmark details live on the evidence page, linked from the footer, rather than serving as hero statistics or a primary navigation item. Neither token savings, cost non-regression nor better answer quality is a product guarantee: report the measured costs, increases, uncertainty and limits together.
+
+## Comparing response-budget changes
+
+New manifests record `runtimeRevision` and `runtimeSourceSha256` separately from `sourceRevision` (the frozen public corpus). This allows unchanged task evidence to exercise a newer MCP runtime without calling the corpus commit the implementation version. Resuming refuses a different runtime hash. Keep both versioned result bundles. Runs taken at different times remain subject to provider cache and service variation; compare paired OFF/ON effects within each run rather than treating a sequential version comparison as randomized causal evidence.

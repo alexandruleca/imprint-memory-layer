@@ -221,14 +221,26 @@ def main():
     state = json.loads((raw/'state.json').read_text())
     subprocess.run([state['python'], '-c', 'from imprint.server import mcp'],
                    cwd=state['snapshot'], env={**clean_env(),**state['env']}, check=True, timeout=30)
+    runtime_revision = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+    runtime_hash = digest(b''.join(str(path.relative_to(ROOT)).encode() + b'\0' + path.read_bytes()
+                                 for path in sorted((ROOT/'imprint').rglob('*.py'))
+                                 if not any(part in ('node_modules', '.next', '__pycache__', 'out') for part in path.parts)))
+    hardware = {'os': platform.system(), 'platform': platform.platform(), 'architecture': platform.machine(),
+                'python': platform.python_version(), 'logicalCpus': os.cpu_count(), 'cpuModel': platform.processor()}
+    if Path('/proc/cpuinfo').exists():
+        hardware['cpuModel'] = next((line.partition(':')[2].strip() for line in Path('/proc/cpuinfo').read_text().splitlines()
+                                     if line.startswith('model name')), hardware['cpuModel'])
+    if hasattr(os, 'sysconf'):
+        hardware['memoryMiB'] = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / 1024**2
     config = {'schemaVersion': 2, 'sourceRevision': state['sourceRevision'],
+              'runtimeRevision': runtime_revision, 'runtimeSourceSha256': runtime_hash,
+              'harnessRevision': runtime_revision,
               'runId': state['runId'], 'createdAt': state.get('createdAt', datetime.now(timezone.utc).isoformat()),
               'modelRequested': args.model, 'cliVersion': subprocess.check_output(['claude','--version'], text=True).strip(),
               'seed': args.seed, 'repetitions': args.runs, 'workers': args.workers, 'maxConcurrentMcpProcesses': 1,
               'budgetUsd': args.budget, 'trialBudgetUsd': args.trial_budget,
               'prompts': prompts, 'corpus': state['corpus'], 'index': json.loads((raw/'index.json').read_text()),
-              'hardware': {'os': platform.system(), 'platform': platform.platform(), 'architecture': platform.machine(),
-                           'python': platform.python_version(), 'logicalCpus': os.cpu_count()},
+              'hardware': hardware,
               'harnessSha256': digest(b''.join(p.read_bytes() for p in sorted((ROOT/'benchmark').glob('*.py')))),
               'protocol': 'v2: same frozen evidence, read-only tools, fresh sessions, counterbalanced paired order',
               'costBasis': 'Claude Code reported list-price estimate, not a subscription invoice',
@@ -237,7 +249,7 @@ def main():
     manifest = raw/'manifest.json'
     if manifest.exists():
         old = json.loads(manifest.read_text())
-        for key in ('seed','repetitions','modelRequested','prompts','harnessSha256'):
+        for key in ('seed','repetitions','modelRequested','prompts','harnessSha256','runtimeSourceSha256'):
             if old[key] != config[key]:
                 parser.error(f'Resume would mix incompatible {key}')
         config = old

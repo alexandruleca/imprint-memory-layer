@@ -80,7 +80,7 @@ def summarize(raw):
                           'mcpUseRate': sum(p['on']['mcpCalls'] > 0 for p in pairs)/len(pairs) if pairs else None,
                           'toolErrors': {mode: sum(p[mode]['toolErrors'] for p in pairs) for mode in ('off','on')}},
               'categories': categories, 'env': {'os': manifest['hardware']['os'], 'python': manifest['hardware']['python'],
-                                               'model': ', '.join(model_ids), 'imprint': manifest['sourceRevision'][:12],
+                                               'model': ', '.join(model_ids), 'imprint': manifest.get('runtimeRevision', manifest['sourceRevision'])[:12],
                                                'memories': manifest['index']['passages']},
               'manifest': manifest,
               'methodology': {'overview': 'Actual sums across complete successful pairs; cache input included. Per-task rows are medians, not summed component medians.',
@@ -104,7 +104,7 @@ def markdown(report):
     overall = report['overall']
     ci = lambda values: f'{pct(values[0])} to {pct(values[1])}' if values else 'not estimated'
     lines = ['# Imprint benchmark results', '',
-             f"Measured {report['generatedAt'][:10]} against `{report['sourceRevision'][:12]}` using {', '.join(report['modelIds'])}.", '',
+             f"Measured {report['generatedAt'][:10]} using {', '.join(report['modelIds'])}. Runtime `{report['env']['imprint']}`; frozen corpus `{report['sourceRevision'][:12]}`.", '',
              f"{report['runCount']}/{report['expectedRuns']} trials recorded; {report['validPairs']} complete successful pairs; {report['failedRuns']} failed trials.", '',
              f"Total processed tokens: {overall['tokenPct']} ({overall['tokensOff']:,} OFF → {overall['tokensOn']:,} ON).",
              f"Reported list-price cost: {overall['costPct']} (${overall['costOff']:.4f} OFF → ${overall['costOn']:.4f} ON).", '',
