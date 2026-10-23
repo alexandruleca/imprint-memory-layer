@@ -3,11 +3,13 @@ title: Engineering documentation
 description: Repository review, integration strategy, operational documentation and architecture decisions.
 ---
 
-This directory is the engineering source of truth. The documentation website reads it through `site/src/content/docs`, which is a symlink to this directory. Keep YAML front matter on new Markdown pages so the site can build them.
+This directory is the engineering source of truth. The documentation website reads it through `site/src/content/docs`, which is a symlink to this directory. Keep YAML front matter on new Markdown pages so the site can build them. Repository-relative documentation links remain readable on GitHub; the site maps them to Starlight routes (including custom slugs) and repository source links at build time.
 
 Start with the [repository assessment](repository-assessment.md), [integration strategy](integrations.md), [quality roadmap](quality-roadmap.md) and [platform validation](platform-validation.md). The assessment is dated 2026-10-23 and separates source findings, changes implemented, and work still requiring evidence.
 
 Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing and retrieval](indexing-retrieval.md), [UI/UX review](ui-ux-review.md), and [local model selection](local-model-selection.md) and [local helper setup](local-models.md).
+
+Agent efficiency: [context budgets and cost experiments](context-budgets.md).
 
 Cross-device context: [devices and portable project paths](devices.md).
 

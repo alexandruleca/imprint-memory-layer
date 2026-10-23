@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "beforeRunId": "20261023T124638620849Z-fdea98ae-s1729",
+  "afterRunId": "20261023T140134777248Z-fdea98ae-s1729",
+  "tokenChangeOnVsOff": {
+    "before": 31.68729248415334,
+    "after": 25.03595454402565,
+    "differencePercentagePoints": -6.651337940127689
+  },
+  "costChangeOnVsOff": {
+    "before": -5.583838624762228,
+    "after": -8.996827078723534,
+    "differencePercentagePoints": -3.4129884539613062
+  },
+  "agentTurns": {
+    "before": {
+      "off": 464,
+      "on": 426
+    },
+    "after": {
+      "off": 460,
+      "on": 434
+    }
+  },
+  "onToolUsage": {
+    "Glob": {
+      "before": {
+        "calls": 9,
+        "resultChars": 196,
+        "protocolErrors": 0
+      },
+      "after": {
+        "calls": 5,
+        "resultChars": 120,
+        "protocolErrors": 0
+      },
+      "resultCharacterChangePct": -38.775510204081634
+    },
+    "Grep": {
+      "before": {
+        "calls": 132,
+        "resultChars": 285173,
+        "protocolErrors": 0
+      },
+      "after": {
+        "calls": 142,
+        "resultChars": 259419,
+        "protocolErrors": 0
+      },
+      "resultCharacterChangePct": -9.031009247018474
+    },
+    "Read": {
+      "before": {
+        "calls": 97,
+        "resultChars": 505054,
+        "protocolErrors": 0
+      },
+      "after": {
+        "calls": 105,
+        "resultChars": 649564,
+        "protocolErrors": 0
+      },
+      "resultCharacterChangePct": 28.612781999548552
+    },
+    "mcp__imprint__device_context": {
+      "before": {
+        "calls": 1,
+        "resultChars": 253,
+        "protocolErrors": 0
+      },
+      "after": {
+        "calls": 0,
+        "resultChars": 0
+      },
+      "resultCharacterChangePct": -100.0
+    },
+    "mcp__imprint__search": {
+      "before": {
+        "calls": 94,
+        "resultChars": 641602,
+        "protocolErrors": 0
+      },
+      "after": {
+        "calls": 90,
+        "resultChars": 376513,
+        "protocolErrors": 0
+      },
+      "resultCharacterChangePct": -41.31673529695979
+    },
+    "mcp__imprint__status": {
+      "before": {
+        "calls": 3,
+        "resultChars": 297,
+        "protocolErrors": 0
+      },
+      "after": {
+        "calls": 2,
+        "resultChars": 198,
+        "protocolErrors": 0
+      },
+      "resultCharacterChangePct": -33.333333333333336
+    }
+  },
+  "limitations": [
+    "Sequential studies with provider-managed caches and shared hardware; not a randomized causal version comparison.",
+    "Intervals in each summary describe its matched ON/OFF trials, not a guarantee about the version difference.",
+    "Serialized tool-result characters are a context-volume diagnostic, not exact token attribution or factual answer quality."
+  ]
+}
