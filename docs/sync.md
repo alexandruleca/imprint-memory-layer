@@ -1,6 +1,6 @@
 ---
 title: Peer Sync & Visualization
-description: Sync Imprint memories between two machines via a stateless WebSocket relay — PIN + device-fingerprint auth, dedup on import, vectors re-embedded locally for model portability.
+description: Sync Imprint memories between two machines via a stateless WebSocket relay — PIN + device-fingerprint auth, dedup on import, preserved vectors with matching embedding profiles.
 ---
 ## Device provenance
 
@@ -33,7 +33,7 @@ sequenceDiagram
     loop for each batch
         A-->>R: batch {dataset, seq, records}
         R-->>B: forward batch
-        Note over B: store_batch or insert facts<br/>dedup by content hash / (s,p,o,valid_from)
+        Note over B: store_batch_precomputed or insert facts<br/>dedup by logical ID / (s,p,o,valid_from)
     end
     A-->>R: done
     R-->>B: forward done
@@ -42,22 +42,22 @@ sequenceDiagram
     loop streamed local batches
         B->>R: batch {dataset, seq, records}
         R->>A: forward batch
-        Note over A: store_batch + dedup
+        Note over A: store_batch_precomputed + dedup
     end
     B->>R: done
     A-->>R: final stats
     R-->>B: stats
 
-    Note over A,B: Both machines now have the same memories + facts<br/>(vectors re-embedded locally so model swap is safe)
+    Note over A,B: Both machines now have the same memories + facts<br/>(vectors preserved; both sides require the same embedding profile)
 ```
 
 The relay server is a stateless WebSocket forwarder. A public relay is hosted at `wss://imprint.alexandruleca.com` and used by default — pass `--relay` to point at your own. Room IDs expire after 1 hour.
 
 **What transfers:**
 
-- Qdrant payloads (content + metadata) — streamed in batches, deduped on import via SHA-256 content hash (`project:source:content[:200]`).
+- Qdrant records (content, metadata and stored vectors) — streamed in batches, deduplicated by logical ID. Precomputed vectors require a matching `embedding_identity`; only legacy records without vectors are embedded locally.
 - Knowledge graph facts (SQLite `facts` table) — streamed in batches, deduped by `(subject, predicate, object, valid_from)`.
-- **Not** transferred: vectors (peers re-embed locally so different models/devices stay compatible), WAL, config, trust list, other workspaces.
+- **Not** transferred: WAL, config, trust list, other workspaces, local identity/root mappings or purge exclusions.
 
 **Payload framing:** messages are newline-delimited JSON — `{"kind":"meta",...}`, `{"kind":"batch","dataset":"memories"|"facts","seq":N,"records":[...]}`, `{"kind":"done"}`. Default batch size is 500 records; override with `batch_size` in the request body. All three WS sockets (provider, consumer, relay) disable the nhooyr 32 KiB read cap so multi-MB batches flow without truncation.
 

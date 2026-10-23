@@ -9,7 +9,7 @@ Implemented corrections are tracked in [audit remediation](audit-remediation.md)
 
 | Priority | Work | Acceptance evidence |
 | --- | --- | --- |
-| P0 | Execute native release workflow | Both macOS architectures, Windows x64 and native Linux ARM provision, initialize MCP, serve UI and search before publication. Capture installer/upgrade/repair results. |
+| P0 | Interactive release acceptance | Automated native installer/runtime gates pass on Windows, both macOS architectures and Linux x64/ARM in v0.8.1. Retain those gates and verify graphical launch, interactive install/upgrade/repair/uninstall with existing memories; see [platform validation](platform-validation.md). |
 | P0 | Sign/notarize and establish publisher provenance | Windows signatures, macOS notarization/stapling, owned certificates and an independently authenticated manifest. Existing SHA256 verification is necessary but does not authenticate a compromised release publisher. |
 | P1 | Dependency advisory upkeep | Website advisories and the dashboard's vulnerable glob chain are remediated in ADR 0013. One unfixed medium diskcache advisory remains visible in the optional LLM profile; disk caching is explicitly disabled. Keep nightly findings and dependency changes under review. |
 | P1 | Native optional-profile reproducibility | Verify GPU/LLM wheel availability and repair/source-build requests against approved versions/hashes on supported targets. Base/GPU/LLM lock files are implemented. |

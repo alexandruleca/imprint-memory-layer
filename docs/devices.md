@@ -3,7 +3,7 @@ title: Devices and portable project paths
 description: Shared memory origin, current-device context and local mappings across machines.
 ---
 
-Memories, decisions and conversation chunks remain shared across devices. Device metadata describes origin; it does **not** filter retrieval or create another knowledge base. Both sides still need the same embedding profile for vector sync.
+After workspace sync or export/import, memories, decisions and conversation chunks remain usable across devices. Device metadata describes origin; it does **not** filter retrieval or create another knowledge base. Both sides still need the same embedding profile for vector sync. Recording device origin does not automatically transfer data; use the existing [sync workflow](sync.md).
 
 New memories record a stable device ID, hostname, OS and recorded time. Files also record source device and project-relative path. Graph facts retain origin. Stream/snapshot sync and workspace copies preserve it. Old records show **Unknown origin (legacy)** instead of being attributed to the receiver. Reindex local files to refresh provenance; metadata itself does not require re-embedding.
 
