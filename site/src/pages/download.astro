@@ -23,7 +23,7 @@ function fmtDate(iso?: string) {
 <Landing title={title} description={description} pathname="/download/">
   <Nav />
   <main class="max-w-6xl mx-auto px-6 py-16">
-    <a href="/" class="text-sm text-[color:var(--color-text-muted)] hover:text-white">← Back to overview</a>
+    <a href="/" class="text-sm text-[color:var(--color-text-muted)] hover:text-ink">← Back to overview</a>
     <h1 class="mt-4 text-4xl sm:text-5xl font-extrabold tracking-tight">Install Imprint</h1>
     <p class="mt-4 max-w-3xl text-[color:var(--color-text-muted)]">
       One command sets up the Python venv, downloads the Qdrant binary, and registers the MCP server in your IDE. No sudo required.
@@ -39,10 +39,10 @@ function fmtDate(iso?: string) {
           <h2 class="text-xl sm:text-2xl font-bold tracking-tight">
             What's new in <span class="font-mono text-[color:var(--color-accent)]">{releases.latestStable.tag}</span>
           </h2>
-          <a href={releases.latestStable.htmlUrl} class="text-sm underline text-[color:var(--color-text-muted)] hover:text-white">Full notes ↗</a>
+          <a href={releases.latestStable.htmlUrl} class="text-sm underline text-[color:var(--color-text-muted)] hover:text-ink">Full notes ↗</a>
         </div>
         <details class="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] overflow-hidden group">
-          <summary class="list-none cursor-pointer px-6 py-4 flex items-center justify-between text-sm text-[color:var(--color-text-muted)] hover:text-white">
+          <summary class="list-none cursor-pointer px-6 py-4 flex items-center justify-between text-sm text-[color:var(--color-text-muted)] hover:text-ink">
             <span>Show release notes</span>
             <span class="transition-transform group-open:rotate-180">▾</span>
           </summary>
@@ -56,12 +56,12 @@ function fmtDate(iso?: string) {
         <div>
           <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Previous versions</h2>
           <p class="mt-1 text-sm text-[color:var(--color-text-muted)]">
-            Last {historyStable.length} stable releases. <a href={`https://github.com/${releases.repo}/releases`} class="underline hover:text-white">All releases on GitHub ↗</a>
+            Last {historyStable.length} stable releases. <a href={`https://github.com/${releases.repo}/releases`} class="underline hover:text-ink">All releases on GitHub ↗</a>
           </p>
         </div>
         <button
           data-history-toggle="dev"
-          class="px-3 py-1.5 text-xs rounded-md border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-white text-[color:var(--color-text-muted)]"
+          class="px-3 py-1.5 text-xs rounded-md border border-[color:var(--color-border)] hover:border-[color:var(--color-accent)] hover:text-ink text-[color:var(--color-text-muted)]"
         >
           Show dev prereleases
         </button>
@@ -85,7 +85,7 @@ function fmtDate(iso?: string) {
                   <td class="px-5 py-4 font-mono text-[color:var(--color-accent)] whitespace-nowrap">{r.tag}</td>
                   <td class="px-5 py-4 text-[color:var(--color-text-muted)] hidden sm:table-cell whitespace-nowrap">{fmtDate(r.publishedAt)}</td>
                   <td class="px-5 py-4 text-right">
-                    <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-white">Notes ↗</a>
+                    <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-ink">Notes ↗</a>
                   </td>
                 </tr>
               ))}
@@ -110,7 +110,7 @@ function fmtDate(iso?: string) {
                     <td class="px-5 py-3 font-mono text-[color:var(--color-accent)] whitespace-nowrap">{r.tag}</td>
                     <td class="px-5 py-3 text-[color:var(--color-text-muted)] whitespace-nowrap hidden sm:table-cell">{fmtDate(r.publishedAt)}</td>
                     <td class="px-5 py-3 text-right">
-                      <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-white">Notes ↗</a>
+                      <a href={r.htmlUrl} class="text-xs underline text-[color:var(--color-text-muted)] hover:text-ink">Notes ↗</a>
                     </td>
                   </tr>
                 ))}

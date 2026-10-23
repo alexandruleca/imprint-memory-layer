@@ -51,7 +51,7 @@ const features = [
     </div>
 
     <figure class="mt-12" data-shots>
-      <div class="rounded-2xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] p-1.5 sm:p-2 shadow-[0_50px_100px_-40px_rgba(0,0,0,0.9)]">
+      <div class="island rounded-2xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg-elevated)] p-1.5 sm:p-2 shadow-[0_40px_80px_-36px_rgba(16,17,40,0.45)]">
         <div class="flex items-center gap-3 px-2 sm:px-3 py-1.5">
           <span class="term-dots hidden sm:inline-flex"><i></i><i></i><i></i></span>
           <div class="flex gap-1 sm:mx-auto" role="tablist" aria-label="Dashboard views">
@@ -61,7 +61,7 @@ const features = [
                 aria-selected={i === 0 ? 'true' : 'false'}
                 aria-controls={`shot-${sh.id}`}
                 data-shot-tab={sh.id}
-                class="px-3 py-1 text-xs font-medium rounded-md text-[color:var(--color-text-muted)] hover:text-white aria-selected:bg-white/[0.07] aria-selected:text-white transition"
+                class="px-3 py-1 text-xs font-medium rounded-md text-[color:var(--color-text-muted)] hover:text-ink aria-selected:bg-fill-strong aria-selected:text-ink transition"
               >
                 {sh.label}
               </button>

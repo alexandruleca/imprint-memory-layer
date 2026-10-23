@@ -76,7 +76,7 @@ const cards = [
     </div>
     <a
       href={latest?.htmlUrl ?? `https://github.com/${releases.repo}/releases`}
-      class="text-sm text-[color:var(--color-text-muted)] hover:text-white underline"
+      class="text-sm text-[color:var(--color-text-muted)] hover:text-ink underline"
     >
       Release notes ↗
     </a>
@@ -109,7 +109,7 @@ const cards = [
               data-primary-size-amd64={c.assets.find((a) => a.arch === 'amd64' && a.kind === c.primary.kind)?.sizeLabel ?? c.primary.sizeLabel}
               data-primary-size-arm64={c.assets.find((a) => a.arch === 'arm64' && a.kind === c.primary.kind)?.sizeLabel ?? c.primary.sizeLabel}
               href={c.primary.url}
-              class="mt-4 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[color:var(--color-accent)] text-black font-semibold text-sm hover:brightness-110 transition"
+              class="mt-4 btn btn-primary !px-4 !py-2.5 !text-sm"
             >
               Download {c.primary.kindLabel}
             </a>
@@ -127,7 +127,7 @@ const cards = [
             <ul class="space-y-1.5 text-xs">
               {c.assets.filter((a) => a !== c.primary).map((a) => (
                 <li>
-                  <a href={a.url} class="flex justify-between items-center gap-3 text-[color:var(--color-text-muted)] hover:text-white">
+                  <a href={a.url} class="flex justify-between items-center gap-3 text-[color:var(--color-text-muted)] hover:text-ink">
                     <span class="truncate font-mono" title={a.name}>{a.name}</span>
                     <span class="shrink-0">{a.sizeLabel}</span>
                   </a>
@@ -146,7 +146,7 @@ const cards = [
   </div>
 
   <p class="mt-6 text-xs text-[color:var(--color-text-muted)]">
-    Prefer one command? The <a href="/#install" class="underline hover:text-white">curl / PowerShell installers</a> download the same archives and run <code class="font-mono">imprint setup</code> automatically.
+    Prefer one command? The <a href="/#install" class="underline hover:text-ink">curl / PowerShell installers</a> download the same archives and run <code class="font-mono">imprint setup</code> automatically.
   </p>
 </section>
 

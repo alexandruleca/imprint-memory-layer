@@ -48,38 +48,38 @@ const steps = [
           </div>
           <ul class="mt-3 grid grid-cols-2 gap-2">
             {mine.map((p) => (
-              <li class={`rounded-lg px-2.5 py-2 text-xs font-mono border truncate ${p.picked ? 'border-violet-400/50 bg-violet-500/10 text-violet-100' : 'border-[color:var(--color-border)] text-[color:var(--color-text-muted)]'}`}>
+              <li class={`rounded-lg px-2.5 py-2 text-xs font-mono border truncate ${p.picked ? 'border-accent-line bg-accent-soft text-accent' : 'border-[color:var(--color-border)] text-[color:var(--color-text-muted)]'}`}>
                 {p.name}
               </li>
             ))}
           </ul>
         </div>
 
-        <div class="flex lg:flex-col items-center justify-center gap-2 text-[11px] font-mono text-violet-300" aria-hidden="true">
-          <span class="hidden lg:block w-12 border-t border-dashed border-violet-300/50"></span>
-          <span class="lg:hidden h-6 border-l border-dashed border-violet-300/50"></span>
+        <div class="flex lg:flex-col items-center justify-center gap-2 text-[11px] font-mono text-accent" aria-hidden="true">
+          <span class="hidden lg:block w-12 border-t border-dashed border-accent-line"></span>
+          <span class="lg:hidden h-6 border-l border-dashed border-accent-line"></span>
           <span>copy</span>
         </div>
 
-        <div class="rounded-xl border border-violet-400/40 bg-violet-500/[0.06] p-4">
+        <div class="rounded-xl border border-accent-line bg-accent-soft p-4">
           <div class="flex items-center justify-between text-xs">
             <span class="font-mono text-[color:var(--color-text)]">workspace: team</span>
-            <span class="text-violet-200">to share</span>
+            <span class="text-accent">to share</span>
           </div>
           <ul class="mt-3 grid gap-2">
-            <li class="rounded-lg px-2.5 py-2 text-xs font-mono border border-violet-400/50 bg-violet-500/10 text-violet-100">billing-api</li>
+            <li class="rounded-lg px-2.5 py-2 text-xs font-mono border border-accent-line bg-accent-soft text-accent">billing-api</li>
             <li class="text-[11px] text-[color:var(--color-text-dim)]">memories, vectors and their facts</li>
           </ul>
         </div>
 
-        <div class="flex lg:flex-col items-center justify-center gap-2 text-[11px] font-mono text-cyan-300" aria-hidden="true">
-          <span class="hidden lg:block w-12 border-t border-dashed border-cyan-300/50"></span>
-          <span class="lg:hidden h-6 border-l border-dashed border-cyan-300/50"></span>
+        <div class="flex lg:flex-col items-center justify-center gap-2 text-[11px] font-mono text-cyan" aria-hidden="true">
+          <span class="hidden lg:block w-12 border-t border-dashed border-cyan-line"></span>
+          <span class="lg:hidden h-6 border-l border-dashed border-cyan-line"></span>
           <span>send-only</span>
         </div>
 
         <div class="rounded-xl border border-[color:var(--color-border-strong)] bg-[color:var(--color-bg)] p-4 flex items-center gap-3">
-          <span class="w-10 h-10 rounded-full grid place-items-center text-sm font-semibold bg-cyan-500/20 text-cyan-100 shrink-0">S</span>
+          <span class="w-10 h-10 rounded-full grid place-items-center text-sm font-semibold bg-cyan-100 text-cyan-800 shrink-0">S</span>
           <div class="min-w-0">
             <div class="text-sm font-semibold">Sam's laptop</div>
             <div class="text-xs text-[color:var(--color-text-dim)]">receives billing-api only</div>
@@ -92,20 +92,20 @@ const steps = [
       {steps.map((s, i) => (
         <li class="py-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:gap-10 lg:items-center">
           <div class="flex gap-4">
-            <span class="w-8 h-8 shrink-0 rounded-full grid place-items-center text-sm font-semibold bg-violet-500/15 text-violet-200 border border-violet-400/30">{i + 1}</span>
+            <span class="w-8 h-8 shrink-0 rounded-full grid place-items-center text-sm font-semibold bg-accent-soft text-accent border border-accent-line">{i + 1}</span>
             <div>
               <h3 class="font-semibold">{s.title}</h3>
               <p class="mt-1 text-[15px] leading-relaxed text-[color:var(--color-text-muted)]">{s.body}</p>
             </div>
           </div>
-          <code class="block rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-bg)] px-3.5 py-2.5 text-[12.5px] font-mono text-[color:var(--color-text)] overflow-x-auto whitespace-nowrap"><span class="text-[color:var(--color-accent)] select-none">$ </span>{s.cmd}</code>
+          <code class="block rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated)] px-3.5 py-2.5 text-[12.5px] font-mono text-[color:var(--color-text)] overflow-x-auto whitespace-nowrap"><span class="text-[color:var(--color-accent)] select-none">$ </span>{s.cmd}</code>
         </li>
       ))}
     </ol>
 
     <p class="mt-8 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
       The dashboard has the same controls: copy or move memories between workspaces, and pick the workspace
-      and direction on the Sync page. <a href="/workspaces" class="underline underline-offset-2 hover:text-white">Workspace docs</a>.
+      and direction on the Sync page. <a href="/workspaces" class="underline underline-offset-2 hover:text-ink">Workspace docs</a>.
     </p>
   </div>
 </section>

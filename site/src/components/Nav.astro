@@ -20,7 +20,7 @@ const repo = 'https://github.com/alexandruleca/imprint-memory-layer';
 
     <div class="hidden md:flex items-center gap-1">
       {links.map((l) => (
-        <a href={l.href} class="px-3 py-1.5 text-sm rounded-md text-[color:var(--color-text-muted)] hover:text-white transition">
+        <a href={l.href} class="px-3 py-1.5 text-sm rounded-md text-[color:var(--color-text-muted)] hover:text-ink transition">
           {l.label}
         </a>
       ))}
@@ -29,7 +29,7 @@ const repo = 'https://github.com/alexandruleca/imprint-memory-layer';
     <div class="flex items-center gap-2">
       <a
         href={repo}
-        class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md text-[color:var(--color-text-muted)] hover:text-white transition"
+        class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md text-[color:var(--color-text-muted)] hover:text-ink transition"
       >
         <Icon name="github" size={16} />
         GitHub
@@ -41,13 +41,13 @@ const repo = 'https://github.com/alexandruleca/imprint-memory-layer';
           <Icon name="menu" size={18} class="group-open:hidden" />
           <Icon name="x" size={18} class="hidden group-open:block" />
         </summary>
-        <div class="absolute right-0 mt-2 w-56 card p-2 shadow-2xl shadow-black/60">
+        <div class="absolute right-0 mt-2 w-56 card p-2 shadow-2xl shadow-black/10">
           {links.map((l) => (
-            <a href={l.href} class="block px-3 py-2.5 text-sm rounded-lg text-[color:var(--color-text-muted)] hover:text-white hover:bg-white/5">
+            <a href={l.href} class="block px-3 py-2.5 text-sm rounded-lg text-[color:var(--color-text-muted)] hover:text-ink hover:bg-fill">
               {l.label}
             </a>
           ))}
-          <a href={repo} class="flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg text-[color:var(--color-text-muted)] hover:text-white hover:bg-white/5">
+          <a href={repo} class="flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg text-[color:var(--color-text-muted)] hover:text-ink hover:bg-fill">
             <Icon name="github" size={16} /> GitHub
           </a>
         </div>
