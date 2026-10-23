@@ -476,7 +476,8 @@ class LiveSyncTests(unittest.TestCase):
         self.assertIn('kept for the next run', consumer[-1]['message'])
         pending = sync_ws.pending_download(buffer)
         self.assertEqual((pending.workspace, pending.memories, pending.facts), ('team', 1, 0))
-        self.assertEqual(buffer.stat().st_mode & 0o777, 0o600)
+        if os.name == 'posix':  # Windows files carry no permission bits; the data directory's ACL applies
+            self.assertEqual(buffer.stat().st_mode & 0o777, 0o600)
 
         self.importer.side_effect = lambda path, workspace, on_progress=None: STATS
         events = asyncio.run(self.collect(sync_ws.resume_session(pending)))

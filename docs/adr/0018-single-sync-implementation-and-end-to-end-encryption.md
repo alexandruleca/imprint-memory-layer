@@ -56,14 +56,14 @@ The protocol was not end-to-end encrypted. The joining side's HELLO carried the 
 An independent adversarial review (malicious relay, malicious peer holding the PIN, local misuse) found the cryptographic core sound — no nonce reuse, key or role confusion, reflection, splicing, plaintext fallback or offline PIN test — and these problems around it, fixed here:
 
 - **Terminal injection.** Relay notices are unauthenticated: they are now shown as fixed local text by status, never as their body. Peer text (device names, error messages, acks) is stripped of control characters and bounded; HELLO fields are type- and format-checked, and a malformed greeting ends the handshake.
-- **Concurrent downloads.** Two receiving runs shared one buffer file, so one peer's data could be imported into another run's workspace. Each run now downloads into an owner-only file of its own in the data directory; only a download whose storing failed is published as the resumable buffer.
+- **Concurrent downloads.** Two receiving runs shared one buffer file, so one peer's data could be imported into another run's workspace. Each run now downloads into a file of its own in the data directory (0600 where files carry permission bits); only a download whose storing failed is published as the resumable buffer.
 - **URL fetches from synced data.** Imported URL records could make `refresh-urls` fetch arbitrary addresses (e.g. cloud metadata). Only URLs recorded on this device are refreshed (`device.recorded_here`).
 - **Stream validation.** Every line of a data stream is checked (one meta with vectors, batches of record objects with vectors, done) and re-serialised into the buffer; vector-less memories are refused, so nothing received is embedded locally; a phase runs at most once per session; receive queues are bounded.
 - **Relay limits.** 80 MiB message cap, a taken role is refused instead of replaced, unknown roles are rejected, writes have a deadline, and only unpaired rooms expire (a long transfer is no longer cut at one hour).
 - **CSRF.** `/api/sync/serve` was a GET a cross-site page could trigger; it is now a POST with a JSON body.
 - **Mixed versions.** A protocol 1 consumer sent the PIN in clear before it could learn the provider was newer, so a malicious relay could use it to complete a protocol 2 session in its place. The one-piece share code closes this: protocol 1 clients cannot accept it.
 - **Default join pushed.** A default (two-way) join sent the whole selected workspace to whoever issued the room and PIN, without showing who that was. Joining is now receive-only, and a push first names the receiving device and waits for a yes.
-- **Errors and files.** Every key-exchange decoding failure becomes a clean 400; unreadable buffers ask for `--fresh` instead of crashing; download files are 0600; the peer receives generic failure text instead of local exception details.
+- **Errors and files.** Every key-exchange decoding failure becomes a clean 400; unreadable buffers ask for `--fresh` instead of crashing; download files are 0600 on Linux and macOS; the peer receives generic failure text instead of local exception details.
 
 Open:
 

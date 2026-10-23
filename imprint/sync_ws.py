@@ -776,8 +776,9 @@ def pending_buffer_path() -> Path:
 
 
 def _temp_buffer() -> tuple[int, str]:
-    """An owner-only scratch file for one stream, in the data directory
-    rather than a shared temp directory."""
+    """A scratch file for one stream, in the data directory (which holds
+    the same memories) rather than a shared temp directory; owner-only
+    (0600) where files carry permission bits."""
     directory = config.get_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     return tempfile.mkstemp(prefix="sync-", suffix=".jsonl.tmp", dir=directory)
