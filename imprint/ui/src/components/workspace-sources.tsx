@@ -4,12 +4,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { WorkspaceRoots } from "@/components/workspace-roots";
 import { changeWorkspaceRoot, getWorkspaceScope, getWorkspaces, purgeSources, type WorkspaceScope, type PurgePreview } from "@/lib/api";
 
 export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource: string | null; onPurged: () => Promise<void> }) {
   const [scope, setScope] = useState<WorkspaceScope | null>(null);
-  const [root, setRoot] = useState("");
-  const [overlap, setOverlap] = useState("");
   const [target, setTarget] = useState("");
   const [kind, setKind] = useState<"source" | "path">("source");
   const [recursive, setRecursive] = useState(false);
@@ -23,18 +22,14 @@ export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource:
     getWorkspaces().then(ws => getWorkspaceScope(ws.active)).then(setScope).catch(e => setError(String(e)));
   }, []);
 
-  async function changeRoot(action: "add" | "remove" | "restore", path: string, allow_overlap = false, restoreKind?: "path" | "source") {
+  async function restore(path: string, kind: "path" | "source") {
     if (!scope) return;
     setBusy(true); setError("");
     try {
-      await changeWorkspaceRoot({ workspace: scope.workspace, path, action, allow_overlap, kind: restoreKind });
+      await changeWorkspaceRoot({ workspace: scope.workspace, path, action: "restore", kind });
       setScope(await getWorkspaceScope(scope.workspace));
-      setRoot(""); setOverlap("");
-    } catch (e) {
-      const message = String(e);
-      if (action === "add" && message.includes("Root overlaps")) setOverlap(message);
-      else setError(message);
-    } finally { setBusy(false); }
+    } catch (e) { setError(String(e)); }
+    finally { setBusy(false); }
   }
 
   async function previewPurge() {
@@ -63,15 +58,7 @@ export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource:
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="text-sm">{notice}</p>}
     {scope && <div className="space-y-4 pt-3 text-sm">
-      <p>Ingestion stays within these roots. The first ingest binds a root; adding shared roots requires confirmation.</p>
-      <ul className="space-y-1">{scope.roots.map(path => <li key={path} className="flex gap-2 items-center">
-        <code className="break-all flex-1">{path}</code><Button size="sm" variant="ghost" disabled={busy} onClick={() => changeRoot("remove", path)}>Remove root</Button>
-      </li>)}</ul>
-      {!scope.roots.length && <p className="text-muted-foreground">No roots approved yet.</p>}
-      <div className="flex gap-2 flex-wrap">
-        <Input aria-label="Workspace root directory" placeholder="Absolute directory path" value={root} disabled={busy} className="flex-1 min-w-48" onChange={e => { setRoot(e.target.value); setOverlap(""); }} />
-        <Button disabled={busy || !root.trim()} onClick={() => changeRoot("add", root)}>Add root</Button>
-      </div>
+      <WorkspaceRoots scope={scope} onChange={setScope} />
       <div className="border-t pt-4 space-y-3">
         <h3 className="font-medium">Purge indexed files or directories</h3>
         <p className="text-muted-foreground">Preview matching chunks in {scope.workspace}. Purge removes indexed copies and blocks re-ingestion. Original files and other workspaces stay intact.</p>
@@ -94,11 +81,10 @@ export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource:
       {scope.exclusions.length > 0 && <div className="border-t pt-3 space-y-2"><h3 className="font-medium">Excluded after purge</h3>
         {scope.exclusions.map(item => <div key={`${item.kind}/${item.path}`} className="flex gap-2 items-center">
           <code className="break-all flex-1">{item.path}{item.recursive ? "/**" : ""}</code>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => changeRoot("restore", item.path, false, item.kind)}>Allow re-ingestion</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => restore(item.path, item.kind)}>Allow re-ingestion</Button>
         </div>)}
       </div>}
     </div>}
-    <ConfirmDialog open={!!overlap} title="Share this root across workspaces?" description={`${root}\n${overlap}\nConfirming allows these workspaces to ingest the same files. Existing memories stay in their current workspace.`} confirmLabel="Allow overlap and add root" busy={busy} onCancel={() => setOverlap("")} onConfirm={() => changeRoot("add", root, true)} />
     <ConfirmDialog open={confirm && !!preview} title={`Purge from ${preview?.workspace}?`} description={`Remove indexed copies of ${preview?.target} (${preview?.chunks} chunks) and exclude re-ingestion until restored. This does not remove backups or original files.`} confirmText={preview?.workspace} confirmLabel="Purge indexed copies" destructive busy={busy} onCancel={() => setConfirm(false)} onConfirm={applyPurge} />
   </details>;
 }

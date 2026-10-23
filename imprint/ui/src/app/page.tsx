@@ -36,13 +36,12 @@ function AnimatedNumber({ value }: { value: number }) {
 }
 
 function StatCard({
-  label, value, icon: Icon, accentColor,
+  label, value, icon: Icon,
 }: {
-  label: string; value: number; icon: React.ElementType; accentColor: string;
+  label: string; value: number; icon: React.ElementType;
 }) {
   return (
-    <Card className="relative overflow-hidden">
-      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: accentColor }} />
+    <Card>
       <CardHeader className="pb-2 pl-5">
         <CardTitle className="text-xs text-muted-foreground flex items-center gap-1.5">
           <Icon className="w-3.5 h-3.5" />
@@ -56,7 +55,7 @@ function StatCard({
   );
 }
 
-function BarList({ items, color }: { items: [string, number][]; color?: string }) {
+function BarList({ items }: { items: [string, number][] }) {
   if (!items.length) return <p className="text-xs text-muted-foreground">None</p>;
   const max = items[0][1];
   return (
@@ -64,13 +63,10 @@ function BarList({ items, color }: { items: [string, number][]; color?: string }
       {items.slice(0, 8).map(([label, count]) => (
         <div key={label} className="flex items-center gap-2 text-xs group/row hover:bg-muted/30 rounded px-1 py-0.5 transition-colors">
           <span className="w-24 truncate text-muted-foreground" title={label}>{label}</span>
-          <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
+          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full rounded transition-all duration-500"
-              style={{
-                width: `${(count / max) * 100}%`,
-                background: `linear-gradient(90deg, ${color || "hsl(var(--primary))"}, ${color || "hsl(var(--primary))"}cc)`,
-              }}
+              className="h-full rounded-full bg-foreground/75 transition-all duration-500"
+              style={{ width: `${(count / max) * 100}%` }}
             />
           </div>
           <span className="w-14 text-right tabular-nums font-medium">{count.toLocaleString()}</span>
@@ -126,35 +122,35 @@ export default function DashboardPage() {
       <IngestionProgress />
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-5">
-        <StatCard label="Total Memories" value={stats.total} icon={Database} accentColor="#60a5fa" />
-        <StatCard label="Projects" value={overview.projects.length} icon={FolderOpen} accentColor="#4ecdc4" />
-        <StatCard label="Languages" value={stats.langs?.length || 0} icon={Code} accentColor="#a78bfa" />
-        <StatCard label="Topics" value={stats.topics?.length || 0} icon={Tags} accentColor="#f472b6" />
+        <StatCard label="Total Memories" value={stats.total} icon={Database} />
+        <StatCard label="Projects" value={overview.projects.length} icon={FolderOpen} />
+        <StatCard label="Languages" value={stats.langs?.length || 0} icon={Code} />
+        <StatCard label="Topics" value={stats.topics?.length || 0} icon={Tags} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader><CardTitle className="text-sm font-medium">Projects</CardTitle></CardHeader>
           <CardContent>
-            <BarList items={stats.projects || []} color="#60a5fa" />
+            <BarList items={stats.projects || []} />
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm font-medium">Languages</CardTitle></CardHeader>
           <CardContent>
-            <BarList items={stats.langs || []} color="#4ecdc4" />
+            <BarList items={stats.langs || []} />
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm font-medium">Domains</CardTitle></CardHeader>
           <CardContent>
-            <BarList items={stats.domains || []} color="#a78bfa" />
+            <BarList items={stats.domains || []} />
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm font-medium">Types</CardTitle></CardHeader>
           <CardContent>
-            <BarList items={stats.types || []} color="#f472b6" />
+            <BarList items={stats.types || []} />
           </CardContent>
         </Card>
       </div>

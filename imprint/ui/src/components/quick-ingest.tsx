@@ -9,35 +9,37 @@ import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/loaders";
 import { enqueueCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
-import { Globe, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play, CheckCircle2 } from "lucide-react";
+import { Globe, FileText, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play, CheckCircle2 } from "lucide-react";
 
-type ActionKey = "ingest-url" | "ingest" | "refresh" | "retag" | "learn";
+type Command = "ingest-url" | "ingest" | "refresh" | "retag" | "learn";
 
 type Field = {
   key: string;
   label: string;
   placeholder?: string;
   type?: "text" | "checkbox";
+  // Offers the server-side path picker for this field.
+  browse?: "dir" | "file";
   showWhen?: { key: string; value: boolean };
 };
 
 type Action = {
-  key: ActionKey;
+  id: string;
+  command: Command;
   label: string;
   desc: string;
   icon: React.ElementType;
-  accent: string;
   fields: Field[];
   required?: string[];
 };
 
 const ACTIONS: Action[] = [
   {
-    key: "ingest-url",
+    id: "ingest-url",
+    command: "ingest-url",
     label: "Ingest URL",
     desc: "Fetch and index a web page, PDF, or document URL",
     icon: Globe,
-    accent: "#60a5fa",
     fields: [
       { key: "url", label: "URL", placeholder: "https://example.com/page.html" },
       { key: "project", label: "Project (optional)", placeholder: "my-project" },
@@ -48,32 +50,43 @@ const ACTIONS: Action[] = [
     required: ["url"],
   },
   {
-    key: "ingest",
-    label: "Ingest Directory",
-    desc: "Index files from a directory or single file",
-    icon: FolderOpen,
-    accent: "#4ecdc4",
+    id: "ingest-document",
+    command: "ingest",
+    label: "Ingest Document",
+    desc: "Index one PDF, Word, EPUB, or other document file",
+    icon: FileText,
     fields: [
-      { key: "dir", label: "Path", placeholder: "/home/user/my-project" },
+      { key: "dir", label: "Document", placeholder: "/home/user/Documents/report.pdf", browse: "file" },
     ],
     required: ["dir"],
   },
   {
-    key: "refresh",
+    id: "ingest-directory",
+    command: "ingest",
+    label: "Ingest Directory",
+    desc: "Index every supported file in a directory",
+    icon: FolderOpen,
+    fields: [
+      { key: "dir", label: "Directory", placeholder: "/home/user/my-project", browse: "dir" },
+    ],
+    required: ["dir"],
+  },
+  {
+    id: "refresh",
+    command: "refresh",
     label: "Refresh",
     desc: "Re-index only files changed since last ingest",
     icon: RefreshCw,
-    accent: "#f59e0b",
     fields: [
-      { key: "dir", label: "Path (optional)", placeholder: "/home/user/my-project" },
+      { key: "dir", label: "Directory (optional)", placeholder: "/home/user/my-project", browse: "dir" },
     ],
   },
   {
-    key: "retag",
+    id: "retag",
+    command: "retag",
     label: "Retag",
     desc: "Re-classify existing memories with the LLM tagger",
     icon: Tags,
-    accent: "#a78bfa",
     fields: [
       { key: "project", label: "Project filter (optional)", placeholder: "my-project" },
       { key: "all", label: "Include already-tagged (--all)", type: "checkbox" },
@@ -81,11 +94,11 @@ const ACTIONS: Action[] = [
     ],
   },
   {
-    key: "learn",
+    id: "learn",
+    command: "learn",
     label: "Learn",
     desc: "Index Claude Code conversation transcripts + memory files",
     icon: GraduationCap,
-    accent: "#34d399",
     fields: [],
   },
 ];
@@ -97,16 +110,16 @@ type Status =
   | { kind: "error"; message: string };
 
 export function QuickIngest() {
-  const [active, setActive] = useState<ActionKey | null>(null);
+  const [active, setActive] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, string | boolean>>({});
   const [status, setStatus] = useState<Status>({ kind: "idle" });
-  const [browserMode, setBrowserMode] = useState<"dir" | "any" | null>(null);
+  const [browsing, setBrowsing] = useState<Field | null>(null);
 
-  function selectAction(key: ActionKey) {
-    if (active === key) {
+  function selectAction(id: string) {
+    if (active === id) {
       setActive(null);
     } else {
-      setActive(key);
+      setActive(id);
       setParams({});
       setStatus({ kind: "idle" });
     }
@@ -114,12 +127,13 @@ export function QuickIngest() {
 
   async function run() {
     if (!active || status.kind === "submitting") return;
-    const action = ACTIONS.find((a) => a.key === active);
+    const action = ACTIONS.find((a) => a.id === active);
     if (!action) return;
 
     for (const r of action.required ?? []) {
       if (!params[r]) {
-        setStatus({ kind: "error", message: `${r} is required` });
+        const label = action.fields.find((f) => f.key === r)?.label ?? r;
+        setStatus({ kind: "error", message: `${label} is required` });
         return;
       }
     }
@@ -137,7 +151,7 @@ export function QuickIngest() {
 
     setStatus({ kind: "submitting" });
     try {
-      const { job_id, position } = await enqueueCommand(action.key, body);
+      const { job_id, position } = await enqueueCommand(action.command, body);
       setStatus({ kind: "enqueued", jobId: job_id, position });
     } catch (e) {
       setStatus({
@@ -147,20 +161,21 @@ export function QuickIngest() {
     }
   }
 
-  const activeAction = active ? ACTIONS.find((a) => a.key === active) ?? null : null;
+  const activeAction = active ? ACTIONS.find((a) => a.id === active) ?? null : null;
   const submitting = status.kind === "submitting";
 
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
           {ACTIONS.map((a) => {
             const Icon = a.icon;
-            const isActive = active === a.key;
+            const isActive = active === a.id;
             return (
               <button
-                key={a.key}
-                onClick={() => selectAction(a.key)}
+                key={a.id}
+                aria-pressed={isActive}
+                onClick={() => selectAction(a.id)}
                 className={`relative rounded-lg border p-3 text-left transition-colors ${
                   isActive
                     ? "border-primary bg-muted/40"
@@ -169,8 +184,7 @@ export function QuickIngest() {
               >
                 <div className="flex items-center gap-2">
                   <div
-                    className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: `${a.accent}22`, color: a.accent }}
+                    className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-muted text-foreground"
                   >
                     <Icon className="w-4 h-4" />
                   </div>
@@ -188,7 +202,7 @@ export function QuickIngest() {
           <div className="space-y-3 pt-2 border-t">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
-                <code className="bg-muted px-1.5 py-0.5 rounded">imprint {activeAction.key}</code>
+                <code className="bg-muted px-1.5 py-0.5 rounded">imprint {activeAction.command}</code>
               </p>
               <button
                 onClick={() => setActive(null)}
@@ -201,62 +215,52 @@ export function QuickIngest() {
             <div className="space-y-2">
               {activeAction.fields.filter((f) =>
                 !f.showWhen || !!params[f.showWhen.key] === f.showWhen.value
-              ).map((f) => (
-                <div key={f.key} className="flex items-center gap-2">
-                  <label className="text-xs w-36 text-muted-foreground shrink-0">
-                    {f.label}
-                  </label>
-                  {f.type === "checkbox" ? (
-                    <Switch
-                      checked={!!params[f.key]}
-                      onCheckedChange={(checked: boolean) =>
-                        setParams({ ...params, [f.key]: checked })
-                      }
-                    />
-                  ) : (
-                    <div className="flex flex-1 gap-2">
-                      <Input
-                        value={(params[f.key] as string) ?? ""}
-                        onChange={(e) =>
-                          setParams({ ...params, [f.key]: e.target.value })
+              ).map((f) => {
+                const id = `quick-${activeAction.id}-${f.key}`;
+                return (
+                  <div key={f.key} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                    <label htmlFor={id} className="text-xs text-muted-foreground shrink-0 sm:w-36">
+                      {f.label}
+                    </label>
+                    {f.type === "checkbox" ? (
+                      <Switch
+                        id={id}
+                        checked={!!params[f.key]}
+                        onCheckedChange={(checked: boolean) =>
+                          setParams({ ...params, [f.key]: checked })
                         }
-                        placeholder={f.placeholder}
-                        className="flex-1 h-8 text-sm"
                       />
-                      {(activeAction.key === "ingest" ||
-                        activeAction.key === "refresh") &&
-                        f.key === "dir" && (
-                          <>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setBrowserMode("dir")}
-                            >
-                              Pick dir
-                            </Button>
-                            {activeAction.key === "ingest" && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setBrowserMode("any")}
-                              >
-                                Pick file
-                              </Button>
-                            )}
-                          </>
+                    ) : (
+                      <div className="flex min-w-0 flex-1 gap-2">
+                        <Input
+                          id={id}
+                          value={(params[f.key] as string) ?? ""}
+                          onChange={(e) =>
+                            setParams({ ...params, [f.key]: e.target.value })
+                          }
+                          placeholder={f.placeholder}
+                          className="min-w-0 flex-1 h-8 text-sm"
+                        />
+                        {f.browse && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setBrowsing(f)}
+                          >
+                            {f.browse === "file" ? "Browse…" : "Pick folder"}
+                          </Button>
                         )}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {(activeAction.key === "ingest" ||
-                activeAction.key === "refresh") && (
-                <p className="text-[11px] text-muted-foreground pl-[152px]">
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {activeAction.fields.some((f) => f.browse) && (
+                <p className="text-[11px] text-muted-foreground sm:pl-[152px]">
                   Paths are resolved on the server (not in your browser). The
                   picker browses the server&apos;s filesystem — on WSL2 that
-                  means WSL paths like <code>/mnt/c/...</code>.
+                  means WSL paths like <code>/mnt/c/</code>.
                 </p>
               )}
             </div>
@@ -273,8 +277,8 @@ export function QuickIngest() {
             </div>
 
             {status.kind === "enqueued" && (
-              <div className="flex items-center gap-2 text-xs rounded-md border border-emerald-500/30 bg-emerald-950/10 px-3 py-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <div className="flex items-center gap-2 text-xs rounded-md border border-emerald-600/30 bg-emerald-50 px-3 py-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                 <span className="flex-1">
                   {status.position > 0 ? (
                     <>
@@ -287,14 +291,14 @@ export function QuickIngest() {
                 </span>
                 <Link
                   href="/queue"
-                  className="text-emerald-400 underline-offset-2 hover:underline shrink-0"
+                  className="text-emerald-700 underline-offset-2 hover:underline shrink-0"
                 >
                   view queue
                 </Link>
               </div>
             )}
             {status.kind === "error" && (
-              <div className="text-xs text-red-400 bg-red-950/20 border border-red-500/30 rounded-md px-3 py-2">
+              <div className="text-xs text-red-700 bg-red-50 border border-red-600/30 rounded-md px-3 py-2">
                 {status.message}
               </div>
             )}
@@ -302,13 +306,14 @@ export function QuickIngest() {
         )}
       </CardContent>
       <PathBrowserDialog
-        open={browserMode !== null}
-        mode={browserMode ?? "dir"}
-        initialPath={(params.dir as string) || ""}
-        onCancel={() => setBrowserMode(null)}
+        open={browsing !== null}
+        mode={browsing?.browse ?? "dir"}
+        title={browsing?.browse === "file" ? "Pick a document" : "Pick a folder"}
+        initialPath={browsing ? (params[browsing.key] as string) || "" : ""}
+        onCancel={() => setBrowsing(null)}
         onSelect={(abs) => {
-          setParams((p) => ({ ...p, dir: abs }));
-          setBrowserMode(null);
+          if (browsing) setParams((p) => ({ ...p, [browsing.key]: abs }));
+          setBrowsing(null);
         }}
       />
     </Card>

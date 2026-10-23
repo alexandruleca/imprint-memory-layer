@@ -3,10 +3,11 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 import { Heartbeat } from "@/components/heartbeat";
+import { TopBar } from "@/components/top-bar";
 
-const roboto = localFont({
-  src: "./fonts/Roboto-Variable.ttf",
-  variable: "--font-roboto",
+const inter = localFont({
+  src: "./fonts/Inter-Variable.ttf",
+  variable: "--font-inter",
   weight: "100 900",
   display: "swap",
 });
@@ -22,12 +23,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${roboto.variable} dark h-full`}>
+    <html lang="en" className={`${inter.variable} h-full`}>
       <body className="h-full bg-background text-foreground flex">
         <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-background focus:p-3">Skip to content</a>
         <Heartbeat />
         <Sidebar />
-        <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 h-full overflow-auto">{children}</main>
+        <div className="flex h-full min-w-0 flex-1 flex-col">
+          <TopBar />
+          <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-auto">{children}</main>
+        </div>
       </body>
     </html>
   );

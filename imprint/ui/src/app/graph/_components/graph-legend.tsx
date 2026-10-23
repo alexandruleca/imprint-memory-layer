@@ -12,7 +12,7 @@ function Swatch({ kind }: { kind: GraphNodeKind }) {
     return <span className="size-3 rounded-full bg-[conic-gradient(#ff6b6b,#fbbf24,#34d399,#38bdf8,#a78bfa,#f472b6,#ff6b6b)]" aria-hidden />;
   }
   if (kind === "topic") {
-    return <span className="size-3 rounded-full border-[1.5px]" style={{ borderColor: color, background: `${color}29` }} aria-hidden />;
+    return <span className="size-3 rounded-full border-[1.5px]" style={{ borderColor: color, background: `${color}1a` }} aria-hidden />;
   }
   return <span className="size-2.5 rounded-full" style={{ background: color }} aria-hidden />;
 }
@@ -21,7 +21,7 @@ function EdgeSample({ kind }: { kind: GraphEdgeKind }) {
   const style = EDGE_KINDS[kind];
   return (
     <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden className="shrink-0">
-      <line x1="1" y1="4" x2={style.arrow ? 13 : 17} y2="4" stroke={style.color ?? "#a3a3a3"} strokeWidth="1.5" strokeDasharray={style.dash?.join(" ")} />
+      <line x1="1" y1="4" x2={style.arrow ? 13 : 17} y2="4" stroke={style.color ?? "#737373"} strokeWidth="1.5" strokeDasharray={style.dash?.join(" ")} />
       {style.arrow && <path d="M12 1 L17 4 L12 7 Z" fill={style.color} />}
     </svg>
   );

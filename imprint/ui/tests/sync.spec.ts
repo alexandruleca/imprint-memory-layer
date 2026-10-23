@@ -27,20 +27,20 @@ test('paired-device controls pause and require confirmation to forget both devic
     await route.fulfill({ json: { peers: [peer] } });
   });
   await page.goto('/sync/');
-  await page.getByRole('button', { name: 'Pause automatic sync' }).click();
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect(page.getByText('Automatic sync paused on this device')).toBeVisible();
   expect(changes).toEqual([{ action: 'enabled', enabled: false }]);
-  await page.getByRole('button', { name: 'Enable automatic sync', exact: true }).click();
-  await page.getByRole('button', { name: 'Forget device…' }).click();
+  await page.getByRole('button', { name: 'Resume', exact: true }).click();
+  await page.getByRole('button', { name: 'Forget…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Forget this device on both sides?' });
   await expect(dialog).toContainText('ALL paired workspaces');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(changes).toHaveLength(2);
-  await page.getByRole('button', { name: 'Forget device…' }).click();
+  await page.getByRole('button', { name: 'Forget…' }).click();
   await dialog.getByRole('button', { name: 'Forget device', exact: true }).click();
   await expect(page.getByText(/Remote removal pending/)).toBeVisible();
   expect(changes[2]).toEqual({ action: 'forget', confirm: true });
-  await expect(page.getByRole('button', { name: 'Enable automatic sync', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
 });
 
 test('automatic sync is an explicit checkbox on both serve and receive', async ({ page }) => {
@@ -194,7 +194,7 @@ test('migrate dialog copies by default', async ({ page }) => {
     { type: 'output', text: 'Done: 2 copied of 2 scanned (source unchanged)\n' }, { type: 'done' },
   ])));
   await page.goto('/settings/');
-  await page.getByRole('button', { name: 'Copy / move…' }).click();
+  await page.getByRole('button', { name: 'Copy / move memories…' }).click();
   await expect(page.getByRole('radio', { name: /^Copy/ })).toBeChecked();
   await page.getByRole('button', { name: 'shared' }).click();
   await page.getByRole('combobox', { name: /^To/ }).selectOption('team');

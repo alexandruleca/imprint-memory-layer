@@ -25,7 +25,7 @@ export function SyncProgressBar({
           className="h-full rounded-full transition-all duration-500 ease-out"
           style={{
             width: `${p}%`,
-            background: "linear-gradient(90deg, #3b82f6, #60a5fa)",
+            background: "linear-gradient(90deg, #0a0a0a, #525252)",
           }}
         />
       </div>

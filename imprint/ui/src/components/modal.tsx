@@ -19,7 +19,7 @@ export function Modal({ children, label, onClose, busy = false, className = "" }
   return <dialog ref={ref} aria-label={label} aria-busy={busy}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}
     onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}
-    className={`m-auto max-h-[90dvh] w-[calc(100%-2rem)] rounded-lg border border-border bg-background text-foreground shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm ${className}`}>
+    className={`m-auto max-h-[90dvh] w-[calc(100%-2rem)] rounded-lg border border-border bg-background text-foreground shadow-xl backdrop:bg-black/30 backdrop:backdrop-blur-sm ${className}`}>
     {children}
   </dialog>;
 }

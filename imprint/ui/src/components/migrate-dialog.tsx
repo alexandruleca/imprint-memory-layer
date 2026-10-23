@@ -147,7 +147,7 @@ function MigrateDialogContent({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-black/30"
         onClick={() => !busy && handleClose()}
       />
       <div className="relative z-10 w-full max-w-2xl rounded-lg border border-border bg-background p-5 shadow-lg space-y-4">

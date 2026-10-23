@@ -62,11 +62,11 @@ function summarizeBody(body: Record<string, unknown>): string {
 function StatusIcon({ status }: { status: QueueJobStatus }) {
   switch (status) {
     case "running":
-      return <Spinner className="w-3.5 h-3.5 text-amber-500" />;
+      return <Spinner className="w-3.5 h-3.5 text-amber-600" />;
     case "queued":
       return <Clock className="w-3.5 h-3.5 text-muted-foreground" />;
     case "done":
-      return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
+      return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
     case "failed":
       return <XCircle className="w-3.5 h-3.5 text-red-500" />;
     case "cancelled":
@@ -117,7 +117,7 @@ export default function QueuePage() {
     return (
       <div className="p-8 space-y-2">
         <h2 className="text-2xl font-bold">Queue</h2>
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-red-600">
           Can&apos;t reach the queue API: {error}. Restart the dashboard
           (<code>imprint ui restart</code>) to pick up the new endpoints.
         </p>
@@ -143,7 +143,7 @@ export default function QueuePage() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
-            <PlayCircle className="w-4 h-4 text-amber-500" />
+            <PlayCircle className="w-4 h-4 text-amber-600" />
             Active
           </CardTitle>
         </CardHeader>
@@ -261,7 +261,7 @@ function JobRow({
           <Badge
             variant="secondary"
             className={`text-[10px] shrink-0 ${
-              job.exit_code === 0 ? "" : "text-red-400"
+              job.exit_code === 0 ? "" : "text-red-600"
             }`}
           >
             exit {job.exit_code}
@@ -286,7 +286,7 @@ function JobRow({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-muted-foreground hover:text-red-400"
+            className="h-7 px-2 text-muted-foreground hover:text-red-600"
             onClick={onCancel}
             title={job.status === "running" ? "Cancel job" : "Remove from queue"}
           >
@@ -303,7 +303,7 @@ function JobRow({
             {job.pid != null && <span>pid {job.pid}</span>}
           </div>
           {job.error && (
-            <p className="text-[11px] text-red-400 font-mono">{job.error}</p>
+            <p className="text-[11px] text-red-600 font-mono">{job.error}</p>
           )}
           <JobLog key={job.id} jobId={job.id} live={job.status === "running"} />
         </div>

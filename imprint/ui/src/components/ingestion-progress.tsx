@@ -55,25 +55,6 @@ export function IngestionProgress() {
 
 function ActiveCard({ job }: { job: QueueJob }) {
   const isTagging = job.phase === "llm_tagging";
-  const accent = isTagging
-    ? {
-        border: "border-violet-500/30",
-        bg: "bg-violet-950/10",
-        bar: "#8b5cf6",
-        badgeBorder: "border-violet-500/50",
-        badgeText: "text-violet-400",
-        spinner: "text-violet-500",
-        gradient: "linear-gradient(90deg, #8b5cf6, #a78bfa)",
-      }
-    : {
-        border: "border-amber-500/30",
-        bg: "bg-amber-950/10",
-        bar: "#f59e0b",
-        badgeBorder: "border-amber-500/50",
-        badgeText: "text-amber-400",
-        spinner: "text-amber-500",
-        gradient: "linear-gradient(90deg, #f59e0b, #fbbf24)",
-      };
   const label = isTagging ? "LLM tagging" : job.command;
   const Icon = isTagging ? Sparkles : HardDriveDownload;
   const unit = isTagging ? "chunks" : "files";
@@ -84,18 +65,14 @@ function ActiveCard({ job }: { job: QueueJob }) {
   const skipped = job.skipped ?? 0;
 
   return (
-    <Card className={`relative overflow-hidden ${accent.border} ${accent.bg}`}>
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1"
-        style={{ backgroundColor: accent.bar }}
-      />
-      <CardContent className="py-4 pl-5 pr-4 space-y-3">
+    <Card>
+      <CardContent className="py-4 px-5 space-y-3">
         <div className="flex items-center gap-3">
-          <Spinner className={`w-4 h-4 ${accent.spinner}`} />
+          <Spinner className="w-4 h-4 text-foreground" />
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <Badge
               variant="outline"
-              className={`${accent.badgeBorder} ${accent.badgeText} text-[10px] uppercase shrink-0`}
+              className="text-[10px] uppercase shrink-0"
             >
               <Icon className="w-3 h-3 mr-1" />
               {label}
@@ -117,7 +94,7 @@ function ActiveCard({ job }: { job: QueueJob }) {
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-muted-foreground hover:text-red-400"
+            className="h-7 px-2 text-muted-foreground hover:text-red-600"
             onClick={() => cancelJob(job.id).catch(() => {})}
             title="Cancel running job"
           >
@@ -128,11 +105,8 @@ function ActiveCard({ job }: { job: QueueJob }) {
         <div className="space-y-1.5">
           <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full rounded-full transition-all duration-700 ease-out"
-              style={{
-                width: `${pct}%`,
-                background: accent.gradient,
-              }}
+              className="h-full rounded-full bg-foreground transition-all duration-700 ease-out"
+              style={{ width: `${pct}%` }}
             />
           </div>
           <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
@@ -179,7 +153,7 @@ function QueuedList({ jobs }: { jobs: QueueJob[] }) {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-6 px-1.5 text-muted-foreground hover:text-red-400"
+                className="h-6 px-1.5 text-muted-foreground hover:text-red-600"
                 onClick={() => cancelJob(j.id).catch(() => {})}
                 title="Remove from queue"
               >

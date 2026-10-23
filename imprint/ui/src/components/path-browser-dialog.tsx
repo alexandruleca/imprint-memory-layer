@@ -165,7 +165,7 @@ export function PathBrowserDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
+      <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
       <div className="relative z-10 flex h-[560px] w-full max-w-3xl flex-col gap-3 rounded-lg border border-border bg-background p-4 shadow-lg">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">{dialogTitle}</h3>
@@ -281,7 +281,7 @@ export function PathBrowserDialog({
                         } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
                       >
                         {entry.is_dir ? (
-                          <FolderOpen className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <FolderOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                         ) : (
                           <FileIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                         )}

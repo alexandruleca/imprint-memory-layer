@@ -1,14 +1,14 @@
 import { FileText, FolderGit2, Puzzle, Tag, type LucideIcon } from "lucide-react";
 import type { GraphEdgeKind, GraphNode, GraphNodeKind } from "@/lib/types";
 
-/** Canvas colours, matched to the dashboard's dark tokens (neutral
- * oklch 0.145 background, 0.205 cards). The canvas cannot read CSS
- * variables, so they live here. */
+/** Canvas colours, matched to the dashboard's light tokens (#fafafa
+ * page, #0a0a0a ink). The canvas cannot read CSS variables, so they
+ * live here. */
 export const CANVAS = {
-  label: "#e5e5e5",
-  labelHalo: "#0a0a0a",
-  focusRing: "#fafafa",
-  edge: "#a3a3a3",
+  label: "#262626",
+  labelHalo: "#ffffff",
+  focusRing: "#0a0a0a",
+  edge: "#737373",
 };
 
 export interface KindStyle {
@@ -23,9 +23,9 @@ export interface KindStyle {
 
 export const KINDS: Record<GraphNodeKind, KindStyle> = {
   project: { label: "Project", plural: "Projects", icon: FolderGit2, size: [30, 76] },
-  topic: { label: "Topic", plural: "Topics", icon: Tag, color: "#c4b5fd", size: [14, 46] },
-  source: { label: "Source", plural: "Sources", icon: FileText, color: "#94a3b8", size: [12, 28] },
-  chunk: { label: "Chunk", plural: "Chunks", icon: Puzzle, color: "#64748b", size: [9, 14] },
+  topic: { label: "Topic", plural: "Topics", icon: Tag, color: "#404040", size: [14, 46] },
+  source: { label: "Source", plural: "Sources", icon: FileText, color: "#737373", size: [12, 28] },
+  chunk: { label: "Chunk", plural: "Chunks", icon: Puzzle, color: "#a3a3a3", size: [9, 14] },
 };
 
 export const KIND_ORDER: GraphNodeKind[] = ["project", "topic", "source", "chunk"];
@@ -34,7 +34,7 @@ export const EDGE_KINDS: Record<GraphEdgeKind, { label: string; color?: string; 
   contains: { label: "Contains" },
   relates: { label: "Tagged with" },
   sequence: { label: "Next chunk", color: "#f59e0b", arrow: true },
-  similar: { label: "Similar meaning", color: "#22d3ee", dash: [4, 4] },
+  similar: { label: "Similar meaning", color: "#0891b2", dash: [4, 4] },
 };
 
 export function nodeColor(node: GraphNode): string {

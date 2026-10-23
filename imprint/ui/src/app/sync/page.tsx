@@ -4,7 +4,6 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PairedDevices } from "@/components/paired-devices";
 import { Spinner } from "@/components/loaders";
@@ -35,7 +34,6 @@ import {
   Plug,
   MonitorSmartphone,
   ShieldCheck,
-  ShieldQuestionMark,
   RefreshCw,
   Inbox,
   FileArchive,
@@ -79,12 +77,79 @@ function statusLabel(status: string): string {
   return labels[status] || status;
 }
 
-function statusColor(status: string): string {
-  if (status === "waiting") return "border-amber-500/50 text-amber-400";
-  if (status === "connected" || status === "handshake_ok") return "border-green-500/50 text-green-400";
-  if (status.includes("ing")) return "border-blue-500/50 text-blue-400";
-  return "border-muted-foreground/50 text-muted-foreground";
+// ── Visual building blocks ─────────────────────────────────────
+
+type Tone = "neutral" | "waiting" | "success" | "danger";
+
+const TONES: Record<Tone, string> = {
+  neutral: "border-border bg-muted text-foreground",
+  waiting: "border-amber-600/25 bg-amber-50 text-amber-800",
+  success: "border-emerald-600/25 bg-emerald-50 text-emerald-800",
+  danger: "border-red-600/25 bg-red-50 text-red-700",
+};
+
+function statusTone(status: string): Tone {
+  if (status === "waiting") return "waiting";
+  if (status === "connected" || status === "handshake_ok") return "success";
+  return "neutral";
 }
+
+/** A session's state, as a pill: a spinner while work is under way. */
+function StatusPill({ tone, busy, children }: { tone: Tone; busy?: boolean; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONES[tone]}`}>
+      {busy ? <Spinner className="size-3" /> : <span className="size-1.5 rounded-full bg-current" aria-hidden />}
+      {children}
+    </span>
+  );
+}
+
+/** The other device, as both prompts show it before you decide. */
+function DeviceCard({ device, title, children }: { device: Peer; title?: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <div className="flex gap-3 rounded-xl border border-border bg-background p-4">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+        <MonitorSmartphone className="size-4" aria-hidden />
+      </span>
+      <div className="min-w-0 space-y-1">
+        {title && <p className="text-sm font-medium">{title}</p>}
+        <p className="text-sm">
+          <span className="font-semibold">{device.hostname || "Unknown device"}</span>
+          <span className="text-muted-foreground"> · {[device.user, device.os].filter(Boolean).join(" · ")}</span>
+        </p>
+        <p className="font-mono text-xs text-muted-foreground">fingerprint: {device.fingerprint || "unknown"}</p>
+        {children && <p className="pt-1 text-sm text-muted-foreground">{children}</p>}
+      </div>
+    </div>
+  );
+}
+
+function StatLine({ label, stats }: { label: string; stats: SyncStats }) {
+  return (
+    <p className="text-sm">
+      <span className="font-medium">{label}:</span>{" "}
+      <span className="text-muted-foreground">{formatStats(stats)}</span>
+    </p>
+  );
+}
+
+/** Pairing is opt-in on both devices; see ADR 0020. */
+function AutoSyncOption({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3.5 transition-colors hover:border-foreground/30 has-[:checked]:border-foreground has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-foreground" />
+      <span className="text-sm">
+        <span className="block font-medium">Enable automatic sync with this device</span>
+        <span className="block text-xs text-muted-foreground">
+          After this session, keep the workspace in step whenever both devices run Imprint. Both devices must opt in;
+          only this workspace and the approved direction are remembered.
+        </span>
+      </span>
+    </label>
+  );
+}
+
+const FIELD = "h-9 w-full max-w-xs rounded-lg border border-input bg-background px-3 text-sm";
 
 // ── Copy button ────────────────────────────────────────────────
 
@@ -101,7 +166,7 @@ function CopyButton({ text }: { text: string }) {
       title="Copy"
     >
       {copied ? (
-        <Check className="w-3.5 h-3.5 text-green-400" />
+        <Check className="w-3.5 h-3.5 text-emerald-700" />
       ) : (
         <Copy className="w-3.5 h-3.5 text-muted-foreground" />
       )}
@@ -124,11 +189,11 @@ function Btn({
   children: React.ReactNode;
   className?: string;
 }) {
-  const base = "px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2";
+  const base = "inline-flex h-9 w-fit items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50";
   const variants = {
-    primary: "bg-primary text-primary-foreground hover:bg-primary/90",
+    primary: "bg-primary text-primary-foreground shadow-sm hover:bg-primary/85",
     outline: "border border-input bg-background hover:bg-muted",
-    destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+    destructive: "bg-destructive text-white hover:bg-destructive/90",
   };
   return (
     <button
@@ -163,8 +228,8 @@ function ExportCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Download className="w-4 h-4" /> Export Snapshot
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+          <Download className="size-4" /> Export Snapshot
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -183,7 +248,7 @@ function ExportCard() {
           )}
         </Btn>
         {message && (
-          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-green-400"}`}>
+          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-emerald-700"}`}>
             {message}
           </p>
         )}
@@ -231,8 +296,8 @@ function ImportCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Upload className="w-4 h-4" /> Import Snapshot
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+          <Upload className="size-4" /> Import Snapshot
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -271,7 +336,7 @@ function ImportCard() {
           )}
         </Btn>
         {message && (
-          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-green-400"}`}>
+          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-emerald-700"}`}>
             {message}
           </p>
         )}
@@ -342,13 +407,13 @@ function DirectionField({
   const name = useId();
   return (
     <fieldset>
-      <legend className="text-xs font-medium mb-2">Direction</legend>
+      <legend className="mb-2 text-sm font-medium">Direction</legend>
       <div className="grid gap-2 sm:grid-cols-3">
         {DIRECTIONS.map((option) => (
           <label
             key={option.value}
-            className={`flex items-start gap-2 rounded-md border p-2.5 text-xs cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
-              value === option.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+            className={`flex cursor-pointer items-start gap-2.5 rounded-xl border bg-background p-3 text-xs transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring ${
+              value === option.value ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/30"
             }`}
           >
             <input
@@ -357,10 +422,10 @@ function DirectionField({
               value={option.value}
               checked={value === option.value}
               onChange={() => onChange(option.value)}
-              className="mt-0.5 accent-primary"
+              className="mt-0.5 accent-foreground"
             />
             <span>
-              <span className="block font-medium">{option.label}</span>
+              <span className="block text-sm font-medium">{option.label}</span>
               <span className="text-muted-foreground">{option[side]}</span>
             </span>
           </label>
@@ -373,7 +438,7 @@ function DirectionField({
 // Live region for the negotiated plan, refusals and warnings.
 function SessionNotes({ notes }: { notes: string[] }) {
   return (
-    <div role="status" className="space-y-1 text-xs text-muted-foreground">
+    <div role="status" className="space-y-1 text-sm text-muted-foreground">
       {notes.map((note, i) => (
         <p key={i}>{note}</p>
       ))}
@@ -542,220 +607,139 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
   }
 
   return (
-    <Card>
-      <CardContent className="py-5 space-y-4">
-        {state.phase === "idle" && (
-          <>
-            <p className="text-xs text-muted-foreground">
-              Expose one workspace for another device to sync with.
-              A one-time code will be generated to share.
-            </p>
-            <div className="space-y-1">
-              <label htmlFor={workspaceId} className="block text-xs font-medium">
-                Workspace to serve
-              </label>
-              <select
-                id={workspaceId}
-                value={workspace}
-                onChange={(e) => setChosen(e.target.value)}
-                className="block h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-sm"
-              >
-                {workspaces.workspaces.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                    {name === workspaces.active ? " (active)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <DirectionField side="serve" value={direction} onChange={setDirection} />
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-1" />
-              <span>Enable automatic sync with this device after pairing. Both devices must opt in; only this workspace and the approved direction are remembered.</span>
-            </label>
-            <div className="space-y-1">
-              <label htmlFor={relayId} className="block text-xs font-medium">
-                Relay <span className="font-normal text-muted-foreground">(optional)</span>
-              </label>
-              <Input
-                id={relayId}
-                value={relay}
-                onChange={(e) => setRelay(e.target.value)}
-                placeholder="public relay"
-                className="text-sm font-mono max-w-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                A self-hosted relay host, e.g. sync.example.com. Sessions are end-to-end encrypted either way.
-              </p>
-            </div>
-            <Btn onClick={start} disabled={!workspace}>
-              <Radio className="w-4 h-4" /> Start Serving
-            </Btn>
-          </>
-        )}
-
-        {state.phase !== "idle" && served && (
-          <p className="text-xs text-muted-foreground">
-            Serving workspace <span className="font-mono text-foreground">{served.workspace}</span>
-            {" · "}
-            {modeText(served.pull, served.push)}
+    <div className="space-y-5 p-5 sm:p-6">
+      {state.phase === "idle" && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Share one workspace with another device: you get a one-time code to give it. To share part of your
+            memory, copy projects into a new workspace in Settings → Workspaces and serve it Send only.
           </p>
-        )}
+          <div className="space-y-1.5">
+            <label htmlFor={workspaceId} className="block text-sm font-medium">
+              Workspace to serve
+            </label>
+            <select id={workspaceId} value={workspace} onChange={(e) => setChosen(e.target.value)} className={FIELD}>
+              {workspaces.workspaces.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                  {name === workspaces.active ? " (active)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <DirectionField side="serve" value={direction} onChange={setDirection} />
+          <AutoSyncOption checked={remember} onChange={setRemember} />
+          <div className="space-y-1.5">
+            <label htmlFor={relayId} className="block text-sm font-medium">
+              Relay <span className="font-normal text-muted-foreground">(optional)</span>
+            </label>
+            <Input
+              id={relayId}
+              value={relay}
+              onChange={(e) => setRelay(e.target.value)}
+              placeholder="public relay"
+              className={`${FIELD} font-mono`}
+            />
+            <p className="text-xs text-muted-foreground">
+              A self-hosted relay host, e.g. sync.example.com. Sessions are end-to-end encrypted either way.
+            </p>
+          </div>
+          <Btn onClick={start} disabled={!workspace}>
+            <Radio className="size-4" /> Start Serving
+          </Btn>
+        </>
+      )}
 
-        {state.phase === "waiting" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <Spinner className="w-4 h-4 text-amber-500" />
-              <Badge variant="outline" className={statusColor("waiting")}>
-                Waiting for peer...
-              </Badge>
+      {state.phase !== "idle" && served && (
+        <p className="text-sm text-muted-foreground">
+          Serving workspace <span className="font-mono text-foreground">{served.workspace}</span>
+          {" · "}
+          {modeText(served.pull, served.push)}
+        </p>
+      )}
+
+      {state.phase === "waiting" && (
+        <>
+          <StatusPill tone="waiting" busy>Waiting for peer...</StatusPill>
+          <div className="rounded-xl border border-dashed border-input bg-muted/40 p-5">
+            <p className="text-sm font-medium">Share this code with the other device</p>
+            <div className="mt-3 flex items-center gap-2">
+              <code className="rounded-lg border border-border bg-background px-4 py-2 font-mono text-lg tracking-wide">{state.code}</code>
+              <CopyButton text={state.code} />
             </div>
-            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 space-y-3">
-              <p className="text-xs text-muted-foreground font-medium">
-                Share this code with the other device:
-              </p>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-16">Code</span>
-                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.code}</code>
-                <CopyButton text={state.code} />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                On the other machine: <code className="font-mono">imprint sync {state.code}</code>, or paste it
-                in Sync → Receive.
-              </p>
-            </div>
-            <Btn variant="outline" onClick={stop}>
-              <X className="w-4 h-4" /> Stop
+            <p className="mt-3 text-xs text-muted-foreground">
+              On the other machine: <code className="font-mono text-foreground">imprint sync {state.code}</code>, or paste it
+              in Sync → Receive.
+            </p>
+          </div>
+          <Btn variant="outline" onClick={stop}>
+            <X className="size-4" /> Stop
+          </Btn>
+        </>
+      )}
+
+      {state.phase === "awaiting_approval" && (
+        <>
+          <StatusPill tone="waiting">Incoming Sync Request</StatusPill>
+          <DeviceCard device={state.peer}>The code was verified. {approvalText(served)}</DeviceCard>
+          <div className="flex flex-wrap gap-2">
+            <Btn onClick={() => decide("accept")} disabled={state.submitting}>
+              <Check className="size-4" /> Accept once
             </Btn>
-          </>
-        )}
-
-        {state.phase === "awaiting_approval" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldQuestionMark className="w-4 h-4 text-amber-400" />
-              <Badge variant="outline" className="border-amber-500/50 text-amber-400">
-                Incoming Sync Request
-              </Badge>
-            </div>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <MonitorSmartphone className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium">{state.peer.hostname || "Unknown device"}</span>
-                {state.peer.user && (
-                  <span className="text-xs text-muted-foreground">· {state.peer.user}</span>
-                )}
-                <span className="text-xs text-muted-foreground">· {state.peer.os}</span>
-              </div>
-              <p className="text-xs text-muted-foreground font-mono pl-6">
-                fingerprint: {state.peer.fingerprint || "unknown"}
-              </p>
-              <p className="text-xs text-muted-foreground pl-6">
-                The code was verified. {approvalText(served)}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Btn
-                onClick={() => decide("accept")}
-                disabled={state.submitting}
-              >
-                <Check className="w-4 h-4" /> Accept once
-              </Btn>
-              <Btn
-                variant="outline"
-                onClick={() => decide("trust")}
-                disabled={state.submitting}
-              >
-                <ShieldCheck className="w-4 h-4" /> Trust & accept
-              </Btn>
-              <Btn
-                variant="outline"
-                onClick={() => decide("reject")}
-                disabled={state.submitting}
-                className="text-destructive"
-              >
-                <X className="w-4 h-4" /> Reject
-              </Btn>
-            </div>
-            {state.submitting && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Spinner className="w-3 h-3" /> Sending decision…
-              </div>
-            )}
-          </>
-        )}
-
-        {state.phase === "connected" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <Badge variant="outline" className="border-green-500/50 text-green-400">
-                Peer Connected
-              </Badge>
-            </div>
-            <div className="rounded-lg border border-muted-foreground/20 p-3 space-y-1">
-              <div className="flex items-center gap-2">
-                <MonitorSmartphone className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium">{state.peer.hostname || "Unknown"}</span>
-                <span className="text-xs text-muted-foreground">{state.peer.os}</span>
-              </div>
-              <p className="text-xs text-muted-foreground font-mono pl-6">{state.peer.fingerprint}</p>
-            </div>
-            <Spinner className="w-4 h-4 text-blue-400" />
-          </>
-        )}
-
-        {state.phase === "syncing" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <Spinner className="w-4 h-4 text-blue-400" />
-              <Badge variant="outline" className={statusColor(state.status)}>
-                {statusLabel(state.status)}
-              </Badge>
-            </div>
-            <SyncProgressGroup datasets={state.datasets} />
-            <Btn variant="outline" onClick={stop}>
-              <X className="w-4 h-4" /> Cancel
+            <Btn variant="outline" onClick={() => decide("trust")} disabled={state.submitting}>
+              <ShieldCheck className="size-4" /> Trust & accept
             </Btn>
-          </>
-        )}
-
-        {state.phase !== "idle" && <SessionNotes notes={notes} />}
-
-        {state.phase === "done" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <Check className="w-4 h-4 text-green-400" />
-              <Badge variant="outline" className="border-green-500/50 text-green-400">
-                Sync Complete
-              </Badge>
-            </div>
-            {state.receivedStats && (
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium">Received:</span> {formatStats(state.receivedStats)}
-              </p>
-            )}
-            <Btn variant="outline" onClick={reset}>
-              New Session
+            <Btn variant="outline" onClick={() => decide("reject")} disabled={state.submitting} className="text-destructive">
+              <X className="size-4" /> Reject
             </Btn>
-          </>
-        )}
+          </div>
+          {state.submitting && (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner className="size-3" /> Sending decision…
+            </p>
+          )}
+        </>
+      )}
 
-        {state.phase === "error" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <X className="w-4 h-4 text-destructive" />
-              <Badge variant="outline" className="border-destructive/50 text-destructive">
-                Error
-              </Badge>
-            </div>
-            <p className="text-xs text-destructive">{state.message}</p>
-            <Btn variant="outline" onClick={reset}>
-              Retry
-            </Btn>
-          </>
-        )}
-      </CardContent>
-    </Card>
+      {state.phase === "connected" && (
+        <>
+          <StatusPill tone="success" busy>Peer Connected</StatusPill>
+          <DeviceCard device={state.peer} />
+        </>
+      )}
+
+      {state.phase === "syncing" && (
+        <>
+          <StatusPill tone={statusTone(state.status)} busy>{statusLabel(state.status)}</StatusPill>
+          <SyncProgressGroup datasets={state.datasets} />
+          <Btn variant="outline" onClick={stop}>
+            <X className="size-4" /> Cancel
+          </Btn>
+        </>
+      )}
+
+      {state.phase === "done" && (
+        <>
+          <StatusPill tone="success">Sync Complete</StatusPill>
+          {state.receivedStats && <StatLine label="Received" stats={state.receivedStats} />}
+        </>
+      )}
+
+      {state.phase === "error" && (
+        <>
+          <StatusPill tone="danger">Error</StatusPill>
+          <p className="text-sm text-destructive">{state.message}</p>
+        </>
+      )}
+
+      {state.phase !== "idle" && <SessionNotes notes={notes} />}
+
+      {(state.phase === "done" || state.phase === "error") && (
+        <Btn variant="outline" onClick={reset}>
+          {state.phase === "done" ? "New Session" : "Retry"}
+        </Btn>
+      )}
+    </div>
   );
 }
 
@@ -896,181 +880,117 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
   }
 
   return (
-    <Card>
-      <CardContent className="py-5 space-y-4">
-        {state.phase === "idle" && (
-          <>
-            <p className="text-xs text-muted-foreground">
-              Connect to another device that is serving a workspace. Enter the
-              code shown on the other machine.
-            </p>
-            <div className="space-y-1">
-              <label htmlFor={codeId} className="block text-xs font-medium">
-                Code
-              </label>
-              <Input
-                id={codeId}
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value)}
-                placeholder="7f3a9c21-Ab3xY9Kq or wss://host/7f3a9c21-Ab3xY9Kq"
-                autoComplete="off"
-                className="text-sm font-mono max-w-sm"
-                onKeyDown={(e) => e.key === "Enter" && connect()}
-              />
-            </div>
-            <div className="space-y-1">
-              <label htmlFor={workspaceId} className="block text-xs font-medium">
-                Workspace on this device
-              </label>
-              <Input
-                id={workspaceId}
-                list={`${workspaceId}-known`}
-                value={typed ?? workspaces.active}
-                onChange={(e) => setTyped(e.target.value)}
-                placeholder="workspace-name"
-                aria-describedby={`${workspaceId}-hint`}
-                aria-invalid={problem ? true : undefined}
-                className="text-sm font-mono max-w-xs"
-                onKeyDown={(e) => e.key === "Enter" && connect()}
-              />
-              <datalist id={`${workspaceId}-known`}>
-                {workspaces.workspaces.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-              <p
-                id={`${workspaceId}-hint`}
-                className={`text-xs ${problem ? "text-destructive" : "text-muted-foreground"}`}
-              >
-                {problem ||
-                  (loading
-                    ? "Loading workspaces…"
-                    : known
-                      ? `Syncs “${workspace}”${workspace === workspaces.active ? " (active)" : ""}. The active workspace is not changed.`
-                      : `New workspace — created when the other device's memories arrive.`)}
-              </p>
-            </div>
-            <DirectionField side="receive" value={direction} onChange={setDirection} />
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-1" />
-              <span>Enable automatic sync with this device after pairing. Both devices must opt in; only this workspace and the approved direction are remembered.</span>
+    <div className="space-y-5 p-5 sm:p-6">
+      {state.phase === "idle" && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Connect to a device that is serving a workspace, with the code it shows.
+          </p>
+          <div className="space-y-1.5">
+            <label htmlFor={codeId} className="block text-sm font-medium">
+              Code
             </label>
-            <Btn onClick={connect} disabled={!codeInput.trim() || loading || Boolean(problem)}>
-              <Plug className="w-4 h-4" /> Connect
-            </Btn>
-          </>
-        )}
-
-        {state.phase === "confirm_push" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldQuestionMark className="w-4 h-4 text-amber-400" />
-              <Badge variant="outline" className="border-amber-500/50 text-amber-400">
-                Send this workspace?
-              </Badge>
-            </div>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
-              <p className="text-sm">
-                Send <span className="font-mono">{state.workspace}</span> to this device?
-              </p>
-              <div className="flex items-center gap-2">
-                <MonitorSmartphone className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium">{state.device.hostname || "Unknown device"}</span>
-                {state.device.user && (
-                  <span className="text-xs text-muted-foreground">· {state.device.user}</span>
-                )}
-                <span className="text-xs text-muted-foreground">· {state.device.os}</span>
-              </div>
-              <p className="text-xs text-muted-foreground font-mono pl-6">
-                fingerprint: {state.device.fingerprint || "unknown"}
-              </p>
-              <p className="text-xs text-muted-foreground pl-6">
-                This is the device that served the code. If you do not recognise it, do not send:
-                the pull still runs.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Btn onClick={() => decidePush("accept")} disabled={state.submitting}>
-                <Check className="w-4 h-4" /> Send
-              </Btn>
-              <Btn variant="outline" onClick={() => decidePush("reject")} disabled={state.submitting}>
-                <X className="w-4 h-4" /> Don&apos;t send
-              </Btn>
-            </div>
-          </>
-        )}
-
-        {state.phase === "connecting" && (
-          <div className="flex items-center gap-2">
-            <Spinner className="w-4 h-4 text-blue-400" />
-            <span className="text-sm text-muted-foreground">Connecting to relay...</span>
+            <Input
+              id={codeId}
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
+              placeholder="7f3a9c21-Ab3xY9Kq or wss://host/7f3a9c21-Ab3xY9Kq"
+              autoComplete="off"
+              className={`${FIELD} max-w-md font-mono`}
+              onKeyDown={(e) => e.key === "Enter" && connect()}
+            />
           </div>
-        )}
-
-        {state.phase === "handshake" && (
-          <div className="flex items-center gap-2">
-            <Spinner className="w-4 h-4 text-blue-400" />
-            <span className="text-sm text-muted-foreground">Authenticating...</span>
+          <div className="space-y-1.5">
+            <label htmlFor={workspaceId} className="block text-sm font-medium">
+              Workspace on this device
+            </label>
+            <Input
+              id={workspaceId}
+              list={`${workspaceId}-known`}
+              value={typed ?? workspaces.active}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="workspace-name"
+              aria-describedby={`${workspaceId}-hint`}
+              aria-invalid={problem ? true : undefined}
+              className={`${FIELD} font-mono`}
+              onKeyDown={(e) => e.key === "Enter" && connect()}
+            />
+            <datalist id={`${workspaceId}-known`}>
+              {workspaces.workspaces.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <p id={`${workspaceId}-hint`} className={`text-xs ${problem ? "text-destructive" : "text-muted-foreground"}`}>
+              {problem ||
+                (loading
+                  ? "Loading workspaces…"
+                  : known
+                    ? `Syncs “${workspace}”${workspace === workspaces.active ? " (active)" : ""}. The active workspace is not changed.`
+                    : `New workspace — created when the other device's memories arrive.`)}
+            </p>
           </div>
-        )}
+          <DirectionField side="receive" value={direction} onChange={setDirection} />
+          <AutoSyncOption checked={remember} onChange={setRemember} />
+          <Btn onClick={connect} disabled={!codeInput.trim() || loading || Boolean(problem)}>
+            <Plug className="size-4" /> Connect
+          </Btn>
+        </>
+      )}
 
-        {state.phase === "syncing" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <Spinner className="w-4 h-4 text-blue-400" />
-              <Badge variant="outline" className={statusColor(state.status)}>
-                {statusLabel(state.status)}
-              </Badge>
-            </div>
-            <SyncProgressGroup datasets={state.datasets} />
-            <Btn variant="outline" onClick={stop}>
-              <X className="w-4 h-4" /> Cancel
+      {state.phase === "confirm_push" && (
+        <>
+          <StatusPill tone="waiting">Send this workspace?</StatusPill>
+          <DeviceCard device={state.device} title={<>Send <span className="font-mono">{state.workspace}</span> to this device?</>}>
+            This is the device that served the code. If you do not recognise it, do not send: the pull still runs.
+          </DeviceCard>
+          <div className="flex flex-wrap gap-2">
+            <Btn onClick={() => decidePush("accept")} disabled={state.submitting}>
+              <Check className="size-4" /> Send
             </Btn>
-          </>
-        )}
-
-        {state.phase !== "idle" && <SessionNotes notes={notes} />}
-
-        {state.phase === "done" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <Check className="w-4 h-4 text-green-400" />
-              <Badge variant="outline" className="border-green-500/50 text-green-400">
-                Sync Complete
-              </Badge>
-            </div>
-            {state.pullStats && (
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium">Pulled:</span> {formatStats(state.pullStats)}
-              </p>
-            )}
-            {state.pushStats && (
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium">Pushed:</span> {formatStats(state.pushStats)}
-              </p>
-            )}
-            <Btn variant="outline" onClick={reset}>
-              New Session
+            <Btn variant="outline" onClick={() => decidePush("reject")} disabled={state.submitting}>
+              <X className="size-4" /> Don&apos;t send
             </Btn>
-          </>
-        )}
+          </div>
+        </>
+      )}
 
-        {state.phase === "error" && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <X className="w-4 h-4 text-destructive" />
-              <Badge variant="outline" className="border-destructive/50 text-destructive">
-                Error
-              </Badge>
-            </div>
-            <p className="text-xs text-destructive">{state.message}</p>
-            <Btn variant="outline" onClick={reset}>
-              Retry
-            </Btn>
-          </>
-        )}
-      </CardContent>
-    </Card>
+      {state.phase === "connecting" && <StatusPill tone="neutral" busy>Connecting to relay...</StatusPill>}
+
+      {state.phase === "handshake" && <StatusPill tone="neutral" busy>Authenticating...</StatusPill>}
+
+      {state.phase === "syncing" && (
+        <>
+          <StatusPill tone={statusTone(state.status)} busy>{statusLabel(state.status)}</StatusPill>
+          <SyncProgressGroup datasets={state.datasets} />
+          <Btn variant="outline" onClick={stop}>
+            <X className="size-4" /> Cancel
+          </Btn>
+        </>
+      )}
+
+      {state.phase === "done" && (
+        <>
+          <StatusPill tone="success">Sync Complete</StatusPill>
+          {state.pullStats && <StatLine label="Pulled" stats={state.pullStats} />}
+          {state.pushStats && <StatLine label="Pushed" stats={state.pushStats} />}
+        </>
+      )}
+
+      {state.phase === "error" && (
+        <>
+          <StatusPill tone="danger">Error</StatusPill>
+          <p className="text-sm text-destructive">{state.message}</p>
+        </>
+      )}
+
+      {state.phase !== "idle" && <SessionNotes notes={notes} />}
+
+      {(state.phase === "done" || state.phase === "error") && (
+        <Btn variant="outline" onClick={reset}>
+          {state.phase === "done" ? "New Session" : "Retry"}
+        </Btn>
+      )}
+    </div>
   );
 }
 
@@ -1086,8 +1006,8 @@ function relativeTime(ts: number): string {
 
 function originBadge(origin: string) {
   const map: Record<string, string> = {
-    claude: "border-indigo-500/50 text-indigo-400",
-    chatgpt: "border-emerald-500/50 text-emerald-400",
+    claude: "border-border text-foreground",
+    chatgpt: "border-border text-foreground",
     unknown: "border-muted-foreground/40 text-muted-foreground",
   };
   return map[origin] || map.unknown;
@@ -1141,8 +1061,8 @@ function DesktopExportsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Inbox className="w-4 h-4" /> Desktop App Exports
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+          <Inbox className="size-4" /> Desktop App Exports
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1175,7 +1095,7 @@ function DesktopExportsCard() {
         )}
 
         {lastScan && (
-          <div className="rounded-lg border border-muted-foreground/20 p-3 text-xs space-y-1 font-mono">
+          <div className="rounded-xl border border-border bg-muted/40 p-3 text-xs space-y-1 font-mono">
             <div className="flex gap-3">
               <span className="text-muted-foreground w-36">Roots scanned</span>
               <span>{lastScan.roots.length}</span>
@@ -1190,7 +1110,7 @@ function DesktopExportsCard() {
             </div>
             <div className="flex gap-3">
               <span className="text-muted-foreground w-36">Newly indexed</span>
-              <span className={lastScan.indexed_zips > 0 ? "text-green-400" : ""}>
+              <span className={lastScan.indexed_zips > 0 ? "text-emerald-700" : ""}>
                 {lastScan.indexed_zips}
               </span>
             </div>
@@ -1223,7 +1143,7 @@ function DesktopExportsCard() {
                 return (
                   <li
                     key={e.path + e.indexed_at}
-                    className="flex items-center gap-2 text-xs rounded border border-muted-foreground/15 px-2 py-1.5"
+                    className="flex items-center gap-2 text-xs rounded-lg border border-border px-2.5 py-1.5"
                   >
                     <Badge variant="outline" className={originBadge(e.origin)}>
                       {e.origin}
@@ -1262,57 +1182,54 @@ export default function SyncPage() {
   }, []);
 
   return (
-    <div className="p-8 space-y-6 max-w-4xl">
-      <div>
-        <h2 className="text-2xl font-bold">Sync</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Export and import snapshots, sync live with another device via relay,
-          or auto-ingest conversation exports from Claude Desktop / ChatGPT
-          Desktop.
+    <div className="mx-auto max-w-4xl space-y-8 px-6 py-8 sm:px-10">
+      <header>
+        <h2 className="text-2xl font-semibold tracking-tight">Sync</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Share a workspace with another machine or a colleague. Sessions are end-to-end encrypted: the relay never
+          sees the code&apos;s secret, your devices or your memories.
         </p>
-      </div>
+      </header>
 
-      <PairedDevices />
-
-      <div className="grid grid-cols-2 gap-6">
-        <ExportCard />
-        <ImportCard />
-      </div>
-
-      <Separator />
-
-      <div>
-        <h3 className="text-lg font-semibold">Live Sync</h3>
-        <p className="text-xs text-muted-foreground mt-1 mb-3">
-          Sync one workspace with another device through a relay. Sessions are
-          end-to-end encrypted with the one-time code: the relay never sees its
-          secret, the devices or your data. To share a
-          curated workspace with a colleague one way, serve it with Send only:
-          they can pull it but cannot write to your memory. Build one by
-          copying projects or topics into a new workspace from Settings →
-          Workspaces.
-        </p>
-        <Tabs defaultValue="serve">
-          <TabsList>
-            <TabsTrigger value="serve">
-              <Radio className="w-3.5 h-3.5 mr-1" /> Serve
-            </TabsTrigger>
-            <TabsTrigger value="receive">
-              <Plug className="w-3.5 h-3.5 mr-1" /> Receive
-            </TabsTrigger>
-          </TabsList>
-
+      <section aria-labelledby="live-sync-title" className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <Tabs defaultValue="serve" className="gap-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
+            <div>
+              <h3 id="live-sync-title" className="font-semibold">Live sync</h3>
+              <p className="text-xs text-muted-foreground">One workspace per session, one way or both.</p>
+            </div>
+            <TabsList>
+              <TabsTrigger value="serve" className="px-3">
+                <Radio className="size-3.5" /> Serve
+              </TabsTrigger>
+              <TabsTrigger value="receive" className="px-3">
+                <Plug className="size-3.5" /> Receive
+              </TabsTrigger>
+            </TabsList>
+          </div>
           <TabsContent value="serve">
             <ServePanel workspaces={workspaces} />
           </TabsContent>
-
           <TabsContent value="receive">
             <ReceivePanel workspaces={workspaces} />
           </TabsContent>
         </Tabs>
-      </div>
+      </section>
 
-      <Separator />
+      <PairedDevices />
+
+      <section aria-labelledby="snapshots-title" className="space-y-3">
+        <div>
+          <h3 id="snapshots-title" className="font-semibold">Snapshots</h3>
+          <p className="text-sm text-muted-foreground">
+            Move memory without a network: export a zip here and import it on the other machine.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ExportCard />
+          <ImportCard />
+        </div>
+      </section>
 
       <DesktopExportsCard />
     </div>

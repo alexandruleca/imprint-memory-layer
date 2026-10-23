@@ -270,7 +270,7 @@ function GraphPageContent() {
         </div>
       </header>
 
-      <div className="relative flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,oklch(0.19_0_0),var(--background)_70%)]">
+      <div className="relative flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,#ffffff,var(--background)_75%)]">
         <GraphCanvas
           ref={canvas}
           nodes={visible.nodes}
