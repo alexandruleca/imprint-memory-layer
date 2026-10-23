@@ -67,7 +67,7 @@ Set `IMPRINT_LLM_TAGS=1` and pick a provider:
 
 Ollama and vLLM use OpenAI-compatible APIs internally. Point `IMPRINT_LLM_TAGGER_BASE_URL` at any OpenAI-compatible server to use unlisted providers.
 
-**MCP `store` always LLM-tags.** When a memory is saved via the `store` MCP tool, the background job runs the LLM tagger regardless of the `tagger.llm` config flag and stamps `llm_tagged: true` on the point so a later `imprint retag` won't re-tag it. The global toggle still controls ingest/refresh passes over bulk files.
+**MCP `store` uses deterministic tags.** It preserves explicit domain tags and completes persistence before acknowledging the write. It does not invoke an LLM or zero-shot classification. Bulk ingest/refresh honors `tagger.llm` and `tagger.zero_shot`, including the batch fallback. Selecting a provider does not enable LLM tagging. Run an explicit retag pass when richer classification is wanted.
 
 ## Search Filters
 

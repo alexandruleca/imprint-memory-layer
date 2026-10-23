@@ -105,6 +105,20 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Engineering',
+          items: [
+            { label: 'Documentation index', slug: 'readme' },
+            { label: 'Repository assessment', slug: 'repository-assessment' },
+            { label: 'Audit remediation', slug: 'audit-remediation' },
+            { label: 'Indexing and retrieval', slug: 'indexing-retrieval' },
+            { label: 'UI and UX review', slug: 'ui-ux-review' },
+            { label: 'Integrations', slug: 'integrations' },
+            { label: 'Quality roadmap', slug: 'quality-roadmap' },
+            { label: 'Platform validation', slug: 'platform-validation' },
+            { label: 'Architecture decisions', slug: 'adr/readme' },
+          ],
+        },
+        {
           label: 'Operate',
           items: [
             { label: 'Configuration', slug: 'configuration' },

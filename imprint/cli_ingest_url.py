@@ -107,10 +107,15 @@ def _parse_args(argv: list[str]) -> tuple[list[str], str, bool, bool, bool, int 
     return urls, project, force, follow, no_follow, follow_depth_override
 
 
-def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tuple[int, str]:
+def ingest_one(url: str, project: str, known: dict, force: bool = False,
+               workspace: str | None = None) -> tuple[int, str]:
     """Fetch + store a single URL. Returns (chunks_stored, status).
     status: 'stored' | 'skipped-unchanged' | 'error'."""
+    from imprint import config
+    workspace = workspace or config.get_active_workspace()
     existing = known.get(url)
+    if existing and existing.get("project") != project:
+        existing = None
     if existing and not force:
         # Cheap HEAD check — skip if etag / last-modified unchanged.
         try:
@@ -137,17 +142,11 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
     if not doc_list:
         return 0, "error: empty content"
 
-    # Delete prior chunks for this URL so we replace, not accumulate.
+    # Prepare every chunk before replacing prior content.
     source_key = url
-    if existing:
-        vs.delete_by_source(source_key)
 
     from imprint.config_schema import resolve
     enable_llm = resolve("tagger.llm")[0]
-    if not enable_llm and tagger._get_llm_provider() == "local":
-        _, _llm_source = resolve("tagger.llm")
-        if _llm_source == "default":
-            enable_llm = True
     enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
 
     records = []
@@ -170,7 +169,7 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
             tags = tagger.build_payload_tags(
                 chunk_text, rel_path=url,
                 llm=None, zero_shot=enable_zero_shot,
-                neighbor_context=neighbor_ctx, project_hint=project,
+                neighbor_context=neighbor_ctx, project_hint=project, workspace=workspace,
             )
             llm_type = tags.pop("_llm_type", "")
             mem_type = llm_type or "architecture"
@@ -185,14 +184,13 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False) -> tupl
                 "etag": etag,
                 "last_modified": last_mod,
                 "doc_metadata": doc_meta,
-                "chunk_index": chunk_idx,
+                "chunk_index": len(records),
                 "source_mtime": now,
             })
 
     if not records:
-        return 0, "error: no chunks"
-
-    inserted, _ = vs.store_batch(records)
+        return 0, "error: no chunks produced; previous content retained"
+    inserted, _ = vs.replace_source(records, source_key, project, workspace=workspace)
     return inserted, "stored"
 
 
@@ -277,10 +275,6 @@ def main():
     # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
     from imprint.config_schema import resolve
     _enable_llm = resolve("tagger.llm")[0]
-    if not _enable_llm and tagger._get_llm_provider() == "local":
-        _, _llm_source = resolve("tagger.llm")
-        if _llm_source == "default":
-            _enable_llm = True
 
     llm_tagged = 0
     if _enable_llm and total_stored > 0:

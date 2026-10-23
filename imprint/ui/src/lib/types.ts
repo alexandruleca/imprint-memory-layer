@@ -18,6 +18,12 @@ export interface Topic {
 }
 
 export interface MemoryNode {
+  similarity?: number;
+  retrieval_score?: number;
+  match_type?: "semantic" | "lexical" | "hybrid";
+  source_hash?: string;
+  source_mtime?: number;
+  timestamp?: number;
   id: string;
   label: string;
   project: string;

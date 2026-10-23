@@ -6,7 +6,7 @@ Two images are published to GHCR on every release:
 
 | Image | What it runs | When to use |
 |---|---|---|
-| `ghcr.io/alexandruleca/imprint` | Dashboard UI + API on :8420, auto-Qdrant, CLI baked in | You want a containerized Imprint dev environment, or you want to expose the dashboard to your team without touching your host |
+| `ghcr.io/alexandruleca/imprint` | Dashboard UI + API on :8420, auto-Qdrant, CLI baked in | You want a containerized Imprint dev environment, with local loopback access |
 | `ghcr.io/alexandruleca/imprint-relay` | Stateless WebSocket forwarder for peer sync on :8430 | You want to self-host the sync relay behind your own domain |
 
 Both are multi-arch (`linux/amd64`, `linux/arm64`). Same tag scheme: `latest`,
@@ -19,7 +19,7 @@ prerelease channel.
 docker run -d \
   --name imprint \
   --restart unless-stopped \
-  -p 8420:8420 \
+  -p 127.0.0.1:8420:8420 \
   -v imprint-data:/data \
   ghcr.io/alexandruleca/imprint:latest
 ```
@@ -38,7 +38,7 @@ indexed and drive the CLI via `docker exec`:
 ```bash
 docker run -d \
   --name imprint \
-  -p 8420:8420 \
+  -p 127.0.0.1:8420:8420 \
   -v imprint-data:/data \
   -v "$PWD:/workspace:ro" \
   ghcr.io/alexandruleca/imprint:latest
@@ -164,25 +164,23 @@ Available tags on both images:
 | `dev` | most recent prerelease | `ghcr.io/alexandruleca/imprint:dev` |
 | `vX.Y.Z-dev.N` | pinned prerelease | `ghcr.io/alexandruleca/imprint:v0.3.0-dev.4` |
 
-## TLS termination
+## Dashboard access boundary
 
-Neither image terminates TLS — both speak plain HTTP/WS. Put a reverse proxy
-in front for production. TLS matters most for the relay since browsers require
-`wss://` for WebSocket upgrades.
+The dashboard validates loopback Host and Origin and has no authenticated remote mode. The container entry point uses `--container-bind` solely to listen on its network namespace; publish the host port on `127.0.0.1`. The dashboard cannot be exposed through an arbitrary remote domain using the relay TLS examples below. TLS alone is not authentication. The full image now builds its dashboard from source and installs a Python 3.12 venv from the hashed CPU lock; CLI and API share `/data`.
+
+## TLS termination (relay)
+
+The relay speaks plain WS; put it behind a TLS reverse proxy for remote use. Browsers require `wss://` from HTTPS pages. These examples apply to the relay, not remote dashboard access.
 
 ### Caddy (easiest)
 
 ```caddyfile
-imprint.yourdomain.com {
-    reverse_proxy localhost:8420
-}
-
 sync.yourdomain.com {
     reverse_proxy localhost:8430
 }
 ```
 
-Caddy auto-provisions Let's Encrypt certs for both.
+Caddy auto-provisions a Let's Encrypt certificate for the relay domain.
 
 ### Docker Swarm + Traefik (relay)
 

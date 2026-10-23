@@ -1,29 +1,26 @@
 "use client";
 
-import { useEffect } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8420";
+import { useEffect, useState } from "react";
+import { API_BASE } from "@/lib/api-base";
 
 export function Heartbeat() {
+  const [offline, setOffline] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
-
     async function ping() {
-      if (cancelled) return;
       try {
-        await fetch(`${API_BASE}/api/ping`);
-      } catch {
-        // server unreachable — ignore
-      }
+        const response = await fetch(`${API_BASE}/api/ping`, { signal: AbortSignal.timeout(4000) });
+        if (!cancelled) setOffline(!response.ok);
+      } catch { if (!cancelled) setOffline(true); }
     }
-
-    ping();
+    void ping();
     const interval = setInterval(ping, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
-
-  return null;
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [retry]);
+  if (!offline) return null;
+  return <div role="status" aria-live="polite" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 rounded-lg border border-amber-500/50 bg-background p-4 shadow-xl max-w-lg text-sm flex gap-3 items-center">
+    <p>Local service is unavailable. Start Imprint or wait for it to reconnect.</p>
+    <button className="text-primary underline shrink-0" onClick={() => setRetry((value) => value + 1)}>Retry connection</button>
+  </div>;
 }

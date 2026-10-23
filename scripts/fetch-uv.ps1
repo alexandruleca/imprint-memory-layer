@@ -29,6 +29,11 @@ try {
     $ZipPath = Join-Path $Tmp $Asset
     Invoke-WebRequest -Uri $Url -OutFile $ZipPath -UseBasicParsing
 
+    $manifest = Get-Content (Join-Path $PSScriptRoot '../requirements/runtime-manifest.json') -Raw | ConvertFrom-Json
+    $expected = $manifest.uv.assets.$Asset
+    if ($manifest.uv.version -ne $UvVersion -or -not $expected) { throw "No pinned uv checksum for $UvVersion / $Asset" }
+    if ((Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'uv checksum mismatch' }
+
     Expand-Archive -Path $ZipPath -DestinationPath $Tmp -Force
 
     $binDir = Join-Path $DestDir "bin"

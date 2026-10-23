@@ -11,7 +11,7 @@ import (
 
 // SetupClaudeDesktop wires the Imprint MCP server into the Anthropic Claude
 // Desktop app (the consumer app, not Claude Code). Claude Desktop uses the
-// standard ``mcpServers`` key in ``claude_desktop_config.json``:
+// standard “mcpServers“ key in “claude_desktop_config.json“:
 //
 //	macOS:        ~/Library/Application Support/Claude/claude_desktop_config.json
 //	Windows:      %APPDATA%\Claude\claude_desktop_config.json
@@ -21,7 +21,7 @@ import (
 //
 // WSL2-aware: when running inside WSL, the Windows-side Claude Desktop is
 // still wireable because Windows can launch the Linux venv Python through
-// ``wsl.exe``. The emitted MCP spec uses:
+// “wsl.exe“. The emitted MCP spec uses:
 //
 //	command: "wsl.exe"
 //	args:    ["-d", "<distro>", "--", "env",
@@ -56,7 +56,7 @@ func SetupClaudeDesktop() {
 	output.Info("Checking Claude Desktop MCP registration at " + cfgPath)
 	added, err := jsonutil.EnsureMCPServer(cfgPath, "imprint", spec)
 	if err != nil {
-		output.Warn("Could not update " + cfgPath + ": " + err.Error())
+		output.Fail("Could not update " + cfgPath + ": " + err.Error())
 		return
 	}
 	if added {
@@ -83,7 +83,7 @@ func SetupClaudeDesktop() {
 
 // buildClaudeDesktopSpec returns the MCP server spec appropriate for the
 // current host → Claude-Desktop-host bridge. On WSL, it wraps the Linux
-// venv Python in ``wsl.exe`` so the Windows-side app can launch it.
+// venv Python in “wsl.exe“ so the Windows-side app can launch it.
 // On macOS/Windows/Linux-native it's a direct venv-Python invocation.
 func buildClaudeDesktopSpec(bp backendPaths) map[string]any {
 	if !platform.IsWSL() {

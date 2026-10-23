@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+from .processes import is_alive
+
 if sys.platform == "win32":
     import msvcrt
 
@@ -115,28 +117,26 @@ def read_holder() -> dict | None:
     except json.JSONDecodeError:
         return None
     pid = data.get("pid")
-    if isinstance(pid, int) and pid > 0:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return None
-        except PermissionError:
-            pass
+    if isinstance(pid, int) and pid > 0 and not is_alive(pid):
+        return None
     return data
 
 
 def clear_stale() -> None:
-    """Remove the lock file if its recorded PID is gone.
-
-    Safe to call on startup before the dispatcher takes over. Does not
-    attempt to unlink while the lock is held — if the non-blocking acquire
-    succeeds we simply release immediately.
-    """
+    """Clear stale metadata only while holding the original lock inode."""
     holder = read_holder()
     if holder is not None:
         return
     p = lock_path()
     try:
-        p.unlink(missing_ok=True)
-    except OSError:
-        pass
+        fd = os.open(str(p), os.O_RDWR)
+    except FileNotFoundError:
+        return
+    try:
+        if _lock(fd, False):
+            try:
+                os.ftruncate(fd, 0)
+            finally:
+                _unlock(fd)
+    finally:
+        os.close(fd)

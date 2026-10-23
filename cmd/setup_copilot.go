@@ -29,6 +29,7 @@ func SetupCopilot() {
 	mcpPath := platform.CopilotMCPPath()
 	output.Info("Checking Copilot MCP registration...")
 	spec := map[string]any{
+		"type":    "stdio",
 		"command": bp.VenvPython,
 		"args":    []any{"-m", "imprint"},
 		"env": map[string]any{
@@ -38,7 +39,7 @@ func SetupCopilot() {
 	}
 	added, err := jsonutil.EnsureMCPServerAtKey(mcpPath, "servers", "imprint", spec)
 	if err != nil {
-		output.Warn("Could not update " + mcpPath + ": " + err.Error())
+		output.Fail("Could not update " + mcpPath + ": " + err.Error())
 	} else if added {
 		output.Success("Registered imprint MCP server in " + mcpPath)
 	} else {
@@ -52,7 +53,7 @@ func SetupCopilot() {
 	if rulePath != "" {
 		output.Info("Checking Copilot instructions...")
 		if err := os.MkdirAll(filepath.Dir(rulePath), 0755); err != nil {
-			output.Warn("Could not create " + filepath.Dir(rulePath) + ": " + err.Error())
+			output.Fail("Could not create " + filepath.Dir(rulePath) + ": " + err.Error())
 		}
 		existing := ""
 		if data, err := os.ReadFile(rulePath); err == nil {
@@ -64,7 +65,7 @@ func SetupCopilot() {
 			output.Skip("Copilot instructions already up to date at " + rulePath)
 			wroteRule = true
 		} else if err := os.WriteFile(rulePath, []byte(updated), 0644); err != nil {
-			output.Warn("Could not write " + rulePath + ": " + err.Error())
+			output.Fail("Could not write " + rulePath + ": " + err.Error())
 		} else {
 			output.Success("Wrote Copilot instructions to " + rulePath)
 			wroteRule = true
@@ -81,7 +82,7 @@ func SetupCopilot() {
 	if wroteRule {
 		output.Info("Rule:       " + rulePath)
 	}
-	output.Warn("Copilot has no hook system — enforcement is advisory via the rule file above. Session summarizer cannot auto-run.")
+	output.Warn("This adapter installs MCP and instructions; it does not install VS Code hooks. Configure supported client hooks separately if needed.")
 	output.Info("Next steps:")
 	output.Info("  1. Reload VSCode (Ctrl+Shift+P → 'Developer: Reload Window')")
 	output.Info("  2. Open Copilot Chat in Agent mode and confirm the imprint tools are listed")

@@ -1,27 +1,28 @@
 ---
 title: MCP Tools & Automatic Updates
-description: The 13 MCP tools Imprint exposes to coding agents — semantic search, graph navigation, knowledge-graph queries, inline content ingestion, and more.
+description: The 14 MCP tools Imprint exposes to coding agents — semantic search, graph navigation, knowledge-graph queries, inline content ingestion, and more.
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **13 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation of a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
+The imprint MCP server exposes **14 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation per workspace in a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
 
 ### Search & retrieval
 
 | Tool | Purpose |
 |------|---------|
-| `search` | Semantic search. Hydrates top-1 fully when confidence is high (sim ≥ 0.60), top-3 when low (< 0.35), otherwise top-2. Rest are index-only previews. Auto-loads wake-up context on first call. Filters: `project`, `type`, `lang`, `layer`, `kind`, `domain`. Pagination via `offset`. |
+| `search` | Hybrid semantic/exact-term ranking (`mode="hybrid"`, or `"semantic"`). Bounded excerpts and previews, source hash/mtime, semantic score and match type. Filters: `project`, `type`, `lang`, `layer`, `kind`, `domain`, `source`. Query: 1–4,000 characters; `limit` 1–50; `offset` 0–255. |
+| `get_memory` | Read the full record by the public ID from search/store (legacy point UUIDs also accepted). Content is bounded to 12,000 characters; response indicates truncation. |
 | `neighbors` | KNN over embeddings for a given memory id — finds cross-project kin that share the same chunk space. |
 | `graph_scope` | Navigate KB as a graph. Scopes: `root`, `project:<name>`, `topic:<name>`, `source:<path>`, `chunk:<id>`. Each response ends with concrete next-step suggestions. |
 | `list_sources` | List indexed source files with chunk counts. Filters: `project`, `lang`, `layer`. |
 | `file_summary` | Chunk count, tags, mtime, first-chunk preview for one source. Run before `file_chunks` to know the index range. |
-| `file_chunks` | Retrieve chunks of a file by 0-based index range (`start`/`end`). Use for "show me the full content of this file". |
+| `file_chunks` | Retrieve chunks of a file by 0-based index range (`start`/`end`), at most 20 chunks and a 12,000-character content budget per call. Continuation guidance is included. Use for "show me the full content of this file". |
 
 ### Writes
 
 | Tool | Purpose |
 |------|---------|
-| `store` | Save a decision/pattern/finding/bug/architecture/milestone. Returns immediately; embed + LLM tagging + upsert run on a background thread. Stores from MCP always use the LLM tagger regardless of `tagger.llm` config — the assumption is that an explicit save deserves good topic tags. |
+| `store` | Persist a decision/pattern/finding/bug/architecture/milestone/preference before returning `Stored [id]`. Storage failures propagate. Deterministic tags only; supplied comma-separated domain tags are preserved. Blank type uses the local classifier. No forced LLM call. Content: 1–20,000 characters. |
 | `delete` | Remove a memory by id (as returned from `search`/`store`). |
 | `ingest_url` | Fetch an http(s) URL, extract content, chunk + embed + store. Skips unchanged pages (HEAD check against stored ETag/Last-Modified). |
 | `ingest_content` | Chunk + embed + store an inline blob — text, markdown, CSV, JSON, or code (`format="code:python"` etc.). Dedup + replace keyed by `name`: re-sending the same `name` overwrites prior chunks. Designed for API uploads and external services pushing data into memory. |
@@ -54,6 +55,14 @@ The imprint memory stays current through three mechanisms:
 
 - **Stop hook** (async) — after each Claude response, parses the conversation transcript, extracts Q+A exchanges and decision-like statements, stores them automatically with `lang=conversation` tags. Installed into `~/.claude/settings.json` by `imprint setup`.
 - **PreCompact hook** (sync) — before Claude's context window gets compressed, blocks and instructs Claude to save all important context via MCP tools.
-- **`imprint refresh <dir>`** — compares file mtimes via the indexed `source_mtime` payload, re-chunks + re-embeds only what changed. For URL sources, `imprint refresh-urls` HEAD-checks each stored URL and re-fetches only those with a new ETag or Last-Modified.
+- **`imprint refresh <dir>`** — compares complete byte hashes and paths, re-chunks changed sources, and prunes recorded files actually deleted within the selected roots. For URL sources, `imprint refresh-urls` HEAD-checks each stored URL and re-fetches only those with a new ETag or Last-Modified.
 
 Both hooks are installed by `imprint setup` into `~/.claude/settings.json` and removed by `imprint disable`.
+
+## Tool contract and safety
+
+The server declares read-only, destructive and external-access annotations. These hints help clients present operations; they are not access controls. Retrieved text is evidence, not instructions. Verify live source files before edits, especially when provenance is absent or stale. Similarity is not calibrated answer confidence.
+
+`search` reads at most 256 semantic and 256 lexical candidates before rank fusion. This is a bounded heuristic, not BM25 or a guarantee of recall. Semantic-only mode supports comparison. The first-search context is tracked separately per workspace. MCP calls capture their workspace at entry; queued jobs retain the workspace selected at submission. `ingest_content` accepts at most 1,000,000 characters, name 1,024 and project 128. `kg_query` caps 100 facts; `list_sources` caps 200 sources.
+
+Source replacement prepares/upserts the new chunks before pruning the old set, scoped by project and source. Embedding failures preserve prior data; replacement is not an all-or-nothing transaction. See [indexing and retrieval](indexing-retrieval.md), [ADR 0005](adr/0005-source-lifecycle-and-hybrid-retrieval.md) and [ADR 0006](adr/0006-durable-mcp-and-preserved-client-config.md).

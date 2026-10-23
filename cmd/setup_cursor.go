@@ -37,13 +37,13 @@ func SetupCursor() {
 		"command": bp.VenvPython,
 		"args":    []any{"-m", "imprint"},
 		"env": map[string]any{
-			"PYTHONPATH":         bp.ProjectDir,
+			"PYTHONPATH":       bp.ProjectDir,
 			"IMPRINT_DATA_DIR": bp.DataDir,
 		},
 	}
 	added, err := jsonutil.EnsureMCPServer(mcpPath, "imprint", spec)
 	if err != nil {
-		output.Warn("Could not update " + mcpPath + ": " + err.Error())
+		output.Fail("Could not update " + mcpPath + ": " + err.Error())
 	} else if added {
 		output.Success("Registered imprint MCP server in " + mcpPath)
 	} else {
@@ -54,7 +54,7 @@ func SetupCursor() {
 	rulesDir := platform.CursorRulesDir()
 	if !platform.DirExists(rulesDir) {
 		if err := os.MkdirAll(rulesDir, 0755); err != nil {
-			output.Warn("Could not create " + rulesDir + ": " + err.Error())
+			output.Fail("Could not create " + rulesDir + ": " + err.Error())
 		}
 	}
 	rulePath := filepath.Join(rulesDir, "imprint.mdc")
@@ -63,7 +63,7 @@ func SetupCursor() {
 		output.Skip("Cursor rule already up to date at " + rulePath)
 	} else {
 		if err := os.WriteFile(rulePath, []byte(instructions.CursorRule), 0644); err != nil {
-			output.Warn("Could not write " + rulePath + ": " + err.Error())
+			output.Fail("Could not write " + rulePath + ": " + err.Error())
 		} else {
 			output.Success("Wrote Cursor rule to " + rulePath)
 		}
@@ -77,17 +77,17 @@ func SetupCursor() {
 	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
 	type cursorHook struct{ event, matcher, command string }
 	cursorHooks := []cursorHook{
-		{"sessionStart", "", hooks.SessionStartCommand()},
+		{"sessionStart", "", hooks.SessionStartCommand(hp)},
 		// Cursor's preCompact is observational (can't block); we emit
 		// `user_message` as a save-context nudge to the user.
-		{"preCompact", "", hooks.CursorPreCompactCommand()},
+		{"preCompact", "", hooks.CursorPreCompactCommand(hp)},
 		{"postToolUse", "MCP:search", hooks.PostSearchSentinelCommand(hp)},
 		{"preToolUse", "Read|Grep", hooks.PreReadGateCommand(hp)},
 	}
 	hooksOK := 0
 	for _, h := range cursorHooks {
-		if err := jsonutil.SetCursorHook(hooksPath, h.event, h.matcher, h.command); err != nil {
-			output.Warn("Could not set " + h.event + " hook: " + err.Error())
+		if err := jsonutil.SetOwnedCursorHook(hooksPath, h.event, h.matcher, h.command); err != nil {
+			output.Fail("Could not set " + h.event + " hook: " + err.Error())
 		} else {
 			label := h.event
 			if h.matcher != "" {

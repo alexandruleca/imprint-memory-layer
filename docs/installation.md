@@ -4,6 +4,8 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 ---
 ## Requirements
 
+**Desktop platform target:** macOS 13+ for the Electron app/pkg; Windows x64 and Linux x64/ARM artifacts have separate native validation gates. Native Windows/macOS execution of the current fixes is pending; see [platform validation](platform-validation.md).
+
 **Core:**
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
 - A working network connection on first run (so the bundled `uv` can fetch Python + wheels)
@@ -204,3 +206,9 @@ Full deployment guide — pinned tags, `docker compose`, TLS termination (Caddy 
 Traefik / Nginx), health checks, and manual rebuilds — lives on the dedicated
 [Docker page](./docker.md). See [sync.md](./sync.md) for how peer sync uses the
 relay.
+
+## Integrity and diagnostics
+
+Install/update verifies release archives against `SHA256SUMS` before extraction. Bundled uv and auto-downloaded Qdrant use pinned SHA256 values; Python profiles use hash locks. This is not an offline installer or independently signed publisher verification. Models and managed Python still download on first use. Windows signatures/macOS notarization remain pending maintainer configuration.
+
+Run `imprint doctor --json --probe-mcp` after installation to inspect runtime dependencies, dashboard, primary Codex registration, Qdrant readiness and a timed MCP initialize/list-tools handshake. It is read-only and does not provision models. Confirm client-side trust/tools after restarting the host.

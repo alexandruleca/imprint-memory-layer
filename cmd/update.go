@@ -110,6 +110,9 @@ func Update(args []string, currentVersion string) {
 	if err := downloadTo(archivePath, asset.BrowserDownloadURL); err != nil {
 		output.Fail(err.Error())
 	}
+	if err := release.VerifyReleaseArchive(target, asset.Name, archivePath); err != nil {
+		output.Fail("Archive verification failed: " + err.Error())
+	}
 
 	output.Info("Extracting archive...")
 	if err := extractArchive(archivePath, tmp); err != nil {

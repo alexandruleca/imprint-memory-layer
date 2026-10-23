@@ -1,0 +1,354 @@
+name: Build release artifacts
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      prerelease:
+        default: false
+        type: boolean
+      publish:
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to embed (build only; does not publish)
+        default: v0.0.0-test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: make dashboard-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard
+          path: imprint/ui/out/
+          if-no-files-found: error
+
+  electron-linux:
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install FUSE2
+        run: sudo apt-get install -y libfuse2
+      - name: Build Linux AppImage
+        run: make ui-dist-linux ARCH=${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-linux-${{ matrix.arch }}
+          path: build/electron/linux-${{ matrix.arch }}/imprint-ui
+
+  electron-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build macOS universal app
+        run: make ui-dist-mac
+      - name: Archive .app bundle (tar preserves symlinks)
+        run: tar czf build/electron/imprint-ui.app.tar.gz -C build/electron imprint-ui.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-macos
+          path: build/electron/imprint-ui.app.tar.gz
+
+  electron-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Windows portable
+        shell: bash
+        run: |
+          cd ui-electron
+          npm ci --prefer-offline
+          npx electron-builder --win portable --x64 --publish never
+          mkdir -p ../build/electron
+          EXE=$(find ../dist/electron -maxdepth 1 -name '*.exe' | head -1)
+          cp "$EXE" ../build/electron/imprint-ui.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows
+          path: build/electron/imprint-ui.exe
+
+  archives:
+    needs: [dashboard, electron-linux, electron-macos, electron-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: rm -rf imprint/ui/out
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard
+          path: imprint/ui/out/
+      - uses: actions/download-artifact@v4
+        with:
+          name: electron-linux-amd64
+          path: build/electron/linux-amd64/
+      - uses: actions/download-artifact@v4
+        with:
+          name: electron-linux-arm64
+          path: build/electron/linux-arm64/
+      - uses: actions/download-artifact@v4
+        with:
+          name: electron-macos
+          path: build/electron/
+      - uses: actions/download-artifact@v4
+        with:
+          name: electron-windows
+          path: build/electron/
+
+      - name: Unpack macOS .app bundle
+        run: |
+          tar xzf build/electron/imprint-ui.app.tar.gz -C build/electron/
+          rm build/electron/imprint-ui.app.tar.gz
+
+      - name: Fix Electron permissions
+        run: chmod +x build/electron/linux-*/imprint-ui
+
+      - name: Build all platforms
+        env:
+          VERSION: ${{ inputs.version }}
+        run: make all
+
+      - name: Package per-platform archives
+        env:
+          VERSION: ${{ inputs.version }}
+        run: REQUIRE_ELECTRON=1 make package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-archives
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  package-windows:
+    needs: archives
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-archives
+          path: dist/
+
+      - name: Extract release archive
+        shell: pwsh
+        run: |
+          Expand-Archive -Path dist\imprint-windows-amd64.zip -DestinationPath dist -Force
+
+      - name: Install ImageMagick (for icon rendering)
+        shell: pwsh
+        run: choco install imagemagick --no-progress -y
+
+      - name: Generate .ico from site logo
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path installers\windows\assets -Force | Out-Null
+          & magick -background none site\public\logo.svg `
+              -define icon:auto-resize=16,24,32,48,64,128,256 `
+              installers\windows\assets\imprint.ico
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path installers\windows\assets\imprint.ico)) {
+              Write-Warning "Icon generation failed; Inno will fall back to the exe icon."
+          }
+
+      - name: Build installer
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $ver = $env:VERSION.TrimStart('v')
+          $src = Resolve-Path dist\imprint-windows-amd64
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+              /DImprintVersion=$ver `
+              /DImprintSource=$src `
+              /O"$(Resolve-Path dist)" `
+              installers\windows\imprint.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with $LASTEXITCODE" }
+          Get-ChildItem dist\*.exe | Format-Table Name, Length
+
+      - name: Smoke test silent install in a path with spaces
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'Imprint install smoke'
+          $installer = (Resolve-Path dist/imprint-windows-amd64-setup.exe).Path
+          $process = Start-Process $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$dest`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          if ((Get-Content "$dest/.setup-result").Trim() -ne '0') { throw 'First-run setup failed' }
+          $env:PYTHONPATH = $dest
+          & "$dest/.venv/Scripts/python.exe" scripts/smoke-runtime.py --with-embeddings
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: dist/imprint-windows-amd64-setup.exe
+          if-no-files-found: error
+
+  package-macos:
+    needs: archives
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-archives
+          path: dist/
+      - name: Extract archive
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: tar -xzf "dist/imprint-darwin-${ARCH}.tar.gz" -C dist
+
+      - name: Install librsvg (for icon rendering)
+        run: brew install librsvg
+
+      - name: Build .pkg
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          VER="${VERSION#v}"
+          OUT="dist/imprint-darwin-${ARCH}.pkg"
+          ./installers/macos/build-pkg.sh \
+            --version "$VER" \
+            --arch "$ARCH" \
+            --source "dist/imprint-darwin-${ARCH}" \
+            --out    "$OUT"
+          ls -la "$OUT"
+
+      - name: Smoke test native package and writable runtime
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          sudo installer -pkg "dist/imprint-darwin-${ARCH}.pkg" -target /
+          ROOT=/Applications/Imprint.app/Contents/Resources/imprint
+          "$ROOT/bin/imprint" bootstrap --profile cpu --no-llm --non-interactive
+          PYTHONPATH="$ROOT" "$HOME/.local/share/imprint/.venv/bin/python" scripts/smoke-runtime.py --with-embeddings
+          test -x /Applications/Imprint.app/Contents/MacOS/imprint-setup-helper
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos-${{ matrix.arch }}
+          path: dist/imprint-darwin-${{ matrix.arch }}.pkg
+          if-no-files-found: error
+
+  smoke-linux:
+    needs: archives
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-archives
+          path: dist/
+      - name: Bootstrap extracted release without host Python
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          tar -xzf "dist/imprint-linux-${ARCH}.tar.gz" -C dist
+          ROOT="$PWD/dist/imprint-linux-${ARCH}"
+          "$ROOT/bin/imprint" bootstrap --profile cpu --no-llm --non-interactive
+          PYTHONPATH="$ROOT" "$ROOT/.venv/bin/python" scripts/smoke-runtime.py --with-embeddings
+
+
+  publish:
+    needs: [archives, package-windows, package-macos, smoke-linux]
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-archives
+          path: dist/
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: dist/
+          merge-multiple: true
+      - name: Check complete asset set and checksum every deliverable
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          for asset in imprint-linux-amd64.tar.gz imprint-linux-arm64.tar.gz \
+            imprint-darwin-amd64.tar.gz imprint-darwin-arm64.tar.gz \
+            imprint-windows-amd64.zip imprint-windows-amd64-setup.exe \
+            imprint-darwin-amd64.pkg imprint-darwin-arm64.pkg; do
+            test -s "$asset"
+          done
+          sha256sum *.tar.gz *.zip *.exe *.pkg > SHA256SUMS
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          FLAGS=()
+          if [ "$PRERELEASE" = true ]; then FLAGS+=(--prerelease); fi
+          gh release create "$VERSION" --target "$GITHUB_SHA" \
+            --title "$VERSION" --generate-notes "${FLAGS[@]}" dist/*

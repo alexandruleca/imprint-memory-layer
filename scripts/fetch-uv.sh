@@ -43,6 +43,19 @@ else
     echo "[x] need curl or wget" >&2; exit 1
 fi
 
+# Pin checksums in source control instead of trusting a fresh sidecar download.
+python3 - "$TMP/$ASSET" "$UV_VERSION" "$ASSET" <<'PYVERIFY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd()))
+# Avoid importing imprint's optional runtime dependencies during packaging.
+import importlib.util
+spec = importlib.util.spec_from_file_location('downloads', 'imprint/downloads.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_archive(Path(sys.argv[1]), module.expected_digest('uv', sys.argv[2], sys.argv[3]))
+PYVERIFY
+
 mkdir -p "$DEST_DIR/bin"
 if [ "$ARCHIVE_EXT" = "zip" ]; then
     # Prefer `unzip`; fall back to Python's zipfile module (python3 is

@@ -108,7 +108,7 @@ if (-not (Test-Path $Bin)) {
 # Fallback bootstrap if installer-time setup didn't complete. Attempt it
 # silently once; if that fails too, surface the rich Show-SetupError dialog
 # so the user can retry interactively or inspect the log.
-if (-not (Test-Path $Sentinel)) {
+if (-not (Test-Path $Sentinel) -or -not (Test-Path (Join-Path $InstallDir '.venv\Scripts\python.exe'))) {
     if (-not (Invoke-Bootstrap)) {
         Show-SetupError
         exit 1

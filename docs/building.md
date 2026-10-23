@@ -1,47 +1,62 @@
 ---
-title: Building & Releases
-description: Build Imprint from source — Go binary via Makefile, Python venv setup, and the conventional-commit-driven release pipeline that publishes stable and dev channels.
+title: Building and releases
+description: Build the CLI, dashboard, desktop shell and native installers, with validation before publication.
 ---
-## Building from Source
+
+## Local builds
 
 ```bash
-make build        # current platform
-make all          # cross-compile (linux, macOS, Windows)
+make build                         # current platform CLI
+make all                           # five Go targets
+make dashboard-build               # fresh Next.js static export (Node 22+)
+make ui-dist-linux ARCH=amd64       # native shell; arm64 is a separate build
+make ui-dist-mac                    # universal macOS app, on macOS
+make ui-dist-win                    # Windows x64 portable app
+make package-local PLAT=linux/amd64 # stage + archive one platform
+make package                       # stage + archive all prebuilt targets
+make installer-macos ARCH=arm64     # native pkgbuild/productbuild
+make installer-windows              # Inno Setup 6 on Windows
 ```
 
-`make all` writes all 5 platform binaries into `bin/imprint-{os}-{arch}{.exe}`.
+Packaging requires Bash, rsync, Python 3, downloaded uv and the selected CLI binaries. It keeps `dist/imprint-<os>-<arch>/` for native installers. The static dashboard must be present; rebuild it before packaging. Native installers have host-specific tools; Go cross-compilation does not replace them.
 
-Version is injected via ldflags — `make` runs `git describe --tags --always --dirty` and passes it into `main.version`. Override with `VERSION=vX.Y.Z make all`.
+Normalized Electron files live in `build/electron/linux-{amd64,arm64}/imprint-ui`, `build/electron/imprint-ui.app` and `build/electron/imprint-ui.exe`. Packaging never substitutes one Linux architecture for the other. Set `REQUIRE_ELECTRON=1` to fail when a desktop shell is missing; without it a local archive may provide the browser dashboard only.
 
-## Docker Relay
+`scripts/validate-release.py` checks runtime files, dashboard JavaScript, CLI/uv architecture and Linux AppImage architecture, and excludes development/user state. Runtime Python dependencies use `requirements/base.lock.txt` when available. Refresh it deliberately:
+
+```bash
+uv pip compile requirements/base.txt --universal --python-version 3.12 --generate-hashes -o requirements/base.lock.txt
+uv pip compile requirements/gpu.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/gpu.lock.txt
+uv pip compile requirements/llm.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/llm.lock.txt
+```
+
+The base interpreter is managed Python 3.12. Base/GPU/LLM profile locks enforce hashes; GPU repair and local source-build paths still require separate reproducibility work. uv and Qdrant archives are verified against `requirements/runtime-manifest.json`; unknown versions require a manifest update or an explicitly managed binary. Release install/update verifies `SHA256SUMS`. Model downloads are separate. An installer with bundled uv still needs a network for first-run downloads; it is not an offline distribution.
+
+## Release workflow
+
+Stable (`release.yml`) and dev (`dev-release.yml`) select versions and call `build-release.yml`. Stable conventional commits retain the existing bump rules: `feat` minor, `fix`/`perf` patch, breaking changes major; documentation-only changes do not release. Dev uses `vX.Y.Z-dev.N`.
+
+The reusable workflow builds the dashboard and platform shells, creates validated archives, builds native `.pkg`/`.exe` installers, provisions/exercises native runtimes, and only then publishes a release and `SHA256SUMS` covering all archives and installers. macOS app bundles travel between runners as tar archives to preserve symlinks. Website/container follow-up workflows run after a successful parent release. Native build failures leave no newly published release from this pipeline.
+
+Use the **Build release artifacts** manual workflow for a build-only validation run. It does not publish. Native checks run on hosted Linux x64/ARM, macOS Intel/ARM and Windows x64 runners; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
+
+PR CI runs Go checks, Python dependency/unit/runtime checks on five native targets, dashboard lint/production build/Playwright, Electron archive checks and workflow linting. Signing/notarization and interactive GUI/tray checks remain separate release requirements; see the [roadmap](quality-roadmap.md).
+
+Version injection uses `main.version`; override with `VERSION=vX.Y.Z`. Avoid committing local regenerated binary/static-export output as an incidental change.
+
+## Docker relay
 
 ```bash
 docker build -t imprint-relay .
 docker run -p 8430:8430 imprint-relay
 ```
 
-Or deploy to Docker Swarm with [`docker-compose.relay.yml`](../docker-compose.relay.yml). The Dockerfile accepts `--build-arg VERSION=vX.Y.Z` to stamp the release tag into the binary.
+The relay Dockerfile accepts `--build-arg VERSION=vX.Y.Z`. See [Docker](docker.md) and `docker-compose.relay.yml` for deployment configuration.
 
-See [installation.md](./installation.md#run-the-relay-server-docker) for prebuilt GHCR images.
+## Desktop compatibility
 
-## Release Channels (CI)
+Electron is pinned to 45.0.0. The macOS desktop app/pkg now requires macOS 13, recorded in [ADR 0007](adr/0007-verified-runtime-and-desktop-baseline.md). This is an explicit compatibility change from the old installer metadata. Native signing/notarization and OS execution remain required before declaring a release validated.
 
-Two GitHub Actions workflows drive releases:
+## Full runtime container
 
-| Workflow | Trigger | Output |
-|---|---|---|
-| [.github/workflows/dev-release.yml](../.github/workflows/dev-release.yml) | push to `dev` | `vX.Y.Z-dev.N` prerelease + GHCR `:dev` |
-| [.github/workflows/release.yml](../.github/workflows/release.yml) | push to `main` (+ `workflow_dispatch` override) | `vX.Y.Z` stable release + GHCR `:latest`, `:vX.Y.Z`, `:vX.Y` |
-
-The stable workflow runs a conventional-commit analyzer over `git log $LAST_STABLE..HEAD` and cuts a release only if bump-worthy commits are found:
-
-- `feat:` / `feat(scope):` → minor
-- `fix:` / `perf:` → patch
-- `type!:` or `BREAKING CHANGE:` in body → major
-- `chore:` / `docs:` / `ci:` / `style:` / `refactor:` → no release
-
-Merge `dev` → `main` with a merge or rebase (not squash) so per-commit conventional prefixes survive. Squash only works if the PR title itself is conventional.
-
-CI runs on PRs to `main` or `dev` ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) — `go vet`, `go test ./...`, `go build`.
-
-All workflows run on a self-hosted runner (`runs-on: [self-hosted, linux, x64]`).
+`docker build -f Dockerfile.imprint -t imprint-local .` builds the CLI, fresh dashboard and a Python 3.12 venv from the hashed CPU lock. `.dockerignore` excludes local state and build caches. Runtime requirements include the checksum manifest; Go/Python share `IMPRINT_DATA_DIR`. Publish `-p 127.0.0.1:8420:8420`, mount `/data`, and use `docker exec <container> imprint doctor --json --probe-mcp` to diagnose it. Container ARM and GPU execution remain separate validation targets.

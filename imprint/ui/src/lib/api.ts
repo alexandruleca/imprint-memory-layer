@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8420";
+import { API_BASE } from "./api-base";
 
 async function fetchAPI<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -9,7 +9,8 @@ async function fetchAPI<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(typeof detail.detail === "string" ? detail.detail : (detail.error || `Request failed (${res.status})`));
   }
   return res.json();
 }
@@ -26,7 +27,6 @@ import type {
   StatsData,
   ConfigSetting,
   ChatSession,
-  MemoryNode,
   IngestionJob,
   QueueJob,
   QueueResponse,
@@ -63,8 +63,13 @@ export async function getNodes(params: {
   return fetchAPI(`/api/nodes?${qs}`);
 }
 
-export async function searchMemories(q: string, limit = 30) {
-  return fetchAPI(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+export async function searchMemories(q: string, options: {
+  limit?: number; project?: string; type?: string; mode?: "hybrid" | "semantic"; signal?: AbortSignal;
+} = {}) {
+  const { signal, ...filters } = options;
+  const params = new URLSearchParams({ q, limit: "30" });
+  for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") params.set(key, String(value));
+  return fetchAPI<{ nodes: import("./types").MemoryNode[] }>(`/api/search?${params}`, { signal });
 }
 
 export async function getNeighbors(id: string, k = 10) {
@@ -83,8 +88,8 @@ export async function getJobs(): Promise<{ jobs: IngestionJob[] }> {
   return fetchAPI("/api/jobs");
 }
 
-export async function getMemory(id: string) {
-  return fetchAPI(`/api/memory/${encodeURIComponent(id)}`);
+export async function getMemory(id: string, signal?: AbortSignal) {
+  return fetchAPI<import("./types").MemoryNode>(`/api/memory/${encodeURIComponent(id)}`, { signal });
 }
 
 export async function getTimeline(project = "", limit = 500) {

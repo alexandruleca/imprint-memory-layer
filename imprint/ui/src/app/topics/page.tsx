@@ -9,7 +9,7 @@ import { getTopics, getTopicDetail } from "@/lib/api";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MigrateDialog } from "@/components/migrate-dialog";
-import type { Topic, TopicOverviewData, TopicDetailData, MemoryNode } from "@/lib/types";
+import type { TopicOverviewData, TopicDetailData, MemoryNode } from "@/lib/types";
 
 export default function TopicsPage() {
   const [data, setData] = useState<TopicOverviewData | null>(null);

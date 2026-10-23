@@ -8,6 +8,7 @@ and pooling strategy are configurable via `imprint config`.
 from __future__ import annotations
 
 import gc
+import hashlib
 import os
 
 import numpy as np
@@ -21,6 +22,7 @@ _session = None
 _cpu_session = None  # Lazy CPU fallback for GPU OOM on single items
 _tokenizer = None
 _gpu_retries = 0  # Count of batch reductions (reported after progress bar)
+_model_path = None
 
 _PRETRIM_CHARS = max(2048, config.MAX_SEQ_LENGTH * 8)
 
@@ -104,17 +106,23 @@ def _resolve_providers() -> list:
 
 
 def _load():
-    global _session, _tokenizer
+    global _session, _tokenizer, _model_path
     if _session is not None:
         return
-    model_path = hf_hub_download(config.MODEL_NAME, config.MODEL_FILE)
+    # Hub cache files can be symlinks to blobs in different directories.
+    # ORT validates external-data paths against the real graph directory;
+    # those symlinks can make a legitimate companion file look like an escape.
+    # local_dir materializes regular files together and retains download metadata.
+    model_key = hashlib.sha256(config.MODEL_NAME.encode()).hexdigest()[:16]
+    model_dir = config.get_data_dir() / "models" / "embeddings" / model_key
+    model_path = hf_hub_download(config.MODEL_NAME, config.MODEL_FILE, local_dir=model_dir)
     # Some models ship a companion data file (model.onnx_data) alongside the
     # main graph. Pull it into the same cache dir so ORT finds it.
     try:
-        hf_hub_download(config.MODEL_NAME, config.MODEL_FILE + "_data")
+        hf_hub_download(config.MODEL_NAME, config.MODEL_FILE + "_data", local_dir=model_dir)
     except Exception:
         pass
-    tok_path = hf_hub_download(config.MODEL_NAME, "tokenizer.json")
+    tok_path = hf_hub_download(config.MODEL_NAME, "tokenizer.json", local_dir=model_dir)
     _session = ort.InferenceSession(
         model_path,
         sess_options=_build_session_options(),
@@ -123,6 +131,7 @@ def _load():
     _tokenizer = Tokenizer.from_file(tok_path)
     _tokenizer.enable_padding()
     _tokenizer.enable_truncation(max_length=config.MAX_SEQ_LENGTH)
+    _model_path = model_path
 
 
 def _get_cpu_session() -> ort.InferenceSession:
@@ -131,11 +140,9 @@ def _get_cpu_session() -> ort.InferenceSession:
     if _cpu_session is not None:
         return _cpu_session
     _load()  # ensure model + tokenizer are ready
-    # Model already cached by _load() — use local_files_only to skip network
-    # checks and suppress huggingface progress bars.
-    model_path = hf_hub_download(
-        config.MODEL_NAME, config.MODEL_FILE, local_files_only=True,
-    )
+    # Reuse the exact graph already provisioned by _load(), including its
+    # regular-file external weights. No additional network/cache lookup.
+    model_path = _model_path
     _cpu_session = ort.InferenceSession(
         model_path,
         sess_options=_build_session_options(),

@@ -1,0 +1,36 @@
+{
+  "qdrant": {
+    "assets": {
+      "qdrant-aarch64-apple-darwin.tar.gz": "adf795d7c2ac9d93677517fd58b119e9bb5bc8fc5143ac9b581a6f8264def8da",
+      "qdrant-aarch64-unknown-linux-musl.tar.gz": "9347a4db839f53fe123cc775bd87e4dd02f6c2750783bea02ea4fcae9c923164",
+      "qdrant-x86_64-apple-darwin.tar.gz": "d7308c504afa58eb4aa2bd0c655252c324aea04891ac079b6b8764b33fa7dc15",
+      "qdrant-x86_64-pc-windows-msvc.zip": "fe28df5993a9f9830b1e7290e2e341becf3c91366941b73b4322a05e4f91585c",
+      "qdrant-x86_64-unknown-linux-gnu.tar.gz": "318a3b1c548161ad476f9ff70b654787a20fc46685e3e1c2b7dd88b363ef3d58",
+      "qdrant-x86_64-unknown-linux-musl.tar.gz": "4028d5e753de53bda82fa487df25353f668e785c3dfff66dfa636e2203a82b3a"
+    },
+    "upstream": "https://github.com/qdrant/qdrant/releases/tag/v1.17.1",
+    "version": "v1.17.1"
+  },
+  "uv": {
+    "assets": {
+      "uv-aarch64-apple-darwin.tar.gz": "695f3640d5b1a4e28de7e36e3a2e14072852dcc6c70bf9e4deec6ada00d516b4",
+      "uv-aarch64-unknown-linux-gnu.tar.gz": "055c329c38a93c01d378349d51cb4d521d1998c8a79355ddc00f863ce451942f",
+      "uv-aarch64-unknown-linux-musl.tar.gz": "d0bb82d8bceb561dc785f3811f5f5a427f1be47b654f0cc5d6c36d779e03a3ff",
+      "uv-arm-unknown-linux-musleabihf.tar.gz": "a889ef4a6bbb7d2c2e460544e8c949ca9d01e18c56af23b6bfb4d8b952319dc7",
+      "uv-armv7-unknown-linux-gnueabihf.tar.gz": "e9f4ff168ecaf87fee4ba129c0de59f6bab96a249fa21ecafdd853d61f2ff929",
+      "uv-armv7-unknown-linux-musleabihf.tar.gz": "202b6437480af1e46a9722d20e179983951edee1d92c307ea457acfafbd378bf",
+      "uv-i686-pc-windows-msvc.zip": "955dfba777851761b246bfa701a05fa809676493fa83ec29837f5315ada38b3f",
+      "uv-i686-unknown-linux-gnu.tar.gz": "916df079c0125c2a5d48e1f012064f24dc7ef2ab8c94bccc192cf9d96094db5a",
+      "uv-i686-unknown-linux-musl.tar.gz": "a06d22d1f9d0233941817fc263dd928913f20aaac940c336f995e3ad3592736d",
+      "uv-powerpc64-unknown-linux-gnu.tar.gz": "dc2e4ce36bf01c1fb1f1ff8506cc11f4fe607f077ab235ea660417fd4e1964df",
+      "uv-powerpc64le-unknown-linux-gnu.tar.gz": "ca60d5f715f068647e487c003f1e55eea303abcec2ef8cb04c3d87c83bc580f7",
+      "uv-s390x-unknown-linux-gnu.tar.gz": "8b1b9d9c1dc2f195e4f490c1ea7c848e0eec025510dd576036df44dc78c27c28",
+      "uv-x86_64-apple-darwin.tar.gz": "7e23d1d892c23f9e74245c4fd3d3e246438ce9b34460f85eee61f784de137b0b",
+      "uv-x86_64-pc-windows-msvc.zip": "3e8203e6434b45427f20824419f8d8d53f970a76d94ccdcad07f8498fa01a9d0",
+      "uv-x86_64-unknown-linux-gnu.tar.gz": "14411de26cdea5f5139fafaf2b675b1c633e744dd49c6d6a9fc8817ec065158b",
+      "uv-x86_64-unknown-linux-musl.tar.gz": "5b77978bc8ded7e1b6ddb6d6a3e52f684bcc07c6d9be11d7b4fc3c1c23f4458f"
+    },
+    "upstream": "https://github.com/astral-sh/uv/releases/tag/0.5.11",
+    "version": "0.5.11"
+  }
+}

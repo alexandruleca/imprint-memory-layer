@@ -71,6 +71,7 @@ SETTINGS: list[Setting] = [
     Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)"),
 
     # ── Ingest (docs + urls) ──────────────────────────────────
+    Setting("ingest.max_file_bytes",    "IMPRINT_INGEST_MAX_FILE_BYTES",    2_000_000,    int,  "Per-file byte cap for source text indexing"),
     Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),
     Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               False,       bool, "OCR for scanned PDFs + images (needs tesseract)"),
     Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "Tesseract language codes (e.g. 'eng+fra')"),

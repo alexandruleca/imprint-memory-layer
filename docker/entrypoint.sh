@@ -18,7 +18,7 @@ shift || true
 
 case "$CMD" in
     api)
-        exec python -m imprint.api --host 0.0.0.0 --port "${IMPRINT_PORT:-8420}" "$@"
+        exec python -m imprint.api --container-bind --host 0.0.0.0 --port "${IMPRINT_PORT:-8420}" --no-browser "$@"
         ;;
     mcp)
         exec python -m imprint

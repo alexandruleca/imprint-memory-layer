@@ -8,8 +8,7 @@ Five layered sources, ordered from cheap+reliable to rich+expensive:
                                        prototypes (on by default; opt-out via
                                        IMPRINT_ZERO_SHOT_TAGS=0).
   4. derive_llm(content)            → topics:[...] via LLM (opt-in via
-                                       IMPRINT_LLM_TAGS=1, or auto-enabled
-                                       for the ``local`` provider). Supports:
+                                       IMPRINT_LLM_TAGS=1). Supports:
                                        anthropic, openai, ollama, vllm,
                                        gemini, local. Replaces zero-shot.
   5. derive_llm_classify(content)   → {type, domains[], topics[]} via single
@@ -960,21 +959,16 @@ def build_payload_tags(
     When ``llm=False``, falls back to keyword domains + zero-shot topics
     (existing behavior, unchanged).
 
-    When the resolved provider is ``local`` and the user hasn't explicitly
-    disabled LLM tagging, it auto-enables — callers don't need changes.
+    Provider selection never enables LLM tagging. Explicit llm=False always
+    disables it; llm=None follows tagger.llm configuration.
     """
     d = derive_deterministic(rel_path) if rel_path else {"lang": "", "layer": "", "kind": ""}
 
-    # Auto-enable LLM tagging when local provider is available and user
-    # hasn't explicitly set tagger.llm=false.
-    # llm=None means "use config default"; llm=True/False is an explicit override.
+    # Provider selection never enables an optional LLM automatically.
+    # llm=None means "use config"; True/False is an explicit override.
     if llm is None:
         from .config_schema import resolve
         llm = bool(resolve("tagger.llm")[0])
-        if not llm and _get_llm_provider() == "local":
-            _, llm_source = resolve("tagger.llm")
-            if llm_source == "default":
-                llm = True
 
     llm_type = ""
 

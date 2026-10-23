@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Modal } from "./modal";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 
@@ -19,26 +19,11 @@ type Props = {
 };
 
 export function ChunkDialog({ chunk, onClose }: Props) {
-  useEffect(() => {
-    if (!chunk) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [chunk, onClose]);
-
   if (!chunk) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="bg-background border border-border rounded-lg w-full max-w-3xl max-h-[85vh] flex flex-col shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal label={chunk.label || "Memory content"} onClose={onClose} className="max-w-3xl p-0">
+      <div className="flex max-h-[85dvh] flex-col">
         <div className="flex items-start justify-between gap-3 p-4 border-b border-border shrink-0">
           <div className="space-y-1.5 min-w-0">
             {chunk.label && (
@@ -57,6 +42,7 @@ export function ChunkDialog({ chunk, onClose }: Props) {
             </div>
           </div>
           <button
+            aria-label="Close memory"
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5"
           >
@@ -69,6 +55,6 @@ export function ChunkDialog({ chunk, onClose }: Props) {
           </pre>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

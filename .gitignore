@@ -4,6 +4,14 @@ __pycache__/
 *.pyc
 build/
 dist/
+ui-electron/node_modules/
+imprint/ui/node_modules/
+imprint/ui/.next/
+.uv-cache/
+python/
+.first-run.done
+.setup-result
+first-run.log
 data/
 benchmark/results/
 bin/qdrant-*
@@ -14,3 +22,6 @@ site/src/data/benchmarks.json
 
 # CI-generated installer icon (built from site/public/logo.svg at release time)
 installers/windows/assets/
+
+imprint/ui/test-results/
+imprint/ui/playwright-report/

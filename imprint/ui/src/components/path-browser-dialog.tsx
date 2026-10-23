@@ -49,17 +49,22 @@ export function PathBrowserDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const currentPath = useRef(initialPath?.trim() || "");
+  const navigation = useRef(0);
 
   const navigate = useCallback(
     async (path: string) => {
+      const request = ++navigation.current;
       setLoading(true);
       setError(null);
       setSelected(null);
       try {
         const data = await listFs(path, showHidden);
+        if (request !== navigation.current) return;
+        currentPath.current = data.path;
         if (data.error) {
           setError(data.error);
-          setLoading(false);
+          if (request === navigation.current) setLoading(false);
           return;
         }
         if (data.is_file) {
@@ -87,7 +92,7 @@ export function PathBrowserDialog({
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
-        setLoading(false);
+        if (request === navigation.current) setLoading(false);
       }
     },
     [showHidden, mode],
@@ -95,18 +100,14 @@ export function PathBrowserDialog({
 
   useEffect(() => {
     if (!open) return;
-    getFsRoots()
-      .then((r) => setRoots(r.roots))
-      .catch(() => {});
-    const start = initialPath?.trim() || "";
-    navigate(start);
-  }, [open, initialPath, navigate]);
-
-  useEffect(() => {
-    if (!open || !cwd) return;
-    navigate(cwd);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHidden]);
+    let cancelled = false;
+    getFsRoots().then((data) => {
+      if (cancelled) return;
+      setRoots(data.roots);
+      return navigate(currentPath.current);
+    }).catch((error) => { if (!cancelled) setError(String(error)); });
+    return () => { cancelled = true; };
+  }, [open, navigate]);
 
   useEffect(() => {
     if (!open) return;

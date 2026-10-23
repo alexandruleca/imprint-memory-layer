@@ -39,7 +39,7 @@ export function WorkspaceManager() {
   }
 
   useEffect(() => {
-    refresh().catch(() => {});
+    getWorkspaces().then(setState).catch((error) => setCreateError(String(error)));
   }, []);
 
   async function doSwitch(name: string) {
@@ -260,7 +260,7 @@ export function WorkspaceManager() {
         activeWorkspace={state.active}
         onClose={() => setMigrateOpen(false)}
         onDone={() => {
-          refresh().catch(() => {});
+          getWorkspaces().then(setState).catch((error) => setCreateError(String(error)));
         }}
       />
     </>

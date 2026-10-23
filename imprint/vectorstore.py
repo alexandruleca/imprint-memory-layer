@@ -177,6 +177,7 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
         ("source_type", qm.PayloadSchemaType.KEYWORD),
         ("source_url", qm.PayloadSchemaType.KEYWORD),
         ("source_mtime", qm.PayloadSchemaType.FLOAT),
+        ("content", qm.TextIndexParams(type="text", tokenizer=qm.TokenizerType.WORD, lowercase=True)),
         ("tags.lang", qm.PayloadSchemaType.KEYWORD),
         ("tags.layer", qm.PayloadSchemaType.KEYWORD),
         ("tags.kind", qm.PayloadSchemaType.KEYWORD),
@@ -199,10 +200,12 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
 
 
 # ── ID + WAL helpers ────────────────────────────────────────────
-def _make_id(content: str, project: str = "", source: str = "") -> str:
-    """Deterministic 16-hex id from project+source+content prefix. Same content
-    in different projects gets different ids."""
-    key = f"{project}:{source}:{content.strip()[:200]}"
+def _make_id(content: str, project: str = "", source: str = "", chunk_index: int | None = None) -> str:
+    """Version 2 identity includes full content and optional chunk position.
+
+    Existing IDs remain readable; replacing a source retires its legacy IDs.
+    """
+    key = json.dumps([project, source, content.strip(), chunk_index], ensure_ascii=False)
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
@@ -280,6 +283,18 @@ def _get_existing_ids(workspace: str | None = None) -> set[str]:
         return _id_caches[coll]
 
 
+def _live_existing_ids(client, collection: str, memory_ids: Iterable[str]) -> set[str]:
+    """Check requested IDs, avoiding stale process caches and whole-index scans."""
+    requested = list(dict.fromkeys(memory_ids))
+    existing = set()
+    for start in range(0, len(requested), 256):
+        points = client.retrieve(collection_name=collection,
+                                 ids=[_point_uuid(mid) for mid in requested[start:start + 256]],
+                                 with_payload=["_mid"], with_vectors=False)
+        existing.update(point.payload["_mid"] for point in points if point.payload and point.payload.get("_mid"))
+    return existing
+
+
 # ── store / store_batch ─────────────────────────────────────────
 def store(
     content: str,
@@ -306,7 +321,7 @@ def store(
     """
     client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
-    if memory_id in _get_existing_ids(workspace):
+    if memory_id in _live_existing_ids(client, coll, [memory_id]):
         return memory_id
 
     _wal_log("store", workspace=workspace, id=memory_id, project=project, source=source, type=type)
@@ -336,9 +351,10 @@ def store(
                 vector={config.QDRANT_VECTOR_NAME: vector},
                 payload=payload,
             )
-        ],
+        ], wait=True,
     )
-    _get_existing_ids(workspace).add(memory_id)
+    with _cache_lock:
+        _id_caches.pop(coll, None)
     return memory_id
 
 
@@ -376,13 +392,13 @@ def _upsert_chunked(client, coll: str, points: list) -> None:
     for p in points:
         est = _point_size_estimate(p)
         if batch and (size + est) > _MAX_UPSERT_BYTES:
-            client.upsert(collection_name=coll, points=batch)
+            client.upsert(collection_name=coll, points=batch, wait=True)
             batch = []
             size = 0
         batch.append(p)
         size += est
     if batch:
-        client.upsert(collection_name=coll, points=batch)
+        client.upsert(collection_name=coll, points=batch, wait=True)
 
 
 def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
@@ -393,13 +409,17 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
     Returns (inserted, skipped).
     """
     client, coll = _ensure_collection(workspace)
-    existing = _get_existing_ids(workspace)
+    existing = _live_existing_ids(client, coll, (
+        _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
+        for r in records))
 
     new_records = []
+    pending_ids = set()
     for r in records:
-        mid = _make_id(r["content"], r.get("project", ""), r.get("source", ""))
-        if mid not in existing:
-            r["_mid"] = mid
+        mid = _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
+        if mid not in existing and mid not in pending_ids:
+            r = {**r, "_mid": mid}
+            pending_ids.add(mid)
             new_records.append(r)
 
     if not new_records:
@@ -407,16 +427,20 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
 
     texts = [r["content"] for r in new_records]
     vectors = embeddings.embed_documents_batch(texts)
+    if len(vectors) != len(new_records):
+        raise ValueError("Embedding batch returned an incomplete result; existing source preserved")
 
     # Zero-shot fallback: backfill empty topics using computed vectors.
     from . import tagger as _tagger
+    from .config_schema import resolve
+    zero_shot_enabled = resolve("tagger.zero_shot")[0]
 
     points: list[qm.PointStruct] = []
     now = time.time()
     for r, vec in zip(new_records, vectors):
         tags = _normalize_tags(r.get("tags"))
         # If topics are empty and zero-shot is available, fill from vector.
-        if isinstance(tags, dict) and not tags.get("topics"):
+        if zero_shot_enabled and isinstance(tags, dict) and not tags.get("topics"):
             try:
                 zs = _tagger.derive_zero_shot(vec)
                 if zs:
@@ -437,6 +461,9 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
             "last_modified": r.get("last_modified", ""),
             "chunk_index": r.get("chunk_index", 0),
             "source_mtime": r.get("source_mtime", 0.0),
+            "source_hash": r.get("source_hash", ""),
+            "source_size": r.get("source_size", 0),
+            "source_path": r.get("source_path", ""),
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
         }
@@ -450,8 +477,8 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
 
     _upsert_chunked(client, coll, points)
 
-    for r in new_records:
-        existing.add(r["_mid"])
+    with _cache_lock:
+        _id_caches.pop(coll, None)
 
     _wal_log("store_batch", workspace=workspace, count=len(points))
 
@@ -463,6 +490,37 @@ def store_batch(records: list[dict], workspace: str | None = None) -> tuple[int,
     return inserted, len(records) - inserted
 
 
+def replace_source(records: list[dict], source: str, project: str,
+                   workspace: str | None = None) -> tuple[int, int]:
+    """Upsert a complete source before pruning old chunks; failures keep old data.
+
+    Readers can briefly see old and new chunks. This is not a multi-point
+    database transaction. Destructive cleanup is scoped to source AND project.
+    """
+    if not records:
+        raise ValueError("Refusing to replace a source with no prepared chunks")
+    if any(r.get("source") != source or r.get("project", "") != project for r in records):
+        raise ValueError("Replacement records must belong to the specified source and project")
+    inserted, skipped = store_batch(records, workspace=workspace)
+    client, coll = _ensure_collection(workspace)
+    ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
+    # Refresh provenance even when unchanged chunks reused their embeddings.
+    provenance = {key: records[0][key] for key in
+                  ("source_hash", "source_size", "source_path", "source_mtime", "etag", "last_modified")
+                  if key in records[0]}
+    if provenance:
+        client.set_payload(collection_name=coll, payload=provenance, points=ids, wait=True)
+    client.delete(collection_name=coll, points_selector=qm.FilterSelector(filter=qm.Filter(
+        must=[qm.FieldCondition(key="source", match=qm.MatchValue(value=source)),
+              qm.FieldCondition(key="project", match=qm.MatchValue(value=project))],
+        must_not=[qm.HasIdCondition(has_id=ids)],
+    )), wait=True)
+    with _cache_lock:
+        _id_caches.pop(coll, None)
+    _wal_log("replace_source", workspace=workspace, source=source, project=project, count=len(ids))
+    return inserted, skipped
+
+
 def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
     """Store records that already carry vectors — skip embedding entirely.
 
@@ -471,14 +529,17 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     Returns (inserted, skipped).
     """
     client, coll = _ensure_collection(workspace)
-    existing = _get_existing_ids(workspace)
+    existing = _live_existing_ids(client, coll, (
+        _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
+        for r in records))
 
     new_records = []
+    pending_ids = set()
     for r in records:
-        mid = _make_id(r["content"], r.get("project", ""), r.get("source", ""))
-        if mid not in existing:
-            r["_mid"] = mid
-            new_records.append(r)
+        mid = _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
+        if mid not in existing and mid not in pending_ids:
+            pending_ids.add(mid)
+            new_records.append({**r, "_mid": mid})
 
     if not new_records:
         return 0, len(records)
@@ -500,6 +561,9 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "last_modified": r.get("last_modified", ""),
             "chunk_index": r.get("chunk_index", 0),
             "source_mtime": r.get("source_mtime", 0.0),
+            "source_hash": r.get("source_hash", ""),
+            "source_size": r.get("source_size", 0),
+            "source_path": r.get("source_path", ""),
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
         }
@@ -513,8 +577,8 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
 
     _upsert_chunked(client, coll, points)
 
-    for r in new_records:
-        existing.add(r["_mid"])
+    with _cache_lock:
+        _id_caches.pop(coll, None)
 
     _wal_log("store_batch_precomputed", workspace=workspace, count=len(points))
 
@@ -566,55 +630,62 @@ def _build_filter(
 
 
 def search(
-    query: str,
-    limit: int = 10,
-    offset: int = 0,
-    project: str = "",
-    type: str = "",
-    tag_filters: dict | None = None,
-    workspace: str | None = None,
+    query: str, limit: int = 10, offset: int = 0, project: str = "", type: str = "",
+    tag_filters: dict | None = None, workspace: str | None = None,
+    mode: str = "hybrid", source: str = "",
 ) -> list[dict]:
-    """Semantic search with optional metadata filters.
-
-    tag_filters example:
-        {"lang": "python", "domain": ["auth", "db"]}
-    """
-    client, coll = _ensure_collection(workspace)
-    info = client.get_collection(coll)
-    if info.points_count == 0:
+    """Bounded semantic/lexical search. Similarity is not answer confidence."""
+    from .retrieval import CANDIDATE_LIMIT, query_terms, fuse
+    query = query.strip()
+    if not query:
         return []
-
-    vector = embeddings.embed_query(query)
+    if len(query) > 4000:
+        raise ValueError("Search query exceeds 4000 characters")
+    if mode not in {"hybrid", "semantic"}:
+        raise ValueError("Search mode must be hybrid or semantic")
+    limit = max(1, min(int(limit), 50))
+    offset = max(0, min(int(offset), CANDIDATE_LIMIT - 1))
+    client, coll = _ensure_collection(workspace)
+    if client.get_collection(coll).points_count == 0:
+        return []
     flt = _build_filter(project=project, type=type, tag_filters=tag_filters)
+    conditions = list(flt.must or []) if flt else []
+    if source:
+        conditions.append(qm.FieldCondition(key="source", match=qm.MatchValue(value=source)))
+    flt = qm.Filter(must=conditions) if conditions else None
+    vector = embeddings.embed_query(query)
+    hits = client.query_points(collection_name=coll, query=vector, using=config.QDRANT_VECTOR_NAME,
+                               query_filter=flt, limit=CANDIDATE_LIMIT, with_payload=True).points
 
-    hits = client.query_points(
-        collection_name=coll,
-        query=vector,
-        using=config.QDRANT_VECTOR_NAME,
-        query_filter=flt,
-        limit=limit,
-        offset=offset or None,
-        with_payload=True,
-    ).points
+    def result(point, similarity=0.0):
+        payload = point.payload or {}
+        return {**payload, "id": payload.get("_mid") or str(point.id),
+                "content": payload.get("content", ""), "project": payload.get("project", ""),
+                "source": payload.get("source", ""), "type": payload.get("type", ""),
+                "tags": _normalize_tags(payload.get("tags")),
+                "similarity": round(max(0., float(similarity)), 3)}
 
-    out = []
-    for h in hits:
-        pl = h.payload or {}
-        out.append({
-            "id": pl.get("_mid", ""),
-            "content": pl.get("content", ""),
-            "project": pl.get("project", ""),
-            "type": pl.get("type", ""),
-            "tags": pl.get("tags", {}),
-            "source": pl.get("source", ""),
-            "source_type": pl.get("source_type", ""),
-            "source_url": pl.get("source_url", ""),
-            "doc_metadata": pl.get("doc_metadata", {}),
-            "chunk_index": pl.get("chunk_index", 0),
-            # cosine distance → similarity is already the score in Qdrant
-            "similarity": round(max(0.0, float(h.score)), 3),
-        })
-    return out
+    semantic = [result(point, point.score) for point in hits]
+    if mode == "semantic":
+        return [{**row, "match_type": "semantic"} for row in semantic[offset:offset + limit]]
+    terms = query_terms(query)
+    lexical = []
+    if terms:
+        points, _ = client.scroll(collection_name=coll, scroll_filter=qm.Filter(
+            must=conditions, should=[qm.FieldCondition(key="content", match=qm.MatchText(text=term)) for term in terms]),
+            limit=CANDIDATE_LIMIT, with_payload=True, with_vectors=False)
+        lexical = [result(point) for point in points]
+    return fuse(query, semantic, lexical)[offset:offset + limit]
+
+
+def resolve_point_id(memory_id: str) -> str:
+    """Accept public logical IDs and legacy point UUIDs without confusing them."""
+    try:
+        return str(uuid.UUID(memory_id))
+    except ValueError:
+        if len(memory_id) == 16 and all(c in "0123456789abcdef" for c in memory_id.lower()):
+            return _point_uuid(memory_id.lower())
+        raise ValueError("Expected a memory ID or point UUID")
 
 
 # ── delete ─────────────────────────────────────────────────────
@@ -626,30 +697,29 @@ def delete(memory_id: str, workspace: str | None = None) -> bool:
             collection_name=coll,
             points_selector=qm.PointIdsList(points=[_point_uuid(memory_id)]),
         )
-        _get_existing_ids(workspace).discard(memory_id)
-        return True
-    except Exception:
-        return False
-
-
-def delete_by_source(source: str, workspace: str | None = None) -> bool:
-    client, coll = _ensure_collection(workspace)
-    try:
-        _wal_log("delete_by_source", workspace=workspace, source=source)
-        client.delete(
-            collection_name=coll,
-            points_selector=qm.FilterSelector(
-                filter=qm.Filter(must=[
-                    qm.FieldCondition(key="source", match=qm.MatchValue(value=source))
-                ])
-            ),
-        )
-        # Invalidate id cache for this collection.
         with _cache_lock:
             _id_caches.pop(coll, None)
         return True
     except Exception:
         return False
+
+
+def delete_by_source(source: str, workspace: str | None = None, project: str | None = None) -> bool:
+    client, coll = _ensure_collection(workspace)
+    conditions = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
+    if project is not None:
+        conditions.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+    _wal_log("delete_by_source", workspace=workspace, source=source)
+    client.delete(
+        collection_name=coll,
+        points_selector=qm.FilterSelector(
+            filter=qm.Filter(must=conditions)
+        ), wait=True,
+    )
+    # Invalidate id cache for this collection.
+    with _cache_lock:
+        _id_caches.pop(coll, None)
+    return True
 
 
 # ── bulk reads ─────────────────────────────────────────────────
@@ -674,6 +744,21 @@ def _scroll_all(fields: list[str], workspace: str | None = None, with_vectors: b
             yield rec
         if offset is None:
             break
+
+
+def get_source_states(workspace: str | None = None) -> dict[str, dict]:
+    """Fail visibly if provenance cannot be read; never infer an empty index."""
+    states = {}
+    fields = ["source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type"]
+    for payload in _scroll_all(fields, workspace=workspace):
+        if payload.get("source") and payload.get("source_type") in ("file", "ocr"):
+            source = payload["source"]
+            previous = states.get(source)
+            if previous and previous.get("source_hash") != payload.get("source_hash"):
+                # Incomplete replacement: force a repair rather than calling it unchanged.
+                payload = {**payload, "source_hash": ""}
+            states[source] = payload
+    return states
 
 
 def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:

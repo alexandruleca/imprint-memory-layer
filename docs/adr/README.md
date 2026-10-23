@@ -1,0 +1,25 @@
+---
+title: Architecture decision records
+description: How Imprint records significant decisions and the current decision index.
+---
+
+## Process
+
+Starting 2026-10-23, significant decisions are recorded here in the same change that implements them. Root `AGENTS.md` establishes this working agreement for future contributors and coding agents. Routine corrections can cite an existing ADR.
+
+Use the next unused four-digit number and a descriptive filename. Copy [the template](template.md). Status is **Proposed**, **Accepted**, **Superseded** or **Rejected**. Include date, context, decision, alternatives, consequences and validation. A proposal is not authorization to claim the behavior exists. Human review follows the repository's normal pull-request process.
+
+Preserve historical reasoning. If an accepted decision changes materially, create a new ADR linking to the old one, and mark the old record superseded with a link. Update this index, relevant operational documentation and validation evidence together. Do not invent historical decisions; label retrospective descriptions explicitly.
+
+## Index
+
+| ADR | Status | Decision |
+| --- | --- | --- |
+| [0001](0001-record-significant-decisions.md) | Accepted | Repository documentation and ADRs are the durable engineering record. |
+| [0002](0002-build-and-validate-before-publication.md) | Accepted | Build all release artifacts and run native checks before publication. |
+| [0003](0003-local-mcp-and-portable-hooks.md) | Accepted | Local stdio MCP, shared runtime preparation and portable hook commands. |
+| [0004](0004-runtime-dependencies-and-local-boundaries.md) | Accepted | Resolve base dependencies and enforce explicit local browser/process boundaries. |
+| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | Accepted | Content provenance, safe source replacement and bounded hybrid ranking. |
+| [0006](0006-durable-mcp-and-preserved-client-config.md) | Accepted | Durable writes, workspace binding, diagnostics and preserved profiles. |
+| [0007](0007-verified-runtime-and-desktop-baseline.md) | Accepted | Hashed dependencies/downloads, Electron 45, macOS 13 and container parity. |
+| [0008](0008-dashboard-retrieval-and-accessibility.md) | Accepted | Same-origin dashboard, usable search states and accessible modal behavior. |

@@ -4,6 +4,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require(
 const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
+const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 
 // ── CLI args ──────────────────────────────────────────────────
 // Passed by `imprint ui open` in Go:
@@ -21,6 +22,7 @@ function arg(name) {
 }
 
 const UI_URL      = arg('--imprint-url') ?? 'http://127.0.0.1:8420';
+const UI_ORIGIN   = dashboardURL(UI_URL).origin;
 const PROJECT_DIR = arg('--project-dir');
 const DATA_DIR    = arg('--data-dir');
 const PORT        = new URL(UI_URL).port || '8420';
@@ -31,7 +33,7 @@ const PORT        = new URL(UI_URL).port || '8420';
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
-  process.exitCode = 0;
+  process.exit(0);
 }
 
 // ── State ──────────────────────────────────────────────────────
@@ -113,7 +115,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
       webSecurity: true,
     },
@@ -139,18 +141,16 @@ function createWindow() {
 
   // External links open in the OS browser
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
-      return { action: 'allow' };
-    }
-    shell.openExternal(url);
+    if (sameOrigin(url, UI_ORIGIN)) win.loadURL(url);
+    else if (externalURL(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 
   // Prevent navigation away from the local server
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('http://127.0.0.1') && !url.startsWith('http://localhost')) {
+    if (!sameOrigin(url, UI_ORIGIN)) {
       e.preventDefault();
-      shell.openExternal(url);
+      if (externalURL(url)) shell.openExternal(url);
     }
   });
 }
@@ -177,7 +177,7 @@ function showLoadingWindow() {
     icon: path.join(__dirname, 'assets', 'icon.png'),
     show: false,
     webPreferences: {
-      sandbox: false,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });

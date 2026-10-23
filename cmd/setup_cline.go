@@ -49,7 +49,7 @@ func SetupCline() {
 		output.Info("Checking Cline (VSCode extension) MCP registration...")
 		added, err := jsonutil.EnsureMCPServer(extPath, "imprint", spec)
 		if err != nil {
-			output.Warn("Could not update " + extPath + ": " + err.Error())
+			output.Fail("Could not update " + extPath + ": " + err.Error())
 		} else if added {
 			output.Success("Registered imprint MCP server in " + extPath)
 			wroteExt = true
@@ -66,7 +66,7 @@ func SetupCline() {
 		output.Info("Checking Cline (CLI) MCP registration...")
 		added, err := jsonutil.EnsureMCPServer(cliPath, "imprint", spec)
 		if err != nil {
-			output.Warn("Could not update " + cliPath + ": " + err.Error())
+			output.Fail("Could not update " + cliPath + ": " + err.Error())
 		} else if added {
 			output.Success("Registered imprint MCP server in " + cliPath)
 			wroteCLI = true
@@ -84,12 +84,12 @@ func SetupCline() {
 	rulePath := platform.ClineRulesPath()
 	output.Info("Checking Cline rule...")
 	if err := os.MkdirAll(filepath.Dir(rulePath), 0755); err != nil {
-		output.Warn("Could not create " + filepath.Dir(rulePath) + ": " + err.Error())
+		output.Fail("Could not create " + filepath.Dir(rulePath) + ": " + err.Error())
 	}
 	if existing, err := os.ReadFile(rulePath); err == nil && string(existing) == instructions.ClineRule {
 		output.Skip("Cline rule already up to date at " + rulePath)
 	} else if err := os.WriteFile(rulePath, []byte(instructions.ClineRule), 0644); err != nil {
-		output.Warn("Could not write " + rulePath + ": " + err.Error())
+		output.Fail("Could not write " + rulePath + ": " + err.Error())
 	} else {
 		output.Success("Wrote Cline rule to " + rulePath)
 	}

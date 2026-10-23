@@ -74,3 +74,7 @@ The default embedding model has **separate** upstream terms (Gemma); see the [Li
 - Maintainer on X: [@AlexandruLeca](https://x.com/AlexandruLeca) (from the README [Contact](README.md#contact) section)
 
 Thanks again for helping improve Imprint.
+
+## Documentation and architecture decisions
+
+Start at [docs/README.md](docs/README.md). Keep subsystem and operational documentation aligned with behavior in the same pull request. Significant changes to architecture, storage/schema, runtime dependencies, supported platforms, security boundaries, integrations or releases need an [ADR](docs/adr/README.md), or a reference to an existing applicable decision. Use the template and preserve superseded rationale. Record the checks actually executed and distinguish native execution from cross-compilation.

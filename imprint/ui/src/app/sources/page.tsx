@@ -15,7 +15,6 @@ import type { SourceEntry, SourceSummary, SourceLineage, MemoryNode } from "@/li
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<SourceEntry[]>([]);
-  const [filtered, setFiltered] = useState<SourceEntry[]>([]);
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
@@ -29,20 +28,12 @@ export default function SourcesPage() {
     listSources({ limit: 500 })
       .then((data) => {
         setSources(data.sources);
-        setFiltered(data.sources);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (!filter.trim()) {
-      setFiltered(sources);
-      return;
-    }
-    const q = filter.toLowerCase();
-    setFiltered(sources.filter((s) => s.source.toLowerCase().includes(q)));
-  }, [filter, sources]);
+  const filtered = sources.filter((source) => source.source.toLowerCase().includes(filter.trim().toLowerCase()));
 
   async function selectSource(sourceKey: string) {
     setSelected(sourceKey);

@@ -8,7 +8,17 @@
 
 # Local dev + user state
 .venv/
+node_modules/
+.next/
+.uv-cache/
+python/
+.first-run.done
+.setup-result
+first-run.log
 .claude/
+.codex/
+.env
+.env.*
 data/
 build/
 dist/
@@ -37,3 +47,6 @@ bin/qdrant-*
 # Private notes
 MEMORY.md
 .releaseignore
+
+playwright-report/
+test-results/

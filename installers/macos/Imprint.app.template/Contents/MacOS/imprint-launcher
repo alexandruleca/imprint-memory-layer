@@ -54,7 +54,7 @@ APPLESCRIPT
 run_bootstrap_in_window() {
     local profile="$1"
     local with_llm="$2"
-    local helper="$APP_DIR/Contents/MacOS/imprint-setup-helper"
+    local helper="$APP_DIR/MacOS/imprint-setup-helper"
 
     if [ -x "$helper" ]; then
         # exec replaces this launcher process with the helper, so Imprint.app
@@ -69,19 +69,22 @@ run_bootstrap_in_window() {
     local llm_flag="--no-llm"
     [ "$with_llm" = "1" ] && llm_flag="--with-llm"
     mkdir -p "$WRITABLE_HOME"
-    local cmd="\"$BIN\" bootstrap --profile $profile $llm_flag --non-interactive && \"$BIN\" setup && mkdir -p \"$WRITABLE_HOME\" && touch \"$SENTINEL\" && echo && echo '[+] Imprint is ready — press Enter to close this window' && read"
-    if ! osascript 2>/tmp/imprint-launcher-err.log <<APPLESCRIPT
+    if ! osascript - "$BIN" "$WRITABLE_HOME" "$profile" "$llm_flag" <<'APPLESCRIPT'
+on run argv
+set imprintBin to quoted form of item 1 of argv
+set writableHome to quoted form of item 2 of argv
+set profileArg to quoted form of item 3 of argv
+set llmArg to quoted form of item 4 of argv
+set sentinelPath to quoted form of ((item 2 of argv) & "/.first-run.done")
+set setupCommand to imprintBin & " bootstrap --profile " & profileArg & " " & llmArg & " --non-interactive && " & imprintBin & " setup --non-interactive && mkdir -p " & writableHome & " && touch " & sentinelPath & " && echo '[+] Imprint is ready — press Enter to close' && read"
 tell application "Terminal"
     activate
-    do script "clear; echo '=== Imprint first-run setup ==='; echo 'Profile: $profile'; echo 'LLM: $with_llm'; echo; $cmd"
+    do script setupCommand
 end tell
+end run
 APPLESCRIPT
     then
-        local err_detail
-        err_detail="$(cat /tmp/imprint-launcher-err.log 2>/dev/null | head -3)"
         show_error "Setup failed" "Could not open a Terminal window to run first-run setup.
-
-$err_detail
 
 Open Terminal.app manually and run:
   imprint bootstrap --profile $profile $llm_flag --non-interactive

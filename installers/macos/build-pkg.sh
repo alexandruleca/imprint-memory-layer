@@ -156,7 +156,7 @@ cat > "$BUILD_RES/welcome.html" <<HTML
   <li>Symlink the <code>imprint</code> CLI into <code>/usr/local/bin</code>.</li>
 </ul>
 <p>On first launch, Imprint will ask whether to install the optional local LLM tagger and then provision its own Python (via the bundled <code>uv</code> binary) — no host Python install required.</p>
-<p>Requires the <strong>Claude Code CLI</strong> for MCP integration.</p>
+<p>Integrates with detected MCP clients, including Claude Code, Codex and supported IDEs.</p>
 </body></html>
 HTML
 

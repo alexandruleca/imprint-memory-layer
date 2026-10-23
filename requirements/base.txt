@@ -1,5 +1,5 @@
 fastmcp>=2.0.0
-qdrant-client>=1.12.0
+qdrant-client>=1.17.0,<1.19.0  # server is pinned to v1.17.1
 onnxruntime>=1.20.0             # profile=gpu overrides with onnxruntime-gpu (see gpu.txt)
 tokenizers>=0.22.0
 huggingface-hub>=0.30.0
@@ -36,3 +36,5 @@ trafilatura>=1.10          # readability-style html extraction
 # ── Dashboard UI (FastAPI backend) ────────────────────────────
 fastapi>=0.120.0
 uvicorn>=0.30.0
+python-multipart>=0.0.18       # FastAPI file uploads (do not rely on FastMCP's extras)
+websockets>=14.0              # sync_ws imports websockets.asyncio.client

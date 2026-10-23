@@ -36,7 +36,7 @@ func SetupOpenClaw() {
 	}
 	added, err := jsonutil.EnsureMCPServerNested(mcpPath, []string{"mcp", "servers"}, "imprint", spec)
 	if err != nil {
-		output.Warn("Could not update " + mcpPath + ": " + err.Error())
+		output.Fail("Could not update " + mcpPath + ": " + err.Error())
 	} else if added {
 		output.Success("Registered imprint MCP server in " + mcpPath)
 	} else {

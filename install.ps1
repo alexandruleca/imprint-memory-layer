@@ -90,6 +90,14 @@ try {
         Write-Fail "Download failed: $ArchiveUrl"
     }
 
+    $ChecksumUrl = $ArchiveUrl.Substring(0, $ArchiveUrl.LastIndexOf('/')) + '/SHA256SUMS'
+    $Checksums = (Invoke-WebRequest -Uri $ChecksumUrl -UseBasicParsing).Content
+    $pattern = '^([0-9a-fA-F]{64})\s+\*?' + [regex]::Escape($ArchiveName) + '$'
+    $matching = @($Checksums -split "`n" | Where-Object { $_.Trim() -match $pattern })
+    if ($matching.Count -ne 1) { Write-Fail "Missing or duplicate checksum for $ArchiveName" }
+    $expected = [regex]::Match($matching[0].Trim(), $pattern).Groups[1].Value.ToLowerInvariant()
+    if ((Get-FileHash $Zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { Write-Fail 'Archive checksum mismatch; nothing was installed' }
+
     Write-Info "Extracting to $InstallDir (preserving data\ and .venv\)..."
     Expand-Archive -Path $Zip -DestinationPath $Tmp -Force
     $Extracted = Join-Path $Tmp "imprint-windows-amd64"
@@ -124,7 +132,11 @@ if ($env:PATH -notlike "*$BinDir*") {
 }
 
 # --- Run setup ---
+Write-Info "Provisioning the managed Python runtime..."
+& $ImprintBin bootstrap --non-interactive
+if ($LASTEXITCODE -ne 0) { Write-Fail "imprint bootstrap failed (exit=$LASTEXITCODE)" }
 Write-Info "Running imprint setup..."
-& $ImprintBin setup
+& $ImprintBin setup --non-interactive
+if ($LASTEXITCODE -ne 0) { Write-Fail "imprint setup failed (exit=$LASTEXITCODE)" }
 
 Write-Success "Installation complete! 'imprint' is available now (open a new terminal if the current one was already open)."

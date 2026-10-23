@@ -129,6 +129,24 @@ else
     wget -q "$ARCHIVE_URL" -O "$TARBALL" || fail "Download failed: $ARCHIVE_URL"
 fi
 
+# Verify before extracting or replacing any existing installation.
+CHECKSUM_URL="${ARCHIVE_URL%/*}/SHA256SUMS"
+if [ "$DOWNLOADER" = "curl" ]; then
+    curl -fsSL "$CHECKSUM_URL" -o "$TMP/SHA256SUMS" || fail "Could not download release checksums"
+else
+    wget -q "$CHECKSUM_URL" -O "$TMP/SHA256SUMS" || fail "Could not download release checksums"
+fi
+EXPECTED_SHA=$(awk -v asset="$ARCHIVE_NAME" '$2 == asset { print $1 }' "$TMP/SHA256SUMS")
+[[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || fail "Missing or invalid checksum for $ARCHIVE_NAME"
+if command -v sha256sum >/dev/null; then
+    ACTUAL_SHA=$(sha256sum "$TARBALL" | awk '{print $1}')
+elif command -v shasum >/dev/null; then
+    ACTUAL_SHA=$(shasum -a 256 "$TARBALL" | awk '{print $1}')
+else
+    fail "sha256sum or shasum is required to verify the download"
+fi
+[ "$ACTUAL_SHA" = "$EXPECTED_SHA" ] || fail "Archive checksum mismatch; nothing was installed"
+
 # Existing install? Warn and require an explicit yes before overwriting the
 # source tree (data/ and .venv/ are still preserved regardless). When stdin
 # is piped from curl, require IMPRINT_ASSUME_YES=1 or `-s -- --yes`.

@@ -1,0 +1,189 @@
+import contextlib
+import io
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from qdrant_client import QdrantClient, models
+from imprint import vectorstore as vs
+from imprint import config
+from imprint.source_state import allowed_source, fingerprint, unchanged, missing_sources
+from imprint.retrieval import fuse, query_terms
+
+
+class FingerprintTests(unittest.TestCase):
+    def test_changes_with_preserved_timestamp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'app.py'
+            path.write_text('first version')
+            original = fingerprint(path)
+            path.write_text('other version')
+            os.utime(path, (original['source_mtime'], original['source_mtime']))
+            self.assertFalse(unchanged(fingerprint(path), original))
+
+    def test_pruning_stays_inside_requested_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            states = {'local': {'source_path': str(root / 'gone.py')},
+                      'other': {'source_path': str(root.parent / 'elsewhere.py')}, 'legacy': {}}
+            self.assertEqual(missing_sources(states, [directory]), ['local'])
+
+    def test_secrets_and_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('.env', '.env.local', 'id_rsa', 'private.key'):
+                self.assertFalse(allowed_source(root / name))
+            self.assertFalse(allowed_source(root.parent / 'outside.py', root))
+
+
+class StorageTests(unittest.TestCase):
+    def setUp(self):
+        self.data_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.data_directory.cleanup)
+        self.client = QdrantClient(':memory:')
+        self.patches = [patch.object(config, 'get_data_dir', return_value=Path(self.data_directory.name)),
+                        patch.object(vs, '_get_client', return_value=self.client),
+                        patch.object(vs, '_wal_log'), patch.object(config, 'EMBEDDING_DIM', 3),
+                        patch('imprint.embeddings.embed_documents_batch', side_effect=lambda texts: [[1., 0., 0.] for _ in texts]),
+                        patch('imprint.embeddings.embed_document', return_value=[1., 0., 0.]),
+                        patch('imprint.embeddings.embed_query', return_value=[1., 0., 0.]),
+                        patch('imprint.tagger.derive_zero_shot', return_value=[]),
+                        patch.object(self.client, 'create_payload_index')]
+        for item in self.patches:
+            item.start()
+        vs._collections_ready.clear()
+        vs._id_caches.clear()
+        self.addCleanup(self.cleanup)
+
+    def cleanup(self):
+        vs._collections_ready.clear()
+        vs._id_caches.clear()
+        for item in reversed(self.patches):
+            item.stop()
+        self.client.close()
+
+    def records(self, texts, project='project', source='project/app.py'):
+        return [{'content': text, 'project': project, 'source': source, 'source_type': 'file',
+                 'chunk_index': i} for i, text in enumerate(texts)]
+
+    def contents(self, project='project'):
+        client, coll = vs._ensure_collection()
+        rows, _ = client.scroll(coll, scroll_filter=models.Filter(must=[models.FieldCondition(key='project', match=models.MatchValue(value=project))]), limit=100)
+        return sorted(row.payload['content'] for row in rows)
+
+    def test_full_content_identity_and_repeated_chunks(self):
+        prefix = 'A' * 220
+        records = self.records([prefix + 'one', prefix + 'two', prefix + 'two'])
+        inserted, _ = vs.store_batch(records)
+        self.assertEqual(inserted, 3)
+        self.assertEqual(len(self.contents()), 3)
+        self.assertNotIn('_mid', records[0])
+
+    def test_replacement_preserves_old_source_on_embedding_failure(self):
+        vs.replace_source(self.records(['old complete content']), 'project/app.py', 'project')
+        with patch('imprint.embeddings.embed_documents_batch', side_effect=RuntimeError('embedding unavailable')):
+            with self.assertRaisesRegex(RuntimeError, 'embedding unavailable'):
+                vs.replace_source(self.records(['new content']), 'project/app.py', 'project')
+        self.assertEqual(self.contents(), ['old complete content'])
+
+    def test_replacement_prunes_old_chunks_without_cross_project_deletion(self):
+        vs.store_batch(self.records(['old chunk', 'removed chunk']))
+        vs.store_batch(self.records(['other project content'], project='other'))
+        vs.replace_source(self.records(['new chunk']), 'project/app.py', 'project')
+        self.assertEqual(self.contents(), ['new chunk'])
+        self.assertEqual(self.contents('other'), ['other project content'])
+        vs.replace_source(self.records(['new chunk']), 'project/app.py', 'project')
+        self.assertEqual(self.contents(), ['new chunk'])
+
+    def test_incomplete_embedding_batch_never_prunes(self):
+        vs.store_batch(self.records(['old content']))
+        with patch('imprint.embeddings.embed_documents_batch', return_value=[]):
+            with self.assertRaisesRegex(ValueError, 'incomplete'):
+                vs.replace_source(self.records(['replacement']), 'project/app.py', 'project')
+        self.assertEqual(self.contents(), ['old content'])
+
+    def test_cross_process_deletion_cannot_make_cached_ids_skip_replacement(self):
+        records = self.records(['restore this content'])
+        vs.store_batch(records)
+        vs._get_existing_ids()  # Simulate an MCP process holding an old cache.
+        _, coll = vs._ensure_collection()
+        self.client.delete(coll, models.FilterSelector(filter=models.Filter(must=[
+            models.FieldCondition(key='project', match=models.MatchValue(value='project'))])))
+        vs.replace_source(records, 'project/app.py', 'project')
+        self.assertEqual(self.contents(), ['restore this content'])
+
+    def test_storage_cleanup_failure_is_visible(self):
+        with patch.object(self.client, 'delete', side_effect=RuntimeError('storage unavailable')):
+            with self.assertRaisesRegex(RuntimeError, 'storage unavailable'):
+                vs.delete_by_source('project/app.py', project='project')
+
+    def test_logical_memory_id_can_be_read(self):
+        from imprint.cli_viz import get_memory
+        mid = vs.store('A durable decision', project='project', type='decision')
+        self.assertEqual(get_memory(mid)['content'], 'A durable decision')
+        self.assertEqual(get_memory(vs._point_uuid(mid))['content'], 'A durable decision')
+
+    def test_index_refresh_and_deletion_share_fingerprints(self):
+        from imprint import cli_index
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'app.py'
+            path.write_text('first implementation of the source')
+            settings = lambda key: (False, 'env') if key.startswith('tagger.') else (2_000_000, 'default')
+            with patch('sys.argv', ['index', directory, directory + ':fixture']), \
+                 patch('imprint.config_schema.resolve', side_effect=settings), \
+                 patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
+                 patch('imprint.tagger.build_payload_tags', return_value={}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                cli_index.main()
+                old_time = path.stat().st_mtime
+                path.write_text('other implementation of the source')
+                os.utime(path, (old_time, old_time))
+                cli_index.main(command='refresh')
+                self.assertEqual(self.contents('fixture'), ['other implementation of the source'])
+                path.unlink()
+                cli_index.main(command='refresh')
+                self.assertEqual(self.contents('fixture'), [])
+                path.write_text('source before clearing')
+                cli_index.main(command='refresh')
+                path.write_text('')
+                cli_index.main(command='refresh')
+                self.assertEqual(self.contents('fixture'), [])
+
+    def test_single_file_handles_large_empty_and_invalid_text(self):
+        from imprint import cli_index
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'single.py'
+            content = 'large source content\n' * 3000
+            path.write_text(content)
+            settings = lambda key: (False, 'env') if key.startswith('tagger.') else (2_000_000, 'default')
+            with patch('imprint.config_schema.resolve', side_effect=settings), \
+                 patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
+                 patch('imprint.tagger.build_payload_tags', return_value={}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                cli_index.ingest_single_file(str(path), 'fixture')
+                self.assertEqual(self.contents('fixture'), [content])
+                path.write_bytes(b'\xff invalid UTF-8')
+                with self.assertRaises(UnicodeDecodeError):
+                    cli_index.ingest_single_file(str(path), 'fixture')
+                self.assertEqual(self.contents('fixture'), [content])
+                path.write_text('')
+                cli_index.ingest_single_file(str(path), 'fixture')
+                self.assertEqual(self.contents('fixture'), [])
+
+
+class RetrievalTests(unittest.TestCase):
+    def test_identifier_found_by_lexical_path_is_not_lost(self):
+        semantic = [{'id': 'semantic', 'content': 'general background information', 'similarity': .7}]
+        lexical = [{'id': 'exact', 'content': 'def rotate_refresh_token(): pass', 'similarity': 0.}]
+        results = fuse('rotate_refresh_token', semantic, lexical)
+        self.assertEqual(results[0]['id'], 'exact')
+        self.assertEqual(results[0]['match_type'], 'lexical')
+
+    def test_fusion_order_is_deterministic_and_deduplicated(self):
+        rows = [{'id': 'b', 'content': 'retry connection'}, {'id': 'a', 'content': 'retry connection'}]
+        result = fuse('retry', rows, list(reversed(rows)))
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result, fuse('retry', rows, rows))
+        self.assertEqual(query_terms('How should we use rotate_token?'), ['rotate_token'])

@@ -342,7 +342,6 @@ function ServePanel() {
           break;
         case "warning":
           // non-fatal; surfaced at the console for now.
-          // eslint-disable-next-line no-console
           console.warn("sync warning:", ev.message);
           break;
         case "progress":
@@ -826,20 +825,19 @@ function originBadge(origin: string) {
 
 function DesktopExportsCard() {
   const [history, setHistory] = useState<DesktopExportEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [lastScan, setLastScan] = useState<DesktopScanResult | null>(null);
   const [error, setError] = useState("");
 
   const reloadHistory = useCallback(async () => {
-    setLoading(true);
-    setError("");
     try {
       const h = await getDesktopHistory();
       const entries = Object.values(h.seen).sort(
         (a, b) => b.indexed_at - a.indexed_at,
       );
       setHistory(entries);
+      setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -848,8 +846,13 @@ function DesktopExportsCard() {
   }, []);
 
   useEffect(() => {
-    reloadHistory();
-  }, [reloadHistory]);
+    let cancelled = false;
+    getDesktopHistory().then((result) => {
+      if (!cancelled) setHistory(Object.values(result.seen).sort((a, b) => b.indexed_at - a.indexed_at));
+    }).catch((error) => { if (!cancelled) setError(String(error)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   async function scan() {
     setScanning(true);

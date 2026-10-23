@@ -79,3 +79,9 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 4. **Cancel queued:** enqueue A, B, C. Cancel B while A runs. B's status flips to `cancelled` immediately without ever starting; C runs after A.
 5. **Restart recovery:** start a job; `pkill -f imprint.api`; restart. `/api/queue` shows the old running row as `failed` with `error='api_restart'`, the lock file is gone, new jobs enqueue normally.
 6. **Process-group cascade:** during `ingest-url` with the local `llama-cpp` tagger, cancel. `ps --forest` should show the subtree (llama.cpp threads, httpx workers, extractor helpers) gone in one shot, not staggered.
+
+## Workspace and lock integrity
+
+New submissions store their workspace in the job body as `_workspace`. The dispatcher pins `IMPRINT_WORKSPACE` in the child; switching the dashboard's active workspace does not redirect an already queued job. Old jobs missing this field keep the previous active-at-execution behavior. Go and Python honor the same `IMPRINT_DATA_DIR`.
+
+Stale metadata cleanup acquires the original lock inode before truncation and never unlinks it. Qdrant first startup has a separate shared lock with a health recheck, preventing competing CLI/API/MCP processes from starting two daemons. PID reuse, crash stress and complete Windows descendant cancellation still need dedicated tests; liveness alone is not process identity.

@@ -134,7 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let ok1 = runCmd(gBin, gBootstrapArgs)
         if !ok1 { finish(ok: false); return }
 
-        let ok2 = runCmd(gBin, ["setup"])
+        let ok2 = runCmd(gBin, ["setup", "--non-interactive"])
         if ok2 {
             try? FileManager.default.createDirectory(
                 atPath: gWritableHome,
@@ -183,6 +183,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 }
 
 let delegate = AppDelegate()
-NSApp.delegate = delegate
-NSApp.setActivationPolicy(.regular)
-NSApp.run()
+let application = NSApplication.shared
+application.delegate = delegate
+application.setActivationPolicy(.regular)
+application.run()

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"strings"
 
 	"github.com/hunter/imprint/internal/instructions"
@@ -8,17 +9,9 @@ import (
 	"github.com/hunter/imprint/internal/platform"
 )
 
-// SetupChatGPTDesktop reports ChatGPT Desktop's MCP status. The desktop app
-// wires MCP via remote "connectors" (SSE over HTTPS) rather than a local
-// stdio config, so there's no config file to patch for a local-first
-// server like Imprint. The handler detects the install, prints a paste-
-// ready Custom-Instructions snippet (since ChatGPT Desktop's tool-use
-// nudges have to go in Settings → Personalization → Custom Instructions),
-// and returns without writing any config file.
-//
-// WSL2-aware: checks the Windows-side install location when running inside
-// WSL. When OpenAI ships a local-stdio MCP config path, upgrade this
-// handler the way SetupClaudeDesktop works.
+// SetupChatGPTDesktop registers current native desktop versions through
+// their shared Codex profile. WSL detection alone cannot make Linux
+// interpreter paths usable in the Windows-side profile.
 func SetupChatGPTDesktop() {
 	marker := platform.ChatGPTDesktopInstallMarker()
 	if marker == "" {
@@ -31,10 +24,20 @@ func SetupChatGPTDesktop() {
 	}
 
 	output.Success("ChatGPT Desktop detected at " + marker)
+	if platform.IsWSL() {
+		output.Warn("ChatGPT Desktop runs on Windows. Run the native Windows Imprint setup to register its local runtime; the Linux Codex profile is separate.")
+		return
+	}
 	setupHostsRan++
-	output.Info("ChatGPT Desktop wires MCP via in-app Connectors (hosted SSE), not a local stdio config.")
-	output.Info("To consume Imprint: expose it via a reverse proxy with SSE (e.g. `supergateway`) and add the public URL under Settings → Connectors.")
-	output.Info("Meanwhile, paste the following into Settings → Personalization → Custom Instructions so ChatGPT reaches for the imprint tools first:")
+	output.Info("Current ChatGPT desktop versions support local MCP servers and share the Codex config.toml registry.")
+	if err := os.MkdirAll(platform.CodexHome(), 0755); err != nil {
+		output.Fail("Could not create the shared MCP profile: " + err.Error())
+		return
+	}
+	SetupCodex()
+	output.Info("Restart ChatGPT desktop and check Settings → MCP servers for imprint.")
+	output.Info("For versions without local MCP support, upgrade the app. See docs/integrations.md for compatibility details.")
+	output.Info("Optional usage guidance for Custom Instructions:")
 	printIndentedBlock(instructions.DesktopProfileSnippet)
 	output.Info("Auto-sync past conversations: request a data export in chat.openai.com (Settings → Data controls → Export), then run `imprint learn --desktop`. The scanner picks up the zip from your Downloads folder.")
 }

@@ -89,6 +89,8 @@ func main() {
 		cmd.Uninstall(os.Args[2:])
 	case "status":
 		cmd.Status(os.Args[2:])
+	case "doctor":
+		cmd.Doctor(os.Args[2:])
 	case "config":
 		cmd.Config(os.Args[2:])
 	case "workspace":
@@ -145,6 +147,8 @@ Usage:
   imprint config set <k> <v> Persist a setting (e.g. model.name, qdrant.port)
   imprint config get <key>   Show one setting
   imprint config reset <key> Remove override, revert to default
+  imprint doctor [--json] [--probe-mcp]
+                             Diagnose runtime, registration and MCP health without changing setup
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Stop server, unregister MCP, strip hooks (data preserved)
   imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor | codex | copilot | cline | all)

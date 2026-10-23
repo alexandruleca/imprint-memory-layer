@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   LayoutDashboard,
   Network,
@@ -76,24 +76,23 @@ function TrafficLights() {
 export function Sidebar() {
   const pathname = usePathname();
   const [version, setVersion] = useState<string>("");
-  const [isElectron, setIsElectron] = useState(false);
+  const isElectron = useSyncExternalStore(() => () => {}, () => !!window.electronAPI?.isElectron, () => false);
 
   useEffect(() => {
     getVersion()
       .then((d) => setVersion(d.version))
       .catch(() => setVersion(""));
-    setIsElectron(!!window.electronAPI?.isElectron);
   }, []);
 
   return (
-    <aside className="w-56 border-r border-border bg-card flex flex-col shrink-0 h-screen sticky top-0 overflow-y-auto z-30">
+    <aside className="w-16 sm:w-56 border-r border-border bg-card flex flex-col shrink-0 h-screen sticky top-0 overflow-y-auto z-30">
       <div
         className="p-4 border-b border-border"
         style={isElectron ? ({ WebkitAppRegion: "drag" } as React.CSSProperties) : undefined}
       >
         {isElectron && <TrafficLights />}
-        <h1 className="text-lg font-bold tracking-tight">Imprint</h1>
-        <p className="text-xs text-muted-foreground">AI Memory Dashboard</p>
+        <h1 className="hidden sm:block text-lg font-bold tracking-tight">Imprint</h1>
+        <p className="hidden sm:block text-xs text-muted-foreground">AI Memory Dashboard</p>
       </div>
       <nav className="flex-1 p-2 space-y-0.5">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
@@ -102,6 +101,9 @@ export function Sidebar() {
           return (
             <Link
               key={href}
+              aria-label={label}
+              aria-current={active ? "page" : undefined}
+              title={label}
               href={href}
               className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
                 active
@@ -110,7 +112,7 @@ export function Sidebar() {
               }`}
             >
               <Icon className="w-4 h-4" />
-              {label}
+              <span className="hidden sm:inline">{label}</span>
             </Link>
           );
         })}

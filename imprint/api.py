@@ -37,6 +37,8 @@ from . import imprint_graph as kg
 from . import chat as chat_mod
 from . import chat_store
 from . import queue as job_queue
+from .http_security import local_origin, local_host
+from .processes import is_alive
 
 from .cli_viz import (
     build_overview,
@@ -62,11 +64,23 @@ app = FastAPI(title="Imprint API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"http://(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?",
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.middleware("http")
+async def reject_remote_origin(request: Request, call_next):
+    # CORS alone only controls reading responses; it does not prevent a
+    # malicious website from submitting requests to the local command API.
+    if not local_host(request.headers.get("host", "")):
+        return JSONResponse({"detail": "The dashboard requires a loopback host"}, status_code=403)
+    origin = request.headers.get("origin")
+    if origin and not local_origin(origin):
+        return JSONResponse({"detail": "Only local dashboard origins are allowed"}, status_code=403)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -135,12 +149,15 @@ def api_search(
     project: str = "",
     type: str = "",
     domain: str = "",
-    limit: int = 30,
+    limit: int = Query(30, ge=1, le=50),
+    mode: str = Query("hybrid", pattern="^(hybrid|semantic)$"),
 ):
-    if not q:
+    if len(q) > 4000:
+        return JSONResponse({"detail": "Search query exceeds 4000 characters"}, status_code=422)
+    if not q.strip():
         return {"nodes": [], "total": 0}
     from .cli_viz import search_nodes
-    return search_nodes(q, project=project, type_=type, domain=domain, limit=limit)
+    return search_nodes(q, project=project, type_=type, domain=domain, limit=limit, mode=mode)
 
 
 @app.get("/api/neighbors")
@@ -187,7 +204,8 @@ def api_cross_project():
 
 @app.get("/api/memory/{mid:path}")
 def api_memory(mid: str):
-    return get_memory(unquote(mid))
+    data = get_memory(unquote(mid))
+    return JSONResponse(data, status_code=404) if data.get("error") else data
 
 
 @app.get("/api/timeline")
@@ -633,12 +651,10 @@ def api_job_cancel(job_id: str):
         import time as _t
         _t.sleep(3.0)
         for p in pids:
-            try:
-                os.kill(p, 0)
-            except ProcessLookupError:
+            if not is_alive(p):
                 continue
             try:
-                os.kill(p, signal.SIGKILL)
+                os.kill(p, getattr(signal, "SIGKILL", signal.SIGTERM))
             except ProcessLookupError:
                 pass
 
@@ -1179,11 +1195,15 @@ def main():
     parser = argparse.ArgumentParser(description="Imprint API server")
     parser.add_argument("--port", type=int, default=8420, help="Port to listen on")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    parser.add_argument("--container-bind", action="store_true",
+                        help="Allow 0.0.0.0 inside a container; publish its port on host loopback only")
     parser.add_argument("--dev", action="store_true", help="Development mode (no static mount)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
     parser.add_argument("--auto-shutdown", action="store_true",
                         help="Shut down when the UI disconnects (used by `imprint ui`)")
     args = parser.parse_args()
+    if args.host not in {"127.0.0.1", "localhost", "::1"} and not (args.container_bind and args.host == "0.0.0.0"):
+        parser.error("The dashboard supports loopback access only; authenticated remote mode is not implemented")
 
     if not args.dev:
         mount_static()

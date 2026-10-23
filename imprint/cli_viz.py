@@ -267,7 +267,7 @@ def build_node_page(project: str = "", type_: str = "", domain: str = "",
 
 
 def search_nodes(query: str, project: str = "", type_: str = "",
-                 domain: str = "", limit: int = 20) -> dict:
+                 domain: str = "", limit: int = 20, mode: str = "hybrid") -> dict:
     """Semantic search wrapper."""
     tag_filters = {}
     if domain:
@@ -278,9 +278,10 @@ def search_nodes(query: str, project: str = "", type_: str = "",
         limit=limit,
         project=project,
         type=type_,
-        tag_filters=tag_filters if tag_filters else None,
+        tag_filters=tag_filters if tag_filters else None, mode=mode,
     )
-
+    for row in results:
+        row["label"] = _extract_label(row.get("content", ""), row.get("source", ""))
     return {"nodes": results}
 
 
@@ -288,7 +289,7 @@ def get_memory(node_id: str, workspace: str | None = None) -> dict:
     """Get full memory content by ID (no truncation)."""
     client, coll = vs._ensure_collection(workspace)
     try:
-        points = client.retrieve(coll, ids=[node_id], with_payload=True, with_vectors=False)
+        points = client.retrieve(coll, ids=[vs.resolve_point_id(node_id)], with_payload=True, with_vectors=False)
         if not points:
             return {"error": "not found"}
         p = points[0]
@@ -303,6 +304,10 @@ def get_memory(node_id: str, workspace: str | None = None) -> dict:
             "label": _extract_label(pay.get("content", ""), pay.get("source", "")),
             "tags": tags,
             "timestamp": pay.get("timestamp"),
+            "source_hash": pay.get("source_hash", ""),
+            "source_mtime": pay.get("source_mtime", 0),
+            "source_type": pay.get("source_type", ""),
+            "chunk_index": pay.get("chunk_index", 0),
         }
     except Exception:
         return {"error": "not found"}
@@ -311,7 +316,10 @@ def get_memory(node_id: str, workspace: str | None = None) -> dict:
 def get_neighbors(node_id: str, k: int = 10, workspace: str | None = None) -> dict:
     """On-demand KNN for a single node."""
     client, coll = vs._ensure_collection(workspace)
-    point_uuid = vs._point_uuid(node_id)
+    try:
+        point_uuid = vs.resolve_point_id(node_id)
+    except ValueError:
+        return {"source": node_id, "neighbors": []}
 
     try:
         pts = client.retrieve(
@@ -345,7 +353,7 @@ def get_neighbors(node_id: str, k: int = 10, workspace: str | None = None) -> di
     for h in hits:
         pl = h.payload or {}
         mid = pl.get("_mid", "")
-        if mid == node_id:
+        if str(h.id) == point_uuid:
             continue
         neighbors.append({
             "id": mid,

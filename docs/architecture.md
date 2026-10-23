@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: How Imprint's pieces fit together — Go CLI, Python MCP server, embedded Qdrant, ONNX embeddings, SQLite knowledge graph, and the data flow between them.
+description: How Imprint's pieces fit together — Go CLI, Python MCP server, local Qdrant daemon, ONNX embeddings, SQLite knowledge graph, and data flow.
 ---
 ## Components
 
@@ -21,7 +21,7 @@ graph LR
     end
 
     subgraph "Python (imprint/)"
-        MCP[FastMCP Server<br/><small>12 tools</small>]
+        MCP[FastMCP Server<br/><small>14 tools</small>]
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
         EMB[embeddings.py<br/><small>ONNX Runtime, GPU/CPU</small>]

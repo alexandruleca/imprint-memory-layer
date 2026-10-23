@@ -1,8 +1,4 @@
-// Package tomlutil provides minimal, hand-rolled TOML section upsert/remove
-// for the one shape Imprint writes: `[mcp_servers.<name>]` entries in
-// ~/.codex/config.toml. Avoids pulling in a full TOML parser — the surface
-// is fixed (command/args/env) and section boundaries are anchored on
-// column-0 `[` header lines, which is lossless for Codex's config format.
+// Package tomlutil validates TOML and rewrites only an owned MCP server stanza.
 package tomlutil
 
 import (
@@ -12,6 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/hunter/imprint/internal/configfile"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // EnsureMCPServer upserts an `[mcp_servers.<name>]` section with command,
@@ -27,10 +26,6 @@ import (
 //
 // Keys in `env` are serialized in sorted order so re-runs are idempotent.
 func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
-	block, err := renderSection(name, spec)
-	if err != nil {
-		return false, err
-	}
 
 	var existing string
 	if data, err := os.ReadFile(path); err == nil {
@@ -43,7 +38,61 @@ func EnsureMCPServer(path, name string, spec map[string]any) (bool, error) {
 		}
 	}
 
-	updated := upsertSection(existing, sectionHeader(name), block)
+	var document map[string]any
+	if err := toml.Unmarshal([]byte(existing), &document); err != nil {
+		return false, fmt.Errorf("invalid existing TOML: %w", err)
+	}
+	var old map[string]any
+	if servers, ok := document["mcp_servers"].(map[string]any); ok {
+		old, _ = servers[name].(map[string]any)
+	}
+	desired := make(map[string]any)
+	for key, value := range spec {
+		desired[key] = value
+	}
+	if previous, ok := old["env"].(map[string]any); ok {
+		environment := make(map[string]any)
+		for key, value := range previous {
+			environment[key] = value
+		}
+		if supplied, ok := spec["env"].(map[string]any); ok {
+			for key, value := range supplied {
+				environment[key] = value
+			}
+		}
+		desired["env"] = environment
+	}
+	block, err := renderSection(name, desired)
+	if err != nil {
+		return false, err
+	}
+	extras := make(map[string]any)
+	for key, value := range old {
+		if key != "command" && key != "args" && key != "env" {
+			extras[key] = value
+		}
+	}
+	if len(extras) > 0 {
+		encoded, err := toml.Marshal(extras)
+		if err != nil {
+			return false, err
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\n") {
+			if strings.HasPrefix(line, "[") {
+				prefix := 1
+				if strings.HasPrefix(line, "[[") {
+					prefix = 2
+				}
+				line = line[:prefix] + "mcp_servers." + name + "." + line[prefix:]
+			}
+			block += line + "\n"
+		}
+	}
+	updated := rewriteMCP(existing, name, block)
+	var validated map[string]any
+	if err := toml.Unmarshal([]byte(updated), &validated); err != nil {
+		return false, fmt.Errorf("refusing invalid TOML update: %w", err)
+	}
 	if updated == existing {
 		return false, nil
 	}
@@ -125,13 +174,14 @@ func RemoveMCPServer(path, name string) (bool, error) {
 		return false, err
 	}
 	existing := string(data)
-	header := sectionHeader(name)
-	start, end, found := findSection(existing, header)
-	if !found {
+	var validated map[string]any
+	if err := toml.Unmarshal(data, &validated); err != nil {
+		return false, err
+	}
+	updated := rewriteMCP(existing, name, "")
+	if updated == existing {
 		return false, nil
 	}
-	updated := existing[:start] + existing[end:]
-	updated = strings.TrimRight(updated, "\n") + "\n"
 	return true, writeAtomic(path, updated)
 }
 
@@ -300,13 +350,35 @@ func toStringMap(v any) (map[string]string, error) {
 }
 
 func writeAtomic(path, content string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
-		return err
+	return configfile.Write(path, []byte(content))
+}
+
+// rewriteMCP preserves bytes outside the owned server and its nested tables.
+func rewriteMCP(content, name, replacement string) string {
+	lines := strings.SplitAfter(content, "\n")
+	var result strings.Builder
+	inside := false
+	replaced := false
+	parent := sectionHeader(name)
+	nested := "[mcp_servers." + name + "."
+	for _, line := range lines {
+		header := strings.TrimSpace(strings.SplitN(strings.TrimSpace(line), "#", 2)[0])
+		if strings.HasPrefix(header, "[") {
+			inside = header == parent || strings.HasPrefix(header, nested) || strings.HasPrefix(header, "[[mcp_servers."+name+".")
+			if inside && !replaced {
+				result.WriteString(replacement)
+				replaced = true
+			}
+		}
+		if !inside {
+			result.WriteString(line)
+		}
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
+	if !replaced && replacement != "" {
+		if result.Len() > 0 && !strings.HasSuffix(result.String(), "\n\n") {
+			result.WriteString("\n")
+		}
+		result.WriteString(replacement)
 	}
-	return nil
+	return result.String()
 }

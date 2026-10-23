@@ -23,9 +23,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${roboto.variable} dark h-full`}>
       <body className="h-full bg-background text-foreground flex">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-background focus:p-3">Skip to content</a>
         <Heartbeat />
         <Sidebar />
-        <main className="flex-1 h-full overflow-auto">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 h-full overflow-auto">{children}</main>
       </body>
     </html>
   );

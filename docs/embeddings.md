@@ -76,3 +76,9 @@ The runtime [`_preload_cuda_libs()`](../imprint/embeddings.py) dlopens the pip-i
 | `model.dim` | `768` | Embedding dimension (must match model) |
 | `model.file` | auto | Override variant pick |
 | `model.pooling` | auto | Pooling: auto / cls / mean / last |
+
+## Model files and external weights
+
+Model graphs, companion weights and the tokenizer are materialized as regular files under `data/models/embeddings/<model-key>/` using Hugging Face's `local_dir` download mode. This keeps ONNX external data alongside its graph. Hub cache symlinks may point into different blob directories; recent ONNX Runtime path validation rejects that layout even for legitimate model weights. The CPU fallback reuses the same resolved graph without another cache lookup.
+
+This changes the local model location and may download an existing model again on upgrade. It does not pin model revisions or provide an offline model bundle. Verify a real store/search cycle after changing model/runtime dependencies; import and health checks alone do not load the ONNX graph.

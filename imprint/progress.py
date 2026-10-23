@@ -13,6 +13,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from .processes import is_alive
+
 
 def progress_path() -> Path:
     """Return path to the progress file: {DATA_DIR}/ingest_progress.json."""
@@ -74,14 +76,8 @@ def read_progress() -> dict | None:
         return None
 
     pid = data.get("pid")
-    if pid:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            # Process gone — stale file
-            clear_progress()
-            return None
-        except PermissionError:
-            pass  # Process exists but owned by another user — still valid
+    if pid and not is_alive(pid):
+        clear_progress()
+        return None
 
     return data

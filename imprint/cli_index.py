@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs
 from imprint import extractors
 from imprint.progress import write_progress, clear_progress
+from imprint.source_state import allowed_source, fingerprint, stamp_records, unchanged, missing_sources
 from imprint._cli_signals import install as _install_signals
 
 _install_signals()
@@ -244,14 +245,14 @@ def _git_tracked_files(dir_path: str) -> set[str] | None:
     try:
         proc = subprocess.run(
             ["git", "-C", dir_path, "ls-files",
-             "--cached", "--others", "--exclude-standard"],
+             "--cached", "--others", "--exclude-standard", "-z"],
             capture_output=True, text=True, timeout=30, check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
         return None
-    return {ln for ln in proc.stdout.splitlines() if ln}
+    return {name for name in proc.stdout.split("\0") if name}
 
 
 def scan_dir(dir_path, exclude_paths=None):
@@ -261,6 +262,8 @@ def scan_dir(dir_path, exclude_paths=None):
     roots when scanning a root-fallback project so manifested children aren't
     double-indexed).
     """
+    if not os.path.isdir(dir_path):
+        raise NotADirectoryError(f"Index root is not a readable directory: {dir_path}")
     # Resolve doc/image gates once per scan — avoids reloading config per file.
     doc_exts = _enabled_doc_formats()
     ocr_imgs = _ocr_image_exts()
@@ -276,7 +279,7 @@ def scan_dir(dir_path, exclude_paths=None):
     exclude_resolved = {os.path.realpath(p) for p in (exclude_paths or [])}
 
     files = []
-    for root, subdirs, fnames in os.walk(dir_path):
+    for root, subdirs, fnames in os.walk(dir_path, onerror=lambda error: (_ for _ in ()).throw(error)):
         subdirs[:] = [
             d for d in subdirs
             if d not in SKIP_DIRS
@@ -291,12 +294,14 @@ def scan_dir(dir_path, exclude_paths=None):
             if fname == '.env' or fname.startswith('.env.'):
                 continue
             ext = os.path.splitext(fname)[1].lower()
-            if ext in skip_exts:
+            if ext in skip_exts or fname.endswith(('.min.js', '.min.css', '.d.ts')):
                 continue
             if ext not in effective_exts:
                 continue
             fpath = os.path.join(root, fname)
-            rel = os.path.relpath(fpath, dir_path)
+            if not allowed_source(fpath, dir_path):
+                continue
+            rel = os.path.relpath(fpath, dir_path).replace(os.sep, "/")
             if git_files is not None and rel.replace(os.sep, "/") not in git_files:
                 continue
             files.append((rel, fpath))
@@ -466,6 +471,9 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
         print(f"  {C_YELLOW}File not found:{C_RESET} {file_path}")
         sys.exit(1)
 
+    if not allowed_source(file_path):
+        raise ValueError("Secret-bearing files cannot be indexed")
+    snapshot = fingerprint(file_path)
     rel = os.path.basename(file_path)
     print()
     print(f"  {C_CYAN}Indexing{C_RESET} {rel} → project={project}")
@@ -495,7 +503,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
 
         for extracted in doc_list:
             content = extracted.text
-            if len(content.strip()) < 10:
+            if not content.strip():
                 continue
             doc_meta = dict(extracted.metadata or {})
             chunk_mode = extracted.chunk_mode or "prose"
@@ -521,20 +529,25 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
                     "source": source_key,
                     "source_type": "file",
                     "doc_metadata": doc_meta,
-                    "chunk_index": chunk_idx,
+                    "chunk_index": len(records),
                     "source_mtime": mtime,
                     "llm_tagged": bool(llm_type),
                 })
     else:
-        with open(file_path, 'r', errors='ignore') as f:
-            content = f.read()
-        if len(content.strip()) < 10:
-            print(f"  {C_YELLOW}File too small or empty{C_RESET}")
+        max_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
+        if snapshot["source_size"] > max_bytes:
+            raise ValueError(f"File exceeds ingest.max_file_bytes ({max_bytes}); prior chunks retained")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read(max_bytes + 1)
+        if not content.strip():
+            stamp_records([], file_path, snapshot)
+            vs.delete_by_source(source_key, project=project)
+            clear_progress()
+            print("  Empty file: prior chunks cleared")
             return
         chunks = chunk_file(content, rel, chunk_mode=None)
         if not chunks:
-            print(f"  {C_YELLOW}No chunks produced{C_RESET}")
-            return
+            raise ValueError("Chunker produced no chunks for nonempty text; prior chunks retained")
         for i, (chunk_text, chunk_idx) in enumerate(chunks):
             prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
             next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
@@ -560,13 +573,12 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32):
             })
 
     if not records:
-        print(f"  {C_YELLOW}No indexable content{C_RESET}")
         clear_progress()
-        return
+        raise ValueError("No indexable text extracted; prior chunks retained")
 
     # Replace any existing chunks for this source
-    vs.delete_by_source(source_key)
-    inserted, _ = vs.store_batch(records)
+    records = stamp_records(records, file_path, snapshot)
+    inserted, _ = vs.replace_source(records, source_key, project)
 
     clear_progress()
     elapsed = time.time() - t_start
@@ -684,7 +696,21 @@ def _llm_tag_recent(
     return tagged
 
 
-def main():
+def main(command: str = "ingest"):
+    # A long-running operation must not follow a dashboard workspace switch.
+    from imprint import config
+    previous = os.environ.get("IMPRINT_WORKSPACE")
+    os.environ["IMPRINT_WORKSPACE"] = config.get_active_workspace()
+    try:
+        return _main(command)
+    finally:
+        if previous is None:
+            os.environ.pop("IMPRINT_WORKSPACE", None)
+        else:
+            os.environ["IMPRINT_WORKSPACE"] = previous
+
+
+def _main(command: str = "ingest"):
     batch_size, rest = _parse_batch_size(sys.argv[1:], default=32)
     file_path, file_project, rest = _parse_file_flags(rest)
 
@@ -737,41 +763,11 @@ def main():
     print(f"  {C_BOLD}{grand_total}{C_RESET} files across {C_BOLD}{len(pairs)}{C_RESET} projects")
     print()
 
-    if grand_total == 0:
-        print("  Nothing to index.")
-        return
-
     _progress_projects = list(project_files.keys())
-    write_progress("ingest", 0, grand_total, 0, 0, time.time(), _progress_projects)
+    write_progress(command, 0, grand_total, 0, 0, time.time(), _progress_projects)
     _last_progress_write = time.time()
 
-    # ── Phase 2.5: Index dependency lists from package.json ────
-    # Check the target dir and each subdir for package.json
-    checked = set()
-    for dir_path, project in pairs:
-        # Check the subdir itself
-        dep_text = extract_dependencies(dir_path)
-        if dep_text:
-            vs.store(
-                content=dep_text,
-                project=project,
-                type='architecture',
-                source=f"{project}/package.json",
-            )
-            checked.add(dir_path)
-        # Also check the parent (the target dir) — covers monorepo root
-        parent = os.path.dirname(dir_path)
-        if parent not in checked:
-            checked.add(parent)
-            dep_text = extract_dependencies(parent)
-            if dep_text:
-                parent_name = os.path.basename(parent)
-                vs.store(
-                    content=dep_text,
-                    project=parent_name,
-                    type='architecture',
-                    source=f"{parent_name}/package.json",
-                )
+    # Dependency manifests are indexed through the same source lifecycle as files.
 
     # ── Phase 3: Read + chunk files (sequential) ────────────────
     # NOTE: parallel file reading via ThreadPoolExecutor was tried and
@@ -790,11 +786,9 @@ def main():
     # GPU contention between embedding model and LLM tagger.
     from imprint.config_schema import resolve
     enable_llm = resolve("tagger.llm")[0]
-    if not enable_llm and tagger._get_llm_provider() == "local":
-        _, _llm_source = resolve("tagger.llm")
-        if _llm_source == "default":
-            enable_llm = True
     enable_zero_shot = resolve("tagger.zero_shot")[0]
+    max_file_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
+    failures = []
 
     def _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode):
         """Convert a list of (chunk_text, chunk_idx) into record dicts."""
@@ -841,6 +835,7 @@ def main():
         """
         project, rel, fpath = args
         try:
+            snapshot = fingerprint(fpath)
             ext = os.path.splitext(rel)[1].lower()
             is_doc = extractors.is_doc_extension(ext)
 
@@ -848,19 +843,16 @@ def main():
                 try:
                     doc_list = extractors.dispatch_by_ext(fpath)
                 except extractors.ExtractorUnavailable as e:
-                    # Silent skip — user can install the dep later and re-run.
-                    print(f"\n  [skip] {rel}: {e}", file=sys.stderr)
-                    return None
+                    raise RuntimeError(str(e)) from e
                 except extractors.ExtractionError as e:
-                    print(f"\n  [skip] {rel}: {e}", file=sys.stderr)
-                    return None
+                    raise RuntimeError(str(e)) from e
 
                 mtime = os.path.getmtime(fpath)
                 source_key = f"{project}/{rel}"
                 all_records = []
                 for extracted in doc_list:
                     content = extracted.text
-                    if len(content.strip()) < 10:
+                    if not content.strip():
                         continue
                     doc_meta = dict(extracted.metadata or {})
                     chunk_mode = extracted.chunk_mode or "prose"
@@ -870,24 +862,28 @@ def main():
                             chunks, project, rel, source_key,
                             mtime, doc_meta, chunk_mode,
                         ))
-                return all_records or None
+                        for index, record in enumerate(all_records):
+                            record["chunk_index"] = index
+                if not all_records:
+                    raise ValueError("No indexable text extracted; prior chunks retained")
+                return stamp_records(all_records, fpath, snapshot)
             else:
-                with open(fpath, 'r', errors='ignore') as f:
-                    content = f.read()
-                if len(content.strip()) < 10 or len(content) > 50000:
-                    return None
-                if _is_low_value(content, rel):
-                    return None
-
+                if snapshot["source_size"] > max_file_bytes:
+                    raise ValueError(f"File exceeds ingest.max_file_bytes ({max_file_bytes}); prior chunks retained")
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    content = f.read(max_file_bytes + 1)
+                if not content.strip():
+                    return stamp_records([], fpath, snapshot)
                 chunks = chunk_file(content, rel, chunk_mode=None)
                 if not chunks:
-                    return None
+                    raise ValueError("Chunker produced no chunks for nonempty text")
                 mtime = os.path.getmtime(fpath)
                 source_key = f"{project}/{rel}"
-                return _chunks_to_records(
+                return stamp_records(_chunks_to_records(
                     chunks, project, rel, source_key, mtime, {}, None,
-                )
+                ), fpath, snapshot)
         except Exception as e:
+            failures.append(rel)
             print(f"\n  [error] {rel}: {e}", file=sys.stderr)
             return None
 
@@ -897,50 +893,19 @@ def main():
         for rel, fpath in files:
             all_files.append((project, rel, fpath))
 
-    # Pre-filter unchanged files + clean up stale/modified sources.
-    #
-    # Three cases for each source already in the DB:
-    #   unchanged (same mtime) → skip entirely
-    #   modified  (different mtime) → delete old chunks, re-index
-    #   deleted   (file gone from disk) → delete old chunks
-    known_mtimes = vs.get_source_mtimes()
+    # Compare complete byte fingerprints, including timestamp-preserving edits.
+    known_states = vs.get_source_states()
     pre_skipped = 0
-    stale_sources: list[str] = []
-
-    # Build set of all current on-disk sources for projects we're indexing
-    all_disk_sources = {f"{p}/{r}" for p, files in project_files.items() for r, _ in files}
-
-    if known_mtimes:
-        # Detect deleted files: in DB for a project we're indexing, but gone from disk
-        indexing_projects = {p for p, _ in pairs}
-        for src in known_mtimes:
-            proj = src.split("/", 1)[0]
-            if proj in indexing_projects and src not in all_disk_sources:
-                stale_sources.append(src)
-
-        # Filter unchanged, mark modified for cleanup
-        filtered = []
-        for project, rel, fpath in all_files:
-            source_key = f"{project}/{rel}"
-            try:
-                fmtime = os.path.getmtime(fpath)
-            except OSError:
-                continue
-            stored_mtime = known_mtimes.get(source_key, 0)
-            if stored_mtime and abs(stored_mtime - fmtime) < 1.0:
-                pre_skipped += 1
-                continue
-            if stored_mtime:
-                stale_sources.append(source_key)
+    filtered = []
+    for project, rel, fpath in all_files:
+        source_key = f"{project}/{rel}"
+        if unchanged(fingerprint(fpath), known_states.get(source_key)):
+            pre_skipped += 1
+        else:
             filtered.append((project, rel, fpath))
-        all_files = filtered
-
-    # Delete old chunks for modified + deleted files
-    if stale_sources:
-        for src in stale_sources:
-            vs.delete_by_source(src)
-
-    cleaned = len(stale_sources)
+    all_files = filtered
+    stale_sources = missing_sources(known_states, [path for path, _ in pairs])
+    cleaned = 0
     stored = 0
     skipped = pre_skipped
     processed = pre_skipped
@@ -953,18 +918,12 @@ def main():
         nonlocal stored
         if not pending_batch:
             return
-        try:
-            inserted, skipped_batch = vs.store_batch(pending_batch)
-        except Exception as exc:
-            from .embeddings import _is_gpu_error
-            if _is_gpu_error(exc):
-                import gc
-                print("\n  [warn] GPU error during batch store, retrying...", file=sys.stderr)
-                gc.collect()
-                inserted, skipped_batch = vs.store_batch(pending_batch)
-            else:
-                raise
-        stored += inserted
+        grouped = {}
+        for record in pending_batch:
+            grouped.setdefault((record["project"], record["source"]), []).append(record)
+        for (project, source), records in grouped.items():
+            inserted, _ = vs.replace_source(records, source, project)
+            stored += inserted
         pending_batch.clear()
 
     try:
@@ -977,13 +936,18 @@ def main():
 
             now = time.time()
             if now - _last_progress_write >= 1.0:
-                write_progress("ingest", processed, grand_total, stored, skipped, t_start, _progress_projects)
+                write_progress(command, processed, grand_total, stored, skipped, t_start, _progress_projects)
                 _last_progress_write = now
 
             if result is None:
                 skipped += 1
                 continue
 
+            if not result:
+                # A verified empty file is an explicit deletion of its old chunks.
+                project, rel, _ = args
+                cleaned += bool(vs.delete_by_source(f"{project}/{rel}", project=project))
+                continue
             pending_batch.extend(result)
 
             # Flush batch when large enough
@@ -992,6 +956,10 @@ def main():
 
         # Flush remaining
         flush_batch()
+        for source in stale_sources:
+            project = known_states[source].get("project", "")
+            if vs.delete_by_source(source, project=project):
+                cleaned += 1
 
     except KeyboardInterrupt:
         cancelled = True
@@ -1014,7 +982,7 @@ def main():
             ingest_start_ts=t_start,
             total_hint=stored,
             print_bar=print_bar,
-            command="ingest",
+            command=command,
             projects=_progress_projects,
         )
 
@@ -1023,6 +991,8 @@ def main():
     print()
     if cancelled:
         print(f"  {C_YELLOW}═══ Indexing Cancelled ═══{C_RESET}")
+    elif failures:
+        print(f"  {C_YELLOW}═══ Indexing Incomplete ═══{C_RESET}")
     else:
         print(f"  {C_GREEN}═══ Indexing Complete ═══{C_RESET}")
     from imprint.embeddings import get_gpu_retries, reset_gpu_retries
@@ -1030,6 +1000,8 @@ def main():
     reset_gpu_retries()
     print(f"  Stored:   {stored}")
     print(f"  Skipped:  {skipped}")
+    if failures:
+        print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
     if llm_tagged:
         print(f"  Tagged:   {llm_tagged} (LLM)")
     if cleaned:
@@ -1042,6 +1014,9 @@ def main():
     else:
         clear_progress()
     print()
+
+    if failures:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

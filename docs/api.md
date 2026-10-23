@@ -9,9 +9,7 @@ data, a CI job retagging after a merge, your own UI, or a quick `curl` to see
 what's in memory.
 
 :::note
-The API is designed to run on localhost or behind a reverse proxy that handles
-auth. There is no built-in authentication. Don't expose port 8420 to the public
-internet without one ([TLS examples](./docker.md#tls-termination)).
+The dashboard API supports loopback access. It validates Host and browser Origin; there is no authenticated remote dashboard mode. Container ports should be published on `127.0.0.1`. TLS alone does not add authentication.
 :::
 
 ## Get started
@@ -47,8 +45,7 @@ curl -s -X POST http://localhost:8420/api/commands/ingest \
 curl -N http://localhost:8420/api/jobs/<job_id>/stream
 ```
 
-If you're running in Docker, swap `localhost:8420` for your container or proxy
-host — the base URL is the only thing that changes.
+In Docker, publish `127.0.0.1:8420:8420` and use the same local URL. Arbitrary remote Host/Origin values are rejected.
 
 ## Endpoint reference
 
@@ -70,7 +67,7 @@ side by side.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/search` | Semantic search. Filters: `q`, `project`, `type`, `limit`. |
+| GET | `/api/search` | Hybrid search. Filters: `q` (1–4,000 chars), `project`, `type`, `limit` (1–50), `mode` (`hybrid`/`semantic`). |
 | GET | `/api/neighbors` | KNN over embeddings. `?id=<memory_id>&k=10`. |
 | GET | `/api/memory/{id}` | Full payload for a single memory. |
 | GET | `/api/nodes` | Graph node list (positions + clusters) for visualization. |

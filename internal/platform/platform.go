@@ -250,7 +250,15 @@ func CursorRulesDir() string {
 
 // CodexConfigPath returns the user-global Codex CLI config (~/.codex/config.toml).
 func CodexConfigPath() string {
-	return filepath.Join(HomeDir(), ".codex", "config.toml")
+	return filepath.Join(CodexHome(), "config.toml")
+}
+
+// CodexHome honors the host's configured profile directory.
+func CodexHome() string {
+	if dir := os.Getenv("CODEX_HOME"); dir != "" {
+		return dir
+	}
+	return filepath.Join(HomeDir(), ".codex")
 }
 
 // VSCodeUserDir returns the first existing VSCode user-profile directory:
@@ -323,12 +331,12 @@ func CursorHooksPath() string {
 
 // CodexHooksPath returns the user-global Codex hooks config (~/.codex/hooks.json).
 func CodexHooksPath() string {
-	return filepath.Join(HomeDir(), ".codex", "hooks.json")
+	return filepath.Join(CodexHome(), "hooks.json")
 }
 
 // CodexAgentsPath returns the user-global Codex AGENTS.md (~/.codex/AGENTS.md).
 func CodexAgentsPath() string {
-	return filepath.Join(HomeDir(), ".codex", "AGENTS.md")
+	return filepath.Join(CodexHome(), "AGENTS.md")
 }
 
 // ── Windows-side user profile (WSL-aware) ──────────────────────
@@ -338,15 +346,15 @@ var (
 	winUserProfile string
 )
 
-// WindowsUserProfile returns the Windows ``%USERPROFILE%`` as a WSL-mount
-// path (e.g. ``/mnt/c/Users/alex``) when running inside WSL. Returns the
+// WindowsUserProfile returns the Windows “%USERPROFILE%“ as a WSL-mount
+// path (e.g. “/mnt/c/Users/alex“) when running inside WSL. Returns the
 // empty string on non-WSL hosts or when the Windows user can't be resolved.
 // Cached after the first call.
 //
 // Resolution order:
-//  1. ``cmd.exe /C echo %USERPROFILE%`` — authoritative, reads the real
+//  1. “cmd.exe /C echo %USERPROFILE%“ — authoritative, reads the real
 //     Windows env.
-//  2. Scan ``/mnt/c/Users/`` and pick the only non-system entry (falls
+//  2. Scan “/mnt/c/Users/“ and pick the only non-system entry (falls
 //     back when cmd.exe is absent from PATH, e.g. in some locked-down
 //     WSL configs).
 func WindowsUserProfile() string {
@@ -426,11 +434,11 @@ func resolveFromUsersDir() string {
 //
 // Windows (including WSL) supports two install flavours:
 //
-//  1. **Standalone installer** — config at ``%APPDATA%\Claude\claude_desktop_config.json``.
-//  2. **Microsoft Store** (MSIX) — the app is sandboxed and the ``%APPDATA%``
+//  1. **Standalone installer** — config at “%APPDATA%\Claude\claude_desktop_config.json“.
+//  2. **Microsoft Store** (MSIX) — the app is sandboxed and the “%APPDATA%“
 //     virtualisation redirects the config under
-//     ``%LOCALAPPDATA%\Packages\Claude_<publisherHash>\LocalCache\Roaming\Claude\claude_desktop_config.json``.
-//     The publisher hash varies per vendor, so we glob ``Packages/Claude_*``.
+//     “%LOCALAPPDATA%\Packages\Claude_<publisherHash>\LocalCache\Roaming\Claude\claude_desktop_config.json“.
+//     The publisher hash varies per vendor, so we glob “Packages/Claude_*“.
 //
 // Resolution order:
 //  1. If a Store-install config dir already exists, return that path
@@ -599,6 +607,9 @@ func CopilotInstructionsPath() string {
 // DataDir returns the data directory for imprint storage, redirecting to a
 // writable location when the project dir is inside a read-only app bundle.
 func DataDir(projectDir string) string {
+	if override := os.Getenv("IMPRINT_DATA_DIR"); override != "" {
+		return override
+	}
 	return filepath.Join(MutableBaseDir(projectDir), "data")
 }
 
@@ -709,7 +720,7 @@ func PythonInstallHint() string {
 	case "windows":
 		return "download Python 3.13 from https://www.python.org/downloads/"
 	default:
-		return "install Python 3.10–3.13"
+		return "install Python 3.12–3.13"
 	}
 }
 

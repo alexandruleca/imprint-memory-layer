@@ -13,6 +13,7 @@ var
   GTimerID:     UINT_PTR;
   GBootDone:    Boolean;
   GBootOk:      Boolean;
+  GBootStarted: DWORD;
 
 function SetTimer(hWnd: HWND; nIDEvent: UINT_PTR; uElapse: UINT;
     lpTimerFunc: LongWord): UINT_PTR;
@@ -21,6 +22,8 @@ function KillTimer(hWnd: HWND; uIDEvent: UINT_PTR): BOOL;
   external 'KillTimer@user32.dll stdcall';
 function SendMessageScroll(hWnd: HWND; Msg: UINT; wParam: UINT_PTR; lParam: INT_PTR): INT_PTR;
   external 'SendMessageW@user32.dll stdcall';
+function BootstrapTicks(): DWORD;
+  external 'GetTickCount@kernel32.dll stdcall';
 
 const
   WM_VSCROLL = $0115;
@@ -30,12 +33,12 @@ const
 procedure BootstrapTimerProc(hWnd: HWND; uMsg: UINT; idEvent: UINT_PTR; dwTime: DWORD);
 var
   LogContent: AnsiString;
-  LogPath, Sentinel: string;
+  LogPath: string;
+  SetupResult: AnsiString;
 begin
   if GBootDone then Exit;
 
   LogPath  := ExpandConstant('{app}\first-run.log');
-  Sentinel := ExpandConstant('{app}\.first-run.done');
 
   if LoadStringFromFile(LogPath, LogContent) then
   begin
@@ -43,20 +46,25 @@ begin
     SendMessageScroll(GOutputMemo.Handle, WM_VSCROLL, SB_BOTTOM, 0);
   end;
 
-  // Success: PS1 created sentinel after writing "Setup complete." to log.
-  if FileExists(Sentinel) then
+  // Only this result file represents completion of the entire setup script;
+  // legacy backend versions could write the sentinel before registration.
+  if LoadStringFromFile(ExpandConstant('{app}\.setup-result'), SetupResult) then
   begin
     KillTimer(0, GTimerID);
     GTimerID  := 0;
     GBootDone := True;
-    GBootOk   := True;
-    GOutputLabel.Caption := 'Setup complete — click Next to finish installation.';
+    GBootOk   := Trim(String(SetupResult)) = '0';
+    if GBootOk then
+      GOutputLabel.Caption := 'Setup complete — click Next to finish installation.'
+    else
+      GOutputLabel.Caption := 'Setup failed — use Repair Imprint from the Start menu to retry.';
     WizardForm.NextButton.Enabled := True;
     Exit;
   end;
 
   // Failure: PS1 wrote "FAILED:" to log and exited non-zero.
-  if (Length(LogContent) > 0) and (Pos('FAILED:', String(LogContent)) > 0) then
+  if ((Length(LogContent) > 0) and (Pos('FAILED:', String(LogContent)) > 0)) or
+     (DWORD(BootstrapTicks() - GBootStarted) > 1800000) then
   begin
     KillTimer(0, GTimerID);
     GTimerID  := 0;
@@ -100,6 +108,7 @@ var
   AppDir, PsFile, PsArgs: string;
   ResultCode: Integer;
 begin
+  if GBootDone or (GTimerID <> 0) then Exit;
   GBootDone := False;
   GBootOk   := False;
   GTimerID  := 0;
@@ -112,6 +121,7 @@ begin
 
   // Reset state from any prior run so the timer doesn't see a stale sentinel.
   DeleteFile(AppDir + '\.first-run.done');
+  DeleteFile(AppDir + '\.setup-result');
   SaveStringToFile(AppDir + '\first-run.log', '', False);
   GOutputMemo.Lines.Text := '';
 
@@ -124,11 +134,13 @@ begin
 
   if not Exec('powershell.exe', PsArgs, AppDir, SW_HIDE, ewNoWait, ResultCode) then
   begin
+    GBootDone := True;
     GOutputLabel.Caption := 'Could not start setup script — reinstall Imprint.';
     WizardForm.NextButton.Enabled := True;
     Exit;
   end;
 
   // Poll the log file every 300 ms; BootstrapTimerProc enables Next when done.
+  GBootStarted := BootstrapTicks();
   GTimerID := SetTimer(0, 0, 300, CreateCallback(@BootstrapTimerProc));
 end;

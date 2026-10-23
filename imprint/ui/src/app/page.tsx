@@ -14,7 +14,7 @@ function AnimatedNumber({ value }: { value: number }) {
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
-    if (value === 0) { setDisplay(0); return; }
+    if (value === 0) return;
     const duration = 800;
     const start = performance.now();
     let cancelled = false;
@@ -32,7 +32,7 @@ function AnimatedNumber({ value }: { value: number }) {
     return () => { cancelled = true; };
   }, [value]);
 
-  return <p className="text-3xl font-bold tabular-nums">{display.toLocaleString()}</p>;
+  return <p className="text-3xl font-bold tabular-nums">{(value === 0 ? 0 : display).toLocaleString()}</p>;
 }
 
 function StatCard({
@@ -98,7 +98,7 @@ export default function DashboardPage() {
           <CardContent className="pt-6">
             <p className="text-destructive">Failed to connect to API: {error}</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Make sure the API server is running: <code>python -m imprint.api</code>
+              Make sure the API server is running: <code>imprint ui start</code>
             </p>
           </CardContent>
         </Card>
@@ -117,17 +117,22 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground mt-1">Overview of your AI memory store</p>
       </div>
 
+      {stats.total === 0 && <Card><CardContent className="p-5 space-y-2">
+        <h2 className="font-semibold">Build your first memory</h2>
+        <p className="text-sm text-muted-foreground">1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</p>
+        <p className="text-xs text-muted-foreground">Only selected sources are indexed. Secrets and files outside a selected folder are excluded.</p>
+      </CardContent></Card>}
       <QuickIngest />
       <IngestionProgress />
 
-      <div className="grid grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-5">
         <StatCard label="Total Memories" value={stats.total} icon={Database} accentColor="#60a5fa" />
         <StatCard label="Projects" value={overview.projects.length} icon={FolderOpen} accentColor="#4ecdc4" />
         <StatCard label="Languages" value={stats.langs?.length || 0} icon={Code} accentColor="#a78bfa" />
         <StatCard label="Topics" value={stats.topics?.length || 0} icon={Tags} accentColor="#f472b6" />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader><CardTitle className="text-sm font-medium">Projects</CardTitle></CardHeader>
           <CardContent>

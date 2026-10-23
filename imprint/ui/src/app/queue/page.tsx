@@ -305,7 +305,7 @@ function JobRow({
           {job.error && (
             <p className="text-[11px] text-red-400 font-mono">{job.error}</p>
           )}
-          <JobLog jobId={job.id} live={job.status === "running"} />
+          <JobLog key={job.id} jobId={job.id} live={job.status === "running"} />
         </div>
       )}
     </div>
@@ -317,7 +317,6 @@ function JobLog({ jobId, live }: { jobId: string; live: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setLines([]);
     const ctrl = tailJobStream(jobId, (ev) => {
       if (ev.type === "output") {
         setLines((prev) => [...prev, ev.text as string]);

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Modal } from "./modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -18,8 +19,11 @@ type Props = {
   children?: React.ReactNode;
 };
 
-export function ConfirmDialog({
-  open,
+export function ConfirmDialog(props: Props) {
+  return props.open ? <ConfirmDialogContent {...props} /> : null;
+}
+
+function ConfirmDialogContent({
   title,
   description,
   confirmText,
@@ -32,31 +36,11 @@ export function ConfirmDialog({
 }: Props) {
   const [typed, setTyped] = useState("");
 
-  useEffect(() => {
-    if (!open) setTyped("");
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onCancel();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy, onCancel]);
-
-  if (!open) return null;
-
   const confirmDisabled =
     busy || (confirmText !== undefined && typed !== confirmText);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={() => !busy && onCancel()}
-      />
-      <div className="relative z-10 w-full max-w-md rounded-lg border border-border bg-background p-5 shadow-lg space-y-3">
+    <Modal label={title} onClose={onCancel} busy={busy} className="max-w-md p-5 space-y-3">
         <h3 className="text-base font-semibold">{title}</h3>
         {description && (
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">
@@ -70,6 +54,7 @@ export function ConfirmDialog({
               Type <code className="font-mono bg-muted px-1 rounded">{confirmText}</code> to confirm:
             </p>
             <Input
+              aria-label={`Type ${confirmText} to confirm`}
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               autoFocus
@@ -91,7 +76,6 @@ export function ConfirmDialog({
             {busy ? "Working…" : confirmLabel}
           </Button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

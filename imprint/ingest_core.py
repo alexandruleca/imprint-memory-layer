@@ -62,14 +62,7 @@ def store_inline_content(
     if not chunks:
         return 0, "error: no chunks produced"
 
-    if replace:
-        vs.delete_by_source(source_key, workspace=workspace)
-
     enable_llm = resolve("tagger.llm")[0]
-    if not enable_llm and tagger._get_llm_provider() == "local":
-        _, _llm_source = resolve("tagger.llm")
-        if _llm_source == "default":
-            enable_llm = True
     enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
 
     records: list[dict] = []
@@ -97,10 +90,13 @@ def store_inline_content(
             "tags": tags,
             "source": source_key,
             "source_type": source_type,
-            "chunk_index": chunk_idx,
+            "chunk_index": len(records),
             "source_mtime": now,
             **extras,
         })
 
-    inserted, _ = vs.store_batch(records, workspace=workspace)
+    if replace:
+        inserted, _ = vs.replace_source(records, source_key, project, workspace=workspace)
+    else:
+        inserted, _ = vs.store_batch(records, workspace=workspace)
     return inserted, "stored"

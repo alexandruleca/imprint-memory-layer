@@ -20,6 +20,7 @@ data/qdrant.pid lets us restart cleanly without orphaning processes.
 from __future__ import annotations
 
 import logging
+import tempfile
 import os
 import platform
 import shutil
@@ -33,6 +34,8 @@ import zipfile
 from pathlib import Path
 
 from . import config
+from .processes import is_alive
+from .downloads import expected_digest, verify_archive
 
 log = logging.getLogger("imprint.qdrant_runner")
 
@@ -101,7 +104,7 @@ def _platform_asset() -> str:
         if machine in ("x86_64", "amd64"):
             return f"qdrant-x86_64-unknown-linux-gnu.tar.gz"
         if machine in ("aarch64", "arm64"):
-            return f"qdrant-aarch64-unknown-linux-gnu.tar.gz"
+            return f"qdrant-aarch64-unknown-linux-musl.tar.gz"
     elif sysname == "darwin":
         if machine in ("x86_64", "amd64"):
             return f"qdrant-x86_64-apple-darwin.tar.gz"
@@ -140,35 +143,29 @@ def _download_binary() -> Path:
     url = f"https://github.com/qdrant/qdrant/releases/download/{QDRANT_VERSION}/{asset}"
     bin_dir = _bin_dir()
     bin_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = bin_dir / asset
-
-    log.info("Downloading Qdrant %s from %s", QDRANT_VERSION, url)
-    print(f"  Downloading Qdrant {QDRANT_VERSION} ({asset}) ...", file=sys.stderr)
-    with urllib.request.urlopen(url, timeout=120) as resp, open(archive_path, "wb") as f:
-        shutil.copyfileobj(resp, f)
-
-    # Extract
-    if asset.endswith(".tar.gz"):
-        with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(bin_dir)
-    elif asset.endswith(".zip"):
-        with zipfile.ZipFile(archive_path) as z:
-            z.extractall(bin_dir)
-    else:
-        raise RuntimeError(f"Unknown archive format: {asset}")
-
-    archive_path.unlink(missing_ok=True)
-
-    # The archive drops `qdrant` (or qdrant.exe) at the top of bin_dir
-    target = _binary_path()
-    if not target.is_file():
-        # Some releases nest under a subdir; flatten.
-        for child in bin_dir.rglob("qdrant" + (".exe" if sys.platform == "win32" else "")):
-            shutil.move(str(child), str(target))
-            break
-    if not target.is_file():
-        raise RuntimeError(f"Qdrant binary not found after extracting {asset}")
-    target.chmod(0o755)
+    checksum = expected_digest("qdrant", QDRANT_VERSION, asset)
+    # A unique download/extraction directory prevents interrupted or concurrent
+    # downloads from leaving a partially written executable at the cache path.
+    with tempfile.TemporaryDirectory(prefix="download-", dir=bin_dir) as directory:
+        staging = Path(directory)
+        archive_path = staging / asset
+        log.info("Downloading Qdrant %s from %s", QDRANT_VERSION, url)
+        print(f"  Downloading Qdrant {QDRANT_VERSION} ({asset}) ...", file=sys.stderr)
+        with urllib.request.urlopen(url, timeout=120) as resp, archive_path.open("wb") as stream:
+            shutil.copyfileobj(resp, stream)
+        verify_archive(archive_path, checksum)
+        if asset.endswith(".tar.gz"):
+            with tarfile.open(archive_path, "r:gz") as tar:
+                tar.extractall(staging, filter="data")
+        elif asset.endswith(".zip"):
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(staging)
+        target = _binary_path()
+        found = next(staging.rglob(target.name), None)
+        if found is None or not found.is_file() or found.is_symlink():
+            raise RuntimeError(f"Qdrant binary not found after extracting {asset}")
+        found.chmod(0o755)
+        os.replace(found, target)
     return target
 
 
@@ -215,15 +212,35 @@ def _spawn(binary: Path) -> int:
 
 
 def _is_pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
+    return is_alive(pid)
 
 
 # ── Public API ────────────────────────────────────────────────
 def ensure_running() -> tuple[str, int]:
+    """Serialize first startup across CLI, API and MCP processes."""
+    if is_running():
+        return QDRANT_HOST, QDRANT_PORT
+    from .queue_lock import _lock, _unlock
+    directory = config.get_data_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(directory / "qdrant-start.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    acquired = False
+    deadline = time.monotonic() + 180
+    try:
+        while not acquired:
+            acquired = _lock(descriptor, False)
+            if not acquired:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Timed out waiting for another Imprint process to start Qdrant")
+                time.sleep(0.1)
+        return _ensure_running_locked()
+    finally:
+        if acquired:
+            _unlock(descriptor)
+        os.close(descriptor)
+
+
+def _ensure_running_locked() -> tuple[str, int]:
     """Make sure a Qdrant server is reachable on the configured host:port.
     Spawns one (downloading the binary if needed) when nothing answers.
     Returns (host, port) suitable for QdrantClient(host=..., port=...).

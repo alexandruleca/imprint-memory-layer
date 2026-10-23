@@ -92,6 +92,8 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}";     Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\imprint-launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{#IconInstalled}"; Tasks: desktopicon
 
 [Run]
+; Silent installs skip custom wizard pages. Provision explicitly in that case.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NonInteractive -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" -Profile cpu -NoLlm"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; Check: WizardSilent
 ; Bootstrap now runs on the inline "Setting up Imprint" wizard page (SetupOutputPage.iss)
 ; so users see live output without a separate PowerShell window.
 ; Offer to launch Imprint on install finish (unchecked in silent mode).
@@ -110,6 +112,7 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
 ; Only remove files we installed; data/ and .venv/ are preserved via [Dirs] flag.
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: files; Name: "{app}\.first-run.done"
+Type: files; Name: "{app}\.setup-result"
 
 [Code]
 #include "ProfilePage.iss"

@@ -13,20 +13,10 @@ import (
 	"github.com/hunter/imprint/internal/tomlutil"
 )
 
-// SetupCodex wires Imprint into the OpenAI Codex CLI. Codex (April 2026)
-// supports: per-user MCP registry via ~/.codex/config.toml, AGENTS.md for
-// always-loaded rules, and hooks via ~/.codex/hooks.json gated behind the
-// `features.codex_hooks` flag.
-//
-// Parity with Claude Code:
-//   - MCP registration: full parity via `[mcp_servers.imprint]`.
-//   - Rules: AGENTS.md managed block via markers.
-//   - SessionStart: wired, same payload shape as Claude Code.
-//   - Stop: wired, includes transcript_path — session summarizer works unchanged.
-//   - PreToolUse / PostToolUse: Codex only fires these on Bash, so our
-//     Read|Grep gate and search sentinel aren't reachable. Skipped here —
-//     enforcement on Codex is text-only via the AGENTS.md rule.
-//   - PreCompact: Codex has no equivalent event; skipped.
+// SetupCodex registers the shared Codex MCP profile, a managed AGENTS block,
+// and SessionStart/Stop hooks. Hosts must trust hooks before they run.
+// The adapter covers this subset; newer host events/transcript revisions
+// require client-version fixtures. See docs/integrations.md.
 func SetupCodex() {
 	codexPath := platform.CodexConfigPath()
 	codexDir := filepath.Dir(codexPath)
@@ -51,7 +41,7 @@ func SetupCodex() {
 	}
 	added, err := tomlutil.EnsureMCPServer(codexPath, "imprint", spec)
 	if err != nil {
-		output.Warn("Could not update " + codexPath + ": " + err.Error())
+		output.Fail("Could not update " + codexPath + ": " + err.Error())
 	} else if added {
 		output.Success("Registered imprint MCP server in " + codexPath)
 	} else {
@@ -71,23 +61,12 @@ func SetupCodex() {
 		output.Skip("Codex AGENTS.md already up to date at " + agentsPath)
 	} else {
 		if err := os.MkdirAll(filepath.Dir(agentsPath), 0755); err != nil {
-			output.Warn("Could not create " + filepath.Dir(agentsPath) + ": " + err.Error())
+			output.Fail("Could not create " + filepath.Dir(agentsPath) + ": " + err.Error())
 		} else if err := os.WriteFile(agentsPath, []byte(updated), 0644); err != nil {
-			output.Warn("Could not write " + agentsPath + ": " + err.Error())
+			output.Fail("Could not write " + agentsPath + ": " + err.Error())
 		} else {
 			output.Success("Wrote Codex AGENTS.md to " + agentsPath)
 		}
-	}
-
-	// Step 3: flip the codex_hooks feature flag in config.toml so the hooks
-	// file is actually consulted.
-	flagChanged, err := tomlutil.SetBoolInSection(codexPath, "features", "codex_hooks", true)
-	if err != nil {
-		output.Warn("Could not toggle features.codex_hooks: " + err.Error())
-	} else if flagChanged {
-		output.Success("Enabled features.codex_hooks in " + codexPath)
-	} else {
-		output.Skip("features.codex_hooks already enabled")
 	}
 
 	// Step 4: hooks.json. Only SessionStart + Stop apply cleanly to Codex.
@@ -101,12 +80,12 @@ func SetupCodex() {
 		async                   bool
 	}
 	codexHooks := []codexHook{
-		{"SessionStart", "startup|resume", hooks.SessionStartCommand(), 10, false},
+		{"SessionStart", "startup|resume", hooks.SessionStartCommand(hp), 10, false},
 		{"Stop", "", hooks.StopCommand(hp), 120, true},
 	}
 	for _, h := range codexHooks {
-		if err := jsonutil.SetHookWithMatcher(hooksPath, h.event, h.matcher, h.command, h.timeout, h.async); err != nil {
-			output.Warn("Could not set " + h.event + " hook: " + err.Error())
+		if err := jsonutil.SetOwnedHookWithMatcher(hooksPath, h.event, h.matcher, h.command, h.timeout, h.async); err != nil {
+			output.Fail("Could not set " + h.event + " hook: " + err.Error())
 		} else {
 			label := h.event
 			if h.matcher != "" {
@@ -125,7 +104,7 @@ func SetupCodex() {
 	output.Info("MCP config: " + codexPath)
 	output.Info("Rule:       " + agentsPath)
 	output.Info("Hooks:      " + hooksPath)
-	output.Warn("Codex hooks only fire on Bash for PreToolUse/PostToolUse — Read/Grep gating is advisory via AGENTS.md only.")
+	output.Info("Review and trust the installed hooks in the client. This adapter installs SessionStart and Stop; other capabilities depend on the client version.")
 	output.Info("Next steps:")
 	output.Info("  1. Restart any running codex session to pick up the new MCP server + hooks")
 	output.Info("  2. In codex, verify the 'imprint' MCP server is listed")

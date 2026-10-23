@@ -130,3 +130,9 @@ These don't live in `config.json` because they're path-shaped infra knobs the co
 | `IMPRINT_DATA_DIR` | `<repo>/data` or `~/.local/share/imprint/data` | Root for workspaces, Qdrant storage, SQLite graphs, config.json. Override for multi-install setups or when running out of a read-only tree. |
 | `IMPRINT_QDRANT_BIN` | auto (downloaded into `data/qdrant-bin/`) | Path to a system-installed `qdrant` binary, bypassing the pinned auto-download. |
 | `IMPRINT_MCP_IDLE_S` | `30` | Seconds of MCP inactivity after which the server releases the embedded Qdrant client lock so a separate `imprint ingest` can grab it. |
+
+## Source limits and operation workspace
+
+`ingest.max_file_bytes` (`IMPRINT_INGEST_MAX_FILE_BYTES`) defaults to 2,000,000 for source-text indexing. Oversize/undecodable sources retain their old chunks and report an incomplete run; there is no silent 50,000-character cutoff. Document extraction keeps `ingest.max_doc_size_mb` separately. LLM tagging remains opt-in even with a local provider; `tagger.zero_shot=false` also disables batch backfill.
+
+`IMPRINT_DATA_DIR` selects persistent storage consistently in Go and Python. `IMPRINT_WORKSPACE` is an operation override used by queued subprocesses; it must name an existing valid workspace. New jobs capture it at submission so a later dashboard switch cannot redirect them. MCP calls resolve their workspace at entry. It does not create persistent per-client/project binding.

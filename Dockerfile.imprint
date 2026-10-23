@@ -18,8 +18,16 @@ RUN CGO_ENABLED=0 go build \
     -ldflags "-s -w -X main.version=${VERSION}" \
     -o /out/imprint .
 
+# Build the dashboard from source; never ship the committed export.
+FROM node:22-bookworm-slim AS dashboard-builder
+WORKDIR /dashboard
+COPY imprint/ui/package.json imprint/ui/package-lock.json ./
+RUN npm ci
+COPY imprint/ui/ ./
+RUN npm run build
+
 # ── Stage 2: Python runtime ───────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ARG VERSION=dev
 ENV IMPRINT_VERSION=${VERSION} \
@@ -28,6 +36,8 @@ ENV IMPRINT_VERSION=${VERSION} \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     IMPRINT_DATA_DIR=/data \
+    PYTHONPATH=/app \
+    PATH=/app/.venv/bin:$PATH \
     HF_HOME=/data/hf-cache \
     XDG_CACHE_HOME=/data/cache
 
@@ -44,21 +54,24 @@ WORKDIR /app
 # (gpu.txt) is opt-in on bare-metal NVIDIA hosts, not container workloads.
 # Remote chat providers (openai/anthropic/ollama/vllm/gemini) still work —
 # chat.py imports llama_cpp lazily.
-COPY requirements/ /tmp/requirements/
-RUN pip install --no-cache-dir -r /tmp/requirements/base.txt \
-    && rm -rf /tmp/requirements
+COPY requirements/ /app/requirements/
+RUN python -m venv /app/.venv \
+    && /app/.venv/bin/pip install --no-cache-dir --require-hashes -r /app/requirements/base.lock.txt
 
 # Imprint Python package + Go binary + entrypoint.
 COPY imprint/ /app/imprint/
-COPY --from=go-builder /out/imprint /usr/local/bin/imprint
+COPY --from=dashboard-builder /dashboard/out/ /app/imprint/ui/out/
+COPY --from=go-builder /out/imprint /app/bin/imprint
+COPY LICENSE /app/LICENSE
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/imprint /usr/local/bin/entrypoint.sh
+RUN ln -s /app/bin/imprint /usr/local/bin/imprint \
+    && chmod +x /app/bin/imprint /usr/local/bin/entrypoint.sh
 
 # Run as non-root. /data and /workspace are owned by this user so volume
 # mounts from the host Just Work (user overrides with -u if they prefer).
-RUN useradd --system --create-home --uid 1000 imprint \
+RUN useradd --create-home --uid 1000 imprint \
     && mkdir -p /data /workspace \
-    && chown -R imprint:imprint /data /workspace /app
+    && chown imprint:imprint /data /workspace
 
 USER imprint
 WORKDIR /workspace

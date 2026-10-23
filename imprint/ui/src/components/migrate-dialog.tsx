@@ -27,7 +27,11 @@ type Props = {
   preset?: MigratePreset;
 };
 
-export function MigrateDialog({
+export function MigrateDialog(props: Props) {
+  return props.open ? <MigrateDialogContent {...props} /> : null;
+}
+
+function MigrateDialogContent({
   open,
   onClose,
   onDone,
@@ -41,8 +45,8 @@ export function MigrateDialog({
   );
 
   const [mode, setMode] = useState<Mode>(preset?.mode ?? "project");
-  const [fromWs, setFromWs] = useState("");
-  const [toWs, setToWs] = useState("");
+  const [fromWs, setFromWs] = useState(activeProp ?? wsProp?.[0] ?? "");
+  const [toWs, setToWs] = useState(wsProp?.find((name) => name !== (activeProp ?? wsProp?.[0])) ?? "");
   const [projects, setProjects] = useState<string[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
   const [sources, setSources] = useState<string[]>([]);
@@ -52,35 +56,18 @@ export function MigrateDialog({
   const [log, setLog] = useState<string[]>([]);
   const [done, setDone] = useState(false);
 
-  // Sync active/workspaces when opened or props change
   useEffect(() => {
-    if (!open) return;
-    setLog([]);
-    setDone(false);
-    setMode(preset?.mode ?? "project");
-    setSelection(preset?.value ?? "");
-    setFilter("");
-
-    const loadWs = async () => {
-      if (wsProp && wsProp.length) {
-        setWorkspaces(wsProp);
-        setActiveWorkspace(activeProp ?? "");
-        setFromWs(activeProp ?? wsProp[0] ?? "");
-        setToWs(wsProp.find((w) => w !== (activeProp ?? "")) ?? "");
-      } else {
-        try {
-          const r = await getWorkspaces();
-          setWorkspaces(r.workspaces);
-          setActiveWorkspace(r.active);
-          setFromWs(r.active);
-          setToWs(r.workspaces.find((w) => w !== r.active) ?? "");
-        } catch {
-          // ignore
-        }
-      }
-    };
-    loadWs();
-  }, [open, wsProp, activeProp, preset]);
+    if (wsProp?.length) return;
+    let cancelled = false;
+    getWorkspaces().then((state) => {
+      if (cancelled) return;
+      setWorkspaces(state.workspaces);
+      setActiveWorkspace(state.active);
+      setFromWs(state.active);
+      setToWs(state.workspaces.find((name) => name !== state.active) ?? "");
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [wsProp]);
 
   // Load option lists once open (skip when we have a preset)
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Badge } from "@/components/ui/badge";
 import { getGraphScope, getMemory, getTopicDetail } from "@/lib/api";
 import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
@@ -48,45 +48,33 @@ function sizeFor(n: GraphNode, maxCount: number): number {
   return Math.max(cfg.min, Math.min(cfg.max, cfg.base + ratio * cfg.scale));
 }
 
-function scopeLabel(scope: string): string {
-  const [kind, ...rest] = scope.split(":");
-  const val = rest.join(":");
-  if (kind === "root" || !val) return "root";
-  if (kind === "src") return val.split("/").pop() || val;
-  return val;
+function savedGraphState(): Partial<{ depth: number; forces: GraphForces; toggles: GraphToggles; panelOpen: boolean }> {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
 }
 
 export default function GraphPage() {
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  return mounted ? <GraphPageContent /> : <GraphSkeleton />;
+}
+
+function GraphPageContent() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [crumbs, setCrumbs] = useState<ScopeCrumb[]>([{ scope: "root", label: "root" }]);
-  const [data, setData] = useState<GraphScopeData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [saved] = useState(savedGraphState);
+  const [graphResult, setGraphResult] = useState<{ key: string; data: GraphScopeData | null; error?: string }>({ key: "", data: null });
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [chunkDialog, setChunkDialog] = useState<ChunkPreview | null>(null);
-  const [topicChunks, setTopicChunks] = useState<MemoryNode[] | null>(null);
-  const [topicLoading, setTopicLoading] = useState(false);
-  const [depth, setDepth] = useState(1);
-  const [forces, setForces] = useState<GraphForces>(DEFAULT_FORCES);
-  const [toggles, setToggles] = useState<GraphToggles>(DEFAULT_TOGGLES);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [topicResult, setTopicResult] = useState<{ key: string; nodes: MemoryNode[] }>({ key: "", nodes: [] });
+  const [depth, setDepth] = useState(saved.depth && saved.depth > 0 && saved.depth <= 3 ? saved.depth : 1);
+  const [forces, setForces] = useState<GraphForces>({ ...DEFAULT_FORCES, ...saved.forces });
+  const [toggles, setToggles] = useState<GraphToggles>({ ...DEFAULT_TOGGLES, ...saved.toggles });
+  const [panelOpen, setPanelOpen] = useState(saved.panelOpen !== false);
   const [query, setQuery] = useState("");
 
   const graphRef = useRef<unknown>(null);
   const resizeObsRef = useRef<ResizeObserver | null>(null);
   const adjacencyRef = useRef<Map<string, Set<string>>>(new Map());
 
-  // Restore persisted state
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const s = JSON.parse(raw);
-      if (s.depth) setDepth(s.depth);
-      if (s.forces) setForces({ ...DEFAULT_FORCES, ...s.forces });
-      if (s.toggles) setToggles({ ...DEFAULT_TOGGLES, ...s.toggles });
-      if (s.panelOpen !== undefined) setPanelOpen(s.panelOpen);
-    } catch {}
-  }, []);
 
   useEffect(() => {
     try {
@@ -105,40 +93,29 @@ export default function GraphPage() {
     return pc ? pc.scope.slice("project:".length) : null;
   }, [crumbs]);
 
-  // Fetch chunks for selected topic node
+  const topicKey = selected?.kind === "topic" ? `${currentProject}:${selected.id}` : "";
+  const topicLoading = !!topicKey && topicResult.key !== topicKey;
+  const topicChunks = topicKey && topicResult.key === topicKey ? topicResult.nodes : null;
+  const graphKey = `${scope}:${depth}`;
+  const loading = graphResult.key !== graphKey;
+  const data = loading ? null : graphResult.data;
+
   useEffect(() => {
-    if (!selected || selected.kind !== "topic") {
-      setTopicChunks(null);
-      return;
-    }
+    if (!selected || selected.kind !== "topic") return;
     let cancelled = false;
-    setTopicLoading(true);
-    setTopicChunks(null);
-    getTopicDetail(selected.label)
-      .then((d) => {
-        if (cancelled) return;
-        const nodes = currentProject
-          ? d.nodes.filter((n) => n.project === currentProject)
-          : d.nodes;
-        setTopicChunks(nodes);
-      })
-      .catch(() => !cancelled && setTopicChunks([]))
-      .finally(() => !cancelled && setTopicLoading(false));
+    getTopicDetail(selected.label).then((result) => {
+      if (!cancelled) setTopicResult({ key: topicKey, nodes: currentProject ? result.nodes.filter((node) => node.project === currentProject) : result.nodes });
+    }).catch(() => { if (!cancelled) setTopicResult({ key: topicKey, nodes: [] }); });
     return () => { cancelled = true; };
-  }, [selected, currentProject]);
+  }, [selected, currentProject, topicKey]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    getGraphScope(scope, depth)
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [scope, depth]);
+    getGraphScope(scope, depth).then((result) => {
+      if (!cancelled) setGraphResult({ key: graphKey, data: result });
+    }).catch((error) => { if (!cancelled) setGraphResult({ key: graphKey, data: null, error: String(error) }); });
+    return () => { cancelled = true; };
+  }, [scope, depth, graphKey]);
 
   // Filter nodes/edges based on toggles + local mode + search
   const filtered = useMemo(() => {
@@ -457,6 +434,7 @@ export default function GraphPage() {
       </div>
 
       <div className="flex-1 relative">
+        {!loading && graphResult.error && <p role="alert" className="absolute bottom-4 left-4 right-4 z-20 rounded border border-destructive bg-background p-3 text-sm">Graph could not load: {graphResult.error}</p>}
         {loading && !data ? (
           <GraphSkeleton />
         ) : (
@@ -551,7 +529,7 @@ export default function GraphPage() {
                     const mid = selected.id.replace(/^chunk:/, "");
                     getMemory(mid)
                       .then((m) =>
-                        setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: (m as any)?.content || selected.content || "" }),
+                        setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: m.content || selected.content || "" }),
                       )
                       .catch(() =>
                         setChunkDialog({ label: selected.label, source: selected.fullPath, project: selected.project, content: selected.content || "" }),

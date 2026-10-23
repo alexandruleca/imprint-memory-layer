@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterable
 
 from . import queue_lock
+from .processes import is_alive
 
 # SIGKILL doesn't exist on Windows; fall back to SIGTERM for the force-kill
 # escalation path (os.kill(pid, SIGTERM) terminates unconditionally on Windows).
@@ -163,7 +164,9 @@ def _mark_done(job_id: str, loop: asyncio.AbstractEventLoop) -> None:
 def enqueue(command: str, body: dict | None) -> str:
     _init_db()
     job_id = uuid.uuid4().hex
-    body_json = json.dumps(body or {})
+    from . import config
+    # Capture the workspace now, rather than when this job eventually runs.
+    body_json = json.dumps({**(body or {}), "_workspace": config.get_active_workspace()})
     now = time.time()
     with _db_lock, _connect() as conn:
         conn.execute(
@@ -266,15 +269,7 @@ def cancel(job_id: str) -> dict:
 
 
 def _pid_dead(pid: int | None) -> bool:
-    if not pid:
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        return False
-    return False
+    return not is_alive(pid)
 
 
 def _pgid_dead(pgid: int | None) -> bool:
@@ -309,15 +304,7 @@ def recover_on_startup() -> None:
         rows = conn.execute("SELECT id, pid FROM jobs WHERE status='running'").fetchall()
         for row in rows:
             pid = row["pid"]
-            alive = False
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    alive = True
-                except ProcessLookupError:
-                    alive = False
-                except PermissionError:
-                    alive = True  # can't tell, assume alive
+            alive = is_alive(pid)
             if not alive:
                 conn.execute(
                     "UPDATE jobs SET status='failed', error=?, ended_at=? WHERE id=?",
@@ -444,6 +431,8 @@ async def _run_job(job: dict) -> None:
         # the API if the lock is briefly busy (e.g. during a cancel race);
         # force it into wait-and-acquire mode so it just runs.
         env["IMPRINT_QUEUE_FOREGROUND"] = "1"
+        if body.get("_workspace"):
+            env["IMPRINT_WORKSPACE"] = body["_workspace"]
 
         proc = subprocess.Popen(
             argv,

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/hunter/imprint/internal/configfile"
 )
 
 // ReadJSON reads a JSON file into a map.
@@ -29,15 +31,7 @@ func WriteJSON(path string, data map[string]any) error {
 	}
 	content = append(content, '\n')
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, content, 0644); err != nil {
-		return fmt.Errorf("writing %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("renaming %s to %s: %w", tmp, path, err)
-	}
-	return nil
+	return configfile.Write(path, content)
 }
 
 // EnsurePermission adds a permission string to the permissions.allow array
@@ -377,6 +371,7 @@ func EnsureMCPServerAtKey(path, rootKey, name string, spec map[string]any) (bool
 	}
 
 	if existing, ok := servers[name].(map[string]any); ok {
+		spec = mergeOwnedSpec(existing, spec)
 		if jsonEqual(existing, spec) {
 			return false, nil
 		}
@@ -446,6 +441,7 @@ func EnsureMCPServerNested(path string, keyPath []string, name string, spec map[
 	}
 
 	if existing, ok := cur[name].(map[string]any); ok {
+		spec = mergeOwnedSpec(existing, spec)
 		if jsonEqual(existing, spec) {
 			return false, nil
 		}
@@ -561,4 +557,23 @@ func EnsureHook(settingsPath, event, command string, timeout int, async bool) (b
 
 	hooks[event] = append(eventHooks, newGroup)
 	return true, WriteJSON(settingsPath, data)
+}
+
+// mergeOwnedSpec changes only keys supplied by the adapter; custom options and
+// user environment variables survive a runtime relocation or setup repair.
+func mergeOwnedSpec(existing, desired map[string]any) map[string]any {
+	result := make(map[string]any, len(existing)+len(desired))
+	for key, value := range existing {
+		result[key] = value
+	}
+	for key, value := range desired {
+		left, leftOK := result[key].(map[string]any)
+		right, rightOK := value.(map[string]any)
+		if leftOK && rightOK {
+			result[key] = mergeOwnedSpec(left, right)
+		} else {
+			result[key] = value
+		}
+	}
+	return result
 }

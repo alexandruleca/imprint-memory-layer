@@ -6,7 +6,7 @@ services:
     image: ghcr.io/alexandruleca/imprint:latest
     restart: unless-stopped
     ports:
-      - "8420:8420"
+      - "127.0.0.1:8420:8420"
     volumes:
       - imprint-data:/data
       # Uncomment to expose your project for in-container ingest:

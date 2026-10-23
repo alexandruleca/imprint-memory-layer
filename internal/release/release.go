@@ -3,14 +3,68 @@
 package release
 
 import (
+	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// VerifyChecksum validates an archive against the exact asset line in SHA256SUMS.
+// Verification must happen before extraction or any installed files are changed.
+func VerifyChecksum(path, asset string, checksums io.Reader) error {
+	scanner := bufio.NewScanner(checksums)
+	expected := ""
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == asset {
+			if expected != "" {
+				return fmt.Errorf("duplicate checksum for %s", asset)
+			}
+			expected = fields[0]
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	decoded, err := hex.DecodeString(expected)
+	if err != nil || len(decoded) != sha256.Size {
+		return fmt.Errorf("missing or invalid checksum for %s", asset)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return err
+	}
+	if !strings.EqualFold(hex.EncodeToString(digest.Sum(nil)), expected) {
+		return fmt.Errorf("checksum mismatch for %s; archive was not installed", asset)
+	}
+	return nil
+}
+
+// VerifyReleaseArchive fetches checksums from the already resolved release.
+func VerifyReleaseArchive(release *Release, asset, path string) error {
+	for _, candidate := range release.Assets {
+		if candidate.Name == "SHA256SUMS" {
+			var buffer strings.Builder
+			if err := Download(candidate.BrowserDownloadURL, &buffer); err != nil {
+				return err
+			}
+			return VerifyChecksum(path, asset, strings.NewReader(buffer.String()))
+		}
+	}
+	return fmt.Errorf("release %s has no SHA256SUMS", release.TagName)
+}
 
 // Repo is the canonical GitHub repo path. Kept in one spot so install.sh
 // and the updater stay in sync.

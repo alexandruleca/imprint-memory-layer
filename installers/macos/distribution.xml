@@ -12,7 +12,7 @@
 
     <options customize="never" require-scripts="true" hostArchitectures="__ARCH__"/>
 
-    <os-version min="11.0"/>
+    <os-version min="13.0"/>
 
     <choices-outline>
         <line choice="default">

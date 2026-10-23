@@ -150,7 +150,7 @@ imprint ingest <path>      # index project source files (directory or single fil
 imprint learn              # index Claude Code conversations + memory files
 imprint learn --desktop    # also ingest Claude Desktop / ChatGPT Desktop export zips from Downloads
 imprint ingest-url <url>   # fetch URL(s), extract content, and index (html/pdf/etc)
-imprint refresh <dir>      # re-index only changed files (mtime-based)
+imprint refresh <dir>      # re-index only changed files (SHA256-based)
 imprint refresh-urls       # re-check stored URLs via ETag/Last-Modified and re-index changed
 imprint retag [--project] [--all]
                            # re-run the tagger on existing memories (--all re-tags already-tagged chunks)
@@ -214,7 +214,7 @@ Terms used across the docs.
 | **Domain** | Content-derived tag from keyword regex: `auth`, `db`, `api`, `math`, `rendering`, `ui`, `testing`, `infra`, `ml`, `perf`, `security`, `build`, `payments`. |
 | **Topics** | Free-form tags from zero-shot cosine similarity or (opt-in) LLM classification — more granular than `domain`. |
 | **Ingestion** | Scanning a directory, detecting projects, chunking files, embedding chunks, tagging, and upserting into Qdrant. |
-| **Refresh** | Incremental re-ingest — only re-chunks + re-embeds files whose mtime changed since last run. |
+| **Refresh** | Incremental re-ingest — compares byte hashes, reuses unchanged sources and removes recorded deleted files inside selected roots. |
 | **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. UI at `/queue` lists active + queued + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
 | **Auto-extract** | Stop hook that parses conversation transcripts after each Claude response and stores Q+A exchanges + decision-like statements. |
 | **PreCompact hook** | Synchronous hook that fires before Claude's context window compresses — instructs Claude to save important context via MCP tools first. |
@@ -264,3 +264,5 @@ Questions, feedback, or bug reports? Reach out:
 
 [![X / Twitter](https://img.shields.io/badge/X-@AlexandruLeca-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/AlexandruLeca)
 [![GitHub Issues](https://img.shields.io/badge/GitHub-Issues-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/alexandruleca/imprint-memory-layer/issues)
+
+Engineering documentation: [repository assessment](docs/repository-assessment.md), [integration strategy](docs/integrations.md), [quality roadmap](docs/quality-roadmap.md), [platform validation](docs/platform-validation.md), and [architecture decisions](docs/adr/README.md).

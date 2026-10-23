@@ -140,6 +140,12 @@ def validate_workspace_name(name: str) -> str | None:
 
 
 def get_active_workspace() -> str:
+    pinned = os.environ.get("IMPRINT_WORKSPACE")
+    if pinned:
+        error = validate_workspace_name(pinned)
+        if error or pinned not in get_known_workspaces():
+            raise ValueError(f"Invalid or unknown pinned workspace: {pinned}")
+        return pinned
     return _read_workspace_config().get("active", "default")
 
 

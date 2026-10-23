@@ -100,10 +100,11 @@ func provisionWithUv(uv, venvDir, venvPython, baseReqs string) {
 	}
 
 	output.Info("Installing base dependencies (uv)...")
-	if err := runner.Run(uv, "pip", "install",
-		"--python", venvPython,
-		"-r", baseReqs,
-	); err != nil {
+	installArgs := []string{"pip", "install", "--python", venvPython, "-r", baseReqs}
+	if strings.HasSuffix(baseReqs, ".lock.txt") {
+		installArgs = append(installArgs, "--require-hashes")
+	}
+	if err := runner.Run(uv, installArgs...); err != nil {
 		output.Fail("uv pip install (base) failed: " + err.Error())
 	}
 }
@@ -148,7 +149,7 @@ func provisionWithHostPython(venvDir, venvPython, venvPip, baseReqs string) {
 
 	_ = runner.Run(venvPip, "install", "--upgrade", "pip", "--quiet")
 	output.Info("Installing base dependencies (pip)...")
-	if err := runner.Run(venvPip, "install", "-r", baseReqs, "--quiet"); err != nil {
+	if err := runner.Run(venvPip, append([]string{"install", "--quiet"}, requirementInstallArgs(baseReqs)...)...); err != nil {
 		output.Fail("pip install (base) failed: " + err.Error())
 	}
 }
@@ -164,16 +165,9 @@ func installGpuReqs(uv, venvPython, venvPip, gpuReqs string) {
 	// Remove the CPU wheel first — the two packages share the `onnxruntime`
 	// namespace and cannot coexist.
 	output.Info("Uninstalling onnxruntime (CPU) before GPU overlay...")
-	if uv != "" {
-		_ = runner.Run(uv, "pip", "uninstall", "--python", venvPython, "onnxruntime")
-		if err := runner.Run(uv, "pip", "install", "--python", venvPython, "-r", gpuReqs); err != nil {
-			output.Warn("uv pip install (gpu) failed: " + err.Error())
-		}
-	} else {
-		_ = runner.Run(venvPip, "uninstall", "-y", "onnxruntime", "--quiet")
-		if err := runner.Run(venvPip, "install", "-r", gpuReqs, "--quiet"); err != nil {
-			output.Warn("pip install (gpu) failed: " + err.Error())
-		}
+	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime")
+	if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(gpuReqs)...); err != nil {
+		output.Warn("GPU overlay install failed: " + err.Error())
 	}
 }
 
@@ -186,15 +180,17 @@ func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
 		return
 	}
 	output.Info("Installing llama-cpp-python (local tagger + chat)...")
-	if uv != "" {
-		if err := runner.Run(uv, "pip", "install", "--python", venvPython, "-r", llmReqs); err != nil {
-			output.Warn("uv pip install (llm) failed: " + err.Error())
-		}
-	} else {
-		if err := runner.Run(venvPip, "install", "-r", llmReqs, "--quiet"); err != nil {
-			output.Warn("pip install (llm) failed: " + err.Error())
-		}
+	if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(llmReqs)...); err != nil {
+		output.Warn("LLM overlay install failed: " + err.Error())
 	}
+}
+
+func requirementInstallArgs(requirements string) []string {
+	args := []string{"-r", requirements}
+	if strings.HasSuffix(requirements, ".lock.txt") {
+		args = append(args, "--require-hashes")
+	}
+	return args
 }
 
 // pipInstall runs `pip install`-equivalent through uv when available,
@@ -289,6 +285,8 @@ type backendPaths struct {
 	DataDir    string
 }
 
+var preparedBackend *backendPaths
+
 // setupBackend installs everything that is independent of the host AI tool:
 // Python venv (via bundled uv), profile-selected deps, data directory,
 // shell alias. Returns the resolved paths so target-specific code can wire
@@ -297,12 +295,24 @@ type backendPaths struct {
 // Host Python is no longer a prerequisite: uv ships in the release archive
 // and downloads its own Python via python-build-standalone when needed.
 func setupBackend() backendPaths {
+	if preparedBackend != nil {
+		return *preparedBackend
+	}
 	projectDir := platform.FindProjectDir()
 	venvDir := platform.VenvDir(projectDir)
 	dataDir := platform.DataDir(projectDir)
 	baseReqs := filepath.Join(projectDir, "requirements", "base.txt")
+	if locked := filepath.Join(projectDir, "requirements", "base.lock.txt"); platform.FileExists(locked) {
+		baseReqs = locked
+	}
 	gpuReqs := filepath.Join(projectDir, "requirements", "gpu.txt")
 	llmReqs := filepath.Join(projectDir, "requirements", "llm.txt")
+	if locked := filepath.Join(projectDir, "requirements", "gpu.lock.txt"); platform.FileExists(locked) {
+		gpuReqs = locked
+	}
+	if locked := filepath.Join(projectDir, "requirements", "llm.lock.txt"); platform.FileExists(locked) {
+		llmReqs = locked
+	}
 	if !platform.FileExists(baseReqs) {
 		// Old layout (pre-split) — fall through and let the legacy path use
 		// requirements.txt. Breaks nothing, keeps dev checkouts happy.
@@ -444,13 +454,8 @@ func setupBackend() backendPaths {
 		saveProfile(projectDir, profileState{Profile: profile, WithLLM: llmOn})
 	}
 
-	// Write the first-run sentinel that the macOS launcher (and Windows
-	// shortcut) checks to decide whether to re-run bootstrap. Lives in the
-	// writable base so it survives a .pkg upgrade but is wiped by
-	// `imprint uninstall`.
-	sentinel := filepath.Join(platform.MutableBaseDir(projectDir), ".first-run.done")
-	_ = os.MkdirAll(filepath.Dir(sentinel), 0755)
-	_ = os.WriteFile(sentinel, []byte{}, 0644)
+	// Native installer entry points mark first-run completion only after
+	// both backend provisioning and host registration have finished.
 
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
 	reportExtractorHealth(venvPython, projectDir, dataDir)
@@ -484,11 +489,12 @@ func setupBackend() backendPaths {
 		output.Warn("Dashboard UI not found at imprint/ui/out/ — run `cd imprint/ui && npm install && npm run build` to rebuild")
 	}
 
-	return backendPaths{
+	preparedBackend = &backendPaths{
 		ProjectDir: projectDir,
 		VenvPython: venvPython,
 		DataDir:    dataDir,
 	}
+	return *preparedBackend
 }
 
 // SetupClaudeCode wires the Imprint MCP server into Claude Code: registers
@@ -528,7 +534,7 @@ func SetupClaudeCode() {
 	settingsPath := platform.ClaudeSettingsPath()
 	added, err := jsonutil.EnsurePermission(settingsPath, "mcp__imprint__*")
 	if err != nil {
-		output.Warn("Could not update " + settingsPath + ": " + err.Error())
+		output.Fail("Could not update " + settingsPath + ": " + err.Error())
 	} else if added {
 		output.Success("Added imprint permissions to " + settingsPath)
 	} else {
@@ -554,7 +560,7 @@ func SetupClaudeCode() {
 }
 
 const (
-	pythonMinMinor = 10 // minimum supported: 3.10
+	pythonMinMinor = 12 // locked runtime and safe archive extraction require 3.12
 	pythonMaxMinor = 13 // maximum supported: 3.13 (ONNX Runtime, etc.)
 )
 
@@ -1330,15 +1336,15 @@ func setupHooks(settingsPath string, bp backendPaths) {
 
 	specs := []hookSpec{
 		{"Stop", "", hooks.StopCommand(hp), 120, true},
-		{"PreCompact", "", hooks.PreCompactCommand(), 90, false},
-		{"SessionStart", "startup|resume", hooks.SessionStartCommand(), 10, false},
+		{"PreCompact", "", hooks.PreCompactCommand(hp), 90, false},
+		{"SessionStart", "startup|resume", hooks.SessionStartCommand(hp), 10, false},
 		{"PostToolUse", "mcp__imprint__search", hooks.PostSearchSentinelCommand(hp), 10, true},
 		{"PreToolUse", "Read|Grep|Glob", hooks.PreReadGateCommand(hp), 10, false},
 	}
 
 	for _, h := range specs {
-		if err := jsonutil.SetHookWithMatcher(settingsPath, h.event, h.matcher, h.command, h.timeout, h.async); err != nil {
-			output.Warn("Could not set " + h.event + " hook: " + err.Error())
+		if err := jsonutil.SetOwnedHookWithMatcher(settingsPath, h.event, h.matcher, h.command, h.timeout, h.async); err != nil {
+			output.Fail("Could not set " + h.event + " hook: " + err.Error())
 		} else {
 			label := h.event
 			if h.matcher != "" {
@@ -1375,7 +1381,7 @@ func setupGlobalClaudeMD() {
 	}
 
 	if err := os.WriteFile(claudeMD, []byte(updated), 0644); err != nil {
-		output.Warn("Could not write " + claudeMD + ": " + err.Error())
+		output.Fail("Could not write " + claudeMD + ": " + err.Error())
 		return
 	}
 	output.Success("Updated " + claudeMD)

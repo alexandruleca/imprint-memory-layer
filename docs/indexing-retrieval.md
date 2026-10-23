@@ -1,0 +1,43 @@
+---
+title: Indexing and retrieval
+description: Source lifecycle, freshness, ranking, migration, evaluation and known limitations.
+---
+
+## Source lifecycle
+
+`imprint ingest <dir>` and `imprint refresh <dir>` use the same pipeline. Scan selected roots, respect git tracked/ignore boundaries, filter generated/secret filenames and reject symlinks escaping a root. Git filenames use NUL delimiters. Non-git walking propagates scan errors. Known secret names are a conservative exclusion, not a credential scanner; review selected sources before indexing.
+
+Fingerprint bytes with SHA256 and store `source_hash`, `source_size`, `source_path` and `source_mtime` on local file chunks. Compare fingerprints rather than mtime alone, including timestamp-preserving edits. Check again after extraction. Text files are UTF-8; undecodable input fails visibly and retains prior chunks. Source text defaults to 2,000,000 bytes (`imprint config set ingest.max_file_bytes 4000000` changes it). Documents have the separate `ingest.max_doc_size_mb` extraction policy.
+
+Prepare every chunk for a source before replacement. Upsert first; delete obsolete IDs only after successful embeddings/writes, matching project and source. Independent sources can succeed even if another file fails. Verified empty text removes prior chunks. Failed reads, decoding, oversize files, unavailable extractors or extraction errors retain the prior index and make the run incomplete/nonzero. Storage failures propagate. Removed files are pruned only when their recorded absolute path is actually missing inside a successfully scanned requested root. Excluded-but-existing files are not silently pruned; legacy chunks of a newly excluded secret may need explicit deletion.
+
+Replacement is not a database transaction. A reader may briefly see old and new chunks, and an interrupted upsert may leave additional chunks until retry. Fingerprint inconsistencies force reprocessing. Deletion history is not a backup. Last-known source state is derived from stored chunks, so empty files are revisited on later runs. Sources with no provenance are retained until reindexed or explicitly removed.
+
+The public ID hashes complete stripped content, project, source and optional chunk position. Different long chunks sharing a prefix and identical text at separate positions remain distinct. Single memories have no position component. Existing logical IDs/point UUIDs remain readable. Source refresh replaces legacy chunk IDs without a bulk migration; independently re-saving an old note may create a new identity. Dedup checks retrieve the requested IDs from storage rather than trusting a process-local cache that another process can invalidate.
+
+## Ranking contract
+
+MCP and dashboard call the same vectorstore search. Default `hybrid` uses the existing ONNX semantic vector, Qdrant full-text candidates and deterministic reciprocal rank fusion. Lexical scoring considers term coverage/frequency and exact identifier, path and phrase signals. `semantic` remains available for comparison. Filters apply before ranking. At most 256 candidates per channel are read, query terms cap at 12, pages at 50, and offsets at 255.
+
+Results include semantic `similarity`, `match_type`, `lexical_score` and `retrieval_score`, plus available provenance. These scores have different meanings; none is a probability that an answer is correct. A lexical-only candidate can have semantic similarity zero. Hybrid search still requires embeddings and is not a lexical-only fallback when models fail. Qdrant's bounded lexical scroll is not global BM25 and can miss relevant candidates in large corpora. Pagination is not a snapshot during concurrent writes.
+
+Search results are untrusted evidence. Source hashes describe indexed bytes; retrieval does not read and verify the live filesystem automatically. Check current files before editing. URL cache freshness relies on server-provided ETag/Last-Modified; it is not cryptographic provenance. Re-sending an inline source/URL replaces only its project/source set after successful preparation.
+
+## Evaluation to add next
+
+The regression suite proves specific invariants, not overall retrieval quality. Build a versioned held-out set before tuning weights or adding another model:
+
+| Case | Required behavior | Measure |
+| --- | --- | --- |
+| Exact identifier/decision | Known source appears near the top | Recall@5/10, MRR |
+| Paraphrased behavior | Find related code without exact words | Recall, nDCG |
+| Same terms across projects/workspaces | Filters isolate the requested scope | Leakage rate must be zero |
+| Missing fact | Assistant reports insufficient evidence | Unsupported-answer rate |
+| Changed/deleted/renamed source | Refresh retires obsolete chunks and exposes provenance | Freshness/deletion correctness |
+| Repeated headers/generated boilerplate | Useful chunks are not crowded out | Duplicate rate, diversity |
+| Remote/model/storage failure | Preserve prior data and expose failure | False-success count must be zero |
+| Large/multilingual corpus | Bound latency/memory while retaining relevance | p50/p95, peak RAM, recall |
+
+Compare semantic baseline and hybrid on the same corpus with blinded relevance labels. Track answer correctness and source citations in addition to tokens. Then evaluate BM25, a small reranker, syntax-aware symbol metadata, result diversity and a generation-based atomic replacement design. Add opt-in watching only after deletion/ignore/resource controls have production evidence.
+
+See [ADR 0005](adr/0005-source-lifecycle-and-hybrid-retrieval.md) and [platform validation](platform-validation.md).

@@ -24,13 +24,20 @@ param(
     [switch]$Interactive
 )
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 $InformationPreference = "Continue"
 
 $Bin      = Join-Path $InstallDir "bin\imprint.exe"
 $Uv       = Join-Path $InstallDir "bin\uv.exe"
 $Sentinel = Join-Path $InstallDir ".first-run.done"
 $Log      = Join-Path $InstallDir "first-run.log"
+$ResultFile = Join-Path $InstallDir ".setup-result"
+
+trap {
+    "FAILED: $_" | Out-File -FilePath $Log -Append -Encoding ascii
+    Set-Content -Path $ResultFile -Value '1' -Encoding ascii
+    exit 1
+}
 
 function Log-Line {
     param([string]$Msg)
@@ -42,6 +49,7 @@ function Log-Line {
 function Fail-Exit {
     param([string]$Msg)
     Log-Line "FAILED: $Msg"
+    Set-Content -Path $ResultFile -Value '1' -Encoding ascii
     Write-Host ""
     Write-Host "Log file: $Log" -ForegroundColor Yellow
     if ($PauseOnFinish -or $Interactive) {
@@ -53,6 +61,7 @@ function Fail-Exit {
 }
 
 "" | Out-File -FilePath $Log -Encoding ascii  # truncate
+Remove-Item $ResultFile -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "=== Imprint first-run setup ===" -ForegroundColor Cyan
@@ -90,11 +99,12 @@ Log-Line "Running: imprint $($BootstrapArgs -join ' ')"
 if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint bootstrap failed (exit=$LASTEXITCODE) - see $Log" }
 
 Log-Line "Registering Imprint with Claude Code..."
-& $Bin setup *>> $Log
+& $Bin setup --non-interactive *>> $Log
 if ($LASTEXITCODE -ne 0) { Fail-Exit "imprint setup failed (exit=$LASTEXITCODE)" }
 
 New-Item -ItemType File -Path $Sentinel -Force | Out-Null
 Log-Line "Setup complete."
+Set-Content -Path $ResultFile -Value '0' -Encoding ascii
 
 if ($Interactive) {
     Write-Host ""

@@ -9,7 +9,7 @@ UI_DIR     := ui-electron
         clean fetch-uv \
         ui-build ui-build-linux ui-build-mac ui-build-win ui-build-all \
         ui-dist ui-dist-linux ui-dist-mac ui-dist-win \
-        site-build \
+        site-build dashboard-build \
         $(PLATFORMS)
 
 # Build for current OS/arch (local dev)
@@ -28,58 +28,16 @@ $(PLATFORMS):
 		go build -ldflags "$(LDFLAGS)" -o bin/imprint-$(OS)-$(ARCH)$(EXT) .
 	@echo "  bin/imprint-$(OS)-$(ARCH)$(EXT)"
 
-# Package per-platform self-contained archives into dist/.
-# Each archive contains the full repo source (filtered via .releaseignore)
-# plus that platform's imprint binary at bin/imprint[.exe].
-# Requires binaries in bin/ — run `make all` first.
-# Includes Electron UI binary from build/electron/ if pre-built via ui-dist-*.
+# Stage and validate archives without deleting unrelated build outputs.
+# Staged trees remain available to native installer targets.
 package:
-	@command -v rsync >/dev/null || { echo "rsync required for packaging"; exit 1; }
-	@command -v python3 >/dev/null || { echo "python3 required for zip packaging"; exit 1; }
-	@rm -rf dist
-	@mkdir -p dist
 	@set -e; for plat in $(PLATFORMS); do \
-		OS=$${plat%/*}; ARCH=$${plat#*/}; \
-		EXT=""; [ "$$OS" = "windows" ] && EXT=".exe"; \
-		NAME="imprint-$$OS-$$ARCH"; \
-		STAGE="dist/$$NAME"; \
-		SRCBIN="bin/imprint-$$OS-$$ARCH$$EXT"; \
-		if [ ! -f "$$SRCBIN" ]; then \
-			echo "[x] missing $$SRCBIN — run 'make all' first"; exit 1; \
-		fi; \
-		echo "[*] staging $$NAME"; \
-		mkdir -p "$$STAGE"; \
-		rsync -a --exclude-from=.releaseignore ./ "$$STAGE/"; \
-		mkdir -p "$$STAGE/bin"; \
-		cp "$$SRCBIN" "$$STAGE/bin/imprint$$EXT"; \
-		chmod +x "$$STAGE/bin/imprint$$EXT"; \
-		UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh $$OS $$ARCH "$$STAGE"; \
-		if [ "$$OS" = "linux" ] && [ -f "build/electron/imprint-ui" ]; then \
-			cp "build/electron/imprint-ui" "$$STAGE/bin/imprint-ui"; \
-			chmod +x "$$STAGE/bin/imprint-ui"; \
-			echo "  included Electron UI (AppImage)"; \
-		elif [ "$$OS" = "darwin" ] && [ -d "build/electron/imprint-ui.app" ]; then \
-			cp -r "build/electron/imprint-ui.app" "$$STAGE/bin/imprint-ui.app"; \
-			echo "  included Electron UI (macOS .app)"; \
-		elif [ "$$OS" = "windows" ] && [ -f "build/electron/imprint-ui.exe" ]; then \
-			cp "build/electron/imprint-ui.exe" "$$STAGE/bin/imprint-ui.exe"; \
-			echo "  included Electron UI (portable exe)"; \
-		else \
-			echo "  [!] no Electron binary for $$OS — run 'make ui-dist-$$OS' on that platform first"; \
-		fi; \
-		if [ "$$OS" = "windows" ]; then \
-			python3 -c "import shutil; shutil.make_archive('dist/$$NAME', 'zip', 'dist', '$$NAME')"; \
-			echo "  dist/$$NAME.zip"; \
-		else \
-			tar -czf "dist/$$NAME.tar.gz" -C dist "$$NAME"; \
-			echo "  dist/$$NAME.tar.gz"; \
-		fi; \
-		rm -rf "$$STAGE"; \
+		UV_VERSION=$(UV_VERSION) bash scripts/package-platform.sh "$$plat"; \
 	done
 
 # Build the macOS .pkg installer for the current host arch.
 # Usage: make installer-macos [ARCH=arm64|amd64]
-# Requires: macOS host, `make package` has already produced dist/imprint-darwin-$ARCH/
+# Requires: macOS host and a staged tree from make package[-local].
 installer-macos:
 	@[ "$$(uname)" = "Darwin" ] || { echo "installer-macos requires macOS (pkgbuild/productbuild)"; exit 1; }
 	@ARCH=$${ARCH:-$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}; \
@@ -105,53 +63,11 @@ fetch-uv:
 	@[ -n "$$OS" ] && [ -n "$$ARCH" ] && [ -n "$$DEST" ] || { echo "usage: make fetch-uv OS=<os> ARCH=<arch> DEST=<dir>"; exit 1; }
 	UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh "$$OS" "$$ARCH" "$$DEST"
 
-# Build + package a single platform for local iteration.
-# Builds the Go binary inline, stages the tree, fetches uv, produces the archive.
-# The staged tree stays in dist/<name>/ so you can inspect it without re-running.
-# Includes Electron UI from build/electron/ if pre-built via ui-dist-*.
-# Usage: make package-local [PLAT=windows/amd64]
+# Build + package one platform (defaults to the current Go target).
+PLAT ?= $(shell go env GOOS)/$(shell go env GOARCH)
 package-local:
-	$(eval _PLAT := $(or $(PLAT),windows/amd64))
-	$(eval _OS   := $(word 1,$(subst /, ,$(_PLAT))))
-	$(eval _ARCH := $(word 2,$(subst /, ,$(_PLAT))))
-	$(eval _EXT  := $(if $(filter windows,$(_OS)),.exe,))
-	$(eval _NAME := imprint-$(_OS)-$(_ARCH))
-	@command -v rsync >/dev/null || { echo "rsync required"; exit 1; }
-	@command -v python3 >/dev/null || { echo "python3 required"; exit 1; }
-	@echo "[*] building $(_OS)/$(_ARCH)..."
-	@mkdir -p bin
-	GOOS=$(_OS) GOARCH=$(_ARCH) CGO_ENABLED=0 \
-		go build -ldflags "$(LDFLAGS)" -o bin/imprint-$(_OS)-$(_ARCH)$(_EXT) .
-	@echo "  bin/imprint-$(_OS)-$(_ARCH)$(_EXT)"
-	@mkdir -p dist
-	@rm -rf "dist/$(_NAME)"
-	@echo "[*] staging $(_NAME)..."
-	@rsync -a --exclude-from=.releaseignore ./ "dist/$(_NAME)/"
-	@mkdir -p "dist/$(_NAME)/bin"
-	@cp "bin/imprint-$(_OS)-$(_ARCH)$(_EXT)" "dist/$(_NAME)/bin/imprint$(_EXT)"
-	@[ "$(_OS)" = "windows" ] || chmod +x "dist/$(_NAME)/bin/imprint"
-	@UV_VERSION=$(UV_VERSION) bash scripts/fetch-uv.sh $(_OS) $(_ARCH) "dist/$(_NAME)"
-	@if [ "$(_OS)" = "linux" ] && [ -f "build/electron/imprint-ui" ]; then \
-		cp "build/electron/imprint-ui" "dist/$(_NAME)/bin/imprint-ui"; \
-		chmod +x "dist/$(_NAME)/bin/imprint-ui"; \
-		echo "  included Electron UI (AppImage)"; \
-	elif [ "$(_OS)" = "darwin" ] && [ -d "build/electron/imprint-ui.app" ]; then \
-		cp -r "build/electron/imprint-ui.app" "dist/$(_NAME)/bin/imprint-ui.app"; \
-		echo "  included Electron UI (macOS .app)"; \
-	elif [ "$(_OS)" = "windows" ] && [ -f "build/electron/imprint-ui.exe" ]; then \
-		cp "build/electron/imprint-ui.exe" "dist/$(_NAME)/bin/imprint-ui.exe"; \
-		echo "  included Electron UI (portable exe)"; \
-	else \
-		echo "  [!] no Electron binary for $(_OS) — run 'make ui-dist-$(_OS)' to include it"; \
-	fi
-	@rm -f "dist/$(_NAME).zip" "dist/$(_NAME).tar.gz"
-	@if [ "$(_OS)" = "windows" ]; then \
-		python3 -c "import shutil; shutil.make_archive('dist/$(_NAME)', 'zip', 'dist', '$(_NAME)')"; \
-		echo "[+] dist/$(_NAME).zip (staged tree: dist/$(_NAME)/)"; \
-	else \
-		tar -czf "dist/$(_NAME).tar.gz" -C dist "$(_NAME)"; \
-		echo "[+] dist/$(_NAME).tar.gz (staged tree: dist/$(_NAME)/)"; \
-	fi
+	$(MAKE) $(PLAT)
+	UV_VERSION=$(UV_VERSION) bash scripts/package-platform.sh "$(PLAT)"
 
 # Build the Windows installer from an already-staged tree (runs iscc directly).
 # Usage: make installer-local [PLAT=windows/amd64]
@@ -195,29 +111,30 @@ ui-build-win: $(UI_DIR)/node_modules
 ui-build-all: $(UI_DIR)/node_modules
 	cd $(UI_DIR) && npx electron-builder --linux --mac --win
 
-# Normalized dist targets: build + copy to build/electron/imprint-ui[.exe/.app]
-# so make package can include them without being stomped by `rm -rf dist`.
+# Normalized outputs live in build/electron; Linux keeps a separate directory
+# per architecture. Packaging retains staged release trees under dist/.
+
+ARCH ?= $(shell go env GOARCH)
+_ELECTRON_ARCH = $(if $(filter amd64,$(ARCH)),x64,$(ARCH))
 
 ui-dist-linux: $(UI_DIR)/node_modules
-	cd $(UI_DIR) && npx electron-builder --linux AppImage
-	@mkdir -p build/electron
-	@cp $$(find dist/electron -maxdepth 1 -name '*.AppImage' | head -1) build/electron/imprint-ui
-	@chmod +x build/electron/imprint-ui
-	@echo "[+] build/electron/imprint-ui (AppImage)"
+	cd $(UI_DIR) && npx electron-builder --linux AppImage --$(_ELECTRON_ARCH) --publish never
+	@mkdir -p build/electron/linux-$(ARCH)
+	@cp dist/electron/imprint-ui.AppImage build/electron/linux-$(ARCH)/imprint-ui
+	@chmod +x build/electron/linux-$(ARCH)/imprint-ui
 
 ui-dist-mac: $(UI_DIR)/node_modules
-	cd $(UI_DIR) && npx electron-builder --mac dir --universal
+	cd $(UI_DIR) && npx electron-builder --mac dir --universal --publish never
 	@mkdir -p build/electron
 	@rm -rf build/electron/imprint-ui.app
-	@APP=$$(find dist/electron -maxdepth 2 -name 'Imprint.app' -type d | head -1); \
-	  [ -n "$$APP" ] || { echo "[x] Imprint.app not found under dist/electron"; exit 1; }; \
-	  cp -r "$$APP" build/electron/imprint-ui.app
+	@test -d dist/electron/mac-universal/Imprint.app
+	@cp -R dist/electron/mac-universal/Imprint.app build/electron/imprint-ui.app
 	@echo "[+] build/electron/imprint-ui.app"
 
 ui-dist-win: $(UI_DIR)/node_modules
-	cd $(UI_DIR) && npx electron-builder --win portable
+	cd $(UI_DIR) && npx electron-builder --win portable --x64 --publish never
 	@mkdir -p build/electron
-	@cp $$(find dist/electron -maxdepth 1 -name '*.exe' | head -1) build/electron/imprint-ui.exe
+	@cp dist/electron/imprint-ui.exe build/electron/imprint-ui.exe
 	@echo "[+] build/electron/imprint-ui.exe"
 
 # Build Electron UI for the current host OS
@@ -243,3 +160,7 @@ clean:
 	rm -rf build/ dist/
 	rm -rf $(UI_DIR)/node_modules
 	rm -rf $(SITE_DIR)/node_modules $(SITE_DIR)/dist
+
+# Always regenerate the static dashboard before a release.
+dashboard-build:
+	cd imprint/ui && npm ci --prefer-offline && npm run build
