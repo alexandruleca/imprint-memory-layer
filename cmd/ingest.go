@@ -248,7 +248,8 @@ for project_dir in claude_dir.iterdir():
         continue
     # Claude's folder encoding is ambiguous. Require real transcript cwd
     # evidence for this project before importing its auto-memory files.
-    if not any(transcript_allowed(path) for path in project_dir.glob("*.jsonl")):
+    transcripts = list(project_dir.glob("*.jsonl"))
+    if not transcripts or not all(transcript_allowed(path) for path in transcripts):
         continue
 
     # Derive project name

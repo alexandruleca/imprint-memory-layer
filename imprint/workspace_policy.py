@@ -113,7 +113,7 @@ def transcript_allowed(path, workspace=None):
                 continue
             if cwd:
                 seen = True
-                if not isinstance(cwd, str) or not any(contains(root, canonical(cwd)) for root in approved):
+                if not isinstance(cwd, str) or not Path(cwd).is_absolute() or not any(contains(root, canonical(cwd)) for root in approved):
                     return False
     return seen
 

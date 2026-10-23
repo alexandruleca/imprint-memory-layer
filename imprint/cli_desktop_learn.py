@@ -18,7 +18,8 @@ Usage:
     python -m imprint.cli_desktop_learn --watch    # poll every 30s
     python -m imprint.cli_desktop_learn --path <dir>  # extra scan roots
 
-Re-run safe: indexed zips are tracked in ``data/desktop_exports.json``.
+Re-run safe: indexed zips are tracked per workspace in
+``data/desktop_exports_<workspace>.json``.
 """
 
 from __future__ import annotations

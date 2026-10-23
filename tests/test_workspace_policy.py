@@ -74,6 +74,8 @@ class WorkspacePolicyTests(unittest.TestCase):
         self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
         transcript.write_text(json.dumps({'type': 'message'}))
         self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
+        transcript.write_text(json.dumps({'cwd': '.'}))
+        self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
 
     def test_unknown_workspaces_and_empty_cleanup_targets_fail(self):
         with self.assertRaises(ValueError):
