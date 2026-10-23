@@ -36,3 +36,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0019](0019-reproducible-benchmark-evidence.md) | Accepted | Frozen public corpora, paired trials, visible failures and auditable JSON statistics for benchmark claims. |
 | [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | Accepted | Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. |
 | [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | Accepted | Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance. |
+| [0022](0022-http-client-lifetime-during-model-work.md) | Accepted | Keep HTTP Qdrant clients alive through cold model work; retire the embedded-lock idle timer. |

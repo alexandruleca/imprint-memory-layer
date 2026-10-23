@@ -1,6 +1,7 @@
 ---
 title: Benchmark methodology and evidence
 description: Reproducible retrieval and Claude Code task measurements with provenance, failures and uncertainty.
+slug: docs/benchmarks
 ---
 
 ## Assessment of the original experiment
@@ -153,3 +154,17 @@ The homepage leads with persistent project memory, local retrieval, encrypted wo
 ## Comparing response-budget changes
 
 New manifests record `runtimeRevision` and `runtimeSourceSha256` separately from `sourceRevision` (the frozen public corpus). This allows unchanged task evidence to exercise a newer MCP runtime without calling the corpus commit the implementation version. Resuming refuses a different runtime hash. Keep both versioned result bundles. Runs taken at different times remain subject to provider cache and service variation; compare paired OFF/ON effects within each run rather than treating a sequential version comparison as randomized causal evidence.
+
+## Follow-up bundle and comparison
+
+The compact-response follow-up is `20261023T140134777248Z-fdea98ae-s1729`: 180 successful trials, 90 pairs, no protocol tool errors, plus 460 retrieval searches and 60 explicit boundary checks. Runtime `ee040e6` is pinned separately from the unchanged `fdea98ae` corpus. Later sync-control recovery and HTTP-client lifetime fixes leave MCP response formatting and ranking behavior unchanged; the measured runtime revision remains explicit.
+
+The selector retains `previousRunId` so the evidence page can display both complete studies. Comparison is permitted only with identical corpus, tasks, resolved model, repetition count and embedding identity. The table is descriptive; provider caches were managed externally and the runs were sequential. See [context budgets](context-budgets.md) for the actual response/file-read tradeoff.
+
+```bash
+python scripts/benchmark_evidence.py RAW_RUN --out benchmark/published/RUN_ID/usage-diagnostics.json
+python scripts/benchmark_comparison.py benchmark/published/BEFORE benchmark/published/AFTER \
+  --out benchmark/published/AFTER/comparison.json
+```
+
+Both token/cost and retrieval aggregates were recalculated independently from the sanitized published rows and matched the raw-run report exactly. All 51 frozen source hashes and 180 raw usage ledgers were audited. Private CLI event streams and machine-specific paths remain outside the publication bundle.

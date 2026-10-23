@@ -246,13 +246,15 @@ def _git_tracked_files(dir_path: str) -> set[str] | None:
         proc = subprocess.run(
             ["git", "-C", dir_path, "ls-files",
              "--cached", "--others", "--exclude-standard", "-z"],
-            capture_output=True, text=True, timeout=30, check=False,
+            capture_output=True, timeout=30, check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0:
         return None
-    return {name for name in proc.stdout.split("\0") if name}
+    # Names as the filesystem layer decodes them, not in the locale's
+    # encoding (cp1252 on Windows cannot decode every UTF-8 path git prints).
+    return {os.fsdecode(name) for name in proc.stdout.split(b"\0") if name}
 
 
 def scan_dir(dir_path, exclude_paths=None):

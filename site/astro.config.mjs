@@ -5,6 +5,7 @@ import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
 import tailwindcss from '@tailwindcss/vite';
 import { satteri } from '@astrojs/markdown-satteri';
+import { docLinks } from './scripts/doc-links.mjs';
 
 const env = loadEnv(process.env.NODE_ENV ?? '', process.cwd(), 'PUBLIC_');
 const ga4Id = env.PUBLIC_GA4_ID || process.env.PUBLIC_GA4_ID;
@@ -68,7 +69,7 @@ export default defineConfig({
   // JSX rules would drop the spaces between inline elements and text.
   compressHTML: true,
   markdown: {
-    processor: satteri({ mdastPlugins: [mermaidFences] }),
+    processor: satteri({ mdastPlugins: [mermaidFences, docLinks] }),
   },
   vite: {
     plugins: [tailwindcss()],

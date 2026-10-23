@@ -442,12 +442,17 @@ async def _run_job(job: dict) -> None:
         env["IMPRINT_QUEUE_FOREGROUND"] = "1"
         if body.get("_workspace"):
             env["IMPRINT_WORKSPACE"] = body["_workspace"]
+        # The job's output is UTF-8 end to end: the Go CLI writes UTF-8, and
+        # its Python children run in UTF-8 mode. Decoding with the platform's
+        # locale (cp1252 on Windows) failed on the first "═" of a header.
+        env["PYTHONUTF8"] = "1"
 
         proc = subprocess.Popen(
             argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             start_new_session=True,
             env=env,

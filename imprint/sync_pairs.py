@@ -209,9 +209,7 @@ async def exchange(channel, pair, peer, *, provider):
     if peer['fingerprint'] != pair['peer']['fingerprint']:
         raise ValueError('Paired device identity changed; pair again explicitly')
     active = pair['state'] == 'active' and pair['enabled']
-    local = {'pair_id': pair['id'], 'state': pair['state'], 'enabled': active,
-             'workspace': pair['workspace'], 'digest': await asyncio.to_thread(digest, pair['workspace']) if active else None,
-             'last_local_digest': pair.get('local_digest'), 'last_remote_digest': pair.get('remote_digest')}
+    local = {'pair_id': pair['id'], 'state': pair['state'], 'enabled': active, 'workspace': pair['workspace']}
     if provider:
         await channel.send(local)
         remote = await channel.recv(timeout=60)
@@ -231,14 +229,24 @@ async def exchange(channel, pair, peer, *, provider):
     update(pair['id'], last_seen=time.time(), last_error='')
     if not active or remote.get('enabled') is not True or remote.get('state') != 'active':
         return False
-    remote_digest = remote.get('digest')
+    # Revocation/pause must not depend on opening an index, compatible model
+    # settings, or even the workspace still existing. Only inspect data once
+    # both authenticated endpoints have agreed that transfer is enabled.
+    if pair['workspace'] not in config.get_known_workspaces():
+        raise ValueError('Paired workspace no longer exists; forget or explicitly pair a workspace again')
+    snapshot = {'digest': await asyncio.to_thread(digest, pair['workspace']),
+                'last_local_digest': pair.get('local_digest'), 'last_remote_digest': pair.get('remote_digest')}
+    await channel.send(snapshot)
+    remote_snapshot = await channel.recv(timeout=60)
+    local_digest = snapshot['digest']
+    remote_digest = remote_snapshot.get('digest')
     if not isinstance(remote_digest, str) or len(remote_digest) != 64:
         raise ValueError('Malformed paired workspace digest')
-    pair['_local_digest'], pair['_remote_digest'] = local['digest'], remote_digest
+    pair['_local_digest'], pair['_remote_digest'] = local_digest, remote_digest
     # Both endpoints must make the SAME decision. One side may have failed to
     # store/acknowledge an earlier transfer even though the other checkpointed.
-    changed = (local['digest'] != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
-               or remote_digest != remote.get('last_local_digest') or local['digest'] != remote.get('last_remote_digest'))
+    changed = (local_digest != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
+               or remote_digest != remote_snapshot.get('last_local_digest') or local_digest != remote_snapshot.get('last_remote_digest'))
     return pair if changed else False
 
 
@@ -261,8 +269,6 @@ async def _attempt(pair):
     from . import sync_ws
     identity = sync_ws.get_device_identity()
     policy = sync_ws.SyncPolicy.parse(pair['direction'])
-    if pair['state'] == 'active' and pair['workspace'] not in config.get_known_workspaces():
-        raise ValueError('Paired workspace no longer exists; forget or explicitly pair a workspace again')
     relay = sync_ws.parse_relay(pair['relay'])
     if identity['fingerprint'] == pair['peer']['fingerprint']:
         raise ValueError('Cannot sync a device with itself')

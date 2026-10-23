@@ -42,16 +42,6 @@ _inserts_since_compact = 0
 _COMPACT_EVERY = int(os.environ.get("IMPRINT_COMPACT_EVERY", "500"))
 _SCAN_BATCH = int(os.environ.get("IMPRINT_SCAN_BATCH", "2000"))
 
-# Idle close: when set, the client is released after this many seconds of
-# inactivity so other processes (`imprint ingest`) can grab the on-disk
-# lock. The MCP server enables it via release_idle_client(); CLI ingest
-# leaves it disabled (long-running session, never wants to reconnect).
-_idle_close_secs: float | None = None
-_last_use_ts: float = 0.0
-_idle_thread = None
-_idle_lock = None
-
-
 # ── Client + schema ─────────────────────────────────────────────
 def _get_client() -> QdrantClient:
     """Connect to the local Qdrant server. The runner auto-spawns it
@@ -89,41 +79,14 @@ def _close_client() -> None:
 atexit.register(_close_client)
 
 
-def _touch_use() -> None:
-    """Record activity. Idle thread checks this to decide when to close."""
-    global _last_use_ts
-    _last_use_ts = time.time()
-
-
 def release_idle_client(after_seconds: float = 30.0) -> None:
-    """Enable idle auto-close. After `after_seconds` of no vectorstore
-    activity, release the on-disk Qdrant lock so other processes
-    (e.g. `imprint ingest`) can take it. Intended for the MCP server,
-    which sits idle most of the time between user actions.
+    """Compatibility no-op for the retired embedded-client idle timer.
 
-    Safe to call multiple times — only one watcher thread runs.
+    HTTP clients hold no embedded database lock. A timer can expire while a
+    caller retains the client across slow model loading/inference, breaking its
+    subsequent read or durable write. Keep the pool until explicit cleanup or
+    interpreter exit instead. ``after_seconds`` is ignored.
     """
-    global _idle_close_secs, _idle_thread, _idle_lock
-    import threading
-
-    _idle_close_secs = float(after_seconds)
-    if _idle_thread is not None:
-        return
-    _idle_lock = threading.Lock()
-
-    def _watch():
-        while True:
-            time.sleep(max(1.0, _idle_close_secs / 3.0))
-            if _idle_close_secs is None:
-                return
-            with _idle_lock:
-                if _client is None:
-                    continue
-                if time.time() - _last_use_ts >= _idle_close_secs:
-                    _close_client()
-
-    _idle_thread = threading.Thread(target=_watch, daemon=True, name="kb-idle-close")
-    _idle_thread.start()
 
 
 def _resolve_collection(workspace: str | None = None) -> str:
@@ -134,7 +97,6 @@ def _resolve_collection(workspace: str | None = None) -> str:
 def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]:
     coll = _resolve_collection(workspace)
     client = _get_client()
-    _touch_use()
     with _cache_lock:
         if coll in _collections_ready:
             return client, coll
