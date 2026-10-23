@@ -11,7 +11,7 @@ type Cat = {
 };
 
 const overall = benchmarks.overall;
-const runs = (benchmarks.categories ?? []).reduce((n: number, c: Cat) => n + (c.rows?.length ?? 0), 0) * 10;
+const runs = benchmarks.runCount;
 
 // Diverging scale: 0 sits mid-track, ±100% reaches either end. Larger
 // increases are clipped at the end and drawn with a break mark.
@@ -41,10 +41,11 @@ const ticks = [-100, -50, 0, 50, 100];
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
       <div class="max-w-2xl">
         <div class="eyebrow">Benchmarks</div>
-        <h2 class="h2">Smaller context, smaller bill. Measured.</h2>
+        <h2 class="h2">Memory assistance. Measured.</h2>
         <p class="lede">
-          {rows.reduce((n, r) => n + r.prompts, 0)} prompts across {rows.length} categories, each run 5 times with
-          Imprint on and off in Claude Code (Sonnet). Medians are reported and the raw JSON for every run is in the repo.
+          {benchmarks.promptCount} prompts across {rows.length} categories, each run {benchmarks.repetitions} times with
+          Imprint on and off. Recorded {benchmarks.generatedAt.slice(0, 10)} with {benchmarks.env.model}.
+          Overview totals use complete paired trials; task tables show medians. Sanitized trial evidence is in the repo.
         </p>
       </div>
       <a href="/benchmarks" class="btn btn-ghost !text-sm self-start md:self-end shrink-0">See every prompt →</a>
@@ -59,12 +60,12 @@ const ticks = [-100, -50, 0, 50, 100];
       <div class="card p-6">
         <div class="text-sm text-[color:var(--color-text-muted)]">Cost</div>
         <div class="mt-1 text-4xl font-bold tracking-tight">{signed(overall?.costPct)}</div>
-        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">${overall?.costOff?.toFixed(2)} → ${overall?.costOn?.toFixed(2)} for the suite</div>
+        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">${overall?.costOff?.toFixed(2)} → ${overall?.costOn?.toFixed(2)} estimated list-price usage</div>
       </div>
       <div class="card p-6">
-        <div class="text-sm text-[color:var(--color-text-muted)]">Answer quality</div>
-        <div class="mt-1 text-4xl font-bold tracking-tight">{overall?.qualityPct ?? '—'}</div>
-        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">vs. memory off, judged by an LLM</div>
+        <div class="text-sm text-[color:var(--color-text-muted)]">Paired trials</div>
+        <div class="mt-1 text-4xl font-bold tracking-tight">{benchmarks.validPairs}</div>
+        <div class="mt-2 text-sm text-[color:var(--color-text-dim)]">successful OFF/ON comparisons · {benchmarks.failedRuns} failed trials</div>
       </div>
       <div class="card p-6">
         <div class="text-sm text-[color:var(--color-text-muted)]">Runs</div>
@@ -149,9 +150,9 @@ const ticks = [-100, -50, 0, 50, 100];
       </div>
 
       <p class="mt-5 text-sm leading-relaxed text-[color:var(--color-text-dim)]">
-        Two categories cost more, and we show them. Session summary is a single prompt where the memory-on run
-        explored far more context than it needed (bar clipped at +100%). Creation tasks still have to read the
-        code they change. Full per-prompt tables are on the <a href="/benchmarks" class="underline underline-offset-2 hover:text-white">benchmarks page</a>.
+        Both modes receive the same frozen public evidence. Memory-first guidance, MCP context and startup costs
+        are included in ON. Increases are shown alongside savings; no answer-quality uplift or avoided follow-up
+        cost is claimed. Details and uncertainty are on the <a href="/benchmarks" class="underline underline-offset-2 hover:text-white">benchmarks page</a>.
       </p>
     </figure>
   </div>

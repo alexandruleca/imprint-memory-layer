@@ -30,7 +30,7 @@ site/
 installers/
 
 # Test artifacts + benchmark results
-benchmark/results/
+benchmark/
 __pycache__/
 *.pyc
 .pytest_cache/

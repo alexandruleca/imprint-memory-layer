@@ -13,10 +13,11 @@ import ArchDiagram from '../components/ArchDiagram.astro';
 import Install from '../components/Install.astro';
 import CTA from '../components/CTA.astro';
 import Footer from '../components/Footer.astro';
+import benchmarks from '../data/benchmarks.json';
 
 const title = 'Imprint — Shared MCP Memory for Claude Code, Cursor, Copilot';
 const description =
-  'One persistent, searchable memory for your AI coding agents, shared across sessions, tools, machines and teammates. Local-first and open source. −70.4% tokens and −31.7% cost across 150 benchmark runs.';
+  `One persistent, searchable memory for your AI coding agents, shared across sessions, tools, machines and teammates. Local-first and open source. ${benchmarks.runCount} measured benchmark trials with published retrieval, token and cost evidence.`;
 ---
 
 <Landing title={title} description={description} pathname="/">

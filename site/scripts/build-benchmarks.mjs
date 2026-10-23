@@ -1,123 +1,41 @@
 #!/usr/bin/env node
-// Parse ../../BENCHMARK.md into site/src/data/benchmarks.json at build time.
-// Zero runtime fetch — Astro pages import the JSON and render statically.
-
+// Build from full-precision measured JSON; retain the presentation interface.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const BENCHMARK_MD = resolve(__dirname, '../../BENCHMARK.md');
-const OUT = resolve(__dirname, '../src/data/benchmarks.json');
-
-const md = readFileSync(BENCHMARK_MD, 'utf8');
-
-function parseCategoryTable(heading) {
-  const re = new RegExp(
-    `### ${heading}[\\s\\S]*?\\n\\n((?:\\|[^\\n]+\\n){3,})\\n\\*\\*Average\\*\\*: ([+-]?\\d+\\.\\d+%) tokens, ([+-]?\\d+\\.\\d+%) cost`,
-    'm',
-  );
-  const m = md.match(re);
-  if (!m) return null;
-  const [, tableBlock, avgTokens, avgCost] = m;
-  const rows = tableBlock
-    .split('\n')
-    .filter((l) => l.startsWith('|') && !l.startsWith('|---') && !l.includes('OFF tokens'))
-    .map((l) => l.split('|').map((c) => c.trim()).filter(Boolean))
-    .filter((cells) => cells.length >= 7)
-    .map(([prompt, offTokens, onTokens, savings, pct, offCost, onCost, costDelta]) => ({
-      prompt,
-      offTokens: parseInt(offTokens.replace(/,/g, ''), 10),
-      onTokens: parseInt(onTokens.replace(/,/g, ''), 10),
-      savings: parseInt(savings.replace(/,/g, ''), 10),
-      pct,
-      offCost,
-      onCost,
-      costDelta,
-    }));
-  return { avgTokens, avgCost, rows };
+export function validateReport(report) {
+  const check = (ok, message) => { if (!ok) throw new Error(`Invalid benchmark: ${message}`); };
+  check(report.schemaVersion === 2 && report.status === 'complete', 'a complete protocol-v2 run is required');
+  check(Number.isFinite(Date.parse(report.generatedAt)), 'measurement date is missing');
+  check(/^[a-f0-9]{40}$/.test(report.sourceRevision), 'source revision is missing');
+  check(report.runCount === report.expectedRuns && report.runCount > 0, 'trial count mismatch');
+  check(report.runCount === report.successfulRuns + report.failedRuns, 'failure accounting mismatch');
+  check(report.validPairs > 0 && report.validPairs * 2 <= report.successfulRuns, 'invalid pairing');
+  check(report.modelIds?.length === 1, 'mixed or absent resolved models');
+  for (const key of ['tokensOff', 'tokensOn', 'costOff', 'costOn']) {
+    check(Number.isFinite(report.overall?.[key]) && report.overall[key] >= 0, `missing ${key}`);
+  }
+  check(report.overall.qualityPct === null, 'unvalidated quality uplift');
+  check(report.categories.reduce((n, c) => n + c.rows.length, 0) === report.promptCount, 'missing task rows');
+  check(report.categories.flatMap(c => c.rows).reduce((n, r) => n + r.pairs, 0) === report.validPairs, 'task pairing mismatch');
+  return report;
 }
 
-const categoryNotes = {
-  summary: {
-    headline: 'Higher cost buys richer recall',
-    body: "ON mode doesn't read a file and paraphrase — it searches memory, walks the graph, and returns a cross-project synthesis. Response B is ≈1.4× the chars of the OFF baseline with sharper framing and granular implementation details. The token/cost delta is the price of pulling context from many indexed sources instead of one `git log` + Read.",
-  },
-  creation: {
-    headline: 'More complete first reply = fewer round trips',
-    body: "ON code answers include per-project breakdowns, call chains, docstrings, and config citations (≈1.5–2.2× the chars of OFF). A richer, more specific first response means fewer clarifying questions and retries downstream — so the +15% cost here avoids an often-larger spend across the follow-up turns you don't see in a single-prompt benchmark.",
-  },
-};
+export function loadBenchmarks(root) {
+  const pointer = JSON.parse(readFileSync(resolve(root, 'benchmark/latest.json'), 'utf8'));
+  if (pointer.schemaVersion !== 2 || !/^[\w-]+$/.test(pointer.runId)) throw new Error('Invalid benchmark run selector');
+  const report = validateReport(JSON.parse(readFileSync(resolve(root, 'benchmark/published', pointer.runId, 'summary.json'), 'utf8')));
+  if (report.runId !== pointer.runId) throw new Error('Benchmark run ID mismatch');
+  return report;
+}
 
-const qualityMatches = [
-  ...md.matchAll(/\*\*Average ON quality: ([+-]?\d+)%\*\* of OFF baseline/g),
-].map((m) => `${m[1].startsWith('-') || m[1].startsWith('+') ? m[1] : '+' + m[1]}%`);
-
-const categoryDefs = [
-  { key: 'information', heading: 'Information Prompts', label: 'Information' },
-  { key: 'decision', heading: 'Decision Recall Prompts', label: 'Decision Recall' },
-  { key: 'debug', heading: 'Debugging Prompts', label: 'Debugging' },
-  { key: 'cross', heading: 'Cross-Project Prompts', label: 'Cross-Project' },
-  { key: 'summary', heading: 'Session Summary Prompts', label: 'Session Summary' },
-  { key: 'creation', heading: 'Creation Prompts', label: 'Creation' },
-];
-
-const categories = categoryDefs.map((c, i) => ({
-  ...c,
-  ...parseCategoryTable(c.heading),
-  quality: qualityMatches[i] ?? null,
-  note: categoryNotes[c.key] ?? null,
-}));
-
-const overallMatch = md.match(
-  /### Overall\s*\n\s*- \*\*Token savings\*\*: ([+-]?\d+\.\d+%) \(([\d,]+) → ([\d,]+)\)\s*\n\s*- \*\*Cost savings\*\*: ([+-]?\d+\.\d+%) \(\$([\d.]+) → \$([\d.]+)\)/,
-);
-
-const overall = overallMatch
-  ? {
-      tokenPct: overallMatch[1],
-      tokensOff: parseInt(overallMatch[2].replace(/,/g, ''), 10),
-      tokensOn: parseInt(overallMatch[3].replace(/,/g, ''), 10),
-      costPct: overallMatch[4],
-      costOff: parseFloat(overallMatch[5]),
-      costOn: parseFloat(overallMatch[6]),
-    }
-  : null;
-
-const envMatch = md.match(/OS:\s+(\S+)[\s\S]*?Python:\s+(\S+)[\s\S]*?Model:\s+([^\n]+)[\s\S]*?Imprint:\s+(\S+)[\s\S]*?Memories:\s+(\d+)/);
-const env = envMatch
-  ? {
-      os: envMatch[1],
-      python: envMatch[2],
-      model: envMatch[3].trim(),
-      imprint: envMatch[4],
-      memories: parseInt(envMatch[5], 10),
-    }
-  : null;
-
-const totalRows = categories.reduce((a, c) => a + (c.rows?.length || 0), 0);
-const weightedQualityNum = totalRows
-  ? categories.reduce(
-      (a, c) => a + (c.quality ? parseFloat(c.quality) * (c.rows?.length || 0) : 0),
-      0,
-    ) / totalRows
-  : null;
-const overallQuality =
-  weightedQualityNum == null
-    ? null
-    : `${weightedQualityNum >= 0 ? '+' : ''}${weightedQualityNum.toFixed(1)}%`;
-
-const payload = {
-  generatedAt: new Date().toISOString(),
-  overall: overall ? { ...overall, qualityPct: overallQuality } : overall,
-  categories,
-  env,
-};
-
-mkdirSync(dirname(OUT), { recursive: true });
-writeFileSync(OUT, JSON.stringify(payload, null, 2));
-
-const summary = overall
-  ? `${overall.tokenPct} tokens / ${overall.costPct} cost`
-  : 'no overall numbers parsed';
-console.log(`[build-benchmarks] ${summary} → ${OUT}`);
+const here = fileURLToPath(import.meta.url);
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  const root = resolve(dirname(here), '../..');
+  const report = loadBenchmarks(root);
+  const output = resolve(root, 'site/src/data/benchmarks.json');
+  mkdirSync(dirname(output), { recursive: true });
+  writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
+  console.log(`[build-benchmarks] ${report.runCount} trials / ${report.sourceRevision.slice(0, 12)} / ${report.overall.tokenPct} tokens`);
+}

@@ -4,8 +4,8 @@ import releases from '../data/releases.json';
 import Icon from './Icon.astro';
 import { signed } from '../lib/format';
 
-const tokenPct = signed(benchmarks.overall?.tokenPct, '-70.4%');
-const costPct = signed(benchmarks.overall?.costPct, '-31.7%');
+const tokenPct = signed(benchmarks.overall?.tokenPct, '—');
+const costPct = signed(benchmarks.overall?.costPct, '—');
 
 const latestTag = releases.latestStable?.tag ?? '';
 

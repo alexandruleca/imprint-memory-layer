@@ -1,0 +1,414 @@
+[
+  {
+    "id": "chunking-1",
+    "family": "chunking",
+    "query": "How are code and prose split into overlapping chunks?",
+    "relevance": {
+      "docs/chunking.md": 3,
+      "imprint/chunker.py": 2
+    }
+  },
+  {
+    "id": "chunking-2",
+    "family": "chunking",
+    "query": "Which chunker uses tree-sitter and which uses semantic boundaries?",
+    "relevance": {
+      "docs/chunking.md": 3,
+      "imprint/chunker.py": 2
+    }
+  },
+  {
+    "id": "query-contract-1",
+    "family": "query-contract",
+    "query": "Qwen query instruction differs from document embeddings",
+    "relevance": {
+      "docs/embeddings.md": 3,
+      "imprint/embeddings.py": 2
+    }
+  },
+  {
+    "id": "query-contract-2",
+    "family": "query-contract",
+    "query": "How does last-token pooling handle padding on either side?",
+    "relevance": {
+      "docs/embeddings.md": 3,
+      "imprint/embeddings.py": 2
+    }
+  },
+  {
+    "id": "profile-identity-1",
+    "family": "profile-identity",
+    "query": "Reject equal-dimension embeddings from a different encoder profile",
+    "relevance": {
+      "docs/adr/0010-qwen-defaults-and-explicit-reindex.md": 3,
+      "docs/embeddings.md": 2
+    }
+  },
+  {
+    "id": "profile-identity-2",
+    "family": "profile-identity",
+    "query": "Why must a model change create a new index instead of reusing vectors?",
+    "relevance": {
+      "docs/adr/0010-qwen-defaults-and-explicit-reindex.md": 3,
+      "docs/embeddings.md": 2
+    }
+  },
+  {
+    "id": "memory-controls-1",
+    "family": "memory-controls",
+    "query": "Bound ONNX activation memory and CPU batch size",
+    "relevance": {
+      "docs/embeddings.md": 3,
+      "imprint/embeddings.py": 2
+    }
+  },
+  {
+    "id": "memory-controls-2",
+    "family": "memory-controls",
+    "query": "Is the advertised Qwen 32K context used by this runtime?",
+    "relevance": {
+      "docs/embeddings.md": 3,
+      "imprint/embeddings.py": 2
+    }
+  },
+  {
+    "id": "workspace-pin-1",
+    "family": "workspace-pin",
+    "query": "Keep queued ingest in its original workspace after a dashboard switch",
+    "relevance": {
+      "docs/workspaces.md": 3,
+      "docs/adr/0015-workspace-roots-and-source-purge.md": 2
+    }
+  },
+  {
+    "id": "workspace-pin-2",
+    "family": "workspace-pin",
+    "query": "Pin an MCP session to the workspace captured at startup",
+    "relevance": {
+      "docs/workspaces.md": 3,
+      "docs/adr/0015-workspace-roots-and-source-purge.md": 2
+    }
+  },
+  {
+    "id": "approved-roots-1",
+    "family": "approved-roots",
+    "query": "Two workspaces have overlapping roots and the user explicitly approves sharing",
+    "relevance": {
+      "docs/workspaces.md": 3,
+      "imprint/workspace_policy.py": 2
+    }
+  },
+  {
+    "id": "approved-roots-2",
+    "family": "approved-roots",
+    "query": "Prevent a wrong directory from polluting a workspace",
+    "relevance": {
+      "docs/workspaces.md": 3,
+      "imprint/workspace_policy.py": 2
+    }
+  },
+  {
+    "id": "purge-race-1",
+    "family": "purge-race",
+    "query": "Purge exclusions fence a slow embedding write already in flight",
+    "relevance": {
+      "docs/adr/0015-workspace-roots-and-source-purge.md": 3,
+      "docs/workspaces.md": 2
+    }
+  },
+  {
+    "id": "purge-race-2",
+    "family": "purge-race",
+    "query": "Preview directory cleanup without deleting the original files",
+    "relevance": {
+      "docs/adr/0015-workspace-roots-and-source-purge.md": 3,
+      "docs/workspaces.md": 2
+    }
+  },
+  {
+    "id": "device-origin-1",
+    "family": "device-origin",
+    "query": "Old conversation chunks should remain searchable on another computer",
+    "relevance": {
+      "docs/devices.md": 3,
+      "docs/adr/0017-device-provenance-and-local-project-paths.md": 2
+    }
+  },
+  {
+    "id": "device-origin-2",
+    "family": "device-origin",
+    "query": "Remember where a memory was recorded without filtering retrieval by device",
+    "relevance": {
+      "docs/devices.md": 3,
+      "docs/adr/0017-device-provenance-and-local-project-paths.md": 2
+    }
+  },
+  {
+    "id": "path-map-1",
+    "family": "path-map",
+    "query": "Map a foreign Windows project path into a verified Linux checkout",
+    "relevance": {
+      "docs/devices.md": 3,
+      "imprint/device.py": 2
+    }
+  },
+  {
+    "id": "path-map-2",
+    "family": "path-map",
+    "query": "Why is an imported absolute path not treated as a local file?",
+    "relevance": {
+      "docs/devices.md": 3,
+      "imprint/device.py": 2
+    }
+  },
+  {
+    "id": "source-refresh-1",
+    "family": "source-refresh",
+    "query": "An unchanged timestamp hides changed bytes during refresh",
+    "relevance": {
+      "imprint/source_state.py": 2,
+      "docs/adr/0005-source-lifecycle-and-hybrid-retrieval.md": 3
+    }
+  },
+  {
+    "id": "source-refresh-2",
+    "family": "source-refresh",
+    "query": "What happens to existing chunks if extracting a source fails?",
+    "relevance": {
+      "imprint/source_state.py": 2,
+      "docs/adr/0005-source-lifecycle-and-hybrid-retrieval.md": 3
+    }
+  },
+  {
+    "id": "qdrant-process-1",
+    "family": "qdrant-process",
+    "query": "Why use a Qdrant HTTP daemon instead of embedded storage?",
+    "relevance": {
+      "imprint/qdrant_runner.py": 3,
+      "docs/architecture.md": 2
+    }
+  },
+  {
+    "id": "qdrant-process-2",
+    "family": "qdrant-process",
+    "query": "How does Qdrant startup avoid concurrent process races?",
+    "relevance": {
+      "imprint/qdrant_runner.py": 3,
+      "docs/architecture.md": 2
+    }
+  },
+  {
+    "id": "fifo-queue-1",
+    "family": "fifo-queue",
+    "query": "What makes the command queue durable across process restarts?",
+    "relevance": {
+      "docs/queue.md": 3,
+      "imprint/queue.py": 2,
+      "imprint/queue_lock.py": 1
+    }
+  },
+  {
+    "id": "fifo-queue-2",
+    "family": "fifo-queue",
+    "query": "How does the process-shared queue lock prevent simultaneous ingestion?",
+    "relevance": {
+      "docs/queue.md": 3,
+      "imprint/queue.py": 2,
+      "imprint/queue_lock.py": 1
+    }
+  },
+  {
+    "id": "tagging-1",
+    "family": "tagging",
+    "query": "Four tag sources from deterministic metadata to opt-in LLM tags",
+    "relevance": {
+      "docs/tagging.md": 3,
+      "imprint/tagger.py": 2
+    }
+  },
+  {
+    "id": "tagging-2",
+    "family": "tagging",
+    "query": "Why are zero-shot topics enabled without paying for a generative model?",
+    "relevance": {
+      "docs/tagging.md": 3,
+      "imprint/tagger.py": 2
+    }
+  },
+  {
+    "id": "sync-encryption-1",
+    "family": "sync-encryption",
+    "query": "Can a malicious sync relay read transferred memories?",
+    "relevance": {
+      "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md": 3,
+      "docs/sync.md": 2,
+      "imprint/sync_crypto.py": 1
+    }
+  },
+  {
+    "id": "sync-encryption-2",
+    "family": "sync-encryption",
+    "query": "How does encrypted sync reject tampered or replayed frames?",
+    "relevance": {
+      "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md": 3,
+      "docs/sync.md": 2,
+      "imprint/sync_crypto.py": 1
+    }
+  },
+  {
+    "id": "sync-profiles-1",
+    "family": "sync-profiles",
+    "query": "Can peer sync convert vectors from a different embedding model?",
+    "relevance": {
+      "docs/embeddings.md": 3,
+      "docs/sync.md": 2
+    }
+  },
+  {
+    "id": "sync-profiles-2",
+    "family": "sync-profiles",
+    "query": "What must match before importing precomputed vectors?",
+    "relevance": {
+      "docs/embeddings.md": 3,
+      "docs/sync.md": 2
+    }
+  },
+  {
+    "id": "native-install-1",
+    "family": "native-install",
+    "query": "Why is Intel macOS pinned to an older ONNX runtime wheel?",
+    "relevance": {
+      "docs/adr/0012-native-package-runtime-and-silent-installs.md": 3,
+      "docs/building.md": 2
+    }
+  },
+  {
+    "id": "native-install-2",
+    "family": "native-install",
+    "query": "Prevent a silent Windows setup wizard from waiting forever",
+    "relevance": {
+      "docs/adr/0012-native-package-runtime-and-silent-installs.md": 3,
+      "docs/building.md": 2
+    }
+  },
+  {
+    "id": "main-releases-1",
+    "family": "main-releases",
+    "query": "Branches should compile and test without creating release installers",
+    "relevance": {
+      "docs/adr/0014-main-only-release-packaging.md": 3,
+      "docs/building.md": 2
+    }
+  },
+  {
+    "id": "main-releases-2",
+    "family": "main-releases",
+    "query": "Which ref is allowed to build release artifacts?",
+    "relevance": {
+      "docs/adr/0014-main-only-release-packaging.md": 3,
+      "docs/building.md": 2
+    }
+  },
+  {
+    "id": "security-scan-1",
+    "family": "security-scan",
+    "query": "Nightly Trivy findings remain visible and high critical findings fail CI",
+    "relevance": {
+      "docs/security-scanning.md": 3,
+      "docs/adr/0013-remediate-security-scan-dependencies.md": 2
+    }
+  },
+  {
+    "id": "security-scan-2",
+    "family": "security-scan",
+    "query": "Why is the medium diskcache advisory retained with disk caching disabled?",
+    "relevance": {
+      "docs/security-scanning.md": 3,
+      "docs/adr/0013-remediate-security-scan-dependencies.md": 2
+    }
+  },
+  {
+    "id": "reference-config-1",
+    "family": "reference-config",
+    "query": "REFERENCE_ environment variables override persisted settings",
+    "relevance": {
+      "reference/worker.py": 3,
+      "reference/session-notes.md": 2
+    }
+  },
+  {
+    "id": "reference-config-2",
+    "family": "reference-config",
+    "query": "What is the reference project configuration fallback order?",
+    "relevance": {
+      "reference/worker.py": 3,
+      "reference/session-notes.md": 2
+    }
+  },
+  {
+    "id": "synthetic-history-1",
+    "family": "synthetic-history",
+    "query": "Which three work areas are described in the synthetic session history?",
+    "relevance": {
+      "reference/session-notes.md": 3
+    }
+  },
+  {
+    "id": "synthetic-history-2",
+    "family": "synthetic-history",
+    "query": "What drove workspace cleanup, native installer and portable memory changes?",
+    "relevance": {
+      "reference/session-notes.md": 3
+    }
+  },
+  {
+    "id": "filter-source",
+    "family": "filter",
+    "query": "IMPRINT_ONNX_THREADS",
+    "source": "imprint/config_schema.py",
+    "relevance": {
+      "imprint/config_schema.py": 3
+    }
+  },
+  {
+    "id": "filter-project",
+    "family": "filter",
+    "query": "background FIFO Thread Queue",
+    "project": "reference",
+    "relevance": {
+      "reference/worker.py": 3,
+      "reference/session-notes.md": 2
+    }
+  },
+  {
+    "id": "absent-project",
+    "family": "boundary",
+    "query": "Qwen embeddings",
+    "project": "project-that-does-not-exist",
+    "relevance": {},
+    "expect_empty": true
+  },
+  {
+    "id": "absent-source",
+    "family": "boundary",
+    "query": "Qwen embeddings",
+    "source": "does-not-exist.py",
+    "relevance": {},
+    "expect_empty": true
+  },
+  {
+    "id": "workspace-boundary",
+    "family": "boundary",
+    "query": "ORCHID-COPPER-731 unrelated workspace secret sentinel",
+    "relevance": {}
+  },
+  {
+    "id": "workspace-filter",
+    "family": "boundary",
+    "query": "ONNX runtime Qwen embeddings",
+    "workspace": "unrelated",
+    "project": "imprint",
+    "relevance": {},
+    "expect_empty": true
+  }
+]
