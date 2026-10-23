@@ -235,6 +235,7 @@ export interface SyncEvent {
     | "approval_required"
     | "auto_accepted"
     | "trusted"
+    | "paired"
     | "peer_connected"
     | "confirm_push"
     | "plan"

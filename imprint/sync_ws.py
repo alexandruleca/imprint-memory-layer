@@ -926,6 +926,9 @@ async def serve_session(
     workspace: str,
     policy: SyncPolicy = SyncPolicy(),
     relay: Relay = Relay("wss", DEFAULT_RELAY_HOST),
+    *,
+    remember: bool = False,
+    pairing: dict | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Async generator yielding events for a sync serve (provider) session
     of ``workspace``.
@@ -937,12 +940,13 @@ async def serve_session(
     cancel = asyncio.Event()
     _sessions[sid] = cancel
 
-    room_id = generate_room_id()
-    pin = generate_pin()
+    room_id = pairing['room'] if pairing else generate_room_id()
+    pin = pairing['secret'] if pairing else generate_pin()
     code = share_code(room_id, pin)
 
-    yield {"type": "room", "room_id": room_id, "pin": pin, "code": code, "session_id": sid,
-           "workspace": workspace, "relay": str(relay), "target": relay.target(code), **policy.grant()}
+    if pairing is None:
+        yield {"type": "room", "room_id": room_id, "pin": pin, "code": code, "session_id": sid,
+               "workspace": workspace, "relay": str(relay), "target": relay.target(code), **policy.grant()}
 
     try:
         async with _connect(relay, room_id, "provider") as ws:
@@ -955,11 +959,19 @@ async def serve_session(
                 return
             _check_cancel(cancel)
 
+            if pairing:
+                from . import sync_pairs
+                exchange = await sync_pairs.exchange(channel, pairing, peer_info, provider=True)
+                if not exchange:
+                    yield {'type': 'idle'}
+                    return
+                pairing.update(exchange)
+
             # Fingerprint trust check. Auto-accept previously-trusted devices.
             fp = peer_info["fingerprint"]
             trusted = load_trusted_devices()
 
-            if fp in trusted:
+            if pairing or fp in trusted:
                 yield {"type": "auto_accepted", **peer_info}
             else:
                 # Ask the front-end (TTY via CLI, UI via /api/sync/approve)
@@ -985,7 +997,8 @@ async def serve_session(
 
             # Accept; the body tells the consumer which phases it may request
             # and who it is talking to, so it can decide what to send.
-            await channel.send({"status": 200, "body": {**policy.grant(), "device": get_device_identity()}})
+            await channel.send({"status": 200, "body": {**policy.grant(), "device": get_device_identity(),
+                                                       "pairing_version": 1 if remember and not pairing else 0}})
             yield {"type": "peer_connected", **peer_info}
 
             # Request loop: each phase at most once per session.
@@ -1008,7 +1021,15 @@ async def serve_session(
                     return
                 served.add(path)
 
-                if path == "/sync/pull":
+                if path == '/sync/pair':
+                    if not remember or pairing:
+                        await channel.send({'status': 403, 'body': 'Automatic pairing was not enabled on this device'})
+                        return
+                    from .sync_pairs import accept_pair
+                    pair_id = await accept_pair(channel, req, workspace, peer_info, policy, relay)
+                    yield {'type': 'paired', 'pair_id': pair_id, **peer_info}
+
+                elif path == "/sync/pull":
                     if not policy.send:
                         await channel.send({"status": 403, "body": REFUSED_PULL})
                         yield {"type": "refused", "request": "pull", "message": REFUSED_PULL}
@@ -1081,6 +1102,9 @@ async def receive_session(
     workspace: str,
     policy: SyncPolicy = _DIRECTIONS["receive"],
     buffer: Path | None = None,
+    *,
+    remember: bool = False,
+    pairing: dict | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Async generator yielding events for a sync receive (consumer)
     session on ``workspace``.
@@ -1114,6 +1138,16 @@ async def receive_session(
                 return
             yield {"type": "status", "status": "handshake_sent"}
 
+            if pairing:
+                from . import sync_pairs
+                # Identity in the sealed grant is verified below as well. The
+                # paired high-entropy secret authenticates this control phase.
+                exchange = await sync_pairs.exchange(channel, pairing, pairing['peer'], provider=False)
+                if not exchange:
+                    yield {'type': 'idle'}
+                    return
+                pairing.update(exchange)
+
             # The provider may be waiting on its user to approve this device.
             try:
                 resp = await channel.recv()
@@ -1131,6 +1165,8 @@ async def receive_session(
             try:
                 grant = parse_grant(body)
                 provider = _peer_info(body.get("device"))
+                if pairing and provider['fingerprint'] != pairing['peer']['fingerprint']:
+                    raise ValueError('Paired device identity changed')
                 plan = plan_sync(grant, policy)
             except (ValueError, HandshakeError) as e:
                 yield {"type": "error", "message": str(e)}
@@ -1142,7 +1178,7 @@ async def receive_session(
                 yield {"type": "error", "message": f"workspace {workspace!r} does not exist and this sync only pushes: nothing to send"}
                 return
 
-            if plan.push:
+            if plan.push and not pairing:
                 # Nothing leaves this machine until its user sees who gets it.
                 decided = _expect_decision(sid)
                 yield {"type": "confirm_push", "workspace": workspace, **provider}
@@ -1157,6 +1193,14 @@ async def receive_session(
             if not exists:
                 config.register_workspace(workspace)
                 yield {"type": "workspace_created", "workspace": workspace}
+
+            if remember and not pairing:
+                if body.get('pairing_version') != 1:
+                    yield {'type': 'warning', 'message': 'The other device did not enable automatic pairing; this sync is one-time'}
+                else:
+                    from .sync_pairs import request_pair
+                    pair_id = await request_pair(channel, workspace, provider, plan, relay)
+                    yield {'type': 'paired', 'pair_id': pair_id, **provider}
 
             pull_stats: dict | None = None
             push_stats: dict | None = None

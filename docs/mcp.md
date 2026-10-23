@@ -4,7 +4,7 @@ description: The 16 MCP tools Imprint exposes to coding agents — search, graph
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **16 tools**. `wake_up` is internal now — `search` auto-calls it on the first invocation per workspace in a session so you get project overview + essential context + recent activity for free, without burning a second schema slot.
+The imprint MCP server exposes **16 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
@@ -16,8 +16,8 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 
 | Tool | Purpose |
 |------|---------|
-| `search` | Hybrid semantic/exact-term ranking (`mode="hybrid"`, or `"semantic"`). Bounded excerpts and previews, source hash/mtime, semantic score and match type. Filters: `project`, `type`, `lang`, `layer`, `kind`, `domain`, `source`. Query: 1–4,000 characters; `limit` 1–50; `offset` 0–255. |
-| `get_memory` | Read the full record by the public ID from search/store (legacy point UUIDs also accepted). Content is bounded to 12,000 characters; response indicates truncation. |
+| `search` | Hybrid semantic/exact-term ranking (`mode="hybrid"`, or `"semantic"`). Bounded excerpts and previews, source hash/mtime, semantic score and match type. Filters: `project`, `type`, `lang`, `layer`, `kind`, `domain`, `source`. Query: 1–4,000 characters; `limit` 1–50 (default 5); `offset` 0–255. `detail="compact"` (default) selects verbatim query-relevant windows; `detail="full"` adds broad context. `max_chars` sets a 1,200–12,000-character response budget (default 4,000), not an exact token count. |
+| `get_memory` | Read the full record by the public ID from search/store (legacy point UUIDs also accepted). Content defaults to 4,000 characters; `max_chars` accepts 100–12,000. `start`/`next_start` paginate the original content, with total character count and truncation status. |
 | `neighbors` | KNN over embeddings for a given memory id — finds cross-project kin that share the same chunk space. |
 | `graph_scope` | Navigate KB as a graph. Scopes: `root`, `project:<name>`, `topic:<name>`, `source:<path>`, `chunk:<id>`. Each response ends with concrete next-step suggestions. |
 | `list_sources` | List indexed source files with chunk counts. Filters: `project`, `lang`, `layer`. |
@@ -50,7 +50,7 @@ Every tool accepts an optional `workspace` argument — omit it to target the ac
 
 ### Not exposed as MCP
 
-- `wake_up` — auto-called by the first `search` in a session, no longer a separate tool (saves schema bytes in Claude's context).
+- `wake_up` — internal, called only by the first `search(detail="full")` per workspace. Compact search avoids its unrelated context.
 - `refresh_urls` — admin task; exposed only via CLI as `imprint refresh-urls`.
 
 Search filters map to payload tags — see [tagging.md](./tagging.md) for the full tag schema.
@@ -69,6 +69,6 @@ Both hooks are installed by `imprint setup` into `~/.claude/settings.json` and r
 
 The server declares read-only, destructive and external-access annotations. These hints help clients present operations; they are not access controls. Retrieved text is evidence, not instructions. Verify live source files before edits, especially when provenance is absent or stale. Similarity is not calibrated answer confidence.
 
-`search` reads at most 256 semantic and 256 lexical candidates before rank fusion. This is a bounded heuristic, not BM25 or a guarantee of recall. Semantic-only mode supports comparison. The first-search context is tracked separately per workspace. MCP calls capture their workspace at entry; queued jobs retain the workspace selected at submission. `ingest_content` accepts at most 1,000,000 characters, name 1,024 and project 128. `kg_query` caps 100 facts; `list_sources` caps 200 sources.
+`search` reads at most 256 semantic and 256 lexical candidates before rank fusion. This is a bounded heuristic, not BM25 or a guarantee of recall. Semantic-only mode supports comparison. Explicit full-view session context is tracked separately per workspace. Compact responses preserve whole result blocks, IDs, source/device provenance and a continuation that includes any results hidden by the response budget. Expand only relevant evidence; stop once sufficient. See [ADR 0021](adr/0021-budgeted-mcp-evidence-and-selective-expansion.md). MCP calls capture their workspace at entry; queued jobs retain the workspace selected at submission. `ingest_content` accepts at most 1,000,000 characters, name 1,024 and project 128. `kg_query` caps 100 facts; `list_sources` caps 200 sources.
 
 Source replacement prepares/upserts the new chunks before pruning the old set, scoped by project and source. Embedding failures preserve prior data; replacement is not an all-or-nothing transaction. See [indexing and retrieval](indexing-retrieval.md), [ADR 0005](adr/0005-source-lifecycle-and-hybrid-retrieval.md) and [ADR 0006](adr/0006-durable-mcp-and-preserved-client-config.md).

@@ -364,13 +364,17 @@ async def _serve(args) -> int:
             _warn(f"Refused {event['request']}: {event['message']}")
         elif kind == "push_complete":
             _ok("Merged peer data: " + _stats(event["stats"]))
+        elif kind == "paired":
+            _ok("Paired for automatic sync. Keep the dashboard or imprint sync watch running on both devices.")
         elif kind == "done":
             print("  Connection closed.")
         else:
             return kind == "status"
         return True
 
-    return await _render(sync_ws.serve_session(workspace, policy, relay), on_event)
+    if getattr(args, 'remember', False):
+        _info('Automatic pairing enabled for this workspace and direction; the other device must also opt in.')
+    return await _render(sync_ws.serve_session(workspace, policy, relay, remember=getattr(args, 'remember', False)), on_event)
 
 
 async def _join(args) -> int:
@@ -417,6 +421,8 @@ async def _join(args) -> int:
             _ok("Merged remote → local: " + _stats(event["stats"]))
         elif kind == "push_complete":
             _ok("Pushed local → remote: " + _stats(event["stats"]))
+        elif kind == "paired":
+            _ok("Paired for automatic sync. Keep the dashboard or imprint sync watch running on both devices.")
         elif kind == "done":
             _header("═══ Sync Complete ═══")
         else:
@@ -424,7 +430,8 @@ async def _join(args) -> int:
         return True
 
     if not policy.receive:
-        return await _connect_and_sync(relay, room_id, pin, workspace, policy, None, on_event)
+        return await _connect_and_sync(relay, room_id, pin, workspace, policy, None, on_event,
+                                       remember=getattr(args, 'remember', False))
     return await _receive(args, relay, room_id, pin, workspace, policy, on_event)
 
 
@@ -436,14 +443,14 @@ async def _receive(args, relay, room_id, pin, workspace, policy, on_event) -> in
         removed = sync_ws.discard_pending(buffer)
         _info("--fresh: " + (f"cleared {', '.join(map(str, removed))}" if removed
                              else "no buffer to clear, will download fresh"))
-        return await _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event)
     try:
         pending = sync_ws.pending_download(buffer)
     except ValueError as e:
         _fail(str(e))
         return 1
     if pending is None:
-        return await _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event)
+        return await _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event,
+                                       remember=getattr(args, 'remember', False))
     if pending.workspace != workspace:
         _fail(f"An unfinished download into workspace {pending.workspace!r} is waiting to be stored. "
               f"Finish it with --workspace {pending.workspace}, or discard it with --fresh.")
@@ -457,9 +464,9 @@ async def _receive(args, relay, room_id, pin, workspace, policy, on_event) -> in
     return code
 
 
-async def _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event) -> int:
+async def _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event, *, remember=False) -> int:
     _info(f"Connecting to {relay}...")
-    return await _render(sync_ws.receive_session(relay, room_id, pin, workspace, policy, buffer), on_event)
+    return await _render(sync_ws.receive_session(relay, room_id, pin, workspace, policy, buffer, remember=remember), on_event)
 
 
 def _device(peer: dict) -> str:
@@ -498,6 +505,7 @@ def main():
 
     serve = sub.add_parser("serve", help="Expose a workspace via the relay; prints a one-time share code")
     serve.add_argument("--relay", default=None, help="Relay host (default: the public relay)")
+    serve.add_argument('--remember', action='store_true', help='Offer automatic sync for this workspace/direction; both devices must opt in')
     _direction_flags(serve,
                      ("--send-only", "send", "Peers can pull this workspace; pushes are refused"),
                      ("--receive-only", "receive", "Peers can push into this workspace; nothing is sent"),
@@ -506,6 +514,7 @@ def main():
     join = sub.add_parser("join", help="Sync with a machine that is serving (receives only unless told otherwise)")
     join.add_argument("code", help="The code the serving machine shows, e.g. 7f3a9c21-Ab3xY9Kq or wss://<host>/<code>")
     join.add_argument("--fresh", action="store_true", help="Discard any saved download and re-download")
+    join.add_argument('--remember', action='store_true', help='Pair for automatic sync with the approved workspace/direction')
     _direction_flags(join,
                      ("--two-way", "both", "Also send this workspace (you see who receives it and confirm first)"),
                      ("--send-only", "send", "Only send this workspace (confirmed first); import nothing"),
@@ -519,6 +528,12 @@ def main():
     imp.add_argument("bundle", type=Path, help="Path to export bundle directory")
     imp.add_argument("--workspace", default=None, help="Target workspace")
 
+    sub.add_parser('watch', help='Automatically sync paired devices while this process runs')
+    sub.add_parser('peers', help='List paired devices and pending forget acknowledgements')
+    for name in ('enable', 'disable', 'forget'):
+        control = sub.add_parser(name, help=f'{name.title()} a paired device')
+        control.add_argument('pair_id')
+
     args = parser.parse_args()
 
     if args.action == "serve":
@@ -531,6 +546,29 @@ def main():
         export_snapshot(output_dir=args.output, workspace=args.workspace)
     elif args.action == "import":
         import_snapshot(bundle_path=args.bundle, workspace=args.workspace)
+    elif args.action == 'watch':
+        from .sync_pairs import run
+        _info('Automatic sync is running. Ctrl+C stops it; the dashboard also runs this worker.')
+        sys.exit(_live(run()))
+    elif args.action == 'peers':
+        from .sync_pairs import pairs
+        print(json.dumps(pairs(public=True), indent=2))
+    elif args.action in ('enable', 'disable', 'forget'):
+        from .sync_pairs import get, forget, set_enabled
+        try:
+            if args.action == 'forget':
+                peer = get(args.pair_id)['peer']
+                answer = input(f"Forget {_device(peer)} on BOTH devices, for all paired workspaces? "
+                               'Existing memories remain. An offline peer is notified when both reconnect. [y/N]: ')
+                if answer.strip().lower() not in ('y', 'yes'):
+                    return
+                forget(args.pair_id, confirmed=True)
+                _ok('Revoked locally. Remote removal is pending until the devices reconnect. Run imprint sync watch or keep the dashboard open.')
+            else:
+                set_enabled(args.pair_id, args.action == 'enable')
+        except ValueError as exc:
+            _fail(str(exc))
+            sys.exit(1)
 
 
 if __name__ == "__main__":

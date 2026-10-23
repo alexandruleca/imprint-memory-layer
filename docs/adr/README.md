@@ -34,3 +34,5 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0017](0017-device-provenance-and-local-project-paths.md) | Accepted | Portable memory origin, current-device context and approved local project-path mappings. |
 | [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Accepted | One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback. |
 | [0019](0019-reproducible-benchmark-evidence.md) | Accepted | Frozen public corpora, paired trials, visible failures and auditable JSON statistics for benchmark claims. |
+| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | Accepted | Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. |
+| [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | Accepted | Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance. |

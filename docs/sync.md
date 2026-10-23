@@ -60,6 +60,66 @@ The public relay at `wss://imprint.alexandruleca.com` is the default — pass `-
 - **Not** transferred: other workspaces, the WAL, config, the trust list, workspace roots and purge exclusions.
 - Imported records are evidence, not authority: `imprint refresh-urls` (and the MCP refresh) re-fetch only URLs this device recorded, never URLs that arrived through sync.
 
+### Automatic sync between paired devices
+
+A one-time sync stays one-time unless **both** devices enable automatic pairing.
+In the dashboard, check **Enable automatic sync with this device after pairing**
+on Serve and Receive before starting. Choose the workspace and direction first;
+joining still defaults to receive-only. The existing approval and send
+confirmation apply. A declined push is never remembered as permission to send.
+The success note confirms when pairing has completed.
+
+```bash
+# Device A: offer pairing for this workspace
+imprint sync serve --workspace team --remember
+# Device B: receive and send, after confirmation; workspace names may differ
+imprint sync <code> --workspace team-local --two-way --remember
+# Keep this running on each device, or leave each dashboard/backend running
+imprint sync watch
+```
+
+The backend reconnects through the same relay using a new, private pair capability,
+not the old share PIN or a device fingerprint. It verifies the paired workspace
+mapping and only runs the approved directions. Changed workspace data merges
+about once a minute when both workers can connect; unchanged digests skip the
+vector transfer. No model or embedding call is required. Turning off the app,
+network outages or an unavailable relay delay sync. `watch` is a foreground
+service command; pairing does not silently install a system startup service.
+
+**Sync → Paired devices** shows the relay, local/remote workspace, direction,
+last completed sync and connection errors. **Pause automatic sync** on either
+side stops workspace transfers; **Enable automatic sync** resumes without a new
+code. CLI equivalents:
+
+```bash
+imprint sync peers
+imprint sync disable <pair-id>
+imprint sync enable <pair-id>
+imprint sync forget <pair-id>  # asks for confirmation; no implicit --yes
+```
+
+**Forget device…** requires confirmation and affects **all paired workspaces
+with that device**. It revokes automatic transfer locally and removes its old
+fingerprint trust immediately. When both workers reconnect, an encrypted
+notification causes the other device to forget this one too. While it is offline,
+the interface says **remote removal pending**. Keep Imprint running on both to
+finish; the relay does not store an offline revocation mailbox. A lost final
+acknowledgement may leave a pending notification rather than a false success.
+Existing memories remain on both machines; forgetting cannot retract knowledge
+already shared. Pair again with a fresh code to restore authorization.
+
+Pair credentials live only in `data/sync-pairs.sqlite3` (0600 on Unix; the data
+directory ACL applies on Windows) and are omitted from peer API responses,
+exports and snapshots. Back up this data directory as sensitive local state.
+Do not clone its device identity or pairing database onto another machine.
+The relay can correlate a stable opaque pair room but cannot read credentials,
+device names, workspace names or memories. Protocol-2 peers without this optional
+pairing extension can still perform one-time sync.
+
+This remains a deduplicating **merge**: local deletions are not remote deletion
+commands. The digest check scans local exported records, and imports can cause
+one extra deduplicating pass. See [ADR 0020](adr/0020-explicit-pairing-and-automatic-workspace-sync.md).
+
 ### The share code
 
 `imprint sync serve` prints one argument for the other machine: `7f3a9c21-Ab3xY9Kq` on the default relay, or `wss://sync.example.com/7f3a9c21-Ab3xY9Kq` on any other. Before the dash is the room ID, which tells the relay which two connections to pair; after it is the 8-character PIN, generated per session, which only the two machines use. The joining side also accepts `<host>/<code>` and `ws://` addresses. A code works for one session; serve again for a new one.

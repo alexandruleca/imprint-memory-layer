@@ -36,8 +36,8 @@ class WorkspaceTests(unittest.TestCase):
              patch.object(server, 'wake_up', return_value='context') as wake:
             server._woken_workspaces.discard('chosen')
             self.addCleanup(server._woken_workspaces.discard, 'chosen')
-            server.search('a valid query')
-            server.search('another valid query')
+            server.search('a valid query', detail='full')
+            server.search('another valid query', detail='full')
             self.assertEqual(search.call_args.kwargs['workspace'], 'chosen')
             wake.assert_called_once_with(workspace='chosen')
 

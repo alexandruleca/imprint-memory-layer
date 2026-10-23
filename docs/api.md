@@ -239,3 +239,14 @@ The API follows the same release channel as the rest of Imprint — see
 [installation](./installation.md#install-a-specific-version-or-channel). The
 Postman collection in this repo is versioned alongside the code; the live
 OpenAPI schema at `/openapi.json` always matches the running container.
+
+## Paired sync controls
+
+`GET /api/sync/peers` returns public pair status without credentials.
+`POST /api/sync/peers/{pair_id}` accepts `{"action":"enabled","enabled":false}`
+or `{"action":"forget","confirm":true}`. Forget requires prior user confirmation,
+revokes every paired workspace with that device, and reports remote removal as
+pending until acknowledged. Existing memories remain. The local-origin boundary
+applies. Serve/receive SSE requests accept optional boolean `remember` (default
+false); both sides must opt in. A `paired` event confirms completion. The backend
+runs automatic reconnects while alive. See [sync](sync.md).

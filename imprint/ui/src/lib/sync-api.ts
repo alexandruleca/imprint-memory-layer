@@ -72,6 +72,7 @@ function readSSE(
 export interface SyncSessionOptions {
   workspace: string;
   direction: SyncDirection;
+  remember?: boolean;
   /** Serving only: relay host; empty uses the public relay. */
   relay?: string;
 }
@@ -90,7 +91,7 @@ export function streamSyncServe(
   fetch(`${API_BASE}/api/sync/serve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ workspace: options.workspace, direction: options.direction, relay: options.relay || "" }),
+    body: JSON.stringify({ workspace: options.workspace, direction: options.direction, relay: options.relay || "", ...(options.remember ? { remember: true } : {}) }),
     signal: ctrl.signal,
   }).then(async (res) => {
     if (!res.ok) {
@@ -115,7 +116,7 @@ export function streamSyncReceive(
   fetch(`${API_BASE}/api/sync/receive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, workspace: options.workspace, direction: options.direction }),
+    body: JSON.stringify({ code, workspace: options.workspace, direction: options.direction, ...(options.remember ? { remember: true } : {}) }),
     signal: ctrl.signal,
   }).then(async (res) => {
     if (!res.ok) {
@@ -140,6 +141,34 @@ export async function cancelSync(sessionId: string): Promise<void> {
 }
 
 export type SyncApprovalDecision = "accept" | "trust" | "reject";
+
+export interface PairedDevice {
+  id: string;
+  peer: { hostname: string; fingerprint: string; os: string; user: string };
+  workspace: string;
+  remote_workspace: string;
+  relay: string;
+  direction: SyncDirection;
+  enabled: boolean;
+  state: "active" | "forget_pending";
+  last_seen: number | null;
+  last_sync: number | null;
+  last_error: string;
+}
+
+export async function getPairedDevices(): Promise<PairedDevice[]> {
+  const res = await fetch(`${API_BASE}/api/sync/peers`);
+  if (!res.ok) throw new Error("Could not load paired devices");
+  return (await res.json()).peers;
+}
+
+export async function controlPairedDevice(id: string, action: "enabled" | "forget", enabled?: boolean): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/sync/peers/${encodeURIComponent(id)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(action === "forget" ? { action, confirm: true } : { action, enabled }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error || "Could not update paired device");
+}
 
 export async function approveSync(
   sessionId: string,

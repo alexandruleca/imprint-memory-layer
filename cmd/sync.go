@@ -22,7 +22,7 @@ func Sync(args []string) {
 		args = []string{"--help"}
 	} else {
 		switch args[0] {
-		case "serve", "export", "import", "-h", "--help":
+		case "serve", "export", "import", "watch", "peers", "enable", "disable", "forget", "-h", "--help":
 		default:
 			args = append([]string{"join"}, args...)
 		}

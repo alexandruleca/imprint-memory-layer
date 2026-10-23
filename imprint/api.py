@@ -88,6 +88,16 @@ async def _start_queue_dispatcher():
     job_queue.recover_on_startup()
     asyncio.create_task(job_queue.dispatcher_loop())
     asyncio.create_task(job_queue.reaper_loop())
+    from .sync_pairs import run
+    app.state.sync_worker = asyncio.create_task(run())
+
+
+@app.on_event('shutdown')
+async def _stop_sync_worker():
+    task = getattr(app.state, 'sync_worker', None)
+    if task:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 # ── Filter helpers ─────────────────────────────────────────────
@@ -967,6 +977,8 @@ async def api_sync_serve(request: Request):
         return JSONResponse({"error": "JSON object body required"}, status_code=400)
     try:
         policy = SyncPolicy.parse(body.get("direction", "both"))
+        if type(body.get('remember', False)) is not bool:
+            raise ValueError('remember must be a boolean')
         relay = body.get("relay") or ""
         if not isinstance(relay, str):
             raise ValueError("relay must be a string")
@@ -978,7 +990,7 @@ async def api_sync_serve(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
     async def event_stream():
-        async for event in serve_session(ws, policy, endpoint):
+        async for event in serve_session(ws, policy, endpoint, remember=body.get('remember', False)):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -1007,6 +1019,8 @@ async def api_sync_receive(request: Request):
     try:
         endpoint, room, pin = parse_code(body["code"])
         policy = SyncPolicy.parse(body.get("direction", "receive"))
+        if type(body.get('remember', False)) is not bool:
+            raise ValueError('remember must be a boolean')
         ws, exists = sync_workspace(body.get("workspace"))
         if not exists and not policy.receive:
             raise ValueError(f"workspace {ws!r} does not exist, so a send-only sync has nothing to send")
@@ -1014,10 +1028,34 @@ async def api_sync_receive(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
     async def event_stream():
-        async for event in receive_session(endpoint, room, pin, ws, policy):
+        async for event in receive_session(endpoint, room, pin, ws, policy, remember=body.get('remember', False)):
             yield f"data: {json.dumps(event)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get('/api/sync/peers')
+async def api_sync_peers():
+    from .sync_pairs import pairs
+    return {'peers': pairs(public=True)}
+
+
+@app.post('/api/sync/peers/{pair_id}')
+async def api_sync_peer_control(pair_id: str, request: Request):
+    from .sync_pairs import forget, set_enabled, pairs
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('JSON object body required')
+        if body.get('action') == 'forget':
+            forget(pair_id, confirmed=body.get('confirm') is True)
+        elif body.get('action') == 'enabled':
+            set_enabled(pair_id, body.get('enabled'))
+        else:
+            raise ValueError('action must be enabled or forget')
+        return {'peers': pairs(public=True)}
+    except ValueError as exc:
+        return JSONResponse({'error': str(exc)}, status_code=400)
 
 
 @app.post("/api/sync/cancel")

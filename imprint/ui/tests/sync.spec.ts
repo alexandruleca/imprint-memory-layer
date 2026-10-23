@@ -5,10 +5,59 @@ const stream = (events: object[]) => ({ headers: { 'content-type': 'text/event-s
 const stats = { memories: { inserted: 3, skipped: 0 }, facts: { inserted: 1, skipped: 0 } };
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [] } }));
   await page.route('**/api/ping', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/version', route => route.fulfill({ json: { version: 'test' } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default', 'team'] } }));
   await page.route('**/api/desktop-learn/history', route => route.fulfill({ json: { seen: {}, count: 0 } }));
+});
+
+test('paired-device controls pause and require confirmation to forget both devices', async ({ page }) => {
+  let peer = {
+    id: 'pair-1', peer: { hostname: 'workstation', fingerprint: 'bbbbbbbb', user: 'bob', os: 'linux' },
+    workspace: 'team', remote_workspace: 'team-laptop', relay: 'wss://relay.example.com',
+    direction: 'both', enabled: true, state: 'active', last_sync: null, last_seen: null, last_error: '',
+  };
+  const changes: Record<string, unknown>[] = [];
+  await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [peer] } }));
+  await page.route('**/api/sync/peers/pair-1', async route => {
+    const body = route.request().postDataJSON();
+    changes.push(body);
+    peer = { ...peer, ...(body.action === 'forget' ? { state: 'forget_pending', enabled: false } : { enabled: body.enabled }) };
+    await route.fulfill({ json: { peers: [peer] } });
+  });
+  await page.goto('/sync/');
+  await page.getByRole('button', { name: 'Pause automatic sync' }).click();
+  await expect(page.getByText('Automatic sync paused on this device')).toBeVisible();
+  expect(changes).toEqual([{ action: 'enabled', enabled: false }]);
+  await page.getByRole('button', { name: 'Enable automatic sync', exact: true }).click();
+  await page.getByRole('button', { name: 'Forget device…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Forget this device on both sides?' });
+  await expect(dialog).toContainText('ALL paired workspaces');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(changes).toHaveLength(2);
+  await page.getByRole('button', { name: 'Forget device…' }).click();
+  await dialog.getByRole('button', { name: 'Forget device', exact: true }).click();
+  await expect(page.getByText(/Remote removal pending/)).toBeVisible();
+  expect(changes[2]).toEqual({ action: 'forget', confirm: true });
+  await expect(page.getByRole('button', { name: 'Enable automatic sync', exact: true })).toHaveCount(0);
+});
+
+test('automatic sync is an explicit checkbox on both serve and receive', async ({ page }) => {
+  let requested: Record<string, unknown> = {};
+  await page.route('**/api/sync/serve', async route => {
+    requested = route.request().postDataJSON();
+    await route.fulfill(stream([{ type: 'paired', hostname: 'workstation' }, { type: 'done' }]));
+  });
+  await page.goto('/sync/');
+  const checkbox = page.getByRole('checkbox', { name: /Enable automatic sync with this device/ });
+  await expect(checkbox).not.toBeChecked();
+  await checkbox.check();
+  await page.getByRole('button', { name: 'Start Serving' }).click();
+  expect(requested.remember).toBe(true);
+  await expect(page.getByText(/Device paired for automatic sync/)).toBeVisible();
+  await page.getByRole('tab', { name: /Receive/ }).click();
+  await expect(page.getByRole('checkbox', { name: /Enable automatic sync with this device/ })).not.toBeChecked();
 });
 
 test('serve a chosen workspace send-only, with policy-aware approval and refusals', async ({ page }) => {

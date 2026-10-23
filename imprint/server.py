@@ -26,6 +26,8 @@ store returns only after persistence succeeds. Never store credentials or secret
 Memories and conversations remain shared across devices. Original source paths
 are references on the source device. Use device_context and project mappings;
 verify local_source_path and live files before reading or editing.
+Search returns compact excerpts. Expand only evidence needed for the task;
+stop when sufficient. Use detail="full" for broader session context.
 """
 
 mcp = FastMCP("imprint", instructions=_MCP_INSTRUCTIONS)
@@ -232,11 +234,13 @@ def search(
     layer: str = "",
     kind: str = "",
     domain: str = "",
-    limit: int = 10,
+    limit: int = 5,
     offset: int = 0,
     workspace: str = "",
     mode: str = "hybrid",
     source: str = "",
+    detail: str = "compact",
+    max_chars: int = 4000,
 ) -> str:
     """Find evidence across memories using semantic and exact-term rank fusion.
     Returns bounded excerpts plus provenance. Verify live sources before edits.
@@ -249,11 +253,13 @@ def search(
         layer: Filter by layer: api, ui, tests, infra, config, docs (optional)
         kind: Filter by kind: source, test, migration, readme (optional)
         domain: Filter by domain(s), comma-separated (optional)
-        limit: Max results (default 10)
+        limit: Max results (default 5)
         offset: Skip first N for pagination
         workspace: Target workspace (optional)
         mode: hybrid (default) or semantic
         source: Exact source path filter (optional)
+        detail: compact excerpts (default), or full with session context
+        max_chars: Response character budget, 1200–12000 (default 4000); not tokens
     """
     ws, err = _validate_ws(workspace)
     if err:
@@ -263,6 +269,8 @@ def search(
         return "Error: query is required"
     if len(query) > 4000 or mode not in {"hybrid", "semantic"}:
         return "Error: query must be at most 4000 characters; mode must be hybrid or semantic"
+    if detail not in {'compact', 'full'} or not 1200 <= max_chars <= 12000:
+        return 'Error: detail must be compact or full; max_chars must be 1200–12000'
     limit = max(1, min(limit, 50))
     offset = max(0, min(offset, 255))
 
@@ -282,6 +290,10 @@ def search(
         query, limit=limit, offset=offset, project=project, type=type,
         tag_filters=tag_filters or None, workspace=ws, mode=mode, source=source,
     )
+
+    if detail == 'compact':
+        from .mcp_output import compact_search
+        return compact_search(results, query, ws, offset, limit, max_chars, RELEVANCE_THRESHOLD)
 
     # ── Auto-wake: prepend session context on first search call ──
     prefix = ""
@@ -405,11 +417,9 @@ def search(
         lines.append("Follow up if this is incomplete: " + "  |  ".join(followups))
 
     output = prefix + "\n".join(lines)
-    if len(output) > SEARCH_MAX_TOTAL_CHARS:
-        output = output[:SEARCH_MAX_TOTAL_CHARS] + (
-            f"\n\n… [output truncated — {len(relevant)} results matched. "
-            f"Use offset={next_offset} to see more, or add filters to narrow results]"
-        )
+    if len(output) > max_chars:
+        notice = '\n… [response budget reached; narrow filters or expand a selected ID with get_memory]'
+        output = output[:max_chars - len(notice)] + notice
     return output
 
 
@@ -495,17 +505,23 @@ def purge_sources(target: Annotated[str, Field(min_length=1, max_length=4096)], 
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
-def get_memory(memory_id: str, workspace: str = "") -> str:
-    """Read one memory by the ID returned from search. Content is bounded to 12000 chars."""
+def get_memory(memory_id: str, workspace: str = "", start: int = 0, max_chars: int = 4000) -> str:
+    """Read selected evidence by ID. Content defaults to 4000 characters;
+    use next_start for continuation or max_chars up to 12000 for a larger read."""
     ws, err = _validate_ws(workspace)
     if err:
         return err
+    if start < 0 or not 100 <= max_chars <= 12000:
+        return 'Error: start must be nonnegative; max_chars must be 100–12000'
     from .cli_viz import get_memory as read_memory
     import json
-    data = read_memory(memory_id, workspace=ws)
+    data = dict(read_memory(memory_id, workspace=ws))
     content = data.get("content", "")
-    data["content"] = content[:12000]
-    data["truncated"] = len(content) > 12000
+    data["content"] = content[start:start + max_chars]
+    data['start'] = start
+    data['total_chars'] = len(content)
+    data["truncated"] = start + max_chars < len(content)
+    data['next_start'] = start + max_chars if data['truncated'] else None
     return json.dumps(data, ensure_ascii=False)
 
 

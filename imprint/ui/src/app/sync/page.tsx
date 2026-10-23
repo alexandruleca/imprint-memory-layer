@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PairedDevices } from "@/components/paired-devices";
 import { Spinner } from "@/components/loaders";
 import { SyncProgressGroup } from "@/components/sync-progress";
 import {
@@ -416,6 +417,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
   const [relay, setRelay] = useState("");
   const [served, setServed] = useState<ServedSession | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
+  const [remember, setRemember] = useState(false);
   const ctrlRef = useRef<AbortController | null>(null);
   const workspaceId = useId();
   const relayId = useId();
@@ -431,7 +433,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
     setNotes([]);
     const note = (text: string) => setNotes((current) => [...current, text]);
 
-    const ctrl = streamSyncServe({ workspace, direction, relay: relay.trim() }, (ev: SyncEvent) => {
+    const ctrl = streamSyncServe({ workspace, direction, relay: relay.trim(), remember }, (ev: SyncEvent) => {
       switch (ev.type) {
         case "room":
           code = ev.target || "";
@@ -477,6 +479,9 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
         case "refused":
           note(refusalNote(ev.request));
           break;
+        case "paired":
+          note("Device paired for automatic sync with this workspace and approved direction.");
+          break;
         case "warning":
           note(ev.message || "Warning");
           break;
@@ -504,7 +509,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
       }
     });
     ctrlRef.current = ctrl;
-  }, [workspace, direction, relay]);
+  }, [workspace, direction, relay, remember]);
 
   function stop() {
     ctrlRef.current?.abort();
@@ -564,6 +569,10 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
               </select>
             </div>
             <DirectionField side="serve" value={direction} onChange={setDirection} />
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-1" />
+              <span>Enable automatic sync with this device after pairing. Both devices must opt in; only this workspace and the approved direction are remembered.</span>
+            </label>
             <div className="space-y-1">
               <label htmlFor={relayId} className="block text-xs font-medium">
                 Relay <span className="font-normal text-muted-foreground">(optional)</span>
@@ -768,6 +777,7 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
   // Joining only receives unless the user opts in to sending.
   const [direction, setDirection] = useState<SyncDirection>("receive");
   const [notes, setNotes] = useState<string[]>([]);
+  const [remember, setRemember] = useState(false);
   const ctrlRef = useRef<AbortController | null>(null);
   const codeId = useId();
   const workspaceId = useId();
@@ -790,7 +800,7 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
     let pullStats: SyncStats | undefined;
     let pushStats: SyncStats | undefined;
 
-    const ctrl = streamSyncReceive(code, { workspace, direction }, (ev: SyncEvent) => {
+    const ctrl = streamSyncReceive(code, { workspace, direction, remember }, (ev: SyncEvent) => {
       switch (ev.type) {
         case "session":
           sessionId = ev.session_id || "";
@@ -821,6 +831,9 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
           break;
         case "workspace_created":
           note(`Created workspace “${ev.workspace}”.`);
+          break;
+        case "paired":
+          note("Device paired for automatic sync with this workspace and approved direction.");
           break;
         case "warning":
           note(ev.message || "Warning");
@@ -938,6 +951,10 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
               </p>
             </div>
             <DirectionField side="receive" value={direction} onChange={setDirection} />
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="mt-1" />
+              <span>Enable automatic sync with this device after pairing. Both devices must opt in; only this workspace and the approved direction are remembered.</span>
+            </label>
             <Btn onClick={connect} disabled={!codeInput.trim() || loading || Boolean(problem)}>
               <Plug className="w-4 h-4" /> Connect
             </Btn>
@@ -1254,6 +1271,8 @@ export default function SyncPage() {
           Desktop.
         </p>
       </div>
+
+      <PairedDevices />
 
       <div className="grid grid-cols-2 gap-6">
         <ExportCard />
