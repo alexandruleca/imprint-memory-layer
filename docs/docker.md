@@ -151,7 +151,7 @@ Point clients at your host:
 
 ```bash
 imprint sync serve --relay ws://your-host:8430
-imprint sync ws://your-host:8430/<room-id> --pin <PIN>
+imprint sync ws://your-host:8430/<code>   # the line serve prints
 ```
 
 ## Tags

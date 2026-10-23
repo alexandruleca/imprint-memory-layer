@@ -17,11 +17,11 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
     expect(route.request().method()).toBe('POST');
     bodies.push(route.request().postDataJSON());
     await route.fulfill(stream(bodies.length === 1 ? [
-      { type: 'room', room_id: 'a1b2c3d4', target: 'wss://sync.example.com/a1b2c3d4', pin: 'Ab3xY9Kq', session_id: 's1', workspace: 'team', pull: true, push: false },
+      { type: 'room', room_id: 'a1b2c3d4', pin: 'Ab3xY9Kq', code: 'a1b2c3d4-Ab3xY9Kq', target: 'wss://sync.example.com/a1b2c3d4-Ab3xY9Kq', session_id: 's1', workspace: 'team', pull: true, push: false },
       { type: 'status', status: 'waiting' },
       { type: 'approval_required', hostname: 'colleague', os: 'linux', fingerprint: 'cafebabe', user: 'bob' },
     ] : [
-      { type: 'room', room_id: 'b2c3d4e5', pin: 'Zz9yX8wV', session_id: 's2', workspace: 'team', pull: true, push: false },
+      { type: 'room', room_id: 'b2c3d4e5', pin: 'Zz9yX8wV', code: 'b2c3d4e5-Zz9yX8wV', target: 'b2c3d4e5-Zz9yX8wV', session_id: 's2', workspace: 'team', pull: true, push: false },
       { type: 'auto_accepted', hostname: 'colleague', os: 'linux', fingerprint: 'cafebabe', user: 'bob' },
       { type: 'status', status: 'send_complete' },
       { type: 'refused', request: 'push', message: 'provider is serving send-only: pushes are refused' },
@@ -51,9 +51,9 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
   await expect(panel.getByText(/^Sent:/)).toHaveCount(0);
 });
 
-test('a custom relay is shown as the full address to share', async ({ page }) => {
+test('the share code is one string, with the relay address on a custom relay', async ({ page }) => {
   await page.route('**/api/sync/serve', route => route.fulfill(stream([
-    { type: 'room', room_id: 'a1b2c3d4', target: 'wss://sync.example.com/a1b2c3d4', pin: 'Ab3xY9Kq', session_id: 's9', workspace: 'default', pull: true, push: true },
+    { type: 'room', room_id: 'a1b2c3d4', pin: 'Ab3xY9Kq', code: 'a1b2c3d4-Ab3xY9Kq', target: 'wss://sync.example.com/a1b2c3d4-Ab3xY9Kq', session_id: 's9', workspace: 'default', pull: true, push: true },
     { type: 'status', status: 'waiting' },
   ])));
   await page.route('**/api/sync/cancel', route => route.fulfill({ json: { ok: true } }));
@@ -61,8 +61,9 @@ test('a custom relay is shown as the full address to share', async ({ page }) =>
   const panel = page.getByRole('tabpanel');
   await panel.getByLabel(/^Relay/).fill('sync.example.com');
   await panel.getByRole('button', { name: 'Start Serving' }).click();
-  await expect(panel.getByText('wss://sync.example.com/a1b2c3d4')).toBeVisible();
-  await expect(panel.getByText('Ab3xY9Kq')).toBeVisible();
+  await expect(panel.getByText('wss://sync.example.com/a1b2c3d4-Ab3xY9Kq', { exact: true })).toBeVisible();
+  await expect(panel.getByText('imprint sync wss://sync.example.com/a1b2c3d4-Ab3xY9Kq')).toBeVisible();
+  await expect(panel.getByText('PIN', { exact: true })).toHaveCount(0);
 });
 
 test('receive one way into a new workspace and show the negotiated plan', async ({ page }) => {
@@ -81,7 +82,8 @@ test('receive one way into a new workspace and show the negotiated plan', async 
   await page.goto('/sync/');
   await page.getByRole('tab', { name: /Receive/ }).click();
   const panel = page.getByRole('tabpanel');
-  await panel.getByLabel('Room', { exact: true }).fill('a1b2c3d4');
+  await expect(panel.getByRole('radio', { name: /^Receive only/ })).toBeChecked();
+  await panel.getByLabel('Code', { exact: true }).fill('a1b2c3d4-Ab3xY9Kq');
   const workspace = panel.getByLabel('Workspace on this device');
   await expect(workspace).toHaveValue('default');
   await workspace.fill('Bad_Name');
@@ -99,14 +101,36 @@ test('receive one way into a new workspace and show the negotiated plan', async 
   await expect(panel.getByRole('radio', { name: /^Receive only/ })).toBeChecked();
 
   await panel.getByRole('button', { name: 'Connect' }).click();
-  await expect(panel.getByText('Receive only', { exact: true })).toBeVisible();
-  await panel.getByLabel('PIN', { exact: true }).fill('Ab3xY9Kq');
-  await panel.getByRole('button', { name: 'Authenticate' }).click();
   await expect(panel.getByText('Sync Complete')).toBeVisible();
   await expect(panel.getByRole('status')).toContainText('Plan: pull only — push skipped (this machine is receive-only)');
   await expect(panel.getByRole('status')).toContainText('Created workspace “from-alice”.');
   await expect(panel.getByText(/^Pulled:/)).toBeVisible();
-  expect(body).toMatchObject({ room_id: 'a1b2c3d4', pin: 'Ab3xY9Kq', workspace: 'from-alice', direction: 'receive' });
+  expect(body).toEqual({ code: 'a1b2c3d4-Ab3xY9Kq', workspace: 'from-alice', direction: 'receive' });
+});
+
+test('a two-way join names the receiving device and asks before sending', async ({ page }) => {
+  let decision: Record<string, unknown> = {};
+  await page.route('**/api/sync/receive', route => route.fulfill(stream([
+    { type: 'session', session_id: 's4', workspace: 'default' },
+    { type: 'status', status: 'handshake_ok' },
+    { type: 'peer_connected', hostname: 'sam-workstation', user: 'sam', os: 'linux', fingerprint: '5e19b07c' },
+    { type: 'confirm_push', workspace: 'default', hostname: 'sam-workstation', user: 'sam', os: 'linux', fingerprint: '5e19b07c' },
+  ])));
+  await page.route('**/api/sync/approve', async route => {
+    decision = route.request().postDataJSON();
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/sync/');
+  await page.getByRole('tab', { name: /Receive/ }).click();
+  const panel = page.getByRole('tabpanel');
+  await panel.getByRole('radio', { name: /^Two-way/ }).check();
+  await panel.getByLabel('Code', { exact: true }).fill('a1b2c3d4-Ab3xY9Kq');
+  await panel.getByRole('button', { name: 'Connect' }).click();
+  await expect(panel.getByText('Send this workspace?')).toBeVisible();
+  await expect(panel.getByText('sam-workstation', { exact: true })).toBeVisible();
+  await expect(panel.getByText('fingerprint: 5e19b07c')).toBeVisible();
+  await panel.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => decision).toEqual({ session_id: 's4', decision: 'accept' });
 });
 
 test('migrate dialog copies by default', async ({ page }) => {

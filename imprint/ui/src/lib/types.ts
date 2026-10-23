@@ -236,6 +236,7 @@ export interface SyncEvent {
     | "auto_accepted"
     | "trusted"
     | "peer_connected"
+    | "confirm_push"
     | "plan"
     | "refused"
     | "workspace_created"
@@ -247,7 +248,9 @@ export interface SyncEvent {
     | "warning"
     | "error";
   room_id?: string;
-  /** room: what the other machine enters — the room ID, or relay address and room on a custom relay. */
+  /** room: the one-time share code (room ID and PIN). */
+  code?: string;
+  /** room: what the other machine enters — the code, behind the relay address on a custom relay. */
   target?: string;
   /** room: the relay this session uses. */
   relay?: string;

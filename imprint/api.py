@@ -986,24 +986,27 @@ async def api_sync_serve(request: Request):
 
 @app.post("/api/sync/receive")
 async def api_sync_receive(request: Request):
-    """SSE stream for consumer (receive) mode. Needs room_id and pin;
-    room_id takes any form the serving side shows (``<room>``,
-    ``<host>/<room>`` or ``wss://<host>/<room>``).
+    """SSE stream for consumer (receive) mode. Needs ``code``: what the
+    serving side shows (``<room>-<pin>``, on its own or behind
+    ``<host>/`` or ``wss://<host>/``).
 
     Optional ``workspace`` (default: active; a new name is created once the
-    peer's data arrives) and ``direction`` = ``both`` | ``send`` | ``receive``.
+    peer's data arrives) and ``direction`` = ``receive`` (default) |
+    ``both`` | ``send``. Before a push the stream emits ``confirm_push``
+    and waits for ``/api/sync/approve``.
     """
-    body = await request.json()
-    room_id = body.get("room_id", "").strip()
-    pin = body.get("pin", "").strip()
-    if not room_id or not pin:
-        return JSONResponse({"error": "room_id and pin required"}, status_code=400)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+        return JSONResponse({"error": "code required"}, status_code=400)
 
-    from .sync_ws import SyncPolicy, parse_target, receive_session, sync_workspace
+    from .sync_ws import SyncPolicy, parse_code, receive_session, sync_workspace
 
     try:
-        endpoint, room = parse_target(room_id)
-        policy = SyncPolicy.parse(body.get("direction", "both"))
+        endpoint, room, pin = parse_code(body["code"])
+        policy = SyncPolicy.parse(body.get("direction", "receive"))
         ws, exists = sync_workspace(body.get("workspace"))
         if not exists and not policy.receive:
             raise ValueError(f"workspace {ws!r} does not exist, so a send-only sync has nothing to send")
@@ -1085,13 +1088,13 @@ async def api_desktop_learn_scan(request: Request):
 
 @app.post("/api/sync/approve")
 async def api_sync_approve(request: Request):
-    """Resolve a pending provider-side approval prompt.
+    """Resolve a pending sync decision.
 
-    Mirrors the CLI's ``[y/n/t]`` prompt: ``decision`` must be one of
-    ``accept`` (one-time), ``trust`` (accept + persist fingerprint), or
-    ``reject``. The server streams an ``approval_required`` SSE event on
-    ``/api/sync/serve`` when a non-trusted peer completes the PIN check;
-    the UI then POSTs here with the session_id and the user's choice.
+    Serving: an ``approval_required`` event on ``/api/sync/serve`` (an
+    unknown device passed the key exchange) takes ``accept`` (one-time),
+    ``trust`` (accept + remember the fingerprint) or ``reject``. Joining: a
+    ``confirm_push`` event on ``/api/sync/receive`` takes ``accept`` (send
+    this workspace to the named device) or ``reject`` (skip the push).
     """
     body = await request.json()
     session_id = body.get("session_id", "")

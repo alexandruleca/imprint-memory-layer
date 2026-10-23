@@ -145,11 +145,14 @@ class WorkspaceSyncStorageTests(unittest.TestCase):
                 # A cross-site page could fire a GET; the endpoint does not take one.
                 response = await client.get('/api/sync/serve?workspace=default')
                 self.assertEqual(response.status_code, 405)
-                body = {'room_id': 'room', 'pin': 'PIN'}
+                body = {'code': '7f3a9c21-Ab3xY9Kq'}
                 for extra in ({'direction': 'up'}, {'workspace': 7}, {'workspace': 'missing', 'direction': 'send'},
-                              {'room_id': 'host/room?x=1'}):
+                              {'code': 'host/7f3a9c21-Ab3xY9Kq?x=1'}, {'code': '7f3a9c21'}, {'code': 7}):
                     response = await client.post('/api/sync/receive', json={**body, **extra})
                     self.assertEqual(response.status_code, 400, extra)
+                for legacy in ({'room_id': '7f3a9c21', 'pin': 'Ab3xY9Kq'}, ['code']):
+                    response = await client.post('/api/sync/receive', json=legacy)
+                    self.assertEqual(response.status_code, 400, legacy)
         asyncio.run(requests())
 
 

@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'Does my code ever leave my machine?',
-    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via ONNX Runtime — no network call. The knowledge graph is local SQLite. Two things send data out, and only when you ask: `imprint sync` streams the workspace you choose through a relay, end-to-end encrypted with the session PIN so the relay sees only ciphertext, and opt-in LLM topic tagging (`imprint config set tagger.llm true`) calls the provider you pick (Anthropic, OpenAI, Gemini, or local Ollama / vLLM).',
+    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via ONNX Runtime — no network call. The knowledge graph is local SQLite. Two things send data out, and only when you ask: `imprint sync` streams the workspace you choose through a relay, end-to-end encrypted with the session’s share code so the relay sees only ciphertext, and opt-in LLM topic tagging (`imprint config set tagger.llm true`) calls the provider you pick (Anthropic, OpenAI, Gemini, or local Ollama / vLLM).',
   },
   {
     q: 'Why not just wait for bigger context windows?',
@@ -30,7 +30,7 @@ const faqs = [
   },
   {
     q: 'Can I share memory across my machines or with my team?',
-    a: 'Yes. `imprint sync serve` prints a room ID and a one-time PIN; the other machine joins with `imprint sync <room> --pin <PIN>`, the serving side approves its device, and both sides merge, deduplicated. Add `--send-only` or `--receive-only` on either side for one-way sync. Sessions are end-to-end encrypted: the PIN becomes the key (SPAKE2) and never crosses the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Sync is on demand, not a live shared database.',
+    a: 'Yes. `imprint sync serve` prints a one-time share code; the other machine joins with `imprint sync <code>`, the serving side approves its device, and memories and facts arrive deduplicated. Joining only receives: add `--two-way` to send back as well, and you are shown the serving device and asked before anything leaves. The serving side can be `--send-only` or `--receive-only`. Sessions are end-to-end encrypted: the code becomes the key (SPAKE2) without crossing the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Sync is on demand, not a live shared database.',
   },
   {
     q: 'Can I share only part of my memory?',

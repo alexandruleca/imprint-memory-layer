@@ -15,7 +15,7 @@ import (
 // sessions. The relay (`imprint relay`) stays in Go.
 //
 //	imprint sync serve [--relay <host>] [--workspace <name>] [--send-only | --receive-only]
-//	imprint sync <target> --pin <pin> [--workspace <name>] [--send-only | --receive-only] [--fresh]
+//	imprint sync <code> [--workspace <name>] [--two-way | --send-only] [--fresh]
 //	imprint sync export | import ...
 func Sync(args []string) {
 	if len(args) == 0 {

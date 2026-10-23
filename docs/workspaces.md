@@ -117,7 +117,7 @@ imprint migrate --from default --to team --topic auth --copy
 
 A real run registers a new target workspace without switching to it; a dry run changes nothing, not even the target. Project and source transfers also copy their source-linked knowledge-graph facts (topic transfers have none); facts are never removed from the source and facts the target already holds are skipped, so re-running a copy refreshes the curated workspace without duplicates. A copy does not delete: memories you later remove from the source stay in the target until you remove them there. The dashboard's **Settings → Workspaces → Copy / move…** dialog offers the same choice and defaults to **Copy**.
 
-Live sync works on one workspace, end-to-end encrypted, and never switches the active one. `imprint sync serve --workspace team --send-only` shares only `team`, read-only; the joining machine picks its own destination with `--workspace` (created when the data arrives) and can add `--receive-only`. See [sync](sync.md#share-part-of-your-memory) and [ADR 0016](adr/0016-sync-direction-and-workspace-sharing.md).
+Live sync works on one workspace, end-to-end encrypted, and never switches the active one. `imprint sync serve --workspace team --send-only` shares only `team`, read-only, and prints a share code; the joining machine runs `imprint sync <code>` and picks its own destination with `--workspace` (created when the data arrives). Joining only receives unless it adds `--two-way` or `--send-only`, and then it is shown the serving device and asked before anything is sent. See [sync](sync.md#share-part-of-your-memory) and [ADR 0016](adr/0016-sync-direction-and-workspace-sharing.md).
 
 ## Approved roots and sharing
 

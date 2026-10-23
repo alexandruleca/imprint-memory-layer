@@ -107,8 +107,7 @@ export function streamSyncServe(
 }
 
 export function streamSyncReceive(
-  roomId: string,
-  pin: string,
+  code: string,
   options: SyncSessionOptions,
   onEvent: (ev: SyncEvent) => void,
 ): AbortController {
@@ -116,7 +115,7 @@ export function streamSyncReceive(
   fetch(`${API_BASE}/api/sync/receive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_id: roomId, pin, workspace: options.workspace, direction: options.direction }),
+    body: JSON.stringify({ code, workspace: options.workspace, direction: options.direction }),
     signal: ctrl.signal,
   }).then(async (res) => {
     if (!res.ok) {

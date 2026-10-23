@@ -1,6 +1,6 @@
 ---
 title: ADR 0018 — Single sync implementation and end-to-end encryption
-description: Live sync runs in one Python implementation for CLI and dashboard, and every session is end-to-end encrypted with SPAKE2 and AES-256-GCM.
+description: Live sync runs in one Python implementation for CLI and dashboard, every session is end-to-end encrypted with SPAKE2 and AES-256-GCM, sessions start from one share code, and joining receives unless the user confirms sending.
 ---
 
 # 0018 — Single sync implementation and end-to-end encryption
@@ -26,6 +26,10 @@ The protocol was not end-to-end encrypted. The joining side's HELLO carried the 
 3. The consumer's first sealed frame is HELLO (device identity, no PIN). A provider that cannot open it reports a wrong PIN and ends the session, so a relay gets one online PIN guess per session and nothing to test guesses against offline. Approval, the grant and all data follow inside the channel.
 4. Any frame that fails to open, or a text frame after the exchange, ends the session; nothing from an unfinished stream is stored. Before the channel exists a peer may send an unauthenticated text notice (`{"status", "body", "version": 2}`) that can only end a session.
 
+**One share code.** The serving side prints `<room>-<pin>` (behind `wss://<host>/` on a relay other than the default) and `imprint sync <code>` takes it as one argument; `--pin` is gone. Releases before protocol 2 need `--pin`, so given a code they stop before connecting instead of sending its PIN in clear. The dashboard and `/api/sync/receive` take the same `code`.
+
+**Joining receives by default.** A code is all a machine needs to join, so whoever hands one out must not receive the joiner's workspace by default. Joining is receive-only unless `--two-way` or `--send-only` (dashboard/API `direction`) is given. The provider's sealed `200` carries its device identity next to the grant; before any push, the consumer shows that device and asks (`confirm_push`, answered through the same decision channel as the provider's approval). Declining skips the push and keeps the pull. Serving keeps its two-way default: it only imports what a joiner chooses to send.
+
 **No fallback.** Protocol 1 peers are rejected — an older consumer gets status 426 telling it to update; a newer consumer recognises an older provider's reply. A plaintext fallback would let a relay force it. With every peer on protocol 2, ADR 0016's compatibility rules for older clients are removed: a grant must be an object, and a request outside it is answered with 403 and ends the session instead of being drained.
 
 ## Alternatives
@@ -39,7 +43,8 @@ The protocol was not end-to-end encrypted. The joining side's HELLO carried the 
 ## Consequences
 
 - The relay sees room IDs, the two exchange messages, ciphertext sizes and timing, and IP addresses — not the PIN, devices or data. A relay can still deny service.
-- Both machines must run a release with protocol 2; mixed versions fail with an explicit message.
+- Both machines must run a release with protocol 2; mixed versions fail with an explicit message, and an older joining client refuses the share code before connecting.
+- Scripts that relied on joining to push must add `--two-way` (or `--send-only`) and answer the confirmation; joining no longer sends anything unasked.
 - `spake2==0.9` (pure Python, MIT, depends only on `cryptography`, which was already locked) is added to `requirements/base.txt` and `base.lock.txt` with hashes. Go needs no crypto dependency.
 - ~1,800 lines of Go protocol code and its tests are removed. `cmd/device_test.go` is removed with the Go fingerprint writer: the race it guarded (Go and Python creating different identities) cannot occur, and Python's concurrent initialisation keeps its own test.
 - Device trust remains a consent gate keyed by a non-secret fingerprint; the PIN is the authentication. Trusted fingerprints auto-accept and fingerprints are public (they travel in record provenance), so the PIN must keep its length: each session allows one guess, and anything that can start sessions repeatedly could otherwise grind a short PIN.
@@ -56,17 +61,18 @@ An independent adversarial review (malicious relay, malicious peer holding the P
 - **Stream validation.** Every line of a data stream is checked (one meta with vectors, batches of record objects with vectors, done) and re-serialised into the buffer; vector-less memories are refused, so nothing received is embedded locally; a phase runs at most once per session; receive queues are bounded.
 - **Relay limits.** 80 MiB message cap, a taken role is refused instead of replaced, unknown roles are rejected, writes have a deadline, and only unpaired rooms expire (a long transfer is no longer cut at one hour).
 - **CSRF.** `/api/sync/serve` was a GET a cross-site page could trigger; it is now a POST with a JSON body.
+- **Mixed versions.** A protocol 1 consumer sent the PIN in clear before it could learn the provider was newer, so a malicious relay could use it to complete a protocol 2 session in its place. The one-piece share code closes this: protocol 1 clients cannot accept it.
+- **Default join pushed.** A default (two-way) join sent the whole selected workspace to whoever issued the room and PIN, without showing who that was. Joining is now receive-only, and a push first names the receiving device and waits for a yes.
 - **Errors and files.** Every key-exchange decoding failure becomes a clean 400; unreadable buffers ask for `--fresh` instead of crashing; download files are 0600; the peer receives generic failure text instead of local exception details.
 
 Open:
 
-- **Mixed versions.** A protocol 1 consumer sends the PIN in clear before it can learn the provider is newer, so a malicious relay can use it to complete a protocol 2 session in its place. Documented: update both machines before syncing. Changing the share format so old clients cannot accept it would close this.
-- **Default join pushes.** A default (two-way) join sends the whole selected workspace to whoever issued the room and PIN; the joining side does not see the provider's identity. Documented in the CLI plan line; a confirmation or a receive-only default would change this.
-- The PIN is passed on the command line (visible to other local users briefly, and in shell history). Device trust remains keyed by a non-secret fingerprint; it never replaces the PIN, which is why the PIN must stay long.
+- The share code is passed on the command line (visible to other local users briefly, and in shell history); it is single-use, so a leaked code from history is worthless once the session ends. Device trust remains keyed by a non-secret fingerprint; it never replaces the PIN, which is why the PIN must stay long.
 
 ## Validation
 
-- `tests/test_sync_live.py` (37 tests) runs both sessions through a real WebSocket relay that records every frame: two-way sync with the PIN, secret content, hostname, fingerprint and workspace name absent from all relay frames and only two cleartext frames; wrong PIN; reject, unknown decision, trust and auto-accept; altered, dropped, replayed and injected frames; protocol 1 consumer and provider; every direction combination, refusal of a request outside the grant, new-workspace creation; resumable buffer kept on failure, resumed, cleaned up on success, and release-era buffers; CLI serve/join transcripts and exit codes; hostile peers (escape-laden or malformed greetings, repeated requests, vector-less memories, malformed stream headers), forged relay notices, concurrent receiving runs, unreadable buffers; relay and target parsing; key agreement, room binding, direction separation and malformed messages. A mutation that turns the cipher into a no-op fails the encryption, tamper, drop, replay and wrong-PIN tests.
-- Full Python suite (129 tests), Go `vet`/`test` with the race detector (relay tests in `cmd/relay_test.go`, including taken-role, unknown-role and oversized-message refusals), dashboard `tsc`, `eslint`, static build and 11 Playwright tests.
+- `tests/test_sync_live.py` (42 tests) runs both sessions through a real WebSocket relay that records every frame: two-way sync with the PIN, secret content, hostname, fingerprint and workspace name absent from all relay frames and only two cleartext frames; wrong PIN; reject, unknown decision, trust and auto-accept; altered, dropped, replayed and injected frames; protocol 1 consumer and provider; every direction combination, refusal of a request outside the grant, new-workspace creation; the receive-only default, the serving device shown before a push, declining a push (the pull still runs; a send-only join ends with nothing to sync); resumable buffer kept on failure, resumed, cleaned up on success, and release-era buffers; CLI serve/join transcripts and exit codes; hostile peers (escape-laden or malformed greetings, repeated requests, vector-less memories, malformed stream headers), forged relay notices, concurrent receiving runs, unreadable buffers; share-code and relay parsing; key agreement, room binding, direction separation and malformed messages. A mutation that turns the cipher into a no-op fails the encryption, tamper, drop, replay and wrong-PIN tests.
+- Full Python suite (134 tests), Go `vet`/`test` with the race detector (relay tests in `cmd/relay_test.go`, including taken-role, unknown-role and oversized-message refusals), dashboard `tsc`, `eslint`, static build and 12 Playwright tests (the one-string share code, the receive-only default, and the two-way confirmation naming the serving device).
 - Process-level run: two data directories with separate Qdrant servers, the Go relay and the built `imprint` binary. A send-only curated workspace (1,200 memories with 1024-dim vectors and a fact) was received into a new workspace while the provider's other workspace stayed private; a second two-way run auto-accepted the trusted device and deduplicated everything; a wrong PIN exited 1 on both sides; Ctrl+C exited 130 while waiting and at the approval prompt.
-- Not run: native Windows/macOS, Python 3.12 (tests ran on 3.14), and the public relay.
+- The same run with the share code through the public relay (`wss://imprint.alexandruleca.com`, behind Cloudflare's proxy): a default join received the send-only workspace (1,200 memories and a fact) and sent nothing; a `--two-way` join named the serving device, asked, and after yes deduplicated both ways; declining still pulled; a wrong PIN exited 1 on both sides; the old `--pin` syntax exited 2. Frames of 63 MiB and a connection idle for 130 s (past the proxy's 100 s idle cut; client pings every 20 s) passed through the proxy.
+- Not run: native Windows/macOS, Python 3.12 (tests ran on 3.14).

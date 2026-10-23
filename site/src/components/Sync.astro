@@ -4,21 +4,21 @@ import Icon from './Icon.astro';
 const steps = [
   {
     title: 'Serve',
-    body: 'One machine runs the command below and prints a room ID plus a fresh PIN.',
+    body: 'One machine runs the command below and prints a one-time share code.',
     cmd: 'imprint sync serve',
   },
   {
     title: 'Join',
-    body: 'The other side joins: your desktop, a cloud VPS, or a teammate’s laptop.',
-    cmd: 'imprint sync <room> --pin <PIN>',
+    body: 'The other side passes the code: your desktop, a cloud VPS, or a teammate’s laptop. Joining receives; add --two-way to send back too.',
+    cmd: 'imprint sync <code>',
   },
   {
     title: 'Approve',
-    body: 'The serving side sees the device’s hostname, user, OS and fingerprint. Accept once, or trust it for next time.',
+    body: 'The serving side sees the device’s hostname, user, OS and fingerprint and accepts it once or trusts it. A joining machine that sends sees the serving device and confirms first.',
   },
   {
     title: 'Merge',
-    body: 'Memories and facts stream both ways by default and are deduplicated on arrival. Add --send-only or --receive-only on either side to make it one-way.',
+    body: 'Memories and facts stream across and are deduplicated on arrival. The serving side can be --send-only or --receive-only; the joining side sends only with --two-way or --send-only.',
   },
 ];
 
@@ -26,7 +26,7 @@ const details = [
   {
     icon: 'lock',
     title: 'End-to-end encrypted',
-    body: 'A fresh PIN per session becomes the key (SPAKE2); every frame is AES-256-GCM. The relay only ever sees ciphertext.',
+    body: 'Each session’s code becomes the key (SPAKE2) without crossing the relay; every frame is AES-256-GCM. The relay only ever sees ciphertext.',
   },
   {
     icon: 'merge',
@@ -35,8 +35,8 @@ const details = [
   },
   {
     icon: 'arrowRight',
-    title: 'One way when you want it',
-    body: 'Each side chooses send-only, receive-only or both. The serving side enforces its choice, so nothing is merged into it without consent.',
+    title: 'Nothing leaves unasked',
+    body: 'Joining only receives unless you add --two-way, and you see which machine gets your workspace before anything is sent. The serving side enforces its own one-way choice.',
   },
   {
     icon: 'archive',
@@ -88,7 +88,7 @@ const details = [
             <div><span class="prompt">$</span> <span class="hl">imprint sync serve</span></div>
             <div class="mt-1 text-[color:var(--color-text-dim)]">═══ Imprint Sync Server ═══</div>
             <div class="ok">✓ Connected! Share this with the other machine:</div>
-            <div class="my-1.5 pl-4 hl">imprint sync 7f3a9c21 --pin Ab3xY9Kq</div>
+            <div class="my-1.5 pl-4 hl">imprint sync 7f3a9c21-Ab3xY9Kq</div>
             <div class="pl-4">This device: laptop (id: a3f2c1d4)</div>
             <div class="mt-3 text-[color:var(--color-text-dim)]">═══ Incoming Sync Request ═══</div>
             <div class="pl-4">Device:&nbsp;&nbsp; <span class="hl">sam-workstation</span></div>
@@ -105,8 +105,9 @@ const details = [
             <span class="font-mono">sam@workstation</span>
           </div>
           <div class="term-body">
-            <div><span class="prompt">$</span> <span class="hl">imprint sync 7f3a9c21 --pin Ab3xY9Kq</span></div>
-            <div class="ok">✓ Handshake accepted</div>
+            <div><span class="prompt">$</span> <span class="hl">imprint sync 7f3a9c21-Ab3xY9Kq --two-way</span></div>
+            <div class="ok">✓ Connected to laptop (you, linux, id a3f2c1d4)</div>
+            <div class="pl-4">Send your workspace 'default' to laptop? [y/N]: <span class="hl">y</span></div>
             <div class="ok">✓ Merged remote → local</div>
             <div class="ok">✓ Pushed local → remote</div>
             <div class="text-[color:var(--color-text-dim)]">═══ Sync Complete ═══</div>
@@ -126,8 +127,8 @@ const details = [
     </ul>
 
     <p class="mt-5 text-sm text-[color:var(--color-text-dim)] max-w-3xl">
-      The PIN never crosses the relay, and the relay — including the default one — never sees your devices or
-      your memories; a wrong PIN or an altered frame ends the session. Vectors travel with each record, so the
+      The code’s secret never crosses the relay, and the relay — including the default one — never sees your
+      devices or your memories; a wrong code or an altered frame ends the session. Vectors travel with each record, so the
       receiving machine doesn't re-embed anything; both sides need the same embedding model.
       <a href="/sync" class="underline underline-offset-2 hover:text-white">Read the sync docs</a>.
     </p>

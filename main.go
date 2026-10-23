@@ -131,9 +131,9 @@ Usage:
   imprint refresh <dir>      Re-index only files that changed since last index
   imprint refresh-urls       Re-check stored URLs (ETag/Last-Modified) and re-index changed
   imprint sync serve [--relay <host>] [--workspace <n>] [--send-only | --receive-only]
-                             Expose a workspace for syncing via relay
-  imprint sync <host>/<id> --pin <pin> [--workspace <n>] [--send-only | --receive-only]
-                             Pull from and/or push to a remote peer
+                             Serve a workspace for end-to-end encrypted sync; prints a share code
+  imprint sync <code> [--workspace <n>] [--two-way | --send-only]
+                             Receive from the serving machine; --two-way also sends (confirmed first)
   imprint sync export         Export snapshot bundle (no re-embed on import)
   imprint sync import <dir>   Import snapshot bundle from another device
   imprint relay              Run the sync relay server
@@ -182,6 +182,6 @@ Examples:
   imprint learn
   imprint ingest ~/code
   imprint sync serve --relay sync.example.com
-  imprint sync sync.example.com/abc123
+  imprint sync sync.example.com/7f3a9c21-Ab3xY9Kq
 `)
 }

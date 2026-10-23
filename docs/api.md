@@ -158,19 +158,22 @@ dedup/replace by `name`, and avoids a trip through the job queue. See
 | GET | `/api/sync/export/download` | Stream a zipped snapshot to the browser. |
 | POST | `/api/sync/import/upload` | Multipart upload of a zip bundle. |
 | POST | `/api/sync/serve` | SSE stream: serve one workspace for live sync. JSON body (all optional): `workspace` (an existing workspace; default: active, captured at start), `direction` = `both` \| `send` \| `receive` (default `both`) and `relay` (host, default: the public relay). Invalid values return 400. A POST with a JSON body so a cross-site page cannot start a session. |
-| POST | `/api/sync/receive` | SSE stream: join a served room. Body: `{"room_id", "pin"}` — `room_id` takes what the serving side shows: `<room>`, `<host>/<room>` or `wss://<host>/<room>` — plus optional `workspace` (default: active; a new name is created when data arrives) and `direction`. A send-only receive needs an existing workspace. |
+| POST | `/api/sync/receive` | SSE stream: join a served room. Body: `{"code"}` — the share code the serving side shows, `<room>-<pin>`, on its own or behind `<host>/` or `wss://<host>/` — plus optional `workspace` (default: active; a new name is created when data arrives) and `direction` = `receive` (default) \| `both` \| `send`. A send-only receive needs an existing workspace. |
 | POST | `/api/sync/cancel` | Cancel an active peer-sync session by `session_id`. |
-| POST | `/api/sync/approve` | Resolve the provider-side `[y/n/t]` prompt. Body: `{"session_id": "...", "decision": "accept" \| "trust" \| "reject"}`. |
+| POST | `/api/sync/approve` | Resolve a pending sync decision. Body: `{"session_id": "...", "decision": "accept" \| "trust" \| "reject"}`. Serving: answers `approval_required` (`trust` also remembers the device). Joining: answers `confirm_push` (`accept` sends the workspace, anything else skips the push). |
 | GET | `/api/desktop-learn/history` | Previously-indexed Claude Desktop / ChatGPT Desktop export zips (SHA-keyed). |
 | POST | `/api/desktop-learn/scan` | One-shot Downloads scan for new desktop-app conversation exports. Body (optional): `{"paths": ["/extra/dir", ...]}`. Returns the structured scan result used by the dashboard. |
 
 Live peer sync runs the same sessions as `imprint sync` (one implementation,
 `imprint/sync_ws.py`), end-to-end encrypted — see [sync](./sync.md). Beyond
-status events, `serve` emits `room` (`room_id`, `target` — what the other
-machine enters — `pin`, `relay`, `workspace` and the `pull`/`push` grant peers
-receive), `approval_required` / `auto_accepted` / `trusted` and `refused`
-(`request`: `pull` \| `push`) when its direction policy turns a peer's request
-down; `receive` emits `session` (`workspace`), `plan` (`pull`, `push`,
+status events, `serve` emits `room` (`code`, `target` — what the other
+machine enters: the code, behind the relay address unless it is the default —
+`room_id`, `pin`, `relay`, `workspace` and the `pull`/`push` grant peers
+receive), `approval_required` / `auto_accepted` / `trusted`, `peer_connected`
+and `refused` (`request`: `pull` \| `push`) when its direction policy turns a
+peer's request down; `receive` emits `session` (`session_id`, `workspace`),
+`peer_connected` (the serving device), `confirm_push` (`workspace` and the
+serving device; answer through `/api/sync/approve`), `plan` (`pull`, `push`,
 `skipped` reasons), `workspace_created` and `warning`. `progress` events carry
 `phase` = `send` \| `receive` \| `pull` \| `push` \| `store`. The session uses
 the workspace passed explicitly and never changes the active one. Snapshot

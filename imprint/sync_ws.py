@@ -17,7 +17,7 @@ Handshake (protocol 2), consumer first::
     consumer → {"method": "PAKE", "version": 2, "msg": <SPAKE2 A>}      text
     provider → {"method": "PAKE", "version": 2, "msg": <SPAKE2 B>}      text
     consumer → {"method": "HELLO", hostname, user, os, fingerprint}    sealed
-    provider → {"status": 200, "body": {"pull": …, "push": …}}         sealed
+    provider → {"status": 200, "body": {"pull": …, "push": …, "device": …}}  sealed
 
 A sealed frame that fails to open means a wrong PIN (at HELLO) or a frame
 altered in transit; either ends the session. Before the session is sealed a
@@ -85,7 +85,10 @@ class PeerNotice(Exception):
 
 # ── Relay addressing ──────────────────────────────────────────────
 
-_ROOM_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+# The share code is the room ID and the PIN in one argument. Releases before
+# protocol 2 sent the PIN in clear and need it as a separate --pin, so they
+# refuse the code before connecting instead of leaking its secret.
+_CODE_RE = re.compile(r"([A-Za-z0-9_]{1,64})-([A-Za-z0-9]{8,64})")
 
 
 @dataclass(frozen=True)
@@ -98,12 +101,12 @@ class Relay:
     def url(self, room_id: str, role: str) -> str:
         return f"{self.scheme}://{self.host}/{room_id}?role={role}"
 
-    def target(self, room_id: str) -> str:
-        """What the other machine passes to ``imprint sync``: the bare room
-        ID on the default relay, the full address on any other."""
+    def target(self, code: str) -> str:
+        """What the other machine passes to ``imprint sync``: the bare share
+        code on the default relay, the code behind the address on any other."""
         if (self.scheme, self.host) == ("wss", DEFAULT_RELAY_HOST):
-            return room_id
-        return f"{self.scheme}://{self.host}/{room_id}"
+            return code
+        return f"{self.scheme}://{self.host}/{code}"
 
     def __str__(self) -> str:
         return f"{self.scheme}://{self.host}"
@@ -141,18 +144,25 @@ def parse_relay(raw: str | None) -> Relay:
     return Relay(scheme or _default_scheme(host), host)
 
 
-def parse_target(raw: str) -> tuple[Relay, str]:
-    """Split what the joining side was given into (relay, room ID). Accepts
-    ``<room>``, ``<host>/<room>`` and ``ws(s)://<host>/<room>``."""
+def share_code(room_id: str, pin: str) -> str:
+    return f"{room_id}-{pin}"
+
+
+def parse_code(raw: str) -> tuple[Relay, str, str]:
+    """Split what the joining side was given into (relay, room ID, PIN).
+    Accepts the code ``imprint sync serve`` prints — ``<room>-<pin>`` — on
+    its own or behind ``<host>/`` or ``ws(s)://<host>/``."""
     scheme, rest = _split_scheme((raw or "").strip())
-    host, _, room_id = rest.rpartition("/")
+    host, _, code = rest.rpartition("/")
     if host:
         relay = Relay(scheme or _default_scheme(host), _checked_host(host))
     else:
         relay = Relay(scheme or "wss", DEFAULT_RELAY_HOST)
-    if not _ROOM_RE.fullmatch(room_id):
-        raise ValueError("expected a room ID, <host>/<room-id> or wss://<host>/<room-id>")
-    return relay, room_id
+    match = _CODE_RE.fullmatch(code)
+    if not match:
+        raise ValueError("expected the code shown by `imprint sync serve`, e.g. 7f3a9c21-Ab3xY9Kq "
+                         "or wss://<host>/7f3a9c21-Ab3xY9Kq")
+    return relay, match.group(1), match.group(2)
 
 
 # ── Direction policy ──────────────────────────────────────────────
@@ -322,6 +332,28 @@ def submit_approval(session_id: str, decision: str) -> bool:
     return True
 
 
+def _expect_decision(session_id: str) -> asyncio.Future:
+    """Register a pending decision for a session; create it before yielding
+    the event that asks for it, so a front-end can answer straight away."""
+    future = asyncio.get_running_loop().create_future()
+    _approvals[session_id] = future
+    return future
+
+
+async def _await_decision(session_id: str, future: asyncio.Future, cancel: asyncio.Event) -> str:
+    """The front-end's answer, or CancelledError if the session is
+    cancelled first."""
+    cancelled = asyncio.create_task(cancel.wait())
+    try:
+        done, _ = await asyncio.wait({future, cancelled}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        cancelled.cancel()
+        _approvals.pop(session_id, None)
+    if future not in done:
+        raise asyncio.CancelledError("Session cancelled by user")
+    return future.result()
+
+
 def get_device_identity() -> dict:
     from .device import current
     fingerprint = current()['id']
@@ -391,8 +423,11 @@ _HELLO_FIELDS = {"hostname": 128, "user": 64, "os": 32}
 
 
 def _peer_info(hello: dict) -> dict:
-    """The peer's identity from its sealed HELLO. Raises HandshakeError
-    when the fields are not what a peer sends."""
+    """A peer's identity — the consumer's sealed HELLO, or the device in
+    the provider's sealed grant. Raises HandshakeError when the fields are
+    not what a peer sends."""
+    if not isinstance(hello, dict):
+        raise HandshakeError("Peer sent a malformed greeting")
     fingerprint = hello.get("fingerprint")
     if not isinstance(fingerprint, str) or not _DEVICE_ID.fullmatch(fingerprint):
         raise HandshakeError("Peer sent a malformed greeting")
@@ -903,9 +938,10 @@ async def serve_session(
 
     room_id = generate_room_id()
     pin = generate_pin()
+    code = share_code(room_id, pin)
 
-    yield {"type": "room", "room_id": room_id, "pin": pin, "session_id": sid,
-           "workspace": workspace, "relay": str(relay), "target": relay.target(room_id), **policy.grant()}
+    yield {"type": "room", "room_id": room_id, "pin": pin, "code": code, "session_id": sid,
+           "workspace": workspace, "relay": str(relay), "target": relay.target(code), **policy.grant()}
 
     try:
         async with _connect(relay, room_id, "provider") as ws:
@@ -928,27 +964,13 @@ async def serve_session(
                 # Ask the front-end (TTY via CLI, UI via /api/sync/approve)
                 # to decide. Block here until a decision arrives or the
                 # session is cancelled.
-                loop = asyncio.get_running_loop()
-                approval_fut = loop.create_future()
-                _approvals[sid] = approval_fut
+                decided = _expect_decision(sid)
                 yield {"type": "approval_required", **peer_info}
-
-                cancel_task = asyncio.create_task(cancel.wait())
                 try:
-                    done, _ = await asyncio.wait(
-                        {approval_fut, cancel_task},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                finally:
-                    cancel_task.cancel()
-                    _approvals.pop(sid, None)
-
-                if approval_fut not in done:
+                    decision = await _await_decision(sid, decided, cancel)
+                except asyncio.CancelledError:
                     await channel.send({"status": 408, "body": "cancelled"})
-                    _check_cancel(cancel)  # raises CancelledError
-                    return
-
-                decision = approval_fut.result()
+                    raise
                 if decision not in ("accept", "trust"):
                     await channel.send({"status": 403, "body": "rejected by provider"})
                     yield {"type": "error", "message": "Rejected by provider"}
@@ -960,8 +982,9 @@ async def serve_session(
                     except Exception as exc:
                         yield {"type": "warning", "message": f"Could not persist trust: {exc}"}
 
-            # Accept; the body tells the consumer which phases it may request.
-            await channel.send({"status": 200, "body": policy.grant()})
+            # Accept; the body tells the consumer which phases it may request
+            # and who it is talking to, so it can decide what to send.
+            await channel.send({"status": 200, "body": {**policy.grant(), "device": get_device_identity()}})
             yield {"type": "peer_connected", **peer_info}
 
             # Request loop: each phase at most once per session.
@@ -1055,15 +1078,17 @@ async def receive_session(
     room_id: str,
     pin: str,
     workspace: str,
-    policy: SyncPolicy = SyncPolicy(),
+    policy: SyncPolicy = _DIRECTIONS["receive"],
     buffer: Path | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Async generator yielding events for a sync receive (consumer)
     session on ``workspace``.
 
     Runs only the phases in the plan: the provider's grant intersected with
-    ``policy``. A workspace that does not exist yet is registered when the
-    pull starts.
+    ``policy`` (receive-only unless the caller opts in to sending). Before
+    anything is pushed, a ``confirm_push`` event names the receiving device
+    and waits for :func:`submit_approval`; declining skips the push. A
+    workspace that does not exist yet is registered when the pull starts.
 
     ``buffer``: where a pulled stream that failed to store is kept, so the
     import can be resumed (:func:`resume_session`); without it a failed
@@ -1101,17 +1126,34 @@ async def receive_session(
 
             yield {"type": "status", "status": "handshake_ok"}
 
+            body = resp.get("body")
             try:
-                plan = plan_sync(parse_grant(resp.get("body")), policy)
-            except ValueError as e:
+                grant = parse_grant(body)
+                provider = _peer_info(body.get("device"))
+                plan = plan_sync(grant, policy)
+            except (ValueError, HandshakeError) as e:
                 yield {"type": "error", "message": str(e)}
                 return
+            yield {"type": "peer_connected", **provider}
+
+            exists = workspace in config.get_known_workspaces()
+            if not exists and not plan.pull:
+                yield {"type": "error", "message": f"workspace {workspace!r} does not exist and this sync only pushes: nothing to send"}
+                return
+
+            if plan.push:
+                # Nothing leaves this machine until its user sees who gets it.
+                decided = _expect_decision(sid)
+                yield {"type": "confirm_push", "workspace": workspace, **provider}
+                if await _await_decision(sid, decided, cancel) != "accept":
+                    skipped = plan.skipped + ("push skipped (you chose not to send)",)
+                    if not plan.pull:
+                        yield {"type": "error", "message": "nothing to sync: " + ", ".join(skipped)}
+                        return
+                    plan = SyncPlan(pull=True, push=False, skipped=skipped)
             yield {"type": "plan", "pull": plan.pull, "push": plan.push, "skipped": list(plan.skipped)}
 
-            if workspace not in config.get_known_workspaces():
-                if not plan.pull:
-                    yield {"type": "error", "message": f"workspace {workspace!r} does not exist and this sync only pushes: nothing to send"}
-                    return
+            if not exists:
                 config.register_workspace(workspace)
                 yield {"type": "workspace_created", "workspace": workspace}
 

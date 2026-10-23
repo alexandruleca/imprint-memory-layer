@@ -8,7 +8,7 @@ Import restores both.  **No re-embedding needed on the receiving device.**
 
 Usage:
     python -m imprint.cli_sync serve [--relay HOST] [--workspace NAME] [--send-only | --receive-only]
-    python -m imprint.cli_sync join TARGET --pin PIN [--workspace NAME] [--send-only | --receive-only] [--fresh]
+    python -m imprint.cli_sync join CODE [--workspace NAME] [--two-way | --send-only] [--fresh]
     python -m imprint.cli_sync export [--output DIR] [--workspace NAME]
     python -m imprint.cli_sync import <snapshot_dir> [--workspace NAME]
 """
@@ -343,7 +343,7 @@ async def _serve(args) -> int:
         elif status == "waiting":
             device = sync_ws.get_device_identity()
             _ok("Connected! Share this with the other machine:")
-            print(f"\n  imprint sync {room['target']} --pin {room['pin']}\n")
+            print(f"\n  imprint sync {room['target']}\n")
             print(f"  This device: {device['hostname']} (id: {device['fingerprint']})")
             print(f"  Workspace:   {workspace}")
             print(f"  Mode:        {policy.mode()}\n")
@@ -375,7 +375,7 @@ async def _serve(args) -> int:
 
 async def _join(args) -> int:
     try:
-        relay, room_id = sync_ws.parse_target(args.target)
+        relay, room_id, pin = sync_ws.parse_code(args.code)
     except ValueError as e:
         _fail(str(e))
         return 1
@@ -388,16 +388,27 @@ async def _join(args) -> int:
     _header("═══ Imprint Sync ═══")
     _info(f"Workspace: {workspace}" + ("" if exists else " (new — created when data arrives)"))
 
+    session: dict = {}
+
     async def on_event(event: dict) -> bool:
         kind, status = event["type"], event.get("status")
-        if status == "connected":
+        if kind == "session":
+            session.update(event)
+        elif status == "connected":
             _ok("Connected to relay")
         elif status == "handshake_sent":
             _info("Handshake sent — waiting for the other machine to accept this device...")
         elif status == "handshake_ok":
             _ok("Handshake accepted")
+        elif kind == "peer_connected":
+            _ok(f"Connected to {_device(event)}")
+        elif kind == "confirm_push":
+            reply = (await _ask(f"  Send your workspace '{event['workspace']}' to {_device(event)}? [y/N]: ")).strip()
+            sync_ws.submit_approval(session["session_id"], "accept" if reply.lower() in ("y", "yes") else "reject")
         elif kind == "plan":
             _info("Plan: " + _plan(event))
+            if args.direction == "receive":
+                _info("Joining only receives; add --two-way to also send this workspace (you confirm first).")
         elif status == "pulling":
             _info("Pulling remote data...")
         elif status == "pushing":
@@ -409,15 +420,15 @@ async def _join(args) -> int:
         elif kind == "done":
             _header("═══ Sync Complete ═══")
         else:
-            return kind in ("session", "status")
+            return kind == "status"
         return True
 
     if not policy.receive:
-        return await _connect_and_sync(args, relay, room_id, workspace, policy, None, on_event)
-    return await _receive(args, relay, room_id, workspace, policy, on_event)
+        return await _connect_and_sync(relay, room_id, pin, workspace, policy, None, on_event)
+    return await _receive(args, relay, room_id, pin, workspace, policy, on_event)
 
 
-async def _receive(args, relay, room_id, workspace, policy, on_event) -> int:
+async def _receive(args, relay, room_id, pin, workspace, policy, on_event) -> int:
     """A joining run that may import. A completed download that failed to
     store is finished locally first: the peer's room is gone by now."""
     buffer = sync_ws.pending_buffer_path()
@@ -425,14 +436,14 @@ async def _receive(args, relay, room_id, workspace, policy, on_event) -> int:
         removed = sync_ws.discard_pending(buffer)
         _info("--fresh: " + (f"cleared {', '.join(map(str, removed))}" if removed
                              else "no buffer to clear, will download fresh"))
-        return await _connect_and_sync(args, relay, room_id, workspace, policy, buffer, on_event)
+        return await _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event)
     try:
         pending = sync_ws.pending_download(buffer)
     except ValueError as e:
         _fail(str(e))
         return 1
     if pending is None:
-        return await _connect_and_sync(args, relay, room_id, workspace, policy, buffer, on_event)
+        return await _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event)
     if pending.workspace != workspace:
         _fail(f"An unfinished download into workspace {pending.workspace!r} is waiting to be stored. "
               f"Finish it with --workspace {pending.workspace}, or discard it with --fresh.")
@@ -442,25 +453,21 @@ async def _receive(args, relay, room_id, workspace, policy, on_event) -> int:
     _info("Resuming local processing — peer not needed (run with --fresh to redownload)")
     code = await _render(sync_ws.resume_session(pending), on_event)
     if code == 0:
-        _info("To push local changes back to a peer, run `imprint sync <id> --pin <pin>` again "
-              "when a peer is serving.")
+        _info("To also send this workspace, run `imprint sync <code> --two-way` while the other machine serves.")
     return code
 
 
-async def _connect_and_sync(args, relay, room_id, workspace, policy, buffer, on_event) -> int:
-    if not args.pin:
-        _fail("--pin <pin> is required for a fresh sync (shown on the provider machine)")
-        return 1
-    _info(f"Connecting to {relay}/{room_id}...")
-    return await _render(sync_ws.receive_session(relay, room_id, args.pin, workspace, policy, buffer), on_event)
+async def _connect_and_sync(relay, room_id, pin, workspace, policy, buffer, on_event) -> int:
+    _info(f"Connecting to {relay}...")
+    return await _render(sync_ws.receive_session(relay, room_id, pin, workspace, policy, buffer), on_event)
+
+
+def _device(peer: dict) -> str:
+    return f"{peer['hostname']} ({peer['user']}, {peer['os']}, id {peer['fingerprint']})"
 
 
 def _policy(args) -> "sync_ws.SyncPolicy":
-    if args.send_only:
-        return sync_ws.SyncPolicy.parse("send")
-    if args.receive_only:
-        return sync_ws.SyncPolicy.parse("receive")
-    return sync_ws.SyncPolicy.parse("both")
+    return sync_ws.SyncPolicy.parse(args.direction)
 
 
 def _live(coro) -> int:
@@ -474,29 +481,35 @@ def _live(coro) -> int:
         return 1
 
 
-def _direction_flags(parser: argparse.ArgumentParser) -> None:
+def _direction_flags(parser: argparse.ArgumentParser, *flags: tuple[str, str, str], default: str) -> None:
+    """--workspace plus mutually exclusive direction flags, each storing a
+    SyncPolicy direction; serving and joining default differently."""
     parser.add_argument("--workspace", default=None,
                         help="Sync this workspace instead of the active one (the active workspace is not changed)")
     direction = parser.add_mutually_exclusive_group()
-    direction.add_argument("--send-only", action="store_true",
-                           help="This machine sends its memories and imports nothing")
-    direction.add_argument("--receive-only", action="store_true",
-                           help="This machine imports the peer's memories and sends nothing")
+    for flag, value, text in flags:
+        direction.add_argument(flag, dest="direction", action="store_const", const=value, help=text)
+    parser.set_defaults(direction=default)
 
 
 def main():
     parser = argparse.ArgumentParser(prog="imprint sync", description="Live peer sync and snapshot bundles")
     sub = parser.add_subparsers(dest="action", required=True)
 
-    serve = sub.add_parser("serve", help="Expose a workspace via the relay; prints a room ID and PIN")
+    serve = sub.add_parser("serve", help="Expose a workspace via the relay; prints a one-time share code")
     serve.add_argument("--relay", default=None, help="Relay host (default: the public relay)")
-    _direction_flags(serve)
+    _direction_flags(serve,
+                     ("--send-only", "send", "Peers can pull this workspace; pushes are refused"),
+                     ("--receive-only", "receive", "Peers can push into this workspace; nothing is sent"),
+                     default="both")
 
-    join = sub.add_parser("join", help="Sync with a machine that is serving")
-    join.add_argument("target", help="Room ID, <host>/<room-id> or wss://<host>/<room-id>")
-    join.add_argument("--pin", default="", help="PIN shown on the serving machine")
+    join = sub.add_parser("join", help="Sync with a machine that is serving (receives only unless told otherwise)")
+    join.add_argument("code", help="The code the serving machine shows, e.g. 7f3a9c21-Ab3xY9Kq or wss://<host>/<code>")
     join.add_argument("--fresh", action="store_true", help="Discard any saved download and re-download")
-    _direction_flags(join)
+    _direction_flags(join,
+                     ("--two-way", "both", "Also send this workspace (you see who receives it and confirm first)"),
+                     ("--send-only", "send", "Only send this workspace (confirmed first); import nothing"),
+                     default="receive")
 
     exp = sub.add_parser("export", help="Export snapshot bundle")
     exp.add_argument("--output", type=Path, default=None, help="Output directory")
@@ -511,7 +524,7 @@ def main():
     if args.action == "serve":
         sys.exit(_live(_serve(args)))
     elif args.action == "join":
-        if args.fresh and args.send_only:
+        if args.fresh and args.direction == "send":
             join.error("--fresh re-downloads a pull, and a --send-only sync downloads nothing")
         sys.exit(_live(_join(args)))
     elif args.action == "export":

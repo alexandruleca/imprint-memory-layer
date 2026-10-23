@@ -288,13 +288,13 @@ const DIRECTIONS: { value: SyncDirection; label: string; serve: string; receive:
     value: "both",
     label: "Two-way",
     serve: "The other device can pull this workspace and push its memories into it.",
-    receive: "Pull the other device's memories, then push this workspace back.",
+    receive: "Import the other device's memories, then send this workspace back. You see who receives it and confirm first.",
   },
   {
     value: "send",
     label: "Send only",
     serve: "The other device can pull this workspace. Anything it pushes is refused.",
-    receive: "Push this workspace to the other device. Nothing is imported here.",
+    receive: "Send this workspace to the other device after you confirm who receives it. Nothing is imported here.",
   },
   {
     value: "receive",
@@ -304,9 +304,6 @@ const DIRECTIONS: { value: SyncDirection; label: string; serve: string; receive:
   },
 ];
 
-function directionLabel(direction: SyncDirection): string {
-  return DIRECTIONS.find((d) => d.value === direction)?.label ?? direction;
-}
 
 // Mirrors the CLI's "Mode:" line for the provider (cmd/sync.go mode()).
 function modeText(pull: boolean, push: boolean): string {
@@ -391,9 +388,9 @@ type ServedSession = { workspace: string; pull: boolean; push: boolean };
 
 type ServeState =
   | { phase: "idle" }
-  | { phase: "waiting"; roomId: string; pin: string; sessionId: string }
-  | { phase: "awaiting_approval"; roomId: string; pin: string; sessionId: string; peer: Peer; submitting: boolean }
-  | { phase: "connected"; roomId: string; pin: string; sessionId: string; peer: Peer }
+  | { phase: "waiting"; code: string; sessionId: string }
+  | { phase: "awaiting_approval"; code: string; sessionId: string; peer: Peer; submitting: boolean }
+  | { phase: "connected"; code: string; sessionId: string; peer: Peer }
   | { phase: "syncing"; sessionId: string; status: string; datasets: Record<string, DatasetProgress> }
   | { phase: "done"; receivedStats?: SyncStats }
   | { phase: "error"; message: string };
@@ -427,8 +424,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
   const start = useCallback(() => {
     const datasets: Record<string, DatasetProgress> = {};
     let sessionId = "";
-    let roomId = "";
-    let pin = "";
+    let code = "";
     let peer: Peer = { hostname: "", os: "", fingerprint: "", user: "" };
     let receivedStats: SyncStats | undefined;
     setServed(null);
@@ -438,15 +434,14 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
     const ctrl = streamSyncServe({ workspace, direction, relay: relay.trim() }, (ev: SyncEvent) => {
       switch (ev.type) {
         case "room":
-          roomId = ev.target || ev.room_id || "";
-          pin = ev.pin || "";
+          code = ev.target || "";
           sessionId = ev.session_id || "";
           setServed({ workspace: ev.workspace || workspace, pull: Boolean(ev.pull), push: Boolean(ev.push) });
-          setState({ phase: "waiting", roomId, pin, sessionId });
+          setState({ phase: "waiting", code, sessionId });
           break;
         case "status":
           if (ev.status === "waiting") {
-            setState({ phase: "waiting", roomId, pin, sessionId });
+            setState({ phase: "waiting", code, sessionId });
           } else {
             if (ev.status === "send_complete") note("Sent this workspace to the other device.");
             setState({ phase: "syncing", sessionId, status: ev.status || "", datasets: { ...datasets } });
@@ -459,7 +454,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
             fingerprint: ev.fingerprint || "",
             user: ev.user || "",
           };
-          setState({ phase: "awaiting_approval", roomId, pin, sessionId, peer, submitting: false });
+          setState({ phase: "awaiting_approval", code, sessionId, peer, submitting: false });
           break;
         case "auto_accepted":
           peer = {
@@ -468,7 +463,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
             fingerprint: ev.fingerprint || "",
             user: ev.user || "",
           };
-          setState({ phase: "connected", roomId, pin, sessionId, peer });
+          setState({ phase: "connected", code, sessionId, peer });
           break;
         case "peer_connected":
           peer = {
@@ -477,7 +472,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
             fingerprint: ev.fingerprint || "",
             user: ev.user || "",
           };
-          setState({ phase: "connected", roomId, pin, sessionId, peer });
+          setState({ phase: "connected", code, sessionId, peer });
           break;
         case "refused":
           note(refusalNote(ev.request));
@@ -548,7 +543,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
           <>
             <p className="text-xs text-muted-foreground">
               Expose one workspace for another device to sync with.
-              A room ID and PIN will be generated to share.
+              A one-time code will be generated to share.
             </p>
             <div className="space-y-1">
               <label htmlFor={workspaceId} className="block text-xs font-medium">
@@ -608,18 +603,17 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
             </div>
             <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 space-y-3">
               <p className="text-xs text-muted-foreground font-medium">
-                Share these with the other device:
+                Share this code with the other device:
               </p>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-16">Room</span>
-                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.roomId}</code>
-                <CopyButton text={state.roomId} />
+                <span className="text-xs text-muted-foreground w-16">Code</span>
+                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.code}</code>
+                <CopyButton text={state.code} />
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-16">PIN</span>
-                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.pin}</code>
-                <CopyButton text={state.pin} />
-              </div>
+              <p className="text-xs text-muted-foreground">
+                On the other machine: <code className="font-mono">imprint sync {state.code}</code>, or paste it
+                in Sync → Receive.
+              </p>
             </div>
             <Btn variant="outline" onClick={stop}>
               <X className="w-4 h-4" /> Stop
@@ -648,7 +642,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
                 fingerprint: {state.peer.fingerprint || "unknown"}
               </p>
               <p className="text-xs text-muted-foreground pl-6">
-                PIN was verified. {approvalText(served)}
+                The code was verified. {approvalText(served)}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -760,7 +754,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
 
 type ReceiveState =
   | { phase: "idle" }
-  | { phase: "pin_prompt"; roomId: string }
+  | { phase: "confirm_push"; sessionId: string; device: Peer; workspace: string; submitting: boolean }
   | { phase: "connecting" }
   | { phase: "handshake" }
   | { phase: "syncing"; sessionId: string; status: string; datasets: Record<string, DatasetProgress> }
@@ -769,32 +763,23 @@ type ReceiveState =
 
 function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
   const [state, setState] = useState<ReceiveState>({ phase: "idle" });
-  const [roomIdInput, setRoomIdInput] = useState("");
-  const [pinInput, setPinInput] = useState("");
+  const [codeInput, setCodeInput] = useState("");
   const [typed, setTyped] = useState<string | null>(null);
-  const [direction, setDirection] = useState<SyncDirection>("both");
+  // Joining only receives unless the user opts in to sending.
+  const [direction, setDirection] = useState<SyncDirection>("receive");
   const [notes, setNotes] = useState<string[]>([]);
   const ctrlRef = useRef<AbortController | null>(null);
-  const roomId = useId();
+  const codeId = useId();
   const workspaceId = useId();
-  const pinId = useId();
 
   const loading = typed === null && !workspaces.active;
   const workspace = (typed ?? workspaces.active).trim();
   const known = workspaces.workspaces.includes(workspace);
   const problem = loading ? "" : workspaceProblem(workspace, known, direction);
 
-  function promptPin() {
-    const rid = roomIdInput.trim();
-    if (!rid || loading || problem) return;
-    setState({ phase: "pin_prompt", roomId: rid });
-    setPinInput("");
-  }
-
   function connect() {
-    const rid = (state as { roomId: string }).roomId;
-    const pin = pinInput.trim();
-    if (!rid || !pin) return;
+    const code = codeInput.trim();
+    if (!code || loading || problem) return;
 
     setState({ phase: "connecting" });
     setNotes([]);
@@ -805,7 +790,7 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
     let pullStats: SyncStats | undefined;
     let pushStats: SyncStats | undefined;
 
-    const ctrl = streamSyncReceive(rid, pin, { workspace, direction }, (ev: SyncEvent) => {
+    const ctrl = streamSyncReceive(code, { workspace, direction }, (ev: SyncEvent) => {
       switch (ev.type) {
         case "session":
           sessionId = ev.session_id || "";
@@ -818,6 +803,18 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
           } else {
             setState({ phase: "syncing", sessionId, status: ev.status || "", datasets: { ...datasets } });
           }
+          break;
+        case "peer_connected":
+          note(`Connected to ${ev.hostname || "the other device"} (id ${ev.fingerprint || "unknown"}).`);
+          break;
+        case "confirm_push":
+          setState({
+            phase: "confirm_push",
+            sessionId,
+            workspace: ev.workspace || workspace,
+            device: { hostname: ev.hostname || "", os: ev.os || "", fingerprint: ev.fingerprint || "", user: ev.user || "" },
+            submitting: false,
+          });
           break;
         case "plan":
           note(planText(Boolean(ev.pull), Boolean(ev.push), ev.skipped));
@@ -860,18 +857,27 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
     ctrlRef.current = ctrl;
   }
 
+  async function decidePush(decision: SyncApprovalDecision) {
+    if (state.phase !== "confirm_push" || state.submitting) return;
+    setState({ ...state, submitting: true });
+    try {
+      await approveSync(state.sessionId, decision);
+    } catch (e) {
+      setState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   function stop() {
     ctrlRef.current?.abort();
     ctrlRef.current = null;
-    if (state.phase === "syncing") {
+    if (state.phase === "syncing" || state.phase === "confirm_push") {
       cancelSync(state.sessionId);
     }
     setState({ phase: "idle" });
   }
 
   function reset() {
-    setRoomIdInput("");
-    setPinInput("");
+    setCodeInput("");
     setNotes([]);
     setState({ phase: "idle" });
   }
@@ -882,21 +888,21 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
         {state.phase === "idle" && (
           <>
             <p className="text-xs text-muted-foreground">
-              Connect to another device that is serving a workspace.
-              Enter the room shown on the other machine: its ID, or the full
-              address when it uses its own relay.
+              Connect to another device that is serving a workspace. Enter the
+              code shown on the other machine.
             </p>
             <div className="space-y-1">
-              <label htmlFor={roomId} className="block text-xs font-medium">
-                Room
+              <label htmlFor={codeId} className="block text-xs font-medium">
+                Code
               </label>
               <Input
-                id={roomId}
-                value={roomIdInput}
-                onChange={(e) => setRoomIdInput(e.target.value)}
-                placeholder="a1b2c3d4 or wss://host/a1b2c3d4"
+                id={codeId}
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="7f3a9c21-Ab3xY9Kq or wss://host/7f3a9c21-Ab3xY9Kq"
+                autoComplete="off"
                 className="text-sm font-mono max-w-sm"
-                onKeyDown={(e) => e.key === "Enter" && promptPin()}
+                onKeyDown={(e) => e.key === "Enter" && connect()}
               />
             </div>
             <div className="space-y-1">
@@ -912,7 +918,7 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
                 aria-describedby={`${workspaceId}-hint`}
                 aria-invalid={problem ? true : undefined}
                 className="text-sm font-mono max-w-xs"
-                onKeyDown={(e) => e.key === "Enter" && promptPin()}
+                onKeyDown={(e) => e.key === "Enter" && connect()}
               />
               <datalist id={`${workspaceId}-known`}>
                 {workspaces.workspaces.map((name) => (
@@ -932,52 +938,46 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
               </p>
             </div>
             <DirectionField side="receive" value={direction} onChange={setDirection} />
-            <Btn onClick={promptPin} disabled={!roomIdInput.trim() || loading || Boolean(problem)}>
+            <Btn onClick={connect} disabled={!codeInput.trim() || loading || Boolean(problem)}>
               <Plug className="w-4 h-4" /> Connect
             </Btn>
           </>
         )}
 
-        {state.phase === "pin_prompt" && (
+        {state.phase === "confirm_push" && (
           <>
-            <p className="text-xs text-muted-foreground">
-              Enter the PIN shown on the serving device.
-            </p>
-            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-20">Room</span>
-                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{state.roomId}</code>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-20">Workspace</span>
-                <code className="font-mono text-sm bg-muted px-2 py-1 rounded">{workspace}</code>
-                {!known && <span className="text-xs text-muted-foreground">new</span>}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground w-20">Direction</span>
-                <span className="text-sm">{directionLabel(direction)}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <label htmlFor={pinId} className="text-xs text-muted-foreground w-20">
-                  PIN
-                </label>
-                <Input
-                  id={pinId}
-                  value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="Enter PIN"
-                  className="text-sm font-mono max-w-[180px]"
-                  autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && connect()}
-                />
-              </div>
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldQuestionMark className="w-4 h-4 text-amber-400" />
+              <Badge variant="outline" className="border-amber-500/50 text-amber-400">
+                Send this workspace?
+              </Badge>
             </div>
-            <div className="flex items-center gap-2">
-              <Btn onClick={connect} disabled={!pinInput.trim()}>
-                <Plug className="w-4 h-4" /> Authenticate
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+              <p className="text-sm">
+                Send <span className="font-mono">{state.workspace}</span> to this device?
+              </p>
+              <div className="flex items-center gap-2">
+                <MonitorSmartphone className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{state.device.hostname || "Unknown device"}</span>
+                {state.device.user && (
+                  <span className="text-xs text-muted-foreground">· {state.device.user}</span>
+                )}
+                <span className="text-xs text-muted-foreground">· {state.device.os}</span>
+              </div>
+              <p className="text-xs text-muted-foreground font-mono pl-6">
+                fingerprint: {state.device.fingerprint || "unknown"}
+              </p>
+              <p className="text-xs text-muted-foreground pl-6">
+                This is the device that served the code. If you do not recognise it, do not send:
+                the pull still runs.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Btn onClick={() => decidePush("accept")} disabled={state.submitting}>
+                <Check className="w-4 h-4" /> Send
               </Btn>
-              <Btn variant="outline" onClick={reset}>
-                Cancel
+              <Btn variant="outline" onClick={() => decidePush("reject")} disabled={state.submitting}>
+                <X className="w-4 h-4" /> Don&apos;t send
               </Btn>
             </div>
           </>
@@ -1012,7 +1012,7 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
           </>
         )}
 
-        {state.phase !== "idle" && state.phase !== "pin_prompt" && <SessionNotes notes={notes} />}
+        {state.phase !== "idle" && <SessionNotes notes={notes} />}
 
         {state.phase === "done" && (
           <>
@@ -1266,8 +1266,8 @@ export default function SyncPage() {
         <h3 className="text-lg font-semibold">Live Sync</h3>
         <p className="text-xs text-muted-foreground mt-1 mb-3">
           Sync one workspace with another device through a relay. Sessions are
-          end-to-end encrypted with the PIN: the relay never sees the PIN, the
-          devices or your data. To share a
+          end-to-end encrypted with the one-time code: the relay never sees its
+          secret, the devices or your data. To share a
           curated workspace with a colleague one way, serve it with Send only:
           they can pull it but cannot write to your memory. Build one by
           copying projects or topics into a new workspace from Settings →

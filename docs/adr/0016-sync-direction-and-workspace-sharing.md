@@ -7,7 +7,7 @@ description: Per-machine send/receive policies negotiated in the sync handshake,
 - Date: 2026-10-23
 - Related: ADR 0006, ADR 0010, ADR 0015, ADR 0018
 
-> The direction policies, grant, plan and workspace selection below stand. ADR 0018 replaced the two implementations with one, encrypted the session end to end, and removed the compatibility rules for older peers: a request outside the grant now gets 403 and ends the session (no draining), `/sync/status` is gone, the dashboard can use any relay, and the resume buffer records its workspace.
+> The direction policies, grant, plan and workspace selection below stand. ADR 0018 replaced the two implementations with one, encrypted the session end to end, and removed the compatibility rules for older peers: a request outside the grant now gets 403 and ends the session (no draining), `/sync/status` is gone, the dashboard can use any relay, and the resume buffer records its workspace. It also made joining receive-only by default — `--two-way` or `--send-only` to send, after confirming the serving device — so the joining side's `--receive-only` is gone, and replaced the room ID plus `--pin` with one share code.
 
 ## Context
 

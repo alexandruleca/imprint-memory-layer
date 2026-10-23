@@ -92,10 +92,10 @@ class LiveSyncTests(unittest.TestCase):
         config.register_workspace('team')
         self.identity = sync_ws.get_device_identity()
 
-    def sync(self, provider=BOTH, consumer=BOTH, *, pin=None, decision='accept', alter=None,
+    def sync(self, provider=BOTH, consumer=BOTH, *, pin=None, decision='accept', send='accept', alter=None,
              workspace='team', buffer=None, consumer_side=None):
-        """Serve 'team' and join it. Returns (provider events, consumer
-        events, relay)."""
+        """Serve 'team' and join it; ``send`` answers the joining side's
+        push confirmation. Returns (provider events, consumer events, relay)."""
         relay = Relay(alter)
 
         async def run():
@@ -122,7 +122,11 @@ class LiveSyncTests(unittest.TestCase):
                 else:
                     session = sync_ws.receive_session(endpoint, room['room_id'], pin or room['pin'], workspace,
                                                       consumer, buffer)
-                    consumer_events = [event async for event in session]
+                    consumer_events = []
+                    async for event in session:
+                        consumer_events.append(event)
+                        if event['type'] == 'confirm_push':
+                            sync_ws.submit_approval(consumer_events[0]['session_id'], send)
                 await asyncio.wait_for(task, 5)
                 return provider_events, consumer_events
 
@@ -151,6 +155,55 @@ class LiveSyncTests(unittest.TestCase):
         wire = b''.join(frame.encode() if isinstance(frame, str) else frame for _, frame in relay.frames)
         for secret in (SECRET, room['pin'], self.identity['hostname'], self.identity['fingerprint'], 'team'):
             self.assertNotIn(secret.encode(), wire, secret)
+
+    def test_joining_side_learns_who_serves_and_confirms_before_sending(self):
+        _, consumer, _ = self.sync()
+        served_by = next(event for event in consumer if event['type'] == 'peer_connected')
+        self.assertEqual(served_by['fingerprint'], self.identity['fingerprint'])
+        confirm = next(event for event in consumer if event['type'] == 'confirm_push')
+        self.assertEqual((confirm['workspace'], confirm['hostname']), ('team', self.identity['hostname']))
+        # Nothing is sent before the answer: the plan follows the confirmation.
+        self.assertLess(self.kinds(consumer).index('confirm_push'), self.kinds(consumer).index('plan'))
+
+    def test_declining_to_send_still_pulls(self):
+        _, consumer, _ = self.sync(send='reject')
+        self.assertIn({'type': 'plan', 'pull': True, 'push': False,
+                       'skipped': ['push skipped (you chose not to send)']}, consumer)
+        self.assertEqual(consumer[-1], {'type': 'done', 'pull_stats': STATS, 'push_stats': None})
+        self.assertEqual(len(self.received), 1)  # only the joining side imported
+
+    def test_declining_a_send_only_join_leaves_nothing_to_sync(self):
+        _, consumer, _ = self.sync(consumer=SEND, send='reject')
+        self.assertEqual(consumer[-1]['message'], 'nothing to sync: pull skipped (this machine is send-only), '
+                                                  'push skipped (you chose not to send)')
+        self.export.assert_not_called()
+
+    def test_joining_receives_only_by_default(self):
+        async def run():
+            async with serve(Relay().handler, '127.0.0.1', 0) as server:
+                endpoint = sync_ws.Relay('ws', f"127.0.0.1:{server.sockets[0].getsockname()[1]}")
+                ready = asyncio.get_running_loop().create_future()
+
+                async def provide():
+                    room = {}
+                    async for event in sync_ws.serve_session('team', BOTH, endpoint):
+                        if event['type'] == 'room':
+                            room = event
+                        elif event.get('status') == 'waiting':
+                            ready.set_result(room)
+                        elif event['type'] == 'approval_required':
+                            sync_ws.submit_approval(room['session_id'], 'accept')
+
+                task = asyncio.create_task(provide())
+                room = await ready
+                events = [e async for e in sync_ws.receive_session(endpoint, room['room_id'], room['pin'], 'team')]
+                await task
+                return events
+
+        events = asyncio.run(run())
+        self.assertNotIn('confirm_push', self.kinds(events))
+        self.assertIn({'type': 'plan', 'pull': True, 'push': False,
+                       'skipped': ['push skipped (this machine is receive-only)']}, events)
 
     def test_wrong_pin_ends_the_session_before_any_data(self):
         provider, consumer, relay = self.sync(pin='WrongPin')
@@ -450,30 +503,35 @@ class LiveSyncTests(unittest.TestCase):
 
     # ── CLI front-end ─────────────────────────────────────────────
 
-    def cli(self, *, pin=None, answer='y', join_flags=()):
-        """Run `imprint sync serve` and `imprint sync <room>` in-process.
-        Both print to one stdout, so the transcript is shared. Returns
-        (serve exit, join exit, transcript)."""
+    def cli(self, *, pin=None, answer='y', send='y', direction='receive'):
+        """Run `imprint sync serve` and `imprint sync <code>` in-process.
+        ``answer`` answers the serving side's device prompt, ``send`` the
+        joining side's push confirmation; ``pin`` replaces the PIN part of
+        the shared code. Both print to one stdout, so the
+        transcript is shared. Returns (serve exit, join exit, transcript)."""
         relay = Relay()
 
         async def answered(prompt):
-            return answer
+            print(prompt)  # as input() would show it
+            return send if prompt.lstrip().startswith('Send your workspace') else answer
 
         async def run():
             async with serve(relay.handler, '127.0.0.1', 0) as server:
                 host = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}"
                 out = io.StringIO()
                 with patch.object(cli_sync, '_ask', side_effect=answered), contextlib.redirect_stdout(out):
-                    serve_args = argparse.Namespace(workspace='team', relay=host, send_only=False, receive_only=False)
+                    serve_args = argparse.Namespace(workspace='team', relay=host, direction='both')
                     serving = asyncio.create_task(cli_sync._serve(serve_args))
+                    shared = None
                     for _ in range(200):
                         await asyncio.sleep(0.01)
-                        if '--pin' in out.getvalue():
+                        shared = next((line.split()[2] for line in out.getvalue().splitlines()
+                                       if line.strip().startswith('imprint sync ws://')), None)
+                        if shared:
                             break
-                    share = next(line for line in out.getvalue().splitlines() if '--pin' in line).split()
-                    target, real_pin = share[2], share[4]
-                    join_args = argparse.Namespace(target=target, pin=pin or real_pin, fresh=False, workspace=None,
-                                                   send_only=False, receive_only='--receive-only' in join_flags)
+                    if pin:
+                        shared = shared.rsplit('-', 1)[0] + '-' + pin
+                    join_args = argparse.Namespace(code=shared, fresh=False, workspace=None, direction=direction)
                     joined = await cli_sync._join(join_args)
                     served = await asyncio.wait_for(serving, 5)
                 return served, joined, out.getvalue()
@@ -481,9 +539,10 @@ class LiveSyncTests(unittest.TestCase):
         return asyncio.run(run())
 
     def test_cli_two_way_sync(self):
-        served, joined, out = self.cli()
+        served, joined, out = self.cli(direction='both')
         self.assertEqual((served, joined), (0, 0))
-        for line in ('Mode:        two-way', 'Incoming Sync Request', 'Merged peer data: 1 new memories',
+        for line in ('Mode:        two-way', 'Incoming Sync Request', f"Connected to {self.identity['hostname']}",
+                     "Send your workspace 'default' to", 'Merged peer data: 1 new memories',
                      'Merged remote → local: 1 new memories', 'Pushed local → remote: 1 new memories',
                      'Sync Complete', 'Connection closed.'):
             self.assertIn(line, out)
@@ -496,10 +555,19 @@ class LiveSyncTests(unittest.TestCase):
         self.assertEqual((served, joined), (1, 1))
         self.assertIn('Handshake rejected: wrong PIN', out)
 
-    def test_cli_receive_only_join(self):
-        served, joined, out = self.cli(join_flags=('--receive-only',))
+    def test_cli_default_join_only_receives(self):
+        served, joined, out = self.cli()
         self.assertEqual((served, joined), (0, 0))
         self.assertIn('Plan: pull only — push skipped (this machine is receive-only)', out)
+        self.assertIn('add --two-way to also send', out)
+        self.assertNotIn('Send your workspace', out)
+        self.assertNotIn('Merged peer data', out)
+
+    def test_cli_declining_the_push_still_pulls(self):
+        served, joined, out = self.cli(direction='both', send='n')
+        self.assertEqual((served, joined), (0, 0))
+        self.assertIn('push skipped (you chose not to send)', out)
+        self.assertIn('Merged remote → local', out)
         self.assertNotIn('Merged peer data', out)
 
 
@@ -524,22 +592,26 @@ class RelayAddressTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sync_ws.parse_relay(bad)
 
-    def test_target_forms_and_what_the_provider_shows(self):
+    def test_share_code_forms_and_what_the_provider_shows(self):
+        code = sync_ws.share_code('7f3a9c21', 'Ab3xY9Kq')
+        self.assertEqual(code, '7f3a9c21-Ab3xY9Kq')
         cases = {
-            'abc123': ('wss', sync_ws.DEFAULT_RELAY_HOST, 'abc123'),
-            'sync.example.com/abc123': ('wss', 'sync.example.com', 'abc123'),
-            'wss://sync.example.com/abc123': ('wss', 'sync.example.com', 'abc123'),
-            'ws://localhost:8430/abc123': ('ws', 'localhost:8430', 'abc123'),
-            '127.0.0.1:8430/abc123': ('ws', '127.0.0.1:8430', 'abc123'),
+            code: ('wss', sync_ws.DEFAULT_RELAY_HOST),
+            f'sync.example.com/{code}': ('wss', 'sync.example.com'),
+            f'wss://sync.example.com/{code}': ('wss', 'sync.example.com'),
+            f'ws://localhost:8430/{code}': ('ws', 'localhost:8430'),
+            f'127.0.0.1:8430/{code}': ('ws', '127.0.0.1:8430'),
         }
         for raw, expected in cases.items():
-            relay, room = sync_ws.parse_target(raw)
-            self.assertEqual((relay.scheme, relay.host, room), expected, raw)
-            self.assertEqual(sync_ws.parse_target(relay.target(room)), (relay, room))
-        self.assertEqual(sync_ws.parse_relay('').target('abc123'), 'abc123')
-        for bad in ('', 'host/', 'host/room?x=1', 'a/b/c', 'room id'):
+            relay, room, pin = sync_ws.parse_code(raw)
+            self.assertEqual((relay.scheme, relay.host, room, pin), (*expected, '7f3a9c21', 'Ab3xY9Kq'), raw)
+            self.assertEqual(sync_ws.parse_code(relay.target(code)), (relay, room, pin))
+        self.assertEqual(sync_ws.parse_relay('').target(code), code)
+        # A room ID alone — the shape older releases used — carries no PIN and is refused.
+        for bad in ('', '7f3a9c21', 'host/7f3a9c21', 'host/', f'host/{code}?x=1', f'a/b/{code}', '7f3a9c21-short',
+                    '7f3a9c21-Ab3x Y9Kq', '7f3a-9c21-Ab3xY9Kq'):
             with self.assertRaises(ValueError, msg=bad):
-                sync_ws.parse_target(bad)
+                sync_ws.parse_code(bad)
 
 
 class KeyExchangeTests(unittest.TestCase):
