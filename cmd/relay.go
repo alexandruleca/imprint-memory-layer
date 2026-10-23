@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +26,12 @@ var (
 	rooms   = make(map[string]*relayRoom)
 	roomsMu sync.Mutex
 )
+
+// What a browser gets from the relay: what this server is, with no scripts
+// or third-party requests.
+//
+//go:embed relay.html
+var relayPage []byte
 
 const (
 	// Peers cap frames at 64 MiB (imprint/sync_ws.py MAX_FRAME_BYTES); this
@@ -87,6 +95,18 @@ func Relay(args []string, version string) {
 	}
 }
 
+// serveRelayPage answers 404 off the root, so no other path, such as one
+// carrying a share code, reads as a page of its own.
+func serveRelayPage(w http.ResponseWriter, r *http.Request) {
+	status := http.StatusOK
+	if r.URL.Path != "/" {
+		status = http.StatusNotFound
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(relayPage)
+}
+
 // relayHealth reports liveness, the running release (a deploy waits for it)
 // and the number of open rooms.
 func relayHealth(version string) http.HandlerFunc {
@@ -104,6 +124,11 @@ func relayHealth(version string) http.HandlerFunc {
 }
 
 func relayHandler(w http.ResponseWriter, r *http.Request) {
+	// Sync peers always open a WebSocket, and only they see protocol errors.
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		serveRelayPage(w, r)
+		return
+	}
 	id := r.URL.Path[1:]
 	if id == "" {
 		http.Error(w, "room ID required", 400)
