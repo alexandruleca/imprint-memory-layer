@@ -28,6 +28,7 @@ class ChromePackageTests(unittest.TestCase):
                 self.assertEqual(set(archive.namelist()), {'imprint-chrome-extension/' + name for name in package.FILES})
                 self.assertEqual(json.loads(archive.read('imprint-chrome-extension/manifest.json'))['manifest_version'], 3)
                 self.assertIn(b'Load unpacked', archive.read('imprint-chrome-extension/INSTALL.txt'))
+                self.assertEqual(archive.read('imprint-chrome-extension/LICENSE'), (ROOT / 'LICENSE').read_bytes())
                 self.assertIsNone(archive.testzip())
             digest = hashlib.sha256(output.read_bytes()).hexdigest()
             self.assertEqual(output.with_suffix('.zip.sha256').read_text(), f'{digest}  extension.zip\n')

@@ -35,7 +35,8 @@ newer desktop release without that asset does not break the previous download.
 4. Open its **Settings**, run the pairing command with the backend's interpreter
    and data directory, paste the token and choose **Connect and save**.
 
-The ZIP includes `INSTALL.txt` with standalone instructions. Chrome loads the
+The ZIP includes `INSTALL.txt` with standalone instructions and the project's
+`LICENSE`. Chrome loads the
 extracted folder; it does not install this ZIP directly. For updates, replace
 the files in that same folder and click **Reload** in `chrome://extensions`.
 Moving the folder can change the unpacked extension ID and require pairing again.

@@ -24,7 +24,8 @@ Retain the backend's message identity scaffold for future work. Display coming-s
 integrations in the popup and on a dedicated `/chrome-extension/` website page.
 
 Build `imprint-chrome-extension.zip` from a fixed runtime-file allowlist, with a
-single folder containing `manifest.json` and standalone `INSTALL.txt`. Use fixed
+single folder containing `manifest.json`, standalone `INSTALL.txt` and the project
+license. Use fixed
 ZIP timestamps/permissions for reproducible bytes, atomic output replacement and
 a local checksum sidecar. Exclude tests, dependency manifests, development
 dependencies and local state. Users extract the ZIP and use Chrome Developer

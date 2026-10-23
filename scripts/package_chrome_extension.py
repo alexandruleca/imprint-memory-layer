@@ -9,7 +9,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ('manifest.json', 'background.js', 'capture.js', 'client.js', 'ui.js',
-         'popup.html', 'popup.js', 'options.html', 'options.js', 'style.css', 'INSTALL.txt')
+         'popup.html', 'popup.js', 'options.html', 'options.js', 'style.css', 'INSTALL.txt', 'LICENSE')
 ARCHIVE_NAME = 'imprint-chrome-extension.zip'
 
 
