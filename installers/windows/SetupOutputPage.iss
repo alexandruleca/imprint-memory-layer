@@ -79,7 +79,7 @@ end;
 procedure CreateSetupOutputPage();
 begin
   GOutputPage := CreateCustomPage(
-    wpInstalling,
+    GWslPage.ID,
     'Setting up Imprint',
     'Downloading Python and packages — first install only, may take a few minutes.'
   );

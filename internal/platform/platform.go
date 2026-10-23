@@ -167,6 +167,11 @@ func VenvDir(projectDir string) string {
 }
 
 func VenvPython(projectDir string) string {
+	if runtime.GOOS == "windows" && os.Getenv("IMPRINT_WSL_DISTRO") != "" {
+		if python := os.Getenv("IMPRINT_WSL_PYTHON"); python != "" {
+			return python
+		}
+	}
 	return VenvBin(projectDir, "python")
 }
 

@@ -6,7 +6,7 @@ import (
 )
 
 func isImprintCommand(command string) bool {
-	for _, marker := range []string{"imprint/hook_entry.py", `imprint\hook_entry.py`, "imprint.cli_", "Imprint MCP available", "Imprint MCP gate:", "COMPACTION IMMINENT", "Imprint MCP: compaction"} {
+	for _, marker := range []string{"imprint/hook_entry.py", `imprint\hook_entry.py`, "imprint-wsl' hook ", "imprint.cli_", "Imprint MCP available", "Imprint MCP gate:", "COMPACTION IMMINENT", "Imprint MCP: compaction"} {
 		if strings.Contains(command, marker) {
 			return true
 		}

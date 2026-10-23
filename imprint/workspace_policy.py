@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 
 from . import config
+from .wsl_paths import native_path
 
 
 def workspace_name(workspace=None):
@@ -36,7 +37,7 @@ def _db():
 def canonical(path):
     if not isinstance(path, str) or not path.strip() or '\x00' in path:
         raise ValueError('A nonempty filesystem path is required')
-    return Path(path).expanduser().resolve()
+    return Path(native_path(path)).expanduser().resolve()
 
 
 def contains(root, path):
@@ -114,7 +115,7 @@ def transcript_allowed(path, workspace=None):
                 continue
             if cwd:
                 seen = True
-                if not isinstance(cwd, str) or not Path(cwd).is_absolute() or not any(contains(root, canonical(cwd)) for root in approved):
+                if not isinstance(cwd, str) or not Path(native_path(cwd)).is_absolute() or not any(contains(root, canonical(cwd)) for root in approved):
                     return False
     return seen
 

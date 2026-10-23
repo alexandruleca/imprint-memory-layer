@@ -36,7 +36,7 @@ def architectures(path: Path) -> set[str]:
 def validate(root: Path, platform: str) -> None:
     os_name, arch = platform.split('/')
     ext = '.exe' if os_name == 'windows' else ''
-    for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/gpu.txt',
+    for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/gpu.txt',
                 'requirements/llm.txt', 'requirements/gpu.lock.txt', 'requirements/llm.lock.txt',
                 'requirements/runtime-manifest.json', 'LICENSE', 'licenses/uv/LICENSE-APACHE',
                 'licenses/uv/LICENSE-MIT', 'imprint/ui/out/index.html'):
@@ -61,9 +61,11 @@ def validate(root: Path, platform: str) -> None:
             raise ValueError(f'Development state in archive: {Path(directory) / sorted(bad)[0]}')
         if any(name == '.env' or name.startswith('.env.') for name in files):
             raise ValueError(f'Environment file in archive: {directory}')
-    for name in ('data', 'python', '.first-run.done', '.setup-result', 'first-run.log'):
+    for name in ('data', 'python', '.first-run.done', '.setup-result', '.wsl-integrations.txt', 'first-run.log'):
         if (root / name).exists():
             raise ValueError(f'User state in archive: {name}')
+    if any(root.glob('.wsl-integrations.txt*')):
+        raise ValueError('User state in archive: WSL selections or their backups')
 
 
 if __name__ == '__main__':

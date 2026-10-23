@@ -26,6 +26,12 @@ Codex hooks have a trust lifecycle and support more events than the adapter's Ap
 
 Claude Code supports client-managed stdio registration with explicit scope. Use the host CLI where it provides safe configuration updates. See [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp). VS Code uses an MCP `servers` object and a distinct configuration/trust flow; see [VS Code MCP documentation](https://code.visualstudio.com/docs/agent-customization/mcp-servers).
 
+## Windows installation with WSL clients
+
+The Windows installer can register detected default-user Claude Code and Codex profiles in selected WSL distributions. `imprint wsl setup --distribution <name> --target claude-code|codex` also supports an explicit Linux user and alternate profile directories. The selected client runs a private `imprint-wsl` stdio launcher against the existing Windows interpreter and data directory. Rules/hooks use the same bridge, including transcript-path translation; workspace approvals remain mandatory. This does not expose the dashboard/Qdrant listener or provision a second Linux runtime.
+
+Registration is opt-in, backed up and idempotent. The adapter verifies that Windows-executable interoperability works, preserves unrelated MCP/settings/hooks/rules, and supports explicit removal. Client trust/restart and the existing Codex transcript limitations remain separate. Custom shell startup files are not sourced to discover environment overrides. See [installation](installation.md#claude-code-and-codex-inside-wsl), [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md), and [native validation](platform-validation.md).
+
 ## Automation improvements, in order
 
 1. **Extend read-only doctor:** basic `imprint doctor --json [--probe-mcp]` is implemented for Python/dependencies/dashboard, primary Codex registration, Qdrant readiness and timed MCP discovery. Extend it to `imprint doctor --json` reporting executable, architecture, managed interpreter, dependency versions, model availability, storage health, detected client/version, actual registration and a timed MCP initialize/list-tools probe. Distinguish missing, registered, connected and degraded states.

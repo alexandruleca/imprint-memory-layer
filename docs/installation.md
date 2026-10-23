@@ -61,6 +61,42 @@ If you previously ran `imprint ui start`, the app reuses that independent servic
 
 See [ADR 0025](adr/0025-desktop-owned-background-service.md) and [platform validation](platform-validation.md) for ownership and native GUI limitations.
 
+### Claude Code and Codex inside WSL
+
+The Windows installer offers **Connect clients in WSL** after copying its files. Select the detected Claude Code and/or Codex profiles you want to connect. They share the Windows installation's memories and dashboard; a second Linux runtime is not installed. Discovery may start a distribution, skips Docker/Rancher utility distributions and inspects the distro's default Linux user. No choices are selected on a fresh install.
+
+Repair and silent updates reuse saved WSL choices. A fresh silent install does not change WSL profiles. Selected registration failures appear in the setup log and fail setup. Unchecking a profile stops future add/repair work for that choice; use the removal command to disconnect an existing profile.
+
+You can connect clients later from PowerShell:
+
+```powershell
+$ImprintBin = Join-Path $env:LOCALAPPDATA 'Programs\Imprint\bin\imprint.exe'
+& $ImprintBin wsl list
+& $ImprintBin wsl setup --distribution Ubuntu --target claude-code
+& $ImprintBin wsl setup --distribution Ubuntu --target codex
+```
+
+Restart the selected client, verify the Imprint MCP server and review/trust its hooks. WSL Windows-executable interoperability must be enabled. The wizard detects existing default-user profile directories; it does not install Claude Code, Codex or WSL. Settings exported only by your interactive shell are not sourced during discovery. For another Linux user or profile, pass `--user <name>`, `--claude-home /absolute/profile` or `--codex-home /absolute/profile`. An explicit `--python <Windows-path>` can select an existing Windows Imprint interpreter. A non-default user's profile must also be accessible through the Windows account's WSL filesystem provider; setup does not change Linux permissions or elevate privileges.
+
+Setup does not approve or index project directories. To work with a WSL project through the Windows store, use the installed launcher from WSL (substitute `.claude` if that is your selected profile):
+
+```bash
+cd ~/code/my-project
+"$HOME/.codex/imprint-wsl" cli workspace roots add "$PWD"
+"$HOME/.codex/imprint-wsl" cli ingest "$PWD"
+```
+
+Existing workspace overlap, sharing and purge rules apply. Linux files are accessed through the distribution's Windows UNC namespace; mounted Windows drives use their real Windows paths, honoring custom mount locations. Windows paths returned by other tools can be translated with `wslpath -u`. Spaces, Unicode and apostrophes are supported; paths that cannot be represented through Windows filesystem APIs fail explicitly. Hook support follows the current host adapters; a configured entry alone does not establish host-side trust or transcript-version compatibility.
+
+To disconnect before uninstalling the Windows runtime:
+
+```powershell
+& $ImprintBin wsl remove --distribution Ubuntu --target claude-code
+& $ImprintBin wsl remove --distribution Ubuntu --target codex
+```
+
+Use the same user/profile override flags when removing a custom registration. Removal preserves memories and other integrations; it refuses to remove an Imprint entry that now points to a different runtime. Windows uninstall does not silently edit Linux profiles. See [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md) and [platform validation](platform-validation.md).
+
 ### Profile & extras flags
 
 Skip the interactive prompt with CLI flags:

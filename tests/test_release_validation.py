@@ -18,7 +18,7 @@ def executable(machine):
 
 class ReleaseValidationTests(unittest.TestCase):
     def tree(self, root):
-        for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/gpu.txt',
+        for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/gpu.txt',
                     'requirements/llm.txt', 'requirements/gpu.lock.txt', 'requirements/llm.lock.txt',
                     'requirements/runtime-manifest.json', 'LICENSE', 'licenses/uv/LICENSE-APACHE',
                     'licenses/uv/LICENSE-MIT', 'imprint/ui/out/index.html', 'imprint/ui/out/_next/app.js'):
@@ -57,7 +57,25 @@ class ReleaseValidationTests(unittest.TestCase):
             (root / 'bin/imprint-ui').write_bytes(executable(183))
             with self.assertRaisesRegex(ValueError, 'AppImage architecture'):
                 VALIDATOR.validate(root, 'linux/amd64')
+
             (root / 'bin/imprint-ui').unlink()
             (root / 'imprint/node_modules').mkdir()
             with self.assertRaisesRegex(ValueError, 'Development state'):
+                VALIDATOR.validate(root, 'linux/amd64')
+
+    def test_wsl_bridge_and_private_selections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.tree(root)
+            bridge = root / 'imprint/wsl_bridge.py'
+            bridge.unlink()
+            with self.assertRaisesRegex(ValueError, 'Missing/empty.*wsl_bridge'):
+                VALIDATOR.validate(root, 'linux/amd64')
+            bridge.write_text('fixture')
+            (root / '.wsl-integrations.txt').write_text('Ubuntu|codex\n')
+            with self.assertRaisesRegex(ValueError, 'User state'):
+                VALIDATOR.validate(root, 'linux/amd64')
+            (root / '.wsl-integrations.txt').unlink()
+            (root / '.wsl-integrations.txt.imprint-123.bak').write_text('Ubuntu|codex\n')
+            with self.assertRaisesRegex(ValueError, 'User state'):
                 VALIDATOR.validate(root, 'linux/amd64')

@@ -121,9 +121,11 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: files; Name: "{app}\.first-run.done"
 Type: files; Name: "{app}\.setup-result"
+Type: files; Name: "{app}\.wsl-integrations.txt"
 
 [Code]
 #include "ProfilePage.iss"
+#include "WSLPage.iss"
 #include "SetupOutputPage.iss"
 
 procedure InitializeWizard();
@@ -132,13 +134,23 @@ begin
   // cannot wait for Next, and must not disable Inno's automatic navigation.
   if WizardSilent then Exit;
   CreateProfilePages();
+  CreateWSLPage();
   CreateSetupOutputPage();
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
+  if (not WizardSilent) and (GWslPage <> nil) and (CurPageID = GWslPage.ID) then
+    DiscoverWSLProfiles();
   if (not WizardSilent) and (GOutputPage <> nil) and (CurPageID = GOutputPage.ID) then
     StartBootstrapOnPage();
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (not WizardSilent) and (GWslPage <> nil) and (CurPageID = GWslPage.ID) then
+    Result := SaveWSLSelections();
 end;
 
 function BackButtonClick(CurPageID: Integer): Boolean;

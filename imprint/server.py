@@ -79,8 +79,10 @@ def device_context(workspace: str = '') -> str:
         return error
     from .device import current
     from .workspace_policy import roots
+    from .wsl_paths import client_context, client_path
     import json, os
-    return json.dumps({'device': current(), 'working_directory': os.getcwd(), 'workspace': ws, 'roots': roots(ws)[:50]})
+    return json.dumps({'device': current(), 'working_directory': os.getcwd(), 'workspace': ws,
+                       'roots': [client_path(root) for root in roots(ws)[:50]], **client_context()})
 
 
 def wake_up(workspace: str = "") -> str:

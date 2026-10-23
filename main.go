@@ -57,6 +57,8 @@ func main() {
 		}
 	case "bootstrap":
 		cmd.Bootstrap(os.Args[2:])
+	case "wsl":
+		cmd.WSL(os.Args[2:])
 	case "profile":
 		cmd.Profile(os.Args[2:])
 	case "ingest":
@@ -115,6 +117,11 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `imprint — AI memory for Claude Code
 
 Usage:
+  imprint wsl list           Discover Claude Code and Codex profiles in WSL (Windows only)
+  imprint wsl setup --distribution NAME --target claude-code|codex
+                             Connect a selected WSL profile to this Windows runtime
+  imprint wsl remove --distribution NAME --target claude-code|codex
+                             Remove that bridge while preserving memories and other clients
   imprint setup [target] [--profile cpu|gpu|auto] [--with-llm|--no-llm] [--retry-gpu] [--non-interactive]
                              Install deps, register MCP server, configure host AI tool
                                target: claude-code (default) | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all

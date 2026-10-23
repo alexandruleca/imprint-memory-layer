@@ -115,6 +115,8 @@ def context(record, workspace=None, cwd=None):
               'source_device': _identity(record.get('source_device')),
               'original_source_path': record.get('source_path', ''), 'local_source_path': '',
               'path_status': 'no-file-path'}
+    from .wsl_paths import client_context, client_path
+    result.update(client_context())
     if not record.get('source_path'):
         return result
     result['path_status'] = 'foreign-unmapped' if result['source_device']['id'] else 'unknown-origin'
@@ -137,6 +139,6 @@ def context(record, workspace=None, cwd=None):
     elif not candidate.is_file():
         result['path_status'] = 'local-file-missing'
     else:
-        result['local_source_path'] = str(candidate)
+        result['local_source_path'] = client_path(str(candidate))
         result['path_status'] = 'local' if local_source(record) else 'foreign-mapped'
     return result
