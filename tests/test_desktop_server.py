@@ -1,6 +1,7 @@
 """Native service lifetime checks using disposable data and loopback ports."""
 
 import io
+import json
 import os
 from pathlib import Path
 import socket
@@ -11,7 +12,7 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from imprint.desktop_server import watch_parent
 
@@ -75,41 +76,70 @@ class ParentWatchTests(unittest.TestCase):
                 proc.wait()
             proc.stdout.close()
 
+    def serve(self, data, log):
+        """Start the real desktop service; return it and its port once it answers."""
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            port = sock.getsockname()[1]
+        env = {**os.environ, 'IMPRINT_DATA_DIR': data, 'PYTHONPATH': str(ROOT)}
+        proc = subprocess.Popen(
+            [sys.executable, '-m', 'imprint.desktop_server', '--port', str(port)],
+            cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=log, stderr=log,
+        )
+        self.addCleanup(self.reap, proc)
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with urlopen(f'http://127.0.0.1:{port}/api/ping', timeout=.5) as res:
+                    self.assertEqual(res.status, 200)
+                return proc, port
+            except OSError:
+                if proc.poll() is not None or time.monotonic() > deadline:
+                    log.seek(0)
+                    self.fail(log.read().decode(errors='replace'))
+                time.sleep(.1)
+
+    @staticmethod
+    def reap(proc):
+        if not proc.stdin.closed:
+            proc.stdin.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
     def test_real_api_stays_up_until_parent_pipe_closes(self):
-        with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data:
+        with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data, tempfile.TemporaryFile() as log:
+            proc, port = self.serve(data, log)
+            # Every launcher's server registers itself while it serves.
+            registration = Path(data) / 'imprint_ui.json'
+            self.assertEqual(json.loads(registration.read_text()), {'pid': proc.pid, 'port': port})
+            # No UI heartbeat is needed while Electron holds the pipe.
+            self.assertIsNone(proc.poll())
+            proc.stdin.close()
+            self.assertEqual(proc.wait(timeout=15), 0)
             with socket.socket() as sock:
-                sock.bind(('127.0.0.1', 0))
-                port = sock.getsockname()[1]
-            env = {**os.environ, 'IMPRINT_DATA_DIR': data, 'PYTHONPATH': str(ROOT)}
-            with tempfile.TemporaryFile() as log:
-                proc = subprocess.Popen(
-                    [sys.executable, '-m', 'imprint.desktop_server', '--port', str(port)],
-                    cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=log, stderr=log,
-                )
-                try:
-                    deadline = time.monotonic() + 30
-                    while True:
-                        try:
-                            with urlopen(f'http://127.0.0.1:{port}/api/ping', timeout=.5) as res:
-                                self.assertEqual(res.status, 200)
-                            break
-                        except OSError:
-                            if proc.poll() is not None or time.monotonic() > deadline:
-                                log.seek(0)
-                                self.fail(log.read().decode(errors='replace'))
-                            time.sleep(.1)
-                    # No UI heartbeat is needed while Electron holds the pipe.
-                    self.assertIsNone(proc.poll())
-                    proc.stdin.close()
-                    self.assertEqual(proc.wait(timeout=15), 0)
-                    with socket.socket() as sock:
-                        self.assertNotEqual(sock.connect_ex(('127.0.0.1', port)), 0)
-                finally:
-                    if not proc.stdin.closed:
-                        proc.stdin.close()
-                    if proc.poll() is None:
-                        proc.kill()
-                        proc.wait()
+                self.assertNotEqual(sock.connect_ex(('127.0.0.1', port)), 0)
+            self.assertFalse(registration.exists())
+
+    def test_restart_request_exits_for_the_owner_to_start_it_again(self):
+        from imprint.api import RESTART_EXIT_CODE
+        with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data, tempfile.TemporaryFile() as log:
+            proc, port = self.serve(data, log)
+            request = Request(f'http://127.0.0.1:{port}/api/restart', method='POST')
+            with urlopen(request, timeout=5) as res:
+                self.assertEqual(json.load(res), {'restarting': True})
+            # Electron still holds the pipe: the exit status asks it to restart.
+            self.assertEqual(proc.wait(timeout=15), RESTART_EXIT_CODE)
+            self.assertFalse((Path(data) / 'imprint_ui.json').exists())
+
+
+class RestartEndpointTests(unittest.TestCase):
+    def test_an_app_served_without_a_dashboard_server_cannot_restart(self):
+        from imprint import api
+        with patch.object(api.app.state, 'server', None):
+            response = api.api_restart()
+        self.assertEqual((response.status_code, json.loads(response.body)),
+                         (409, {'error': 'This server was not started by Imprint'}))
 
 
 if __name__ == '__main__':

@@ -2,7 +2,8 @@
 
 Unlike the explicit ``imprint ui start`` daemon, this process exits when
 Electron closes the pipe, including after an Electron crash. No HTTP shutdown
-endpoint or shared Qdrant termination is needed.
+endpoint or shared Qdrant termination is needed. A restart request exits with
+``RESTART_EXIT_CODE`` and Electron starts the service again (ADR 0048).
 """
 
 from __future__ import annotations
@@ -54,19 +55,15 @@ def main():
     ).start()
     try:
         # Start watching before the comparatively expensive dashboard imports.
-        import uvicorn
-        from .api import app, mount_static, _shutdown_event
+        from .api import DashboardServer, mount_static
 
         if parent_closed.is_set():
             return
         mount_static()
-        server = uvicorn.Server(uvicorn.Config(
-            app, host="127.0.0.1", port=args.port, proxy_headers=False,
-        ))
+        server = DashboardServer(port=args.port)
 
         def stop_on_parent_exit():
             parent_closed.wait()
-            _shutdown_event.set()  # Unblock streaming responses.
             server.should_exit = True
 
         threading.Thread(target=stop_on_parent_exit, daemon=True).start()
