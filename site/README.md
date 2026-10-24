@@ -40,6 +40,24 @@ normal Pages rebuild so the new ZIP appears automatically. Preview source is
 kept in `extensions/chrome`; runtime ZIP assembly and validation live in
 `scripts/package_chrome_extension.py` and `extensions/chrome/tests`.
 
+## Analytics
+
+Builds with `PUBLIC_GA4_ID` set (the Pages workflow sets it) load Google Analytics on every page: `src/components/Analytics.astro` for the landing pages and the Starlight `head` in `astro.config.mjs` for docs. Both also load `public/scripts/events.js`, one capturing listener that turns visitor actions into GA4 events:
+
+| Event | When | Parameters |
+|-------|------|------------|
+| `download` | A link to a release asset (`/releases/download/<tag>/<file>`) | `file_name`, `file_extension`, `version`, `link_text`, `link_url` |
+| `copy_command` | A copy button marked `data-track="copy_command"` | `command` (`unix`, `win`, `docker`, `relay`, `chrome-extensions`) |
+| `select_tab` | A `role="tab"` control | `tab_group` (the tablist's `aria-label`), `tab` |
+| `expand` | Opening a `<details>` (FAQ answers, release notes, mobile menu) | `label` |
+| `select_option` | Changing a `<select>` (the docs theme) | `option` |
+| `link_click` | Any other link | `link_text`, `link_url`, `outbound` |
+| `button_click` | Any other button | `label` |
+
+Every event also carries `placement`: the id of the nearest `section[id]`, or the nearest `header`, `footer`, `nav`, `aside` or `main`. To give an element its own event, add `data-track="<event>"` and `data-track-<param>` attributes. `link_text`, `link_url`, `file_name`, `file_extension` and `outbound` fill GA's built-in dimensions; register `placement`, `command`, `tab_group`, `tab`, `label`, `option` and `version` as event-scoped custom dimensions to report on them.
+
+The landing page's Sync section shows the public relay's live status (`src/components/RelayStatus.astro`): the browser reads `https://sync.alexandruleca.com/health` on load and every 30 seconds while the tab is visible, and links to the relay in a new tab.
+
 ## Build
 
 ```bash

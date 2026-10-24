@@ -45,3 +45,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0028](0028-complete-uninstall.md) | Accepted | Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. |
 | [0029](0029-paired-browser-capture.md) | Accepted (WIP branch) | Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. |
 | [0030](0030-chrome-extension-release-zip.md) | Accepted | Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations. |
+| [0031](0031-website-analytics-and-public-relay-status.md) | Accepted | GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page. |

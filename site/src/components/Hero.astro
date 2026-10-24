@@ -76,6 +76,8 @@ const proof = [
           <pre class="flex-1 overflow-x-auto text-[13px] font-mono py-2 whitespace-nowrap [scrollbar-width:none]"><code data-hero-oneliner-cmd>{oneLiners[0].cmd}</code></pre>
           <button
             data-hero-oneliner-copy
+            data-track="copy_command"
+            data-track-command={oneLiners[0].id}
             class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-fill hover:bg-fill-strong text-[color:var(--color-text-muted)] hover:text-ink transition"
             aria-label="Copy install command"
           >
@@ -156,6 +158,7 @@ const proof = [
       const entry = oneLiners.find((o) => o.id === id);
       if (!entry || !cmdEl) return;
       cmdEl.textContent = entry.cmd;
+      if (copyBtn) copyBtn.dataset.trackCommand = id;
       tabs.forEach((t) => {
         t.setAttribute('aria-selected', t.getAttribute('data-hero-oneliner-tab') === id ? 'true' : 'false');
       });

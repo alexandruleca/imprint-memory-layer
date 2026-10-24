@@ -61,6 +61,8 @@ const tabs = [
         <pre class="flex-1 overflow-x-auto text-[13px] font-mono py-2.5 [scrollbar-width:thin]"><code>{t.command}</code></pre>
         <button
           data-install-copy={t.id}
+          data-track="copy_command"
+          data-track-command={t.id}
           class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-fill hover:bg-fill-strong text-[color:var(--color-text-muted)] hover:text-ink transition"
         >
           <Icon name="copy" size={14} />

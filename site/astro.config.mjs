@@ -24,6 +24,8 @@ const analyticsHead = ga4Id
           `function gtag(){dataLayer.push(arguments);}` +
           `gtag('js',new Date());gtag('config','${ga4Id}');`,
       },
+      // Visitor actions as events; the same script runs on the landing pages.
+      { tag: 'script', attrs: { type: 'module', src: '/scripts/events.js' } },
     ]
   : [];
 

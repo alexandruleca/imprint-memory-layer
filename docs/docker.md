@@ -144,7 +144,7 @@ docker run -d \
   ghcr.io/alexandruleca/imprint-relay:latest
 ```
 
-The relay is stateless — no volume required. `/health` reports status, release and open-room count for health checks and deploys; any other plain HTTP request gets the page that explains the relay. See [sync.md](./sync.md) for how
+The relay is stateless — no volume required. `/health` reports status, release, open rooms and the sessions relayed since start for health checks, deploys and the website's live status (any origin may read it); any other plain HTTP request gets the page that explains the relay. Add `--ga4-id G-XXXXXXXXXX` to the relay command to count visits to that page in Google Analytics. Without it the page loads no scripts. See [sync.md](./sync.md) for how
 peers authenticate through it.
 
 Point clients at your host:
@@ -226,7 +226,7 @@ server {
 - **imprint** — healthcheck hits `GET /api/version`. `docker logs -f imprint`
   tails the FastAPI / Qdrant output.
 - **imprint-relay** — healthcheck hits `GET /health` (returns
-  `{"status":"ok","version":"vX.Y.Z","rooms":N}`).
+  `{"status":"ok","version":"vX.Y.Z","rooms":N,"sessions":N,"since":"<start time>"}`).
 
 ## Building from source
 

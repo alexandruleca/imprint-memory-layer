@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 // Returns the ws:// base URL (e.g. "ws://127.0.0.1:PORT").
 func newTestRelay(t *testing.T) string {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(relayHandler))
+	srv := httptest.NewServer(relayHandler(relayPage))
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	if err != nil {
@@ -195,7 +196,7 @@ func TestRelayClosesOversizedMessages(t *testing.T) {
 // TestRelayShowsBrowsersAPage: a browser on any path gets the page about the
 // relay, never the protocol errors meant for sync peers.
 func TestRelayShowsBrowsersAPage(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(relayHandler))
+	srv := httptest.NewServer(relayHandler(relayPage))
 	t.Cleanup(srv.Close)
 	for path, want := range map[string]int{
 		"/":                       http.StatusOK,
@@ -221,8 +222,27 @@ func TestRelayShowsBrowsersAPage(t *testing.T) {
 }
 
 // TestRelayHealthReportsVersion: a deploy waits until /health names the
-// release it rolled out.
+// release it rolled out, and the website reads it from another origin.
 func TestRelayHealthReportsVersion(t *testing.T) {
+	health := getHealth(t)
+	if health.Status != "ok" || health.Version != "v1.2.3" {
+		t.Fatalf("health = %+v, want status ok and version v1.2.3", health)
+	}
+	if !health.Since.Equal(relayStarted) {
+		t.Fatalf("since = %v, want the relay's start %v", health.Since, relayStarted)
+	}
+}
+
+type relayHealthBody struct {
+	Status   string    `json:"status"`
+	Version  string    `json:"version"`
+	Rooms    int       `json:"rooms"`
+	Sessions int64     `json:"sessions"`
+	Since    time.Time `json:"since"`
+}
+
+func getHealth(t *testing.T) relayHealthBody {
+	t.Helper()
 	srv := httptest.NewServer(relayHealth("v1.2.3"))
 	t.Cleanup(srv.Close)
 	resp, err := http.Get(srv.URL + "/health")
@@ -230,14 +250,69 @@ func TestRelayHealthReportsVersion(t *testing.T) {
 		t.Fatalf("GET /health: %v", err)
 	}
 	defer resp.Body.Close()
-	var health struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want *", got)
 	}
+	var health relayHealthBody
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if health.Status != "ok" || health.Version != "v1.2.3" {
-		t.Fatalf("health = %+v, want status ok and version v1.2.3", health)
+	return health
+}
+
+// TestRelayCountsPairedSessions: a room counts once both machines join it,
+// and a room still waiting for its second machine does not.
+func TestRelayCountsPairedSessions(t *testing.T) {
+	base := newTestRelay(t)
+	before := getHealth(t).Sessions
+
+	waiting := nextRoom(t)
+	_ = dialRole(t, base, waiting, "provider")
+	paired := nextRoom(t)
+	consumer := dialRole(t, base, paired, "consumer")
+	provider := dialRole(t, base, paired, "provider")
+
+	// The relay has registered both peers once a frame crosses the room.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := provider.Write(ctx, websocket.MessageBinary, []byte("hello")); err != nil {
+		t.Fatalf("provider write: %v", err)
+	}
+	if _, _, err := consumer.Read(ctx); err != nil {
+		t.Fatalf("consumer read: %v", err)
+	}
+	if got := getHealth(t).Sessions - before; got != 1 {
+		t.Fatalf("sessions grew by %d, want 1", got)
+	}
+}
+
+// TestRelayPageAnalytics: the page stays script-free without a measurement
+// ID; with one it reports views without the address, which may hold a code.
+func TestRelayPageAnalytics(t *testing.T) {
+	if !bytes.Equal(relayPageFor(""), relayPage) {
+		t.Fatal("the page changed without a measurement ID")
+	}
+	page := string(relayPageFor("G-TEST123"))
+	head := page[:strings.Index(page, "</head>")]
+	for _, want := range []string{
+		`<script async src="https://www.googletagmanager.com/gtag/js?id=G-TEST123"></script>`,
+		`gtag('config','G-TEST123',{page_location:location.origin+(location.pathname==='/'?'/':'/not-found')});`,
+	} {
+		if !strings.Contains(head, want) {
+			t.Errorf("head lacks %s", want)
+		}
+	}
+	if strings.Count(page, "googletagmanager") != 1 || strings.Count(page, "</head>") != 1 {
+		t.Fatal("analytics not added exactly once")
+	}
+	for _, id := range []string{"G-TEST123", "G-ZPW1M6BCC7"} {
+		if !ga4IDPattern.MatchString(id) {
+			t.Errorf("%s refused", id)
+		}
+	}
+	for _, id := range []string{"UA-1234-1", "G-abc", "G-1');alert(1)//", ""} {
+		if ga4IDPattern.MatchString(id) {
+			t.Errorf("%q accepted", id)
+		}
 	}
 }

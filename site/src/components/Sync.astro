@@ -1,5 +1,6 @@
 ---
 import Icon from './Icon.astro';
+import RelayStatus from './RelayStatus.astro';
 
 const steps = [
   {
@@ -125,6 +126,8 @@ const details = [
         </li>
       ))}
     </ul>
+
+    <RelayStatus class="mt-6" />
 
     <p class="mt-5 text-sm text-[color:var(--color-text-muted)] max-w-3xl">
       Keep your own devices in step: enable automatic pairing on both sides, or add <code class="font-mono">--remember</code>
