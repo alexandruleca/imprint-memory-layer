@@ -36,7 +36,8 @@ export class EchoCanvasRenderer {
       const morphs = geometry.morphAttributes.position || [];
       const influences = object.morphTargetInfluences || [];
       this.matrix.multiplyMatrices(this.projection, object.matrixWorld);
-      ctx.fillStyle = ctx.strokeStyle = `#${material.color.getHexString(THREE.SRGBColorSpace)}`;
+      ctx.strokeStyle = `#${material.color.getHexString(THREE.SRGBColorSpace)}`;
+      ctx.fillStyle = "#94d3f2";
       ctx.lineWidth = .65 * this.ratio;
       if (object instanceof THREE.Line) ctx.beginPath();
       for (let index = 0; index < positions.count; index++) {
@@ -54,7 +55,7 @@ export class EchoCanvasRenderer {
         const x = (this.point.x * .5 + .5) * width, y = (-this.point.y * .5 + .5) * height;
         if (object instanceof THREE.Points) {
           const light = colors ? (colors.getX(index) + colors.getY(index) + colors.getZ(index)) / 3 : 1;
-          ctx.globalAlpha = Math.max(0, Math.min(1, material.opacity * light * .55));
+          ctx.globalAlpha = Math.max(0, Math.min(1, material.opacity * light * .18));
           const size = .8 * this.ratio;
           ctx.fillRect(x, y, size, size);
         } else {

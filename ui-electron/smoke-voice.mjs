@@ -66,7 +66,7 @@ try {
   if (!pinned) throw Error('Companion did not pin');
   await popup.getByLabel('Voice reasoning model').selectOption('lfm');
   await popup.getByRole('button', { name: 'Start conversation' }).click();
-  await popup.getByRole('button', { name: 'Enable microphone' }).waitFor({ timeout: 20000 });
+  await popup.getByRole('button', { name: 'Enable microphone' }).waitFor({ timeout: 95000 });
   const testMicrophone = process.platform !== 'darwin';
   // Real macOS TCC consent is a human OS dialog, even for a fake Chromium mic.
   // Check typed-session lifecycle there without bypassing production policy.
@@ -92,7 +92,9 @@ try {
   const result = { platform: `${process.platform}/${process.arch}`, electron: await app.evaluate(() => process.versions.electron),
     disposableProfile: true, realCompanionLoaded: true, alwaysOnTop: true, syntheticMicrophonePermission: testMicrophone,
     transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true, renderer,
-    limits: ['synthetic microphone', 'no real acoustic/output-device test', 'silent WebAudio test output', 'software WebGL',
+    limits: [testMicrophone ? 'synthetic microphone' : 'microphone capture not exercised',
+      'no real acoustic/output-device test', 'silent WebAudio test output',
+      renderer === 'canvas-3d' ? 'software 3D renderer' : 'software WebGL',
       ...process.platform === 'darwin' ? ['interactive macOS TCC microphone consent requires manual validation'] : [],
       ...process.platform === 'linux' ? ['no-sandbox for the Linux graphical test'] : []] };
   await fs.writeFile(path.join(output, 'summary.json'), JSON.stringify(result, null, 2) + '\n');

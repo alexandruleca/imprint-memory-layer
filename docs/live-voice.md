@@ -54,6 +54,21 @@ C++ compiler and CMake, then from the repository root run:
   --runtime-dir /path/to/private/lfm-audio --jobs 4
 ```
 
+For example, in a Visual Studio Developer PowerShell (substitute the Python
+executable from your Imprint installation):
+
+```powershell
+& 'C:\path\to\Imprint\.venv\Scripts\python.exe' -m imprint.voice_runtime --runtime-dir "$env:LOCALAPPDATA\Imprint\voice" --jobs 4
+imprint config set voice.runtime_dir "$env:LOCALAPPDATA\Imprint\voice"
+```
+
+On macOS, use the installation's native Python and a private cache directory:
+
+```bash
+/path/to/imprint/.venv/bin/python -m imprint.voice_runtime --runtime-dir "$HOME/Library/Caches/Imprint/voice" --jobs 4
+imprint config set voice.runtime_dir "$HOME/Library/Caches/Imprint/voice"
+```
+
 `--cmake /path/to/cmake` selects an explicit CMake binary. The command reuses the
 verified 1.07 GB Q4 weights from the offline experiment, downloads a hash-pinned
 source archive, applies Imprint's private-worker patch and builds a static native

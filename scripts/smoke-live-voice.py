@@ -155,7 +155,7 @@ async def run(runtime: Path, output: Path):
         results["checks"]["workspace_pinned_across_dashboard_switch"] = True
         results["limitations"] = ["synthetic microphone input", "retrieval storage fixture", "chat reasoning fixture",
                                    "no human intelligibility rating", "no acoustic echo/room-noise evaluation",
-                                   "no native Windows/macOS or transparent desktop execution"]
+                                   "speech smoke excludes graphical desktop and OS microphone consent"]
     finally:
         runner.should_exit = True
         await voice.shutdown()

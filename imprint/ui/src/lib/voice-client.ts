@@ -108,10 +108,17 @@ export class VoiceClient {
   async start(engine: "chat" | "lfm") {
     this.stop(); this.stopped = false;
     const epoch = ++this.epoch;
-    this.update({ phase: "connecting", detail: "Connecting locally…", user: "", answer: "" });
+    this.update({ phase: "connecting", detail: "Preparing audio…", user: "", answer: "" });
     try {
       this.context = new AudioContext();
-      await this.context.resume();
+      let audioTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([this.context.resume(), new Promise<never>((_, reject) => {
+          audioTimer = setTimeout(() => reject(new Error("Audio output is unavailable. Choose a speaker or headset in sound settings, then try again.")), 10000);
+        })]);
+      } finally { clearTimeout(audioTimer); }
+      if (this.stopped || epoch !== this.epoch) return;
+      this.update({ detail: "Connecting locally…" });
       const response = await fetch(`${API_BASE}/api/voice/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine }) });
       if (!response.ok) { const error = await response.json(); throw new Error(error.detail || "Voice is unavailable."); }
       const session = await response.json();
@@ -215,6 +222,7 @@ export class VoiceClient {
     }
   }
   private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string }) {
+    if (event.type === "connecting") { this.update({ detail: "Loading local voice…" }); return; }
     if (event.type === "ready") { this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace }); return; }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
     if (!event.id || event.id !== this.accepted) return;
