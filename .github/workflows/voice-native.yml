@@ -56,6 +56,14 @@ jobs:
           arch: x64
       - name: Voice regressions
         run: python -m unittest discover -s tests -p test_voice.py -v
+      - name: Restore verified native worker cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VOICE_CACHE }}/live-source.tar.gz
+            ${{ env.VOICE_CACHE }}/live-build.json
+            ${{ env.VOICE_CACHE }}/live-native
+          key: voice-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('imprint/voice_runtime.py', 'requirements/runtime-manifest.json') }}
       - name: Restore portable model weights
         uses: actions/cache@v4
         with:

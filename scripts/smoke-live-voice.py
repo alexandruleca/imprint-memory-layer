@@ -183,6 +183,11 @@ def main():
                 counter = 0
                 def logged_process(*arguments, **kwargs):
                     nonlocal counter
+                    command = arguments[0] if arguments else kwargs.get("args", [])
+                    if not isinstance(command, (list, tuple)) or not command or Path(command[0]).name not in {
+                        "llama-liquid-audio-server", "llama-liquid-audio-server.exe",
+                    }:
+                        return original_popen(*arguments, **kwargs)
                     counter += 1
                     stream = stack.enter_context((output / f"native-{counter}.log").open("wb"))
                     kwargs.update(stdout=stream, stderr=subprocess.STDOUT)
