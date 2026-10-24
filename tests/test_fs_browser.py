@@ -18,7 +18,9 @@ class FsBrowserTests(unittest.IsolatedAsyncioTestCase):
             folder = Path(directory).resolve() / 'project'
             folder.mkdir()
             listing = (await self.get('/api/fs/list', path=str(folder))).json()
-        self.assertEqual(listing['crumbs'][0], {'label': '/', 'path': '/'})
+        # The anchor is / on POSIX and C:\ on Windows; its label drops the separator.
+        anchor = folder.anchor
+        self.assertEqual(listing['crumbs'][0], {'label': anchor.rstrip('\\/') or anchor, 'path': anchor})
         self.assertEqual(listing['crumbs'][-1], {'label': 'project', 'path': str(folder)})
         self.assertEqual([step['path'] for step in listing['crumbs']],
                          [str(step) for step in (*reversed(folder.parents), folder)])
