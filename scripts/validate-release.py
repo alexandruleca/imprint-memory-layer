@@ -36,6 +36,9 @@ def architectures(path: Path) -> set[str]:
 def validate(root: Path, platform: str) -> None:
     os_name, arch = platform.split('/')
     ext = '.exe' if os_name == 'windows' else ''
+    for name in ('personaplex-test.txt', 'personaplex-test.lock.txt'):
+        if (root / 'requirements' / name).exists():
+            raise ValueError(f'Development state in archive: requirements/{name}')
     for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/cpu.txt', 'requirements/cpu.lock.txt', 'requirements/gpu.txt',
                 'requirements/llm.txt', 'requirements/gpu.lock.txt', 'requirements/llm.lock.txt',
                 'requirements/runtime-manifest.json', 'LICENSE', 'licenses/uv/LICENSE-APACHE',

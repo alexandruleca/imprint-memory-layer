@@ -11,6 +11,10 @@ Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing
 
 Agent efficiency: [context budgets and cost experiments](context-budgets.md).
 
+Proposed voice interface: [voice assistant and floating avatar feasibility](voice-avatar-feasibility.md), including NVIDIA component choices, local chat routing, interruption handling and phased validation.
+
+Experimental implementation: [PersonaPlex memory prototype](personaplex-prototype.md), with read-only MCP startup snapshots and a separate pinned voice runtime.
+
 Cross-device context: [devices and portable project paths](devices.md).
 
 Experimental browser capture: [Chrome extension (WIP)](browser-extension.md).

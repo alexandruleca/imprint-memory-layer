@@ -31,6 +31,8 @@ installers/
 
 # Test artifacts + benchmark results
 benchmark/
+/requirements/personaplex-test.txt
+/requirements/personaplex-test.lock.txt
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -294,3 +294,18 @@ See [ADR 0037](adr/0037-learn-every-integrated-client-store.md). These checks ra
 | Ownership read of every WSL conversation | Passed after a fix | Resolving the cwd on every record cost about 20 ms per record: a 0.52 MB transcript took 2.1 s, of which 1.97 s was 98 resolutions of 2 distinct directories, and a full pass did not finish in 25 minutes. With one resolution per distinct cwd, the same transcript takes 0.1 s, and all 146 conversations (1.8 GB) take 407 s. All 146 belong to the default workspace, whose only root is a Windows folder. |
 
 Not run: a complete `imprint learn` that embeds and stores into the installation's data directory, and the dashboard **Learn** action on Windows. Every Claude Code project folder on this machine has auto-memory files, and their ownership rule rereads every transcript beside them on each run: about 3 minutes for these 1.2 GB through `\\wsl.localhost`.
+
+## PersonaPlex startup memory prototype (2026-10-24)
+
+See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the [prototype guide](personaplex-prototype.md). This validates an experimental adapter, not a supported voice/avatar product.
+
+| Check | Result | Evidence and limits |
+| --- | --- | --- |
+| Adapter tests, Linux/WSL2 | Passed, 12 tests | Actual MCP discovery/calls and stdio child with disposable storage fixtures; workspace/project isolation, bounded evidence, exclusive exports, drift rejection, local browser boundaries, server-side context injection, binary WebSocket frames, pinned cache-only lookup and owned-child shutdown. Binary frames are fixtures, not decoded speech. |
+| Full Python suite, isolated data directory | Passed, 287 tests | Existing behavior and release-validator regressions included. No real client profile was registered or used as a test fixture. |
+| NVIDIA source contract | Passed | A temporary clean checkout at `3428dfd95309a7f3c84fd93259ded0f810d1ff91` passes revision, tracked-file cleanliness and server SHA256 checks; this does not import the model stack. |
+| Test dependency distribution boundary | Passed | The actual rsync release exclusion filter retains runtime locks and excludes both PersonaPlex test-overlay files; validator fixtures reject either file if included. No release archive or installer was produced. |
+| Documentation | Passed | Site production build, repository-link checks and whitespace checks. |
+| Pinned model access | Unavailable | A metadata-only request using the available Imprint/Hugging Face credentials returned `GatedRepoError`; no weights were downloaded. |
+
+Not run: real PersonaPlex model import/load, microphone capture, audible responses, speech grounding, Opus decoding, interruption/echo tests, GPU latency/VRAM benchmarks, native Windows/macOS/Linux desktop execution, floating-head rendering or installer/update behavior. CI now installs the hashed adapter-test overlay on its native matrix; those jobs have not been executed for this branch in this session.

@@ -55,3 +55,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0038](0038-gpu-runtime-ships-cuda-libraries.md) | Accepted | The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version. |
 | [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Accepted | Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open. |
 | [0040](0040-documents-with-nothing-to-index.md) | Accepted | A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. |
+| [0041](0041-personaplex-startup-memory-prototype.md) | Accepted (experimental adapter) | Prepare a bounded read-only MCP memory snapshot and inject it into a pinned, isolated PersonaPlex runtime; real speech/platform validation remains separate. |
