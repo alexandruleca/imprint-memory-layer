@@ -13,7 +13,7 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 **Host Python is *not* required.** Every release archive now ships Astral's `uv` binary alongside `imprint`; on first run `uv` downloads a pinned Python 3.12 via python-build-standalone into the install dir's `.venv/`. Nothing is installed system-wide.
 
 **Optional — GPU acceleration:**
-- NVIDIA GPU + CUDA 12 + `onnxruntime-gpu` for ~20× faster embedding (pick `--profile gpu` at install, or run `imprint profile set gpu` later — see [embeddings.md](./embeddings.md))
+- NVIDIA GPU + a CUDA runtime matching `onnxruntime-gpu` (the locked 1.31 links CUDA 13) for ~20× faster embedding (pick `--profile gpu` at install, or run `imprint profile set gpu` later — see [embeddings.md](./embeddings.md))
 
 **Optional — local LLM tagger** — `llama-cpp-python` is skipped by default to keep the install footprint small. Opt in with `--with-llm` at install time or `imprint profile add-llm` afterward.
 
@@ -255,6 +255,8 @@ curl -fsSL .../install.sh | bash -s -- --yes
 ```
 
 ### Sticky GPU failure handling
+
+The profile selects exactly one ONNX Runtime build: `cpu` installs `onnxruntime`, `gpu` installs `onnxruntime-gpu`, and `auto` installs `onnxruntime-gpu` when `nvidia-smi` reports a GPU and CUDA has not already failed on this host. The two builds share one package directory, so setup removes the other build and reinstalls a build with missing files; rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage. An explicit `gpu` profile keeps `onnxruntime-gpu` when CUDA fails, because that build also runs on CPU. See [ADR 0032](adr/0032-one-onnx-runtime-per-environment.md).
 
 `imprint setup` probes your GPU stack every run. When `onnxruntime-gpu` / `llama-cpp-python` fail to produce a working CUDA build (for example: Blackwell `sm_120` with an older `nvcc`, or `libcublasLt.so.12` missing when ORT ships CUDA 12 wheels against a CUDA 13 host), the failure is recorded in `data/gpu_state.json` keyed on `{gpu, nvcc, compute_cap, driver}`. Subsequent `imprint setup` runs skip the broken path silently so you don't see the same multi-minute rebuild warning on every invocation.
 

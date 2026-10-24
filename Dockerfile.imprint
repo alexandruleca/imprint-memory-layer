@@ -48,7 +48,8 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Python deps. Only the "base" profile is installed in the container:
+# Python deps. Only the base requirements with the CPU ONNX Runtime are
+# installed in the container:
 # llama-cpp-python (llm.txt) needs a C++ toolchain and the `local` chat
 # provider isn't the primary path inside Docker, while onnxruntime-gpu
 # (gpu.txt) is opt-in on bare-metal NVIDIA hosts, not container workloads.
@@ -56,7 +57,7 @@ WORKDIR /app
 # chat.py imports llama_cpp lazily.
 COPY requirements/ /app/requirements/
 RUN python -m venv /app/.venv \
-    && /app/.venv/bin/pip install --no-cache-dir --require-hashes -r /app/requirements/base.lock.txt
+    && /app/.venv/bin/pip install --no-cache-dir --require-hashes -r /app/requirements/base.lock.txt -r /app/requirements/cpu.lock.txt
 
 # Imprint Python package + Go binary + entrypoint.
 COPY imprint/ /app/imprint/

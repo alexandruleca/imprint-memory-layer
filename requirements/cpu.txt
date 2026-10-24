@@ -1,0 +1,8 @@
+# ONNX Runtime CPU build, installed on top of base.txt for profile=cpu and
+# whenever the GPU build is not used. onnxruntime and onnxruntime-gpu install
+# the same `onnxruntime` package directory, so setup installs exactly one.
+#
+# ONNX Runtime 1.24+ no longer publishes Intel macOS wheels. Keep the last
+# supported wheel line there; other native targets use the current runtime.
+onnxruntime>=1.20.0; sys_platform != 'darwin' or platform_machine != 'x86_64'
+onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'

@@ -11,16 +11,39 @@ import tempfile
 from pathlib import Path
 
 
+def _onnx_runtime_check() -> tuple[str, bool, str, str]:
+    """The embedding runtime is sound when one intact distribution provides
+    ``onnxruntime`` and its bindings load."""
+    from . import onnx_runtime
+    providers = onnx_runtime.providers()
+    action = 'Run imprint bootstrap --non-interactive; it reinstalls the runtime of the selected profile.'
+    if not providers:
+        return 'runtime:onnxruntime', False, 'Missing', action
+    detail = ', '.join(f"{name} {importlib.metadata.version(name)}{'' if intact else ' (files missing)'}"
+                       for name, intact in providers.items())
+    if len(providers) > 1:
+        return 'runtime:onnxruntime', False, detail + ' share one package directory', action
+    if not all(providers.values()):
+        return 'runtime:onnxruntime', False, detail, action
+    try:
+        import onnxruntime
+        onnxruntime.InferenceSession
+    except Exception as error:
+        return 'runtime:onnxruntime', False, f'{detail}: {type(error).__name__}: {error}', action
+    return 'runtime:onnxruntime', True, detail, action
+
+
 def report(project_dir: Path, probe_mcp: bool = False) -> dict:
     checks = []
     def check(name, ok, detail, action=''):
         checks.append({'name': name, 'status': 'ok' if ok else 'attention', 'detail': detail, 'action': action if not ok else ''})
     check('python', sys.version_info >= (3, 12), '.'.join(map(str, sys.version_info[:3])), 'Run imprint bootstrap to provision managed Python 3.12.')
-    for package in ('fastmcp', 'qdrant-client', 'onnxruntime', 'chonkie', 'fastapi', 'python-multipart'):
+    for package in ('fastmcp', 'qdrant-client', 'chonkie', 'fastapi', 'python-multipart'):
         try:
             check('dependency:' + package, True, importlib.metadata.version(package))
         except importlib.metadata.PackageNotFoundError:
             check('dependency:' + package, False, 'Missing', 'Run imprint bootstrap --profile cpu --non-interactive.')
+    check(*_onnx_runtime_check())
     check('dashboard', (project_dir / 'imprint/ui/out/index.html').is_file(), str(project_dir / 'imprint/ui/out'), 'Reinstall a complete release or run make dashboard-build in a checkout.')
     codex = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'config.toml'
     if codex.exists():

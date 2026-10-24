@@ -254,3 +254,17 @@ The interop smoke is opt-in at `scripts/test-wsl-interop.py`; hosted CI does not
 Windows release CI now also uninstalls its disposable real installation and checks preserved data plus Codex registration/hook/rule removal. This new hosted release gate is implemented; the local stand-in installer and copied-CLI checks above are the executed evidence. Native macOS `.command`/package uninstall and interactive OS/client reload behavior remain unexecuted locally; macOS script syntax is checked without claiming native execution. Linux cleanup runs natively in WSL; an interactive AppImage desktop uninstall was not exercised. Old custom WSL profiles created before journaling require explicit removal with their original flags; custom native profiles require their profile environment. Configuration recovery backups remain inert.
 
 The first hosted Windows uninstall regression completed its assertions but inherited exit 1 from its intentional missing-CLI case. The fixture now clears that asserted native status before returning to GitHub Actions; an Actions-style native PowerShell wrapper is used locally to verify the script returns success. This changes test-runner reporting, not cleanup behavior.
+
+## ONNX Runtime provisioning and first-run log (2026-10-24)
+
+Triggered by a Windows GPU install that aborted on a `first-run.log` sharing violation and later failed every ingest with `module 'onnxruntime' has no attribute 'InferenceSession'`. See [ADR 0032](adr/0032-one-onnx-runtime-per-environment.md).
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| First-run log sharing (native Windows PowerShell 5.1) | Passed | `Out-File -Append` fails against a share-read poller (Inno `LoadStringFromFile`, the original wizard) and never against a read/write-sharing one. `scripts/test-windows-setup.ps1` now polls concurrently and checks UTF-8 decoding and the absence of ANSI escapes; each new check fails on the defect it guards. |
+| Wizard page compile (Inno Setup 6 ISCC) | Passed | The real `ProfilePage.iss`, `WSLPage.iss` and `SetupOutputPage.iss` compile in a minimal wrapper script. A full installer was not built. |
+| `imprint bootstrap` end to end (Linux x64, uv 0.5.11, locked wheels) | Passed | Scratch install tree with an isolated HOME and a fake `nvidia-smi`. Cases: fresh CPU install, the damaged Windows state (GPU dist-info with only `capi/`), unchanged rerun (audit only), auto→CPU, CPU→GPU, both builds installed, auto without a GPU, damaged CPU build. Each ended with one complete provider and a loadable `InferenceSession`. |
+| Lock split | Passed | ONNX Runtime and its exclusive dependencies moved from `base.lock.txt` to `cpu.lock.txt` with identical pins, markers and hashes; `llm.lock.txt` unchanged. pip 24.3 accepts the identical hashed pins repeated across base and overlay. |
+| Go, Python, workflow | Passed | `go test ./...`, full Python suite (232 tests), actionlint. |
+
+Not run: native Windows or macOS bootstrap with the new layout, and any real CUDA session. The locked `onnxruntime-gpu` 1.31.0 links CUDA 13, while setup's CUDA retry targets CUDA 12.

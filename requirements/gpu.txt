@@ -1,6 +1,6 @@
-# Installed on top of base.txt when profile=gpu.
-# onnxruntime-gpu replaces the CPU onnxruntime wheel — they share the
-# `onnxruntime` Python namespace and cannot coexist, so the installer
-# uninstalls the CPU version first.
+# ONNX Runtime GPU build, installed on top of base.txt instead of cpu.txt when
+# the GPU build is used. onnxruntime and onnxruntime-gpu install the same
+# `onnxruntime` package directory, so setup installs exactly one.
+# onnx builds the model for setup's CUDA smoke test.
 onnxruntime-gpu>=1.20.0
 onnx>=1.17.0

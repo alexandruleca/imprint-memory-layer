@@ -14,13 +14,13 @@ From [go.mod](go.mod):
 
 ## Python Dependencies
 
-Split across [requirements/base.txt](requirements/base.txt) (always installed), [requirements/gpu.txt](requirements/gpu.txt) (profile=gpu), and [requirements/llm.txt](requirements/llm.txt) (opt-in with `--with-llm`):
+Split across [requirements/base.txt](requirements/base.txt) (always installed), one ONNX Runtime build from [requirements/cpu.txt](requirements/cpu.txt) or [requirements/gpu.txt](requirements/gpu.txt), and [requirements/llm.txt](requirements/llm.txt) (opt-in with `--with-llm`):
 
 | Package | License | Profile | Source |
 |---|---|---|---|
 | `fastmcp` | Apache 2.0 | base | https://github.com/jlowin/fastmcp |
 | `qdrant-client` | Apache 2.0 | base | https://github.com/qdrant/qdrant-client |
-| `onnxruntime` | MIT | base (CPU) | https://github.com/microsoft/onnxruntime |
+| `onnxruntime` | MIT | cpu | https://github.com/microsoft/onnxruntime |
 | `onnxruntime-gpu` | MIT | gpu | https://github.com/microsoft/onnxruntime |
 | `onnx` | Apache 2.0 | gpu | https://github.com/onnx/onnx |
 | `tokenizers` | Apache 2.0 | base | https://github.com/huggingface/tokenizers |

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -55,15 +56,10 @@ func saveProfile(projectDir string, st profileState) {
 	_ = os.WriteFile(p, append(data, '\n'), 0644)
 }
 
-// provisionWithUv creates (or reuses) the venv via bundled uv and installs
-// the base requirements. uv auto-downloads python-build-standalone when no
-// compatible system Python is available, so the user never has to install
-// Python manually.
-func provisionWithUv(uv, venvDir, venvPython, baseReqs string) {
-	if !platform.FileExists(baseReqs) {
-		output.Fail("base requirements not found at " + baseReqs + " — is the install tree intact?")
-	}
-
+// createVenvWithUv creates (or reuses) the venv via bundled uv. uv
+// auto-downloads python-build-standalone when no compatible system Python is
+// available, so the user never has to install Python manually.
+func createVenvWithUv(uv, venvDir, venvPython string) {
 	// Fresh venv? Create it. uv venv is idempotent but re-runs always
 	// replace, so only invoke when the python binary is actually missing
 	// OR broken (stale path from a previous install, host Python that got
@@ -98,22 +94,13 @@ func provisionWithUv(uv, venvDir, venvPython, baseReqs string) {
 	} else {
 		output.Skip("Virtual environment at " + venvDir)
 	}
-
-	output.Info("Installing base dependencies (uv)...")
-	installArgs := []string{"pip", "install", "--python", venvPython, "-r", baseReqs}
-	if strings.HasSuffix(baseReqs, ".lock.txt") {
-		installArgs = append(installArgs, "--require-hashes")
-	}
-	if err := runner.Run(uv, installArgs...); err != nil {
-		output.Fail("uv pip install (base) failed: " + err.Error())
-	}
 }
 
-// provisionWithHostPython is the legacy fallback used when no uv binary is
+// createVenvWithHostPython is the legacy fallback used when no uv binary is
 // present — typically in a dev checkout where `make build && ./build/imprint
 // setup` runs without the release-time fetch-uv step. Functionally identical
-// to the pre-uv behaviour: detect host Python, `python -m venv`, pip install.
-func provisionWithHostPython(venvDir, venvPython, venvPip, baseReqs string) {
+// to the pre-uv behaviour: detect host Python, `python -m venv`, then pip.
+func createVenvWithHostPython(venvDir, venvPython, venvPip string) {
 	output.Info(fmt.Sprintf("Checking for Python 3.%d–3.%d...", pythonMinMinor, pythonMaxMinor))
 	py := findPython()
 	if py.Cmd == "" && runtime.GOOS == "windows" && len(py.TooNew) == 0 {
@@ -148,26 +135,122 @@ func provisionWithHostPython(venvDir, venvPython, venvPip, baseReqs string) {
 	}
 
 	_ = runner.Run(venvPip, "install", "--upgrade", "pip", "--quiet")
-	output.Info("Installing base dependencies (pip)...")
-	if err := runner.Run(venvPip, append([]string{"install", "--quiet"}, requirementInstallArgs(baseReqs)...)...); err != nil {
-		output.Fail("pip install (base) failed: " + err.Error())
+}
+
+// ortRuntime is one way to provide the `onnxruntime` Python package. The
+// distributions (onnxruntime, onnxruntime-gpu) install into the same package
+// directory, so they cannot be layered: each runtime's requirements are a
+// complete environment, base plus one overlay that contains exactly one of
+// them (ADR 0032).
+type ortRuntime struct {
+	Name         string   // cpu | gpu
+	Requirements []string // base + runtime overlay, locks preferred
+	Distribution string   // the ONNX Runtime distribution the overlay installs
+}
+
+func ortRuntimes(projectDir string) map[string]ortRuntime {
+	requirements := func(name string) string {
+		locked := filepath.Join(projectDir, "requirements", name+".lock.txt")
+		if platform.FileExists(locked) {
+			return locked
+		}
+		return filepath.Join(projectDir, "requirements", name+".txt")
+	}
+	base := requirements("base")
+	return map[string]ortRuntime{
+		"cpu": {Name: "cpu", Requirements: []string{base, requirements("cpu")}, Distribution: "onnxruntime"},
+		"gpu": {Name: "gpu", Requirements: []string{base, requirements("gpu")}, Distribution: "onnxruntime-gpu"},
 	}
 }
 
-// installGpuReqs layers requirements/gpu.txt on top of the base install,
-// which swaps onnxruntime (CPU) for onnxruntime-gpu. ensureOrtGPU then runs
-// the smoke test + optional cu12 runtime-lib install.
-func installGpuReqs(uv, venvPython, venvPip, gpuReqs string) {
-	if !platform.FileExists(gpuReqs) {
-		output.Warn("gpu requirements not found at " + gpuReqs + " — skipping GPU overlay")
-		return
+// resolveRuntime maps an install profile to a runtime. auto picks the GPU
+// runtime when an NVIDIA GPU is present and CUDA has not already failed on
+// this host (data/gpu_state.json).
+func resolveRuntime(profile, dataDir, venvPython string) string {
+	if profile == "cpu" || profile == "gpu" {
+		return profile
 	}
-	// Remove the CPU wheel first — the two packages share the `onnxruntime`
-	// namespace and cannot coexist.
-	output.Info("Uninstalling onnxruntime (CPU) before GPU overlay...")
-	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime")
-	if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(gpuReqs)...); err != nil {
-		output.Warn("GPU overlay install failed: " + err.Error())
+	env := ortHostEnv(venvPython)
+	if env.GPU == "" {
+		return "cpu"
+	}
+	if state := gpustate.Load(dataDir); state.OrtGPU == "broken" && gpustate.SameEnv(state.OrtGPUEnv, env) {
+		return "cpu"
+	}
+	return "gpu"
+}
+
+// ortProviders reports every installed distribution that provides the
+// `onnxruntime` package and whether all files in its RECORD exist. It reads
+// metadata only, so it works on a damaged runtime.
+func ortProviders(venvPython, projectDir string) (map[string]bool, error) {
+	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime")
+	if err != nil {
+		return nil, fmt.Errorf("%v: %s", err, strings.TrimSpace(out))
+	}
+	providers := map[string]bool{}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &providers); err != nil {
+		return nil, fmt.Errorf("unexpected output %q: %v", out, err)
+	}
+	return providers, nil
+}
+
+// staleOrtProviders returns the distributions to uninstall before installing
+// selected: every other provider of `onnxruntime`, and selected itself when
+// its files are incomplete or when another provider is removed. Uninstalling
+// one provider deletes files the others share while they still count as
+// installed, and an installer skips a distribution it considers installed.
+func staleOrtProviders(providers map[string]bool, selected string) []string {
+	var stale []string
+	selectedName, selectedIntact, selectedPresent := "", false, false
+	for name, intact := range providers {
+		if normalizeDistribution(name) == normalizeDistribution(selected) {
+			selectedName, selectedIntact, selectedPresent = name, intact, true
+		} else {
+			stale = append(stale, name)
+		}
+	}
+	if selectedPresent && (len(stale) > 0 || !selectedIntact) {
+		stale = append(stale, selectedName)
+	}
+	sort.Strings(stale)
+	return stale
+}
+
+var distributionSeparators = regexp.MustCompile(`[-_.]+`)
+
+// normalizeDistribution applies the PEP 503 name normalization.
+func normalizeDistribution(name string) string {
+	return strings.ToLower(distributionSeparators.ReplaceAllString(name, "-"))
+}
+
+// installRuntime makes the venv match rt's complete requirements with
+// rt.Distribution as the only, complete ONNX Runtime. A healthy venv that
+// already matches is left untouched, so setup can run while Imprint holds
+// the runtime's libraries open.
+func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
+	for _, requirements := range rt.Requirements {
+		if !platform.FileExists(requirements) {
+			output.Fail("requirements not found at " + requirements + " — is the install tree intact?")
+		}
+	}
+	providers, err := ortProviders(venvPython, projectDir)
+	if err != nil {
+		output.Fail("Could not inspect the installed ONNX Runtime: " + err.Error())
+	}
+	if stale := staleOrtProviders(providers, rt.Distribution); len(stale) > 0 {
+		output.Info("Removing " + strings.Join(stale, ", ") + " so " + rt.Distribution + " is installed alone and complete...")
+		if err := pipUninstall(uv, venvPython, venvPip, stale...); err != nil {
+			output.Fail("Removing the previous ONNX Runtime failed (stop Imprint and run setup again): " + err.Error())
+		}
+	}
+	output.Info(fmt.Sprintf("Installing dependencies for the %s runtime (%s)...", rt.Name, rt.Distribution))
+	if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(rt.Requirements...)...); err != nil {
+		output.Fail("Installing dependencies for the " + rt.Name + " runtime failed: " + err.Error())
+	}
+	if out, err := runner.RunCapture(venvPython, "-c", "import onnxruntime; onnxruntime.InferenceSession"); err != nil {
+		output.Fail("ONNX Runtime does not load after installing " + rt.Distribution + ":\n" + lastNonBlankLines(out, 3))
 	}
 }
 
@@ -185,9 +268,16 @@ func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
 	}
 }
 
-func requirementInstallArgs(requirements string) []string {
-	args := []string{"-r", requirements}
-	if strings.HasSuffix(requirements, ".lock.txt") {
+// requirementInstallArgs resolves every file in one install, enforcing hashes
+// when all of them are locks.
+func requirementInstallArgs(requirements ...string) []string {
+	var args []string
+	locked := true
+	for _, file := range requirements {
+		args = append(args, "-r", file)
+		locked = locked && strings.HasSuffix(file, ".lock.txt")
+	}
+	if locked {
 		args = append(args, "--require-hashes")
 	}
 	return args
@@ -301,22 +391,9 @@ func setupBackend() backendPaths {
 	projectDir := platform.FindProjectDir()
 	venvDir := platform.VenvDir(projectDir)
 	dataDir := platform.DataDir(projectDir)
-	baseReqs := filepath.Join(projectDir, "requirements", "base.txt")
-	if locked := filepath.Join(projectDir, "requirements", "base.lock.txt"); platform.FileExists(locked) {
-		baseReqs = locked
-	}
-	gpuReqs := filepath.Join(projectDir, "requirements", "gpu.txt")
 	llmReqs := filepath.Join(projectDir, "requirements", "llm.txt")
-	if locked := filepath.Join(projectDir, "requirements", "gpu.lock.txt"); platform.FileExists(locked) {
-		gpuReqs = locked
-	}
 	if locked := filepath.Join(projectDir, "requirements", "llm.lock.txt"); platform.FileExists(locked) {
 		llmReqs = locked
-	}
-	if !platform.FileExists(baseReqs) {
-		// Old layout (pre-split) — fall through and let the legacy path use
-		// requirements.txt. Breaks nothing, keeps dev checkouts happy.
-		baseReqs = filepath.Join(projectDir, "requirements.txt")
 	}
 
 	// When running from a read-only app bundle, mutable state (venv, data)
@@ -371,24 +448,46 @@ func setupBackend() backendPaths {
 	venvPython := platform.VenvPython(projectDir)
 	venvPip := platform.VenvBin(projectDir, "pip")
 
-	// ── Provision venv + base deps ─────────────────────────────
+	// ── Provision venv ─────────────────────────────────────────
 	uv := uvBinary(projectDir)
 	usedLegacyFallback := false
 	if uv != "" {
-		provisionWithUv(uv, venvDir, venvPython, baseReqs)
+		createVenvWithUv(uv, venvDir, venvPython)
 	} else {
 		// No bundled uv and no `uv` on PATH: dev checkout or broken install.
 		// Fall back to the legacy host-Python + `python -m venv` + pip flow
 		// so `make build && ./build/imprint setup` still works from source.
 		output.Warn("bundled `uv` not found at " + platform.UvBinary(projectDir) + " — falling back to host Python (install `uv` for faster setups)")
-		provisionWithHostPython(venvDir, venvPython, venvPip, baseReqs)
+		createVenvWithHostPython(venvDir, venvPython, venvPip)
 		usedLegacyFallback = true
+	}
+
+	// If the user passed --retry-gpu, forget previous sticky failures so
+	// this run re-attempts every CUDA path.
+	if retryGPU {
+		if err := gpustate.Clear(dataDir); err == nil {
+			output.Info("--retry-gpu: cleared sticky GPU failure state")
+		}
+	}
+
+	// ── Dependencies + ONNX Runtime ────────────────────────────
+	// The profile selects one complete environment with exactly one ONNX
+	// Runtime distribution. An explicit gpu profile installs onnxruntime-gpu
+	// even if nvidia-smi is absent (e.g. a container where /dev/nvidia*
+	// appears only at runtime); that runtime also runs on CPU.
+	runtimes := ortRuntimes(projectDir)
+	ort := runtimes[resolveRuntime(profile, dataDir, venvPython)]
+	installRuntime(uv, venvPython, venvPip, projectDir, ort)
+	if ort.Name == "gpu" && !checkOrtGPU(uv, venvPython, venvPip, projectDir, dataDir) && profile == "auto" {
+		// The recorded failure makes auto resolve to CPU from now on;
+		// install that now so the next run has nothing to change.
+		installRuntime(uv, venvPython, venvPip, projectDir, runtimes["cpu"])
 	}
 
 	// Sanity check — the core runtime packages should import. If anything
 	// core is missing we give up loud; the extractor/LLM extras are probed
 	// later with graceful fallback.
-	coreReq := []string{"fastmcp", "qdrant_client", "onnxruntime", "chonkie"}
+	coreReq := []string{"fastmcp", "qdrant_client", "chonkie"}
 	if stillMissing := checkPythonImports(venvPython, coreReq); len(stillMissing) > 0 {
 		output.Fail("Core packages failed to install: " + strings.Join(stillMissing, ", "))
 	}
@@ -396,44 +495,6 @@ func setupBackend() backendPaths {
 		output.Success("Core dependencies installed (fastmcp " + parsePackageVersion(out) + ")")
 	} else {
 		output.Success("Core dependencies installed")
-	}
-
-	// ── GPU acceleration ────────────────────────────────────────
-	// If the user passed --retry-gpu, forget previous sticky failures so
-	// this run re-attempts every CUDA install path.
-	if retryGPU {
-		if err := gpustate.Clear(dataDir); err == nil {
-			output.Info("--retry-gpu: cleared sticky GPU failure state")
-		}
-	}
-
-	switch profile {
-	case "cpu":
-		output.Skip("GPU install skipped (profile=cpu)")
-		// ensureOrtGPU is skipped for cpu profile, so we must validate here.
-		// A stub onnxruntime wheel (empty namespace — imports cleanly but
-		// exports no classes) triggers an AttributeError at runtime otherwise.
-		if _, err := runner.RunCapture(venvPython, "-c",
-			"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'stub'"); err != nil {
-			output.Warn("onnxruntime stub wheel detected — reinstalling CPU version...")
-			_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnxruntime")
-			if instErr := pipInstall(uv, venvPython, venvPip, "onnxruntime"); instErr != nil {
-				output.Fail("onnxruntime reinstall failed: " + instErr.Error())
-			}
-			if _, err2 := runner.RunCapture(venvPython, "-c",
-				"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions')"); err2 != nil {
-				output.Fail("onnxruntime still broken after reinstall — run `imprint setup` to retry")
-			}
-			output.Success("onnxruntime reinstalled (stub wheel replaced)")
-		}
-	case "gpu":
-		// Explicit user choice — force onnxruntime-gpu even if nvidia-smi is
-		// absent (e.g. running inside a container where /dev/nvidia* shows
-		// up at runtime but detection fails at install time).
-		installGpuReqs(uv, venvPython, venvPip, gpuReqs)
-		ensureOrtGPU(uv, venvPython, venvPip, dataDir)
-	default: // "auto"
-		ensureOrtGPU(uv, venvPython, venvPip, dataDir)
 	}
 
 	// ── Optional local LLM tagger (llama-cpp-python) ───────────
@@ -705,6 +766,9 @@ else:
 // detect the "provider listed but runtime libs missing" case that the
 // static `get_available_providers()` check can't catch (e.g. libcublasLt.so.12
 // missing when onnxruntime-gpu links CUDA 12 but the host runs CUDA 13).
+// The model declares IR version 8: helper.make_model otherwise stamps the
+// installed onnx package's newest IR version, which can exceed what the
+// installed runtime accepts and fails the test on every host.
 const ortSmokeScript = `
 import sys
 try:
@@ -720,9 +784,11 @@ try:
     y = helper.make_tensor_value_info('y', TensorProto.FLOAT, [1])
     n = helper.make_node('Identity', ['x'], ['y'])
     g = helper.make_graph([n], 'g', [x], [y])
-    m = helper.make_model(g, opset_imports=[helper.make_opsetid('', 13)])
+    m = helper.make_model(g, opset_imports=[helper.make_opsetid('', 13)], ir_version=8)
     so = ort.SessionOptions(); so.log_severity_level = 4
     sess = ort.InferenceSession(m.SerializeToString(), sess_options=so, providers=['CUDAExecutionProvider'])
+    if 'CUDAExecutionProvider' not in sess.get_providers():
+        raise RuntimeError('CUDAExecutionProvider unavailable; session fell back to ' + ', '.join(sess.get_providers()))
     sess.run(None, {'x': np.zeros(1, dtype=np.float32)})
     print('OK')
 except Exception as e:
@@ -809,11 +875,6 @@ func pythonTag(venvPython string) string {
 	return m[1] + "." + m[2]
 }
 
-// ortStubWheelErr reports whether the smoke error looks like the broken
-// "empty-namespace" wheel case — onnxruntime-gpu installs a package with only
-// capi/ and no real Python bindings, so `import onnxruntime` succeeds but
-// `SessionOptions` / `InferenceSession` are missing. Observed on cp313 wheels
-// of onnxruntime-gpu 1.24.x.
 // lastNonBlankLines returns the last n non-blank lines of s, joined with
 // newlines and prefixed with two spaces for readable indent under a warn.
 // Used to surface compiler/pip error tails without flooding the console.
@@ -833,82 +894,19 @@ func lastNonBlankLines(s string, n int) string {
 	return strings.Join(kept, "\n")
 }
 
-func ortStubWheelErr(errLine string) bool {
-	return strings.Contains(errLine, "has no attribute 'SessionOptions'") ||
-		strings.Contains(errLine, "has no attribute 'InferenceSession'") ||
-		strings.Contains(errLine, "has no attribute \"SessionOptions\"") ||
-		strings.Contains(errLine, "has no attribute \"InferenceSession\"")
-}
-
-// ensureOrtGPU checks for an NVIDIA GPU and swaps onnxruntime (CPU) for
-// onnxruntime-gpu if needed. On top of the swap it runs an end-to-end smoke
-// test (CUDAExecutionProvider can actually construct a session), installs
-// the cu12 pip wheels if the first failure looks like a missing runtime
-// lib, and caches "broken" verdicts in data/gpu_state.json so repeat setup
-// runs stay silent instead of reinstalling every time.
-func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
+// checkOrtGPU smoke-tests CUDA on the installed GPU runtime. When the
+// failure is a missing CUDA runtime library, it installs the cu12 pip wheels
+// and retries. The verdict is cached per host in data/gpu_state.json so
+// repeat setup runs stay silent. It never swaps packages: onnxruntime-gpu
+// also runs on CPU, so a failure leaves embeddings working on CPU.
+func checkOrtGPU(uv, venvPython, venvPip, projectDir, dataDir string) bool {
 	state := gpustate.Load(dataDir)
 	hostEnv := ortHostEnv(venvPython)
-
-	// Skip re-work if a previous run already proved this env is broken.
 	if state.OrtGPU == "broken" && gpustate.SameEnv(state.OrtGPUEnv, hostEnv) && hostEnv.GPU != "" {
-		output.Skip("ORT GPU previously unhealthy on this host — using CPU (run `imprint setup --retry-gpu` to retry)")
-		return
+		output.Skip("CUDA previously failed on this host — embeddings run on CPU (run `imprint setup --retry-gpu` to retry)")
+		return false
 	}
 
-	// Fast path: provider registered AND smoke test passes = nothing to do.
-	hasCuda, cudaErr := runner.RunCapture(venvPython, "-c",
-		"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions'), 'broken'; print('CUDAExecutionProvider' in ort.get_available_providers())")
-	if cudaErr == nil && strings.TrimSpace(hasCuda) == "True" {
-		projectDir := platform.FindProjectDir()
-		if ok, _ := ortSmokeTest(venvPython, projectDir); ok {
-			output.Skip("GPU acceleration active (CUDA)")
-			state.OrtGPU = "ok"
-			state.OrtGPUEnv = hostEnv
-			_ = gpustate.Save(dataDir, state)
-			return
-		}
-		// Provider lists CUDA but can't actually create a session — fall
-		// through so we install cu12 wheels and retry below.
-	}
-
-	// If the module won't even import (or is a stub wheel with no
-	// SessionOptions — the "AttributeError at import time" crash users hit
-	// on Windows when onnxruntime-gpu ships no bindings for their Python
-	// minor), roll back to the CPU wheel so the venv stays usable.
-	if cudaErr != nil {
-		output.Warn("onnxruntime module is broken — reinstalling CPU version...")
-		_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnxruntime")
-		if instErr := pipInstall(uv, venvPython, venvPip, "onnxruntime"); instErr != nil {
-			output.Warn("onnxruntime CPU reinstall failed: " + instErr.Error())
-		} else if _, verifyErr := runner.RunCapture(venvPython, "-c",
-			"import onnxruntime as ort; assert hasattr(ort, 'SessionOptions')"); verifyErr != nil {
-			output.Warn("onnxruntime reinstalled but still broken — embeddings will fail at runtime")
-		}
-	}
-
-	// No GPU? CPU is fine.
-	nvsmi, hasNvsmi := runner.Exists("nvidia-smi")
-	if !hasNvsmi || hostEnv.GPU == "" {
-		output.Skip("No NVIDIA GPU detected — using CPU for embeddings")
-		return
-	}
-	_ = nvsmi
-
-	output.Info(fmt.Sprintf("NVIDIA GPU found: %s — installing onnxruntime-gpu...", hostEnv.GPU))
-
-	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime")
-	if err := pipInstall(uv, venvPython, venvPip, "onnxruntime-gpu", "onnx"); err != nil {
-		output.Warn("Failed to install onnxruntime-gpu: " + err.Error() + " — falling back to CPU")
-		_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")
-		state.OrtGPU = "broken"
-		state.OrtGPUReason = err.Error()
-		state.OrtGPUEnv = hostEnv
-		_ = gpustate.Save(dataDir, state)
-		return
-	}
-
-	projectDir := platform.FindProjectDir()
 	ok, errLine := ortSmokeTest(venvPython, projectDir)
 	if !ok && cudaRuntimeMissing(errLine) {
 		output.Info("Missing CUDA runtime libs (" + errLine + ") — installing cu12 pip wheels...")
@@ -922,22 +920,12 @@ func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
 		ok, errLine = ortSmokeTest(venvPython, projectDir)
 	}
 
+	state.OrtGPUEnv = hostEnv
 	if ok {
-		output.Success("GPU acceleration enabled (CUDA) — " + hostEnv.GPU)
-		state.OrtGPU = "ok"
-		state.OrtGPUReason = ""
-		state.OrtGPUEnv = hostEnv
-		_ = gpustate.Save(dataDir, state)
-		return
-	}
-
-	if ortStubWheelErr(errLine) {
-		output.Warn(fmt.Sprintf(
-			"onnxruntime-gpu wheel for Python %s ships no Python bindings (installs as empty namespace) — falling back to CPU. Use Python 3.12 for GPU acceleration until upstream ships a working cp%s wheel.",
-			hostEnv.Python, strings.ReplaceAll(hostEnv.Python, ".", ""),
-		))
+		output.Success("GPU acceleration available (CUDA) — " + hostEnv.GPU)
+		state.OrtGPU, state.OrtGPUReason = "ok", ""
 	} else {
-		output.Warn("onnxruntime-gpu smoke test failed (" + errLine + ") — falling back to CPU")
+		output.Warn("CUDA smoke test failed (" + errLine + ") — embeddings run on CPU")
 		if cudaRuntimeMissing(errLine) {
 			// We already tried installing cu12 wheels above — if the same lib
 			// is still missing, the most likely cause is a system loader that
@@ -945,13 +933,10 @@ func ensureOrtGPU(uv, venvPython, venvPip, dataDir string) {
 			// cu12 wheels. Surface a hint so users know what to try next.
 			output.Warn("  Hint: ORT-GPU links against CUDA 12 .so files. If your host is on CUDA 13, run `imprint setup --retry-gpu` and report the error if it persists.")
 		}
+		state.OrtGPU, state.OrtGPUReason = "broken", errLine
 	}
-	_ = pipUninstall(uv, venvPython, venvPip, "onnxruntime-gpu")
-	_ = pipInstall(uv, venvPython, venvPip, "onnxruntime")
-	state.OrtGPU = "broken"
-	state.OrtGPUReason = errLine
-	state.OrtGPUEnv = hostEnv
 	_ = gpustate.Save(dataDir, state)
+	return ok
 }
 
 // findNvcc locates the nvcc binary. Checks PATH first, then falls back to

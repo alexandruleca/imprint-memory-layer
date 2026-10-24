@@ -1,9 +1,7 @@
 fastmcp>=2.0.0
 qdrant-client>=1.17.0,<1.19.0  # server is pinned to v1.17.1
-# ONNX Runtime 1.24+ no longer publishes Intel macOS wheels. Keep the last
-# supported wheel line there; other native targets use the current runtime.
-onnxruntime>=1.20.0; sys_platform != 'darwin' or platform_machine != 'x86_64'
-onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'
+# ONNX Runtime is not listed here: its CPU and GPU builds are separate
+# distributions, so each install profile adds exactly one (cpu.txt / gpu.txt).
 tokenizers>=0.22.0
 huggingface-hub>=0.30.0
 numpy>=2.0.0
