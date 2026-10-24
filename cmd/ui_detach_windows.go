@@ -8,12 +8,16 @@ import (
 )
 
 const (
-	detachedProcess       = 0x00000008
 	createNewProcessGroup = 0x00000200
+	createNoWindow        = 0x08000000
 )
 
+// detachAttrs gives a console program a console of its own without a window,
+// so it outlives this CLI's console. Console programs it starts (`imprint ui
+// serve` starts Python) inherit that console; under DETACHED_PROCESS each
+// would open a window. GUI programs ignore the flag.
 func detachAttrs() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{CreationFlags: detachedProcess | createNewProcessGroup}
+	return &syscall.SysProcAttr{CreationFlags: createNoWindow | createNewProcessGroup}
 }
 
 func stopProcess(pid int) error {

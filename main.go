@@ -149,10 +149,10 @@ Usage:
                              Run the sync relay server; --ga4-id adds Google Analytics to its browser page
   imprint ui [--port N]      Dashboard UI foreground (FastAPI + Next.js; Ctrl+C to stop)
   imprint ui start [--port N]  Start the UI server detached in the background
-  imprint ui stop            Stop the background UI server
+  imprint ui stop            Stop the running UI server (also the desktop app's)
   imprint ui status          Show UI server pid + reachability
   imprint ui open [--port N]  Ensure server is running, then open a browser window
-  imprint ui restart         Stop + start the background UI server
+  imprint ui restart         Restart the running UI server with the installed code
   imprint ui log             Print the UI log file path (for tail -f)
   imprint retag [--project] [--all]  Re-tag existing memories (--all re-runs even already-tagged chunks)
   imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]

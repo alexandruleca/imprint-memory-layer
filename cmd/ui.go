@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,14 +27,26 @@ type uiState struct {
 	Port int `json:"port"`
 }
 
-// UI dispatches `imprint ui` subcommands.
+// uiRestartExitCode is the status a dashboard server exits with when asked to
+// restart. Whoever started it starts it again (ADR 0048). EX_TEMPFAIL.
+const uiRestartExitCode = 75
+
+// errNoUIServer reports that no dashboard server is running.
+var errNoUIServer = errors.New("UI server not running")
+
+// UI dispatches `imprint ui` subcommands. Every dashboard server registers
+// itself in data/imprint_ui.json while it serves, whichever launcher started
+// it (the desktop app or this command), so stop, status and restart act on
+// the server that is actually running (ADR 0048).
 //
 //	imprint ui                   — foreground (exits when you Ctrl+C)
 //	imprint ui start [--port N]  — background daemon, detached
-//	imprint ui stop              — stop the background daemon
+//	imprint ui stop              — stop the running server
 //	imprint ui status            — show pid + URL + reachability
+//	imprint ui restart           — restart the running server with the installed code
 //	imprint ui open [--port N]   — open the desktop app (browser fallback)
 //	imprint ui log               — print the log file path (for `tail -f`)
+//	imprint ui serve [--port N]  — what `ui start` runs detached: the server, restarted on request
 func UI(args []string) {
 	if len(args) > 0 {
 		switch args[0] {
@@ -53,8 +66,10 @@ func UI(args []string) {
 			uiLog(args[1:])
 			return
 		case "restart":
-			uiStop(nil)
-			uiStart(args[1:])
+			uiRestart(args[1:])
+			return
+		case "serve":
+			uiServe(args[1:])
 			return
 		}
 	}
@@ -64,38 +79,80 @@ func UI(args []string) {
 // ── Foreground (legacy behaviour) ──────────────────────────────
 
 func uiForeground(args []string) {
+	superviseUI(append([]string{"-m", "imprint.api", "--auto-shutdown"}, args...))
+}
+
+// uiServe is the process `imprint ui start` leaves running: the server in the
+// foreground of a detached process whose output is the UI log.
+func uiServe(args []string) {
+	superviseUI(append([]string{"-m", "imprint.api", "--no-browser"}, args...))
+}
+
+// superviseUI runs the dashboard server with this process's standard streams
+// and starts it again each time it exits for a restart, so a restart serves
+// the installed code under the same owner (ADR 0048).
+func superviseUI(pyArgs []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
-
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
-	pyArgs := append([]string{"-m", "imprint.api", "--auto-shutdown"}, args...)
-
-	cmd := runner.CommandWithEnv(venvPython, pyArgs,
-		"PYTHONPATH="+projectDir,
-		"IMPRINT_DATA_DIR="+dataDir,
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Start(); err != nil {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	err := superviseServer(func() *exec.Cmd {
+		cmd := runner.CommandWithEnv(venvPython, pyArgs,
+			"PYTHONPATH="+projectDir,
+			"IMPRINT_DATA_DIR="+dataDir,
+		)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		return cmd
+	}, signals)
+	var exited *exec.ExitError
+	if err != nil && !errors.As(err, &exited) {
 		output.Fail("Failed to start server: " + err.Error())
 	}
+}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(os.Interrupt)
+// superviseServer runs the command newCmd builds until it exits for any
+// reason other than a restart request. A signal is passed on to the server
+// and ends supervision once it exits.
+func superviseServer(newCmd func() *exec.Cmd, signals <-chan os.Signal) error {
+	for {
+		cmd := newCmd()
+		if err := cmd.Start(); err != nil {
+			return err
 		}
-	}()
+		exited := make(chan error, 1)
+		go func() { exited <- cmd.Wait() }()
+		select {
+		case err := <-exited:
+			if exitCode(err) != uiRestartExitCode {
+				return err
+			}
+		case <-signals:
+			// Windows cannot interrupt another process; there the server
+			// shares this console and receives the same console event.
+			_ = cmd.Process.Signal(os.Interrupt)
+			return <-exited
+		}
+	}
+}
 
-	_ = cmd.Wait()
+// exitCode is the status a command exited with: -1 when a signal ended it or
+// it did not run.
+func exitCode(err error) int {
+	var exited *exec.ExitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &exited):
+		return exited.ExitCode()
+	}
+	return -1
 }
 
 // ── Background lifecycle ───────────────────────────────────────
@@ -115,6 +172,10 @@ func uiStart(args []string) {
 		output.Info(fmt.Sprintf("Already running at http://127.0.0.1:%d (pid %d)", st.Port, st.PID))
 		return
 	}
+	self, err := os.Executable()
+	if err != nil {
+		output.Fail("cannot locate the imprint binary: " + err.Error())
+	}
 
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		output.Fail("cannot create data dir: " + err.Error())
@@ -127,15 +188,9 @@ func uiStart(args []string) {
 	}
 	fmt.Fprintf(logFH, "\n--- imprint ui start @ %s ---\n", time.Now().Format(time.RFC3339))
 
-	pyArgs := append(
-		[]string{"-m", "imprint.api", "--port", strconv.Itoa(port), "--no-browser"},
-		extra...,
-	)
-
-	cmd := runner.CommandWithEnv(venvPython, pyArgs,
-		"PYTHONPATH="+projectDir,
-		"IMPRINT_DATA_DIR="+dataDir,
-	)
+	// `imprint ui serve` supervises the server, so a restart request
+	// starts it again rather than stopping it.
+	cmd := exec.Command(self, append([]string{"ui", "serve", "--port", strconv.Itoa(port)}, extra...)...)
 	cmd.Stdout = logFH
 	cmd.Stderr = logFH
 	cmd.Stdin = nil
@@ -150,11 +205,10 @@ func uiStart(args []string) {
 	_ = logFH.Close()
 	_ = cmd.Process.Release() // let it keep running once this CLI exits
 
-	if err := writeUIState(dataDir, &uiState{PID: pid, Port: port}); err != nil {
-		output.Warn("state file write failed: " + err.Error())
-	}
-
 	if waitUIReady(port, 20*time.Second) {
+		if st, ok := readUIState(dataDir); ok {
+			pid = st.PID
+		}
 		output.Success(fmt.Sprintf("UI server running at http://127.0.0.1:%d (pid %d)", port, pid))
 		output.Info("Log: " + logPath)
 		output.Info("Open it with: imprint ui open")
@@ -170,10 +224,11 @@ func uiStop(_ []string) {
 
 	st, ok := readUIState(dataDir)
 	if !ok {
-		output.Info("UI server not running (no state file)")
+		output.Info("UI server not running")
 		return
 	}
 
+	// When the desktop app started this server, the app reports that it stopped.
 	if err := stopProcess(st.PID); err != nil {
 		output.Warn(fmt.Sprintf("signal pid %d: %s", st.PID, err.Error()))
 	}
@@ -187,8 +242,51 @@ func uiStop(_ []string) {
 		time.Sleep(150 * time.Millisecond)
 	}
 
+	// A graceful exit removes the registration; a forced one leaves it.
 	_ = os.Remove(uiStateFile(dataDir))
 	output.Success(fmt.Sprintf("Stopped UI server (pid %d, port %d)", st.PID, st.Port))
+}
+
+// uiRestart asks the running dashboard server to restart. It exits for a
+// restart and whoever started it (the desktop app or `imprint ui`) starts it
+// again with the installed code. Nothing is started when no server runs.
+func uiRestart(_ []string) {
+	dataDir := platform.DataDir(platform.FindProjectDir())
+	st, err := restartRegisteredUI(dataDir, 60*time.Second)
+	switch {
+	case errors.Is(err, errNoUIServer):
+		output.Info("UI server not running — nothing to restart")
+	case err != nil:
+		output.Fail(err.Error())
+	default:
+		output.Success(fmt.Sprintf("Restarted UI server at http://127.0.0.1:%d (pid %d)", st.Port, st.PID))
+	}
+}
+
+// restartRegisteredUI restarts the registered server and waits up to timeout
+// for its replacement to answer.
+func restartRegisteredUI(dataDir string, timeout time.Duration) (*uiState, error) {
+	old, ok := readUIState(dataDir)
+	if !ok || !uiHealthy(old.Port) {
+		return nil, errNoUIServer
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(fmt.Sprintf("http://127.0.0.1:%d/api/restart", old.Port), "application/json", nil)
+	if err != nil {
+		return nil, fmt.Errorf("asking the UI server to restart: %w", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the UI server (pid %d) cannot restart: HTTP %d", old.PID, resp.StatusCode)
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if st, ok := readUIState(dataDir); ok && st.PID != old.PID && uiHealthy(st.Port) {
+			return st, nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("the UI server (pid %d) stopped and did not start again within %s; reopen Imprint or run `imprint ui start` (`imprint ui log` has details)", old.PID, timeout)
 }
 
 func uiStatus(_ []string) {
@@ -291,14 +389,6 @@ func readUIState(dataDir string) (*uiState, bool) {
 		return nil, false
 	}
 	return s, true
-}
-
-func writeUIState(dataDir string, s *uiState) error {
-	b, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(uiStateFile(dataDir), b, 0o644)
 }
 
 func uiHealthy(port int) bool {
