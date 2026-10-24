@@ -101,9 +101,8 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
         if coll in _collections_ready:
             return client, coll
 
-    collections = {c.name for c in client.get_collections().collections}
-    if coll not in collections:
-        try:
+    with qdrant_runner.creating_collections():
+        if coll not in {c.name for c in client.get_collections().collections}:
             client.create_collection(
                 collection_name=coll,
                 vectors_config={
@@ -123,11 +122,6 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
                 hnsw_config=qm.HnswConfigDiff(m=16, ef_construct=128),
                 metadata={"imprint_embedding_identity": config.embedding_identity()},
             )
-        except UnexpectedResponse as e:
-            # 409 = another concurrent process won the create race. Fine —
-            # the collection now exists either way.
-            if getattr(e, "status_code", None) != 409 and "already exists" not in str(e):
-                raise
 
     info = client.get_collection(coll)
     vectors = info.config.params.vectors

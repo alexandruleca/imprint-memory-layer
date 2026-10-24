@@ -78,3 +78,40 @@ class DiagnosticsTests(unittest.TestCase):
             results = list(workers.map(lambda _: qdrant_runner.ensure_running(), range(2)))
             self.assertEqual(results[0], results[1])
             start.assert_called_once()
+
+    def test_concurrent_first_use_never_reads_a_collection_mid_creation(self):
+        from types import SimpleNamespace
+        from qdrant_client.http.exceptions import UnexpectedResponse
+        from imprint import vectorstore
+        # As Qdrant does: a collection is listed, and a second create gets 409,
+        # as soon as creation starts; reads fail until the create returns.
+        state = {'listed': False, 'ready': False, 'creates': 0}
+        def create_collection(**_):
+            if state['listed']:
+                raise UnexpectedResponse(409, 'Conflict', b'already exists', {})
+            state['listed'] = True
+            state['creates'] += 1
+            time.sleep(.15)
+            state['ready'] = True
+        def get_collection(name):
+            if not state['ready']:
+                raise UnexpectedResponse(500, 'Internal Server Error', b'0 of 0 read operations failed', {})
+            vectors = {config.QDRANT_VECTOR_NAME: SimpleNamespace(size=config.EMBEDDING_DIM)}
+            return SimpleNamespace(config=SimpleNamespace(
+                params=SimpleNamespace(vectors=vectors),
+                metadata={'imprint_embedding_identity': config.embedding_identity()}))
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(config, 'get_data_dir', return_value=Path(directory)):
+            collection = vectorstore._resolve_collection(None)
+            client = SimpleNamespace(
+                get_collections=lambda: SimpleNamespace(
+                    collections=[SimpleNamespace(name=collection)] if state['listed'] else []),
+                create_collection=create_collection,
+                get_collection=get_collection,
+                create_payload_index=lambda **_: None)
+            with patch.object(vectorstore, '_get_client', return_value=client), \
+                 patch.object(vectorstore, '_collections_ready', set()), \
+                 concurrent.futures.ThreadPoolExecutor(2) as workers:
+                results = list(workers.map(lambda _: vectorstore._ensure_collection(), range(2)))
+        self.assertEqual(results, [(client, collection)] * 2)
+        self.assertEqual(state['creates'], 1)

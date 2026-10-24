@@ -19,6 +19,7 @@ data/qdrant.pid lets us restart cleanly without orphaning processes.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import tempfile
 import os
@@ -241,10 +242,28 @@ def ensure_running() -> tuple[str, int]:
         _validate_managed_host()
     if is_running():
         return QDRANT_HOST, QDRANT_PORT
+    with _exclusive("qdrant-start.lock", "start Qdrant"):
+        return _ensure_running_locked()
+
+
+def creating_collections():
+    """Serialize collection creation across Imprint's processes and threads.
+
+    Qdrant lists a collection, and answers 409 to a second create, as soon as
+    creation starts, but fails reads of it until that create returns. Callers
+    check for and create a collection inside this lock, so none of them reads
+    one mid-creation."""
+    return _exclusive("qdrant-collections.lock", "create a Qdrant collection")
+
+
+@contextlib.contextmanager
+def _exclusive(name: str, purpose: str):
+    """Hold an exclusive lock on data/<name>. Each holder opens its own
+    descriptor, so the lock also excludes threads of one process."""
     from .queue_lock import _lock, _unlock
     directory = config.get_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(directory / "qdrant-start.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    descriptor = os.open(directory / name, os.O_RDWR | os.O_CREAT, 0o600)
     acquired = False
     deadline = time.monotonic() + 180
     try:
@@ -252,9 +271,9 @@ def ensure_running() -> tuple[str, int]:
             acquired = _lock(descriptor, False)
             if not acquired:
                 if time.monotonic() >= deadline:
-                    raise TimeoutError("Timed out waiting for another Imprint process to start Qdrant")
+                    raise TimeoutError(f"Timed out waiting for another Imprint process to {purpose}")
                 time.sleep(0.1)
-        return _ensure_running_locked()
+        yield
     finally:
         if acquired:
             _unlock(descriptor)
