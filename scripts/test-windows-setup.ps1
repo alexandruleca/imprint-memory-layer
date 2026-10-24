@@ -1,5 +1,6 @@
 # Native regression: Windows PowerShell 5.1 must log ordinary native stderr
 # without treating it as failure, and must still propagate a nonzero exit.
+# Setup ends by restarting a running dashboard; that step cannot fail setup.
 param([string]$FixtureBinary)
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +23,7 @@ func main() {
     fmt.Println("\u2192 utf-8 progress")
     for i := 0; i < 300; i++ { fmt.Println("progress line", i) }
     if os.Getenv("IMPRINT_SETUP_TEST_FAIL")=="1" { os.Exit(23) }
+    if len(os.Args)>2 && os.Args[1]=="ui" && os.Args[2]=="restart" { os.Exit(4) }
 }
 '@ | Set-Content $fixture -Encoding ascii
     $binary = Join-Path $root 'fixture.exe'
@@ -86,6 +88,8 @@ func main() {
             if ($wslCalls[0][3] -cne 'Ubuntu Test' -or $wslCalls[1][5] -cne 'codex') {
                 throw 'Saved WSL distribution/target arguments were not preserved'
             }
+            if (($calls[-1] -join ' ') -cne 'ui restart') { throw 'Setup did not end by restarting the dashboard' }
+            if ($log -notmatch 'Dashboard restart failed \(exit=4\)') { throw 'A failed dashboard restart was not logged' }
         }
     }
     Write-Host 'Windows PowerShell setup stderr, nonzero-exit and log regressions passed'

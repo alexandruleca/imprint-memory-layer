@@ -68,22 +68,22 @@ class APIBoundaryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.request(peer, headers={'Origin': 'https://evil.example'})).status_code, 403)
 
     async def test_supported_launcher_ignores_proxy_header_configuration(self):
-        import uvicorn
-        from imprint.api import app, main
+        from imprint.api import DashboardServer, app, main
         with patch('sys.argv', ['imprint.api', '--dev', '--no-browser']), \
                 patch.dict('os.environ', {'FORWARDED_ALLOW_IPS': '*'}), \
-                patch('imprint.api.signal.signal'), \
-                patch.object(uvicorn, 'run') as run:
+                patch.object(app.state, 'server', None), \
+                patch.object(DashboardServer, 'run', autospec=True) as run:
             main()
-        self.assertFalse(run.call_args.kwargs['proxy_headers'])
-        self.assertEqual(run.call_args.kwargs['host'], '127.0.0.1')
+        config = run.call_args.args[0].config
+        self.assertFalse(config.proxy_headers)
+        self.assertEqual(config.host, '127.0.0.1')
         self.assertFalse(app.state.container_bind)
 
     async def test_public_launcher_binds_are_rejected(self):
-        from imprint.api import main
+        from imprint.api import DashboardServer, main
         for host in ('0.0.0.0', '::', '192.168.1.2'):
             with patch('sys.argv', ['imprint.api', '--host', host, '--dev', '--no-browser']), \
-                    patch('uvicorn.run') as run:
+                    patch.object(DashboardServer, 'run') as run:
                 with self.assertRaises(SystemExit) as error:
                     main()
                 self.assertEqual(error.exception.code, 2)

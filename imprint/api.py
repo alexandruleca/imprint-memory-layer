@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+import uvicorn
 from fastapi import FastAPI, Query, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -64,6 +65,7 @@ from .cli_viz import (
 
 app = FastAPI(title="Imprint API", version="1.0.0")
 app.state.container_bind = False
+app.state.server = None  # The DashboardServer serving this app, if any.
 
 app.add_middleware(
     CORSMiddleware,
@@ -256,6 +258,21 @@ def api_update_start():
     except updates.UpdateConflict as error:
         return JSONResponse({"error": str(error)}, status_code=409)
     return {"started": True, "target": report["latest"]}
+
+
+@app.post("/api/restart")
+def api_restart():
+    """Restart this server so it serves the installed code (ADR 0048).
+
+    It stops serving once in-flight requests finish and exits with
+    ``RESTART_EXIT_CODE``; the desktop app or ``imprint ui`` that started it
+    starts it again.
+    """
+    server = app.state.server
+    if server is None:
+        return JSONResponse({"error": "This server was not started by Imprint"}, status_code=409)
+    server.restart()
+    return {"restarting": True}
 
 
 @app.get("/api/cross-project")
@@ -1431,6 +1448,64 @@ def _launch_browser(url: str):
     webbrowser.open(url)
 
 
+# ── Serving (ADR 0048) ────────────────────────────────────────
+
+# A server exits with this status when asked to restart, and whoever started
+# it (the desktop app, `imprint ui`) starts it again with the installed code.
+# EX_TEMPFAIL from sysexits.h: a temporary condition, try again.
+RESTART_EXIT_CODE = 75
+
+
+def registration_path() -> Path:
+    """``data/imprint_ui.json``: the process serving the dashboard and its port."""
+    return config.get_data_dir() / "imprint_ui.json"
+
+
+class DashboardServer(uvicorn.Server):
+    """The dashboard's server, registered while it serves.
+
+    Every launcher (the desktop app, ``imprint ui``) runs this, so the
+    registration names the real server whoever started it, and the CLI and
+    ``imprint update`` stop, report and restart that server.
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 8420):
+        super().__init__(uvicorn.Config(
+            app, host=host, port=port, log_level="info", proxy_headers=False,
+            ws_max_size=2_000_000,
+        ))
+        self.restart_requested = False
+        app.state.server = self
+
+    async def startup(self, sockets=None):
+        await super().startup(sockets)  # Exits when the port cannot be bound.
+        path = registration_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        staged.write_text(json.dumps({"pid": os.getpid(), "port": self.config.port}), encoding="utf-8")
+        os.replace(staged, path)
+
+    async def shutdown(self, sockets=None):
+        path = registration_path()
+        try:
+            if json.loads(path.read_text(encoding="utf-8")).get("pid") == os.getpid():
+                path.unlink()
+        except (OSError, ValueError):
+            pass  # Already removed, or another server registered since.
+        _shutdown_event.set()  # Unblock streaming responses.
+        await super().shutdown(sockets)
+
+    def restart(self):
+        """Stop serving, then exit with ``RESTART_EXIT_CODE``."""
+        self.restart_requested = True
+        self.should_exit = True
+
+    def run(self, sockets=None):
+        super().run(sockets)
+        if self.restart_requested:
+            sys.exit(RESTART_EXIT_CODE)
+
+
 # ── Entry point ───────────────────────────────────────────────
 
 def main():
@@ -1468,28 +1543,10 @@ def main():
         t = threading.Thread(target=_auto_shutdown_watcher, daemon=True)
         t.start()
 
-    # Set shutdown event on SIGINT/SIGTERM so SSE generators exit promptly.
-    # Store original handlers — uvicorn installs its own, but ours fires first
-    # to unblock any sleeping threads.
-    _orig_sigint = signal.getsignal(signal.SIGINT)
-    _orig_sigterm = signal.getsignal(signal.SIGTERM)
-
-    def _on_shutdown(signum, frame):
-        _shutdown_event.set()
-        # Restore and re-raise so uvicorn's handler runs
-        signal.signal(signal.SIGINT, _orig_sigint)
-        signal.signal(signal.SIGTERM, _orig_sigterm)
-        os.kill(os.getpid(), signum)
-
-    signal.signal(signal.SIGINT, _on_shutdown)
-    signal.signal(signal.SIGTERM, _on_shutdown)
-
     if not args.no_browser:
         threading.Timer(0.8, lambda: _launch_browser(url)).start()
 
-    import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info", proxy_headers=False,
-                ws_max_size=2_000_000)
+    DashboardServer(host=args.host, port=args.port).run()
 
 
 if __name__ == "__main__":

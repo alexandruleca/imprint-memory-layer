@@ -497,3 +497,32 @@ The [general CI for `56ed4dd`](https://github.com/alexandruleca/imprint-memory-l
 also passed all five native backend targets, 321 Python tests and 58 browser
 scenarios. The subsequent software-rendering fix passed the final frontend CI
 and native graphical matrix above. No release or installer was published.
+
+## Registered dashboard server and supervised restart (2026-10-24)
+
+[ADR 0048](adr/0048-registered-dashboard-server-and-supervised-restart.md)
+follows a native Windows installer update from v0.20.0 to v0.21.0. The install's
+`update-setup.log` and `imprint_ui.log` show that Restart Manager shut down only
+the portable executable's stub, while the extracted desktop app and its
+unregistered service kept serving v0.20.0 until a manual quit. These logs were
+read only. No update or command was run against that installation.
+
+Executed locally on Linux/WSL2: the full Python suite (335 tests, including
+the real desktop service registering, unregistering and exiting with 75 after a
+restart request), Go tests and vet (with Windows and macOS cross-vet), 22
+Electron unit tests, dashboard type-check/lint and the full Playwright suite (59
+scenarios, including reloading after the installer handover). The real CLI and
+Python server were also run end to end from a disposable tree. `imprint ui
+start` → `restart` → `status` → `stop` replaced the server under the same
+supervisor and left nothing behind. The real `DesktopService` was driven by
+`imprint ui status/restart/stop`: it was reported, replaced without a failure,
+then stopped with the app notified.
+
+Executed natively on Windows through WSL interop: `scripts/test-windows-setup.ps1`
+under Windows PowerShell 5.1, which fails against the previous setup script, and
+the cross-compiled Go supervisor, restart and windowless-console tests.
+
+Pending native runs: a real Inno Setup update between two releases, an
+interactive installer upgrade over a running Imprint, the macOS `.pkg` handover,
+and the packaged desktop app on each platform after `imprint ui restart` and
+`imprint ui stop`.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowUpCircle, CheckCircle2, ExternalLink } from "lucide-react";
+import { ArrowUpCircle, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,7 +18,7 @@ const STEPS: Record<UpdateMethod, string> = {
   archive:
     "Imprint downloads the release, checks it against the published checksums, installs it and restarts the dashboard.",
   "windows-setup":
-    "Imprint downloads the installer, checks it against the published checksums and closes. The installer updates Imprint and opens it again.",
+    "Imprint downloads the installer, checks it against the published checksums and runs it in the background. The dashboard restarts when it finishes.",
   "macos-pkg":
     "Imprint downloads the installer, checks it against the published checksums and opens it. Follow its steps; the dashboard restarts when it finishes.",
 };
@@ -26,10 +26,10 @@ const STEPS: Record<UpdateMethod, string> = {
 type Phase =
   | { kind: "idle" }
   | { kind: "starting" }
+  // Until the new version serves; the dashboard then reloads into it.
   | { kind: "updating" }
-  // The updater exited and the new version isn't serving (failed, or needs a restart).
+  // The updater exited with an error.
   | { kind: "stopped" }
-  | { kind: "done" }
   | { kind: "error"; message: string };
 
 const POLL_MS = 2000;
@@ -46,17 +46,19 @@ export function UpdateButton() {
   }, []);
 
   const target = info?.latest;
-  const watching = phase.kind === "updating" || phase.kind === "stopped";
+  const watching = phase.kind === "updating";
   useEffect(() => {
     if (!watching || !target) return;
     const timer = setInterval(async () => {
       try {
         const [{ version }, status] = await Promise.all([getVersion(), getUpdate()]);
-        if (version === target) return setPhase({ kind: "done" });
+        // The restarted server runs the new release: load its dashboard.
+        if (version === target) return window.location.reload();
         setLog(status.log);
-        if (!status.running) setPhase({ kind: "stopped" });
+        // A successful exit hands over to the installer or the server restart.
+        if (status.failed) setPhase({ kind: "stopped" });
       } catch {
-        // The server is restarting, or the installer has closed Imprint.
+        // The server is restarting.
       }
     }, POLL_MS);
     return () => clearInterval(timer);
@@ -102,19 +104,13 @@ export function UpdateButton() {
             <Body phase={phase} info={info} target={target} log={log} />
           </div>
           <DialogFooter className="mx-0 mb-0 px-6 py-3">
-            {phase.kind === "done" ? (
-              <Button onClick={() => window.location.reload()}>Reload dashboard</Button>
-            ) : (
-              <>
-                <Button variant="ghost" onClick={() => setOpen(false)}>
-                  {busy ? "Hide" : "Close"}
-                </Button>
-                {!info.unsupported && (phase.kind === "idle" || phase.kind === "stopped" || phase.kind === "error") && (
-                  <Button onClick={begin}>
-                    {phase.kind === "idle" ? "Update now" : "Try again"}
-                  </Button>
-                )}
-              </>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              {busy ? "Hide" : "Close"}
+            </Button>
+            {!info.unsupported && (phase.kind === "idle" || phase.kind === "stopped" || phase.kind === "error") && (
+              <Button onClick={begin}>
+                {phase.kind === "idle" ? "Update now" : "Try again"}
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>
@@ -124,13 +120,6 @@ export function UpdateButton() {
 }
 
 function Body({ phase, info, target, log }: { phase: Phase; info: UpdateInfo; target: string; log: string[] }) {
-  if (phase.kind === "done") {
-    return (
-      <p role="status" className="flex items-center gap-2">
-        <CheckCircle2 className="size-4 text-emerald-700" aria-hidden /> Imprint {target} is running. Reload to use the new dashboard.
-      </p>
-    );
-  }
   if (info.unsupported) {
     return <p>This installation can&apos;t update itself: {info.unsupported}.</p>;
   }
@@ -145,11 +134,11 @@ function Body({ phase, info, target, log }: { phase: Phase; info: UpdateInfo; ta
       )}
       {(phase.kind === "starting" || phase.kind === "updating") && (
         <p role="status" className="flex items-center gap-2">
-          <Spinner /> Updating to {target}. The dashboard reconnects when the new version is running.
+          <Spinner /> Updating to {target}. The dashboard reloads when the new version is running.
         </p>
       )}
       {phase.kind === "stopped" && (
-        <p role="alert">The updater stopped before {target} was running. If its log says to restart Imprint, close and reopen it.</p>
+        <p role="alert">The update to {target} failed. Its log shows why.</p>
       )}
       {phase.kind === "error" && <p role="alert" className="text-destructive">{phase.message}</p>}
       {log.length > 0 && (

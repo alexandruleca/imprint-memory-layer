@@ -1,8 +1,9 @@
 """Dashboard side of ``imprint update`` (ADR 0023).
 
 The CLI resolves releases and knows how this installation updates. This
-module asks it for a report, starts it detached (it may stop and restart
-this server) and reads its progress back from its log.
+module asks it for a report, starts it detached (it restarts this server
+once the new release is installed, ADR 0048) and reads its progress back
+from its log.
 """
 
 from __future__ import annotations
@@ -69,8 +70,11 @@ def start() -> None:
             raise UpdateConflict("An update is already running")
         if job_queue.active_job():
             raise UpdateConflict("Wait for the running job to finish, then update")
+        # A console of its own without a window: the console programs the
+        # updater runs (setup, `imprint ui restart`) inherit it instead of
+        # each opening a window, as they would under DETACHED_PROCESS.
         detach = (
-            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS}
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
             if os.name == "nt" else {"start_new_session": True}
         )
         with open(log_path(), "w", encoding="utf-8") as log:
@@ -82,9 +86,14 @@ def start() -> None:
 
 
 def status(lines: int = 20) -> dict:
-    """Whether an update started by this server is running, and its log tail."""
+    """Whether an update started by this server is running or failed, and its log tail.
+
+    An updater that exits successfully has handed over: the Windows installer
+    and the restart of this server finish the update after it.
+    """
     try:
         log = log_path().read_text(encoding="utf-8", errors="replace").splitlines()
     except FileNotFoundError:
         log = []
-    return {"running": running(), "log": log[-lines:]}
+    code = None if _process is None else _process.poll()
+    return {"running": running(), "failed": bool(code), "log": log[-lines:]}

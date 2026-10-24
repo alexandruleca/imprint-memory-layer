@@ -4,6 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
+// The service exits with this status when asked to restart (`imprint ui
+// restart`, or `imprint update` once a release is installed). Starting it again
+// serves the installed code under the same owner (ADR 0048). EX_TEMPFAIL.
+const RESTART_EXIT_CODE = 75;
+
 class DesktopService {
   constructor({ python, projectDir, dataDir, port, spawnProcess = spawn }) {
     Object.assign(this, { python, projectDir, dataDir, port, spawnProcess });
@@ -44,7 +49,10 @@ class DesktopService {
     this.closed = new Promise(resolve => {
       this.proc.once('error', err => { failed(err.message); resolve(); });
       this.proc.once('exit', (code, signal) => {
-        failed(`Local service stopped (${signal || `exit ${code}`}).`);
+        if (code !== RESTART_EXIT_CODE || this.stopping) failed(`Local service stopped (${signal || `exit ${code}`}).`);
+        else {
+          try { this.start(onFailure); } catch (err) { failed(err.message); }
+        }
         resolve();
       });
     });
@@ -70,4 +78,4 @@ class DesktopService {
   }
 }
 
-module.exports = { DesktopService };
+module.exports = { DesktopService, RESTART_EXIT_CODE };
