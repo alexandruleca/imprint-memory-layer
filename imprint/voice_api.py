@@ -172,7 +172,7 @@ sessions = Sessions()
 @router.get("/status")
 def status():
     root = runtime_root()
-    return {"configured": root is not None, "installed": bool(root and (root / "live-build.json").is_file()),
+    return {"configured": root is not None, "installed": bool(root and voice_runtime.installed(root)),
             "supported": voice_runtime.supported(),
             "busy": sessions.active, "chat_provider": config_schema.resolve("chat.provider")[0],
             "workspace": config.get_active_workspace(), "model": "LFM2.5-Audio · 1.5B", "language": "en"}

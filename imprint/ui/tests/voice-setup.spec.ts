@@ -68,8 +68,8 @@ test('missing tools, cancellation and retries keep setup actionable', async ({ p
   fixture.update({ stage: 'blocked', problem: 'compiler' });
   await page.goto('/voice/');
   await expect(page.locator('.echo-setup [role=alert]')).toContainText('C++ build tool');
-  await page.getByText('Build tools & download details').click();
-  await expect(page.getByText(/Windows: CMake and Visual Studio C\+\+ Build Tools/)).toBeVisible();
+  await page.getByText('Download details', { exact: true }).click();
+  await expect(page.getByText(/Windows needs CMake and Visual Studio C\+\+ Build Tools/)).toBeVisible();
   await page.getByRole('button', { name: 'Check again' }).click();
   fixture.update({ downloaded: 500000000 });
   await page.getByRole('button', { name: 'Cancel setup' }).click();
@@ -91,3 +91,27 @@ test('compact first-run setup leaves the head transparent and fits a narrow wind
   await expect(page.getByRole('button', { name: 'Download & set up Echo' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('echo-first-setup-compact.png'), fullPage: true, omitBackground: true });
 });
+
+for (const size of [{width:400,height:640},{width:320,height:420}]) {
+  test(`compact controls fit without clipping at ${size.width}x${size.height}`, async ({page}) => {
+    const fixture = await prepareSetup(page); await page.setViewportSize(size); await page.goto('/companion/');
+    for (const state of [
+      {stage:'idle',busy:false,installed:false,problem:null},
+      {stage:'downloading',busy:true,installed:false,problem:null},
+      {stage:'error',busy:false,installed:false,problem:'engine'},
+      {stage:'ready',busy:false,installed:true,problem:null},
+    ]) {
+      fixture.update(state); await expect.poll(()=>page.locator('.echo-setup').count()).toBe(state.installed?0:1);
+      if(state.stage==='downloading') await expect(page.getByRole('button',{name:'Cancel setup'})).toBeVisible();
+      if(state.stage==='error') await expect(page.locator('.echo-setup [role=alert]')).toContainText('included speech engine');
+      if(state.installed) await expect(page.getByRole('button',{name:'Start conversation'})).toBeVisible();
+      const fit = await page.locator('.voice-control-area').evaluate(el=> {
+        const r=el.getBoundingClientRect();return {bottom:r.bottom,top:r.top,scroll:document.documentElement.scrollHeight,inner:innerHeight};
+      });
+      expect(fit.bottom).toBeLessThanOrEqual(size.height); expect(fit.top).toBeGreaterThanOrEqual(40); expect(fit.scroll).toBeLessThanOrEqual(fit.inner);
+    }
+    await page.getByRole('button',{name:'Hands-free',exact:true}).click();
+    await expect(page.getByRole('slider',{name:'Speech detection threshold'})).toBeVisible();
+    expect(await page.getByRole('slider',{name:'Speech detection threshold'}).evaluate(el=>el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(size.height);
+  });
+}

@@ -82,9 +82,11 @@ test('shared memory shows origin and current device without treating foreign pat
 });
 
 test('an older search cannot overwrite a newer result', async ({ page }) => {
+  let releaseOlder!: () => void;
+  const heldOlder = new Promise<void>(resolve => { releaseOlder = resolve; });
   await page.route('**/api/search?**', async route => {
     const query = new URL(route.request().url()).searchParams.get('q');
-    if (query === 'older') await new Promise(resolve => setTimeout(resolve, 500));
+    if (query === 'older') await heldOlder;
     await route.fulfill({ json: { nodes: [{ ...memory, label: query === 'older' ? 'Old result' : 'New result' }] } }).catch(() => {});
   });
   await page.goto('/search/');
@@ -93,6 +95,7 @@ test('an older search cannot overwrite a newer result', async ({ page }) => {
   await page.getByLabel('Search query', { exact: true }).fill('newer');
   await page.getByRole('button', { name: 'Search again' }).click();
   await expect(page.getByRole('button', { name: /1. New result/ })).toBeVisible();
+  releaseOlder(); // deliver the older reply after the newer result is visible
   await page.waitForTimeout(600);
   await expect(page.getByText('Old result')).toHaveCount(0);
 });

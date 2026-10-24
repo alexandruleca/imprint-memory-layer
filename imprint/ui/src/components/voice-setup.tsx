@@ -8,7 +8,7 @@ import { Spinner } from "@/components/loaders";
 import { formatDownloadBytes, setupLabels, useVoiceSetup } from "@/lib/voice-setup";
 import type { VoicePreparation } from "@/lib/voice-client";
 
-const guide = "https://github.com/alexandruleca/imprint-memory-layer/blob/feat/local-voice-avatar/docs/live-voice.md#first-time-setup-in-imprint";
+const guide = "https://github.com/alexandruleca/imprint-memory-layer/blob/main/docs/live-voice.md#first-time-setup-in-imprint";
 const problems: Record<string, string> = {
   cmake: "Install CMake, then check again. Imprint checks your build tools before downloading the voice models.",
   compiler: "A C++ build tool is missing. Install the tools for your computer below, then check again.",
@@ -17,6 +17,7 @@ const problems: Record<string, string> = {
   build: "The speech engine could not be prepared. Check the build tools below, then retry. Verified model files are kept.",
   download: "Setup couldn't finish. Check your connection and free disk space, then retry. Verified downloads are kept.",
   setup: "Echo setup couldn't start. Restart Imprint and try again. Your existing downloads are kept.",
+  engine: "The included speech engine is missing or damaged. Update or reinstall Imprint, then try setup again. Your saved voice models are kept.",
 };
 const steps = ["Download", "Prepare", "Ready"];
 
@@ -31,7 +32,7 @@ export function VoiceChatSetup({ preparation, compact = false }: { preparation: 
       <Progress aria-label="Local chat model preparation" value={percent}/>
       <p>{stage === "download" ? total > 0 ? `${formatDownloadBytes(downloaded)} of ${formatDownloadBytes(total)}` : `${formatDownloadBytes(downloaded)} downloaded` : "This can take a few minutes. Your question will continue when the model is ready."}</p>
     </div>
-    {stage !== "load" && <p className="echo-setup-description">This is separate from Echo’s voice files and uses the same model as Chat. Chat setup continues if you stop voice; saved files are reused.</p>}
+    {stage !== "load" && <p className="echo-setup-description">{compact ? "Chat setup continues if voice stops. Saved files are reused." : "This is separate from Echo’s voice files and uses the same model as Chat. Chat setup continues if you stop voice; saved files are reused."}</p>}
   </section>;
 }
 
@@ -43,6 +44,7 @@ export function VoiceSetup({ setup, compact = false }: { setup: ReturnType<typeo
   const phase = state?.stage === "ready" ? 2 : ["engine", "preparing", "building", "finishing"].includes(state?.stage || "") ? 1 : 0;
   const percent = state?.total ? Math.min(100, Math.round(state.downloaded / state.total * 100)) : 0;
   const supported = state?.supported !== false;
+  const space = state?.bundled_engine ? "2 GB" : "4 GB";
   const title = busy || state?.problem || state?.stage === "cancelled" ? setupLabels[state?.stage || "idle"] : "Set up Echo, once";
   return <section className={`echo-setup ${compact ? "echo-setup-compact" : ""}`} aria-labelledby={compact ? "echo-setup-compact-title" : "echo-setup-title"} aria-busy={busy}>
     <div className="echo-setup-heading"><span className="echo-setup-icon">{busy ? <Spinner/> : state?.problem ? <CircleAlert aria-hidden/> : <ArrowDownToLine aria-hidden/>}</span>
@@ -53,25 +55,25 @@ export function VoiceSetup({ setup, compact = false }: { setup: ReturnType<typeo
       <p className="echo-setup-description">{busy
         ? phase === 0 ? "Downloading and checking the files Echo needs. You can keep using Imprint." : "Preparing Echo for your computer. This can take a few minutes; you can keep using Imprint."
         : "Download the English voice models and prepare Echo for this computer. Future conversations use the saved files."}</p>
-      <ol className="echo-setup-steps" aria-label="Echo setup stages">{steps.map((step, index) => <li key={step} data-current={index === phase && busy} data-done={index < phase}>
+      {!compact && <ol className="echo-setup-steps" aria-label="Echo setup stages">{steps.map((step, index) => <li key={step} data-current={index === phase && busy} data-done={index < phase}>
         <span>{index < phase ? <Check size={12} aria-hidden/> : index + 1}</span>{step}
-      </li>)}</ol>
+      </li>)}</ol>}
       {busy && <div className="echo-setup-progress">
         <div className="echo-setup-progress-label"><span role="status" aria-live="polite">{setupLabels[state!.stage] || "Preparing Echo"}</span><span>{downloading ? `${percent}%` : "In progress"}</span></div>
         <Progress aria-label={downloading ? "Voice model download" : "Echo preparation"} value={downloading ? percent : null}/>
-        <p>{downloading ? `${formatDownloadBytes(state!.downloaded)} of ${formatDownloadBytes(state!.total)}` : phase === 0 ? "Checking saved files, build tools and available space before downloading." : "Model downloads are saved. This step prepares the local speech engine."}</p>
+        <p>{downloading ? `${formatDownloadBytes(state!.downloaded)} of ${formatDownloadBytes(state!.total)}` : phase === 0 ? state?.bundled_engine ? "Checking saved files and available space before downloading." : "Checking saved files, build tools and available space before downloading." : "Model downloads are saved. This step prepares the local speech engine."}</p>
       </div>}
-      {state?.problem && <p role="alert" className="echo-setup-error">{problems[state.problem] || problems.download}</p>}
+      {state?.problem && <p role="alert" className="echo-setup-error">{state.problem === "disk" ? `Free at least ${space} on the setup drive, then try again.` : problems[state.problem] || problems.download}</p>}
       {state?.stage === "cancelled" && <p className="echo-setup-description">Verified files are saved. Continue whenever you’re ready; the current unfinished file downloads again.</p>}
       {error && <p role="alert" className="echo-setup-error">{error}</p>}
-      {!busy && <div className="echo-setup-facts"><span><HardDrive size={13} aria-hidden/> Allow 4 GB free for setup</span><span><ShieldCheck size={13} aria-hidden/> Mic stays off</span></div>}
-      {!busy && <p className="echo-setup-description">Using the same model as Chat may need a separate model download. Choosing LFM 1.5B needs no additional chat model.</p>}
+      {!busy && !compact && <div className="echo-setup-facts"><span><HardDrive size={13} aria-hidden/> Allow {space} free for setup</span><span><ShieldCheck size={13} aria-hidden/> Mic stays off</span></div>}
+      {!busy && !compact && <p className="echo-setup-description">Using the same model as Chat may need a separate model download. Choosing LFM 1.5B needs no additional chat model.</p>}
       <div className="echo-setup-actions">
         {busy ? <Button variant="outline" size="sm" disabled={pending || state?.stage === "cancelling"} onClick={() => void cancel()}>{state?.stage === "cancelling" ? "Cancelling…" : "Cancel setup"}</Button>
           : <Button className="echo-setup-download" disabled={pending || !state || !!error} onClick={() => void start()}>{pending ? <Spinner/> : <ArrowDownToLine size={16} aria-hidden/>}{pending ? "Starting setup…" : state?.stage === "blocked" ? "Check again" : state?.stage === "error" ? "Retry setup" : state?.stage === "cancelled" ? "Continue setup" : "Download & set up Echo"}</Button>}
         <a href={guide} target="_blank" rel="noreferrer">Setup details <ArrowUpRight size={12} aria-hidden/></a>
       </div>
-      {!busy && <details className="echo-setup-tools"><summary>Build tools & download details</summary><p>{state?.platform === "win32" ? "Windows: CMake and Visual Studio C++ Build Tools (x64)." : state?.platform === "darwin" ? "Mac: CMake and Xcode Command Line Tools." : "Linux: CMake and a C++ compiler."} Imprint checks for these before downloading. Models come from Liquid AI on Hugging Face; engine source comes from GitHub. The engine needs extra download and temporary disk space. Setup does not start a conversation.</p></details>}
+      {!busy && !compact && <details className="echo-setup-tools"><summary>Download details</summary><p>{state?.bundled_engine ? "The speech engine is included. You do not need CMake or a compiler." : state?.platform === "win32" ? "Developer checkout: Windows needs CMake and Visual Studio C++ Build Tools (x64). Release installers include the engine." : state?.platform === "darwin" ? "Developer checkout: Mac needs CMake and Xcode Command Line Tools. Release installers include the engine." : "Developer checkout: Linux needs CMake and a C++ compiler. Release installers include the engine."} Models come from Liquid AI on Hugging Face. Setup does not start a conversation.</p></details>}
     </>}
   </section>;
 }

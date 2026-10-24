@@ -68,6 +68,7 @@ def main():
     parser.add_argument("--runtime-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--serve", type=int)
+    parser.add_argument("--bundled-setup", action="store_true", help="Install the shipped engine with PATH empty; seed only verified model weights")
     parser.add_argument("--native-logs", action="store_true", help="Retain startup diagnostics from disposable fixtures only")
     args = parser.parse_args()
     if args.serve:
@@ -81,6 +82,18 @@ def main():
     with tempfile.TemporaryDirectory(prefix="imprint-voice-desktop-") as directory:
         env = dict(os.environ, IMPRINT_DATA_DIR=directory, IMPRINT_WORKSPACE="",
                    IMPRINT_VOICE_RUNTIME_DIR=str(args.runtime_dir.resolve()), IMPRINT_CHAT_PROVIDER="local")
+        if args.bundled_setup:
+            from imprint import voice_bundle, voice_runtime, lfm_audio
+            voice_runtime.verify(args.runtime_dir.resolve())
+            if not voice_bundle.available():
+                raise RuntimeError("Bundle the native engine before --bundled-setup")
+            private_cache = Path(directory) / "voice-cache"
+            private_cache.mkdir()
+            for name in lfm_audio.ASSETS:
+                if name == lfm_audio.ARCHIVE: continue
+                shutil.copyfile(args.runtime_dir / name, private_cache / name)
+            env["IMPRINT_VOICE_RUNTIME_DIR"] = str(private_cache)
+            env["PATH"] = ""  # neither CMake nor a compiler can be discovered
         if args.native_logs:
             env["IMPRINT_VOICE_SMOKE_DIAGNOSTICS"] = "1"
         with socket.socket() as listener:
@@ -117,6 +130,8 @@ def main():
                         setup_state = json.load(response)
                 if setup_state["stage"] != "ready" or setup_state["busy"] or not setup_state["installed"]:
                     raise RuntimeError(f"Managed cached setup failed: {setup_state}")
+                if args.bundled_setup and not setup_state.get("bundled_engine"):
+                    raise RuntimeError("Setup did not use the bundled native engine")
                 subprocess.run([node, "ui-electron/smoke-voice.mjs", f"http://127.0.0.1:{port}",
                                 str(args.output_dir.resolve())], env=env, check=True, timeout=210)
                 (args.output_dir / "setup.json").write_text(json.dumps(setup_state, indent=2) + "\n", encoding="utf-8")

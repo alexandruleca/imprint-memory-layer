@@ -20,6 +20,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   app.isPackaged = packaged;
   app.requestSingleInstanceLock = () => true;
   app.whenReady = () => Promise.resolve();
+  app.getPath = () => '/disposable-profile';
+  app.focus = () => {};
   app.quit = () => {
     const e = { prevented: false, preventDefault() { this.prevented = true; } };
     app.emit('before-quit', e);
@@ -46,6 +48,12 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     show() { this.visible = true; }
     hide() { this.visible = false; }
     focus() {}
+    moveTop() {}
+    showInactive() { this.visible = true; }
+    isVisible() { return this.visible; }
+    getBounds() { return this.bounds || { x: this.options.x || 0, y: this.options.y || 0, width: this.options.width, height: this.options.height }; }
+    setBounds(bounds) { this.bounds = bounds; }
+    setPosition(x, y) { this.bounds = { ...this.getBounds(), x, y }; }
     setAlwaysOnTop(pinned) { this.pinned = pinned; }
     isAlwaysOnTop() { return !!this.pinned; }
     isDestroyed() { return this.destroyed; }
@@ -72,10 +80,15 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   }
   const electron = {
     app, BrowserWindow: Window, Tray, Menu: { buildFromTemplate: menu => menu },
-    nativeImage: { createFromPath: () => ({ isEmpty: () => false }) },
+    nativeImage: { createFromPath: () => ({ isEmpty: () => false, getSize: () => ({ width: 32, height: 32 }), resize: size => { calls.traySize = size; return { isEmpty: () => false }; } }) },
     shell: { openExternal() {}, openPath() {} }, ipcMain,
     session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
   };
+  const shortcuts = new Map();
+  electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };
+  electron.screen = Object.assign(new EventEmitter(), { getCursorScreenPoint: () => ({ x: 800, y: 400 }),
+    getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) });
   const http = {
     get(_url, _options, callback) {
       calls.push('ping');
@@ -86,6 +99,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     },
   };
   const modules = { electron, 'node:path': path, 'node:http': http,
+    'node:fs': { readFileSync: () => { throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
+    './companion': require('./companion'),
     './navigation': require('./navigation'), './service': { DesktopService: Service },
     './voice-permissions': require('./voice-permissions') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
@@ -93,7 +108,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     process: { argv: ['electron', ...packaged ? [] : ['main.js'], '--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'], platform: 'darwin' },
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
   });
-  return { app, windows, services, calls, ipcMain,
+  return { app, windows, services, calls, ipcMain, shortcuts,
     invoke: (name, window, ...args) => handlers[name]({ sender: window.webContents }, ...args),
     emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
@@ -165,12 +180,38 @@ test('reuses independent daemon and explicit Quit leaves it running', async () =
   assert.equal(h.calls.includes('stop'), false);
 });
 
-test('without a tray, close minimizes so the running app remains accessible', async () => {
+test('without a system tray, the floating launcher keeps a hidden dashboard accessible', async () => {
   const h = harness({ trayAvailable: false });
   await settle();
   h.windows[1].close();
-  assert.equal(h.windows[1].minimized, true);
+  await settle();
+  assert.equal(h.windows[1].visible, false);
+  const launcher = h.windows[2];
+  assert.equal(launcher.visible, true);
+  h.emit('launcher-open', launcher);
+  assert.equal(h.windows[1].visible, true);
+  assert.equal(launcher.visible, false);
   assert.equal(h.services[0].stopped, undefined);
+});
+
+test('macOS tray icon is two-thirds size; recovery shortcut restores lost Echo and drag IPC is scoped', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  assert.equal(h.calls.traySize.width, 21);
+  const dashboard = h.windows[1];
+  await h.invoke('voice-set-companion', dashboard, true);
+  const echo = h.windows[2];
+  const before = echo.getBounds();
+  h.emit('voice-drag-start', dashboard, { x: 10, y: 10 });
+  h.emit('voice-drag-move', dashboard, { x: 100, y: 100 });
+  assert.deepEqual(echo.getBounds(), before);
+  h.emit('voice-drag-start', echo, { x: 10, y: 10 });
+  h.emit('voice-drag-move', echo, { x: 130, y: 80 });
+  assert.equal(echo.getBounds().x, before.x + 120);
+  echo.setBounds({ ...before, x: -20000, y: 20000 });
+  h.shortcuts.values().next().value(); await settle();
+  assert.ok(echo.getBounds().x >= 0 && echo.getBounds().y >= 0);
+  assert.equal(echo.visible, true);
+  h.app.quit(); await settle(); assert.equal(h.shortcuts.size, 0);
 });
 
 test('cancel during startup prevents service spawn or dashboard opening', async () => {
@@ -235,4 +276,34 @@ test('Echo has a separate transparent sandboxed window, scoped IPC, pin and dest
   await settle();
   assert.equal(h.windows[3].destroyed, true);
   assert.equal(h.services.length, 0);
+});
+
+test('minimize leaves a draggable launcher; only its own frame can move or open it', async () => {
+  const h = harness(); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  const launcher = h.windows[2];
+  assert.equal(dashboard.visible, false); assert.equal(launcher.visible, true);
+  const before = launcher.getBounds();
+  h.emit('launcher-drag-start', dashboard, { x: 0, y: 0 });
+  h.emit('launcher-drag-move', dashboard, { x: 200, y: 200 });
+  assert.deepEqual(launcher.getBounds(), before);
+  h.emit('launcher-drag-start', launcher, { x: 10, y: 10 });
+  h.emit('launcher-drag-move', launcher, { x: 140, y: 70 });
+  assert.equal(launcher.getBounds().x, before.x + 130);
+  h.emit('launcher-drag-end', launcher);
+  h.emit('launcher-open', dashboard); assert.equal(dashboard.visible, false);
+  h.emit('launcher-open', launcher); assert.equal(dashboard.visible, true); assert.equal(launcher.visible, false);
+  assert.equal(h.services[0].stopped, undefined);
+});
+
+test('display fitting restores an offscreen avatar and handles a small work area', () => {
+  const { fitBounds, fitLauncher, trayImage } = require('./companion');
+  const area = { x: -800, y: 20, width: 800, height: 600 };
+  const head = fitBounds({ x: 20000, y: -20000, width: 400, height: 640 }, area);
+  assert.deepEqual(head, { x: -400, y: 20, width: 400, height: 600 });
+  assert.deepEqual(fitBounds({ width: 'corrupt', height: [] }, area), { x: -420, y: 20, width: 400, height: 600 });
+  assert.deepEqual(fitLauncher({ x: 9999, y: 9999 }, area), { x: -56, y: 564, width: 56, height: 56 });
+  const image = { isEmpty: () => false };
+  assert.equal(trayImage(image, 'win32'), image); assert.equal(trayImage(image, 'linux'), image);
 });

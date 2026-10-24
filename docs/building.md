@@ -112,3 +112,28 @@ Uninstall cleanup is shared with `imprint disable`. Native CI runs configuration
 Publish changes to `dev` first, then fast-forward `main` to the same tested commit. `sync-dev.yml` also fast-forwards `dev` on future pushes to `main`, fetching the current branch heads rather than replaying a stale event commit. It never forces a push or discards dev-only commits; divergence fails and requires an explicit reconciliation. Branch protection must permit the workflow token's fast-forward for automatic synchronization. Release packaging remains main-only.
 
 `scripts/test-wsl-uninstall.py --windows-cli <WSL-path-to-imprint.exe> --windows-python <Windows-venv-python-path>` copies the CLI and bridge to a private Windows tree, connects disposable WSL profiles, and exercises actual native disable/uninstall, failure retry, `--keep-data` and default data removal. It never disables the supplied installation or edits real client profiles.
+
+
+## Bundled Echo speech engine
+
+Release packaging requires native `voice-engine-*` artifacts from the reusable
+`voice-engine.yml` workflow for Linux x64, Windows x64 and both Mac architectures.
+Linux builds run in manylinux_2_28 and link the C++/GCC runtime statically. Model
+weights are excluded; engine source, integrity metadata and notices are included.
+Archive staging verifies target architecture, fingerprints and executability.
+Linux ARM archives omit the unsupported speech engine. `REQUIRE_VOICE_ENGINE=1`
+makes a missing supported-target bundle fatal, as set by release CI.
+
+For a developer bundle, run the native Python with filelock installed:
+
+```bash
+python -m imprint.voice_bundle --build-root /tmp/imprint-engine-build --output build/voice/voice-engine-linux-x64 --jobs 4
+```
+
+Select the output target matching the current OS; this builder is native, not a
+cross-compiler. It needs CMake and a C++ toolchain but downloads no speech weights.
+To exercise release-style setup in a checkout, copy that target directory to
+`imprint/voice-engine` (gitignored). `scripts/smoke-voice-desktop.py --bundled-setup`
+uses a disposable cache, seeds only verified model weights and clears PATH to
+prove managed setup does not discover developer tools. See
+[ADR 0047](adr/0047-bundled-private-voice-engine.md).

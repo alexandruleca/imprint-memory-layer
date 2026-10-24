@@ -1,0 +1,78 @@
+name: Build bundled voice engines
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: windows-latest
+            target: windows-x64
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-15-intel
+            target: macos-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Extract the locked builder dependency
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          lock = Path('requirements/base.lock.txt').read_text()
+          block = re.search(r'^filelock==.*(?:\n    --hash=.*)+', lock, re.M).group()
+          Path('build-voice-requirements.txt').write_text(block + '\n')
+          PY
+      - name: Build Linux on the glibc 2.28 baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work quay.io/pypa/manylinux_2_28_x86_64 bash -euc '
+            /opt/python/cp312-cp312/bin/python -m pip install --require-hashes -r build-voice-requirements.txt
+            /opt/python/cp312-cp312/bin/python -m imprint.voice_bundle --build-root /tmp/voice-build --output build/voice/voice-engine-linux-x64 --jobs 4
+          '
+      - name: Build native Mac or Windows engine
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python -m pip install --require-hashes -r build-voice-requirements.txt
+          python -m imprint.voice_bundle --build-root "$RUNNER_TEMP/voice-build" --output "build/voice/voice-engine-${{ matrix.target }}" --jobs 4
+      - name: Check bundle integrity and native execution
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          from imprint.voice_runtime import verify_engine
+          binary = verify_engine(Path('build/voice/voice-engine-${{ matrix.target }}'))
+          # The private engine must refuse startup without its owner capability.
+          result = subprocess.run([str(binary.resolve())], stdin=subprocess.DEVNULL, timeout=10)
+          assert result.returncode == 1, result.returncode
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice-engine-${{ matrix.target }}
+          path: build/voice/voice-engine-${{ matrix.target }}/
+          if-no-files-found: error

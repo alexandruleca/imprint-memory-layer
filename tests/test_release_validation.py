@@ -98,3 +98,29 @@ class ReleaseValidationTests(unittest.TestCase):
                 (root / name).write_text('private fixture')
                 with self.assertRaisesRegex(ValueError, 'User state'):
                     VALIDATOR.validate(root, 'linux/amd64')
+
+    def test_required_voice_bundle_and_model_exclusion(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.tree(root)
+            with self.assertRaises(ValueError):
+                VALIDATOR.validate(root, 'linux/amd64', require_voice=True)
+            engine = root / 'imprint/voice-engine'; engine.mkdir()
+            binary = engine / 'worker'; binary.write_bytes(executable(62)); binary.chmod(0o755)
+            (engine / 'NOTICE.md').write_text('fixture notices')
+            (engine / 'licenses/gcc').mkdir(parents=True)
+            for name in ('COPYING3', 'COPYING.RUNTIME'):
+                (engine / 'licenses/gcc' / name).write_text('fixture runtime license')
+            # Source/patch/binary verification is exercised by test_voice_bundle.
+            with patch('imprint.voice_runtime.verify_engine', return_value=binary) as verify:
+                VALIDATOR.validate(root, 'linux/amd64', require_voice=True)
+                verify.assert_called_once_with(engine, 'linux-x64')
+                (engine / 'weights.gguf').write_bytes(b'must stay outside the release')
+                with self.assertRaisesRegex(ValueError, 'weights must not be bundled'):
+                    VALIDATOR.validate(root, 'linux/amd64', require_voice=True)
+                (engine / 'weights.gguf').unlink()
+                binary.write_bytes(executable(183))
+                with self.assertRaisesRegex(ValueError, 'engine architecture'):
+                    VALIDATOR.validate(root, 'linux/amd64', require_voice=True)
+            with self.assertRaisesRegex(ValueError, 'not supported'):
+                VALIDATOR.validate(root, 'linux/arm64', require_voice=True)

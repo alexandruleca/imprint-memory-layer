@@ -3,7 +3,7 @@ name: Native voice
 on:
   workflow_dispatch:
   push:
-    branches: [feat/local-voice-avatar]
+    branches: [feat/local-voice-avatar, feat/echo-desktop-refinement]
     paths:
       - 'imprint/voice*.py'
       - 'imprint/lfm_audio.py'
@@ -16,6 +16,9 @@ on:
       - 'imprint/ui/src/lib/voice-*.ts'
       - 'imprint/ui/src/lib/echo-canvas-renderer.ts'
       - 'imprint/ui/src/styles/voice.css'
+      - 'imprint/ui/src/app/launcher/**'
+      - 'imprint/ui/public/models/**'
+      - '.github/workflows/voice-engine.yml'
       - 'tests/test_voice*.py'
       - '.github/workflows/voice-native.yml'
 
@@ -27,7 +30,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bundles:
+    uses: ./.github/workflows/voice-engine.yml
+
   speech:
+    needs: bundles
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -53,42 +60,39 @@ jobs:
           node-version: '22'
       - name: Install locked runtime dependencies
         run: python -m pip install --require-hashes -r requirements/base.lock.txt -r requirements/cpu.lock.txt
-      - name: Configure native Windows compiler
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Select native bundle
+        shell: bash
+        run: python -c "from imprint.voice_runtime import target; print('VOICE_TARGET=' + target())" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
         with:
-          arch: x64
+          name: voice-engine-${{ env.VOICE_TARGET }}
+          path: imprint/voice-engine/
+      - name: Restore bundle executable permission
+        if: runner.os != 'Windows'
+        shell: bash
+        run: python -c "from imprint.voice_runtime import native_binary; from pathlib import Path; native_binary(Path('imprint/voice-engine')).chmod(0o755)"
       - name: Voice regressions
         run: python -m unittest discover -s tests -p "test_voice*.py" -v
-      - name: Restore verified native worker cache
-        id: native-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ env.VOICE_CACHE }}/live-source.tar.gz
-            ${{ env.VOICE_CACHE }}/live-build.json
-            ${{ env.VOICE_CACHE }}/live-native
-          key: voice-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('imprint/voice_runtime.py', 'requirements/runtime-manifest.json') }}
       - name: Restore portable model weights
         uses: actions/cache@v4
         with:
           path: ${{ env.VOICE_CACHE }}/*.gguf
           key: lfm-voice-q4-7d525f883a077e20afb782f2ff618edcae0e39e4
-      - name: Build verified private native worker
+      - name: Install and verify bundled engine with portable weights
         shell: bash
-        run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4
-      - name: Cache verified native build
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ env.VOICE_CACHE }}/live-source.tar.gz
-            ${{ env.VOICE_CACHE }}/live-build.json
-            ${{ env.VOICE_CACHE }}/live-native
-          key: voice-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('imprint/voice_runtime.py', 'requirements/runtime-manifest.json') }}
-      - name: Verify idempotent build
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from imprint.voice_bundle import install
+          from imprint.voice_runtime import verify
+          root = Path(os.environ['VOICE_CACHE'])
+          install(root)
+          verify(root)
+          PY
+      - name: Verify idempotent bundled setup
         shell: bash
-        run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4
+        run: python -c "from imprint.voice_bundle import install; from pathlib import Path; import os; install(Path(os.environ['VOICE_CACHE']))"
       - name: Exercise real speech, transport and cancellation
         shell: bash
         run: python scripts/smoke-live-voice.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-evidence" --native-logs
@@ -103,9 +107,9 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs
+            xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           else
-            python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs
+            python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           fi
       - name: Preserve native evidence
         if: always()

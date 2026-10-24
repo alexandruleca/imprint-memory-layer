@@ -26,7 +26,13 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        (self.root / "live-build.json").write_text("{}")
+        try: fixture_target = voice_runtime.target()
+        except PrototypeError: fixture_target = "linux-x64"
+        platform_patch = patch.object(voice_runtime, "target", return_value=fixture_target)
+        platform_patch.start(); self.addCleanup(platform_patch.stop)
+        (self.root / "live-build.json").write_text(json.dumps({"source_revision": voice_runtime.SOURCE_REVISION,
+            "patch_version": voice_runtime.PATCH_VERSION,"build_version": voice_runtime.BUILD_VERSION,"target": voice_runtime.target()}))
+        binary = voice_runtime.native_binary(self.root); binary.parent.mkdir(parents=True); binary.write_bytes(b"fixture")
         for patcher in [patch.dict(os.environ, {"IMPRINT_DATA_DIR": str(self.root), "IMPRINT_VOICE_RUNTIME_DIR": str(self.root)}),
                         patch.object(voice.voice_runtime, "supported", return_value=True),
                         patch.object(voice, "sessions", voice.Sessions())]:

@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 
-from . import config, config_schema, lfm_audio, voice_runtime
+from . import config, config_schema, lfm_audio, voice_runtime, voice_bundle
 from .personaplex import PrototypeError
 
 TOTAL_BYTES = sum(size for name, size in lfm_audio.ASSETS.items() if name != lfm_audio.ARCHIVE)
@@ -27,6 +27,9 @@ def runtime_root() -> Path:
 
 
 def prerequisites(root: Path) -> str | None:
+    if voice_bundle.available():
+        voice_bundle.verify()
+        return "disk" if shutil.disk_usage(root).free < 2_000_000_000 else None
     if not shutil.which("cmake"):
         return "cmake"
     if os.name == "nt":
@@ -92,13 +95,20 @@ def run_worker(root: Path, job_id: str) -> int:
             else:
                 emit({"stage": "ready", "downloaded": TOTAL_BYTES})
                 return 0
-            problem = prerequisites(root)
+            try:
+                problem = prerequisites(root)
+            except PrototypeError:
+                emit({"stage": "error", "problem": "engine"})
+                return 1
             if problem:
                 emit({"stage": "blocked", "problem": problem})
                 return 2
             with open(os.devnull, "w") as quiet, contextlib.redirect_stdout(quiet):
-                voice_runtime.install(root, jobs=min(4, os.cpu_count() or 1), progress=emit,
-                                      download_prefix=f".voice-{job_id}-")
+                if voice_bundle.available():
+                    voice_bundle.install(root, progress=emit, download_prefix=f".voice-{job_id}-")
+                else:
+                    voice_runtime.install(root, jobs=min(4, os.cpu_count() or 1), progress=emit,
+                                          download_prefix=f".voice-{job_id}-")
             emit({"stage": "finishing"})
             voice_runtime.verify(root)
             emit({"stage": "ready", "downloaded": TOTAL_BYTES})
@@ -121,7 +131,8 @@ class Setup:
     def snapshot(self) -> dict:
         with self.lock:
             return {**self.state, "busy": self.process is not None,
-                    "installed": (runtime_root() / "live-build.json").is_file(),
+                    "installed": voice_runtime.installed(runtime_root()),
+                    "bundled_engine": voice_bundle.available(),
                     "supported": voice_runtime.supported(), "platform": sys.platform}
 
     def start(self) -> dict:
@@ -162,7 +173,7 @@ class Setup:
                         if type(event.get("downloaded")) is int:
                             self.state["downloaded"] = max(0, min(TOTAL_BYTES, event["downloaded"]))
                         self.state["problem"] = event.get("problem") if event.get("problem") in {
-                            "cmake", "compiler", "disk", "in_use", "build", "download", "setup"} else None
+                            "cmake", "compiler", "disk", "in_use", "build", "download", "setup", "engine"} else None
                 except (ValueError, TypeError):
                     continue
             process.wait()

@@ -547,3 +547,39 @@
     animation: none!important;
   }
 }
+
+/* The desktop companion is a viewport, not a scrolling dashboard page. */
+.companion-document,.companion-document body,.companion-document main { height: 100%; overflow: hidden; }
+.voice-compact { display: flex; flex-direction: column; height: 100dvh; min-height: 0; padding: 12px 16px 8px; overflow: hidden; box-sizing: border-box; user-select: none; }
+.voice-compact .app-drag { -webkit-app-region: no-drag; }
+.voice-compact .voice-header { flex: 0 0 28px; }
+.voice-compact .voice-stage { flex: 1 1 0; min-height: 80px; height: auto!important; margin: 0!important; cursor: grab; }
+.voice-compact .voice-stage:active { cursor: grabbing; }
+.voice-compact .echo-canvas { position: absolute; inset: 0; }
+.voice-compact .voice-control-area { flex: 0 0 auto; width: 100%; max-width: 100%; margin: 5px 0 0; transform: none; }
+.voice-compact .voice-modes { margin: 0 auto 8px; padding: 2px; }
+.voice-compact .voice-modes button { height: 26px; padding: 3px 10px; }
+.voice-compact .voice-start { height: 34px; min-height: 34px; padding: 5px 14px; }
+.voice-compact .voice-primary-controls { gap: 5px; }
+.voice-compact .voice-primary-controls > button:not(.voice-start) { width: 32px; height: 32px; }
+.voice-compact .voice-privacy { margin: 5px 0; font-size: 9px; line-height: 12px; max-height: 24px; overflow: hidden; }
+.voice-compact .voice-text { margin: 5px 0; min-height: 32px; padding: 2px 8px; }
+.voice-compact .voice-text input { min-width: 0; user-select: text; }
+.voice-compact .voice-settings { margin-top: 6px; padding: 4px 8px; gap: 4px; font-size: 9px; }
+.voice-compact .voice-settings select { max-width: 170px; }
+.voice-compact .voice-transcript { margin: 5px 0; max-height: 40px; overflow: hidden; font-size: 10px; line-height: 13px; user-select: text; }
+.voice-compact .voice-transcript p { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.voice-compact .voice-transcript p:last-child { -webkit-line-clamp: 2; }
+.voice-compact .voice-grip { flex: 0 0 14px; margin: 6px 0 0; font-size: 8px; }
+.voice-compact .echo-setup { margin: 7px 0 0; padding: 12px; }
+.voice-compact .echo-setup-description { margin: 9px 0; line-height: 1.5; font-size: 10px; }
+.voice-compact .echo-setup-progress { margin: 10px 0; }
+.voice-compact .echo-setup-progress-label { font-size: 10px; margin-bottom: 8px; }
+.voice-compact .echo-setup-error { margin: 8px 0; line-height: 1.5; font-size: 10px; }
+.voice-compact .echo-setup-download { min-height: 30px; height: 30px; }
+.voice-compact .echo-setup-actions { gap: 6px; }
+.voice-compact:has([aria-label="Local chat preparation"]) .voice-modes,
+.voice-compact:has([aria-label="Local chat preparation"]) .voice-text,
+.voice-compact:has([aria-label="Local chat preparation"]) .voice-settings,
+.voice-compact:has([aria-label="Local chat preparation"]) .voice-transcript { display: none; }
+@media(max-height:480px) { .voice-compact .voice-stage { min-height: 55px; } .voice-compact .voice-settings { margin-top: 3px; } }

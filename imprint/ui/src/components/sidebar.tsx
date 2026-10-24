@@ -35,8 +35,17 @@ declare global {
       openCompanion: () => void;
       closeCompanion: () => void;
       pinCompanion: (pinned: boolean) => void;
-      getCompanionState?: () => Promise<{ open: boolean; pinned: boolean } | null>;
-      setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean } | null>;
+      recoverCompanion?: () => void;
+      beginCompanionDrag?: (point: { x: number; y: number }) => void;
+      moveCompanionDrag?: (point: { x: number; y: number }) => void;
+      endCompanionDrag?: () => void;
+      openDashboard?: () => void;
+      launcherMenu?: () => void;
+      beginLauncherDrag?: (point: { x: number; y: number }) => void;
+      moveLauncherDrag?: (point: { x: number; y: number }) => void;
+      endLauncherDrag?: () => void;
+      getCompanionState?: () => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
+      setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       onCompanionState?: (callback: (state: { open: boolean; pinned: boolean }) => void) => () => void;
     };
   }

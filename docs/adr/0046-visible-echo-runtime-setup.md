@@ -3,7 +3,7 @@ title: ADR 0046 — Visible first-time Echo setup
 description: Explicit dashboard provisioning with real byte progress, persistent status and owned cancellation.
 ---
 
-- Status: Accepted
+- Status: Accepted (release toolchain policy superseded by [0047](0047-bundled-private-voice-engine.md))
 - Date: 2026-10-24
 - Related: [0044](0044-native-desktop-voice-platforms.md), [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md)
 

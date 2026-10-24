@@ -498,6 +498,53 @@ also passed all five native backend targets, 321 Python tests and 58 browser
 scenarios. The subsequent software-rendering fix passed the final frontend CI
 and native graphical matrix above. No release or installer was published.
 
+## Anime Echo and desktop refinement (2026-10-24)
+
+The refinement branch replaces the procedural head with a locally bundled CC0
+anime mesh, connected wire contours and textured CPU projection. Local checks
+executed: production UI build, lint, 334 Python tests, seven release-validator
+fixtures, 22 Electron fixtures, and 13 focused browser scenarios. The latter
+cover setup/download/error/ready controls without scrolling at 400×640 and
+320×420, active interruption and a transparent GPU-less head. Additional native
+window/release-engine evidence is recorded below as it is executed; these local
+checks alone do not establish Mac or Windows GUI support.
+
+The native workflow now builds release-style engines for all four supported
+voice targets. Linux uses a glibc 2.28 build container; Windows and both Macs
+build on native runners. Desktop smoke installs the shipped engine into a fresh
+disposable cache with PATH empty, reusing only verified weight files, then tests
+head/launcher dragging, recovery, global shortcut registration and minimize/Close.
+Physical global keypresses, Wayland compositor behavior, real acoustic VAD and
+signed installer behavior remain separate manual gates.
+
+Local Linux/WSLg native desktop execution passed with an actual transparent
+Electron window and compiler-free fresh-cache setup (`bundled_engine: true`).
+The smoke exercised whole-head movement, offscreen recovery, registered recall
+shortcut, pinning, microphone/session teardown and the draggable launcher after
+the dashboard's Minimize and Close controls. [Raw local evidence](evidence/2026-10-24-echo-anime-refinement.json)
+and [actual companion PNG](assets/voice/echo-anime-companion.png) are retained.
+The WSLg environment did not emit a native window-manager minimize event when
+programmatically minimizing; the smoke uses the app's actual Minimize control.
+OS minimize event routing is also covered by Electron fixtures.
+
+Real local speech also passed after the engine build: ASR recognized the fixture
+question, real streamed TTS answered it, authenticated transport rejected foreign
+requests, interruption stopped the owned process and a fresh turn succeeded.
+The same-Chat route used fixture reasoning with real speech synthesis. Startup
+including verification took 9.23 s; the first speech-turn audio arrived at 2.71 s
+and cancellation acknowledgement at 65 ms. These are one local run, not a general
+latency guarantee. Full local browser verification passed 62/63 initially; an
+existing search race fixture depended on a 500 ms response delay. It now holds
+the older reply until the newer result is visible, preserving the intended race
+under slower runners. Its five search scenarios passed on rerun.
+
+The initial Linux manylinux build compiled successfully but host verification
+could not read container-root-owned private metadata in its exported bundle.
+Release export now explicitly uses 755 for directories/executables and 644 for
+data/notices. This also makes installed system-owned bundles readable by the app
+user; runtime caches retain their private modes. A regression checks readable
+exports from a private builder cache. The corrected native matrix is rerun below.
+
 ## Registered dashboard server and supervised restart (2026-10-24)
 
 [ADR 0050](adr/0050-registered-dashboard-server-and-supervised-restart.md)

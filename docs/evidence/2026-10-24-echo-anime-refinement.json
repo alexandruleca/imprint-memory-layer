@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-24",
+  "platforms": [
+    {
+      "desktop": {
+        "platform": "linux/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "wholeHeadDrag": true,
+        "offscreenRecovery": true,
+        "shortcutRegistered": true,
+        "compactWithoutScroll": true,
+        "minimizeAndCloseToLauncher": true,
+        "launcherDrag": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": true,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "webgl",
+        "frameRateLimit": 10,
+        "limits": [
+          "synthetic microphone",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software WebGL",
+          "no-sandbox for the Linux graphical test"
+        ]
+      },
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "bundled_engine": true,
+        "supported": true,
+        "platform": "linux"
+      }
+    }
+  ],
+  "limits": [
+    "Linux local developer-built engine; glibc 2.28 release build and native Windows/Mac execution pending CI",
+    "Physical global keypress and real acoustic VAD remain manual"
+  ]
+}

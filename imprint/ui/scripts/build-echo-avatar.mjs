@@ -1,128 +1,285 @@
-// Echo artwork: deterministic point-cloud sculpture derived from MediaPipe's
-// Apache-2.0 canonical facial topology. See avatar-source/NOTICE.md.
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import * as THREE from 'three';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-
+// Rebuild the bundled anime head. No network or model download occurs at runtime.
+// Sendagaya Shino is CC0, explicitly confirmed by pixiv's original release page.
+// The optional local argument makes rebuilding independent of the mirror.
+import fs from "node:fs/promises";
+import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import * as THREE from "three";
 const here = path.dirname(fileURLToPath(import.meta.url));
-const output = path.resolve(here, '../public/models');
-const source = await fs.readFile(path.join(here, 'avatar-source/canonical_face_model.obj'), 'utf8');
-const vertices = [], faces = [];
-for (const line of source.split('\n')) {
-  const parts = line.trim().split(/\s+/);
-  if (parts[0] === 'v') vertices.push(new THREE.Vector3(+parts[1] / 8.5, +parts[2] / 8.5 + .08, +parts[3] / 8.5 - .32));
-  if (parts[0] === 'f') faces.push(parts.slice(1).map(p => +p.split('/')[0] - 1));
-}
-let seed = 20261024;
-function random() { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 4294967296; }
-const group = new THREE.Group();
-group.name = 'Imprint_Echo';
-group.userData = { artwork: 'Echo / Imprint', version: 1, license: 'Apache-2.0 (facial template); see NOTICE.md',
-  morphs: 'jawOpen, blink', units: 'metres (artistic scale)', front: '+Z' };
-
-function morph(p, kind) {
-  const q = p.clone();
-  if (kind === 'jawOpen' && p.z > .06 && p.y < -.28) {
-    const lip = Math.exp(-((p.x / .42) ** 2));
-    const lower = THREE.MathUtils.smoothstep(-p.y, .40, .70);
-    q.y -= .14 * lower * lip;
-    q.z -= .045 * lower;
-  }
-  if (kind === 'blink' && p.z > .07) {
-    const eye = Math.exp(-(((Math.abs(p.x) - .37) / .23) ** 4) - (((p.y - .36) / .13) ** 4));
-    q.y += (.36 - p.y) * .94 * eye;
-  }
-  return q;
-}
-function geometry(points, colors) {
-  const g = new THREE.BufferGeometry().setFromPoints(points);
-  if (colors) g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  g.morphAttributes.position = ['jawOpen', 'blink'].map(name => {
-    const attribute = new THREE.Float32BufferAttribute(points.flatMap(p => morph(p, name).toArray()), 3);
-    attribute.name = name;
-    return attribute;
-  });
-  return g;
-}
-const positions = [], colors = [];
-function add(p, brightness = 1) {
-  positions.push(p);
-  const light = brightness * (.45 + .55 * random());
-  colors.push(.46 * light, .79 * light, light);
-}
-// Allocate samples by triangle area, preserving the anatomy around lids/lips.
-const areas = faces.map(f => new THREE.Triangle(...f.map(i => vertices[i])).getArea());
-const total = areas.reduce((a, b) => a + b, 0);
-faces.forEach((face, index) => {
-  const count = Math.ceil(21000 * areas[index] / total);
-  const [a, b, c] = face.map(i => vertices[i]);
-  for (let i = 0; i < count; i++) {
-    const u = Math.sqrt(random()), v = random();
-    add(a.clone().multiplyScalar(1 - u).addScaledVector(b, u * (1 - v)).addScaledVector(c, u * v));
-  }
-});
-const face = new THREE.Points(geometry(positions, colors), new THREE.PointsMaterial({
-  size: .009, vertexColors: true, transparent: true, opacity: .88, depthWrite: false, sizeAttenuation: true,
-}));
-face.name = 'Echo_Face';
-group.add(face);
-// An almost invisible anatomical shell provides an optional depth mask in the
-// live renderer, keeping the far cheek from washing out the eyes and nose.
-const shellGeometry = geometry(vertices.map(p => p.clone().add(new THREE.Vector3(0,0,-.004))));
-shellGeometry.setIndex(faces.flat());
-const shell = new THREE.Mesh(shellGeometry, new THREE.MeshBasicMaterial({ color: '#08121a', transparent: true, opacity: .04, side: THREE.DoubleSide }));
-shell.name = 'Echo_Depth';
-shell.renderOrder = -1;
-group.add(shell);
-
-const surround = [], surroundColors = [];
-for (let i = 0; i < 9000; i++) {
-  const y = random() * 2 - 1, a = random() * Math.PI * 2;
-  const r = Math.sqrt(1 - y * y);
-  const p = new THREE.Vector3(.84 * r * Math.cos(a), 1.10 * y + .14, .69 * r * Math.sin(a) - .20);
-  if (p.z > -.06 && p.y < .97) continue;
-  surround.push(p);
-  const light = .12 + random() * .26;
-  surroundColors.push(.35 * light, .68 * light, light);
-}
-for (let i = 0; i < 1700; i++) {
-  const h = random(), a = random() * Math.PI * 2;
-  const r = .27 + .12 * h;
-  surround.push(new THREE.Vector3(r * Math.cos(a), -.83 - h * .65, r * Math.sin(a) - .18));
-  const light = (1 - h) * .40;
-  surroundColors.push(.5 * light, .8 * light, light);
-}
-for (let i = 0; i < 600; i++) {
-  const a = random() * Math.PI * 2, r = .95 + random() * .55;
-  surround.push(new THREE.Vector3(Math.cos(a) * r, random() * 2.8 - 1.4, Math.sin(a) * r * .55 - .22));
-  const light = random() * .3;
-  surroundColors.push(.4 * light, .8 * light, light);
-}
-const halo = new THREE.Points(geometry(surround, surroundColors), new THREE.PointsMaterial({
-  size: .011, vertexColors: true, transparent: true, opacity: .65, depthWrite: false,
-}));
-halo.name = 'Echo_Dissolve';
-group.add(halo);
-
-const loops = [
-  [33,160,158,133,153,144,33], [263,387,385,362,380,373,263],
-  [61,40,37,0,267,270,291,321,314,17,84,91,61],
-  [61,78,81,13,311,308,291], [168,6,197,195,5,4,1,19],
-];
-for (let index = 0; index < loops.length; index++) {
-  const points = new THREE.CatmullRomCurve3(loops[index].map(i => vertices[i].clone().add(new THREE.Vector3(0,0,.003)))).getPoints(96);
-  const line = new THREE.Line(geometry(points), new THREE.LineBasicMaterial({ color: '#9cddf5', transparent: true, opacity: index === 4 ? .16 : .42, depthWrite: false }));
-  line.name = `Echo_Contour_${index}`;
-  group.add(line);
-}
-
-// GLTFExporter uses FileReader in browsers. No raster textures are involved.
-globalThis.FileReader = class {
-  readAsArrayBuffer(blob) { blob.arrayBuffer().then(value => { this.result = value; this.onloadend?.(); }); }
+const revision = "e16eb187100149a315ad92c3c9968f1d5baa6c7d";
+const url = `https://raw.githubusercontent.com/madjin/vrm-samples/${revision}/vroid/beta/Sendagaya_Shino.vrm`;
+const data = process.argv[2]
+  ? await fs.readFile(process.argv[2])
+  : Buffer.from(await (await fetch(url)).arrayBuffer());
+if (
+  crypto.createHash("sha256").update(data).digest("hex") !==
+  "1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5"
+)
+  throw Error("Source model checksum mismatch");
+const jsonLength = data.readUInt32LE(12),
+  source = JSON.parse(data.subarray(20, 20 + jsonLength));
+const binary = data.subarray(28 + jsonLength);
+if (source.extensions.VRM.meta.licenseName !== "CC0")
+  throw Error("Expected the CC0 beta model");
+const result = {
+  asset: { version: "2.0", generator: "Imprint Echo anime-head pipeline v3", copyright: "pixiv Sendagaya Shino: CC0-1.0; Imprint adaptations: Apache-2.0" },
+  extensionsUsed: ["KHR_materials_unlit"],
+  scene: 0,
+  scenes: [{ nodes: [0] }],
+  nodes: [
+    {
+      name: "Imprint_Echo",
+      children: [],
+      extras: {
+        version: 3,
+        artwork: "Echo anime hologram",
+        source: "Sendagaya Shino / pixiv / CC0",
+        license: "CC0-1.0 source; Apache-2.0 adaptations",
+        morphs: "jawOpen, blink",
+      },
+    },
+  ],
+  meshes: [],
+  materials: [],
+  textures: [],
+  images: [],
+  samplers: source.samplers,
+  accessors: [],
+  bufferViews: [],
+  buffers: [],
 };
-await fs.mkdir(output, { recursive: true });
-const binary = await new GLTFExporter().parseAsync(group, { binary: true, onlyVisible: true });
-await fs.writeFile(path.join(output, 'imprint-echo.glb'), Buffer.from(binary));
-console.log(`Echo: ${positions.length + surround.length} particles, ${binary.byteLength} bytes`);
+const chunks = [];
+let offset = 0;
+function view(bytes) {
+  const padded = Buffer.alloc((bytes.length + 3) & ~3);
+  Buffer.from(bytes).copy(padded);
+  const i = result.bufferViews.length;
+  result.bufferViews.push({
+    buffer: 0,
+    byteOffset: offset,
+    byteLength: bytes.length,
+  });
+  chunks.push(padded);
+  offset += padded.length;
+  return i;
+}
+function accessor(values, size = 3, type = 5126) {
+  const bytes =
+    type === 5126 ? new Float32Array(values) : new Uint32Array(values);
+  const a = {
+    bufferView: view(new Uint8Array(bytes.buffer)),
+    componentType: type,
+    count: values.length / size,
+    type: { 1: "SCALAR", 2: "VEC2", 3: "VEC3", 4: "VEC4" }[size],
+  };
+  if (size === 3 && type === 5126) {
+    a.min = [0, 1, 2].map((c) =>
+      values
+        .filter((_, i) => i % 3 === c)
+        .reduce((v, x) => Math.min(v, x), Infinity),
+    );
+    a.max = [0, 1, 2].map((c) =>
+      values
+        .filter((_, i) => i % 3 === c)
+        .reduce((v, x) => Math.max(v, x), -Infinity),
+    );
+  }
+  result.accessors.push(a);
+  return result.accessors.length - 1;
+}
+const sizes = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+function read(id) {
+  const a = source.accessors[id],
+    v = source.bufferViews[a.bufferView],
+    size = sizes[a.type],
+    n = { 5126: 4, 5125: 4, 5123: 2, 5121: 1 }[a.componentType],
+    start = (v.byteOffset || 0) + (a.byteOffset || 0);
+  const values = [];
+  for (let i = 0; i < a.count; i++)
+    for (let k = 0; k < size; k++) {
+      const at = start + i * (v.byteStride || size * n) + k * n;
+      values.push(
+        a.componentType === 5126
+          ? binary.readFloatLE(at)
+          : n === 4
+            ? binary.readUInt32LE(at)
+            : n === 2
+              ? binary.readUInt16LE(at)
+              : binary[at],
+      );
+    }
+  return values;
+}
+const imageMap = new Map(),
+  materialMap = new Map();
+function material(id) {
+  if (materialMap.has(id)) return materialMap.get(id);
+  const s = source.materials[id],
+    t = source.textures[s.pbrMetallicRoughness.baseColorTexture.index];
+  let ti = imageMap.get(t.source);
+  if (ti === undefined) {
+    const im = source.images[t.source],
+      v = source.bufferViews[im.bufferView];
+    const image =
+      result.images.push({
+        bufferView: view(
+          binary.subarray(
+            v.byteOffset || 0,
+            (v.byteOffset || 0) + v.byteLength,
+          ),
+        ),
+        mimeType: im.mimeType,
+      }) - 1;
+    ti = result.textures.push({ sampler: t.sampler, source: image }) - 1;
+    imageMap.set(t.source, ti);
+  }
+  const i =
+    result.materials.push({
+      name: s.name,
+      pbrMetallicRoughness: {
+        baseColorTexture: { index: ti },
+        baseColorFactor:
+          id === 15
+            ? [0.23, 0.16, 0.13, 1]
+            : id === 2 || id === 3 || id === 4
+              ? [0.14, 0.12, 0.2, 1]
+              : [0.87, 0.96, 1, 1],
+        metallicFactor: 0,
+        roughnessFactor: 1,
+      },
+      alphaMode: s.alphaMode,
+      alphaCutoff: s.alphaCutoff,
+      doubleSided: s.doubleSided,
+      extensions: { KHR_materials_unlit: {} },
+    }) - 1;
+  materialMap.set(id, i);
+  return i;
+}
+const transformed = new Map();
+function attribute(id, kind, hair = false) {
+  const key = `${id}:${kind}:${hair}`;
+  if (transformed.has(key)) return transformed.get(key);
+  const values = read(id);
+  const out = accessor(
+    kind === "uv"
+      ? values
+      : kind === "normal"
+        ? values.map((v, i) => (i % 3 === 1 ? v : -v))
+        : position(values, hair, kind === "delta"),
+    kind === "uv" ? 2 : 3,
+  );
+  transformed.set(key, out);
+  return out;
+}
+const scale = 7.8;
+// VRM 0.x faces -Z. Bake its bind pose into ordinary glTF, keeping only the head.
+// Shorten the long rear locks into a shoulder-free bob; retain the modeled bangs.
+function position(values, hair = false, delta = false) {
+  return values.map((v, i) => {
+    if (i % 3 === 0 || i % 3 === 2) return -v * scale;
+    if (delta) return v * scale;
+    return ((hair && v < 1.4 ? 1.4 + (v - 1.4) * 0.17 : v) - 1.5) * scale;
+  });
+}
+for (const mi of [0, 2]) {
+  const s = source.meshes[mi],
+    primitives = [];
+  for (const p of s.primitives) {
+    const attributes = {
+      POSITION: attribute(p.attributes.POSITION, "position", mi === 2),
+      NORMAL: attribute(p.attributes.NORMAL, "normal"),
+      TEXCOORD_0: attribute(p.attributes.TEXCOORD_0, "uv"),
+    };
+    const targets =
+      mi === 0
+        ? [29, 12].map((index) => ({
+            POSITION: attribute(p.targets[index].POSITION, "delta"),
+          }))
+        : undefined;
+    primitives.push({
+      attributes,
+      indices: accessor(read(p.indices), 1, 5125),
+      material: material(p.material),
+      ...(targets ? { targets } : {}),
+    });
+  }
+  const mesh =
+    result.meshes.push({
+      name: mi === 0 ? "Echo_Face" : "Echo_Hair",
+      primitives,
+      ...(mi === 0
+        ? { weights: [0, 0], extras: { targetNames: ["jawOpen", "blink"] } }
+        : {}),
+    }) - 1;
+  result.nodes[0].children.push(result.nodes.length);
+  result.nodes.push({ name: mi === 0 ? "Echo_Face" : "Echo_Hair", mesh });
+}
+// Fine luminous headband and one asymmetric clasp give Echo her own silhouette.
+function addGeometry(name, g, color) {
+  const mesh = result.meshes.length;
+  const mat =
+    result.materials.push({
+      name,
+      pbrMetallicRoughness: {
+        baseColorFactor: color,
+        metallicFactor: 0,
+        roughnessFactor: 1,
+      },
+      extensions: { KHR_materials_unlit: {} },
+    }) - 1;
+  result.meshes.push({
+    name,
+    primitives: [
+      {
+        attributes: {
+          POSITION: accessor(Array.from(g.attributes.position.array)),
+          NORMAL: accessor(Array.from(g.attributes.normal.array)),
+        },
+        ...(g.index
+          ? { indices: accessor(Array.from(g.index.array), 1, 5125) }
+          : {}),
+        material: mat,
+      },
+    ],
+  });
+  result.nodes[0].children.push(result.nodes.length);
+  result.nodes.push({ name, mesh });
+}
+const curve = new THREE.CatmullRomCurve3(
+  Array.from({ length: 31 }, (_, i) => {
+    const a = (Math.PI * i) / 30;
+    return new THREE.Vector3(
+      -0.91 * Math.cos(a),
+      0.16 + 0.98 * Math.sin(a),
+      -0.08,
+    );
+  }),
+);
+addGeometry(
+  "Echo_Headband",
+  new THREE.TubeGeometry(curve, 64, 0.022, 6, false),
+  [0.42, 0.85, 1, 1],
+);
+const clasp = new THREE.OctahedronGeometry(0.085, 0);
+clasp.translate(0.92, 0.6, 0.26);
+addGeometry("Echo_Clasp", clasp, [1, 0.76, 0.35, 1]);
+result.buffers = [{ byteLength: offset }];
+const body = Buffer.concat(chunks);
+const json = Buffer.from(JSON.stringify(result));
+const padded = Buffer.alloc((json.length + 3) & ~3, 32);
+json.copy(padded);
+const head = Buffer.alloc(20);
+head.write("glTF");
+head.writeUInt32LE(2, 4);
+head.writeUInt32LE(28 + padded.length + body.length, 8);
+head.writeUInt32LE(padded.length, 12);
+head.write("JSON", 16);
+const bh = Buffer.alloc(8);
+bh.writeUInt32LE(body.length);
+bh.write("BIN\0", 4);
+const dest = path.resolve(here, "../public/models/imprint-echo.glb");
+await fs.writeFile(dest, Buffer.concat([head, padded, bh, body]));
+console.log(
+  `${dest}: ${body.length} bytes, modeled anime face with jaw/blink morphs`,
+);

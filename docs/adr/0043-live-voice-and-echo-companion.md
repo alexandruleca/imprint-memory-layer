@@ -3,7 +3,7 @@ title: ADR 0043 — Local live voice and the Echo companion
 description: Explicit speech runtime, same-chat reasoning, optional VAD and a floating particle head with private session ownership.
 ---
 
-- Status: Accepted (experimental live pilot)
+- Status: Accepted (particle asset superseded by [0048](0048-anime-echo-and-desktop-recovery.md)) (experimental live pilot)
 - Date: 2026-10-24
 - Related: [0042](0042-lfm-audio-cpu-experiment.md), [0024](0024-enforce-local-service-boundaries.md), [0025](0025-desktop-owned-background-service.md)
 

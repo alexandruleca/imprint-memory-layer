@@ -64,6 +64,31 @@ try {
   if (surface.background !== 'rgba(0, 0, 0, 0)' || surface.image !== 'none' || surface.border !== '0px') {
     throw Error('Companion must have no background panel or border: ' + JSON.stringify(surface));
   }
+  const bounds = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('/companion/')).getBounds());
+  const beforeDrag = await bounds();
+  await popup.mouse.move(200, 220); await popup.mouse.down();
+  await popup.mouse.move(240, 245, { steps: 4 }); await popup.mouse.up();
+  const afterDrag = await bounds();
+  if (beforeDrag.x === afterDrag.x && beforeDrag.y === afterDrag.y) throw Error('Dragging the head did not move its native window');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
+    .find(window => window.webContents.getURL().endsWith('/companion/')).setPosition(-20000,-20000));
+  await main.evaluate(() => window.electronAPI.recoverCompanion());
+  let recovered;
+  for (let i=0;i<40;i++) {
+    recovered = await app.evaluate(({ BrowserWindow, screen, globalShortcut }) => {
+      const window = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/companion/'));
+      const b = window.getBounds(), area = screen.getDisplayMatching(b).workArea;
+      return { visible: window.isVisible(), bounds: b, area,
+        inBounds: b.x >= area.x && b.y >= area.y && b.x+b.width <= area.x+area.width && b.y+b.height <= area.y+area.height,
+        shortcutRegistered: globalShortcut.isRegistered('CommandOrControl+Alt+Shift+E') };
+    });
+    if (recovered.visible && recovered.inBounds) break;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  if (!recovered.visible || !recovered.inBounds) throw Error('Echo recovery did not restore an offscreen head: '+JSON.stringify(recovered));
+  const overflow = await popup.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.documentElement.scrollWidth > innerWidth);
+  if (overflow) throw Error('The compact voice view must fit without document scrolling');
   await popup.getByRole('button', { name: 'Keep companion on top' }).click();
   const pinned = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
     .find(window => window.webContents.getURL().endsWith('/companion/'))?.isAlwaysOnTop());
@@ -94,8 +119,25 @@ try {
     if (i === 99) throw Error('Turning the companion off left a voice session active');
     await new Promise(resolve => setTimeout(resolve, 50));
   }
+  // The actual dashboard Minimize and Close controls keep the API alive.
+  await main.evaluate(() => window.electronAPI.minimize());
+  let launcher;
+  for (let i=0;i<50;i++) { launcher=app.windows().find(w=>w.url().endsWith('/launcher/')); if(launcher)break; await new Promise(resolve=>setTimeout(resolve,100)); }
+  if (!launcher) throw Error('Minimizing did not open the floating launcher');
+  await launcher.getByRole('button', { name: 'Open Imprint' }).waitFor();
+  const launcherBounds = () => app.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/launcher/')).getBounds());
+  const oldLauncher = await launcherBounds();
+  await launcher.mouse.move(28,28); await launcher.mouse.down(); await launcher.mouse.move(48,42,{steps:3}); await launcher.mouse.up();
+  const newLauncher = await launcherBounds();
+  if(oldLauncher.x===newLauncher.x && oldLauncher.y===newLauncher.y) throw Error('Floating launcher did not drag');
+  await launcher.getByRole('button',{name:'Open Imprint'}).click();
+  await main.waitForTimeout(150);
+  await main.evaluate(()=>window.electronAPI.close());
+  await launcher.getByRole('button',{name:'Open Imprint'}).click();
+  const restored = await app.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/voice/')).isVisible());
+  if(!restored) throw Error('Launcher did not restore the closed dashboard');
   const result = { platform: `${process.platform}/${process.arch}`, electron: await app.evaluate(() => process.versions.electron),
-    disposableProfile: true, realCompanionLoaded: true, alwaysOnTop: true, syntheticMicrophonePermission: testMicrophone,
+    disposableProfile: true, realCompanionLoaded: true, wholeHeadDrag: true, offscreenRecovery: true, shortcutRegistered: recovered.shortcutRegistered, compactWithoutScroll: true, minimizeAndCloseToLauncher: true, launcherDrag: true, alwaysOnTop: true, syntheticMicrophonePermission: testMicrophone,
     transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true, renderer, frameRateLimit,
     limits: [testMicrophone ? 'synthetic microphone' : 'microphone capture not exercised',
       'no real acoustic/output-device test', 'silent WebAudio test output',

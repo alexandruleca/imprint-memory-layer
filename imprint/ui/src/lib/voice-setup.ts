@@ -6,6 +6,7 @@ import { API_BASE } from "@/lib/api-base";
 export type VoiceSetupState = {
   stage: string; busy: boolean; installed: boolean; supported: boolean;
   downloaded: number; total: number; problem: string | null; platform: string;
+  bundled_engine?: boolean;
 };
 export function formatDownloadBytes(bytes: number) {
   return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${Math.round(bytes / 1e6)} MB`;

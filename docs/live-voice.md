@@ -1,16 +1,16 @@
 ---
 title: Echo voice companion
-description: Floating particle avatar, push-to-talk, optional hands-free voice detection and local streamed speech.
+description: Floating anime hologram, push-to-talk, optional hands-free voice detection and local streamed speech.
 ---
 
 ## Current pilot
 
-Echo is a floating, abstract holographic face for Imprint. The user selected the
+Echo is a floating anime holographic head for Imprint. The user selected the
 **Echo** particle treatment from the [concept sheet](assets/voice/holographic-studies.png),
 English first, LFM2.5-Audio-1.5B, push-to-talk and optional hands-free interruption.
 [ADR 0043](adr/0043-live-voice-and-echo-companion.md) records the implementation.
 
-The dashboard's **Voice** page supplies a real 3D particle head, streamed local
+The dashboard's **Voice** page supplies a real modeled 3D anime head, streamed local
 audio, typed or microphone questions, transient transcripts and two reasoning
 routes:
 
@@ -33,18 +33,17 @@ from the [earlier CLI](lfm-audio-prototype.md) remain separate.
 
 Open **Voice** or turn on **Floating Echo**. If the speech files are missing,
 **Set up Echo, once** shows the approximately **1.07 GB** English model download
-and the **4 GB** of free space needed during setup. Choose **Download & set up
-Echo** to begin. Opening the page never starts a download automatically.
-
-Imprint checks CMake, the native C++ build tools and available space before the
-large download. Missing tools appear with **Check again** and platform setup
-details. Windows needs Visual Studio C++ Build Tools (x64); Mac needs Xcode
-Command Line Tools; Linux needs a C++ compiler. All need CMake. Imprint does not
-install system tools for you.
+and the **2 GB** of free space needed during setup in a release installation.
+Choose **Download & set up Echo** to begin. Opening the page never starts a download
+automatically. The native speech engine is included: no CMake or C++ compiler is
+needed. Imprint verifies the engine before downloading the models. Damaged engine
+files produce an update/reinstall message. Developer checkouts without an engine
+bundle retain the source-build path and need CMake, a compiler and 4 GB free space.
+[ADR 0047](adr/0047-bundled-private-voice-engine.md) records the release policy.
 
 The UI shows actual downloaded model bytes and verification, followed by engine
-download/preparation and final checks. Engine preparation has an indeterminate
-indicator because compiler progress does not provide a reliable percentage.
+preparation and final checks. Engine preparation has an indeterminate indicator;
+it does not fabricate a completion percentage.
 This can take a few minutes. A top-bar indicator links back to setup while you
 continue using other dashboard pages. Completion enables **Start conversation**;
 it never opens the microphone or starts a conversation automatically.
@@ -77,9 +76,10 @@ provisioning policy. The CLI path below remains available for advanced setup.
 ## Build the optional speech runtime manually
 
 Platform follow-up ([ADR 0044](adr/0044-native-desktop-voice-platforms.md)) adds
-native source builds for Windows x64 and macOS Intel/Apple Silicon. The live
-installer now downloads portable weights without the Linux CLI archive, builds
+native source builds for Windows x64 and macOS Intel/Apple Silicon. The developer source
+installer downloads portable weights without the Linux CLI archive, builds
 per-target executables and verifies their target/source/build fingerprints.
+Release installations use the prebuilt engine described above.
 Executed native results and remaining manual gates are recorded in
 [platform validation](platform-validation.md#native-echo-and-transparent-desktop-2026-10-24).
 
@@ -204,28 +204,47 @@ from any dashboard page, following manual close and error events. Off destroys
 the renderer and releases its microphone/session; on never enables the mic
 automatically. **Float Echo** can also open it. The face floats directly over the
 desktop with transparent pixels, no enclosing card, border or panel; individual
-controls have small backdrops for readability. Drag its header/grip, optionally
-pin it on top, and close it independently of the dashboard.
-[Transparent native preview](assets/voice/echo-transparent-preview.png).
+controls have small backdrops for readability. Drag any non-interactive area, including the head; optionally pin it on top.
+Its position is saved and kept inside the available display area. Press
+**Ctrl+Alt+Shift+E** on Windows/Linux or **⌘⌥⇧E** on Mac to bring it to the cursor’s
+display and focus it. The tray’s **Float Echo** action also recalls it if the OS
+reserves the shortcut. Recall never enables the microphone. Close Echo independently
+of the dashboard.
+[Anime hologram preview](assets/voice/echo-anime-companion.png).
 Opening it stops the dashboard voice session; start the companion explicitly.
 The tray also exposes Float Echo. In an ordinary browser this opens a compact
 popup; desktop transparency, dragging and pinning require the Electron shell.
 
 The renderer uses a locally bundled Three.js module and a reproducible
-[glTF binary head](../imprint/ui/public/models/imprint-echo.glb). The asset contains
-29,512 particles, sparse eyelid/lip/nose contours, a faint facial depth shell and
-`jawOpen`/`blink` morph targets. An Apache-2.0 MediaPipe canonical facial template
-provides anatomy; Imprint authors the particle treatment, skull/neck, contours and
-deformations. Licenses and attribution accompany the model. No camera, face
-tracking runtime, online asset service or NVIDIA Audio2Face is needed.
+[glTF binary head](../imprint/ui/public/models/imprint-echo.glb). The asset is a head-only adaptation of pixiv’s CC0 beta **Sendagaya Shino** model,
+with shortened rear hair, a new headband/clasp, modeled eyes/eyelids/lips,
+`jawOpen`/`blink` expressions, a cool holographic surface and fine connected wire
+contours. It replaces the earlier procedural particle template. The user’s Haruhi
+reference guides the anime direction; this is a credited sample adaptation rather
+than an original sculpt or Haruhi model. Source checksums, the publisher’s CC0
+release and attribution accompany the model. Rebuild with
+`node imprint/ui/scripts/build-echo-avatar.mjs [path/to/pinned-source.vrm]`.
+The authoring command may fetch the pinned source; the app loads only local files.
+No camera, face tracking, external avatar service or NVIDIA Audio2Face is needed.
+[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls.
+
+Closing or minimizing the dashboard hides it to the tray and leaves a small
+transparent floating Imprint icon. Drag it anywhere, click it to restore the
+dashboard, or right-click for **Show Echo** and **Quit Imprint**. Explicit Quit
+retains the existing owned-service shutdown policy. On Mac the menu-bar tray
+image is two-thirds of its previous size. The compact companion fits its viewport
+without a page scrollbar; long transcript text is bounded and full setup details
+remain on the Voice page.
 
 Speech energy drives the jaw from actual playback audio; it is not phoneme/viseme
-alignment. Idle motion, occasional blinks and listening/thinking tint are subtle.
+alignment. Idle motion and occasional blinks are subtle; controls show the listening/thinking state.
 Reduced-motion preferences reduce rendering/movement and pixel ratio is capped at
 1.5. Hardware WebGL rendering is capped near 30 fps. Recognized software WebGL
 backends (including SwiftShader/llvmpipe) use a 10 fps cap so their rasterizer
-threads do not overwhelm local model startup. When WebGL2 is unavailable, a 15 fps
-software renderer projects the same glTF particles, pose and jaw/blink morphs onto
+threads do not overwhelm local model startup. Software rendering drops to 2 fps
+while connecting/thinking; the dashboard head holds its last frame while the
+floating companion is open. Reduced-motion idle rendering uses 1 fps. When WebGL2 is unavailable, a 15 fps
+software renderer projects the same textured glTF geometry, pose and jaw/blink morphs onto
 transparent canvas; it retains a real animated 3D head without a GPU or static
 image substitution. If both rendering methods fail, accessible voice controls
 remain. Other glTF viewers may choose different point sizes and
