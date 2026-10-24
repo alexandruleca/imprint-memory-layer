@@ -249,7 +249,7 @@ checks on Windows x64, macOS Intel/Apple Silicon and Linux x64. Linux automation
 uses `--no-sandbox`; it does not establish packaged sandbox behavior.
 macOS automation uses a typed session rather than bypassing production
 TCC policy for a fake mic; interactive consent remains a manual gate. Optional
-`--native-logs` on the speech smoke retains native logs from disposable synthetic
+`--native-logs` on either smoke retains native logs from disposable synthetic
 fixtures only for diagnosis. Production request logs remain discarded. Graphical
 CI uses a silent WebAudio output sink because hosted machines need not expose
 physical speakers; the audio clock/graph still run. Real output devices are a

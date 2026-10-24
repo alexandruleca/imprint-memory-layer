@@ -364,6 +364,27 @@ and the [current setup guide](live-voice.md). The optional live worker now build
 natively for Windows x64, macOS Intel/Apple Silicon and Linux x64. Its model/cache
 is external to distributions; no release or installer was published for this work.
 
+Source `b21e0db` passed the complete
+[native voice workflow](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40085535980).
+[Raw platform evidence](evidence/2026-10-24-echo-native-platforms.json) preserves
+the target/build fingerprints and separate speech/desktop summaries.
+The [general CI run](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40085535959)
+also passed its five native backend targets, frontend and workflow checks.
+
+| Native runner | Speech and desktop | First audio | Whole speech turn | Cancel acknowledgement | Desktop renderer |
+| --- | --- | --- | --- | --- | --- |
+| Windows x64, Server 2025 | Passed | 2.562 s | 7.984 s | 109.0 ms | Software WebGL |
+| Intel Mac, macOS 15.7.9 | Passed | 4.060 s | 12.679 s | 68.7 ms | Software 3D canvas |
+| Apple Silicon, macOS 26.6.2 | Passed | 2.955 s | 5.415 s | 59.2 ms | Software 3D canvas |
+| Linux x64, Ubuntu hosted runner | Passed | 4.340 s | 15.745 s | 19.0 ms | Software WebGL |
+
+These are individual synthetic CPU runs with a warm speech worker. First audio
+starts after submitting the completed utterance and includes ASR and fixture
+retrieval; it excludes recording/endpointing and real chat-model inference.
+Cancellation measures protocol acknowledgement and owned-process exit, not human
+speech onset. Hosted load and caches were uncontrolled; these are executable
+checks, not a comparative performance benchmark.
+
 The floating face has transparent background pixels with no enclosing panel or
 border. Individual controls remain readable against small backdrops. The
 dashboard's **Floating Echo** switch opens/closes the window and follows manual
@@ -389,9 +410,17 @@ the actual software 3D fallback. Hosted audio tests use a silent WebAudio sink
 so they exercise the graph without requiring physical speaker endpoints.
 
 Local regressions passed: 310 Python tests, 53 browser scenarios and 19 Electron
-policy/lifecycle tests. The final audio startup change also passed the six voice
-browser cases, lint and production UI build. Generated UI output is excluded
-from the commits.
+policy/lifecycle tests. The final startup-budget regression brings native Linux
+CI to 311 Python tests. The final audio startup change also passed the six voice
+browser cases, lint and production UI build. Documentation build/link checks and
+workflow lint passed. Generated UI output is excluded from the commits.
+
+A Windows GUI test initially waited only for the 90-second native load budget
+plus a small margin. Diagnostic logs showed 20.59 seconds of preceding full
+asset verification, then successful native readiness after the test wait. The
+test now allows the complete startup/cleanup budget; production startup is
+bounded to 120 seconds including verification and reports an actionable timeout.
+The final native matrix above passed with this correction.
 
 Remaining manual gates: physical microphone/output devices, acoustic echo and
 room noise, actual local-chat-model voice latency, intelligibility/accent ratings,
