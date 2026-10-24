@@ -36,6 +36,30 @@ test('Echo loads its real 3D asset; microphone is off until explicitly enabled',
   expect(errors).toEqual([]);
 });
 
+test('a desktop without WebGL still projects the real 3D particle head onto transparent canvas', async ({ page }) => {
+  await prepare(page);
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(this: HTMLCanvasElement, type: string, ...args: unknown[]) {
+      if (type === 'webgl' || type === 'webgl2') return null;
+      return Reflect.apply(original, this, [type, ...args]);
+    } as typeof original;
+  });
+  await page.goto('/companion/');
+  await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
+  await expect(page.locator('.echo-canvas')).toHaveAttribute('data-renderer', 'canvas-3d');
+  await expect(page.locator('.voice-compact')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect.poll(() => page.locator('.echo-canvas canvas').evaluate(element => {
+    const canvas = element as HTMLCanvasElement;
+    const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let visible = 0;
+    for (let index = 3; index < data.length; index += 4) if (data[index]) visible++;
+    return visible;
+  })).toBeGreaterThan(500);
+  expect(await page.locator('.echo-canvas canvas').evaluate(element =>
+    (element as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data[3])).toBe(0);
+});
+
 test('interrupt flushes playback and ignores stale response chunks; stop releases connection', async ({ page }) => {
   const server = await prepare(page);
   await page.goto('/voice/');

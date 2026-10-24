@@ -18,10 +18,19 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
       const THREE = await import("three");
       const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
       if (cancelled) return;
-      const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" });
+      let renderer: import("three").WebGLRenderer | import("@/lib/echo-canvas-renderer").EchoCanvasRenderer;
+      let software = false;
+      try {
+        renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" });
+        renderer.setClearColor(0x000000, 0);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+      } catch {
+        const { EchoCanvasRenderer } = await import("@/lib/echo-canvas-renderer");
+        if (cancelled) return;
+        renderer = new EchoCanvasRenderer(); software = true;
+      }
+      container.dataset.renderer = software ? "canvas-3d" : "webgl";
       renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-      renderer.setClearColor(0x000000, 0);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
       container.appendChild(renderer.domElement);
       renderer.domElement.setAttribute("aria-hidden", "true");
       const scene = new THREE.Scene();
@@ -43,7 +52,7 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
       container.addEventListener("pointermove", move);
       const draw = (now: number) => {
         frame = requestAnimationFrame(draw);
-        if (document.hidden || now - previous < (reduced.matches ? 100 : 33)) return;
+        if (document.hidden || now - previous < (reduced.matches ? 100 : software ? 66 : 33)) return;
         previous = now;
         const t = now / 1000;
         const active = current.current.phase;

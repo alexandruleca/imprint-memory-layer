@@ -45,6 +45,14 @@ Graphical CI uses explicit disposable Electron profiles on every OS and checks
 transparent PNG pixels and dashboard toggle cleanup. macOS TCC dialogs remain
 manual validation; automation does not bypass production consent policy.
 
+Use WebGL when available and a software 3D projection of the same glTF geometry
+when WebGL2 is unavailable (for example hosted Mac desktops without a GPU).
+Retain pose, speech-energy jaw and blink animation on transparent canvas, at a
+lower frame-rate cap. Native tests record the actual renderer and use silent
+WebAudio output on virtual desktops without speaker devices. This is not acoustic
+validation. Limit model threads to available CPUs (at most four) and disable
+thread polling so small M1 allocations are not overwhelmed by idle pools.
+
 Native CI builds and exercises real speech, HTTP/WebSocket transport, workspace
 binding, authentication and mid-speech cancellation on Windows, macOS Intel,
 macOS Apple Silicon and Linux. A workflow definition or cross-compilation is

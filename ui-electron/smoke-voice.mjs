@@ -52,6 +52,7 @@ try {
   const popup = await opened;
   await popup.waitForURL('**/companion/');
   await popup.locator('.echo-canvas[data-loaded=true]').waitFor();
+  const renderer = await popup.locator('.echo-canvas').getAttribute('data-renderer');
   const surface = await popup.locator('.voice-compact').evaluate(element => {
     const style = getComputedStyle(element);
     return { background: style.backgroundColor, image: style.backgroundImage, border: style.borderTopWidth };
@@ -90,7 +91,7 @@ try {
   }
   const result = { platform: `${process.platform}/${process.arch}`, electron: await app.evaluate(() => process.versions.electron),
     disposableProfile: true, realCompanionLoaded: true, alwaysOnTop: true, syntheticMicrophonePermission: testMicrophone,
-    transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true,
+    transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true, renderer,
     limits: ['synthetic microphone', 'no real acoustic/output-device test', 'silent WebAudio test output', 'software WebGL',
       ...process.platform === 'darwin' ? ['interactive macOS TCC microphone consent requires manual validation'] : [],
       ...process.platform === 'linux' ? ['no-sandbox for the Linux graphical test'] : []] };

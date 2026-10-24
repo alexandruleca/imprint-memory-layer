@@ -153,9 +153,12 @@ tracking runtime, online asset service or NVIDIA Audio2Face is needed.
 
 Speech energy drives the jaw from actual playback audio; it is not phoneme/viseme
 alignment. Idle motion, occasional blinks and listening/thinking tint are subtle.
-Reduced-motion preferences reduce rendering/movement, pixel ratio is capped at
-1.5, and normal rendering is capped near 30 fps. A WebGL failure leaves accessible
-voice controls available. Other glTF viewers may choose different point sizes and
+Reduced-motion preferences reduce rendering/movement and pixel ratio is capped at
+1.5. WebGL rendering is capped near 30 fps. When WebGL2 is unavailable, a 15 fps
+software renderer projects the same glTF particles, pose and jaw/blink morphs onto
+transparent canvas; it retains a real animated 3D head without a GPU or static
+image substitution. If both rendering methods fail, accessible voice controls
+remain. Other glTF viewers may choose different point sizes and
 show the depth shell differently.
 
 Regenerate the actual asset after editing its source:
@@ -225,4 +228,9 @@ API/profile and checks PNG transparency. Native CI combines speech and graphical
 checks. macOS automation uses a typed session rather than bypassing production
 TCC policy for a fake mic; interactive consent remains a manual gate. Optional
 `--native-logs` on the speech smoke retains native logs from disposable synthetic
-fixtures only for diagnosis. Production request logs remain discarded.
+fixtures only for diagnosis. Production request logs remain discarded. Graphical
+CI uses a silent WebAudio output sink because hosted machines need not expose
+physical speakers; the audio clock/graph still run. Real output devices are a
+separate manual check. Worker thread counts respect available CPU allocation,
+with at most four threads and polling disabled; this avoids overwhelming small
+hosted M1 allocations during simultaneous audio-model work.
