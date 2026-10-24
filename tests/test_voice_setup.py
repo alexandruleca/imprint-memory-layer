@@ -23,7 +23,7 @@ class SetupBoundaryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         for p in [patch.dict(os.environ, IMPRINT_DATA_DIR=str(self.root), IMPRINT_VOICE_RUNTIME_DIR=""),
                   patch.object(setup, "setup", setup.Setup()), patch.object(voice, "sessions", voice.Sessions()),
                   patch.object(voice.voice_runtime, "supported", return_value=True)]:

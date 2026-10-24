@@ -49,6 +49,9 @@ This can take a few minutes. A top-bar indicator links back to setup while you
 continue using other dashboard pages. Completion enables **Start conversation**;
 it never opens the microphone or starts a conversation automatically.
 
+[Dashboard preview](assets/voice/echo-first-time-setup.png) ·
+[Transparent companion preview](assets/voice/echo-first-time-setup-compact.png).
+
 **Cancel setup** stops its owned download/build process tree. Verified files are
 kept; the unfinished file downloads again on retry. Closing the companion or
 leaving Voice does not cancel setup. Closing the API stops it. A connection error
