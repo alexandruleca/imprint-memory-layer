@@ -7,12 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { listSources, getSourceSummary, getSourceLineage } from "@/lib/api";
 import { CardGridSkeleton, ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { MasterDetail } from "@/components/master-detail";
 import { MigrateDialog } from "@/components/migrate-dialog";
 import { ChunkDialog } from "@/components/chunk-dialog";
 import { WorkspaceSources } from "@/components/workspace-sources";
@@ -73,12 +73,9 @@ export default function SourcesPage() {
     return (
       <div className="p-8 space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-3 gap-4" style={{ minHeight: 500 }}>
-          <ListSkeleton count={16} />
-          <div className="col-span-2">
-            <Skeleton className="h-64 w-full rounded-xl" />
-          </div>
-        </div>
+        <MasterDetail list={<ListSkeleton count={16} />}>
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </MasterDetail>
       </div>
     );
 
@@ -95,9 +92,8 @@ export default function SourcesPage() {
         setSources(data.sources);
       }} />
 
-      <div className="grid grid-cols-3 gap-4" style={{ minHeight: 500 }}>
-        {/* Left panel: source list */}
-        <div className="col-span-1 space-y-2">
+      <MasterDetail
+        filter={
           <Input
             aria-label="Filter sources"
             value={filter}
@@ -105,184 +101,179 @@ export default function SourcesPage() {
             placeholder="Filter sources..."
             className="text-sm"
           />
-          <ScrollArea className="h-[580px]">
-            <div className="space-y-0.5 pr-4">
-              {filtered.map((s) => (
+        }
+        list={
+          <div className="space-y-0.5 pr-4">
+            {filtered.map((s) => (
+              <Button
+                key={s.source}
+                variant="ghost"
+                aria-pressed={selected === s.source}
+                className={`h-auto w-full justify-between gap-2 p-2 font-normal ${
+                  selected === s.source ? "bg-primary/20 border border-primary hover:bg-primary/20" : ""
+                }`}
+                onClick={() => selectSource(s.source)}
+              >
+                <span className="font-mono text-xs truncate flex-1 text-left">
+                  {s.source}
+                </span>
+                <Badge variant="secondary" className="shrink-0">
+                  {s.chunks}
+                </Badge>
+              </Button>
+            ))}
+            {filtered.length === 0 && (
+              <Empty className="py-8">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon"><FileCode aria-hidden /></EmptyMedia>
+                  <EmptyDescription>
+                    {sources.length === 0
+                      ? "No indexed sources. Run 'imprint ingest' to index a project."
+                      : "No sources match filter."}
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </div>
+        }
+      >
+        {opening ? (
+          <div className="space-y-4" aria-busy="true">
+            <Skeleton className="h-40 w-full rounded-xl" />
+            <CardGridSkeleton count={4} />
+          </div>
+        ) : summary ? (
+          <div className="space-y-4">
+            {/* Summary card */}
+            <Card>
+              <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
+                <CardTitle className="text-sm font-mono truncate">
+                  {summary.source}
+                </CardTitle>
                 <Button
-                  key={s.source}
-                  variant="ghost"
-                  aria-pressed={selected === s.source}
-                  className={`h-auto w-full justify-between gap-2 p-2 font-normal ${
-                    selected === s.source ? "bg-primary/20 border border-primary hover:bg-primary/20" : ""
-                  }`}
-                  onClick={() => selectSource(s.source)}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setMigrateOpen(true)}
+                  className="shrink-0"
                 >
-                  <span className="font-mono text-xs truncate flex-1 text-left">
-                    {s.source}
-                  </span>
-                  <Badge variant="secondary" className="shrink-0">
-                    {s.chunks}
-                  </Badge>
+                  Migrate…
                 </Button>
-              ))}
-              {filtered.length === 0 && (
-                <Empty className="py-8">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon"><FileCode aria-hidden /></EmptyMedia>
-                    <EmptyDescription>
-                      {sources.length === 0
-                        ? "No indexed sources. Run 'imprint ingest' to index a project."
-                        : "No sources match filter."}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-            </div>
-          </ScrollArea>
-        </div>
-
-        {/* Right panel: source detail + chunks */}
-        <div className="col-span-2">
-          {opening ? (
-            <div className="space-y-4" aria-busy="true">
-              <Skeleton className="h-40 w-full rounded-xl" />
-              <CardGridSkeleton count={4} />
-            </div>
-          ) : summary ? (
-            <div className="space-y-4">
-              {/* Summary card */}
-              <Card>
-                <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
-                  <CardTitle className="text-sm font-mono truncate">
-                    {summary.source}
-                  </CardTitle>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setMigrateOpen(true)}
-                    className="shrink-0"
-                  >
-                    Migrate…
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <DeviceProvenance origin={summary.recorded_device} paths={summary.path_context} />
-                  <div className="flex gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Project: </span>
-                      <span className="font-medium">{summary.project || "—"}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Chunks: </span>
-                      <span className="font-medium">{summary.chunk_count}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Modified: </span>
-                      <span className="font-medium">
-                        {summary.source_mtime
-                          ? new Date(summary.source_mtime * 1000).toLocaleString()
-                          : "—"}
-                      </span>
-                    </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <DeviceProvenance origin={summary.recorded_device} paths={summary.path_context} />
+                <div className="flex gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Project: </span>
+                    <span className="font-medium">{summary.project || "—"}</span>
                   </div>
-
-                  <div className="flex gap-1 flex-wrap">
-                    {summary.tags?.lang && (
-                      <Badge variant="outline">{summary.tags.lang}</Badge>
-                    )}
-                    {summary.tags?.layer && (
-                      <Badge variant="outline">{summary.tags.layer}</Badge>
-                    )}
-                    {summary.tags?.kind && (
-                      <Badge variant="outline">{summary.tags.kind}</Badge>
-                    )}
-                    {summary.tags?.domain?.map((d: string) => (
-                      <Badge key={d}>{d}</Badge>
-                    ))}
-                    {summary.tags?.topics?.map((t: string) => (
-                      <Badge key={t} variant="secondary">
-                        {t}
-                      </Badge>
-                    ))}
+                  <div>
+                    <span className="text-muted-foreground">Chunks: </span>
+                    <span className="font-medium">{summary.chunk_count}</span>
                   </div>
+                  <div>
+                    <span className="text-muted-foreground">Modified: </span>
+                    <span className="font-medium">
+                      {summary.source_mtime
+                        ? new Date(summary.source_mtime * 1000).toLocaleString()
+                        : "—"}
+                    </span>
+                  </div>
+                </div>
 
-                  {summary.first_chunk_preview && (
-                    <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-24 overflow-auto">
-                      {summary.first_chunk_preview}
-                    </pre>
+                <div className="flex gap-1 flex-wrap">
+                  {summary.tags?.lang && (
+                    <Badge variant="outline">{summary.tags.lang}</Badge>
                   )}
+                  {summary.tags?.layer && (
+                    <Badge variant="outline">{summary.tags.layer}</Badge>
+                  )}
+                  {summary.tags?.kind && (
+                    <Badge variant="outline">{summary.tags.kind}</Badge>
+                  )}
+                  {summary.tags?.domain?.map((d: string) => (
+                    <Badge key={d}>{d}</Badge>
+                  ))}
+                  {summary.tags?.topics?.map((t: string) => (
+                    <Badge key={t} variant="secondary">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+
+                {summary.first_chunk_preview && (
+                  <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-24 overflow-auto">
+                    {summary.first_chunk_preview}
+                  </pre>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Chunks list */}
+            {lineage && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">
+                    Chunks ({lineage.total})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1.5">
+                    {lineage.chunks.map((chunk: MemoryNode) => (
+                      <Collapsible
+                        key={chunk.id}
+                        open={expandedChunk === chunk.id}
+                        onOpenChange={(open) => setExpandedChunk(open ? chunk.id : null)}
+                        className={`rounded border transition-colors ${
+                          expandedChunk === chunk.id
+                            ? "border-primary bg-primary/5"
+                            : "border-transparent hover:bg-muted"
+                        }`}
+                      >
+                        <CollapsibleTrigger className="group/chunk flex w-full items-center gap-2 rounded p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                          <ChevronRight className="size-3 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/chunk:rotate-90" aria-hidden />
+                          <span className="text-xs text-muted-foreground font-mono w-8 shrink-0">
+                            #{chunk.chunk_index}
+                          </span>
+                          <span className="text-xs truncate flex-1">
+                            {chunk.label}
+                          </span>
+                          <span className="flex gap-1 shrink-0">
+                            {chunk.tags?.topics
+                              ?.slice(0, 2)
+                              .map((t: string) => (
+                                <Badge
+                                  key={t}
+                                  variant="secondary"
+                                  className="text-[10px] px-1 py-0"
+                                >
+                                  {t}
+                                </Badge>
+                              ))}
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mx-2 mb-2 space-y-1.5">
+                          <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
+                            {chunk.content}
+                          </pre>
+                          <Button variant="secondary" size="xs" onClick={() => setChunkDialog(chunk)}>
+                            View full
+                          </Button>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
-
-              {/* Chunks list */}
-              {lineage && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">
-                      Chunks ({lineage.total})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[380px]">
-                      <div className="space-y-1.5 pr-4">
-                        {lineage.chunks.map((chunk: MemoryNode) => (
-                          <Collapsible
-                            key={chunk.id}
-                            open={expandedChunk === chunk.id}
-                            onOpenChange={(open) => setExpandedChunk(open ? chunk.id : null)}
-                            className={`rounded border transition-colors ${
-                              expandedChunk === chunk.id
-                                ? "border-primary bg-primary/5"
-                                : "border-transparent hover:bg-muted"
-                            }`}
-                          >
-                            <CollapsibleTrigger className="group/chunk flex w-full items-center gap-2 rounded p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                              <ChevronRight className="size-3 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/chunk:rotate-90" aria-hidden />
-                              <span className="text-xs text-muted-foreground font-mono w-8 shrink-0">
-                                #{chunk.chunk_index}
-                              </span>
-                              <span className="text-xs truncate flex-1">
-                                {chunk.label}
-                              </span>
-                              <span className="flex gap-1 shrink-0">
-                                {chunk.tags?.topics
-                                  ?.slice(0, 2)
-                                  .map((t: string) => (
-                                    <Badge
-                                      key={t}
-                                      variant="secondary"
-                                      className="text-[10px] px-1 py-0"
-                                    >
-                                      {t}
-                                    </Badge>
-                                  ))}
-                              </span>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="mx-2 mb-2 space-y-1.5">
-                              <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
-                                {chunk.content}
-                              </pre>
-                              <Button variant="secondary" size="xs" onClick={() => setChunkDialog(chunk)}>
-                                View full
-                              </Button>
-                            </CollapsibleContent>
-                          </Collapsible>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          ) : (
-            <Empty className="h-full">
-              <EmptyHeader>
-                <EmptyTitle>Select a source file to view details and chunks</EmptyTitle>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        ) : (
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyTitle>Select a source file to view details and chunks</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </MasterDetail>
 
       {summary && (
         <MigrateDialog
