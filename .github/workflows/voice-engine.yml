@@ -35,6 +35,12 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+      - name: Reuse an unchanged verified engine payload
+        id: engine-cache
+        uses: actions/cache@v4
+        with:
+          path: build/voice/voice-engine-${{ matrix.target }}
+          key: private-voice-engine-${{ matrix.target }}-${{ hashFiles('imprint/voice_runtime.py', 'imprint/voice_bundle.py', 'requirements/runtime-manifest.json', 'licenses/gcc/*', '.github/workflows/voice-engine.yml') }}
       - name: Extract the locked builder dependency
         shell: bash
         run: |
@@ -46,7 +52,7 @@ jobs:
           Path('build-voice-requirements.txt').write_text(block + '\n')
           PY
       - name: Build Linux on the glibc 2.28 baseline
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.engine-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           docker run --rm -v "$PWD:/work" -w /work quay.io/pypa/manylinux_2_28_x86_64 bash -euc '
@@ -54,7 +60,7 @@ jobs:
             /opt/python/cp312-cp312/bin/python -m imprint.voice_bundle --build-root /tmp/voice-build --output build/voice/voice-engine-linux-x64 --jobs 4
           '
       - name: Build native Mac or Windows engine
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && steps.engine-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           python -m pip install --require-hashes -r build-voice-requirements.txt

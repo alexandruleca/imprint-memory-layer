@@ -49,7 +49,7 @@ resized to two-thirds (32 to 21 pixels); other platforms retain the existing ima
 
 Use a flex viewport for the companion, retaining visible controls and a flexible
 head area. Long transcripts are visually bounded; download details remain in the
-full Voice page. Dashboard overlays/toasts do not mount in companion/launcher
+full Voice page. Dashboard skip navigation, connection banners, overlays and toasts do not mount in companion/launcher
 routes. Transparent pixels stay transparent without an enclosing panel.
 
 ## Alternatives

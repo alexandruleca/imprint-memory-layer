@@ -27,7 +27,9 @@ Each supported release archive must contain its matching `imprint/voice-engine`
 payload. Packaging verifies native architecture, source/patch/build/binary
 fingerprints, executability and notices. The pinned full source archive travels
 with the executable for the existing patch verifier and third-party licenses.
-Model weights remain optional, outside release archives and installed only after
+Engine build caches are keyed by target and the runtime, exporter, integrity manifest,
+license files and build workflow. Cache hits still run full engine verification
+and native startup checks; they never cache model weights. Model weights remain optional, outside release archives and installed only after
 an explicit user action. Release CI requires the engine artifacts before packaging.
 
 First-time setup verifies the included engine before downloading the models,

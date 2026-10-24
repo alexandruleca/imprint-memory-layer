@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
-type Surface = { mesh: THREE.Mesh; indices: number[]; colors: string[]; alpha: number[]; texture?: HTMLCanvasElement; uv?: THREE.BufferAttribute | THREE.InterleavedBufferAttribute };
-type Triangle = { x: number[]; y: number[]; z: number; color: string; alpha: number; wire: boolean; texture?: HTMLCanvasElement; uv?: number[] };
+type Surface = { mesh: THREE.Mesh; indices: number[]; vertices: number[]; projected: Float32Array; colors: string[]; alpha: number[]; texture?: HTMLCanvasElement; pattern?: CanvasPattern; uv?: THREE.BufferAttribute | THREE.InterleavedBufferAttribute };
+type Triangle = { x: number[]; y: number[]; z: number; color: string; alpha: number; wire: boolean; texture?: HTMLCanvasElement; pattern?: CanvasPattern; uv?: number[] };
 
 /** CPU projection of the bundled textured head for desktops without WebGL2.
  * The same geometry and jaw/blink morphs remain active; no remote/static avatar. */
@@ -70,7 +70,7 @@ export class EchoCanvasRenderer {
       }
       texture.getContext("2d")!.putImageData(pixels, 0, 0);
     }
-    const surface = { mesh, indices, colors, alpha, texture, uv };
+    const surface = { mesh, indices, vertices: [...new Set(indices)], projected: new Float32Array(geometry.getAttribute("position").count * 3), colors, alpha, texture, pattern: texture ? this.context.createPattern(texture, "no-repeat") || undefined : undefined, uv };
     this.surfaces.set(mesh, surface); return surface;
   }
   render(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
@@ -81,12 +81,13 @@ export class EchoCanvasRenderer {
     const triangles: Triangle[] = [];
     scene.traverse(object => {
       if (!(object instanceof THREE.Mesh) || !object.visible) return;
-      const { indices, colors, alpha, texture, uv } = this.surface(object);
+      const { indices, vertices, projected, colors, alpha, texture, pattern, uv } = this.surface(object);
       const geometry = object.geometry, positions = geometry.getAttribute("position");
       const morphs = geometry.morphAttributes.position || [], influences = object.morphTargetInfluences || [];
       this.matrix.multiplyMatrices(this.projection, object.matrixWorld);
-      const projected = new Float32Array(positions.count * 3);
-      for (let i = 0; i < positions.count; i++) {
+      // glTF primitives can share the whole head attribute buffer. Project only
+      // vertices referenced by this primitive, not that buffer once per material.
+      for (const i of vertices) {
         this.point.fromBufferAttribute(positions, i);
         for (let m = 0; m < morphs.length; m++) {
           const influence = influences[m] || 0;
@@ -106,8 +107,8 @@ export class EchoCanvasRenderer {
         const x = indices.slice(i, i + 3).map(j => projected[j * 3]);
         const y = indices.slice(i, i + 3).map(j => projected[j * 3 + 1]);
         const z = indices.slice(i, i + 3).reduce((sum, j) => sum + projected[j * 3 + 2], 0) / 3;
-        if (z < -1 || z > 1 || (material.side !== THREE.DoubleSide && (x[1] - x[0]) * (y[2] - y[0]) - (y[1] - y[0]) * (x[2] - x[0]) >= 0)) continue;
-        triangles.push({ x, y, z, color: colors[i / 3], alpha: alpha[i / 3], wire: /SKIN|HAIR_01/.test(material.name), texture, uv: uv && texture ? indices.slice(i, i + 3).flatMap(j => [uv.getX(j) * texture.width, uv.getY(j) * texture.height]) : undefined });
+        if (z < -1 || z > 1 || ((material.side !== THREE.DoubleSide || /HAIR/.test(material.name)) && (x[1] - x[0]) * (y[2] - y[0]) - (y[1] - y[0]) * (x[2] - x[0]) >= 0)) continue;
+        triangles.push({ x, y, z, color: colors[i / 3], alpha: alpha[i / 3], wire: /SKIN|HAIR_01/.test(material.name), texture, pattern, uv: uv && texture ? indices.slice(i, i + 3).flatMap(j => [uv.getX(j) * texture.width, uv.getY(j) * texture.height]) : undefined });
       }
     });
     triangles.sort((a, b) => b.z - a.z);
@@ -119,7 +120,7 @@ export class EchoCanvasRenderer {
         ctx.fillStyle = t.color; ctx.fill();
         ctx.strokeStyle = t.color; ctx.stroke(); // cover subpixel seams on opaque surfaces
       }
-      if (t.texture && t.uv) {
+      if (t.pattern && t.uv) {
         const [u0, v0, u1, v1, u2, v2] = t.uv;
         const determinant = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
         if (Math.abs(determinant) > 1e-5) {
@@ -127,8 +128,8 @@ export class EchoCanvasRenderer {
           const c = ((t.x[2] - t.x[0]) * (u1 - u0) - (t.x[1] - t.x[0]) * (u2 - u0)) / determinant;
           const b = ((t.y[1] - t.y[0]) * (v2 - v0) - (t.y[2] - t.y[0]) * (v1 - v0)) / determinant;
           const d = ((t.y[2] - t.y[0]) * (u1 - u0) - (t.y[1] - t.y[0]) * (u2 - u0)) / determinant;
-          ctx.save(); ctx.clip(); ctx.setTransform(a, b, c, d, t.x[0] - a * u0 - c * v0, t.y[0] - b * u0 - d * v0);
-          ctx.drawImage(t.texture, 0, 0); ctx.restore();
+          t.pattern.setTransform(new DOMMatrix([a, b, c, d, t.x[0] - a * u0 - c * v0, t.y[0] - b * u0 - d * v0]));
+          ctx.fillStyle = t.pattern; ctx.fill();
         }
       }
       if (t.wire) { ctx.globalAlpha = .06; ctx.strokeStyle = "#8bdeff"; ctx.stroke(); }

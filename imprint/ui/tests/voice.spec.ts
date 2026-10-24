@@ -188,8 +188,14 @@ test('floating launcher distinguishes dragging from opening and supports keyboar
       openDashboard() { calls.push('open'); }, beginLauncherDrag() { calls.push('start'); },
       moveLauncherDrag() { calls.push('move'); }, endLauncherDrag() { calls.push('end'); } };
   });
-  await prepare(page); await page.setViewportSize({ width: 56, height: 56 }); await page.goto('/launcher/');
+  await prepare(page);
+  await page.route('**/api/ping', route => route.fulfill({ status: 503, json: {} }));
+  await page.setViewportSize({ width: 56, height: 56 }); await page.goto('/launcher/');
+  await page.locator('.imprint-launcher[data-ready=true]').waitFor();
   const button = page.getByRole('button', { name: 'Open Imprint' }); await button.waitFor();
+  await expect(page.getByRole('link', { name: 'Skip to content' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retry connection' })).toHaveCount(0);
+  await page.keyboard.press('Tab'); await expect(button).toBeFocused();
   await page.mouse.move(20,20); await page.mouse.down(); await page.mouse.move(40,35); await page.mouse.up();
   const calls = () => page.evaluate(() => (window as unknown as { launcherCalls: string[] }).launcherCalls);
   expect(await calls()).toContain('move'); expect(await calls()).not.toContain('open');

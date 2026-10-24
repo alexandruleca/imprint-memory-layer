@@ -103,6 +103,7 @@ def main():
         with (Path(directory) / "api.log").open("wb") as log:
             api = subprocess.Popen([sys.executable, __file__, "--serve", str(port)], env=env,
                                    stdout=log, stderr=log, stdin=subprocess.DEVNULL, **child_options())
+            setup_state = None
             try:
                 for _ in range(300):
                     if api.poll() is not None:
@@ -148,6 +149,9 @@ def main():
                 api.terminate()
                 try: api.wait(timeout=5)
                 except subprocess.TimeoutExpired: api.kill(); api.wait()
+                if setup_state is not None:
+                    args.output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    (args.output_dir / "setup.json").write_text(json.dumps(setup_state, indent=2) + "\n", encoding="utf-8")
                 native_log = Path(directory) / "native.log"
                 if native_log.exists():
                     args.output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)

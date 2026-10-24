@@ -205,7 +205,7 @@ the renderer and releases its microphone/session; on never enables the mic
 automatically. **Float Echo** can also open it. The face floats directly over the
 desktop with transparent pixels, no enclosing card, border or panel; individual
 controls have small backdrops for readability. Drag any non-interactive area, including the head; optionally pin it on top.
-Its position is saved and kept inside the available display area. Press
+Its position and monitor are restored on normal open and kept inside the available display area. Press
 **Ctrl+Alt+Shift+E** on Windows/Linux or **⌘⌥⇧E** on Mac to bring it to the cursor’s
 display and focus it. The tray’s **Float Echo** action also recalls it if the OS
 reserves the shortcut. Recall never enables the microphone. Close Echo independently

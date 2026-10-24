@@ -9,7 +9,7 @@ const path = require('node:path');
 
 // Exercise the actual main process with Electron windows and processes replaced
 // by observable doubles; these do not establish native graphical behavior.
-function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true } = {}) {
+function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -88,7 +88,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };
   electron.screen = Object.assign(new EventEmitter(), { getCursorScreenPoint: () => ({ x: 800, y: 400 }),
     getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
-    getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) });
+    getDisplayMatching: bounds => ({ workArea: { x: bounds.x >= 1920 ? 1920 : 0, y: 0, width: 1920, height: 1080 } }) });
   const http = {
     get(_url, _options, callback) {
       calls.push('ping');
@@ -99,7 +99,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     },
   };
   const modules = { electron, 'node:path': path, 'node:http': http,
-    'node:fs': { readFileSync: () => { throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
+    'node:fs': { readFileSync: () => { if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
     './companion': require('./companion'),
     './navigation': require('./navigation'), './service': { DesktopService: Service },
     './voice-permissions': require('./voice-permissions') };
@@ -306,4 +306,12 @@ test('display fitting restores an offscreen avatar and handles a small work area
   assert.deepEqual(fitLauncher({ x: 9999, y: 9999 }, area), { x: -56, y: 564, width: 56, height: 56 });
   const image = { isEmpty: () => false };
   assert.equal(trayImage(image, 'win32'), image); assert.equal(trayImage(image, 'linux'), image);
+});
+
+test('normal open restores the saved monitor; recall moves Echo to the cursor display', async () => {
+  const h = harness({ alreadyUp:true, savedPosition: {x:2200,y:50,width:400,height:640} }); await settle();
+  await h.invoke('voice-set-companion', h.windows[1], true);
+  const echo=h.windows[2]; assert.equal(echo.getBounds().x,2200);
+  h.shortcuts.values().next().value(); await settle();
+  assert.ok(echo.getBounds().x>=0 && echo.getBounds().x<1920);
 });

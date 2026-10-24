@@ -92,7 +92,11 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
             }
           }
         });
-        renderer.render(scene, camera); hasDrawn = true;
+        renderer.render(scene, camera);
+        if (!hasDrawn) container.dataset.loaded = "true";
+        hasDrawn = true;
+        // Leave a full frame interval for controls/audio after expensive CPU paints.
+        previous = performance.now();
       };
       function disposeModel(root: import("three").Object3D) {
         const geometries = new Set<import("three").BufferGeometry>();
@@ -152,7 +156,6 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
           }
         }
         group.add(model.scene);
-        container.dataset.loaded = "true";
         frame = requestAnimationFrame(draw);
       } catch (error) { dispose(); throw error; }
     }

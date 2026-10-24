@@ -544,3 +544,17 @@ Release export now explicitly uses 755 for directories/executables and 644 for
 data/notices. This also makes installed system-owned bundles readable by the app
 user; runtime caches retain their private modes. A regression checks readable
 exports from a private builder cache. The corrected native matrix is rerun below.
+
+Fallback renderer follow-up: a full local run under load exposed excessive work
+when glTF primitives shared a large position buffer. CPU projection now transforms
+only each primitive’s referenced vertices, reuses projected buffers, uses canvas
+patterns for texture mapping, culls rear hair faces and leaves a full frame
+interval after expensive paints for controls/audio. This refines the compatibility
+renderer while preserving the modeled head and expressions.
+
+The first complete bundle matrix passed on all four targets. Real speech and
+managed setup passed on Linux, Windows and Apple Silicon, but the new launcher
+check found a dashboard-only “Skip to content” link taking focus over the tiny
+floating window. Floating routes now omit that dashboard navigation link, and
+the native movement assertion waits for asynchronous window position updates.
+The updated GUI matrix is rerun before claiming all desktop checks pass.

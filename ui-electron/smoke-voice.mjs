@@ -124,11 +124,15 @@ try {
   let launcher;
   for (let i=0;i<50;i++) { launcher=app.windows().find(w=>w.url().endsWith('/launcher/')); if(launcher)break; await new Promise(resolve=>setTimeout(resolve,100)); }
   if (!launcher) throw Error('Minimizing did not open the floating launcher');
+  await launcher.locator('.imprint-launcher[data-ready=true]').waitFor();
   await launcher.getByRole('button', { name: 'Open Imprint' }).waitFor();
   const launcherBounds = () => app.evaluate(({BrowserWindow}) => BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('/launcher/')).getBounds());
   const oldLauncher = await launcherBounds();
   await launcher.mouse.move(28,28); await launcher.mouse.down(); await launcher.mouse.move(48,42,{steps:3}); await launcher.mouse.up();
-  const newLauncher = await launcherBounds();
+  let newLauncher = await launcherBounds();
+  for(let i=0;i<30 && oldLauncher.x===newLauncher.x && oldLauncher.y===newLauncher.y;i++){
+    await new Promise(resolve=>setTimeout(resolve,100)); newLauncher=await launcherBounds();
+  }
   if(oldLauncher.x===newLauncher.x && oldLauncher.y===newLauncher.y) throw Error('Floating launcher did not drag');
   await launcher.getByRole('button',{name:'Open Imprint'}).click();
   await main.waitForTimeout(150);

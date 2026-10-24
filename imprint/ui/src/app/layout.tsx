@@ -29,9 +29,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} h-full`}>
       <body className="h-full bg-background text-foreground flex">
         <TooltipProvider>
-          <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-background focus:p-3">Skip to content</a>
-          <Heartbeat />
-          <DashboardShell overlays={<><RootApprovalDialog /><JobToasts /><Toaster /></>}>{children}</DashboardShell>
+          <DashboardShell overlays={<><Heartbeat /><RootApprovalDialog /><JobToasts /><Toaster /></>}>{children}</DashboardShell>
         </TooltipProvider>
       </body>
     </html>
