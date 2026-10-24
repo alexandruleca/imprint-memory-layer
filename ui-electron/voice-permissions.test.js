@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { voicePage, audioPermission, clipboardWritePermission } = require('./voice-permissions');
+const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
 test('microphone permission is audio-only, main-frame-only, current app voice surface only', () => {
   const origin = 'http://127.0.0.1:8420';
   const contents = { getURL: () => `${origin}/voice/` };
@@ -30,4 +30,13 @@ test('existing dashboard copy actions can write text; clipboard reads and foreig
   assert.equal(check('clipboard-sanitized-write', { isMainFrame: false }), false);
   assert.equal(check('clipboard-sanitized-write', { requestingUrl: 'https://evil.test/' }), false);
   assert.equal(check('clipboard-sanitized-write', {}, { getURL: contents.getURL }), false);
+});
+test('macOS asks only for undetermined microphone consent and honors denied/restricted status', async () => {
+  const asked = [];
+  for (const status of ['denied', 'restricted', 'granted', 'not-determined']) {
+    const granted = await macMicrophoneConsent({ getMediaAccessStatus: () => status,
+      askForMediaAccess: async type => { asked.push(type); return true; } });
+    assert.equal(granted, ['granted', 'not-determined'].includes(status));
+  }
+  assert.deepEqual(asked, ['microphone']);
 });

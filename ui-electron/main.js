@@ -1,11 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences } = require('electron');
 const path = require('node:path');
 const http = require('node:http');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
-const { voicePage, audioPermission, clipboardWritePermission } = require('./voice-permissions');
+const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -24,6 +24,8 @@ const PYTHON = arg('--python') ?? (PROJECT_DIR && path.join(
   PROJECT_DIR, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
 ));
 const PORT = new URL(UI_URL).port || '80';
+const PROFILE_DIR = arg('--user-data-dir');
+if (PROFILE_DIR) app.setPath('userData', path.resolve(PROFILE_DIR));
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -225,6 +227,20 @@ function trustedVoiceSender(event) {
     && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
     && voicePage(event.sender.getURL(), UI_ORIGIN);
 }
+function trustedDashboardSender(event) {
+  return win?.webContents === event.sender
+    && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
+    && sameOrigin(event.sender.getURL(), UI_ORIGIN);
+}
+function companionState() {
+  return { open: !!companionWin, pinned: !!companionWin?.isAlwaysOnTop() };
+}
+function notifyCompanion() {
+  const state = companionState();
+  for (const window of [win, companionWin]) {
+    if (window && !window.isDestroyed()) window.webContents.send('voice-companion-state', state);
+  }
+}
 async function openCompanion() {
   if (quitting || phase !== 'ready') return;
   if (companionWin) { companionWin.show(); companionWin.focus(); return; }
@@ -232,7 +248,8 @@ async function openCompanion() {
     minWidth: 340, minHeight: 560, transparent: true, backgroundColor: '#00000000',
     resizable: false, hasShadow: false, alwaysOnTop: false });
   companionWin = window;
-  window.on('closed', () => { if (companionWin === window) companionWin = null; });
+  notifyCompanion();
+  window.on('closed', () => { if (companionWin === window) companionWin = null; notifyCompanion(); });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalURL(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -244,14 +261,24 @@ async function openCompanion() {
   try {
     await window.loadURL(`${UI_ORIGIN}/companion/`);
     if (!quitting && !window.isDestroyed()) { window.show(); window.focus(); }
-  } catch { window.destroy(); }
+  } catch { if (!window.isDestroyed()) window.destroy(); }
 }
+ipcMain.handle('voice-companion-state', event => trustedDashboardSender(event) ? companionState() : null);
+ipcMain.handle('voice-set-companion', async (event, enabled) => {
+  if (!trustedDashboardSender(event) || typeof enabled !== 'boolean') return null;
+  if (enabled) await openCompanion();
+  else companionWin?.destroy();
+  notifyCompanion();
+  return companionState();
+});
 ipcMain.on('voice-open-companion', event => { if (trustedVoiceSender(event)) void openCompanion(); });
 ipcMain.on('voice-close-companion', event => {
   if (companionWin?.webContents === event.sender && trustedVoiceSender(event)) companionWin.destroy();
 });
 ipcMain.on('voice-pin-companion', (event, pinned) => {
-  if (typeof pinned === 'boolean' && companionWin?.webContents === event.sender && trustedVoiceSender(event)) companionWin.setAlwaysOnTop(pinned);
+  if (typeof pinned === 'boolean' && companionWin?.webContents === event.sender && trustedVoiceSender(event)) {
+    companionWin.setAlwaysOnTop(pinned); notifyCompanion();
+  }
 });
 ipcMain.on('app-quit', event => { if (appWindow(event)) app.quit(); });
 ipcMain.on('win-minimize', event => { if (appWindow(event)) BrowserWindow.fromWebContents(event.sender)?.minimize(); });
@@ -289,13 +316,18 @@ app.on('before-quit', event => {
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-    callback(audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])
-      || clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
+    if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(true); return; }
+    if (!audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(false); return; }
+    if (process.platform !== 'darwin') { callback(true); return; }
+    void macMicrophoneConsent(systemPreferences).then(granted => {
+      callback(granted && audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
+    }).catch(() => callback(false));
   });
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
-    return sameOrigin(requestingOrigin, UI_ORIGIN)
-      && (audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])
-        || clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
+    if (!sameOrigin(requestingOrigin, UI_ORIGIN)) return false;
+    if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) return true;
+    return audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])
+      && (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('microphone') === 'granted');
   });
   // Display the splash before probing or starting Python.
   showStartup();

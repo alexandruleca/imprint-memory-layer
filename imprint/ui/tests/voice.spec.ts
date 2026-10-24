@@ -68,6 +68,39 @@ test('compact companion hides dashboard chrome and exposes hands-free controls',
   await expect(page.getByRole('button', { name: 'Hands-free', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('slider', { name: 'Speech detection threshold' })).toBeVisible();
   await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
+  await expect(page.locator('.voice-compact')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.voice-compact')).toHaveCSS('background-image', 'none');
+  await expect(page.locator('.voice-compact')).toHaveCSS('border-top-width', '0px');
+});
+
+test('dashboard Floating Echo switch reflects native close and stops dashboard voice when showing', async ({ page }) => {
+  await prepare(page);
+  await page.addInitScript(() => {
+    let state = { open: false, pinned: false };
+    const listeners = new Set<(state: { open: boolean; pinned: boolean }) => void>();
+    window.electronAPI = { isElectron: true, platform: 'win32', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {},
+      getCompanionState: async () => state,
+      setCompanionVisible: async open => { state = { ...state, open }; listeners.forEach(listener => listener(state)); return state; },
+      onCompanionState: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
+    window.addEventListener('test:companion-close', () => {
+      state = { open: false, pinned: false }; listeners.forEach(listener => listener(state));
+    });
+  });
+  await page.goto('/voice/');
+  const toggle = page.getByRole('switch', { name: 'Floating Echo' });
+  await expect(toggle).not.toBeChecked();
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event('test:companion-close')));
+  await expect(toggle).not.toBeChecked();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
 });
 
 test('push-to-talk captures through AudioWorklet and sends a bounded WAV on release', async ({ page }) => {

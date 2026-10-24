@@ -325,10 +325,38 @@
 }
 .voice-compact {
   min-height: 100%;
-  background: radial-gradient(ellipse at 50% 45%,#0c1e2bdc,#07131de8);
+  background: transparent;
   padding: 16px 20px 12px;
-  border: 1px solid #58748730;
-  border-radius: 22px;
+  border: 0;
+  border-radius: 0;
+  text-shadow: 0 1px 5px #000, 0 0 10px #06131e;
+}
+.voice-compact .voice-halo {
+  display: none;
+}
+.voice-compact .voice-window-actions button,
+.voice-compact .voice-modes,
+.voice-compact .voice-text,
+.voice-compact .voice-settings,
+.voice-compact .voice-transcript,
+.voice-compact .voice-primary-controls > button:not(.voice-start) {
+  background: #07141de3;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px #0002;
+}
+.voice-compact .voice-text {
+  padding: 5px 10px;
+  border: 0;
+}
+.voice-compact .voice-modes,
+.voice-compact .voice-settings {
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 4px 8px;
+}
+.voice-compact .voice-transcript {
+  padding: 8px 12px;
 }
 .voice-compact .voice-stage {
   height: 265px;

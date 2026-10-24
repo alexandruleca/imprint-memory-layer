@@ -1,3 +1,4 @@
+/* global AudioWorkletProcessor, sampleRate, registerProcessor */
 /* Mic capture only. Playback uses a separate AudioContext graph so browser AEC
    can distinguish the local output. No audio leaves the loopback voice API. */
 class ImprintCapture extends AudioWorkletProcessor {

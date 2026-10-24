@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { UpdateButton } from "@/components/update-button";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
+import { CompanionToggle } from "@/components/companion-toggle";
 
 /** App-wide controls above every page. In the frameless desktop window the
  * bar's empty space is a drag handle (globals.css). The handle is an empty
@@ -13,6 +14,7 @@ export function TopBar() {
   return (
     <header className="flex h-12 shrink-0 items-center justify-end gap-2 px-4 sm:px-6">
       {isElectron && <div className="app-drag h-full flex-1" />}
+      <CompanionToggle />
       <UpdateButton />
       <WorkspaceSwitcher />
     </header>

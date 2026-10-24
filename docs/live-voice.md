@@ -43,7 +43,9 @@ and Xcode Command Line Tools, with macOS 13 or later. Run the same command below
 using the native Python executable. Windows paths such as `C:\imprint-voice`
 can avoid excessively long build paths. CPU builds do not require CUDA or Metal.
 
-The speech worker is currently enabled on **Linux x64 CPU, including WSL2**.
+The live speech worker has native CPU targets for **Windows x64, macOS Intel and
+Apple Silicon (13+), and Linux x64 including WSL2**. Platform validation records
+executed results separately from enabled targets.
 There is no PyTorch dependency and no implicit model download on Start. Install a
 C++ compiler and CMake, then from the repository root run:
 
@@ -55,7 +57,9 @@ C++ compiler and CMake, then from the repository root run:
 `--cmake /path/to/cmake` selects an explicit CMake binary. The command reuses the
 verified 1.07 GB Q4 weights from the offline experiment, downloads a hash-pinned
 source archive, applies Imprint's private-worker patch and builds a static native
-speech server. Compiler/system-library requirements are local build dependencies,
+speech server in a per-platform directory. It handles Windows `.exe`/Release
+output and explicit macOS architectures. Source patches always use UTF-8.
+Compiler/system-library requirements are local build dependencies,
 not additions to Imprint's base Python profile. The source/build cache can be
 several hundred MB. Notices remain in that cache. Model licensing remains Liquid
 AI's custom LFM Open License v1.0; this is not a claim of OSI-approved licensing.
@@ -84,9 +88,9 @@ retrieval against real user profiles.
 
 This experimental cache is operator-owned, outside distributions and the main
 installer/uninstaller. Delete its dedicated directory deliberately when no longer
-needed. Windows/macOS/ARM speech workers and GPU inference are not enabled by
-this pilot. Running the browser against a WSL API does not establish a native
-Windows speech runtime.
+needed. Windows ARM, Linux ARM and GPU inference are not enabled by this pilot.
+The earlier offline CLI remains Linux-only; the live installer never downloads
+or executes that historical Linux CLI archive.
 
 ## Talk and interrupt
 
@@ -128,8 +132,13 @@ useful while another application has focus.
 
 ## Floating companion and 3D asset
 
-**Float Echo** opens a separate transparent, frameless Electron window. Drag its
-header/grip, optionally pin it on top, and close it independently of the dashboard.
+The **Floating Echo** switch in Imprint's top bar opens or closes the companion
+from any dashboard page, following manual close and error events. Off destroys
+the renderer and releases its microphone/session; on never enables the mic
+automatically. **Float Echo** can also open it. The face floats directly over the
+desktop with transparent pixels, no enclosing card, border or panel; individual
+controls have small backdrops for readability. Drag its header/grip, optionally
+pin it on top, and close it independently of the dashboard.
 Opening it stops the dashboard voice session; start the companion explicitly.
 The tray also exposes Float Echo. In an ordinary browser this opens a compact
 popup; desktop transparency, dragging and pinning require the Electron shell.
@@ -179,11 +188,16 @@ prompts. Model/source/binary integrity is checked before starting a worker.
 Frames, microphone WAVs, generation duration, native tokens, request bodies,
 history and pending capabilities are bounded. Temporary WAV validation files are
 private and removed immediately. Slow socket sends time out. Closing/disconnecting
-voice releases the worker; API shutdown also stops it. Electron permissions allow
+voice releases the worker; API shutdown also stops it. A private lifetime pipe
+also stops the worker on abrupt API death, including Windows termination where
+Python cleanup cannot run. Hidden Windows startup works with either Selector or
+Proactor event loops. Electron permissions allow
 only audio on the current owned Voice/companion main frame, denying camera and
 other permission requests except the dashboard's existing same-origin clipboard
-text writes; clipboard reads remain denied. macOS microphone usage text is present, but native
-macOS permission behavior has not been validated.
+text writes; clipboard reads remain denied. macOS checks OS microphone consent,
+asks only when not determined, and honors denied/restricted status. The app has
+usage text and audio-input/JIT entitlements. Interactive TCC consent and
+signed/notarized packaging require separate validation.
 
 ## Validation and remaining gates
 
@@ -206,4 +220,9 @@ disposable profile, synthetic mic and software WebGL. It checked the actual
 companion renderer, separate window, pin, permission, Stop and Close. The test
 used `--no-sandbox` for the local WSL run; it does not establish packaged sandbox
 behavior or native Windows/macOS support. Its reproducible driver is
-`ui-electron/smoke-voice.mjs` and requires an already-running disposable API.
+`ui-electron/smoke-voice.mjs`; `scripts/smoke-voice-desktop.py` supplies a disposable
+API/profile and checks PNG transparency. Native CI combines speech and graphical
+checks. macOS automation uses a typed session rather than bypassing production
+TCC policy for a fake mic; interactive consent remains a manual gate. Optional
+`--native-logs` on the speech smoke retains native logs from disposable synthetic
+fixtures only for diagnosis. Production request logs remain discarded.

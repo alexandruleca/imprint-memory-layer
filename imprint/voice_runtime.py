@@ -19,7 +19,7 @@ from .downloads import expected_digest
 
 SOURCE_REVISION = "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b"
 SOURCE_SHA256 = expected_digest("lfm-audio-live-source", SOURCE_REVISION, "live-source.tar.gz")
-PATCH_VERSION = 1
+PATCH_VERSION = 2
 SERVER = "llama-liquid-audio-server"
 BUILD_VERSION = 2
 
@@ -63,9 +63,16 @@ def patched_server(source: str) -> str:
             raise PrototypeError("Live voice source patch does not match the pinned revision.")
         source = source.replace(old, new)
 
+    replace('#include "mtmd.h"', '#include "mtmd.h"\n#include <iostream>\n#include <cstdlib>')
+
     replace("    common_init();", '''    const char * secret = std::getenv("IMPRINT_VOICE_BACKEND_TOKEN");
     if (!secret || std::string(secret).size() < 32) { return 1; }
     const std::string authorization = "Bearer " + std::string(secret);
+    // Only the owning API holds the write end. EOF also covers abrupt API exit
+    // on Windows, where TerminateProcess does not run Python cleanup handlers.
+    const char * lifetime = std::getenv("IMPRINT_VOICE_LIFETIME_PIPE");
+    if (!lifetime || std::string(lifetime) != "1") { return 1; }
+    std::thread([] { std::cin.get(); std::_Exit(0); }).detach();
     params.hostname = "127.0.0.1";
     common_init();''')
     start = source.index("    // CORS\n")
@@ -149,7 +156,7 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
             source.extractall(source_root, filter="data")
         tree = source_root / f"llama.cpp-{SOURCE_REVISION}"
         server = tree / "tools/liquid-audio/server.cpp"
-        server.write_bytes(patched_server(server.read_text()).encode("utf-8"))
+        server.write_bytes(patched_server(server.read_text(encoding="utf-8")).encode("utf-8"))
         build = root / f"live-build-{current}"
         options = ["-DGGML_METAL=OFF", "-DGGML_OPENMP=OFF", "-DGGML_BLAS=OFF"]
         if current == "windows-x64":
@@ -174,7 +181,7 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
                     "build_version": BUILD_VERSION, "target": current,
                     "patch_sha256": hashlib.sha256(server.read_bytes()).hexdigest(),
                     "binary_sha256": lfm._digest(binary)}
-        (root / "live-build.json").write_text(json.dumps(metadata, indent=2) + "\n")
+        (root / "live-build.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
         os.chmod(root / "live-build.json", 0o600)
         print("Live voice worker built. No microphone was opened.", flush=True)
 
@@ -183,7 +190,7 @@ def verify(root: Path) -> Path:
     current = target()
     lfm.verify_weights(root)
     try:
-        metadata = json.loads((root / "live-build.json").read_text())
+        metadata = json.loads((root / "live-build.json").read_text(encoding="utf-8"))
         binary = native_binary(root)
         # Check the patch implementation too, so a patch update requires rebuild.
         with tarfile.open(root / "live-source.tar.gz") as archive:

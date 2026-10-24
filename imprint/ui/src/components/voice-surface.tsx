@@ -28,10 +28,12 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     void fetch(`${API_BASE}/api/voice/status`, { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(setRuntime).catch(() => {});
     function hidden() { if (document.hidden) client.current?.stop(); }
     function blur() { client.current?.release(false); }
+    function transfer() { if (!compact) client.current?.stop(); }
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("blur", blur);
-    return () => { clearTimeout(timer); controller.abort(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); };
-  }, []);
+    window.addEventListener("imprint:stop-dashboard-voice", transfer);
+    return () => { clearTimeout(timer); controller.abort(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
+  }, [compact]);
   const energy = () => client.current?.level || 0;
   const ready = runtime?.installed && runtime.supported;
   const active = voice.connected || voice.phase === "connecting";
@@ -90,7 +92,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         </select></label>
         {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
       </div>
-      {runtime && !ready && <div className="voice-setup"><p>{runtime.supported ? "Local voice needs its optional speech runtime." : "The speech runtime currently supports Linux x64, including WSL2."}</p><a href="https://github.com/alexandruleca/imprint-memory-layer/blob/feat/local-voice-avatar/docs/live-voice.md" target="_blank" rel="noreferrer">Voice setup guide <ArrowUpRight size={12}/></a></div>}
+      {runtime && !ready && <div className="voice-setup"><p>{runtime.supported ? "Local voice needs its optional speech runtime." : "Voice supports Windows x64, macOS Intel/Apple Silicon and Linux x64."}</p><a href="https://github.com/alexandruleca/imprint-memory-layer/blob/feat/local-voice-avatar/docs/live-voice.md" target="_blank" rel="noreferrer">Voice setup guide <ArrowUpRight size={12}/></a></div>}
     </div>
     {!compact && <footer className="voice-footer"><span>PARTICLE STUDY 03 / ECHO</span><a href="/models/imprint-echo.glb" download><Download size={13}/> Download 3D model</a></footer>}
     {compact && desktop && <div className="voice-grip app-drag"><GripHorizontal size={16}/><span>Drag to move</span></div>}

@@ -20,4 +20,10 @@ function clipboardWritePermission(contents, permission, details, origin, windows
       && (!details?.requestingUrl || new URL(details.requestingUrl).origin === origin);
   } catch { return false; }
 }
-module.exports = { voicePage, audioPermission, clipboardWritePermission };
+async function macMicrophoneConsent(preferences) {
+  const status = preferences.getMediaAccessStatus('microphone');
+  if (status === 'granted') return true;
+  if (status !== 'not-determined') return false;
+  return preferences.askForMediaAccess('microphone');
+}
+module.exports = { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent };

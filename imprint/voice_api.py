@@ -56,12 +56,12 @@ class Worker:
                    "-t", "4", "-c", "4096", "-ngl", "0", "--no-mmproj-offload", "--offline",
                    "--host", "127.0.0.1", "--port", str(port), "--seed", "42"]
         environment = voice_runtime.child_environment()
-        environment.update(IMPRINT_VOICE_BACKEND_TOKEN=token, OMP_NUM_THREADS="4")
+        environment.update(IMPRINT_VOICE_BACKEND_TOKEN=token, IMPRINT_VOICE_LIFETIME_PIPE="1", OMP_NUM_THREADS="4")
         # Upstream logs can echo private prompts. Never publish or retain them.
         # Popen works on both Windows Selector and Proactor loops (including
         # uvicorn/threaded test servers); asyncio subprocess pipes do not.
         self.process = subprocess.Popen(
-            command, cwd=root, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            command, cwd=root, env=environment, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, **voice_runtime.child_options())
         self.client = httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", trust_env=False,
                                         headers={"Authorization": f"Bearer {token}"}, timeout=90)
@@ -85,8 +85,9 @@ class Worker:
             await self.client.aclose()
             self.client = None
         process, self.process = self.process, None
+        if process and process.stdin:
+            process.stdin.close()
         if process and process.poll() is None:
-            process.terminate()
             try:
                 await asyncio.to_thread(process.wait, timeout=2)
             except subprocess.TimeoutExpired:
@@ -395,7 +396,12 @@ async def stream(websocket: WebSocket):
 
         awaiting: dict[int, tuple[str, str]] = {}
         while time.monotonic() < deadline:
-            raw = await asyncio.wait_for(websocket.receive_text(), 120)
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), 120)
+            except TimeoutError:
+                if turn_task and not turn_task.done():
+                    continue
+                raise
             if len(raw) > MAX_MESSAGE:
                 raise PrototypeError("Voice message exceeds its size limit.")
             message = json.loads(raw)

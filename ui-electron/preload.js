@@ -12,6 +12,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openCompanion: () => ipcRenderer.send('voice-open-companion'),
   closeCompanion: () => ipcRenderer.send('voice-close-companion'),
   pinCompanion: pinned => ipcRenderer.send('voice-pin-companion', pinned),
+  getCompanionState: () => ipcRenderer.invoke('voice-companion-state'),
+  setCompanionVisible: enabled => ipcRenderer.invoke('voice-set-companion', enabled),
+  onCompanionState: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('voice-companion-state', listener);
+    return () => ipcRenderer.removeListener('voice-companion-state', listener);
+  },
   startupState: () => ipcRenderer.invoke('startup-state'),
   retryStartup: () => ipcRenderer.send('startup-retry'),
   openStartupLog: () => ipcRenderer.send('startup-log'),

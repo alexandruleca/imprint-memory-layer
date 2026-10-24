@@ -8,6 +8,10 @@ on:
       - 'imprint/voice*.py'
       - 'imprint/lfm_audio.py'
       - 'scripts/smoke-live-voice.py'
+      - 'scripts/smoke-voice-desktop.py'
+      - 'ui-electron/**'
+      - 'imprint/ui/src/components/companion-toggle.tsx'
+      - 'imprint/ui/src/styles/voice.css'
       - 'tests/test_voice.py'
       - '.github/workflows/voice-native.yml'
 
@@ -40,6 +44,9 @@ jobs:
           cache-dependency-path: |
             requirements/base.lock.txt
             requirements/cpu.lock.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Install locked runtime dependencies
         run: python -m pip install --require-hashes -r requirements/base.lock.txt -r requirements/cpu.lock.txt
       - name: Configure native Windows compiler
@@ -62,13 +69,29 @@ jobs:
         run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4
       - name: Exercise real speech, transport and cancellation
         shell: bash
-        run: python scripts/smoke-live-voice.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-evidence"
+        run: python scripts/smoke-live-voice.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-evidence" --native-logs
+      - name: Build desktop UI and install Electron
+        shell: bash
+        run: |
+          npm ci --prefix imprint/ui
+          npm run build --prefix imprint/ui
+          npm ci --prefix ui-electron
+          node ui-electron/node_modules/electron/install.js
+      - name: Native transparent companion and dashboard toggle
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop"
+          else
+            python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop"
+          fi
       - name: Preserve native evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: voice-${{ matrix.os }}-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/voice-evidence/summary.json
+            ${{ runner.temp }}/voice-evidence/
             ${{ env.VOICE_CACHE }}/live-build.json
+            ${{ runner.temp }}/voice-desktop/
           if-no-files-found: warn

@@ -8,11 +8,13 @@ provisioning another model or touching user chat history. No microphone opens.
 import argparse
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import platform
 from pathlib import Path
 import socket
+import subprocess
 import tempfile
 import time
 import wave
@@ -42,16 +44,25 @@ async def run(runtime: Path, output: Path):
         start = time.monotonic()
         await voice.sessions.worker.start()
         results["worker_start_seconds_including_verification"] = time.monotonic() - start
+        print(f"Worker ready after {time.monotonic() - start:.2f}s", flush=True)
         client = voice.sessions.worker.client
         assert client is not None
         assert (await client.get("/health", headers={"Authorization": "Bearer wrong"})).status_code == 403
         assert (await client.get("/health", headers={"Origin": address})).status_code == 403
         results["checks"]["native_auth_and_browser_origin_denial"] = True
+        owned = voice.sessions.worker.process
+        assert owned is not None and owned.stdin is not None
+        owned.stdin.close()
+        await asyncio.to_thread(owned.wait, timeout=5)
+        assert owned.returncode == 0
+        results["checks"]["worker_exits_on_parent_pipe_eof"] = True
         pcm = bytearray()
+        start_tts = time.monotonic()
         async for event in voice.sessions.worker.stream("Perform TTS. Use the US female voice.",
                                                        "What is the name of our release mascot?"):
             if event["type"] == "audio":
                 pcm.extend(base64.b64decode(event["data"]))
+        print(f"Question TTS: {time.monotonic() - start_tts:.2f}s, {len(pcm) / 48000:.2f}s audio", flush=True)
         with wave.open(str(output / "question.wav"), "wb") as sound:
             sound.setnchannels(1); sound.setsampwidth(2); sound.setframerate(24000); sound.writeframes(pcm)
         question = base64.b64encode((output / "question.wav").read_bytes()).decode()
@@ -71,6 +82,8 @@ async def run(runtime: Path, output: Path):
                     await ws.send(json.dumps({"type": "turn", "id": 1, "audio": question}))
                     while True:
                         event = json.loads(await asyncio.wait_for(ws.recv(), 120))
+                        if event["type"] in {"state", "user", "error"}:
+                            print(f"Speech turn +{time.monotonic() - start:.2f}s: {event}", flush=True)
                         if event["type"] == "error":
                             raise RuntimeError(event["error"])
                         if event["type"] == "user":
@@ -156,6 +169,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-dir", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--native-logs", action="store_true", help="Retain native logs from these disposable synthetic fixtures only")
     args = parser.parse_args()
     output = args.output_dir.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
@@ -163,7 +177,18 @@ def main():
         "IMPRINT_DATA_DIR": directory, "IMPRINT_VOICE_RUNTIME_DIR": str(args.runtime_dir.resolve()),
         "IMPRINT_CHAT_PROVIDER": "local", "IMPRINT_WORKSPACE": "",
     }):
-        asyncio.run(run(args.runtime_dir.resolve(), output))
+        with contextlib.ExitStack() as stack:
+            if args.native_logs:
+                original_popen = subprocess.Popen
+                counter = 0
+                def logged_process(*arguments, **kwargs):
+                    nonlocal counter
+                    counter += 1
+                    stream = stack.enter_context((output / f"native-{counter}.log").open("wb"))
+                    kwargs.update(stdout=stream, stderr=subprocess.STDOUT)
+                    return original_popen(*arguments, **kwargs)
+                stack.enter_context(patch.object(subprocess, "Popen", side_effect=logged_process))
+            asyncio.run(run(args.runtime_dir.resolve(), output))
 
 
 if __name__ == "__main__":

@@ -37,6 +37,14 @@ system/temp environment needed by the loader while excluding provider tokens
 and proxy settings. Keep the existing loopback authentication, origin, workspace,
 read-only and cancellation boundaries.
 
+A private stdin lifetime pipe makes the worker exit even if its owning API is
+abruptly terminated; Windows does not run Python cleanup on TerminateProcess.
+macOS microphone consent is requested only for the user's mic action, with
+denied/restricted states honored. The app includes microphone/JIT entitlements.
+Graphical CI uses explicit disposable Electron profiles on every OS and checks
+transparent PNG pixels and dashboard toggle cleanup. macOS TCC dialogs remain
+manual validation; automation does not bypass production consent policy.
+
 Native CI builds and exercises real speech, HTTP/WebSocket transport, workspace
 binding, authentication and mid-speech cancellation on Windows, macOS Intel,
 macOS Apple Silicon and Linux. A workflow definition or cross-compilation is

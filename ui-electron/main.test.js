@@ -14,7 +14,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   const services = [];
   const calls = [];
   const ipcMain = new EventEmitter();
-  ipcMain.handle = () => {};
+  const handlers = {};
+  ipcMain.handle = (name, handler) => { handlers[name] = handler; };
   const app = new EventEmitter();
   app.isPackaged = packaged;
   app.requestSingleInstanceLock = () => true;
@@ -46,6 +47,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     hide() { this.visible = false; }
     focus() {}
     setAlwaysOnTop(pinned) { this.pinned = pinned; }
+    isAlwaysOnTop() { return !!this.pinned; }
     isDestroyed() { return this.destroyed; }
     isMinimized() { return !!this.minimized; }
     minimize() { this.minimized = true; }
@@ -92,6 +94,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
   });
   return { app, windows, services, calls, ipcMain,
+    invoke: (name, window, ...args) => handlers[name]({ sender: window.webContents }, ...args),
     emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
 
@@ -112,6 +115,23 @@ test('splash precedes probes/service and stays until dashboard finishes loading'
   await settle();
   assert.equal(h.windows[0].destroyed, true);
   assert.equal(h.windows[1].visible, true);
+});
+
+test('dashboard toggle opens and destroys Echo from any app page, reflecting manual close', async () => {
+  const h = harness({ alreadyUp: true });
+  await settle();
+  const dashboard = h.windows[1];
+  assert.equal(h.invoke('voice-companion-state', dashboard).open, false);
+  assert.equal(await h.invoke('voice-set-companion', dashboard, true).then(state => state.open), true);
+  const companion = h.windows[2];
+  assert.equal(h.invoke('voice-companion-state', dashboard).open, true);
+  assert.equal(h.invoke('voice-companion-state', h.windows[0]), null);
+  await h.invoke('voice-set-companion', dashboard, false);
+  assert.equal(companion.destroyed, true);
+  assert.equal(h.invoke('voice-companion-state', dashboard).open, false);
+  await h.invoke('voice-set-companion', dashboard, true);
+  h.windows[3].destroy();
+  assert.equal(h.invoke('voice-companion-state', dashboard).open, false);
 });
 
 test('development launch also retains the first runtime option', async () => {
