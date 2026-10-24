@@ -2,7 +2,7 @@
   --echo-ink: #dceaf1;
   --echo-muted: #92a5b1;
   position: relative;
-  min-height: calc(100vh - 48px);
+  min-height: 100%;
   overflow: hidden;
   background: #090f16;
   color: var(--echo-ink);
@@ -382,7 +382,6 @@
   scrollbar-width: thin;
 }
 .voice-compact {
-  min-height: 100%;
   background: transparent;
   padding: 16px 20px 12px;
   border: 0;
