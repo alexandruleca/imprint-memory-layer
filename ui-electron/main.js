@@ -1,11 +1,13 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
 const http = require('node:http');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
 const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
+const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, trayImage } = require('./companion');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -26,6 +28,7 @@ const PYTHON = arg('--python') ?? (PROJECT_DIR && path.join(
 const PORT = new URL(UI_URL).port || '80';
 const PROFILE_DIR = arg('--user-data-dir');
 if (PROFILE_DIR) app.setPath('userData', path.resolve(PROFILE_DIR));
+if (process.platform === 'linux') app.commandLine?.appendSwitch('enable-features', 'GlobalShortcutsPortal');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -35,6 +38,10 @@ if (!app.requestSingleInstanceLock()) {
 let win = null;
 let startupWin = null;
 let companionWin = null;
+let launcherWin = null;
+let launcherDrag = null;
+let hidingDashboard = false;
+let wantLauncher = false;
 let tray = null;
 let service = null; // Set only for a service this Electron instance spawned.
 let phase = 'starting';
@@ -42,6 +49,25 @@ let message = 'Starting your local service…';
 let attempt = 0;
 let quitting = false;
 let cleanupFinished = false;
+let companionDrag = null;
+let shortcutAvailable = false;
+
+function savedCompanionBounds(name = 'echo-window.json') {
+  try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), name), 'utf8')); }
+  catch { return null; }
+}
+function saveCompanionBounds(window = companionWin, name = 'echo-window.json') {
+  if (!window || window.isDestroyed()) return;
+  try {
+    const directory = app.getPath('userData');
+    fs.mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, name);
+    fs.writeFileSync(file + '.tmp', JSON.stringify(window.getBounds()), { mode: 0o600 });
+    fs.renameSync(file + '.tmp', file);
+  } catch { /* Position persistence must not stop voice or window recovery. */ }
+}
+function companionArea() { return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea; }
+function recoverCompanion() { return openCompanion(true); }
 
 const windowOptions = {
   title: 'Imprint',
@@ -80,6 +106,8 @@ function updateStartup() {
 function closeWindow(window) {
   if (phase !== 'ready') {
     app.quit(); // The splash's close button cancels startup.
+  } else if (window === win) {
+    void hideDashboard();
   } else if (tray) {
     window.hide();
   } else {
@@ -135,6 +163,7 @@ async function openDashboard(id) {
     if (!quitting) { e.preventDefault(); closeWindow(window); }
   });
   window.on('closed', () => { if (win === window) win = null; });
+  window.on('minimize', () => { if (!quitting && phase === 'ready') void hideDashboard(); });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (sameOrigin(url, UI_ORIGIN)) window.loadURL(url).catch(err => showError(err.message));
     else if (externalURL(url)) shell.openExternal(url);
@@ -192,21 +221,80 @@ async function start() {
 
 function showWindow() {
   if (quitting) return;
+  wantLauncher = false;
   const window = phase === 'ready' ? win : startupWin;
   if (window) {
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
+    launcherWin?.hide();
   }
 }
 
+async function hideDashboard() {
+  if (hidingDashboard || quitting || !win) return;
+  hidingDashboard = true;
+  wantLauncher = true;
+  try {
+    const opening = showLauncher();
+    if (tray) win.hide();
+    await opening;
+    if (!wantLauncher || quitting) return;
+    if (tray || launcherWin?.isVisible()) win.hide();
+    else win.minimize();
+  } finally { hidingDashboard = false; }
+}
+async function showLauncher() {
+  if (quitting || phase !== 'ready') return;
+  if (launcherWin) { launcherWin.showInactive(); return; }
+  const window = new BrowserWindow({ ...windowOptions, ...fitLauncher(savedCompanionBounds('launcher-window.json'), companionArea()),
+    title: 'Imprint launcher', transparent: true, backgroundColor: '#00000000', resizable: false,
+    hasShadow: false, alwaysOnTop: true, skipTaskbar: true, minWidth: 48, minHeight: 48 });
+  launcherWin = window;
+  window.on('closed', () => { if (launcherWin === window) launcherWin = null; launcherDrag = null; });
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => {
+    if (url !== `${UI_ORIGIN}/launcher/`) event.preventDefault();
+  });
+  try {
+    await window.loadURL(`${UI_ORIGIN}/launcher/`);
+    if (!quitting && wantLauncher && !window.isDestroyed()) window.showInactive();
+  } catch { if (!window.isDestroyed()) window.destroy(); }
+}
+function trustedLauncher(event) {
+  return launcherWin?.webContents === event.sender
+    && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
+    && event.sender.getURL() === `${UI_ORIGIN}/launcher/`;
+}
+ipcMain.on('launcher-open', event => { if (trustedLauncher(event)) showWindow(); });
+ipcMain.on('launcher-menu', event => {
+  if (!trustedLauncher(event)) return;
+  Menu.buildFromTemplate([{ label: 'Open Dashboard', click: showWindow },
+    { label: 'Show Echo', accelerator: SHORTCUT, click: recoverCompanion },
+    { type: 'separator' }, { label: 'Quit Imprint', click: () => app.quit() }]).popup({ window: launcherWin });
+});
+ipcMain.on('launcher-drag-start', (event, origin) => {
+  if (trustedLauncher(event) && point(origin)) launcherDrag = { bounds: launcherWin.getBounds(), origin };
+});
+ipcMain.on('launcher-drag-move', (event, current) => {
+  if (!trustedLauncher(event) || !launcherDrag) return;
+  const bounds = dragBounds(launcherDrag.bounds, launcherDrag.origin, current);
+  if (bounds) launcherWin.setPosition(bounds.x, bounds.y);
+});
+ipcMain.on('launcher-drag-end', event => {
+  if (!trustedLauncher(event)) return;
+  launcherDrag = null;
+  launcherWin.setBounds(fitLauncher(launcherWin.getBounds(), screen.getDisplayMatching(launcherWin.getBounds()).workArea));
+  saveCompanionBounds(launcherWin, 'launcher-window.json');
+});
+
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray-icon.png'));
+  const icon = trayImage(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray-icon.png')), process.platform);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip('Imprint');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Dashboard', click: showWindow },
-    { label: 'Float Echo', click: openCompanion },
+    { label: 'Float Echo', accelerator: SHORTCUT, click: recoverCompanion },
     { type: 'separator' },
     { label: 'Quit Imprint', click: () => app.quit() },
   ]));
@@ -218,7 +306,7 @@ function appWindow(event) {
   return [win, startupWin, companionWin].some(window => window?.webContents === event.sender);
 }
 ipcMain.on('win-close', event => {
-  if (companionWin?.webContents === event.sender) { companionWin.destroy(); return; }
+  if (companionWin?.webContents === event.sender) { saveCompanionBounds(); companionWin.destroy(); return; }
   if (appWindow(event)) closeWindow(BrowserWindow.fromWebContents(event.sender));
 });
 
@@ -233,7 +321,7 @@ function trustedDashboardSender(event) {
     && sameOrigin(event.sender.getURL(), UI_ORIGIN);
 }
 function companionState() {
-  return { open: !!companionWin, pinned: !!companionWin?.isAlwaysOnTop() };
+  return { open: !!companionWin, pinned: !!companionWin?.isAlwaysOnTop(), shortcut: SHORTCUT, shortcutAvailable };
 }
 function notifyCompanion() {
   const state = companionState();
@@ -241,15 +329,23 @@ function notifyCompanion() {
     if (window && !window.isDestroyed()) window.webContents.send('voice-companion-state', state);
   }
 }
-async function openCompanion() {
+async function openCompanion(recover = false) {
   if (quitting || phase !== 'ready') return;
-  if (companionWin) { companionWin.show(); companionWin.focus(); return; }
-  const window = new BrowserWindow({ ...windowOptions, title: 'Imprint · Echo', width: 380, height: 610,
-    minWidth: 340, minHeight: 560, transparent: true, backgroundColor: '#00000000',
+  if (companionWin) {
+    companionWin.setBounds(fitBounds(companionWin.getBounds(), companionArea(), recover));
+    if (companionWin.isMinimized()) companionWin.restore();
+    if (recover && process.platform === 'darwin') app.focus?.({ steal: true });
+    companionWin.show(); companionWin.moveTop(); companionWin.focus();
+    saveCompanionBounds(); return;
+  }
+  const bounds = fitBounds(savedCompanionBounds(), companionArea(), recover);
+  const window = new BrowserWindow({ ...windowOptions, ...bounds, title: 'Imprint · Echo',
+    minWidth: 280, minHeight: 360, transparent: true, backgroundColor: '#00000000',
     resizable: false, hasShadow: false, alwaysOnTop: false });
   companionWin = window;
   notifyCompanion();
-  window.on('closed', () => { if (companionWin === window) companionWin = null; notifyCompanion(); });
+  window.on('close', () => saveCompanionBounds(window));
+  window.on('closed', () => { if (companionWin === window) companionWin = null; companionDrag = null; notifyCompanion(); });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalURL(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -263,17 +359,37 @@ async function openCompanion() {
     if (!quitting && !window.isDestroyed()) { window.show(); window.focus(); }
   } catch { if (!window.isDestroyed()) window.destroy(); }
 }
-ipcMain.handle('voice-companion-state', event => trustedDashboardSender(event) ? companionState() : null);
+ipcMain.handle('voice-companion-state', event => trustedDashboardSender(event)
+  || (companionWin?.webContents === event.sender && trustedVoiceSender(event)) ? companionState() : null);
 ipcMain.handle('voice-set-companion', async (event, enabled) => {
   if (!trustedDashboardSender(event) || typeof enabled !== 'boolean') return null;
   if (enabled) await openCompanion();
-  else companionWin?.destroy();
+  else { saveCompanionBounds(); companionWin?.destroy(); }
   notifyCompanion();
   return companionState();
 });
+ipcMain.on('voice-recover-companion', event => {
+  if (trustedDashboardSender(event) || (companionWin?.webContents === event.sender && trustedVoiceSender(event))) void recoverCompanion();
+});
+ipcMain.on('voice-drag-start', (event, origin) => {
+  if (companionWin?.webContents !== event.sender || !trustedVoiceSender(event) || !point(origin)) return;
+  companionDrag = { bounds: companionWin.getBounds(), origin };
+});
+ipcMain.on('voice-drag-move', (event, current) => {
+  if (!companionDrag || companionWin?.webContents !== event.sender || !trustedVoiceSender(event)) return;
+  const bounds = dragBounds(companionDrag.bounds, companionDrag.origin, current);
+  if (bounds) companionWin.setPosition(bounds.x, bounds.y);
+});
+ipcMain.on('voice-drag-end', event => {
+  if (companionWin?.webContents !== event.sender || !trustedVoiceSender(event)) return;
+  companionDrag = null;
+  const bounds = companionWin.getBounds();
+  companionWin.setBounds(fitBounds(bounds, screen.getDisplayMatching(bounds).workArea));
+  saveCompanionBounds();
+});
 ipcMain.on('voice-open-companion', event => { if (trustedVoiceSender(event)) void openCompanion(); });
 ipcMain.on('voice-close-companion', event => {
-  if (companionWin?.webContents === event.sender && trustedVoiceSender(event)) companionWin.destroy();
+  if (companionWin?.webContents === event.sender && trustedVoiceSender(event)) { saveCompanionBounds(); companionWin.destroy(); }
 });
 ipcMain.on('voice-pin-companion', (event, pinned) => {
   if (typeof pinned === 'boolean' && companionWin?.webContents === event.sender && trustedVoiceSender(event)) {
@@ -281,7 +397,11 @@ ipcMain.on('voice-pin-companion', (event, pinned) => {
   }
 });
 ipcMain.on('app-quit', event => { if (appWindow(event)) app.quit(); });
-ipcMain.on('win-minimize', event => { if (appWindow(event)) BrowserWindow.fromWebContents(event.sender)?.minimize(); });
+ipcMain.on('win-minimize', event => {
+  if (!appWindow(event)) return;
+  if (event.sender === win?.webContents) void hideDashboard();
+  else BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
 ipcMain.on('win-maximize', event => {
   if (win?.webContents !== event.sender) return;
   win.isMaximized() ? win.unmaximize() : win.maximize();
@@ -303,11 +423,13 @@ app.on('before-quit', event => {
   event.preventDefault();
   if (quitting) return;
   quitting = true;
+  globalShortcut.unregisterAll();
   ++attempt;
   win?.hide();
   startupWin?.hide();
   // Releasing this renderer also closes its mic/socket on a reused daemon.
-  companionWin?.destroy();
+  saveCompanionBounds(); companionWin?.destroy();
+  saveCompanionBounds(launcherWin, 'launcher-window.json'); launcherWin?.destroy();
   Promise.resolve(service?.stop()).finally(() => {
     cleanupFinished = true;
     app.quit();
@@ -315,6 +437,19 @@ app.on('before-quit', event => {
 });
 
 app.whenReady().then(() => {
+  try { shortcutAvailable = globalShortcut.register(SHORTCUT, () => { void recoverCompanion(); }); }
+  catch { shortcutAvailable = false; }
+  screen.on('display-removed', () => {
+    if (companionWin) void recoverCompanion();
+    if (launcherWin) launcherWin.setBounds(fitLauncher(null, companionArea()));
+  });
+  screen.on('display-metrics-changed', () => {
+    if (launcherWin) launcherWin.setBounds(fitLauncher(launcherWin.getBounds(), screen.getDisplayMatching(launcherWin.getBounds()).workArea));
+    if (companionWin) {
+      const bounds = companionWin.getBounds();
+      companionWin.setBounds(fitBounds(bounds, screen.getDisplayMatching(bounds).workArea));
+    }
+  });
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(true); return; }
     if (!audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(false); return; }

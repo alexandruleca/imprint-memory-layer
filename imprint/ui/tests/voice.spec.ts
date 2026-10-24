@@ -36,7 +36,7 @@ test('Echo loads its real 3D asset; microphone is off until explicitly enabled',
   expect(errors).toEqual([]);
 });
 
-test('a desktop without WebGL still projects the real 3D particle head onto transparent canvas', async ({ page }) => {
+test('a desktop without WebGL still projects the textured 3D anime head onto transparent canvas', async ({ page }) => {
   await prepare(page);
   await page.addInitScript(() => {
     const original = HTMLCanvasElement.prototype.getContext;
@@ -166,4 +166,32 @@ test('first-time chat setup shows real download progress in Voice and ignores la
   await page.getByRole('button', { name: 'Interrupt reply' }).click();
   server.send({ type: 'provision', id: 1, stage: 'download', downloaded: 900000000, total: 1000000000 });
   await expect(page.getByRole('region', { name: 'Local chat preparation' })).toHaveCount(0);
+});
+
+test('compact chat download keeps cancellation controls inside the viewport', async ({ page }) => {
+  const server = await prepare(page); await page.setViewportSize({ width: 320, height: 420 });
+  await page.goto('/companion/'); await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('textbox', { name: 'Type a question' }).fill('Hello');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect.poll(() => server.controls.some(c => c.type === 'turn')).toBe(true);
+  server.send({ type: 'provision', id: 1, stage: 'download', downloaded: 1024, total: 4096 });
+  await expect(page.getByRole('region', { name: 'Local chat preparation' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Interrupt reply' })).toBeVisible();
+  expect(await page.locator('.voice-control-area').evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(420);
+});
+
+test('floating launcher distinguishes dragging from opening and supports keyboard after a drag', async ({ page }) => {
+  await page.addInitScript(() => {
+    const calls: string[] = []; Object.assign(window, { launcherCalls: calls });
+    window.electronAPI = { isElectron: true, platform: 'win32', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {},
+      openDashboard() { calls.push('open'); }, beginLauncherDrag() { calls.push('start'); },
+      moveLauncherDrag() { calls.push('move'); }, endLauncherDrag() { calls.push('end'); } };
+  });
+  await prepare(page); await page.setViewportSize({ width: 56, height: 56 }); await page.goto('/launcher/');
+  const button = page.getByRole('button', { name: 'Open Imprint' }); await button.waitFor();
+  await page.mouse.move(20,20); await page.mouse.down(); await page.mouse.move(40,35); await page.mouse.up();
+  const calls = () => page.evaluate(() => (window as unknown as { launcherCalls: string[] }).launcherCalls);
+  expect(await calls()).toContain('move'); expect(await calls()).not.toContain('open');
+  await button.press('Enter'); expect(await calls()).toContain('open');
 });

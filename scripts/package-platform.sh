@@ -23,6 +23,22 @@ mkdir -p "$STAGE/bin"
 cp "$SOURCE_BIN" "$STAGE/bin/imprint$EXT"
 chmod +x "$STAGE/bin/imprint$EXT"
 bash scripts/fetch-uv.sh "$OS" "$ARCH" "$STAGE"
+VOICE_TARGET=""
+case "$PLATFORM" in
+    linux/amd64) VOICE_TARGET=linux-x64 ;;
+    windows/amd64) VOICE_TARGET=windows-x64 ;;
+    darwin/amd64) VOICE_TARGET=macos-x64 ;;
+    darwin/arm64) VOICE_TARGET=macos-arm64 ;;
+esac
+if [ -n "$VOICE_TARGET" ]; then
+    ENGINE="build/voice/voice-engine-$VOICE_TARGET"
+    if [ -d "$ENGINE" ]; then
+        cp -R "$ENGINE" "$STAGE/imprint/voice-engine"
+        if [ "$OS" != windows ]; then chmod +x "$STAGE/imprint/voice-engine/live-native/$VOICE_TARGET/llama-liquid-audio-server"; fi
+    elif [ "${REQUIRE_VOICE_ENGINE:-0}" = 1 ]; then
+        echo "Missing native speech engine: $ENGINE" >&2; exit 1
+    fi
+fi
 case "$OS" in
     linux) UI="build/electron/linux-$ARCH/imprint-ui"; UI_NAME="imprint-ui" ;;
     darwin) UI="build/electron/imprint-ui.app"; UI_NAME="imprint-ui.app" ;;

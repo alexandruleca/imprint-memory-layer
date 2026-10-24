@@ -20,13 +20,23 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [text, setText] = useState("");
   const [pinned, setPinned] = useState(false);
   const [desktop, setDesktop] = useState(false);
+  const [shortcutAvailable, setShortcutAvailable] = useState(true);
   const setup = useVoiceSetup();
   const client = useRef<VoiceClient | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const drag = useRef<number | null>(null);
+  const shortcut = desktop ? window.electronAPI?.platform === "darwin" ? "⌘⌥⇧E" : "Ctrl+Alt+Shift+E" : "";
+  function endDrag(event?: React.PointerEvent<HTMLElement>) {
+    if (drag.current === null) return;
+    const pointer = drag.current; drag.current = null;
+    if (event?.currentTarget.hasPointerCapture(pointer)) event.currentTarget.releasePointerCapture(pointer);
+    window.electronAPI?.endCompanionDrag?.();
+  }
   useEffect(() => {
     client.current = new VoiceClient(setVoice);
     // Read host capabilities only after hydration.
     const timer = setTimeout(() => setDesktop(!!window.electronAPI?.openCompanion), 0);
+    void window.electronAPI?.getCompanionState?.().then(state => { if (state) { setPinned(state.pinned); setShortcutAvailable(state.shortcutAvailable !== false); } });
     const controller = new AbortController();
     void fetch(`${API_BASE}/api/voice/status`, { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(setRuntime).catch(() => {});
     function hidden() { if (document.hidden) client.current?.stop(); }
@@ -46,7 +56,15 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     if (window.electronAPI?.openCompanion) window.electronAPI.openCompanion();
     else window.open("/companion/", "imprint-echo", "popup,width=380,height=560");
   }
-  return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready || voice.preparation ? "voice-needs-setup" : ""}`} data-phase={voice.phase}>
+  return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready || voice.preparation ? "voice-needs-setup" : ""}`} data-phase={voice.phase}
+    onPointerDown={event => {
+      if (!compact || !desktop || event.button !== 0 || !(event.target instanceof Element)
+          || event.target.closest("button,input,select,textarea,a,summary,[role=slider],[role=switch]")) return;
+      drag.current = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId);
+      window.electronAPI?.beginCompanionDrag?.({ x: event.screenX, y: event.screenY }); event.preventDefault();
+    }}
+    onPointerMove={event => { if (drag.current === event.pointerId) window.electronAPI?.moveCompanionDrag?.({ x: event.screenX, y: event.screenY }); }}
+    onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={() => endDrag()}>
     <header className={`voice-header ${compact ? "app-drag" : ""}`}>
       <div className="voice-wordmark"><AudioLines size={17} aria-hidden="true"/><span>IMPRINT <b>/ ECHO</b></span></div>
       <div className="voice-window-actions app-no-drag">
@@ -102,7 +120,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </div>
       </>}
     </div>
-    {!compact && <footer className="voice-footer"><span>PARTICLE STUDY 03 / ECHO</span><a href="/models/imprint-echo.glb" download><Download size={13}/> Download 3D model</a></footer>}
-    {compact && desktop && <div className="voice-grip app-drag"><GripHorizontal size={16}/><span>Drag to move</span></div>}
+    {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href="/models/imprint-echo.glb" download><Download size={13}/> Download 3D model</a></footer>}
+    {compact && desktop && <div className="voice-grip"><GripHorizontal size={14}/><span>Drag anywhere · {shortcutAvailable ? `${shortcut} to recall` : "Recall from Imprint tray menu"}</span></div>}
   </section>;
 }

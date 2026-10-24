@@ -13,6 +13,7 @@ python/
 .setup-result
 first-run.log
 data/
+imprint/voice-engine/
 benchmark/results/
 bin/qdrant-*
 site/node_modules/

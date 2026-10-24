@@ -21,6 +21,7 @@ first-run.log
 .env.*
 data/
 build/
+imprint/voice-engine/
 dist/
 
 # Website (GitHub Pages site, built separately)

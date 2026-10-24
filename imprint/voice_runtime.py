@@ -21,7 +21,7 @@ SOURCE_REVISION = "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b"
 SOURCE_SHA256 = expected_digest("lfm-audio-live-source", SOURCE_REVISION, "live-source.tar.gz")
 PATCH_VERSION = 2
 SERVER = "llama-liquid-audio-server"
-BUILD_VERSION = 2
+BUILD_VERSION = 3
 
 
 def target() -> str:
@@ -40,8 +40,11 @@ def supported() -> bool:
         return False
 
 
-def native_binary(root: Path) -> Path:
-    return root / "live-native" / target() / (SERVER + (".exe" if target() == "windows-x64" else ""))
+def native_binary(root: Path, expected_target: str | None = None) -> Path:
+    current = expected_target or target()
+    if current not in {"linux-x64", "windows-x64", "macos-x64", "macos-arm64"}:
+        raise PrototypeError("Unsupported voice engine target")
+    return root / "live-native" / current / (SERVER + (".exe" if current == "windows-x64" else ""))
 
 
 def child_options() -> dict:
@@ -117,20 +120,30 @@ def patched_server(source: str) -> str:
 
 
 def install(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=None, download_prefix="") -> None:
+    if not 1 <= jobs <= 16:
+        raise PrototypeError("Build jobs must be 1–16.")
+    if not shutil.which(cmake):
+        raise PrototypeError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
+    lfm.install_weights(root, progress=progress, download_prefix=download_prefix)
+    build_engine(root, cmake=cmake, jobs=jobs, progress=progress, download_prefix=download_prefix)
+
+
+def build_engine(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=None, download_prefix="") -> None:
+    """Native release builder. Engine compilation never downloads model weights."""
     current = target()
     if not 1 <= jobs <= 16:
         raise PrototypeError("Build jobs must be 1–16.")
     executable = shutil.which(cmake)
     if not executable:
         raise PrototypeError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
-    lfm.install_weights(root, progress=progress, download_prefix=download_prefix)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
     def report(stage):
         if progress:
             progress({"stage": stage})
     from filelock import FileLock
     with FileLock(str(root / ".live-build.lock")):
         try:
-            verify(root)
+            verify_engine(root)
         except PrototypeError:
             pass
         else:
@@ -164,6 +177,8 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=None, d
         server.write_bytes(patched_server(server.read_text(encoding="utf-8")).encode("utf-8"))
         build = root / f"live-build-{current}"
         options = ["-DGGML_METAL=OFF", "-DGGML_OPENMP=OFF", "-DGGML_BLAS=OFF"]
+        if current == "linux-x64":
+            options += ["-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"]
         if current == "windows-x64":
             options += ["-A", "x64", "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
         elif current.startswith("macos-"):
@@ -196,11 +211,28 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=None, d
 
 
 def verify(root: Path) -> Path:
-    current = target()
     lfm.verify_weights(root)
+    return verify_engine(root)
+
+
+def installed(root: Path) -> bool:
+    """Cheap compatibility check for UI polling; launch still verifies hashes."""
     try:
         metadata = json.loads((root / "live-build.json").read_text(encoding="utf-8"))
-        binary = native_binary(root)
+        return (isinstance(metadata, dict) and metadata.get("source_revision") == SOURCE_REVISION and metadata.get("patch_version") == PATCH_VERSION
+                and metadata.get("build_version") == BUILD_VERSION and metadata.get("target") == target()
+                and native_binary(root).is_file())
+    except (OSError, ValueError):
+        return False
+
+
+def verify_engine(root: Path, expected_target: str | None = None) -> Path:
+    current = expected_target or target()
+    try:
+        metadata = json.loads((root / "live-build.json").read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            raise PrototypeError("Live voice metadata is invalid; run setup again.")
+        binary = native_binary(root, current)
         # Check the patch implementation too, so a patch update requires rebuild.
         with tarfile.open(root / "live-source.tar.gz") as archive:
             if lfm._digest(root / "live-source.tar.gz") != SOURCE_SHA256:

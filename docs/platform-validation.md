@@ -497,3 +497,32 @@ The [general CI for `56ed4dd`](https://github.com/alexandruleca/imprint-memory-l
 also passed all five native backend targets, 321 Python tests and 58 browser
 scenarios. The subsequent software-rendering fix passed the final frontend CI
 and native graphical matrix above. No release or installer was published.
+
+## Anime Echo and desktop refinement (2026-10-24)
+
+The refinement branch replaces the procedural head with a locally bundled CC0
+anime mesh, connected wire contours and textured CPU projection. Local checks
+executed: production UI build, lint, 334 Python tests, seven release-validator
+fixtures, 22 Electron fixtures, and 13 focused browser scenarios. The latter
+cover setup/download/error/ready controls without scrolling at 400×640 and
+320×420, active interruption and a transparent GPU-less head. Additional native
+window/release-engine evidence is recorded below as it is executed; these local
+checks alone do not establish Mac or Windows GUI support.
+
+The native workflow now builds release-style engines for all four supported
+voice targets. Linux uses a glibc 2.28 build container; Windows and both Macs
+build on native runners. Desktop smoke installs the shipped engine into a fresh
+disposable cache with PATH empty, reusing only verified weight files, then tests
+head/launcher dragging, recovery, global shortcut registration and minimize/Close.
+Physical global keypresses, Wayland compositor behavior, real acoustic VAD and
+signed installer behavior remain separate manual gates.
+
+Local Linux/WSLg native desktop execution passed with an actual transparent
+Electron window and compiler-free fresh-cache setup (`bundled_engine: true`).
+The smoke exercised whole-head movement, offscreen recovery, registered recall
+shortcut, pinning, microphone/session teardown and the draggable launcher after
+the dashboard's Minimize and Close controls. [Raw local evidence](evidence/2026-10-24-echo-anime-refinement.json)
+and [actual companion PNG](assets/voice/echo-anime-companion.png) are retained.
+The WSLg environment did not emit a native window-manager minimize event when
+programmatically minimizing; the smoke uses the app's actual Minimize control.
+OS minimize event routing is also covered by Electron fixtures.

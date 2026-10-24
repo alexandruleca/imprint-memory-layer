@@ -37,6 +37,10 @@ jobs:
             exit 1
           fi
 
+  voice-engines:
+    needs: branch-policy
+    uses: ./.github/workflows/voice-engine.yml
+
   chrome-extension:
     needs: branch-policy
     runs-on: ubuntu-latest
@@ -101,6 +105,7 @@ jobs:
           grep -Fx /preload.js /tmp/asar-files
           grep -Fx /navigation.js /tmp/asar-files
           grep -Fx /service.js /tmp/asar-files
+          grep -Fx /companion.js /tmp/asar-files
           grep -Fx /startup.html /tmp/asar-files
           grep -Fx /startup.css /tmp/asar-files
           grep -Fx /startup.js /tmp/asar-files
@@ -149,7 +154,7 @@ jobs:
           path: build/electron/imprint-ui.exe
 
   archives:
-    needs: [dashboard, electron-linux, electron-macos, electron-windows, chrome-extension]
+    needs: [dashboard, electron-linux, electron-macos, electron-windows, chrome-extension, voice-engines]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -186,6 +191,11 @@ jobs:
           name: electron-windows
           path: build/electron/
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: voice-engine-*
+          path: build/voice/
+
       - name: Unpack macOS .app bundle
         run: |
           tar xzf build/electron/imprint-ui.app.tar.gz -C build/electron/
@@ -202,7 +212,7 @@ jobs:
       - name: Package per-platform archives
         env:
           VERSION: ${{ inputs.version }}
-        run: REQUIRE_ELECTRON=1 make package
+        run: REQUIRE_ELECTRON=1 REQUIRE_VOICE_ENGINE=1 make package
 
       - uses: actions/upload-artifact@v4
         with:

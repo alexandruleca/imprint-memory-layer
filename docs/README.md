@@ -17,7 +17,7 @@ Experimental implementation: [PersonaPlex memory prototype](personaplex-prototyp
 
 Primary smaller-model experiment: [LFM2.5-Audio local voice](lfm-audio-prototype.md), with verified native CPU artifacts, read-only memory snapshots and offline speech tests.
 
-Live implementation: [Echo voice companion](live-voice.md), with a real particle head, floating window, push-to-talk, optional hands-free VAD, streamed local speech and routing to the existing local chat model.
+Live implementation: [Echo voice companion](live-voice.md), with a modeled anime hologram, floating window, push-to-talk, optional hands-free VAD, streamed local speech and routing to the existing local chat model.
 
 Cross-device context: [devices and portable project paths](devices.md).
 

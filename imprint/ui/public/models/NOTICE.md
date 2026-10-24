@@ -1,11 +1,16 @@
-Imprint Echo · particle head, version 1
+Imprint Echo · anime holographic head, version 3
 
-Derived from MediaPipe's Apache-2.0 canonical face model, copyright the MediaPipe
-Authors. Source revision a9c3cf246ecd002a4cdc779516c4b8df742403fd:
-https://github.com/google-ai-edge/mediapipe/blob/a9c3cf246ecd002a4cdc779516c4b8df742403fd/mediapipe/modules/face_geometry/data/canonical_face_model.obj
+Based on Sendagaya Shino, a CC0 beta VRoid Studio sample model by pixiv Inc.
+Original publisher's explicit CC0 dedication:
+https://vroid.pixiv.help/hc/ja/articles/360013482714
+See CC0-1.0.txt beside this file.
 
-Imprint changes: facial coordinate transforms, particle sampling/colors, skull
-and neck, dissolving particles, contours, jawOpen/blink morphs and glTF export.
-See Apache-2.0.txt beside this file. Keep this notice and license when sharing
-the derived model. This is a static geometric template with authored animation;
-it does not capture a person's face or require face tracking software.
+Pinned source mirror (original embedded VRM metadata also says CC0):
+https://github.com/madjin/vrm-samples/blob/e16eb187100149a315ad92c3c9968f1d5baa6c7d/vroid/beta/Sendagaya_Shino.vrm
+SHA256: 1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5
+
+Imprint changes: head-only bind-pose extraction, shorter rear hair, color palette,
+original headband/clasp, ordinary glTF export, retained mouth/blink expressions,
+holographic shading and fine animated wire contours. Echo is an adaptation of
+this sample, not an original model sculpt or a licensed Haruhi character asset.
+Rebuild with scripts/build-echo-avatar.mjs; the shipped model loads entirely locally.

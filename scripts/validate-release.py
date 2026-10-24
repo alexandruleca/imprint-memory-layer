@@ -33,9 +33,25 @@ def architectures(path: Path) -> set[str]:
     raise ValueError(f'Unrecognized executable: {path}')
 
 
-def validate(root: Path, platform: str) -> None:
+def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
     os_name, arch = platform.split('/')
     ext = '.exe' if os_name == 'windows' else ''
+    targets = {'linux/amd64': 'linux-x64', 'windows/amd64': 'windows-x64', 'darwin/amd64': 'macos-x64', 'darwin/arm64': 'macos-arm64'}
+    engine = root / 'imprint' / 'voice-engine'
+    if engine.exists() or (require_voice and platform in targets):
+        if platform not in targets:
+            raise ValueError('Speech engine is not supported for this target')
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from imprint.voice_runtime import verify_engine
+        binary = verify_engine(engine, targets[platform])
+        if architectures(binary) != {arch}:
+            raise ValueError('Speech engine architecture does not match release')
+        if not (engine / 'NOTICE.md').is_file():
+            raise ValueError('Speech engine notices are missing')
+        if os_name != 'windows' and not os.access(binary, os.X_OK):
+            raise ValueError('Speech engine is not executable')
+        if list(engine.rglob('*.gguf')):
+            raise ValueError('Voice model weights must not be bundled in releases')
     for name in ('personaplex-test.txt', 'personaplex-test.lock.txt'):
         if (root / 'requirements' / name).exists():
             raise ValueError(f'Development state in archive: requirements/{name}')
@@ -73,7 +89,7 @@ def validate(root: Path, platform: str) -> None:
 
 if __name__ == '__main__':
     try:
-        validate(Path(sys.argv[1]), sys.argv[2])
+        validate(Path(sys.argv[1]), sys.argv[2], require_voice=os.environ.get('REQUIRE_VOICE_ENGINE') == '1')
     except (ValueError, OSError, IndexError, struct.error) as exc:
         sys.exit(f'Release validation failed: {exc}')
     print(f'[+] Validated {sys.argv[2]} runtime tree')
