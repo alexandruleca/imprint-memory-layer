@@ -135,7 +135,7 @@ Usage:
   imprint profile add-llm    Install llama-cpp-python into active profile
   imprint profile drop-llm   Uninstall llama-cpp-python
   imprint ingest <path>      Index project source files (directory or single file)
-  imprint learn              Index Claude Code conversations + memory files
+  imprint learn              Index Claude Code + Codex conversations (incl. WSL profiles) + memory files
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)
   imprint refresh <dir>      Re-index only files that changed since last index
   imprint refresh-urls       Re-check stored URLs (ETag/Last-Modified) and re-index changed

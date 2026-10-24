@@ -137,33 +137,37 @@ def path_allowed(path, workspace=None):
 def transcript_allowed(path, workspace=None):
     """Whether a client conversation belongs to ``workspace`` (ADR 0034).
 
-    Ownership comes from the recorded cwd evidence, never the lossy encoded
+    Ownership comes from the recorded cwd evidence (Claude Code records it per
+    entry, Codex per session and turn; ADR 0037), never the lossy encoded
     Claude folder name: every cwd must be inside this workspace's roots or
     outside every other workspace's roots. A conversation about a project
     another workspace claimed stays there; one no workspace claimed is learned
     by the workspace that learns it. Without cwd evidence it belongs nowhere.
     """
-    import json
+    from .transcripts import records, recorded_cwd
     ws = workspace_name(workspace)
     with _db() as conn:
         claims = conn.execute('SELECT workspace, path FROM roots').fetchall()
     own = [Path(root) for owner, root in claims if owner == ws]
     others = [Path(root) for owner, root in claims if owner != ws]
-    seen = False
-    with open(path, encoding='utf-8') as transcript:
-        for line in transcript:
-            try:
-                cwd = json.loads(line).get('cwd')
-            except (ValueError, AttributeError):
-                continue
-            if cwd:
-                seen = True
-                if not isinstance(cwd, str) or not Path(native_path(cwd)).is_absolute():
-                    return False
-                where = canonical(cwd)
-                if not any(contains(root, where) for root in own) and any(contains(root, where) for root in others):
-                    return False
-    return seen
+    # Clients repeat the cwd on most records. Resolve each one once: through
+    # \\wsl.localhost every resolution is a filesystem round trip.
+    checked = set()
+    for record in records(path):
+        cwd = recorded_cwd(record)
+        if not cwd:
+            continue
+        if not isinstance(cwd, str):
+            return False
+        if cwd in checked:
+            continue
+        checked.add(cwd)
+        if not Path(native_path(cwd)).is_absolute():
+            return False
+        where = canonical(cwd)
+        if not any(contains(root, where) for root in own) and any(contains(root, where) for root in others):
+            return False
+    return bool(checked)
 
 
 def source_key(value):

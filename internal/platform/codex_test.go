@@ -17,6 +17,18 @@ func TestCodexPathsHonorProfile(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigDirHonorsProfile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	if got, want := ClaudeConfigDir(), filepath.Join(HomeDir(), ".claude"); got != want {
+		t.Errorf("default ClaudeConfigDir = %q, want %q", got, want)
+	}
+	custom := filepath.Join(t.TempDir(), "claude profile")
+	t.Setenv("CLAUDE_CONFIG_DIR", custom)
+	if got := ClaudeConfigDir(); got != custom {
+		t.Errorf("ClaudeConfigDir = %q, want %q", got, custom)
+	}
+}
+
 func TestDataDirHonorsRuntimeOverride(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "persistent data")
 	t.Setenv("IMPRINT_DATA_DIR", target)

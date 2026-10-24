@@ -1,20 +1,31 @@
-"""Index Claude Code conversation transcripts into imprint memory.
+"""Learn coding-client conversations into imprint memory.
 
-Parses JSONL transcripts, extracts Q+A exchange pairs, classifies each
-by type, and stores as searchable memories.
+Reads Claude Code session transcripts (plus Claude's auto-memory files) and
+Codex rollouts, extracts Q+A exchange pairs, classifies each by type, and
+stores them as searchable memories. A conversation's recorded working
+directory decides its workspace (ADR 0034) and its project name.
 
-Usage: python -m imprint.cli_conversations [--all] [--transcript <path>]
+A store is a client profile directory: Claude Code's CLAUDE_CONFIG_DIR
+(default ~/.claude) or Codex's CODEX_HOME (default ~/.codex). In a WSL path
+context (IMPRINT_WSL_DISTRO, as the WSL bridge sets it) Linux paths, the
+store's and the recorded cwds, resolve the way the bridge resolves them
+(ADR 0026, ADR 0037).
+
+Usage:
+  python -m imprint.cli_conversations --store claude-code|codex <dir> [--store ...]
+  python -m imprint.cli_conversations --transcript <path>
 """
 
-import json
+import argparse
 import os
+import re
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from imprint import chunker, tagger, vectorstore as vs
+from imprint import chunker, tagger, transcripts, vectorstore as vs
 from imprint.classifier import classify
 from imprint._cli_signals import install as _install_signals
 
@@ -30,33 +41,17 @@ C_YELLOW = "\033[1;33m"
 # Minimum useful exchange length — drop sub-100-char noise.
 MIN_EXCHANGE_LEN = 100
 
-
-def extract_text(msg: dict) -> str:
-    """Extract plain text from a Claude message, skipping thinking/tool_use blocks."""
-    content = msg.get("content", [])
-    if isinstance(content, str):
-        return content
-    texts = []
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            texts.append(block["text"])
-    return "\n\n".join(texts)
+CLIENTS = {"claude-code": "Claude Code", "codex": "Codex"}
 
 
 def parse_exchanges(transcript_path: str) -> list[dict]:
     """Parse a transcript JSONL into Q+A exchange pairs."""
-    entries = []
     try:
-        with open(transcript_path, "r") as f:
-            for line in f:
-                try:
-                    entries.append(json.loads(line.strip()))
-                except json.JSONDecodeError:
-                    continue
-    except Exception:
+        entries = list(transcripts.records(transcript_path))
+    except (OSError, ValueError):
         return []
 
-    # Get session title if available
+    # Get session title if available (Claude Code)
     title = ""
     for e in entries:
         if e.get("type") == "ai-title":
@@ -69,18 +64,17 @@ def parse_exchanges(transcript_path: str) -> list[dict]:
     assistant_msgs = []
 
     for e in entries:
-        if e.get("type") == "user":
-            text = extract_text(e.get("message", {}))
-            if text and len(text.strip()) > 10:
-                # If we have a pending pair, save it
-                if user_msgs and assistant_msgs:
-                    exchanges.append(_build_exchange(user_msgs, assistant_msgs, title))
-                user_msgs = [text]
-                assistant_msgs = []
-        elif e.get("type") == "assistant":
-            text = extract_text(e.get("message", {}))
-            if text and len(text.strip()) > 10:
-                assistant_msgs.append(text)
+        role, text = transcripts.message(e) or (None, "")
+        if not text or len(text.strip()) <= 10:
+            continue
+        if role == "user":
+            # If we have a pending pair, save it
+            if user_msgs and assistant_msgs:
+                exchanges.append(_build_exchange(user_msgs, assistant_msgs, title))
+            user_msgs = [text]
+            assistant_msgs = []
+        else:
+            assistant_msgs.append(text)
 
     # Save last pair
     if user_msgs and assistant_msgs:
@@ -91,7 +85,6 @@ def parse_exchanges(transcript_path: str) -> list[dict]:
 
 def _clean_user_text(text: str) -> str:
     """Strip system tags and noise from user messages."""
-    import re
     # Remove XML-style system tags
     text = re.sub(r"<[^>]+>.*?</[^>]+>", "", text, flags=re.DOTALL)
     text = re.sub(r"<[^>]+/>", "", text)
@@ -132,57 +125,106 @@ def _build_exchange(user_msgs: list[str], assistant_msgs: list[str], title: str)
     }
 
 
-def derive_project(transcript_path: str) -> str:
-    """Derive project name from transcript path.
+def derive_project(cwd: str) -> str:
+    """Derive the project name from a conversation's recorded working directory.
 
-    Claude project dirs look like: -home-user-code-myorg-node-my-web-app
-    We want the last meaningful segment: my-web-app
-    For paths like -home-user-code-imprint, we get: imprint
+    The name is read from Claude Code's folder name for that directory (every
+    character other than a letter or digit becomes "-"), as learning always
+    has: -home-user-code-node-my-web-app gives my-web-app and
+    -home-user-code-imprint gives imprint. Using the recorded cwd instead of
+    the path a transcript was found at gives a conversation one name however
+    its store is reached (natively or through \\\\wsl.localhost), and gives
+    Codex sessions the same names as Claude Code sessions.
     """
-    parts = transcript_path.split("/")
-    for part in parts:
-        if part.startswith("-home-") and "code-" in part:
-            idx = part.index("code-") + 5
-            remainder = part[idx:]
-            # Split by known grouping prefixes and take the last project name
-            segments = remainder.split("-")
-            # Skip known group prefixes (org dirs, language dirs, etc.)
-            skip = {"node", "python", "php", "personal", "workspaces"}
-            # Find the first non-skip segment — that starts the project name
-            project_parts = []
-            found_start = False
-            for seg in segments:
-                if not found_start and seg in skip:
-                    continue
-                found_start = True
-                project_parts.append(seg)
-            if project_parts:
-                return "-".join(project_parts)
-            return remainder
-    return ""
+    folder = re.sub(r"[^A-Za-z0-9]", "-", cwd)
+    if not folder.startswith("-home-") or "code-" not in folder:
+        return ""
+    remainder = folder[folder.index("code-") + 5:]
+    # Skip known group prefixes (org dirs, language dirs, etc.) up to the
+    # first segment that starts the project name.
+    skip = {"node", "python", "php", "personal", "workspaces"}
+    segments = remainder.split("-")
+    while segments and segments[0] in skip:
+        segments.pop(0)
+    return "-".join(segments) or remainder
 
 
-def find_all_transcripts() -> list[tuple[str, str]]:
-    """Find all Claude Code transcripts. Returns [(path, project)]."""
-    claude_dir = Path.home() / ".claude" / "projects"
-    if not claude_dir.exists():
-        return []
+def identify(transcript_path: str) -> tuple[str, str]:
+    """(source key, project) of a transcript, from its own records.
 
-    results = []
-    for project_dir in claude_dir.iterdir():
-        if not project_dir.is_dir():
+    Claude Code names a transcript after its random session id, and the first
+    eight characters have always been its source key. Codex session ids are
+    time-ordered, so their leading characters are a timestamp that sessions
+    started within the same minute share: a rollout is keyed by its whole id.
+    """
+    source = f"conversation/{Path(transcript_path).stem[:8]}"
+    for record in transcripts.records(transcript_path):
+        session = transcripts.codex_session(record)
+        if session:
+            source = f"conversation/{session}"
+        cwd = transcripts.recorded_cwd(record)
+        if isinstance(cwd, str) and cwd:
+            return source, derive_project(cwd)
+    return source, ""
+
+
+def store_transcripts(client: str, root: Path) -> list[Path]:
+    """Conversation files in a client profile directory."""
+    if client == "claude-code":
+        # One folder per project; subagent transcripts sit a level deeper.
+        return list(root.glob("projects/*/*.jsonl"))
+    return [*root.glob("sessions/**/rollout-*.jsonl"), *root.glob("archived_sessions/rollout-*.jsonl")]
+
+
+def owned(transcript_path: str) -> bool:
+    """Whether a transcript belongs to this workspace (ADR 0034).
+
+    Like the WSL bridge's Stop check, an unreadable transcript, or one whose
+    recorded cwd has no Windows representation (ADR 0026), belongs nowhere.
+    """
+    from .workspace_policy import transcript_allowed
+    try:
+        return transcript_allowed(transcript_path)
+    except (OSError, ValueError):
+        return False
+
+
+def learn_auto_memory(root: Path) -> int:
+    """Import a Claude Code profile's auto-memory files. Returns files stored.
+
+    Claude's folder encoding is ambiguous: a folder's memory files are
+    imported only when every transcript beside them belongs to this
+    workspace (ADR 0034).
+    """
+    from .workspace_policy import is_excluded
+    stored = 0
+    for memory in root.glob("projects/*/memory"):
+        folder = memory.parent
+        sessions = list(folder.glob("*.jsonl"))
+        if not sessions or not all(owned(str(path)) for path in sessions):
             continue
-        project = derive_project(str(project_dir))
-        for f in project_dir.glob("*.jsonl"):
-            if "subagents" not in str(f):
-                results.append((str(f), project))
 
-    # Sort by mtime (newest first)
-    results.sort(key=lambda x: os.path.getmtime(x[0]), reverse=True)
-    return results
+        name = folder.name
+        project = "general"
+        if "personal" in name:
+            project = "personal"
+        elif "imprint" in name:
+            project = "imprint"
+
+        for f in memory.glob("*.md"):
+            try:
+                content = f.read_text(encoding="utf-8", errors="ignore").strip()
+            except OSError:
+                continue
+            if not content or is_excluded(path=str(f), source=f"memory/{f.name}"):
+                continue
+            vs.store(content=content, project=project, type="decision", source=f"memory/{f.name}",
+                     source_path=str(f.resolve()), source_type="memory")
+            stored += 1
+    return stored
 
 
-def index_transcript(transcript_path: str, project: str, source_mtime: float = 0.0) -> tuple[int, int]:
+def index_transcript(transcript_path: str, source_mtime: float = 0.0) -> tuple[int, int]:
     """Index a single transcript. Returns (stored, skipped).
 
     Buffers all qualifying exchanges and flushes via vs.store_batch() so the
@@ -190,13 +232,13 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
     transcript instead of one per exchange. Big throughput win because
     `imprint ingest` walks hundreds of transcripts before touching code.
     """
-    from .workspace_policy import transcript_allowed, is_excluded
-    if not transcript_allowed(transcript_path) or is_excluded(path=transcript_path, source=f'conversation/{Path(transcript_path).stem[:8]}'):
+    from .workspace_policy import is_excluded
+    source, project = identify(transcript_path)
+    if not owned(transcript_path) or is_excluded(path=transcript_path, source=source):
         return 0, 0
     exchanges = parse_exchanges(transcript_path)
     stored = 0
     skipped = 0
-    session_id = Path(transcript_path).stem[:8]
     if not source_mtime:
         try:
             source_mtime = os.path.getmtime(transcript_path)
@@ -232,7 +274,7 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
                 "content": piece,
                 "project": project,
                 "type": mem_type,
-                "source": f"conversation/{session_id}",
+                "source": source,
                 "source_path": str(Path(transcript_path).resolve()),
                 "chunk_index": ci,
                 "source_mtime": source_mtime,
@@ -249,73 +291,70 @@ def index_transcript(transcript_path: str, project: str, source_mtime: float = 0
     return stored, skipped
 
 
-def main():
-    args = sys.argv[1:]
-    transcript_path = None
-    index_all = False
+def learn(stores: list[tuple[str, str]]) -> int:
+    """Learn every conversation in the given client stores.
 
-    i = 0
-    while i < len(args):
-        if args[i] == "--all":
-            index_all = True
-            i += 1
-        elif args[i] == "--transcript" and i + 1 < len(args):
-            transcript_path = args[i + 1]
-            i += 2
-        else:
-            i += 1
+    Returns 1 when a store could not be read; the other stores are still
+    learned. A conversation reachable through more than one store is learned
+    once: its source key is the state, and the newest copy is read.
+    """
+    from .wsl_paths import native_path
 
-    if transcript_path:
-        # Single transcript
-        project = derive_project(transcript_path)
-        stored, skipped = index_transcript(transcript_path, project)
-        print(f"  Stored {stored}, skipped {skipped} exchanges")
-        return
+    print()
+    found: dict[str, tuple[str, float]] = {}
+    unreadable = []
+    memory_files = 0
+    for client, directory in stores:
+        root = Path(native_path(directory))
+        label = f"{CLIENTS[client]} {root}"
+        try:
+            # Globbing skips unreadable folders silently: list the profile
+            # itself so a store that cannot be reached is reported.
+            os.listdir(root)
+        except FileNotFoundError:
+            print(f"  {C_DIM}{label}: no profile directory{C_RESET}")
+            continue
+        except OSError as error:
+            unreadable.append(label)
+            print(f"  {C_YELLOW}{label}: could not be read ({error}){C_RESET}")
+            continue
+        paths = store_transcripts(client, root)
+        print(f"  {C_CYAN}{label}: {len(paths)} conversations{C_RESET}", flush=True)
+        if client == "claude-code":
+            memory_files += learn_auto_memory(root)
+        for path in paths:
+            try:
+                mtime = path.stat().st_mtime
+                source, _ = identify(str(path))
+            except (OSError, ValueError):
+                continue
+            if source not in found or found[source][1] < mtime:
+                found[source] = (str(path), mtime)
 
-    if not index_all:
-        print("Usage:")
-        print("  python -m imprint.cli_conversations --all")
-        print("  python -m imprint.cli_conversations --transcript <path>")
-        sys.exit(1)
-
-    # Index all transcripts
-    from .workspace_policy import transcript_allowed
-    transcripts = [(path, project) for path, project in find_all_transcripts() if transcript_allowed(path)]
-    if not transcripts:
-        print("  No transcripts found.")
-        return
-
-    # Pre-filter unchanged transcripts via stored mtime (same logic as cli_index).
+    # Pre-filter unchanged transcripts via stored mtime (same logic as cli_index),
+    # before reading any conversation in full.
     known_mtimes = vs.get_source_mtimes()
     filtered = []
-    stale_sources: list[str] = []
     pre_skipped = 0
-    for path, project in transcripts:
-        session_id = Path(path).stem[:8]
-        source_key = f"conversation/{session_id}"
-        try:
-            fmtime = os.path.getmtime(path)
-        except OSError:
-            continue
-        stored_mtime = known_mtimes.get(source_key, 0)
+    not_owned = 0
+    for source, (path, fmtime) in found.items():
+        stored_mtime = known_mtimes.get(source, 0)
         if stored_mtime and abs(stored_mtime - fmtime) < 1.0:
             pre_skipped += 1
             continue
-        if stored_mtime:
-            stale_sources.append(source_key)
-        filtered.append((path, project, fmtime))
-
-    # Delete old chunks for modified transcripts before re-indexing.
-    for src in stale_sources:
-        vs.delete_by_source(src)
+        if not owned(path):
+            not_owned += 1
+            continue
+        filtered.append((path, source, fmtime, bool(stored_mtime)))
 
     print()
-    print(f"  {C_CYAN}Found {len(transcripts)} transcripts"
-          f" ({pre_skipped} unchanged, {len(filtered)} to index){C_RESET}")
+    print(f"  {C_CYAN}Found {len(found)} conversations"
+          f" ({pre_skipped} unchanged, {not_owned} not this workspace's, {len(filtered)} to index){C_RESET}")
     print()
 
     total_stored = 0
     total_skipped = 0
+    reindexed = 0
     t_start = time.time()
 
     try:
@@ -323,7 +362,7 @@ def main():
     except (ValueError, OSError):
         cols = 80
 
-    for idx, (path, project, fmtime) in enumerate(filtered):
+    for idx, (path, source, fmtime, stale) in enumerate(filtered):
         pct = (idx + 1) / len(filtered) if filtered else 1
         elapsed = time.time() - t_start
         eta = elapsed / pct * (1 - pct) if pct < 1 else 0
@@ -335,7 +374,11 @@ def main():
         print(f"\r{line[:cols]}", end="", flush=True)
 
         try:
-            stored, skipped = index_transcript(path, project, source_mtime=fmtime)
+            # Replace the old chunks of a modified transcript.
+            if stale:
+                vs.delete_by_source(source)
+                reindexed += 1
+            stored, skipped = index_transcript(path, source_mtime=fmtime)
             total_stored += stored
             total_skipped += skipped
         except KeyboardInterrupt:
@@ -394,14 +437,38 @@ def main():
     print(f"  Stored:   {total_stored} exchanges")
     if llm_tagged:
         print(f"  Tagged:   {llm_tagged} (LLM)")
+    if memory_files:
+        print(f"  Memory:   {memory_files} auto-memory files")
     if pre_skipped:
         print(f"  Unchanged:{pre_skipped} transcripts (skipped)")
-    if stale_sources:
-        print(f"  Re-indexed:{len(stale_sources)} modified transcripts")
+    if reindexed:
+        print(f"  Re-indexed:{reindexed} modified transcripts")
     print(f"  Skipped:  {total_skipped}")
     print(f"  Time:     {elapsed:.1f}s")
+    for label in unreadable:
+        print(f"  {C_YELLOW}Not learned: {label} could not be read{C_RESET}")
     print()
+    return 1 if unreadable else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Learn coding-client conversations.")
+    parser.add_argument("--store", nargs=2, action="append", default=[], metavar=("CLIENT", "DIR"),
+                        help="client profile directory to learn (claude-code or codex); repeatable")
+    parser.add_argument("--transcript", help="index a single transcript")
+    args = parser.parse_args()
+
+    if args.transcript:
+        stored, skipped = index_transcript(args.transcript)
+        print(f"  Stored {stored}, skipped {skipped} exchanges")
+        return 0
+    if not args.store:
+        parser.error("give --store or --transcript")
+    for client, _ in args.store:
+        if client not in CLIENTS:
+            parser.error(f"unknown client {client!r}; expected {' or '.join(CLIENTS)}")
+    return learn([tuple(store) for store in args.store])
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

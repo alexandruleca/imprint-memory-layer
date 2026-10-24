@@ -280,3 +280,17 @@ See [ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md).
 | First-start collection race (native Windows, scratch Qdrant 1.17.1) | Passed | 8 threads × 10 fresh collections: the previous code failed 48 of 80 calls with Qdrant's "0 of 0 read operations failed" 500; the locked creation succeeded on all 80, one create per collection. |
 
 Not run: Linux aarch64 GPU hosts, and pre-R580 drivers on real hardware.
+
+## Learn from WSL and Codex stores (2026-10-24)
+
+See [ADR 0037](adr/0037-learn-every-integrated-client-store.md). These checks ran on a native Windows installation with Claude Code and Codex registered for WSL Ubuntu. Before the change, its queued learn job printed "No Claude Code projects found" and "No transcripts found". None of the checks wrote to the installation or its data: ownership checks used a copy of the workspace policy in `%TEMP%`.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Store discovery (cross-compiled Go test binary, real `.wsl-registrations.json`) | Passed | Returned this computer's `C:\Users\<user>\.claude` and `.codex`, then one Ubuntu group holding both registered stores, with the drive mount table read through `wsl.exe` in 0.15 s. |
+| Missing distribution | Passed | Reported as `WSL NoSuchDistro is unavailable (… There is no distribution with the supplied name. Error code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND)`. The other groups were kept. Before the fix, the message after the exit status was empty, because `wsl.exe` writes its errors to stdout in UTF-16. |
+| Path context handed to the installed interpreter | Passed | The Ubuntu group resolved `/home/<user>/.claude` to `\\wsl.localhost\Ubuntu\home\<user>\.claude` and `/mnt/c/…` to `C:\…`. This computer's group left paths unchanged. |
+| Listing and identity through `\\wsl.localhost` | Passed | 114 Claude Code transcripts in 5.8 s and 32 Codex rollouts in 1.2 s, each with a distinct source key. Projects named from the recorded cwd matched the folder-derived names. Codex sessions got the same names for the same directories. |
+| Ownership read of every WSL conversation | Passed after a fix | Resolving the cwd on every record cost about 20 ms per record: a 0.52 MB transcript took 2.1 s, of which 1.97 s was 98 resolutions of 2 distinct directories, and a full pass did not finish in 25 minutes. With one resolution per distinct cwd, the same transcript takes 0.1 s, and all 146 conversations (1.8 GB) take 407 s. All 146 belong to the default workspace, whose only root is a Windows folder. |
+
+Not run: a complete `imprint learn` that embeds and stores into the installation's data directory, and the dashboard **Learn** action on Windows. Every Claude Code project folder on this machine has auto-memory files, and their ownership rule rereads every transcript beside them on each run: about 3 minutes for these 1.2 GB through `\\wsl.localhost`.

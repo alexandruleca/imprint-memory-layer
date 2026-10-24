@@ -88,6 +88,8 @@ cd ~/code/my-project
 
 Existing workspace overlap, sharing and purge rules apply. Linux files are accessed through the distribution's Windows UNC namespace; mounted Windows drives use their real Windows paths, honoring custom mount locations. Windows paths returned by other tools can be translated with `wslpath -u`. Spaces, Unicode and apostrophes are supported; paths that cannot be represented through Windows filesystem APIs fail explicitly. Hook support follows the current host adapters; a configured entry alone does not establish host-side trust or transcript-version compatibility.
 
+`imprint learn` and the dashboard's **Learn** action also read each registered profile's Claude Code and Codex conversations through `\\wsl.localhost\<distro>\…`, comparing their working directories the way the bridge does. Reading a distribution's mount table can start it. A distribution that cannot be reached is skipped and listed under "Not learned" at the end of the run; the other stores are still learned.
+
 To disconnect a selected profile manually:
 
 ```powershell
@@ -174,7 +176,7 @@ imprint learn --desktop --interval 300     # every 5 min
 imprint learn --desktop --path ~/Archive   # extra folder(s) in addition to Downloads
 ```
 
-`imprint learn` on its own indexes Claude Code transcripts and auto-memory files; `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
+`imprint learn` on its own indexes Claude Code transcripts and auto-memory files and Codex sessions. It reads them from this computer's profiles (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME` or `~/.codex`) and from every Claude Code or Codex profile registered in WSL. `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
 
 ## Install a specific version or channel
 

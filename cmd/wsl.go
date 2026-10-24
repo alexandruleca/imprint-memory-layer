@@ -46,7 +46,13 @@ var runWSL = func(args ...string) (string, error) {
 		return "", fmt.Errorf("WSL command timed out")
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		// wsl.exe reports its own failures (unknown distribution, WSL not
+		// installed) on stdout; Linux commands report theirs on stderr.
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = strings.Join(strings.Fields(decodeWSL(data)), " ")
+		}
+		return "", fmt.Errorf("%w: %s", err, detail)
 	}
 	return decodeWSL(data), nil
 }
@@ -148,15 +154,20 @@ func wslClaudeRegistry(p wslProfile) string {
 	return path.Join(p.Home, ".claude.json")
 }
 
+// wslDriveMounts prints the distribution's Windows drive mounts from its
+// kernel mount table, one "<drive path>\t<mount point>" line each: the table
+// imprint.wsl_paths maps drive paths with (ADR 0026).
+const wslDriveMounts = "while read -r source target kind rest; do\n" +
+	"  case \"$source\" in [a-zA-Z]:*) case \"$kind\" in drvfs|9p) printf '%s\\t%s\\n' \"$source\" \"$target\";; esac;; esac\n" +
+	"done < /proc/mounts"
+
 func wslLauncher(p wslProfile, bp backendPaths) string {
 	// wslpath honors custom Windows drive mount locations. No shell re-parses
 	// client payloads: stdin goes directly to the stdlib Windows bridge.
 	cli, _ := os.Executable()
 	return "#!/bin/sh\n# Imprint managed Windows runtime bridge (imprint-wsl).\nset -eu\n" +
 		"python=$(wslpath -u " + shellQuote(bp.VenvPython) + ")\n" +
-		"mounts=$(while read -r source target kind rest; do\n" +
-		"  case \"$source\" in [a-zA-Z]:*) case \"$kind\" in drvfs|9p) printf '%s\\t%s\\n' \"$source\" \"$target\";; esac;; esac\n" +
-		"done < /proc/mounts)\n" +
+		"mounts=$(" + wslDriveMounts + ")\n" +
 		"exec \"$python\" " + shellQuote(filepath.Join(bp.ProjectDir, "imprint", "wsl_bridge.py")) +
 		" --cli " + shellQuote(cli) + " --data-dir " + shellQuote(bp.DataDir) + " --distribution " + shellQuote(p.Distribution) +
 		" --cwd \"$PWD\" --mounts \"$mounts\" --home " + shellQuote(p.Home) + " \"$@\"\n"

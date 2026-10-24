@@ -51,3 +51,5 @@ Desktop exports no longer require approving Downloads. Exports keep their per-wo
 - The ownership and root tests also passed under native Windows Python 3.12.8 (Windows temporary paths, case-insensitive path comparison).
 - Go: `go build ./...`, `go vet ./cmd/` and `go test ./...` passed on Linux.
 - Not run: `imprint learn` end to end on macOS or Windows with real Claude Code transcripts, and the dashboard **Learn** action on those platforms.
+
+Store coverage follow-up: [ADR 0037](0037-learn-every-integrated-client-store.md) extends the stores this rule is applied to (`CLAUDE_CONFIG_DIR`, Codex sessions, registered WSL profiles) and counts Codex's session and turn working directories as recorded cwds.

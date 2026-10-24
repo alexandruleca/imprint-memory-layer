@@ -237,6 +237,15 @@ func ClaudeSettingsPath() string {
 	return filepath.Join(HomeDir(), ".claude", "settings.json")
 }
 
+// ClaudeConfigDir is Claude Code's profile directory: CLAUDE_CONFIG_DIR, as
+// Claude Code reads it, else ~/.claude.
+func ClaudeConfigDir() string {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	return filepath.Join(HomeDir(), ".claude")
+}
+
 // CursorConfigDir returns the user-global Cursor config directory (~/.cursor).
 func CursorConfigDir() string {
 	return filepath.Join(HomeDir(), ".cursor")
