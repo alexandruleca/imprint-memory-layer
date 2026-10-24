@@ -28,7 +28,7 @@ def runtime_root() -> Path:
 
 def prerequisites(root: Path) -> str | None:
     if voice_bundle.available():
-        voice_runtime.verify_engine(voice_bundle.bundled_root())
+        voice_bundle.verify()
         return "disk" if shutil.disk_usage(root).free < 2_000_000_000 else None
     if not shutil.which("cmake"):
         return "cmake"

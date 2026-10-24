@@ -18,7 +18,8 @@ The private patched engine is small enough to ship with the desktop release.
 
 Build native CPU engines for Linux x64, Windows x64, macOS x64 and macOS ARM64
 in a reusable CI workflow. Linux builds use manylinux's glibc 2.28 baseline and
-static C++/GCC runtime libraries. Mac retains the macOS 13 baseline; Windows uses
+static C++/GCC runtime libraries. Their GPLv3 and GCC Runtime Library Exception
+3.1 notices accompany Linux bundles and installed voice caches. Mac retains the macOS 13 baseline; Windows uses
 the static MSVC runtime. No compiler, CMake, build tree or developer environment
 is distributed. Linux ARM remains outside the voice pilot.
 

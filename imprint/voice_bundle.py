@@ -16,7 +16,11 @@ def bundled_root() -> Path:
 
 
 def available() -> bool:
-    return (bundled_root() / "live-build.json").is_file()
+    return bundled_root().is_dir()
+
+
+def runtime_notices(root: Path) -> list[Path]:
+    return [root / "licenses/gcc" / name for name in ("COPYING3", "COPYING.RUNTIME")] if runtime.target() == "linux-x64" else []
 
 
 def export_engine(root: Path, destination: Path) -> None:
@@ -29,11 +33,18 @@ def export_engine(root: Path, destination: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         target.chmod(0o755 if source == binary else 0o644)
+    for notice in runtime_notices(Path(__file__).resolve().parents[1]):
+        target = destination / "licenses/gcc" / notice.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(notice, target)
+        target.chmod(0o644)
     (destination / "NOTICE.md").write_text(
         "Imprint private LFM speech engine\n\n"
         f"Built from tdakhran/llama.cpp {runtime.SOURCE_REVISION} with Imprint's private-listener patch.\n"
         "llama.cpp and ggml use the MIT license. Full pinned upstream source and third-party notices,\n"
         "including cpp-httplib and json.hpp, are provided in live-source.tar.gz.\n"
+        "Linux builds statically link GCC runtime libraries under GPLv3 with the GCC Runtime Library Exception 3.1.\n"
+        "Their license texts are in licenses/gcc; see https://gcc.gnu.org/onlinedocs/libstdc++/manual/license.html.\n"
         "Model weights are not included. LFM model licensing is separate.\n", encoding="utf-8")
     (destination / "NOTICE.md").chmod(0o644)
     for directory in [destination, *(p for p in destination.rglob("*") if p.is_dir())]:
@@ -41,18 +52,24 @@ def export_engine(root: Path, destination: Path) -> None:
     runtime.verify_engine(destination)
 
 
-def install(root: Path, *, progress=None, download_prefix="") -> None:
+def verify() -> Path:
     source = bundled_root()
     binary = runtime.verify_engine(source)
-    if not (source / "NOTICE.md").is_file():
+    if not all(p.is_file() for p in [source / "NOTICE.md", *runtime_notices(source)]):
         raise PrototypeError("Bundled engine notices are missing")
+    return binary
+
+
+def install(root: Path, *, progress=None, download_prefix="") -> None:
+    source = bundled_root()
+    binary = verify()
     lfm.install_weights(root, progress=progress, download_prefix=download_prefix)
     from filelock import FileLock
     with FileLock(str(root / ".live-build.lock")):
         if progress: progress({"stage": "preparing"})
         # Metadata is installed last. Every file is replaced atomically and the
         # launch-time verifier still checks source, patch, target and binary.
-        for item in [binary, source / "live-source.tar.gz", source / "NOTICE.md", source / "live-build.json"]:
+        for item in [binary, source / "live-source.tar.gz", source / "NOTICE.md", *runtime_notices(source), source / "live-build.json"]:
             target = root / item.relative_to(source)
             target.parent.mkdir(parents=True, exist_ok=True)
             fd, name = tempfile.mkstemp(dir=root, prefix=download_prefix, suffix=".part")

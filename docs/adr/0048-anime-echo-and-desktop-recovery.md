@@ -31,7 +31,7 @@ textured geometry and expressions onto transparent canvas.
 Drag any non-interactive area of the companion, including the head. Renderer
 pointer capture sends validated screen coordinates through IPC scoped to the
 owned companion main frame. Controls retain their normal interactions. Save
-bounds privately under Electron userData and clamp to the available work area on
+bounds privately under Electron userData (discarding malformed dimensions) and clamp to the available work area on
 open, drag completion and display changes. No memory/configuration schema changes.
 
 Register `CommandOrControl+Alt+Shift+E` after app readiness. Recovery shows, restores,

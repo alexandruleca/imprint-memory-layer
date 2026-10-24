@@ -302,6 +302,7 @@ test('display fitting restores an offscreen avatar and handles a small work area
   const area = { x: -800, y: 20, width: 800, height: 600 };
   const head = fitBounds({ x: 20000, y: -20000, width: 400, height: 640 }, area);
   assert.deepEqual(head, { x: -400, y: 20, width: 400, height: 600 });
+  assert.deepEqual(fitBounds({ width: 'corrupt', height: [] }, area), { x: -420, y: 20, width: 400, height: 600 });
   assert.deepEqual(fitLauncher({ x: 9999, y: 9999 }, area), { x: -56, y: 564, width: 56, height: 56 });
   const image = { isEmpty: () => false };
   assert.equal(trayImage(image, 'win32'), image); assert.equal(trayImage(image, 'linux'), image);

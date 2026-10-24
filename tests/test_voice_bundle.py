@@ -55,6 +55,7 @@ class VoiceBundleTests(unittest.TestCase):
                 self.assertEqual(runtime.verify(installed).read_bytes(), binary.read_bytes())
                 self.assertTrue(runtime.installed(installed))
             self.assertTrue((installed / 'NOTICE.md').is_file())
+            self.assertTrue((installed / 'licenses/gcc/COPYING.RUNTIME').is_file())
             self.assertFalse(list(installed.glob('*.part')))
             self.assertEqual([e['stage'] for e in events], ['preparing', 'finishing'])
 
@@ -72,6 +73,10 @@ class VoiceBundleTests(unittest.TestCase):
             metadata['build_version'] -= 1
             (root / 'live-build.json').write_text(json.dumps(metadata))
             self.assertFalse(runtime.installed(root))
+            (shipped / 'live-build.json').unlink()
+            with patch.object(bundle, 'bundled_root', return_value=shipped):
+                self.assertTrue(bundle.available())
+                with self.assertRaises(PrototypeError): setup.prerequisites(root)
 
 
 if __name__ == '__main__':

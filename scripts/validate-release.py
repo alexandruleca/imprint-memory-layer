@@ -50,6 +50,8 @@ def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
             raise ValueError('Speech engine notices are missing')
         if os_name != 'windows' and not os.access(binary, os.X_OK):
             raise ValueError('Speech engine is not executable')
+        if os_name == 'linux' and not all((engine / 'licenses/gcc' / name).is_file() for name in ('COPYING3', 'COPYING.RUNTIME')):
+            raise ValueError('GCC runtime notices are missing')
         if list(engine.rglob('*.gguf')):
             raise ValueError('Voice model weights must not be bundled in releases')
     for name in ('personaplex-test.txt', 'personaplex-test.lock.txt'):

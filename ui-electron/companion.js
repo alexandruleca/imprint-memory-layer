@@ -3,8 +3,8 @@
 const SHORTCUT = 'CommandOrControl+Alt+Shift+E';
 
 function fitBounds(bounds, area, center = false) {
-  const width = Math.min(400, Math.max(300, Math.round(bounds?.width || 400)), area.width);
-  const height = Math.min(640, Math.max(420, Math.round(bounds?.height || 640)), area.height);
+  const width = Math.min(400, Math.max(300, Math.round(Number.isFinite(bounds?.width) ? bounds.width : 400)), area.width);
+  const height = Math.min(640, Math.max(420, Math.round(Number.isFinite(bounds?.height) ? bounds.height : 640)), area.height);
   const x = center ? area.x + (area.width - width) / 2 : Number.isFinite(bounds?.x) ? bounds.x : area.x + area.width - width - 20;
   const y = center ? area.y + (area.height - height) / 2 : Number.isFinite(bounds?.y) ? bounds.y : area.y + area.height - height - 20;
   return { x: Math.round(Math.max(area.x, Math.min(area.x + area.width - width, x))),

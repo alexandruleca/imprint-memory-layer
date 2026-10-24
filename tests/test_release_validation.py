@@ -107,6 +107,9 @@ class ReleaseValidationTests(unittest.TestCase):
             engine = root / 'imprint/voice-engine'; engine.mkdir()
             binary = engine / 'worker'; binary.write_bytes(executable(62)); binary.chmod(0o755)
             (engine / 'NOTICE.md').write_text('fixture notices')
+            (engine / 'licenses/gcc').mkdir(parents=True)
+            for name in ('COPYING3', 'COPYING.RUNTIME'):
+                (engine / 'licenses/gcc' / name).write_text('fixture runtime license')
             # Source/patch/binary verification is exercised by test_voice_bundle.
             with patch('imprint.voice_runtime.verify_engine', return_value=binary) as verify:
                 VALIDATOR.validate(root, 'linux/amd64', require_voice=True)
