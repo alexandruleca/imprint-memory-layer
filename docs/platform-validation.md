@@ -500,61 +500,61 @@ and native graphical matrix above. No release or installer was published.
 
 ## Anime Echo and desktop refinement (2026-10-24)
 
-The refinement branch replaces the procedural head with a locally bundled CC0
-anime mesh, connected wire contours and textured CPU projection. Local checks
-executed: production UI build, lint, 334 Python tests, seven release-validator
-fixtures, 22 Electron fixtures, and 13 focused browser scenarios. The latter
-cover setup/download/error/ready controls without scrolling at 400×640 and
-320×420, active interruption and a transparent GPU-less head. Additional native
-window/release-engine evidence is recorded below as it is executed; these local
-checks alone do not establish Mac or Windows GUI support.
+Source `f4d157f` passed the complete [native bundled-engine, speech and desktop
+matrix](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40117167378).
+[General CI](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40117167402)
+also passed on Linux x64/ARM64, Windows x64 and both Mac architectures. The
+[evidence JSON](evidence/2026-10-24-echo-anime-refinement.json) retains engine
+fingerprints, actual setup states, speech checks and desktop results.
 
-The native workflow now builds release-style engines for all four supported
-voice targets. Linux uses a glibc 2.28 build container; Windows and both Macs
-build on native runners. Desktop smoke installs the shipped engine into a fresh
-disposable cache with PATH empty, reusing only verified weight files, then tests
-head/launcher dragging, recovery, global shortcut registration and minimize/Close.
-Physical global keypresses, Wayland compositor behavior, real acoustic VAD and
-signed installer behavior remain separate manual gates.
+| Voice target | Release engine | Real speech and cancellation | Fresh bundled setup, PATH empty | Native head/launcher and recall | Renderer in hosted GUI |
+| --- | --- | --- | --- | --- | --- |
+| Linux x64 | glibc 2.28 build | Passed | Passed | Passed | Software WebGL, 10 fps cap |
+| Windows x64 | Native static MSVC build | Passed | Passed | Passed | Software WebGL, 10 fps cap |
+| macOS ARM64 | Native macOS 13+ build | Passed | Passed | Passed | Textured canvas 3D, 15 fps cap |
+| macOS x64 | Native macOS 13+ build | Passed | Passed | Passed | Textured canvas 3D, 15 fps cap |
 
-Local Linux/WSLg native desktop execution passed with an actual transparent
-Electron window and compiler-free fresh-cache setup (`bundled_engine: true`).
-The smoke exercised whole-head movement, offscreen recovery, registered recall
-shortcut, pinning, microphone/session teardown and the draggable launcher after
-the dashboard's Minimize and Close controls. [Raw local evidence](evidence/2026-10-24-echo-anime-refinement.json)
-and [actual companion PNG](assets/voice/echo-anime-companion.png) are retained.
-The WSLg environment did not emit a native window-manager minimize event when
-programmatically minimizing; the smoke uses the app's actual Minimize control.
-OS minimize event routing is also covered by Electron fixtures.
+Fresh GUI setup seeded only verified model weights, copied the shipped engine
+with PATH empty and reached ready without discovering CMake or a compiler. Each
+platform exercised real ASR/TTS, private worker authentication/browser-origin
+rejection, owner-pipe exit, interruption followed by a fresh turn, workspace
+binding and same-Chat routing with fixture reasoning and real speech synthesis.
 
-Real local speech also passed after the engine build: ASR recognized the fixture
-question, real streamed TTS answered it, authenticated transport rejected foreign
-requests, interruption stopped the owned process and a fresh turn succeeded.
-The same-Chat route used fixture reasoning with real speech synthesis. Startup
-including verification took 9.23 s; the first speech-turn audio arrived at 2.71 s
-and cancellation acknowledgement at 65 ms. These are one local run, not a general
-latency guarantee. Full local browser verification passed 62/63 initially; an
-existing search race fixture depended on a 500 ms response delay. It now holds
-the older reply until the newer result is visible, preserving the intended race
-under slower runners. Its five search scenarios passed on rerun.
+Actual Electron windows passed whole-head dragging, saved bounds/recovery,
+registered recall shortcut, pinning, transparent PNG checks, compact layout,
+dashboard-toggle microphone/session teardown and the draggable launcher after
+the dashboard's Minimize and Close controls. Mac microphone capture/TCC remains
+manual; Windows/Linux used synthetic input and a silent WebAudio sink. The WSLg
+local window manager did not emit a programmatic native minimize event, so the
+smoke uses the app's real Minimize control; OS minimize-event routing is also
+covered by Electron fixtures.
 
-The initial Linux manylinux build compiled successfully but host verification
-could not read container-root-owned private metadata in its exported bundle.
-Release export now explicitly uses 755 for directories/executables and 644 for
-data/notices. This also makes installed system-owned bundles readable by the app
-user; runtime caches retain their private modes. A regression checks readable
-exports from a private builder cache. The corrected native matrix is rerun below.
+For one synthetic question in each hosted run, first reply audio arrived in
+2.56–3.79 s; cancellation acknowledgement took 32–110 ms. These are fixture results
+on CI machines, not a general latency or acoustic-quality guarantee. Physical
+global keypresses, Wayland behavior, real microphones/speakers/room echo, human
+intelligibility ratings and signed installer behavior remain manual gates.
+Full release packaging remains a main-only gate; the actual local Linux engine
+payload also passed disposable release-staging validation.
 
-Fallback renderer follow-up: a full local run under load exposed excessive work
-when glTF primitives shared a large position buffer. CPU projection now transforms
-only each primitive’s referenced vertices, reuses projected buffers, uses canvas
-patterns for texture mapping, culls rear hair faces and leaves a full frame
-interval after expensive paints for controls/audio. This refines the compatibility
-renderer while preserving the modeled head and expressions.
+Local checks passed: 335 Python tests, 63 Playwright scenarios, 23 Electron
+fixtures, production UI build, lint and workflow checks. Browser cases cover
+setup/download/error/ready controls without scrolling at 400×640 and 320×420,
+chat provisioning with visible cancellation, transparent GPU-less rendering and
+launcher keyboard activation after dragging. [Actual native companion
+preview](assets/voice/echo-anime-companion.png).
 
-The first complete bundle matrix passed on all four targets. Real speech and
-managed setup passed on Linux, Windows and Apple Silicon, but the new launcher
-check found a dashboard-only “Skip to content” link taking focus over the tiny
-floating window. Floating routes now omit that dashboard navigation link, and
-the native movement assertion waits for asynchronous window position updates.
-The updated GUI matrix is rerun before claiming all desktop checks pass.
+The implementation fixes three observed integration defects. Exported engine
+payloads need 755 directories/executables and 644 data/notices so a container-built
+or system-owned installation is readable by the app user; private runtime caches
+retain their private modes. CPU projection must process only vertices used by each
+glTF primitive rather than repeatedly transforming a shared whole-head buffer,
+and must leave time after painting for input/audio. Finally, dashboard skip links,
+connection banners and overlays must not mount in floating routes: a focused
+“Skip to content” link intercepted clicks over the tiny launcher. Launcher tests
+wait for React readiness and asynchronous native position changes.
+
+The head is adapted from pixiv's explicitly CC0 beta Sendagaya Shino model, with
+Imprint modifications under Apache-2.0, a reproducible head-only glTF pipeline,
+mouth/blink expressions, holographic shading and fine animated wire contours.
+It is an adapted anime model, not an original sculpt or a licensed Haruhi asset.
