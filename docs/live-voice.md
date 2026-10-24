@@ -222,7 +222,9 @@ tracking runtime, online asset service or NVIDIA Audio2Face is needed.
 Speech energy drives the jaw from actual playback audio; it is not phoneme/viseme
 alignment. Idle motion, occasional blinks and listening/thinking tint are subtle.
 Reduced-motion preferences reduce rendering/movement and pixel ratio is capped at
-1.5. WebGL rendering is capped near 30 fps. When WebGL2 is unavailable, a 15 fps
+1.5. Hardware WebGL rendering is capped near 30 fps. Recognized software WebGL
+backends (including SwiftShader/llvmpipe) use a 10 fps cap so their rasterizer
+threads do not overwhelm local model startup. When WebGL2 is unavailable, a 15 fps
 software renderer projects the same glTF particles, pose and jaw/blink morphs onto
 transparent canvas; it retains a real animated 3D head without a GPU or static
 image substitution. If both rendering methods fail, accessible voice controls

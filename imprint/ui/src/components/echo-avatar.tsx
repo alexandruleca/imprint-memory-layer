@@ -20,16 +20,25 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
       if (cancelled) return;
       let renderer: import("three").WebGLRenderer | import("@/lib/echo-canvas-renderer").EchoCanvasRenderer;
       let software = false;
+      let softwareWebGL = false;
       try {
         renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" });
         renderer.setClearColor(0x000000, 0);
         renderer.outputColorSpace = THREE.SRGBColorSpace;
+        const gl = renderer.getContext();
+        const debug = gl.getExtension("WEBGL_debug_renderer_info");
+        const device = String(gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+        softwareWebGL = /swiftshader|llvmpipe|softpipe|software|microsoft basic render/i.test(device);
       } catch {
         const { EchoCanvasRenderer } = await import("@/lib/echo-canvas-renderer");
         if (cancelled) return;
         renderer = new EchoCanvasRenderer(); software = true;
       }
       container.dataset.renderer = software ? "canvas-3d" : "webgl";
+      // Software WebGL can occupy every CPU with rasterizer threads, starving
+      // local model verification/warmup when both dashboard and companion show.
+      const frameRate = software ? 15 : softwareWebGL ? 10 : 30;
+      container.dataset.frameRateLimit = String(frameRate);
       renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
       container.appendChild(renderer.domElement);
       renderer.domElement.setAttribute("aria-hidden", "true");
@@ -52,7 +61,7 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
       container.addEventListener("pointermove", move);
       const draw = (now: number) => {
         frame = requestAnimationFrame(draw);
-        if (document.hidden || now - previous < (reduced.matches ? 100 : software ? 66 : 33)) return;
+        if (document.hidden || now - previous < (reduced.matches ? 100 : 1000 / frameRate)) return;
         previous = now;
         const t = now / 1000;
         const active = current.current.phase;

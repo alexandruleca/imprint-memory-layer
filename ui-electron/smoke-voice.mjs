@@ -53,6 +53,10 @@ try {
   await popup.waitForURL('**/companion/');
   await popup.locator('.echo-canvas[data-loaded=true]').waitFor();
   const renderer = await popup.locator('.echo-canvas').getAttribute('data-renderer');
+  const frameRateLimit = Number(await popup.locator('.echo-canvas').getAttribute('data-frame-rate-limit'));
+  if (renderer === 'webgl' && frameRateLimit !== 10) {
+    throw Error('The forced software WebGL test renderer must use its CPU frame-rate cap');
+  }
   const surface = await popup.locator('.voice-compact').evaluate(element => {
     const style = getComputedStyle(element);
     return { background: style.backgroundColor, image: style.backgroundImage, border: style.borderTopWidth };
@@ -92,7 +96,7 @@ try {
   }
   const result = { platform: `${process.platform}/${process.arch}`, electron: await app.evaluate(() => process.versions.electron),
     disposableProfile: true, realCompanionLoaded: true, alwaysOnTop: true, syntheticMicrophonePermission: testMicrophone,
-    transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true, renderer,
+    transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true, renderer, frameRateLimit,
     limits: [testMicrophone ? 'synthetic microphone' : 'microphone capture not exercised',
       'no real acoustic/output-device test', 'silent WebAudio test output',
       renderer === 'canvas-3d' ? 'software 3D renderer' : 'software WebGL',

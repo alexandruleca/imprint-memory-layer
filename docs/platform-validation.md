@@ -473,3 +473,12 @@ interruption. This path does not benchmark or freshly provision the actual chat
 model; the existing chat provisioning policy remains in force.
 The follow-up passed 26 voice/setup Python checks and 11 voice/setup browser
 scenarios locally, plus the UI production build and lint.
+
+Resource follow-up: the Windows virtual desktop intermittently reached the
+model startup limit with two software-WebGL heads. Diagnostic verification took
+23.03 seconds and native model warmup was still running at timeout. Recognized
+software WebGL now uses a 10 fps cap to limit CPU rasterizer work; hardware WebGL
+uses 30 fps and the canvas fallback 15 fps. The local real Electron smoke passed
+with `frameRateLimit: 10`, cached managed setup and the active-session dashboard
+shutdown check. Native graphical evidence records this cap and asserts it for
+the test's forced software-WebGL backend.

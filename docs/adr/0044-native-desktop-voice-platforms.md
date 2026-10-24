@@ -56,6 +56,10 @@ lower frame-rate cap. Native tests record the actual renderer and use silent
 WebAudio output on virtual desktops without speaker devices. This is not acoustic
 validation. Limit model threads to available CPUs (at most four) and disable
 thread polling so small M1 allocations are not overwhelmed by idle pools.
+Recognized software WebGL backends render at 10 fps, while hardware WebGL uses
+30 fps and the canvas fallback uses 15 fps. Two software-rendered heads could
+starve Windows model verification/warmup and hit the startup deadline; the frame
+cap limits actual CPU rendering work rather than extending model timeouts.
 
 Allow up to two minutes for cold startup, including complete cache integrity
 verification, with a separate 90-second native readiness limit. Native graphical
