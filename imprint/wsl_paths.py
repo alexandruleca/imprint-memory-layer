@@ -7,8 +7,16 @@ import os
 import ntpath
 import posixpath
 import re
+import subprocess
 import sys
 from functools import lru_cache
+
+# Container engines' internal distributions, not user filesystems (ADR 0026).
+UTILITY_DISTRIBUTIONS = ('docker-desktop', 'rancher-desktop')
+
+
+def valid_distribution(name):
+    return bool(name) and name not in {'.', '..'} and not any(c in name for c in '\\/:|\r\n\0')
 
 
 @lru_cache(maxsize=8)
@@ -29,7 +37,7 @@ def drive_mounts(table):
 
 
 def linux_to_windows(value, distribution, mounts=''):
-    if not distribution or distribution in {'.', '..'} or any(c in distribution for c in '\\/:|\r\n\0'):
+    if not valid_distribution(distribution):
         raise ValueError('Invalid WSL distribution')
     if not isinstance(value, str) or '\0' in value:
         raise ValueError('Invalid WSL path')
@@ -75,3 +83,28 @@ def client_context():
             'path_guidance': 'Use client_working_directory and WSL paths in the client. '
                              'The runtime and memory store are on Windows. Windows drive paths '
                              'can be translated with wslpath -u. Workspace root approvals still apply.'}
+
+
+def parse_distributions(output):
+    """Names from `wsl.exe --list --quiet`: UTF-16LE unless WSL_UTF8 is set."""
+    utf16 = output[:2] == b'\xff\xfe' or output[1:2] == b'\0'
+    text = output.decode('utf-16-le' if utf16 else 'utf-8', 'replace').lstrip('\ufeff')
+    names = (line.strip() for line in text.splitlines())
+    return [name for name in names
+            if valid_distribution(name) and not name.lower().startswith(UTILITY_DISTRIBUTIONS)]
+
+
+def distributions():
+    """Registered WSL distributions on a Windows runtime; none elsewhere or without WSL.
+
+    Listing does not start a distribution. CREATE_NO_WINDOW keeps the windowless
+    desktop service from opening a console (ADR 0026).
+    """
+    if sys.platform != 'win32':
+        return []
+    try:
+        listed = subprocess.run(['wsl.exe', '--list', '--quiet'], capture_output=True, timeout=5,
+                                check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_distributions(listed.stdout)

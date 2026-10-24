@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/modal";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
@@ -10,7 +11,7 @@ import {
   getFsRoots,
   listFs,
   type FsEntry,
-  type FsRoot,
+  type FsLocation,
 } from "@/lib/api";
 import {
   ArrowUp,
@@ -39,8 +40,10 @@ export function PathBrowserDialog({
   onSelect,
   onCancel,
 }: Props) {
-  const [roots, setRoots] = useState<FsRoot[]>([]);
+  const [roots, setRoots] = useState<FsLocation[]>([]);
   const [cwd, setCwd] = useState("");
+  // The server builds these: it knows its own path syntax (/, C:\, \\server\share\).
+  const [crumbs, setCrumbs] = useState<FsLocation[]>([]);
   const [entries, setEntries] = useState<FsEntry[]>([]);
   const [parent, setParent] = useState<string | null>(null);
   const [selected, setSelected] = useState<FsEntry | null>(null);
@@ -73,6 +76,7 @@ export function PathBrowserDialog({
             const parentData = await listFs(data.parent, showHidden);
             if (!parentData.error) {
               setCwd(parentData.path);
+              setCrumbs(parentData.crumbs);
               setParent(parentData.parent);
               setEntries(parentData.entries);
               if (mode !== "dir") {
@@ -85,6 +89,7 @@ export function PathBrowserDialog({
           }
         } else {
           setCwd(data.path);
+          setCrumbs(data.crumbs);
           setParent(data.parent);
           setEntries(data.entries);
         }
@@ -108,15 +113,6 @@ export function PathBrowserDialog({
     }).catch((error) => { if (!cancelled) setError(String(error)); });
     return () => { cancelled = true; };
   }, [open, navigate]);
-
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
 
   if (!open) return null;
 
@@ -159,14 +155,12 @@ export function PathBrowserDialog({
         : "Select this folder"
       : "Select this folder";
 
-  const crumbs = buildCrumbs(cwd);
   const dialogTitle =
     title ?? (mode === "file" ? "Pick file" : mode === "any" ? "Pick path" : "Pick directory");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30" onClick={onCancel} />
-      <div className="relative z-10 flex h-[560px] w-full max-w-3xl flex-col gap-3 rounded-lg border border-border bg-background p-4 shadow-lg">
+    <Modal label={dialogTitle} onClose={onCancel} className="max-w-3xl p-0">
+      <div className="flex h-[min(560px,calc(90dvh-2px))] flex-col gap-3 p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">{dialogTitle}</h3>
           <div className="flex items-center gap-2">
@@ -314,31 +308,6 @@ export function PathBrowserDialog({
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
-}
-
-function buildCrumbs(path: string): { label: string; path: string }[] {
-  if (!path) return [];
-  // Windows: "C:\foo\bar" → ["C:", "foo", "bar"]
-  const isWindows = /^[A-Za-z]:[\\/]/.test(path);
-  if (isWindows) {
-    const parts = path.split(/[\\/]/).filter(Boolean);
-    const crumbs: { label: string; path: string }[] = [];
-    let acc = "";
-    parts.forEach((p, i) => {
-      acc = i === 0 ? `${p}\\` : `${acc}${p}\\`;
-      crumbs.push({ label: p, path: acc });
-    });
-    return crumbs;
-  }
-  // POSIX
-  const parts = path.split("/").filter(Boolean);
-  const crumbs: { label: string; path: string }[] = [{ label: "/", path: "/" }];
-  let acc = "";
-  parts.forEach((p) => {
-    acc = `${acc}/${p}`;
-    crumbs.push({ label: p, path: acc });
-  });
-  return crumbs;
 }

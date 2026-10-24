@@ -39,6 +39,18 @@ class WSLPathTests(unittest.TestCase):
         with patch.object(wsl_paths.sys, 'platform', 'linux'):
             self.assertEqual(wsl_paths.native_path('/home/test'), '/home/test')
 
+    def test_distribution_listing_decodes_wsl_output_and_skips_utility_distros(self):
+        listing = 'Ubuntu\r\nrancher-desktop\r\nDocker-Desktop-Data\r\nDebian\r\nbad/name\r\n\r\n'
+        expected = ['Ubuntu', 'Debian']
+        self.assertEqual(wsl_paths.parse_distributions(listing.encode('utf-16-le')), expected)
+        self.assertEqual(wsl_paths.parse_distributions(b'\xff\xfe' + listing.encode('utf-16-le')), expected)
+        # WSL_UTF8=1 switches wsl.exe to UTF-8.
+        self.assertEqual(wsl_paths.parse_distributions(listing.encode('utf-8')), expected)
+        self.assertEqual(wsl_paths.parse_distributions(b''), [])
+        with patch.object(wsl_paths.sys, 'platform', 'linux'), patch.object(wsl_paths.subprocess, 'run') as run:
+            self.assertEqual(wsl_paths.distributions(), [])
+            run.assert_not_called()
+
     def test_drive_mounts_use_real_windows_paths_and_round_trip_custom_mount_roots(self):
         mounts = 'C:\\134\t/windows\\040files/c\nD:\\134\t/mnt/d'
         self.assertEqual(wsl_paths.linux_to_windows('/windows files/c/Users/a/project', 'Ubuntu', mounts),

@@ -1229,11 +1229,22 @@ def api_fs_roots():
             roots.append({"label": "/Volumes", "path": "/Volumes"})
     elif system == "Windows":
         import string
+        from .wsl_paths import distributions, linux_to_windows
         for letter in string.ascii_uppercase:
             drive = f"{letter}:\\"
             if os.path.isdir(drive):
                 roots.append({"label": f"{letter}:", "path": drive})
+        # \\wsl.localhost itself cannot be listed, so each distribution is a
+        # root, in the namespace the WSL client bridge uses (ADR 0026).
+        for name in distributions():
+            roots.append({"label": f"WSL {name}", "path": linux_to_windows("/", name)})
     return {"roots": roots, "platform": system, "wsl": system == "Linux" and _is_wsl()}
+
+
+def _crumbs(path: Path) -> list[dict[str, str]]:
+    """Each step from the filesystem anchor (/, C:\\ or \\\\server\\share\\) down to ``path``."""
+    return [{"label": step.name or step.anchor.rstrip("\\/") or step.anchor, "path": str(step)}
+            for step in (*reversed(path.parents), path)]
 
 
 @app.get("/api/fs/list")
@@ -1263,6 +1274,7 @@ def api_fs_list(path: str = "", show_hidden: bool = False):
             "parent": parent,
             "is_file": True,
             "entries": [],
+            "crumbs": _crumbs(p),
         }
 
     entries: list[dict[str, Any]] = []
@@ -1294,6 +1306,7 @@ def api_fs_list(path: str = "", show_hidden: bool = False):
         "parent": parent,
         "is_file": False,
         "entries": entries,
+        "crumbs": _crumbs(p),
     }
 
 

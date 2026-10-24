@@ -501,18 +501,21 @@ export type FsEntry = {
   abs_path: string;
 };
 
+/** A named place in the server's filesystem: a root or a breadcrumb. */
+export type FsLocation = { label: string; path: string };
+
 export type FsListing = {
   path: string;
   parent: string | null;
   is_file: boolean;
   entries: FsEntry[];
+  /** From the filesystem root down to `path`, in the server's path syntax. */
+  crumbs: FsLocation[];
   error?: string;
 };
 
-export type FsRoot = { label: string; path: string };
-
 export async function getFsRoots(): Promise<{
-  roots: FsRoot[];
+  roots: FsLocation[];
   platform: string;
   wsl: boolean;
 }> {
@@ -536,6 +539,7 @@ export async function listFs(
       parent: null,
       is_file: false,
       entries: [],
+      crumbs: [],
       error: (data as { error: string }).error || res.statusText,
     };
   }

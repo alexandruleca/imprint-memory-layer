@@ -105,3 +105,42 @@ test('ingest document queues a single-file ingest', async ({ page }) => {
   await expect(page.getByText('Started now.')).toBeVisible();
   expect(posts.commands).toEqual([{ command: 'ingest', body: { dir: '/home/me/report.pdf' } }]);
 });
+
+test('a Windows server offers its WSL distributions as picker roots', async ({ page }) => {
+  const { posts } = await mockApi(page);
+  const share = '\\\\wsl.localhost\\Ubuntu\\';
+  const home = `${share}home`;
+  await page.route('**/api/fs/roots', route => route.fulfill({ json: { platform: 'Windows', wsl: false, roots: [
+    { label: 'Home', path: 'C:\\Users\\me' }, { label: 'C:', path: 'C:\\' }, { label: 'WSL Ubuntu', path: share },
+  ] } }));
+  const listed: string[] = [];
+  await page.route('**/api/fs/list**', route => {
+    const path = new URL(route.request().url()).searchParams.get('path') ?? '';
+    listed.push(path);
+    // Breadcrumbs come from the server, in its own path syntax.
+    const listing = path === share
+      ? { path: share, parent: null, entries: [{ name: 'home', is_dir: true, abs_path: home }],
+          crumbs: [{ label: '\\\\wsl.localhost\\Ubuntu', path: share }] }
+      : path === home
+        ? { path: home, parent: share, entries: [],
+            crumbs: [{ label: '\\\\wsl.localhost\\Ubuntu', path: share }, { label: 'home', path: home }] }
+        : { path: 'C:\\Users\\me', parent: 'C:\\Users', entries: [],
+            crumbs: [{ label: 'C:', path: 'C:\\' }, { label: 'Users', path: 'C:\\Users' }, { label: 'me', path: 'C:\\Users\\me' }] };
+    route.fulfill({ json: { is_file: false, ...listing } });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Workspace: alpha' }).click();
+  await page.getByRole('button', { name: 'Manage workspaces…' }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage workspaces' });
+  await manager.getByRole('button', { name: 'Edit beta' }).click();
+  await manager.getByRole('button', { name: 'Pick folder' }).click();
+  const picker = page.getByRole('dialog', { name: 'Pick a root folder' });
+  await picker.getByRole('button', { name: 'WSL Ubuntu' }).click();
+  await picker.getByRole('button', { name: 'home', exact: true }).click();
+  await expect(picker.getByRole('button', { name: /^\\\\wsl\.localhost\\Ubuntu/ })).toBeVisible();
+  await picker.getByRole('button', { name: 'Select this folder' }).click();
+  await expect(manager.getByLabel('Workspace root directory')).toHaveValue(home);
+  await manager.getByRole('button', { name: 'Add root' }).click();
+  expect(posts.roots).toEqual([{ workspace: 'beta', path: home, action: 'add', allow_overlap: false }]);
+  expect(listed).toContain(share);
+});
