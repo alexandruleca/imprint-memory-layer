@@ -13,7 +13,7 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 **Host Python is *not* required.** Every release archive now ships Astral's `uv` binary alongside `imprint`; on first run `uv` downloads a pinned Python 3.12 via python-build-standalone into the install dir's `.venv/`. Nothing is installed system-wide.
 
 **Optional — GPU acceleration:**
-- NVIDIA GPU + a CUDA runtime matching `onnxruntime-gpu` (the locked 1.31 links CUDA 13) for ~20× faster embedding (pick `--profile gpu` at install, or run `imprint profile set gpu` later — see [embeddings.md](./embeddings.md))
+- NVIDIA GPU whose driver supports CUDA 13 (R580 or newer) for ~20× faster embedding. The GPU profile installs the CUDA and cuDNN libraries itself (about 1.3 GB); no CUDA toolkit is needed (pick `--profile gpu` at install, or run `imprint profile set gpu` later — see [embeddings.md](./embeddings.md))
 
 **Optional — local LLM tagger** — `llama-cpp-python` is skipped by default to keep the install footprint small. Opt in with `--with-llm` at install time or `imprint profile add-llm` afterward.
 
@@ -256,9 +256,9 @@ curl -fsSL .../install.sh | bash -s -- --yes
 
 ### Sticky GPU failure handling
 
-The profile selects exactly one ONNX Runtime build: `cpu` installs `onnxruntime`, `gpu` installs `onnxruntime-gpu`, and `auto` installs `onnxruntime-gpu` when `nvidia-smi` reports a GPU and CUDA has not already failed on this host. The two builds share one package directory, so setup removes the other build and reinstalls a build with missing files; rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage. An explicit `gpu` profile keeps `onnxruntime-gpu` when CUDA fails, because that build also runs on CPU. See [ADR 0032](adr/0032-one-onnx-runtime-per-environment.md).
+The profile selects exactly one ONNX Runtime build: `cpu` installs `onnxruntime`, `gpu` installs `onnxruntime-gpu`, and `auto` installs `onnxruntime-gpu` when `nvidia-smi` reports a GPU and CUDA has not already failed for this host and GPU build. When the driver supports an older CUDA than the GPU build needs, `gpu` and `auto` both install `onnxruntime` and name the CUDA version to update the driver to. The two builds share one package directory, so setup removes the other build and reinstalls a build with missing files; rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage. An explicit `gpu` profile keeps `onnxruntime-gpu` when CUDA fails, because that build also runs on CPU. See [ADR 0032](adr/0032-one-onnx-runtime-per-environment.md).
 
-`imprint setup` probes your GPU stack every run. When `onnxruntime-gpu` / `llama-cpp-python` fail to produce a working CUDA build (for example: Blackwell `sm_120` with an older `nvcc`, or `libcublasLt.so.12` missing when ORT ships CUDA 12 wheels against a CUDA 13 host), the failure is recorded in `data/gpu_state.json` keyed on `{gpu, nvcc, compute_cap, driver}`. Subsequent `imprint setup` runs skip the broken path silently so you don't see the same multi-minute rebuild warning on every invocation.
+`imprint setup` checks CUDA every run. When the ONNX Runtime CUDA check or the `llama-cpp-python` CUDA build fails (for example: Blackwell `sm_120` with an older `nvcc`), the failure is recorded in `data/gpu_state.json`, keyed on the GPU, driver, Python and, for ONNX Runtime, the GPU build; llama builds also record `nvcc` and compute capability. `auto` then uses the CPU build, and the llama rebuild is skipped, so you don't see the same multi-minute warning on every invocation. A new driver or GPU build retries automatically.
 
 After you upgrade your CUDA toolkit or driver, force a retry:
 
@@ -266,7 +266,7 @@ After you upgrade your CUDA toolkit or driver, force a retry:
 imprint setup --retry-gpu
 ```
 
-The setup also auto-installs the `nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cufft-cu12`, and `nvidia-curand-cu12` pip wheels into the venv when a smoke test detects a missing CUDA runtime library — so the common "ORT lists `CUDAExecutionProvider` but sessions can't be created" case is fixed without manual intervention.
+The GPU build installs NVIDIA's CUDA runtime, cuBLAS, cuFFT, cuRAND, NVRTC and cuDNN wheels from the hashed GPU lock, and ONNX Runtime's `preload_dlls()` loads them on Windows and Linux. See [ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md).
 
 ## Run the relay server (Docker)
 

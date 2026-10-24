@@ -16,10 +16,10 @@ const fileName = "gpu_state.json"
 
 // State is the full on-disk shape. Absent fields mean "unknown / never tried".
 type State struct {
-	OrtGPU          string          `json:"ort_gpu,omitempty"`        // "ok" | "broken"
-	OrtGPUReason    string          `json:"ort_gpu_reason,omitempty"` // first error line
-	OrtGPUEnv       Env             `json:"ort_gpu_env,omitempty"`
-	LlamaCudaFailed *LlamaCudaFail  `json:"llama_cuda_failed,omitempty"`
+	OrtGPU          string         `json:"ort_gpu,omitempty"`        // "ok" | "broken"
+	OrtGPUReason    string         `json:"ort_gpu_reason,omitempty"` // first error line
+	OrtGPUEnv       Env            `json:"ort_gpu_env,omitempty"`
+	LlamaCudaFailed *LlamaCudaFail `json:"llama_cuda_failed,omitempty"`
 }
 
 // Env fingerprints the host so we only trust a sticky verdict when the
@@ -32,6 +32,10 @@ type Env struct {
 	Nvcc       string `json:"nvcc,omitempty"`
 	ComputeCap string `json:"compute_cap,omitempty"`
 	Python     string `json:"python,omitempty"`
+	// Runtime identifies the GPU build an ONNX Runtime verdict was measured
+	// on. It is compared exactly: a verdict from another build, or from
+	// before this field existed, says nothing about the installed one.
+	Runtime string `json:"runtime,omitempty"`
 }
 
 // LlamaCudaFail records a failed llama-cpp CUDA rebuild.
@@ -112,5 +116,5 @@ func SameEnv(a, b Env) bool {
 	if a.Python != "" && b.Python != "" && a.Python != b.Python {
 		return false
 	}
-	return true
+	return a.Runtime == b.Runtime
 }

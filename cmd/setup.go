@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -163,14 +164,28 @@ func ortRuntimes(projectDir string) map[string]ortRuntime {
 	}
 }
 
-// resolveRuntime maps an install profile to a runtime. auto picks the GPU
-// runtime when an NVIDIA GPU is present and CUDA has not already failed on
-// this host (data/gpu_state.json).
-func resolveRuntime(profile, dataDir, venvPython string) string {
-	if profile == "cpu" || profile == "gpu" {
-		return profile
+// overlay is the runtime's own requirements file, the one after base.
+func (rt ortRuntime) overlay() string {
+	return rt.Requirements[len(rt.Requirements)-1]
+}
+
+// resolveRuntime maps an install profile to a runtime. The GPU runtime ships
+// its CUDA libraries, so the host only needs a driver that supports their
+// CUDA major; when the driver is known to be older, gpu and auto both use the
+// CPU runtime (ADR 0038). auto also needs an NVIDIA GPU and no CUDA failure
+// recorded for this host and GPU runtime (data/gpu_state.json).
+func resolveRuntime(profile, dataDir, venvPython string, gpu ortRuntime) string {
+	if profile == "cpu" {
+		return "cpu"
 	}
-	env := ortHostEnv(venvPython)
+	if have, need := driverCUDAMajor(), lockedCUDAMajor(gpu.overlay()); have != 0 && have < need {
+		output.Warn(fmt.Sprintf("The NVIDIA driver supports CUDA %d, but the GPU runtime needs CUDA %d: using CPU. Update the driver, then run `imprint setup` again.", have, need))
+		return "cpu"
+	}
+	if profile == "gpu" {
+		return "gpu"
+	}
+	env := ortGPUEnv(venvPython, gpu)
 	if env.GPU == "" {
 		return "cpu"
 	}
@@ -178,6 +193,37 @@ func resolveRuntime(profile, dataDir, venvPython string) string {
 		return "cpu"
 	}
 	return "gpu"
+}
+
+var (
+	driverCUDARe = regexp.MustCompile(`CUDA Version:\s*(\d+)\.`)
+	lockedCUDARe = regexp.MustCompile(`(?m)^nvidia-cuda-runtime==(\d+)\.`)
+)
+
+// driverCUDAMajor is the newest CUDA major the NVIDIA driver supports, from
+// nvidia-smi's header, or 0 when there is no driver or it does not say.
+func driverCUDAMajor() int {
+	nvsmi, ok := runner.Exists("nvidia-smi")
+	if !ok {
+		return 0
+	}
+	out, _ := runner.RunCapture(nvsmi)
+	if m := driverCUDARe.FindStringSubmatch(out); m != nil {
+		major, _ := strconv.Atoi(m[1])
+		return major
+	}
+	return 0
+}
+
+// lockedCUDAMajor is the CUDA major of the nvidia-cuda-runtime pin in a GPU
+// requirements file, or 0 when it has none (an unlocked checkout).
+func lockedCUDAMajor(requirements string) int {
+	data, _ := os.ReadFile(requirements)
+	if m := lockedCUDARe.FindSubmatch(data); m != nil {
+		major, _ := strconv.Atoi(string(m[1]))
+		return major
+	}
+	return 0
 }
 
 // ortProviders reports every installed distribution that provides the
@@ -476,9 +522,9 @@ func setupBackend() backendPaths {
 	// even if nvidia-smi is absent (e.g. a container where /dev/nvidia*
 	// appears only at runtime); that runtime also runs on CPU.
 	runtimes := ortRuntimes(projectDir)
-	ort := runtimes[resolveRuntime(profile, dataDir, venvPython)]
+	ort := runtimes[resolveRuntime(profile, dataDir, venvPython, runtimes["gpu"])]
 	installRuntime(uv, venvPython, venvPip, projectDir, ort)
-	if ort.Name == "gpu" && !checkOrtGPU(uv, venvPython, venvPip, projectDir, dataDir) && profile == "auto" {
+	if ort.Name == "gpu" && !checkOrtGPU(venvPython, dataDir, ort) && profile == "auto" {
 		// The recorded failure makes auto resolve to CPU from now on;
 		// install that now so the next run has nothing to change.
 		installRuntime(uv, venvPython, venvPip, projectDir, runtimes["cpu"])
@@ -761,25 +807,20 @@ else:
 	}
 }
 
-// ortSmokeScript builds a 1-op ONNX model in memory and tries to run it on
-// CUDA. Writes "OK" on success or "ERR:<first line>" on failure. Used to
-// detect the "provider listed but runtime libs missing" case that the
-// static `get_available_providers()` check can't catch (e.g. libcublasLt.so.12
-// missing when onnxruntime-gpu links CUDA 12 but the host runs CUDA 13).
-// The model declares IR version 8: helper.make_model otherwise stamps the
-// installed onnx package's newest IR version, which can exceed what the
-// installed runtime accepts and fails the test on every host.
+// ortSmokeScript builds a 1-op ONNX model in memory and runs it on CUDA. It
+// prints "OK", or "ERR:<reason>" with the libraries ONNX Runtime's
+// preload_dlls could not load, if any. The model declares IR version 8:
+// helper.make_model otherwise stamps the installed onnx package's newest IR
+// version, which can exceed what the installed runtime accepts.
 const ortSmokeScript = `
-import sys
-try:
-    from imprint.embeddings import _preload_cuda_libs
-    _preload_cuda_libs()
-except Exception:
-    pass
+import contextlib, io, sys
 try:
     import onnxruntime as ort
     import numpy as np
     from onnx import helper, TensorProto
+    preload = io.StringIO()
+    with contextlib.redirect_stdout(preload):
+        ort.preload_dlls()
     x = helper.make_tensor_value_info('x', TensorProto.FLOAT, [1])
     y = helper.make_tensor_value_info('y', TensorProto.FLOAT, [1])
     n = helper.make_node('Identity', ['x'], ['y'])
@@ -788,7 +829,8 @@ try:
     so = ort.SessionOptions(); so.log_severity_level = 4
     sess = ort.InferenceSession(m.SerializeToString(), sess_options=so, providers=['CUDAExecutionProvider'])
     if 'CUDAExecutionProvider' not in sess.get_providers():
-        raise RuntimeError('CUDAExecutionProvider unavailable; session fell back to ' + ', '.join(sess.get_providers()))
+        failed = [line for line in preload.getvalue().splitlines() if line.startswith('Failed to load')]
+        raise RuntimeError('; '.join(failed) or 'CUDAExecutionProvider unavailable; session fell back to ' + ', '.join(sess.get_providers()))
     sess.run(None, {'x': np.zeros(1, dtype=np.float32)})
     print('OK')
 except Exception as e:
@@ -797,48 +839,23 @@ except Exception as e:
     sys.exit(1)
 `
 
-// ortSmokeTest runs the smoke script and returns (ok, firstErrorLine). A
-// missing `onnx` package counts as a smoke failure whose error text will
-// start with "No module named 'onnx'" — callers install it alongside the
-// cu12 wheels.
-func ortSmokeTest(venvPython, projectDir string) (bool, string) {
-	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir},
-		"-c", ortSmokeScript)
-	if err == nil && strings.Contains(out, "OK") {
-		return true, ""
-	}
-	// Pick the last ERR: line (there may be ORT log noise before it).
-	for _, line := range strings.Split(out, "\n") {
+// ortSmokeTest runs the smoke script and returns (ok, reason). It reads only
+// stdout: ONNX Runtime logs to stderr, in UTF-16 on Windows.
+func ortSmokeTest(venvPython string) (bool, string) {
+	out, err := runner.CommandWithEnv(venvPython, []string{"-c", ortSmokeScript}).Output()
+	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "ERR:") {
-			return false, strings.TrimPrefix(line, "ERR:")
+		if line == "OK" {
+			return true, ""
 		}
-	}
-	if out != "" {
-		return false, strings.Split(strings.TrimSpace(out), "\n")[0]
+		if reason, found := strings.CutPrefix(line, "ERR:"); found {
+			return false, reason
+		}
 	}
 	if err != nil {
 		return false, err.Error()
 	}
-	return false, "unknown"
-}
-
-// cudaRuntimeMissing reports whether the smoke error string is one of the
-// well-known "missing runtime library" cases that `_preload_cuda_libs`
-// can fix by installing the matching cu12 pip wheels.
-func cudaRuntimeMissing(errLine string) bool {
-	needles := []string{
-		"libcublasLt", "libcublas", "libcudart",
-		"libcudnn", "libcufft", "libcurand",
-		"libcusparse", "libnvJitLink", "libnvrtc",
-	}
-	lower := strings.ToLower(errLine)
-	for _, n := range needles {
-		if strings.Contains(errLine, n) || strings.Contains(lower, strings.ToLower(n)) {
-			return true
-		}
-	}
-	return false
+	return false, "no result"
 }
 
 // ortHostEnv fingerprints the host for the sticky-failure cache so a stored
@@ -848,11 +865,21 @@ func ortHostEnv(venvPython string) gpustate.Env {
 	env := gpustate.Env{Python: pythonTag(venvPython)}
 	if nvsmi, ok := runner.Exists("nvidia-smi"); ok {
 		if name, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader"); err == nil {
-			env.GPU = strings.Split(strings.TrimSpace(name), "\n")[0]
+			env.GPU = strings.TrimSpace(strings.Split(name, "\n")[0])
 		}
 		if drv, err := runner.RunCapture(nvsmi, "--query-gpu=driver_version", "--format=csv,noheader"); err == nil {
-			env.Driver = strings.Split(strings.TrimSpace(drv), "\n")[0]
+			env.Driver = strings.TrimSpace(strings.Split(drv, "\n")[0])
 		}
+	}
+	return env
+}
+
+// ortGPUEnv is ortHostEnv plus the GPU runtime the CUDA verdict is measured
+// on, so a new GPU lock retries CUDA.
+func ortGPUEnv(venvPython string, gpu ortRuntime) gpustate.Env {
+	env := ortHostEnv(venvPython)
+	if data, err := os.ReadFile(gpu.overlay()); err == nil {
+		env.Runtime = fmt.Sprintf("%x", sha256.Sum256(data))[:16]
 	}
 	return env
 }
@@ -894,46 +921,20 @@ func lastNonBlankLines(s string, n int) string {
 	return strings.Join(kept, "\n")
 }
 
-// checkOrtGPU smoke-tests CUDA on the installed GPU runtime. When the
-// failure is a missing CUDA runtime library, it installs the cu12 pip wheels
-// and retries. The verdict is cached per host in data/gpu_state.json so
-// repeat setup runs stay silent. It never swaps packages: onnxruntime-gpu
-// also runs on CPU, so a failure leaves embeddings working on CPU.
-func checkOrtGPU(uv, venvPython, venvPip, projectDir, dataDir string) bool {
+// checkOrtGPU smoke-tests CUDA on the installed GPU runtime and records the
+// verdict for this host and GPU runtime in data/gpu_state.json; auto uses
+// the CPU runtime while a failure is recorded. It never swaps packages:
+// onnxruntime-gpu also runs on CPU.
+func checkOrtGPU(venvPython, dataDir string, gpu ortRuntime) bool {
 	state := gpustate.Load(dataDir)
-	hostEnv := ortHostEnv(venvPython)
-	if state.OrtGPU == "broken" && gpustate.SameEnv(state.OrtGPUEnv, hostEnv) && hostEnv.GPU != "" {
-		output.Skip("CUDA previously failed on this host — embeddings run on CPU (run `imprint setup --retry-gpu` to retry)")
-		return false
-	}
-
-	ok, errLine := ortSmokeTest(venvPython, projectDir)
-	if !ok && cudaRuntimeMissing(errLine) {
-		output.Info("Missing CUDA runtime libs (" + errLine + ") — installing cu12 pip wheels...")
-		// nvjitlink / cusparse / nvrtc are required by onnxruntime-gpu 1.18+ but
-		// don't ship inside the wheel; on CUDA 13 driver hosts the system libs
-		// only exist as .so.13, so ORT can't find the .so.12 it links against.
-		_ = pipInstall(uv, venvPython, venvPip,
-			"nvidia-cuda-runtime-cu12", "nvidia-cublas-cu12", "nvidia-cudnn-cu12",
-			"nvidia-cufft-cu12", "nvidia-curand-cu12",
-			"nvidia-cusparse-cu12", "nvidia-nvjitlink-cu12", "nvidia-cuda-nvrtc-cu12")
-		ok, errLine = ortSmokeTest(venvPython, projectDir)
-	}
-
-	state.OrtGPUEnv = hostEnv
+	state.OrtGPUEnv = ortGPUEnv(venvPython, gpu)
+	ok, reason := ortSmokeTest(venvPython)
 	if ok {
-		output.Success("GPU acceleration available (CUDA) — " + hostEnv.GPU)
+		output.Success("GPU acceleration available (CUDA) — " + state.OrtGPUEnv.GPU)
 		state.OrtGPU, state.OrtGPUReason = "ok", ""
 	} else {
-		output.Warn("CUDA smoke test failed (" + errLine + ") — embeddings run on CPU")
-		if cudaRuntimeMissing(errLine) {
-			// We already tried installing cu12 wheels above — if the same lib
-			// is still missing, the most likely cause is a system loader that
-			// picks the host's mismatched libs (e.g. CUDA 13) before the venv's
-			// cu12 wheels. Surface a hint so users know what to try next.
-			output.Warn("  Hint: ORT-GPU links against CUDA 12 .so files. If your host is on CUDA 13, run `imprint setup --retry-gpu` and report the error if it persists.")
-		}
-		state.OrtGPU, state.OrtGPUReason = "broken", errLine
+		output.Warn("CUDA smoke test failed (" + reason + ") — embeddings run on CPU")
+		state.OrtGPU, state.OrtGPUReason = "broken", reason
 	}
 	_ = gpustate.Save(dataDir, state)
 	return ok

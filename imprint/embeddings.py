@@ -43,30 +43,15 @@ def _build_session_options() -> ort.SessionOptions:
 
 
 def _preload_cuda_libs() -> None:
-    """Dlopen pip-installed CUDA libs so ORT-GPU finds them without needing
-    LD_LIBRARY_PATH set at process start. Best-effort — silently no-ops if
-    libs aren't installed (CPU path still works)."""
-    import ctypes
-    import glob
-    import site
+    """Load the CUDA and cuDNN libraries that the GPU runtime's NVIDIA wheels
+    install (ADR 0038), so its CUDA provider finds them on Windows and Linux.
+    A no-op on the CPU runtime. ONNX Runtime reports problems with print(),
+    and stdout carries the MCP protocol, so they go to stderr."""
+    import contextlib
+    import sys
 
-    for sp in site.getsitepackages() + [site.getusersitepackages()]:
-        nv = os.path.join(sp, "nvidia")
-        if not os.path.isdir(nv):
-            continue
-        # Order matters: cuda_runtime → cublas → cudnn (cudnn depends on cublas).
-        # nvjitlink / cusparse / cuda_nvrtc were added when onnxruntime-gpu 1.18+
-        # started linking libnvJitLink.so.12 — without preloading, ORT fails to
-        # create a CUDA session on hosts whose system libs don't ship the .so.12
-        # ABI (e.g. CUDA 13 driver hosts where only .so.13 exists).
-        for sub in ("cuda_runtime", "cublas", "cudnn", "cufft", "curand",
-                    "cusparse", "nvjitlink", "cuda_nvrtc"):
-            for so in sorted(glob.glob(os.path.join(nv, sub, "lib", "lib*.so.*"))):
-                try:
-                    ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
-                except OSError:
-                    pass
-        return
+    with contextlib.redirect_stdout(sys.stderr):
+        ort.preload_dlls()
 
 
 def _resolve_providers() -> list:

@@ -81,6 +81,16 @@ class EncodingTests(unittest.TestCase):
             with patch.object(config, key, value):
                 self.assertNotEqual(config.embedding_identity(), original)
 
+    def test_cuda_preload_reports_on_stderr_not_the_mcp_stream(self):
+        import contextlib
+        import io
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(embeddings.ort, 'preload_dlls', side_effect=lambda: print('Failed to load cudnn64_9.dll')), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            embeddings._preload_cuda_libs()
+        self.assertEqual(out.getvalue(), '')
+        self.assertIn('Failed to load cudnn64_9.dll', err.getvalue())
+
 
 class LocalHelperTests(unittest.TestCase):
     def test_queued_reindex_retains_force_and_batch_size(self):

@@ -268,3 +268,15 @@ Triggered by a Windows GPU install that aborted on a `first-run.log` sharing vio
 | Go, Python, workflow | Passed | `go test ./...`, full Python suite (232 tests), actionlint. |
 
 Not run: native Windows or macOS bootstrap with the new layout, and any real CUDA session. The locked `onnxruntime-gpu` 1.31.0 links CUDA 13, while setup's CUDA retry targets CUDA 12.
+
+## GPU runtime with bundled CUDA 13 (2026-10-24)
+
+See [ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md).
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| GPU lock on native Windows (RTX 4080 Laptop, driver 581.80) | Passed | `gpu.lock.txt` installs with `--require-hashes` into a fresh venv in 39 s (1.86 GB). The setup smoke script prints `OK`; a 512×512 MatMul runs on `CUDAExecutionProvider` (onnxruntime-gpu 1.31.0). |
+| `imprint bootstrap` on Linux (WSL2, same GPU) | Passed | A pre-0038 "broken" verdict is retried and passes; a driver reporting CUDA 12.8 makes `auto` and `gpu` install the CPU runtime with the driver message; the real driver switches `auto` back to the GPU runtime. |
+| First-start collection race (native Windows, scratch Qdrant 1.17.1) | Passed | 8 threads × 10 fresh collections: the previous code failed 48 of 80 calls with Qdrant's "0 of 0 read operations failed" 500; the locked creation succeeded on all 80, one create per collection. |
+
+Not run: Linux aarch64 GPU hosts, and pre-R580 drivers on real hardware.

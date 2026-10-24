@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -41,5 +43,22 @@ func TestRequirementInstallArgs(t *testing.T) {
 		if got := requirementInstallArgs(c.files...); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("requirementInstallArgs(%v) = %v, want %v", c.files, got, c.want)
 		}
+	}
+}
+
+func TestCUDAMajors(t *testing.T) {
+	header := "| NVIDIA-SMI 580.105.07             Driver Version: 581.80         CUDA Version: 13.0     |"
+	if m := driverCUDARe.FindStringSubmatch(header); m == nil || m[1] != "13" {
+		t.Errorf("driver CUDA from %q = %v, want 13", header, m)
+	}
+	if got := lockedCUDAMajor(filepath.Join("..", "requirements", "gpu.lock.txt")); got != 13 {
+		t.Errorf("lockedCUDAMajor(gpu.lock.txt) = %d, want 13", got)
+	}
+	unlocked := filepath.Join(t.TempDir(), "gpu.txt")
+	if err := os.WriteFile(unlocked, []byte("onnxruntime-gpu[cuda,cudnn]>=1.20.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := lockedCUDAMajor(unlocked); got != 0 {
+		t.Errorf("lockedCUDAMajor(unlocked) = %d, want 0", got)
 	}
 }

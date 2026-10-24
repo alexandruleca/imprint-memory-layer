@@ -111,7 +111,7 @@ imprint update -y           # skip confirmation (CI / scripts)
 
 Re-running `install.sh` also works and now prompts before overwriting an existing install. For non-interactive upgrades pass `--yes` or set `IMPRINT_ASSUME_YES=1`.
 
-**If GPU setup fails once** (e.g. Blackwell + old nvcc, or CUDA runtime mismatch) the failure is remembered in `data/gpu_state.json` so future `imprint setup` runs skip the broken path silently. After you upgrade the toolchain, force a retry with:
+**If GPU setup fails once** (e.g. Blackwell + old nvcc) the failure is remembered in `data/gpu_state.json` so future `imprint setup` runs skip the broken path silently. After you upgrade the toolchain, force a retry with:
 
 ```bash
 imprint setup --retry-gpu

@@ -1,6 +1,13 @@
 # ONNX Runtime GPU build, installed on top of base.txt instead of cpu.txt when
 # the GPU build is used. onnxruntime and onnxruntime-gpu install the same
 # `onnxruntime` package directory, so setup installs exactly one.
-# onnx builds the model for setup's CUDA smoke test.
-onnxruntime-gpu>=1.20.0
+#
+# The [cuda,cudnn] extras bring the CUDA runtime, cuBLAS, cuFFT, cuRAND, NVRTC
+# and cuDNN as NVIDIA wheels, so the only system requirement is an NVIDIA
+# driver that supports the CUDA major of nvidia-cuda-runtime in gpu.lock.txt;
+# setup checks it (ADR 0038). onnx builds the model for setup's CUDA smoke test.
+onnxruntime-gpu[cuda,cudnn]>=1.20.0
 onnx>=1.17.0
+# Every pin needs win_amd64 and manylinux (x86_64, aarch64) wheels; some NVIDIA
+# patch releases ship Linux only.
+nvidia-cublas!=13.8.1.7
