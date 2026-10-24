@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native Echo graphical check using only a disposable API/profile and fake mic."""
 import argparse
+import contextlib
 import os
 from pathlib import Path
 import shutil
@@ -10,6 +11,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from unittest.mock import patch
 
 
 def serve(port: int):
@@ -36,7 +38,28 @@ def serve(port: int):
     async def shutdown(): await voice.shutdown()
 
     app.mount("/", StaticFiles(directory="imprint/ui/out", html=True), name="static")
-    uvicorn.run(app, host="127.0.0.1", port=port, proxy_headers=False, log_level="error")
+    with contextlib.ExitStack() as stack:
+        if os.environ.get("IMPRINT_VOICE_SMOKE_DIAGNOSTICS") == "1":
+            # Disposable fixture only: never enable native prompt logs in the API.
+            log = stack.enter_context((Path(os.environ["IMPRINT_DATA_DIR"]) / "native.log").open("wb"))
+            original_popen, original_verify = subprocess.Popen, voice.voice_runtime.verify
+            def verify(root):
+                began = time.monotonic()
+                log.write(b"Verifying voice assets\n"); log.flush()
+                result = original_verify(root)
+                log.write(f"Assets verified after {time.monotonic() - began:.2f}s\n".encode()); log.flush()
+                return result
+            def launch(*arguments, **kwargs):
+                command = arguments[0] if arguments else kwargs.get("args", [])
+                if isinstance(command, (list, tuple)) and command and Path(command[0]).name in {
+                    "llama-liquid-audio-server", "llama-liquid-audio-server.exe",
+                }:
+                    log.write(b"Launching owned native worker\n"); log.flush()
+                    kwargs.update(stdout=log, stderr=subprocess.STDOUT)
+                return original_popen(*arguments, **kwargs)
+            stack.enter_context(patch.object(voice.voice_runtime, "verify", side_effect=verify))
+            stack.enter_context(patch.object(subprocess, "Popen", side_effect=launch))
+        uvicorn.run(app, host="127.0.0.1", port=port, proxy_headers=False, log_level="error")
 
 
 def main():
@@ -44,6 +67,7 @@ def main():
     parser.add_argument("--runtime-dir", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--serve", type=int)
+    parser.add_argument("--native-logs", action="store_true", help="Retain startup diagnostics from disposable fixtures only")
     args = parser.parse_args()
     if args.serve:
         serve(args.serve)
@@ -56,6 +80,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="imprint-voice-desktop-") as directory:
         env = dict(os.environ, IMPRINT_DATA_DIR=directory, IMPRINT_WORKSPACE="",
                    IMPRINT_VOICE_RUNTIME_DIR=str(args.runtime_dir.resolve()), IMPRINT_CHAT_PROVIDER="local")
+        if args.native_logs:
+            env["IMPRINT_VOICE_SMOKE_DIAGNOSTICS"] = "1"
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
@@ -90,6 +116,10 @@ def main():
                 api.terminate()
                 try: api.wait(timeout=5)
                 except subprocess.TimeoutExpired: api.kill(); api.wait()
+                native_log = Path(directory) / "native.log"
+                if native_log.exists():
+                    args.output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    shutil.copy2(native_log, args.output_dir / "native.log")
 
 
 if __name__ == "__main__":

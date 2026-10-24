@@ -101,9 +101,9 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop"
+            xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs
           else
-            python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop"
+            python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs
           fi
       - name: Preserve native evidence
         if: always()
