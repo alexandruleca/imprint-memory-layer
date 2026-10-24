@@ -23,17 +23,21 @@ def export_engine(root: Path, destination: Path) -> None:
     binary = runtime.verify_engine(root)
     if destination.exists():
         raise PrototypeError("Choose a new engine bundle destination")
-    destination.mkdir(parents=True, mode=0o700)
+    destination.mkdir(parents=True, mode=0o755)
     for source in [binary, root / "live-source.tar.gz", root / "live-build.json"]:
         target = destination / source.relative_to(root)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+        target.chmod(0o755 if source == binary else 0o644)
     (destination / "NOTICE.md").write_text(
         "Imprint private LFM speech engine\n\n"
         f"Built from tdakhran/llama.cpp {runtime.SOURCE_REVISION} with Imprint's private-listener patch.\n"
         "llama.cpp and ggml use the MIT license. Full pinned upstream source and third-party notices,\n"
         "including cpp-httplib and json.hpp, are provided in live-source.tar.gz.\n"
         "Model weights are not included. LFM model licensing is separate.\n", encoding="utf-8")
+    (destination / "NOTICE.md").chmod(0o644)
+    for directory in [destination, *(p for p in destination.rglob("*") if p.is_dir())]:
+        directory.chmod(0o755)
     runtime.verify_engine(destination)
 
 

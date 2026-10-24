@@ -38,7 +38,9 @@ class VoiceBundleTests(unittest.TestCase):
             root = Path(directory); cache = root / 'builder'; cache.mkdir()
             binary = self.fixture(cache)
             (cache / 'private.gguf').write_bytes(b'not for distribution')
+            (cache / 'live-build.json').chmod(0o600)
             shipped = root / 'bundle'; bundle.export_engine(cache, shipped)
+            self.assertTrue(all(p.stat().st_mode & 0o004 for p in shipped.rglob('*') if p.is_file()))
             self.assertFalse(list(shipped.rglob('*.gguf')))
             installed = root / 'fresh'; installed.mkdir(); events = []
             with patch.object(bundle, 'bundled_root', return_value=shipped), \

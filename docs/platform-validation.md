@@ -526,3 +526,21 @@ and [actual companion PNG](assets/voice/echo-anime-companion.png) are retained.
 The WSLg environment did not emit a native window-manager minimize event when
 programmatically minimizing; the smoke uses the app's actual Minimize control.
 OS minimize event routing is also covered by Electron fixtures.
+
+Real local speech also passed after the engine build: ASR recognized the fixture
+question, real streamed TTS answered it, authenticated transport rejected foreign
+requests, interruption stopped the owned process and a fresh turn succeeded.
+The same-Chat route used fixture reasoning with real speech synthesis. Startup
+including verification took 9.23 s; the first speech-turn audio arrived at 2.71 s
+and cancellation acknowledgement at 65 ms. These are one local run, not a general
+latency guarantee. Full local browser verification passed 62/63 initially; an
+existing search race fixture depended on a 500 ms response delay. It now holds
+the older reply until the newer result is visible, preserving the intended race
+under slower runners. Its five search scenarios passed on rerun.
+
+The initial Linux manylinux build compiled successfully but host verification
+could not read container-root-owned private metadata in its exported bundle.
+Release export now explicitly uses 755 for directories/executables and 644 for
+data/notices. This also makes installed system-owned bundles readable by the app
+user; runtime caches retain their private modes. A regression checks readable
+exports from a private builder cache. The corrected native matrix is rerun below.

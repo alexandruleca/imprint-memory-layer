@@ -23,7 +23,7 @@ const binary = data.subarray(28 + jsonLength);
 if (source.extensions.VRM.meta.licenseName !== "CC0")
   throw Error("Expected the CC0 beta model");
 const result = {
-  asset: { version: "2.0", generator: "Imprint Echo anime-head pipeline v3" },
+  asset: { version: "2.0", generator: "Imprint Echo anime-head pipeline v3", copyright: "CC0-1.0: pixiv Sendagaya Shino; Imprint adaptations" },
   extensionsUsed: ["KHR_materials_unlit"],
   scene: 0,
   scenes: [{ nodes: [0] }],
@@ -35,6 +35,7 @@ const result = {
         version: 3,
         artwork: "Echo anime hologram",
         source: "Sendagaya Shino / pixiv / CC0",
+        license: "CC0-1.0",
         morphs: "jawOpen, blink",
       },
     },
