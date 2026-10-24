@@ -3,7 +3,7 @@ title: ADR 0023 — Update by installation type
 description: The dashboard updates Imprint through the CLI, which installs a release the way the installation was set up.
 ---
 
-- Status: Accepted
+- Status: Accepted; stopping and restarting the dashboard server superseded by [ADR 0048](0048-registered-dashboard-server-and-supervised-restart.md)
 - Date: 2026-10-23
 - Related: ADR 0002, ADR 0012, ADR 0014
 

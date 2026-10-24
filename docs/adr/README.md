@@ -37,9 +37,9 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | Accepted | Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. |
 | [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | Accepted | Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance. |
 | [0022](0022-http-client-lifetime-during-model-work.md) | Accepted | Keep HTTP Qdrant clients alive through cold model work; retire the embedded-lock idle timer. |
-| [0023](0023-update-by-installation-type.md) | Accepted | The dashboard updates through the CLI, which installs a release the way the installation was set up. |
+| [0023](0023-update-by-installation-type.md) | Accepted; dashboard server stop/restart superseded by [0048](0048-registered-dashboard-server-and-supervised-restart.md) | The dashboard updates through the CLI, which installs a release the way the installation was set up. |
 | [0024](0024-enforce-local-service-boundaries.md) | Accepted | Loopback-only managed Qdrant, dashboard peer validation, legacy graph browser checks and explicit container isolation. |
-| [0025](0025-desktop-owned-background-service.md) | Accepted | Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. |
+| [0025](0025-desktop-owned-background-service.md) | Accepted; unregistered desktop service superseded by [0048](0048-registered-dashboard-server-and-supervised-restart.md) | Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | Accepted | Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. |
 | [0027](0027-symmetric-uninstall-and-branch-sync.md) | Accepted (data retention superseded by 0028) | Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. |
 | [0028](0028-complete-uninstall.md) | Accepted | Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. |
@@ -61,3 +61,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0044](0044-native-desktop-voice-platforms.md) | Accepted (native validation tracked separately) | Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. |
 | [0045](0045-setting-choices-and-gpu-auto-select.md) | Accepted | Settings declare their choices; the GPU device defaults to the first one the CUDA runtime supports. |
 | [0046](0046-visible-echo-runtime-setup.md) | Accepted | Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. |
+| [0048](0048-registered-dashboard-server-and-supervised-restart.md) | Accepted | The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. |

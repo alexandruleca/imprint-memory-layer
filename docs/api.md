@@ -64,8 +64,9 @@ side by side.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/version` | Version of this installation's imprint CLI (`bin/imprint` beside the package, else PATH); `unknown` when it can't be run. |
-| GET | `/api/update` | Latest release, `update_available`, how this installation updates (`method`, or `unsupported` with the reason), plus `running` and the updater `log` tail. The release check is cached for six hours; `?refresh=true` repeats it. |
-| POST | `/api/update` | Start `imprint update -y` detached; it may stop and restart this server. 400 when this installation cannot update or is current, 409 while an update or job is running. |
+| GET | `/api/update` | Latest release, `update_available`, how this installation updates (`method`, or `unsupported` with the reason), plus `running`, `failed` (the updater exited with an error; a successful exit hands over to the installer or the server restart) and the updater `log` tail. The release check is cached for six hours; `?refresh=true` repeats it. |
+| POST | `/api/update` | Start `imprint update -y` detached; it restarts this server once the release is installed. 400 when this installation cannot update or is current, 409 while an update or job is running. |
+| POST | `/api/restart` | Finish in-flight requests and exit with status 75; the desktop app or `imprint ui` that started the server starts it again with the installed code (`imprint ui restart` uses this, [ADR 0048](./adr/0048-registered-dashboard-server-and-supervised-restart.md)). 409 when the app is not served by Imprint's launcher. |
 | GET | `/api/stats` | Aggregate counts per project, type, and language. |
 | GET | `/api/overview` | Bubble-chart overview. Repeat `?type=` for multi-filter. |
 | GET | `/api/timeline` | Recent activity feed. `?project=`, `?limit=`. |

@@ -57,7 +57,7 @@ Open the installed Imprint shortcut/app, or run `imprint ui open`. The desktop s
 
 Closing the dashboard hides it and keeps the service running. Reopen it from the tray, macOS Dock or the Imprint shortcut. Choose **Quit Imprint** at the bottom of the sidebar or in the tray menu to exit and stop the app's service. On Linux desktops without a tray, close minimizes the window so you can reopen it from the taskbar.
 
-If you previously ran `imprint ui start`, the app reuses that independent service and leaves it running on Quit; stop it with `imprint ui stop`. `imprint ui status` describes that explicit daemon, not the app-owned service. Both write startup diagnostics to `imprint_ui.log` under the data directory (`imprint ui log` shows the location). Qdrant is shared with CLI/MCP clients and remains independent of the dashboard. Browser-only distributions continue to use the explicit daemon lifecycle.
+If you previously ran `imprint ui start`, the app reuses that independent service and leaves it running on Quit. Whichever started it, the dashboard server registers itself in `imprint_ui.json` under the data directory: `imprint ui status` reports it, `imprint ui stop` stops it (the app then shows that its service stopped, with **Try again**), and `imprint ui restart` restarts it with the installed code without changing who owns it ([ADR 0048](adr/0048-registered-dashboard-server-and-supervised-restart.md)). Both write startup diagnostics to `imprint_ui.log` under the data directory (`imprint ui log` shows the location). Qdrant is shared with CLI/MCP clients and remains independent of the dashboard. Browser-only distributions continue to use the explicit daemon lifecycle.
 
 See [ADR 0025](adr/0025-desktop-owned-background-service.md) and [platform validation](platform-validation.md) for ownership and native GUI limitations.
 
@@ -220,7 +220,7 @@ Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > defau
 
 ## Updating an existing install
 
-When a newer release exists, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reconnects when the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open.
+When a newer release exists, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reloads the dashboard once the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open.
 
 From a terminal:
 
@@ -237,13 +237,15 @@ Every download is verified against the release's `SHA256SUMS` before anything is
 
 | Installed with | Update |
 | --- | --- |
-| `install.sh` / `install.ps1` | Replaces the install tree in place, re-runs `imprint setup` and restarts a dashboard server started by `imprint ui start`. The previous files in `bin/` are kept as `bin/<name>.prev` for a manual rollback. |
-| Windows installer | Stops the dashboard server and runs the new `setup.exe` silently. Imprint closes, updates and reopens; your install profile (GPU, local LLM) is kept. The installer log is `data/update-setup.log`. |
-| macOS `.pkg` | Opens the new `.pkg` in Installer, which asks for your password, then restarts the dashboard server. |
+| `install.sh` / `install.ps1` | Replaces the install tree in place, re-runs `imprint setup` and restarts the running dashboard server. The previous files in `bin/` are kept as `bin/<name>.prev` for a manual rollback. |
+| Windows installer | Runs the new `setup.exe` silently while Imprint keeps running. After provisioning, it restarts the running dashboard server and reopens Imprint; your install profile (GPU, local LLM) is kept. The installer log is `data/update-setup.log`. |
+| macOS `.pkg` | Opens the new `.pkg` in Installer, which asks for your password, then restarts the running dashboard server. |
 | Docker | Pull the new image and recreate the container; the `/data` volume is kept. |
 | Source checkout | `git pull` and rebuild. |
 
 **What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `gpu_state.json`) and `.venv/` (Python virtual environment). An in-place update overwrites the release's files and leaves files that newer releases dropped. Installations from before ADR 0023 update once by the old route (installer, install script or `imprint update`) before the dashboard can update them.
+
+The dashboard server is restarted under whoever started it: the desktop app or `imprint ui start`. The desktop app's own window code updates the next time you quit and reopen Imprint. Releases before [ADR 0048](adr/0048-registered-dashboard-server-and-supervised-restart.md) cannot restart their server this way, so after the first update from one of them, reopen Imprint once.
 
 Re-running `install.sh` against an existing install also still works, but it now requires confirmation:
 
