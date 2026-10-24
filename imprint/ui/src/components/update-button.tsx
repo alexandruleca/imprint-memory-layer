@@ -75,7 +75,6 @@ export function UpdateButton() {
         type="button"
         onClick={() => setOpen(true)}
         className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-sm font-medium text-background shadow-xs outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         {busy ? <Spinner className="size-4" /> : <ArrowUpCircle className="size-4" aria-hidden />}
         <span className="md:hidden">{busy ? "Updating" : "Update"}</span>

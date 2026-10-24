@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/modal";
 import {
   getOverview,
   getTopics,
@@ -143,17 +144,11 @@ function MigrateDialogContent({
   if (!open) return null;
 
   const presetLocked = Boolean(preset);
+  const title = preset ? `Copy or move ${preset.mode}` : "Copy or move between workspaces";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black/30"
-        onClick={() => !busy && handleClose()}
-      />
-      <div className="relative z-10 w-full max-w-2xl rounded-lg border border-border bg-background p-5 shadow-lg space-y-4">
-        <h3 className="text-base font-semibold">
-          {preset ? `Copy or move ${preset.mode}` : "Copy or move between workspaces"}
-        </h3>
+    <Modal label={title} onClose={handleClose} busy={busy} className="max-w-2xl space-y-4 p-5">
+        <h3 className="text-base font-semibold">{title}</h3>
 
         {!presetLocked && (
           <div className="flex gap-2 text-xs">
@@ -319,7 +314,6 @@ function MigrateDialogContent({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

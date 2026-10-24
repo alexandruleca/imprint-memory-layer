@@ -105,4 +105,15 @@
   html {
     @apply font-sans;
   }
+  /* Frameless desktop window (ui-electron): Chromium turns app-region boxes
+     into window-drag rectangles in document order and ignores stacking, so a
+     drag handle stays draggable underneath anything drawn over it. Whatever
+     floats above the page (the top layer: modal dialogs, their backdrop,
+     popovers; and Base UI's portalled popups) is never a drag handle. */
+  :modal,
+  :popover-open,
+  ::backdrop,
+  [data-base-ui-portal] {
+    -webkit-app-region: no-drag;
+  }
 }

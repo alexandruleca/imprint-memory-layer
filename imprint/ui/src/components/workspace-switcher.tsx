@@ -70,7 +70,6 @@ export function WorkspaceSwitcher() {
         <Popover.Trigger
           aria-label={active ? `Workspace: ${active}` : "Workspace"}
           className="inline-flex h-8 max-w-64 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm shadow-xs outline-none transition-colors hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 data-[popup-open]:bg-muted/60"
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         >
           <Layers className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="hidden text-muted-foreground md:inline">Workspace</span>

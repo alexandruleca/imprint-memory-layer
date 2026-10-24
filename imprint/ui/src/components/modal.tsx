@@ -16,8 +16,10 @@ export function Modal({ children, label, onClose, busy = false, className = "" }
       if (previousFocus?.isConnected) previousFocus.focus();
     };
   }, []);
+  // React propagates `cancel` (Escape) and clicks from a nested dialog to this
+  // one; each dialog only handles its own.
   return <dialog ref={ref} aria-label={label} aria-busy={busy}
-    onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}
+    onCancel={(event) => { if (event.target !== event.currentTarget) return; event.preventDefault(); if (!busy) onClose(); }}
     onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}
     className={`m-auto max-h-[90dvh] w-[calc(100%-2rem)] rounded-lg border border-border bg-background text-foreground shadow-xl backdrop:bg-black/30 backdrop:backdrop-blur-sm ${className}`}>
     {children}
