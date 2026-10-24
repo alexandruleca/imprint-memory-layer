@@ -96,7 +96,7 @@ export function Sidebar() {
   }, []);
 
   return (
-    <aside className="w-16 sm:w-56 border-r border-border bg-card flex flex-col shrink-0 h-screen sticky top-0 overflow-y-auto z-30">
+    <aside className="w-16 sm:w-56 border-r border-border bg-card flex flex-col shrink-0 overflow-y-auto z-30">
       <div className={`p-4 border-b border-border ${isElectron ? "app-drag" : ""}`}>
         {isElectron && <TrafficLights />}
         <div className="flex items-center gap-2.5">
