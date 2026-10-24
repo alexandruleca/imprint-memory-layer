@@ -43,7 +43,332 @@
     }
   ],
   "limits": [
-    "Linux local developer-built engine; glibc 2.28 release build and native Windows/Mac execution pending CI",
-    "Physical global keypress and real acoustic VAD remain manual"
+    "Physical global keypress and Wayland compositor behavior require manual validation",
+    "Mac microphone capture/TCC not exercised by the GUI smoke; Windows/Linux use synthetic input",
+    "No real acoustic echo, speaker, room-noise or human intelligibility evaluation",
+    "Signed installers and full release packaging remain main-only gates"
+  ],
+  "validated_source_commit": "f4d157f08be504879995eeba1e4aad568c0c3a54",
+  "native_run": "https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40117167378",
+  "general_ci": [
+    "https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40117167402",
+    "https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40117171761"
+  ],
+  "native_ci": [
+    {
+      "artifact": "voice-macos-15-intel-f4d157f08be504879995eeba1e4aad568c0c3a54",
+      "build": {
+        "source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+        "patch_version": 2,
+        "build_version": 3,
+        "target": "macos-x64",
+        "patch_sha256": "bd9efcea2be49906b37af00f7543a5c98f9cc538b859bf987d05b2cc5d7eda4e",
+        "binary_sha256": "7c5308f9a0d09e460fb1e7785e7dd384971338485a51932ea49fd50b2c801ded"
+      },
+      "speech": {
+        "model": "LFM2.5-Audio-1.5B-Q4",
+        "platform": "macOS-15.7.9-x86_64-i386-64bit",
+        "target": "macos-x64",
+        "checks": {
+          "native_auth_and_browser_origin_denial": true,
+          "worker_exits_on_parent_pipe_eof": true,
+          "mid_speech_cancellation_stops_owned_process": true,
+          "fresh_turn_after_cancel": true,
+          "chat_routing_with_real_streamed_tts_and_fixture_reasoning": true,
+          "workspace_pinned_across_dashboard_switch": true
+        },
+        "worker_start_seconds_including_verification": 5.88506450400007,
+        "speech_question": {
+          "recognized": "What is the name of our release mascot?",
+          "answer": "The release mascot is named Nimbus.",
+          "first_audio_seconds": 3.729887738000002,
+          "whole_turn_seconds": 11.369343670000035,
+          "audio_seconds": 3.02
+        },
+        "cancel_ack_seconds": 0.1028261899999734,
+        "limitations": [
+          "synthetic microphone input",
+          "retrieval storage fixture",
+          "chat reasoning fixture",
+          "no human intelligibility rating",
+          "no acoustic echo/room-noise evaluation",
+          "speech smoke excludes graphical desktop and OS microphone consent"
+        ]
+      },
+      "desktop": {
+        "platform": "darwin/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "wholeHeadDrag": true,
+        "offscreenRecovery": true,
+        "shortcutRegistered": true,
+        "compactWithoutScroll": true,
+        "minimizeAndCloseToLauncher": true,
+        "launcherDrag": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": false,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "canvas-3d",
+        "frameRateLimit": 15,
+        "limits": [
+          "microphone capture not exercised",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software 3D renderer",
+          "interactive macOS TCC microphone consent requires manual validation"
+        ]
+      },
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "bundled_engine": true,
+        "supported": true,
+        "platform": "darwin"
+      }
+    },
+    {
+      "artifact": "voice-macos-latest-f4d157f08be504879995eeba1e4aad568c0c3a54",
+      "build": {
+        "source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+        "patch_version": 2,
+        "build_version": 3,
+        "target": "macos-arm64",
+        "patch_sha256": "bd9efcea2be49906b37af00f7543a5c98f9cc538b859bf987d05b2cc5d7eda4e",
+        "binary_sha256": "d8e878a45580b0f9b1c2028f8eebe8a0c6bb7142825d32b1cb6aefec760b47e7"
+      },
+      "speech": {
+        "model": "LFM2.5-Audio-1.5B-Q4",
+        "platform": "macOS-26.6.2-arm64-arm-64bit",
+        "target": "macos-arm64",
+        "checks": {
+          "native_auth_and_browser_origin_denial": true,
+          "worker_exits_on_parent_pipe_eof": true,
+          "mid_speech_cancellation_stops_owned_process": true,
+          "fresh_turn_after_cancel": true,
+          "chat_routing_with_real_streamed_tts_and_fixture_reasoning": true,
+          "workspace_pinned_across_dashboard_switch": true
+        },
+        "worker_start_seconds_including_verification": 4.221883124999977,
+        "speech_question": {
+          "recognized": "What is the name of our release mascot?",
+          "answer": "The release mascot is named Nimbus.",
+          "first_audio_seconds": 2.6151417500000207,
+          "whole_turn_seconds": 4.088741000000027,
+          "audio_seconds": 2.22
+        },
+        "cancel_ack_seconds": 0.031545209000000796,
+        "limitations": [
+          "synthetic microphone input",
+          "retrieval storage fixture",
+          "chat reasoning fixture",
+          "no human intelligibility rating",
+          "no acoustic echo/room-noise evaluation",
+          "speech smoke excludes graphical desktop and OS microphone consent"
+        ]
+      },
+      "desktop": {
+        "platform": "darwin/arm64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "wholeHeadDrag": true,
+        "offscreenRecovery": true,
+        "shortcutRegistered": true,
+        "compactWithoutScroll": true,
+        "minimizeAndCloseToLauncher": true,
+        "launcherDrag": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": false,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "canvas-3d",
+        "frameRateLimit": 15,
+        "limits": [
+          "microphone capture not exercised",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software 3D renderer",
+          "interactive macOS TCC microphone consent requires manual validation"
+        ]
+      },
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "bundled_engine": true,
+        "supported": true,
+        "platform": "darwin"
+      }
+    },
+    {
+      "artifact": "voice-ubuntu-latest-f4d157f08be504879995eeba1e4aad568c0c3a54",
+      "build": {
+        "source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+        "patch_version": 2,
+        "build_version": 3,
+        "target": "linux-x64",
+        "patch_sha256": "bd9efcea2be49906b37af00f7543a5c98f9cc538b859bf987d05b2cc5d7eda4e",
+        "binary_sha256": "462367ac739791c5b67a24917ebbcc25595894800098e01b0434cc9dae6e5df0"
+      },
+      "speech": {
+        "model": "LFM2.5-Audio-1.5B-Q4",
+        "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+        "target": "linux-x64",
+        "checks": {
+          "native_auth_and_browser_origin_denial": true,
+          "worker_exits_on_parent_pipe_eof": true,
+          "mid_speech_cancellation_stops_owned_process": true,
+          "fresh_turn_after_cancel": true,
+          "chat_routing_with_real_streamed_tts_and_fixture_reasoning": true,
+          "workspace_pinned_across_dashboard_switch": true
+        },
+        "worker_start_seconds_including_verification": 2.204734333999994,
+        "speech_question": {
+          "recognized": "What is the name of our release mascot?",
+          "answer": "The release mascot is named Nimbus.",
+          "first_audio_seconds": 3.786769946000021,
+          "whole_turn_seconds": 16.419456525000015,
+          "audio_seconds": 3.02
+        },
+        "cancel_ack_seconds": 0.03490377800000033,
+        "limitations": [
+          "synthetic microphone input",
+          "retrieval storage fixture",
+          "chat reasoning fixture",
+          "no human intelligibility rating",
+          "no acoustic echo/room-noise evaluation",
+          "speech smoke excludes graphical desktop and OS microphone consent"
+        ]
+      },
+      "desktop": {
+        "platform": "linux/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "wholeHeadDrag": true,
+        "offscreenRecovery": true,
+        "shortcutRegistered": true,
+        "compactWithoutScroll": true,
+        "minimizeAndCloseToLauncher": true,
+        "launcherDrag": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": true,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "webgl",
+        "frameRateLimit": 10,
+        "limits": [
+          "synthetic microphone",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software WebGL",
+          "no-sandbox for the Linux graphical test"
+        ]
+      },
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "bundled_engine": true,
+        "supported": true,
+        "platform": "linux"
+      }
+    },
+    {
+      "artifact": "voice-windows-latest-f4d157f08be504879995eeba1e4aad568c0c3a54",
+      "build": {
+        "source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+        "patch_version": 2,
+        "build_version": 3,
+        "target": "windows-x64",
+        "patch_sha256": "bd9efcea2be49906b37af00f7543a5c98f9cc538b859bf987d05b2cc5d7eda4e",
+        "binary_sha256": "07b62b6140e0d719b4bd0843887976b7b245ab41e39cbf2d7bd3eea7769f403c"
+      },
+      "speech": {
+        "model": "LFM2.5-Audio-1.5B-Q4",
+        "platform": "Windows-2025Server-10.0.26100-SP0",
+        "target": "windows-x64",
+        "checks": {
+          "native_auth_and_browser_origin_denial": true,
+          "worker_exits_on_parent_pipe_eof": true,
+          "mid_speech_cancellation_stops_owned_process": true,
+          "fresh_turn_after_cancel": true,
+          "chat_routing_with_real_streamed_tts_and_fixture_reasoning": true,
+          "workspace_pinned_across_dashboard_switch": true
+        },
+        "worker_start_seconds_including_verification": 2.828000000000003,
+        "speech_question": {
+          "recognized": "What is the name of our release mascot?",
+          "answer": "The release mascot is named Nimbus.",
+          "first_audio_seconds": 2.5630000000000166,
+          "whole_turn_seconds": 7.735000000000014,
+          "audio_seconds": 3.02
+        },
+        "cancel_ack_seconds": 0.11000000000001364,
+        "limitations": [
+          "synthetic microphone input",
+          "retrieval storage fixture",
+          "chat reasoning fixture",
+          "no human intelligibility rating",
+          "no acoustic echo/room-noise evaluation",
+          "speech smoke excludes graphical desktop and OS microphone consent"
+        ]
+      },
+      "desktop": {
+        "platform": "win32/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "wholeHeadDrag": true,
+        "offscreenRecovery": true,
+        "shortcutRegistered": true,
+        "compactWithoutScroll": true,
+        "minimizeAndCloseToLauncher": true,
+        "launcherDrag": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": true,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "webgl",
+        "frameRateLimit": 10,
+        "limits": [
+          "synthetic microphone",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software WebGL"
+        ]
+      },
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "bundled_engine": true,
+        "supported": true,
+        "platform": "win32"
+      }
+    }
   ]
 }

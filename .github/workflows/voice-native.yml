@@ -74,7 +74,8 @@ jobs:
       - name: Voice regressions
         run: python -m unittest discover -s tests -p "test_voice*.py" -v
       - name: Restore portable model weights
-        uses: actions/cache@v4
+        id: weights-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.VOICE_CACHE }}/*.gguf
           key: lfm-voice-q4-7d525f883a077e20afb782f2ff618edcae0e39e4
@@ -90,6 +91,12 @@ jobs:
           install(root)
           verify(root)
           PY
+      - name: Save verified weights before graphical checks
+        if: steps.weights-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VOICE_CACHE }}/*.gguf
+          key: lfm-voice-q4-7d525f883a077e20afb782f2ff618edcae0e39e4
       - name: Verify idempotent bundled setup
         shell: bash
         run: python -c "from imprint.voice_bundle import install; from pathlib import Path; import os; install(Path(os.environ['VOICE_CACHE']))"

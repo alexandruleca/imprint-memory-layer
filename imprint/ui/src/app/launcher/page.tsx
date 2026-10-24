@@ -1,13 +1,15 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { LogoMark } from "@/components/logo-mark";
 import "@/styles/launcher.css";
 
 export default function Launcher() {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (host.current) host.current.dataset.ready = "true"; }, []);
   const start = useRef<{ x: number; y: number } | null>(null);
   const moved = useRef(false);
-  return <div className="imprint-launcher"><button aria-label="Open Imprint" title="Open Imprint · drag to move · right-click for Echo"
+  return <div ref={host} className="imprint-launcher"><button aria-label="Open Imprint" title="Open Imprint · drag to move · right-click for Echo"
     onPointerDown={event => {
       if (event.button !== 0) return;
       moved.current = false; start.current = { x: event.screenX, y: event.screenY };

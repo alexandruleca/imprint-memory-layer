@@ -66,7 +66,12 @@ function saveCompanionBounds(window = companionWin, name = 'echo-window.json') {
     fs.renameSync(file + '.tmp', file);
   } catch { /* Position persistence must not stop voice or window recovery. */ }
 }
-function companionArea() { return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea; }
+function companionArea(bounds = null) {
+  if (bounds && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bounds[key])) && bounds.width > 0 && bounds.height > 0) {
+    return screen.getDisplayMatching(bounds).workArea;
+  }
+  return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+}
 function recoverCompanion() { return openCompanion(true); }
 
 const windowOptions = {
@@ -247,7 +252,8 @@ async function hideDashboard() {
 async function showLauncher() {
   if (quitting || phase !== 'ready') return;
   if (launcherWin) { launcherWin.showInactive(); return; }
-  const window = new BrowserWindow({ ...windowOptions, ...fitLauncher(savedCompanionBounds('launcher-window.json'), companionArea()),
+  const saved = savedCompanionBounds('launcher-window.json');
+  const window = new BrowserWindow({ ...windowOptions, ...fitLauncher(saved, companionArea(saved)),
     title: 'Imprint launcher', transparent: true, backgroundColor: '#00000000', resizable: false,
     hasShadow: false, alwaysOnTop: true, skipTaskbar: true, minWidth: 48, minHeight: 48 });
   launcherWin = window;
@@ -332,13 +338,14 @@ function notifyCompanion() {
 async function openCompanion(recover = false) {
   if (quitting || phase !== 'ready') return;
   if (companionWin) {
-    companionWin.setBounds(fitBounds(companionWin.getBounds(), companionArea(), recover));
+    companionWin.setBounds(fitBounds(companionWin.getBounds(), companionArea(recover ? null : companionWin.getBounds()), recover));
     if (companionWin.isMinimized()) companionWin.restore();
     if (recover && process.platform === 'darwin') app.focus?.({ steal: true });
     companionWin.show(); companionWin.moveTop(); companionWin.focus();
     saveCompanionBounds(); return;
   }
-  const bounds = fitBounds(savedCompanionBounds(), companionArea(), recover);
+  const saved = savedCompanionBounds();
+  const bounds = fitBounds(saved, companionArea(recover ? null : saved), recover);
   const window = new BrowserWindow({ ...windowOptions, ...bounds, title: 'Imprint · Echo',
     minWidth: 280, minHeight: 360, transparent: true, backgroundColor: '#00000000',
     resizable: false, hasShadow: false, alwaysOnTop: false });

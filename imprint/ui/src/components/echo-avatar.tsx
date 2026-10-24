@@ -13,6 +13,8 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
   useEffect(() => { current.current = { phase, energy }; }, [phase, energy]);
   useEffect(() => {
     const container = host.current!;
+    // A new look has not drawn yet; the first frame marks it loaded again.
+    delete container.dataset.loaded;
     let cancelled = false;
     let release: (() => void) | undefined;
     async function mount() {
@@ -93,7 +95,11 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
             }
           }
         });
-        renderer.render(scene, camera); hasDrawn = true;
+        renderer.render(scene, camera);
+        if (!hasDrawn) container.dataset.loaded = "true";
+        hasDrawn = true;
+        // Leave a full frame interval for controls/audio after expensive CPU paints.
+        previous = performance.now();
       };
       function disposeModel(root: import("three").Object3D) {
         const geometries = new Set<import("three").BufferGeometry>();
@@ -153,7 +159,6 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
           }
         }
         group.add(loaded.scene);
-        container.dataset.loaded = "true";
         frame = requestAnimationFrame(draw);
       } catch (error) { dispose(); throw error; }
     }
