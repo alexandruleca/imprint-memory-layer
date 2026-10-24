@@ -137,8 +137,9 @@ export default function SearchPage() {
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
         {loading ? `Searching for “${submitted}”…` : submitted && !error ? `${results.length} ${results.length === 1 ? "result" : "results"} for “${submitted}”` : "Your memories stay in the selected workspace."}
       </p>
+      {/* Results flow with the page; beside them the details stay in view. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" aria-busy={loading}>
-        <section aria-label="Search results" className="space-y-2 lg:max-h-[65vh] overflow-auto">
+        <section aria-label="Search results" className="space-y-2">
           {loading && <CardGridSkeleton count={3} />}
           {!loading && !error && results.length === 0 && <Empty className="border">
             <EmptyHeader>
@@ -156,7 +157,7 @@ export default function SearchPage() {
             <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{node.content}</p>
           </Button>)}
         </section>
-        <section aria-label="Memory details" className="min-w-0">
+        <section aria-label="Memory details" className="min-w-0 lg:sticky lg:top-8 lg:self-start">
           {selected && <Card><CardContent className="p-5 space-y-4">
             <h2 className="font-semibold break-words">{selected.label || "Memory details"}</h2>
             <p className="text-xs text-muted-foreground break-all">{selected.source || "Manual memory"}</p>
