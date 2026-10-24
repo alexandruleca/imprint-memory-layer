@@ -3,14 +3,13 @@ from contextlib import contextmanager
 import argparse
 import hashlib
 import json
-import os
 import re
 import secrets
 import sqlite3
 import time
 from urllib.parse import urlsplit, urlunsplit
 
-from . import config
+from . import config, private_store
 from .workspace_policy import workspace_name
 
 MAX_REQUEST_BYTES = 1_000_000
@@ -27,10 +26,7 @@ def extension_origin(extension_id):
 def _db():
     directory = config.get_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / 'browser-pairings.sqlite3'
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-    os.close(descriptor)
-    conn = sqlite3.connect(path, timeout=10)
+    conn = private_store.connect(directory / 'browser-pairings.sqlite3', timeout=10)
     conn.row_factory = sqlite3.Row
     try:
         conn.execute('CREATE TABLE IF NOT EXISTS pairings '

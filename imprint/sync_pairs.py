@@ -10,27 +10,19 @@ import asyncio
 import contextlib
 import hashlib
 import json
-import os
 import secrets
 import re
-import sqlite3
 import time
 from contextlib import contextmanager
 
-from . import config
+from . import config, private_store
 
 
 @contextmanager
 def _database():
     directory = config.get_data_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / 'sync-pairs.sqlite3'
-    # Create privately before sqlite opens it; existing credentials stay private.
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-    os.close(fd)
-    if os.name != 'nt':
-        os.chmod(path, 0o600)
-    conn = sqlite3.connect(path, timeout=15)
+    conn = private_store.connect(directory / 'sync-pairs.sqlite3', timeout=15)
     try:
         conn.execute('PRAGMA secure_delete = ON')
         conn.execute('CREATE TABLE IF NOT EXISTS pairs (id TEXT PRIMARY KEY, body TEXT NOT NULL)')

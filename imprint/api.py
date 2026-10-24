@@ -1094,8 +1094,12 @@ async def api_sync_receive(request: Request):
 
 @app.get('/api/sync/peers')
 async def api_sync_peers():
+    import sqlite3
     from .sync_pairs import pairs
-    return {'peers': pairs(public=True)}
+    try:
+        return {'peers': pairs(public=True)}
+    except sqlite3.DatabaseError as error:
+        return JSONResponse({'error': f'Could not read paired devices: {error}'}, status_code=500)
 
 
 @app.post('/api/sync/peers/{pair_id}')

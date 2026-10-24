@@ -120,6 +120,15 @@ The relay can correlate a stable opaque pair room but cannot read credentials,
 device names, workspace names or memories. Protocol-2 peers without this optional
 pairing extension can still perform one-time sync.
 
+Imprint checks the pairing database's integrity whenever it opens it and
+rebuilds its indexes when the check fails. Earlier Windows releases opened the
+file in text mode, and the C runtime then removed its last byte whenever that
+byte was 0x1A, which happened after about 26 automatic syncs. Sync stopped and
+**Paired devices** reported "database disk image is malformed". The pairings
+themselves were intact, so the first open after updating repairs the file and
+automatic sync resumes. A database the rebuild cannot repair is reported with
+its path. Pair the device again after moving that file aside.
+
 This remains a deduplicating **merge**: local deletions are not remote deletion
 commands. The digest check scans local exported records, and imports can cause
 one extra deduplicating pass. See [ADR 0020](adr/0020-explicit-pairing-and-automatic-workspace-sync.md).
