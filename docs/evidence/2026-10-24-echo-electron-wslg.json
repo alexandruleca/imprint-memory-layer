@@ -1,0 +1,15 @@
+{
+  "platform": "Linux/WSLg",
+  "electron": "45.0.0",
+  "disposableProfile": true,
+  "realCompanionLoaded": true,
+  "alwaysOnTop": true,
+  "syntheticMicrophonePermission": true,
+  "stopAndClose": true,
+  "limits": [
+    "synthetic microphone",
+    "no real acoustic test",
+    "no native Windows/macOS test",
+    "no-sandbox and software WebGL were used for the disposable WSL graphical test"
+  ]
+}

@@ -57,3 +57,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0040](0040-documents-with-nothing-to-index.md) | Accepted | A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. |
 | [0041](0041-personaplex-startup-memory-prototype.md) | Accepted (experimental adapter) | Prepare a bounded read-only MCP memory snapshot and inject it into a pinned, isolated PersonaPlex runtime; real speech/platform validation remains separate. |
 | [0042](0042-lfm-audio-cpu-experiment.md) | Accepted (experimental offline turns) | Evaluate small, verified native LFM2.5-Audio Q4 inference on Linux x64 CPU with read-only MCP snapshots; live transport/platform support remains separate. |
+| [0043](0043-live-voice-and-echo-companion.md) | Accepted (experimental live pilot) | Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo particle head. |

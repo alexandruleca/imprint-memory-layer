@@ -25,23 +25,27 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     if (!e.prevented) calls.push('quit');
   };
   class Window extends EventEmitter {
-    constructor() {
+    constructor(options) {
       super();
+      this.options = options;
       this.webContents = new EventEmitter();
       this.webContents.send = () => {};
       this.webContents.setWindowOpenHandler = () => {};
+      this.webContents.getURL = () => this.url || '';
       this.visible = false;
       this.destroyed = false;
       windows.push(this);
     }
     async loadFile() { calls.push('splash'); this.emit('ready-to-show'); }
-    loadURL() {
+    loadURL(url) {
+      this.url = url;
       calls.push('dashboard');
       return dashboardPending ? new Promise(resolve => { this.loaded = resolve; }) : Promise.resolve();
     }
     show() { this.visible = true; }
     hide() { this.visible = false; }
     focus() {}
+    setAlwaysOnTop(pinned) { this.pinned = pinned; }
     isDestroyed() { return this.destroyed; }
     isMinimized() { return !!this.minimized; }
     minimize() { this.minimized = true; }
@@ -68,6 +72,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     app, BrowserWindow: Window, Tray, Menu: { buildFromTemplate: menu => menu },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false }) },
     shell: { openExternal() {}, openPath() {} }, ipcMain,
+    session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
   };
   const http = {
     get(_url, _options, callback) {
@@ -79,14 +84,15 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     },
   };
   const modules = { electron, 'node:path': path, 'node:http': http,
-    './navigation': require('./navigation'), './service': { DesktopService: Service } };
+    './navigation': require('./navigation'), './service': { DesktopService: Service },
+    './voice-permissions': require('./voice-permissions') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },
     process: { argv: ['electron', ...packaged ? [] : ['main.js'], '--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'], platform: 'darwin' },
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
   });
   return { app, windows, services, calls, ipcMain,
-    emit: (name, window) => ipcMain.emit(name, { sender: window.webContents }) };
+    emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
 
 async function settle() {
@@ -180,4 +186,33 @@ test('missing interpreter produces an error screen without opening dashboard', a
   h.emit('app-quit', h.windows[0]);
   await settle();
   assert.equal(h.services[0].stopped, true);
+});
+
+test('Echo has a separate transparent sandboxed window, scoped IPC, pin and destroy lifecycle', async () => {
+  const h = harness({ alreadyUp: true });
+  await settle();
+  const dashboard = h.windows[1];
+  h.emit('voice-open-companion', dashboard); // Dashboard route has no voice controls.
+  assert.equal(h.windows.length, 2);
+  dashboard.url = 'http://127.0.0.1:8420/voice/';
+  h.emit('voice-open-companion', dashboard);
+  await settle();
+  const echo = h.windows[2];
+  assert.equal(echo.url, 'http://127.0.0.1:8420/companion/');
+  assert.equal(echo.options.transparent, true);
+  assert.equal(echo.options.alwaysOnTop, false);
+  assert.equal(echo.options.webPreferences.sandbox, true);
+  assert.equal(echo.options.webPreferences.nodeIntegration, false);
+  h.emit('voice-pin-companion', dashboard, true);
+  assert.equal(echo.pinned, undefined);
+  h.emit('voice-pin-companion', echo, true);
+  assert.equal(echo.pinned, true);
+  h.emit('voice-close-companion', echo);
+  assert.equal(echo.destroyed, true);
+  h.calls.menu.find(item => item.label === 'Float Echo').click();
+  await settle();
+  h.app.quit();
+  await settle();
+  assert.equal(h.windows[3].destroyed, true);
+  assert.equal(h.services.length, 0);
 });

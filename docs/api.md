@@ -2,6 +2,12 @@
 title: HTTP API
 description: Reference for the Imprint dashboard HTTP API, with a downloadable Postman collection and auto-generated OpenAPI schema.
 ---
+
+Experimental voice routes are documented in [Echo voice companion](live-voice.md):
+`GET /api/voice/status`, `POST /api/voice/sessions` and `WS /api/voice/stream`.
+Voice requires exact same-origin loopback access and a one-use session capability;
+the native speech listener is private to the API.
+
 The Imprint container runs a FastAPI server on port **8420**. Everything the
 built-in dashboard does — search, ingest, retag, graph walks, sync, chat — is
 available over local HTTP for clients on the same machine: a backend service pushing

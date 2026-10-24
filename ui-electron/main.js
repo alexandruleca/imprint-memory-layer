@@ -1,10 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session } = require('electron');
 const path = require('node:path');
 const http = require('node:http');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
+const { voicePage, audioPermission, clipboardWritePermission } = require('./voice-permissions');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -31,6 +32,7 @@ if (!app.requestSingleInstanceLock()) {
 
 let win = null;
 let startupWin = null;
+let companionWin = null;
 let tray = null;
 let service = null; // Set only for a service this Electron instance spawned.
 let phase = 'starting';
@@ -116,6 +118,7 @@ function showError(error) {
   message = error;
   showStartup();
   if (win) win.destroy();
+  companionWin?.destroy();
   updateStartup();
 }
 
@@ -201,6 +204,7 @@ function createTray() {
   tray.setToolTip('Imprint');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Dashboard', click: showWindow },
+    { label: 'Float Echo', click: openCompanion },
     { type: 'separator' },
     { label: 'Quit Imprint', click: () => app.quit() },
   ]));
@@ -209,10 +213,45 @@ function createTray() {
 
 // Only the current app windows can control their lifecycle.
 function appWindow(event) {
-  return [win, startupWin].some(window => window?.webContents === event.sender);
+  return [win, startupWin, companionWin].some(window => window?.webContents === event.sender);
 }
 ipcMain.on('win-close', event => {
+  if (companionWin?.webContents === event.sender) { companionWin.destroy(); return; }
   if (appWindow(event)) closeWindow(BrowserWindow.fromWebContents(event.sender));
+});
+
+function trustedVoiceSender(event) {
+  return [win, companionWin].some(window => window?.webContents === event.sender)
+    && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
+    && voicePage(event.sender.getURL(), UI_ORIGIN);
+}
+async function openCompanion() {
+  if (quitting || phase !== 'ready') return;
+  if (companionWin) { companionWin.show(); companionWin.focus(); return; }
+  const window = new BrowserWindow({ ...windowOptions, title: 'Imprint · Echo', width: 380, height: 610,
+    minWidth: 340, minHeight: 560, transparent: true, backgroundColor: '#00000000',
+    resizable: false, hasShadow: false, alwaysOnTop: false });
+  companionWin = window;
+  window.on('closed', () => { if (companionWin === window) companionWin = null; });
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (externalURL(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!voicePage(url, UI_ORIGIN) || new URL(url).pathname.replace(/\/$/, '') !== '/companion') event.preventDefault();
+  });
+  window.webContents.on('render-process-gone', () => window.destroy());
+  try {
+    await window.loadURL(`${UI_ORIGIN}/companion/`);
+    if (!quitting && !window.isDestroyed()) { window.show(); window.focus(); }
+  } catch { window.destroy(); }
+}
+ipcMain.on('voice-open-companion', event => { if (trustedVoiceSender(event)) void openCompanion(); });
+ipcMain.on('voice-close-companion', event => {
+  if (companionWin?.webContents === event.sender && trustedVoiceSender(event)) companionWin.destroy();
+});
+ipcMain.on('voice-pin-companion', (event, pinned) => {
+  if (typeof pinned === 'boolean' && companionWin?.webContents === event.sender && trustedVoiceSender(event)) companionWin.setAlwaysOnTop(pinned);
 });
 ipcMain.on('app-quit', event => { if (appWindow(event)) app.quit(); });
 ipcMain.on('win-minimize', event => { if (appWindow(event)) BrowserWindow.fromWebContents(event.sender)?.minimize(); });
@@ -240,6 +279,8 @@ app.on('before-quit', event => {
   ++attempt;
   win?.hide();
   startupWin?.hide();
+  // Releasing this renderer also closes its mic/socket on a reused daemon.
+  companionWin?.destroy();
   Promise.resolve(service?.stop()).finally(() => {
     cleanupFinished = true;
     app.quit();
@@ -247,6 +288,15 @@ app.on('before-quit', event => {
 });
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])
+      || clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
+  });
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    return sameOrigin(requestingOrigin, UI_ORIGIN)
+      && (audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])
+        || clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
+  });
   // Display the splash before probing or starting Python.
   showStartup();
   try { createTray(); } catch (err) { console.warn('Tray unavailable:', err.message); }

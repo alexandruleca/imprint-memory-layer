@@ -100,6 +100,8 @@ async def reject_remote_origin(request: Request, call_next):
 
 from .browser_api import router as browser_router
 app.include_router(browser_router)
+from .voice_api import router as voice_router
+app.include_router(voice_router)
 
 
 @app.on_event("startup")
@@ -113,6 +115,8 @@ async def _start_queue_dispatcher():
 
 @app.on_event('shutdown')
 async def _stop_sync_worker():
+    from .voice_api import shutdown
+    await shutdown()
     task = getattr(app.state, 'sync_worker', None)
     if task:
         task.cancel()
@@ -1479,7 +1483,8 @@ def main():
         threading.Timer(0.8, lambda: _launch_browser(url)).start()
 
     import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info", proxy_headers=False)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info", proxy_headers=False,
+                ws_max_size=2_000_000)
 
 
 if __name__ == "__main__":

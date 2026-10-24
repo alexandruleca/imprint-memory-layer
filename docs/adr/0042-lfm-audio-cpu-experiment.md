@@ -7,6 +7,10 @@ description: Evaluate pinned native Q4 speech inference with read-only Imprint m
 - Date: 2026-10-24
 - Related: [ADR 0041](0041-personaplex-startup-memory-prototype.md), [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md)
 
+Follow-up: [ADR 0043](0043-live-voice-and-echo-companion.md) implements the separate
+live pilot, its private HTTP worker and same-chat speech route. The offline CLI
+decision and its historical validation below remain unchanged.
+
 ## Context
 
 After authorizing PersonaPlex work, the user asked for smaller alternatives and explicitly selected LFM2.5-Audio-1.5B as the primary experiment. PersonaPlex's pinned model file is about 16.7 GB, while this machine exposes a 12 GB laptop GPU and a 16 GB WSL memory limit. Its setup was stopped after the user selected the new direction; no PersonaPlex speech performance was established. The earlier adapter remains available, and its rationale is preserved.

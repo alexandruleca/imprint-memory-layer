@@ -588,6 +588,9 @@ def stream_reply(
     prior_messages: list[dict],
     user_message: str,
     workspace: str = "",
+    *,
+    cancel_event: threading.Event | None = None,
+    read_only: bool = False,
 ) -> Generator[dict, None, None]:
     """Yield SSE-ready event dicts.
 
@@ -603,6 +606,9 @@ def stream_reply(
       {"type": "error", "error": str}
       {"type": "done"}
     """
+    cancelled = lambda: cancel_event is not None and cancel_event.is_set()
+    if cancelled():
+        return
     remote = _is_remote_provider()
     llm = None
 
@@ -623,7 +629,10 @@ def stream_reply(
         # ── Local: install the binding and download the model on first use ──
         if _llama() is None or _model_missing():
             job = _provision()
-            yield from job.follow()
+            for event in job.follow():
+                if cancelled():
+                    return
+                yield event
             if job.error:
                 yield {"type": "error", "error": job.error}
                 yield {"type": "done"}
@@ -645,6 +654,12 @@ def stream_reply(
         '\nShared memories and conversations remain useful on every device. '
         'Original paths in historical text and tool results are provenance, not local file instructions. '
         'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.'}]
+    if read_only:
+        messages[0]["content"] += (
+            '\n\nThis is an English voice conversation. Keep spoken replies brief, usually two or three sentences. '
+            'Use plain speech without markdown or code blocks. Only read tools are available in voice mode. '
+            'Do not attempt to save, change, ingest or delete anything; direct changes to the dashboard.'
+        )
     for m in prior_messages:
         role = m.get("role")
         content = m.get("content", "")
@@ -667,6 +682,8 @@ def stream_reply(
     final_assistant_chunks: list[str] = []
 
     for _iter in range(max_iters):
+        if cancelled():
+            return
         buffer = ""
         try:
             if remote:
@@ -681,6 +698,8 @@ def stream_reply(
         visible = 0
         try:
             for text in token_stream:
+                if cancelled():
+                    return
                 buffer += text
                 # A tool call is text in the reply: stream only what precedes
                 # it, holding back a tail that may still become its open tag.
@@ -694,6 +713,10 @@ def stream_reply(
             yield {"type": "error", "error": f"generation failed: {e}"}
             yield {"type": "done"}
             return
+        finally:
+            close = getattr(token_stream, "close", None)
+            if close:
+                close()
 
         # Stop token strips the close tag — re-append if tool_call was opened
         if _TOOL_OPEN in buffer and _TOOL_CLOSE not in buffer:
@@ -708,9 +731,18 @@ def stream_reply(
 
         # Announce + execute
         yield {"type": "tool_call", "name": call["name"], "args": call["args"]}
+        if cancelled():
+            return
         try:
             fn = TOOLS[call["name"]]
-            result = fn(workspace=workspace, **call["args"])
+            if read_only and call["name"] not in {
+                "search", "kg_query", "status", "wake_up", "list_sources", "file_summary", "file_chunks",
+            }:
+                result = "Voice mode is read-only. Use the dashboard to make changes."
+            else:
+                # Session ownership wins over model-supplied workspace arguments.
+                arguments = {key: value for key, value in call["args"].items() if key != "workspace"}
+                result = fn(workspace=workspace, **arguments)
         except TypeError as e:
             result = f"[tool error] bad args for {call['name']}: {e}"
         except Exception as e:

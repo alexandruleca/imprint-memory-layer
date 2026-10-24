@@ -9,6 +9,7 @@ import {
   Network,
   Search,
   MessageSquare,
+  AudioLines,
   Tags,
   FolderOpen,
   FileCode,
@@ -31,6 +32,9 @@ declare global {
       quit: () => void;
       minimize: () => void;
       maximize: () => void;
+      openCompanion: () => void;
+      closeCompanion: () => void;
+      pinCompanion: (pinned: boolean) => void;
     };
   }
 }
@@ -40,6 +44,7 @@ const NAV_ITEMS = [
   { href: "/graph", label: "Graph", icon: Network },
   { href: "/search", label: "Search", icon: Search },
   { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/voice", label: "Voice", icon: AudioLines },
   { href: "/topics", label: "Topics", icon: Tags },
   { href: "/projects", label: "Projects", icon: FolderOpen },
   { href: "/sources", label: "Sources", icon: FileCode },

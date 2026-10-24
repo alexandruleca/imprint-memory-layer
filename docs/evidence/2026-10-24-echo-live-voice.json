@@ -1,0 +1,28 @@
+{
+  "model": "LFM2.5-Audio-1.5B-Q4",
+  "platform": "Linux x64 CPU",
+  "checks": {
+    "native_auth_and_browser_origin_denial": true,
+    "mid_speech_cancellation_stops_owned_process": true,
+    "fresh_turn_after_cancel": true,
+    "chat_routing_with_real_streamed_tts_and_fixture_reasoning": true,
+    "workspace_pinned_across_dashboard_switch": true
+  },
+  "worker_start_seconds_including_verification": 2.546902401000125,
+  "speech_question": {
+    "recognized": "What is the name of our release mascot?",
+    "answer": "The release mascot is named Nimbus.",
+    "first_audio_seconds": 1.9110073109998211,
+    "whole_turn_seconds": 3.3744527659998766,
+    "audio_seconds": 3.02
+  },
+  "cancel_ack_seconds": 0.018294332000095892,
+  "limitations": [
+    "synthetic microphone input",
+    "retrieval storage fixture",
+    "chat reasoning fixture",
+    "no human intelligibility rating",
+    "no acoustic echo/room-noise evaluation",
+    "no native Windows/macOS or transparent desktop execution"
+  ]
+}

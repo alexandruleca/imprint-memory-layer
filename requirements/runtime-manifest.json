@@ -1,4 +1,11 @@
 {
+  "lfm-audio-live-source": {
+    "assets": {
+      "live-source.tar.gz": "2c2ac2b0a6fd44779a2b934fc73ba06f4ce7fa74808cd19e9dd256a11baa7ca3"
+    },
+    "upstream": "https://github.com/tdakhran/llama.cpp/tree/ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+    "version": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b"
+  },
   "lfm-audio-q4": {
     "assets": {
       "LFM2.5-Audio-1.5B-Q4_0.gguf": "3583bee853be20331ca342b0593fefd8acc43fb61a41ec6f1a1dc7465823e0d8",

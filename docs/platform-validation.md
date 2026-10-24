@@ -324,3 +324,35 @@ The user selected LFM2.5-Audio-1.5B as primary after requesting a smaller option
 | Regression suite | Passed, 295 Python tests | Includes 8 new LFM tests plus the earlier PersonaPlex adapter tests. Fixtures cover idempotent install/repair, archive paths/symlinks, tampering, float/PCM WAV, identity isolation, privacy, bounds and owned-child timeout. |
 
 Not run: live microphone input, streaming playback, first-audio latency, barge-in, echo cancellation, learned full-duplex conversation, live MCP tool use/writes, voice persistence, head rendering, real GPU inference or native Windows/macOS/ARM execution. Native CI for this branch has not been run in this session. The result establishes a promising small CPU speech experiment, not the complete real-time avatar assistant.
+
+## Echo live voice pilot (2026-10-24)
+
+Follow-up to the offline experiment: [live voice guide](live-voice.md),
+[ADR 0043](adr/0043-live-voice-and-echo-companion.md),
+[real transport/model evidence](evidence/2026-10-24-echo-live-voice.json) and
+[repeat-run evidence](evidence/2026-10-24-echo-live-voice-repeat.json), plus
+[native WSLg evidence](evidence/2026-10-24-echo-electron-wslg.json).
+The user chose the Echo holographic particle head with push-to-talk and optional
+hands-free/VAD. The same-local-chat route is implemented alongside LFM reasoning.
+
+| Check | Result | Evidence and limits |
+| --- | --- | --- |
+| Private live worker build | Passed, Linux x64 CPU/WSL2 | Built pinned `tdakhran/llama.cpp` source `ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b` with Imprint's loopback/auth/origin/cancellation patch. Source archive and weights verified; executable/patch fingerprints checked at launch. |
+| Native listener boundary | Passed | Authenticated health succeeds; incorrect bearer or any browser Origin returns 403. No wildcard CORS. Browser traffic uses Imprint's separately checked HTTP/WebSocket boundary. |
+| Real synthetic speech question | Passed, two runs | Native TTS generated a question, ASR recognized it, retrieval-conditioned LFM streaming returned Nimbus. First audio 1.911–2.197 s after submitting the completed utterance, whole generation 3.374–3.622 s, output audio 3.02 s. Warm worker; input recording/endpoint time and real retrieval embedding cost excluded. Storage retrieval is a disposable fixture. |
+| Warm native streaming probe | Observed | Separate short TTS/interleaved native requests first emitted audio at approximately 0.259/0.319 s after request, respectively. These exclude ASR, retrieval and chat reasoning and are not user-perceived end-to-end latency. |
+| Workspace ownership | Passed | A lease for `default` still retrieved `default` after the disposable dashboard workspace switched to `other`. |
+| Mid-speech interruption | Passed over real WebSocket, two runs | Cancel acknowledgement 0.0183–0.0209 s; the owned native process had exited. Fresh response after cancellation worked, with no stale generation IDs. This does not measure human acoustic onset or speaker echo. |
+| Same-chat route | Passed with fixture reasoning and real streamed TTS | Invokes the existing `chat.stream_reply` with captured workspace, cancellation and enforced read-only tools; produced native speech. Actual Qwen reasoning/total voice latency was not benchmarked. |
+| Python regression suite | Passed, 307 tests | New ownership, capability expiry/replay/origin, cancellation, read-only tools, long spoken tails, WAV bounds and runtime integrity cases, plus existing full suite. |
+| Audio/controller tests | Passed, 3 tests | Actual TypeScript VAD and WAV encoder exercised for silence/click rejection, onset/endpoint, speaking hysteresis, bounds and PCM metadata. |
+| Dashboard browser tests | Passed, 51 tests | Includes 4 new voice cases: real GLB load, interrupted playback/stale chunks, compact layout and actual AudioWorklet capture from Chromium's synthetic microphone. No physical microphone accessed. |
+| Electron policy/lifecycle | Passed with controlled doubles | Separate transparent sandboxed companion, scoped IPC, optional pin, destroy on close/quit and main-frame audio-only permission checks. |
+| Native graphical companion | Passed, Electron 45.0.0 on Linux/WSLg | Disposable profile, actual rendered head, separate window, always-on-top, synthetic-microphone permission, Stop and Close. WSL test used `--no-sandbox` and software WebGL flags; this does not validate a packaged Linux sandbox, native Windows or macOS. [Preview](assets/voice/echo-companion-preview.png). |
+| Build and documentation | Passed | UI static export, TypeScript/lint checks, documentation production build and whitespace checks. Generated UI build output is excluded from this change. |
+
+Not run: physical microphone/acoustic echo/room noise, accent and intelligibility
+ratings, robust hands-free speakerphone behavior, actual Qwen voice latency,
+phoneme-aligned animation, learned full-duplex reasoning, native Windows/macOS/ARM
+speech workers, GPU inference, packaged desktop sandbox/installer tests or CI.
+No real user memory stores or client profiles were used as test fixtures.

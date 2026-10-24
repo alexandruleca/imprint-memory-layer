@@ -7,7 +7,7 @@ description: Proposed local voice pipeline, NVIDIA component choices, interrupti
 
 Reviewed **2026-10-24**, against Imprint commit `bbbbb1f` and the upstream sources linked below. **Status: research proposal, not an accepted architecture or implemented feature.** Upstream default branches are moving references; implementation must pin revisions and model hashes.
 
-Implementation follow-up: the user subsequently selected [LFM2.5-Audio-1.5B as the primary smaller-model experiment](lfm-audio-prototype.md), recorded in [ADR 0042](adr/0042-lfm-audio-cpu-experiment.md). The complete live voice/avatar design remains proposed; the implemented step exercises offline CPU speech with startup memory snapshots.
+Implementation follow-up: the user subsequently selected [LFM2.5-Audio-1.5B](lfm-audio-prototype.md) and the **Echo** particle face. The [live voice pilot](live-voice.md) now implements the floating avatar, push-to-talk, optional hands-free VAD, streamed speech and both same-chat and small-model reasoning routes; [ADR 0043](adr/0043-live-voice-and-echo-companion.md) records that accepted pilot. This document preserves the original research assessment and broader proposed capabilities, including unvalidated full-duplex/acoustic/platform work.
 
 **Feasible:** an optional floating 3D head that listens, answers through the same local LLM and memory tools as dashboard chat, speaks incrementally, and stops when the user talks over it. The recommended first implementation is a streaming ASR → existing Imprint chat agent → streaming TTS pipeline, with local avatar rendering and optional NVIDIA Audio2Face animation.
 
