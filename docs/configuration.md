@@ -43,13 +43,13 @@ imprint config reset --all
 
 `imprint config` groups settings visually by prefix (`model.*`, `huggingface.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
 
-The dashboard's **Settings** page edits the same values. **Reset** (or **Remove**, for a secret) deletes the `config.json` override, like `imprint config reset <key>`.
+The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs this device reports), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
 
 ## Hugging Face token
 
 Imprint downloads the embedding model and the optional local helper GGUF from the Hugging Face Hub. Without a token those downloads are anonymous: they work for the default public models but are rate-limited, and huggingface_hub warns about unauthenticated requests. Gated or private repositories need a token. Create a read token at <https://huggingface.co/settings/tokens>, then store it in one of these ways:
 
-- Dashboard: **Settings → Huggingface → `huggingface.token`**. Click the value, paste the token and save. The field is a password input and starts empty.
+- Dashboard: **Settings → Hugging Face → Token**. Click **Not set** (or the masked value), paste the token and save. The field is a password input and starts empty.
 - CLI: `imprint config set huggingface.token hf_...`. The token appears on the command line and in shell history, so prefer the dashboard or the environment variable on shared machines.
 - Environment: export the standard `HF_TOKEN` variable. It takes precedence over the stored token.
 
@@ -70,7 +70,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `model.seq_length` | `2048` | Token cap per embed call |
 | `model.threads` | `4` | CPU intra-op threads for ONNX |
 | `model.gpu_mem_mb` | `2048` | VRAM cap for ORT CUDA arena (MB) |
-| `model.gpu_device` | `0` | CUDA device ID |
+| `model.gpu_device` | `auto` | CUDA device index; `auto` picks the first GPU the installed CUDA runtime supports ([ADR 0045](adr/0045-setting-choices-and-gpu-auto-select.md)) |
 | `model.batch_size` | `0` | Embedding batch size (0 = auto: 4 explicit GPU, 1 CPU/auto) |
 | `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last |
 | `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |

@@ -21,9 +21,17 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .model_profiles import EMBEDDING_REPO, HELPER_REPO, HELPER_FILE
+
+
+@dataclass(frozen=True)
+class Choice:
+    value: Any
+    label: str
+    detail: str = ""
+    unavailable: str = ""  # why this host cannot use it; empty when it can
 
 
 @dataclass(frozen=True)
@@ -31,26 +39,70 @@ class Setting:
     key: str         # dot-notation: "model.name"
     env: str         # IMPRINT_MODEL_NAME
     default: Any     # "Xenova/bge-m3"
-    type: type       # str, int, float, bool
+    type: Callable[[Any], Any]  # str, int, float, bool, or a parser like device_index
     desc: str        # one-line description
     secret: bool = False  # credential: never displayed, only its last 4 characters
+    # Known values: a tuple, or a function that reads them from this host.
+    choices: tuple[Choice, ...] | Callable[[], tuple[Choice, ...]] = ()
+    custom: bool = False  # values outside choices are valid too
+
+    def options(self) -> tuple[Choice, ...]:
+        return self.choices() if callable(self.choices) else self.choices
+
+
+def device_index(raw: Any) -> str:
+    """``auto`` or a CUDA device index."""
+    value = str(raw).strip().lower()
+    if value != "auto" and not value.isdigit():
+        raise ValueError("expected auto or a CUDA device index")
+    return value if value == "auto" else str(int(value))
+
+
+def _gpu_devices() -> tuple[Choice, ...]:
+    from . import cuda_devices
+    major = cuda_devices.runtime_major()
+    minimum = cuda_devices.minimum_compute(major)
+    options = [Choice("auto", "Auto", "First GPU the installed CUDA runtime supports")]
+    for device in cuda_devices.devices():
+        compute = "%d.%d" % device.compute
+        unavailable = ""
+        if cuda_devices.supported(device, major) is False:
+            unavailable = f"CUDA {major} needs compute capability {minimum[0]}.{minimum[1]}+, this GPU has {compute}"
+        options.append(Choice(str(device.index), f"{device.index}: {device.name}",
+                              f"{device.memory_mb / 1024:.0f} GB, compute {compute}", unavailable))
+    return tuple(options)
+
+
+AUTO = (Choice("auto", "Auto"),)
+PROVIDER_DEFAULT = (Choice("", "Provider default"),)
+PROVIDERS = (Choice("local", "Local", "Bundled llama.cpp model"), Choice("anthropic", "Anthropic"),
+             Choice("openai", "OpenAI"), Choice("gemini", "Gemini"), Choice("ollama", "Ollama"),
+             Choice("vllm", "vLLM"))
+GPU_LAYERS = (Choice(-1, "All layers"), Choice(0, "None", "CPU only"))
 
 
 SETTINGS: list[Setting] = [
     # ── Embedding model ───────────────────────────────────────
     Setting("model.name",       "IMPRINT_MODEL_NAME",       EMBEDDING_REPO,  str,   "HuggingFace embedding model repo"),
-    Setting("model.revision",   "IMPRINT_MODEL_REVISION",   "auto",           str,   "HF revision (auto = pinned default export, main for custom repos)"),
-    Setting("model.file",       "IMPRINT_MODEL_FILE",       "auto",           str,   "ONNX model file (auto = pick by model/device)"),
-    Setting("model.device",     "IMPRINT_DEVICE",           "cpu",            str,   "Compute device: auto / cpu / gpu"),
+    Setting("model.revision",   "IMPRINT_MODEL_REVISION",   "auto",           str,   "HF revision (auto = pinned default export, main for custom repos)", choices=AUTO, custom=True),
+    Setting("model.file",       "IMPRINT_MODEL_FILE",       "auto",           str,   "ONNX model file (auto = pick by model/device)", choices=AUTO, custom=True),
+    Setting("model.device",     "IMPRINT_DEVICE",           "cpu",            str,   "Compute device: auto / cpu / gpu",
+            choices=(Choice("auto", "Auto", "GPU when the CUDA runtime is installed, else CPU"),
+                     Choice("cpu", "CPU"), Choice("gpu", "GPU", "CUDA, falling back to CPU"))),
     Setting("model.dim",        "IMPRINT_EMBEDDING_DIM",    1024,             int,   "Embedding vector dimension (known model defaults inferred unless overridden)"),
     Setting("model.seq_length", "IMPRINT_MAX_SEQ_LENGTH",   2048,             int,   "Token cap per embed call"),
     Setting("model.threads",    "IMPRINT_ONNX_THREADS",     4,                int,   "CPU intra-op threads for ONNX"),
     Setting("model.gpu_mem_mb", "IMPRINT_GPU_MEM_MB",       2048,             int,   "VRAM cap for ORT CUDA arena (MB)"),
-    Setting("model.gpu_device", "IMPRINT_GPU_DEVICE",       0,                int,   "CUDA device ID"),
-    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = conservative auto: 1 CPU, 4 GPU)"),
-    Setting("model.pooling",    "IMPRINT_POOLING",          "auto",           str,   "Pooling strategy: auto / cls / mean / last"),
-    Setting("model.query_instruction", "IMPRINT_QUERY_INSTRUCTION", "auto", str, "Query instruction (auto = model-specific; Qwen wraps Instruct/Query)"),
-    Setting("model.output",     "IMPRINT_MODEL_OUTPUT",     "auto",           str,   "ONNX output name (auto = preferred pooled/token output)"),
+    Setting("model.gpu_device", "IMPRINT_GPU_DEVICE",       "auto",           device_index, "CUDA device index (auto = first GPU the CUDA runtime supports)",
+            choices=_gpu_devices, custom=True),
+    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = conservative auto: 1 CPU, 4 GPU)",
+            choices=(Choice(0, "Auto", "1 on CPU, 4 on GPU"),), custom=True),
+    Setting("model.pooling",    "IMPRINT_POOLING",          "auto",           str,   "Pooling strategy: auto / cls / mean / last",
+            choices=(Choice("auto", "Auto", "By model family"), Choice("cls", "CLS token"),
+                     Choice("mean", "Mean"), Choice("last", "Last token"))),
+    Setting("model.query_instruction", "IMPRINT_QUERY_INSTRUCTION", "auto", str, "Query instruction (auto = model-specific; Qwen wraps Instruct/Query)",
+            choices=AUTO, custom=True),
+    Setting("model.output",     "IMPRINT_MODEL_OUTPUT",     "auto",           str,   "ONNX output name (auto = preferred pooled/token output)", choices=AUTO, custom=True),
 
     # ── Hugging Face Hub ──────────────────────────────────────
     # The env var is the standard one, so an exported HF_TOKEN overrides the
@@ -74,8 +126,9 @@ SETTINGS: list[Setting] = [
     # ── Tagger ────────────────────────────────────────────────
     Setting("tagger.zero_shot",    "IMPRINT_ZERO_SHOT_TAGS",        True,        bool, "Enable zero-shot topic tagging"),
     Setting("tagger.llm",          "IMPRINT_LLM_TAGS",              False,       bool, "Enable LLM topic tagging (replaces zero-shot)"),
-    Setting("tagger.llm_provider", "IMPRINT_LLM_TAGGER_PROVIDER",   "local",     str,  "LLM provider: local / anthropic / openai / ollama / vllm / gemini"),
-    Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "",          str,  "Server model override (default per provider); local uses GGUF settings"),
+    Setting("tagger.llm_provider", "IMPRINT_LLM_TAGGER_PROVIDER",   "local",     str,  "LLM provider: local / anthropic / openai / ollama / vllm / gemini", choices=PROVIDERS),
+    Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "",          str,  "Server model override (default per provider); local uses GGUF settings",
+            choices=PROVIDER_DEFAULT, custom=True),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
 
     # ── Tagger local model (llama-cpp) ───────────────────────
@@ -83,7 +136,7 @@ SETTINGS: list[Setting] = [
     Setting("tagger.local.model_file",   "IMPRINT_TAGGER_MODEL_FILE",       HELPER_FILE,                    str,  "GGUF filename within repo"),
     Setting("tagger.local.model_path",   "IMPRINT_TAGGER_MODEL_PATH",       "",                              str,  "Absolute path to GGUF (overrides repo/file)"),
     Setting("tagger.local.n_ctx",        "IMPRINT_TAGGER_N_CTX",            8192,                            int,  "Tagger model context window tokens"),
-    Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)"),
+    Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)", choices=GPU_LAYERS, custom=True),
 
     # ── Ingest (docs + urls) ──────────────────────────────────
     Setting("ingest.max_file_bytes",    "IMPRINT_INGEST_MAX_FILE_BYTES",    2_000_000,    int,  "Per-file byte cap for source text indexing"),
@@ -104,21 +157,23 @@ SETTINGS: list[Setting] = [
     # ── Chat (optional local helper in dashboard) ───────────────
     Setting("voice.runtime_dir",   "IMPRINT_VOICE_RUNTIME_DIR",   "",                               str,   "Explicit external cache with the built native live voice runtime"),
     Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),
-    Setting("chat.provider",       "IMPRINT_CHAT_PROVIDER",       "local",                          str,   "Chat provider: local / vllm / openai / ollama / gemini / anthropic"),
-    Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)"),
+    Setting("chat.provider",       "IMPRINT_CHAT_PROVIDER",       "local",                          str,   "Chat provider: local / vllm / openai / ollama / gemini / anthropic", choices=PROVIDERS),
+    Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)",
+            choices=PROVIDER_DEFAULT, custom=True),
     Setting("chat.base_url",       "IMPRINT_CHAT_BASE_URL",       "",                               str,   "Base URL override for OpenAI-compat providers"),
     Setting("chat.model_repo",     "IMPRINT_CHAT_MODEL_REPO",     HELPER_REPO,                      str,   "HF repo for GGUF auto-download (local provider)"),
     Setting("chat.model_file",     "IMPRINT_CHAT_MODEL_FILE",     HELPER_FILE,                      str,   "GGUF filename within repo (local provider)"),
     Setting("chat.model_path",     "IMPRINT_CHAT_MODEL_PATH",     "",                               str,   "Absolute path to GGUF (overrides repo/file, local provider)"),
     Setting("chat.n_ctx",          "IMPRINT_CHAT_N_CTX",          8192,                             int,   "Chat context window tokens"),
-    Setting("chat.n_gpu_layers",   "IMPRINT_CHAT_N_GPU_LAYERS",   -1,                               int,   "GPU layers to offload (-1 = all)"),
+    Setting("chat.n_gpu_layers",   "IMPRINT_CHAT_N_GPU_LAYERS",   -1,                               int,   "GPU layers to offload (-1 = all)", choices=GPU_LAYERS, custom=True),
     Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
     Setting("chat.max_tool_iters", "IMPRINT_CHAT_MAX_TOOL_ITERS", 6,                                int,   "Max tool-call iterations per chat turn"),
 
     # ── Session summarizer (opt-in, local-first) ─────────────
     Setting("summarizer.enabled",       "IMPRINT_SUMMARIZER_ENABLED",       False,              bool, "Enable LLM-based session summarizer (runs on Stop hook)"),
-    Setting("summarizer.provider",      "IMPRINT_SUMMARIZER_PROVIDER",      "local",            str,  "Provider: local (shares tagger model) / ollama / vllm / anthropic / openai / gemini"),
+    Setting("summarizer.provider",      "IMPRINT_SUMMARIZER_PROVIDER",      "local",            str,  "Provider: local (shares tagger model) / ollama / vllm / anthropic / openai / gemini",
+            choices=PROVIDERS),
     Setting("summarizer.model",         "IMPRINT_SUMMARIZER_MODEL",         "qwen3.5:4b",       str,  "Model name for server providers; local uses tagger.local settings"),
     Setting("summarizer.base_url",      "IMPRINT_SUMMARIZER_BASE_URL",      "",                 str,  "API base URL override"),
     Setting("summarizer.min_messages",  "IMPRINT_SUMMARIZER_MIN_MSGS",      5,                  int,  "Skip sessions with fewer messages"),
@@ -222,28 +277,20 @@ def _del_nested(d: dict, key: str) -> bool:
 
 # ── Resolution ───────────────────────────────────────────────
 
-def _cast(raw: str, typ: type) -> Any:
+def _cast(raw: str, typ: Callable[[Any], Any]) -> Any:
     """Cast a string value to the setting's type."""
     if typ is bool:
         return raw.lower() in ("1", "true", "on", "yes")
-    if typ is int:
-        return int(raw)
-    if typ is float:
-        return float(raw)
-    return raw
+    return typ(raw)
 
 
-def _cast_config(val: Any, typ: type) -> Any:
+def _cast_config(val: Any, typ: Callable[[Any], Any]) -> Any:
     """Cast a config.json value (already parsed JSON) to the setting's type."""
     if typ is bool:
         if isinstance(val, bool):
             return val
         return str(val).lower() in ("1", "true", "on", "yes")
-    if typ is int:
-        return int(val)
-    if typ is float:
-        return float(val)
-    return str(val)
+    return typ(val)
 
 
 def resolve(key: str) -> tuple[Any, str]:
@@ -309,6 +356,8 @@ def set_value(key: str, raw: str) -> Any:
         val = _cast(raw, s.type)
     except (ValueError, TypeError) as e:
         raise ValueError(f"invalid value for {key} (expected {s.type.__name__}): {e}")
+    if s.choices and not s.custom and val not in {c.value for c in s.options()}:
+        raise ValueError(f"invalid value for {key}: expected one of {', '.join(str(c.value) for c in s.options())}")
     # For JSON, bools stay native; ints/floats stay numeric
     json_val: Any = val
     cfg = read_config()

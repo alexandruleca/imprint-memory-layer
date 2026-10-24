@@ -5,6 +5,7 @@ from __future__ import annotations
 import gc
 import hashlib
 import os
+import sys
 import threading
 
 import numpy as np
@@ -58,9 +59,10 @@ def _resolve_providers() -> list:
     """Pick the ORT execution provider list based on config.DEVICE.
 
     `cpu` → CPU only. `gpu` → CUDA then CPU fallback. `auto` → CUDA if the
-    GPU provider is actually registered, else CPU. The CPU provider is
-    always listed last as a safety net so inference still runs when CUDA
-    init fails (e.g. driver mismatch).
+    GPU provider is actually registered, else CPU. Either runs on CPU when
+    `model.gpu_device=auto` finds no GPU the CUDA runtime supports. The CPU
+    provider is always listed last as a safety net so inference still runs
+    when CUDA init fails (e.g. driver mismatch).
     """
     mode = config.DEVICE
     if mode != "cpu":
@@ -68,6 +70,11 @@ def _resolve_providers() -> list:
     avail = set(ort.get_available_providers())
     want_gpu = mode == "gpu" or (mode == "auto" and "CUDAExecutionProvider" in avail)
     if want_gpu and "CUDAExecutionProvider" in avail:
+        from . import cuda_devices
+        device_id = cuda_devices.resolve(config.GPU_DEVICE)
+        if device_id is None:
+            print("imprint: no GPU the CUDA runtime supports; embedding on CPU", file=sys.stderr)
+            return ["CPUExecutionProvider"]
         # Cap VRAM + use kSameAsRequested so arena doesn't grow unbounded.
         # Default arena_extend_strategy=kNextPowerOfTwo can OOM the GPU on
         # variable-length batches (each long batch doubles arena). Capping
@@ -76,7 +83,6 @@ def _resolve_providers() -> list:
         # across WSL2/consumer GPUs — raise via env on dedicated cards.
         from . import config as _cfg
         gpu_mem_mb = _cfg.GPU_MEM_MB
-        device_id = _cfg.GPU_DEVICE
         cuda_opts = {
             "device_id": device_id,
             "arena_extend_strategy": "kSameAsRequested",

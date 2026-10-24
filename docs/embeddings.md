@@ -57,7 +57,7 @@ Snapshot imports and precomputed sync require matching embedding identity. Legac
 | `model.seq_length` | `2048` | Truncates model input; long documents are chunked beforehand. |
 | `model.threads` | `4` | CPU inference threads. |
 | `model.gpu_mem_mb` | `2048` | ORT CUDA arena limit, not a cap on total process or GPU use. |
-| `model.gpu_device` | `0` | CUDA device index. |
+| `model.gpu_device` | `auto` | CUDA device index. `auto` skips GPUs older than the CUDA runtime supports (CUDA 13 needs compute capability 7.5+) and embeds on CPU when none is left. The dashboard lists the detected GPUs. |
 
 Length-bucketed batches reduce padding. ONNX memory arenas/pattern caching are disabled, and intermediate buffers are collected between batches. CUDA errors trigger batch halving, then CPU fallback for a single item. Auto batching stays conservative even when `model.device=auto` discovers CUDA. Model downloads and runtime overhead still require memory and disk beyond the artifact size.
 

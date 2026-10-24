@@ -96,7 +96,8 @@ class HubTokenAPITests(unittest.IsolatedAsyncioTestCase):
     async def test_dashboard_sets_masks_and_removes_the_token(self):
         self.assertEqual(await self.token_setting(), {
             'key': 'huggingface.token', 'value': '', 'source': 'default', 'default': '', 'type': 'str',
-            'env': 'HF_TOKEN', 'desc': config_schema.SETTINGS_BY_KEY['huggingface.token'].desc, 'secret': True})
+            'env': 'HF_TOKEN', 'desc': config_schema.SETTINGS_BY_KEY['huggingface.token'].desc, 'secret': True,
+            'choices': [], 'custom': False})
         saved = await self.request('PUT', '/api/config/huggingface.token', json={'value': TOKEN})
         self.assertNotIn(TOKEN, saved.text)
         setting = await self.token_setting()

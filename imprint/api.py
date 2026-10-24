@@ -831,6 +831,7 @@ def api_job_cancel(job_id: str):
 @app.get("/api/config")
 def api_config():
     # Secret values never leave the process; display_value masks them.
+    from dataclasses import asdict
     from .config_schema import SETTINGS, display_value, resolve
     settings = []
     for s in SETTINGS:
@@ -844,6 +845,8 @@ def api_config():
             "env": s.env,
             "desc": s.desc,
             "secret": s.secret,
+            "choices": [asdict(c) for c in s.options()],
+            "custom": s.custom,
         })
     return {"settings": settings}
 
@@ -853,13 +856,15 @@ async def api_config_set(key: str, request: Request):
     body = await request.json()
     value = body.get("value")
     if value is None:
-        return {"error": "value required"}
+        return JSONResponse({"error": "value required"}, status_code=400)
     from .config_schema import SETTINGS_BY_KEY, display_value, set_value
     try:
         val = set_value(key, str(value))
-        return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val)}
-    except Exception as e:
-        return {"error": str(e)}
+    except KeyError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val)}
 
 
 @app.delete("/api/config/{key:path}")

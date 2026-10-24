@@ -59,4 +59,5 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0042](0042-lfm-audio-cpu-experiment.md) | Accepted (experimental offline turns) | Evaluate small, verified native LFM2.5-Audio Q4 inference on Linux x64 CPU with read-only MCP snapshots; live transport/platform support remains separate. |
 | [0043](0043-live-voice-and-echo-companion.md) | Accepted (experimental live pilot) | Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo particle head. |
 | [0044](0044-native-desktop-voice-platforms.md) | Accepted (native validation tracked separately) | Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. |
+| [0045](0045-setting-choices-and-gpu-auto-select.md) | Accepted | Settings declare their choices; the GPU device defaults to the first one the CUDA runtime supports. |
 | [0046](0046-visible-echo-runtime-setup.md) | Accepted | Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. |
