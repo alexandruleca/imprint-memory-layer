@@ -2,10 +2,10 @@
 # Shortcut target for /Applications/Imprint.app.
 #
 # Responsibility: on first launch, show a small AppleScript dialog asking
-# for the install profile (CPU/GPU) and whether to ship the local LLM
-# tagger, then open Terminal.app running `imprint bootstrap` + `imprint
-# setup` so the user sees uv's progress. On subsequent launches, just call
-# `imprint ui open` and exit.
+# whether to ship the local LLM tagger, then run `imprint bootstrap` +
+# `imprint setup` in a progress window (the native helper, or Terminal.app as
+# a fallback) that continues with `imprint ui open` once setup succeeds. On
+# subsequent launches, just call `imprint ui open` and exit.
 #
 # .pkg's postinstall no longer does any heavy bootstrapping — it only fixes
 # quarantine xattrs, chmod-s the binaries, and symlinks /usr/local/bin/imprint.
@@ -76,7 +76,7 @@ set writableHome to quoted form of item 2 of argv
 set profileArg to quoted form of item 3 of argv
 set llmArg to quoted form of item 4 of argv
 set sentinelPath to quoted form of ((item 2 of argv) & "/.first-run.done")
-set setupCommand to imprintBin & " bootstrap --profile " & profileArg & " " & llmArg & " --non-interactive && " & imprintBin & " setup --non-interactive && mkdir -p " & writableHome & " && touch " & sentinelPath & " && echo '[+] Imprint is ready — press Enter to close' && read"
+set setupCommand to imprintBin & " bootstrap --profile " & profileArg & " " & llmArg & " --non-interactive && " & imprintBin & " setup --non-interactive && mkdir -p " & writableHome & " && touch " & sentinelPath & " && " & imprintBin & " ui open && echo '[+] Imprint is open. You can close this window.'"
 tell application "Terminal"
     activate
     do script setupCommand

@@ -6,7 +6,8 @@
 // The helper replaces the launcher process (exec), so Imprint.app stays
 // active in the Dock while setup runs. Closing the window exits the app.
 // On success the sentinel (~/.local/share/imprint/.first-run.done) is
-// touched; the next launch goes straight to `imprint ui open`.
+// touched and the helper continues the launch the way every later launch
+// does, with `imprint ui open`, then exits: the user never relaunches.
 
 import Cocoa
 import Foundation
@@ -112,16 +113,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    func finish(ok: Bool) {
+    func fail(_ status: String, _ advice: String) {
         DispatchQueue.main.async {
-            if ok {
-                self.statusField.stringValue = "Setup complete — Imprint is ready."
-                self.append("\n[+] Setup complete. Close this window, then launch Imprint from the Dock.\n")
-            } else {
-                self.statusField.stringValue = "Setup failed — see output above."
-                self.statusField.textColor = .systemRed
-                self.append("\n[!] Setup failed. Close this window and re-launch Imprint to retry.\n")
-            }
+            self.statusField.stringValue = status
+            self.statusField.textColor = .systemRed
+            self.append("\n[!] \(advice)\n")
             self.closeBtn.isHidden = false
         }
     }
@@ -131,19 +127,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: — Bootstrap
 
     func runSetup() {
-        let ok1 = runCmd(gBin, gBootstrapArgs)
-        if !ok1 { finish(ok: false); return }
-
-        let ok2 = runCmd(gBin, ["setup", "--non-interactive"])
-        if ok2 {
-            try? FileManager.default.createDirectory(
-                atPath: gWritableHome,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            FileManager.default.createFile(atPath: gSentinel, contents: nil, attributes: nil)
+        guard runCmd(gBin, gBootstrapArgs), runCmd(gBin, ["setup", "--non-interactive"]) else {
+            fail("Setup failed — see output above.", "Setup failed. Close this window and re-launch Imprint to retry.")
+            return
         }
-        finish(ok: ok2)
+        try? FileManager.default.createDirectory(
+            atPath: gWritableHome,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        FileManager.default.createFile(atPath: gSentinel, contents: nil, attributes: nil)
+
+        DispatchQueue.main.async { self.statusField.stringValue = "Setup complete — opening Imprint…" }
+        // `ui open` starts the desktop app detached and returns; its splash
+        // takes over from this window.
+        guard runCmd(gBin, ["ui", "open"]) else {
+            fail("Setup complete, but Imprint did not open — see output above.",
+                 "Setup is complete. Close this window and launch Imprint again.")
+            return
+        }
+        DispatchQueue.main.async { NSApp.terminate(nil) }
     }
 
     func runCmd(_ exe: String, _ arguments: [String]) -> Bool {

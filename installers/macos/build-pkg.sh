@@ -169,7 +169,7 @@ cat > "$BUILD_RES/conclusion.html" <<HTML
   code { font-family: "SF Mono", Menlo, monospace; background: #f2f2f2; padding: 2px 4px; border-radius: 3px; }
 </style></head><body>
 <h1>Imprint is installed</h1>
-<p>Launch <strong>Imprint</strong> from Launchpad or Spotlight — the web UI will open in your default browser.</p>
+<p>Launch <strong>Imprint</strong> from Launchpad or Spotlight. The first launch sets up its runtime in a progress window, then opens Imprint.</p>
 <p>From a terminal, the <code>imprint</code> command is available on <code>PATH</code>.</p>
 <p>If setup did not finish automatically, open Terminal and run <code>imprint setup</code>.</p>
 </body></html>
