@@ -1,0 +1,154 @@
+{
+  "date": "2026-10-24",
+  "source_commit": "5536d3948b7d57b7e7b01f1dce80c3fde370caf5",
+  "native_workflow": "https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40088910339",
+  "voice_setup_regressions_per_native_target": 26,
+  "general_ci_baseline": "https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40088136624",
+  "general_ci_baseline_source": "56ed4dd1587be5b843881791fa0cb29f678ba61c",
+  "scope": "Real managed setup child reusing verified native cache, speech and disposable Electron lifecycle; first-download byte progress and chat setup use fixtures.",
+  "platforms": {
+    "windows-x64": {
+      "artifact_id": 12558057693,
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "supported": true,
+        "platform": "win32"
+      },
+      "desktop": {
+        "platform": "win32/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": true,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "webgl",
+        "frameRateLimit": 10,
+        "limits": [
+          "synthetic microphone",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software WebGL"
+        ]
+      },
+      "native_source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+      "all_speech_checks_passed": true
+    },
+    "macos-x64": {
+      "artifact_id": 12557738440,
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "supported": true,
+        "platform": "darwin"
+      },
+      "desktop": {
+        "platform": "darwin/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": false,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "canvas-3d",
+        "frameRateLimit": 15,
+        "limits": [
+          "microphone capture not exercised",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software 3D renderer",
+          "interactive macOS TCC microphone consent requires manual validation"
+        ]
+      },
+      "native_source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+      "all_speech_checks_passed": true
+    },
+    "macos-arm64": {
+      "artifact_id": 12558695093,
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "supported": true,
+        "platform": "darwin"
+      },
+      "desktop": {
+        "platform": "darwin/arm64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": false,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "canvas-3d",
+        "frameRateLimit": 15,
+        "limits": [
+          "microphone capture not exercised",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software 3D renderer",
+          "interactive macOS TCC microphone consent requires manual validation"
+        ]
+      },
+      "native_source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+      "all_speech_checks_passed": true
+    },
+    "linux-x64": {
+      "artifact_id": 12557319670,
+      "setup": {
+        "stage": "ready",
+        "downloaded": 1074794688,
+        "total": 1074794688,
+        "problem": null,
+        "busy": false,
+        "installed": true,
+        "supported": true,
+        "platform": "linux"
+      },
+      "desktop": {
+        "platform": "linux/x64",
+        "electron": "45.0.0",
+        "disposableProfile": true,
+        "realCompanionLoaded": true,
+        "alwaysOnTop": true,
+        "syntheticMicrophonePermission": true,
+        "transparentWithoutPanel": true,
+        "dashboardToggleStopsSession": true,
+        "stopAndClose": true,
+        "silentWebAudioSink": true,
+        "renderer": "webgl",
+        "frameRateLimit": 10,
+        "limits": [
+          "synthetic microphone",
+          "no real acoustic/output-device test",
+          "silent WebAudio test output",
+          "software WebGL",
+          "no-sandbox for the Linux graphical test"
+        ]
+      },
+      "native_source_revision": "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b",
+      "all_speech_checks_passed": true
+    }
+  }
+}

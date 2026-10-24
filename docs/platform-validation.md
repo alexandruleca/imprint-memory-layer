@@ -482,3 +482,18 @@ uses 30 fps and the canvas fallback 15 fps. The local real Electron smoke passed
 with `frameRateLimit: 10`, cached managed setup and the active-session dashboard
 shutdown check. Native graphical evidence records this cap and asserts it for
 the test's forced software-WebGL backend.
+
+Final source `5536d39` passed the complete
+[native voice/setup/desktop matrix](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40088910339)
+on all four targets. [Raw setup and desktop evidence](evidence/2026-10-24-echo-visible-setup.json)
+records ready/cached state, owned session shutdown, transparent PNG checks and
+renderer limits: 10 fps software WebGL on Windows/Linux and 15 fps canvas on both
+Mac architectures. Each target passed 26 voice/setup regressions, including real
+owner/descendant termination. The Windows graphical run completed with the new
+cap; its verification stage took 3.12 seconds on that runner. This is an observed
+run, not a controlled performance comparison.
+
+The [general CI for `56ed4dd`](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40088136624)
+also passed all five native backend targets, 321 Python tests and 58 browser
+scenarios. The subsequent software-rendering fix passed the final frontend CI
+and native graphical matrix above. No release or installer was published.
