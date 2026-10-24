@@ -237,7 +237,7 @@ without a page scrollbar; long transcript text is bounded and full setup details
 remain on the Voice page.
 
 Speech energy drives the jaw from actual playback audio; it is not phoneme/viseme
-alignment. Idle motion, occasional blinks and listening/thinking tint are subtle.
+alignment. Idle motion and occasional blinks are subtle; controls show the listening/thinking state.
 Reduced-motion preferences reduce rendering/movement and pixel ratio is capped at
 1.5. Hardware WebGL rendering is capped near 30 fps. Recognized software WebGL
 backends (including SwiftShader/llvmpipe) use a 10 fps cap so their rasterizer

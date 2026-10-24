@@ -21,7 +21,8 @@ should leave an accessible draggable icon. Compact controls must fit the window.
 Adapt pixiv's explicitly CC0 beta Sendagaya Shino mesh into a head-only glTF with
 shortened rear hair, a new headband/clasp, mouth/blink morphs, a cool holographic
 surface and fine wire contours. Pin and verify source bytes; ship the model and
-its CC0 provenance locally. This is an adaptation of a credited sample, not a
+its CC0 provenance locally. Imprint’s modifications follow the repository’s
+Apache-2.0 license; both notices accompany the downloadable model. This is an adaptation of a credited sample, not a
 new original sculpt or a licensed Haruhi asset. It introduces no VRM runtime,
 remote model service or face tracking dependency. Texture/geometry processing
 is reproducible in the authoring script. The GPU-less renderer projects the same

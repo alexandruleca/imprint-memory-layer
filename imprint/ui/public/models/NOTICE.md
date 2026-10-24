@@ -13,5 +13,6 @@ Imprint changes: head-only bind-pose extraction, shorter rear hair, color palett
 original headband/clasp, ordinary glTF export, retained mouth/blink expressions,
 holographic shading and fine animated wire contours. Echo is an adaptation of
 this sample, not an original model sculpt or a licensed Haruhi character asset.
-Imprint also dedicates its model adaptations to CC0-1.0.
+Imprint modifications and new artwork follow the repository’s Apache-2.0 license;
+see Apache-2.0.txt beside this file. The original source remains CC0-1.0.
 Rebuild with scripts/build-echo-avatar.mjs; the shipped model loads entirely locally.
