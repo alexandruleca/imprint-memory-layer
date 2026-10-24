@@ -165,8 +165,7 @@ func printUpdateCheck(asJSON bool, currentVersion string, target *release.Releas
 }
 
 // updateArchive overlays the release archive onto an install.sh /
-// install.ps1 tree, re-runs setup and restarts the dashboard server if it
-// was running.
+// install.ps1 tree, re-runs setup and restarts a running dashboard server.
 func updateArchive(inst installation, target *release.Release, currentVersion string, yes bool) {
 	installDir := inst.dir
 	asset, err := release.FindArchiveAsset(target)
@@ -207,7 +206,6 @@ func updateArchive(inst installation, target *release.Release, currentVersion st
 		binName = "imprint.exe"
 	}
 	binPath := filepath.Join(installDir, "bin", binName)
-	ui, uiRunning := runningUI(platform.DataDir(installDir))
 
 	// Keep the current binaries one step back for a manual rollback. Moving
 	// them also frees the names of running executables, which Windows will
@@ -253,12 +251,13 @@ func updateArchive(inst installation, target *release.Release, currentVersion st
 	if err := runner.Run(binPath, "setup"); err != nil {
 		output.Warn("Setup returned error: " + err.Error())
 	}
-	restartUI(binPath, ui, uiRunning, target.TagName)
+	restartUI(binPath)
 }
 
 // updateWithWindowsSetup hands over to the release's Inno Setup installer.
-// It must outlive this process: the installer closes everything running
-// from the install directory, this updater included, then reopens Imprint.
+// It must outlive this process, whose binary it replaces. Once it has
+// provisioned the release, imprint-setup.ps1 restarts a running dashboard
+// server, and the installer reopens Imprint.
 func updateWithWindowsSetup(inst installation, target *release.Release, currentVersion string, yes bool) {
 	asset, err := release.FindAsset(target, "imprint-windows-amd64-setup.exe")
 	if err != nil {
@@ -266,7 +265,7 @@ func updateWithWindowsSetup(inst installation, target *release.Release, currentV
 	}
 	fmt.Printf("\n  Current:   %s\n  New:       %s\n  Installer: %s\n  Install:   %s\n\n",
 		currentVersion, target.TagName, asset.Name, inst.dir)
-	fmt.Println("  Imprint closes while the installer runs and reopens when it finishes.")
+	fmt.Println("  The installer runs in the background; the dashboard restarts when it finishes.")
 	fmt.Println("  Preserved: data/ (workspaces, qdrant, sqlite, config), .venv/, your install profile")
 	fmt.Println()
 	if !yes && !confirm(fmt.Sprintf("Update to %s?", target.TagName)) {
@@ -280,22 +279,18 @@ func updateWithWindowsSetup(inst installation, target *release.Release, currentV
 	}
 	installer := downloadVerified(target, asset, dir)
 
-	// The dashboard server holds no installed files open, so the installer
-	// would leave it serving the old code; stop it first.
-	uiStop(nil)
-
 	logPath := filepath.Join(platform.DataDir(inst.dir), "update-setup.log")
 	args := []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1", "/LOG=" + logPath}
 	if !spawnDetached(installer, args) {
 		output.Fail("Could not start the installer: " + installer)
 	}
-	output.Success("Installer started: Imprint closes, updates to " + target.TagName + " and reopens.")
+	output.Success("Installer started: it updates Imprint to " + target.TagName + " and restarts the dashboard.")
 	output.Info("Installer log: " + logPath)
 }
 
 // updateWithMacPkg opens the release's .pkg in Installer, which asks for
-// permission to replace the root-owned app bundle, then restarts the
-// dashboard server from the installed binary.
+// permission to replace the root-owned app bundle, then restarts a running
+// dashboard server with the installed binary.
 func updateWithMacPkg(inst installation, target *release.Release, currentVersion string, yes bool) {
 	asset, err := release.FindAsset(target, fmt.Sprintf("imprint-darwin-%s.pkg", runtime.GOARCH))
 	if err != nil {
@@ -317,7 +312,6 @@ func updateWithMacPkg(inst installation, target *release.Release, currentVersion
 	defer os.RemoveAll(tmp)
 	pkg := downloadVerified(target, asset, tmp)
 
-	ui, uiRunning := runningUI(platform.DataDir(inst.dir))
 	output.Info("Opening the installer — follow its steps")
 	if err := runner.Run("open", "-W", pkg); err != nil {
 		output.Fail("Could not open the installer: " + err.Error())
@@ -329,7 +323,7 @@ func updateWithMacPkg(inst installation, target *release.Release, currentVersion
 		output.Fail("Installer closed without installing " + target.TagName)
 	}
 	output.Success("Updated to " + target.TagName)
-	restartUI(binPath, ui, uiRunning, target.TagName)
+	restartUI(binPath)
 }
 
 // downloadVerified downloads a release asset into dir and checks it against
@@ -346,23 +340,12 @@ func downloadVerified(target *release.Release, asset *release.ReleaseAsset, dir 
 	return path
 }
 
-// runningUI reports the dashboard server started by `imprint ui start`, if
-// it is answering.
-func runningUI(dataDir string) (*uiState, bool) {
-	st, ok := readUIState(dataDir)
-	return st, ok && uiHealthy(st.Port)
-}
-
-// restartUI restarts a dashboard server that was running before the update
-// with the new binary, so it serves the new code.
-func restartUI(binPath string, ui *uiState, wasRunning bool, version string) {
-	if !wasRunning {
-		output.Info("Restart any open Imprint window to use " + version + ".")
-		return
-	}
+// restartUI restarts the running dashboard server, whoever started it, so it
+// serves the installed code (ADR 0048). The installed binary does it.
+func restartUI(binPath string) {
 	output.Info("Restarting the dashboard server...")
-	if err := runner.Run(binPath, "ui", "restart", "--port", strconv.Itoa(ui.Port)); err != nil {
-		output.Warn("Dashboard restart failed: " + err.Error() + " — run `imprint ui restart`")
+	if err := runner.Run(binPath, "ui", "restart"); err != nil {
+		output.Warn("Dashboard restart failed: " + err.Error() + " — close and reopen Imprint")
 	}
 }
 
@@ -470,9 +453,10 @@ Usage:
 How it installs depends on how Imprint was installed:
   install.sh / install.ps1   replace the install tree, re-run setup and
                              restart a running dashboard server
-  Windows installer          run the new setup.exe silently; Imprint closes
-                             and reopens
-  macOS .pkg                 open the new .pkg in Installer
+  Windows installer          run the new setup.exe silently; it restarts a
+                             running dashboard server and reopens Imprint
+  macOS .pkg                 open the new .pkg in Installer, then restart a
+                             running dashboard server
 
 Data preservation:
   data/   (workspaces, qdrant storage, sqlite graphs, config, gpu_state.json)

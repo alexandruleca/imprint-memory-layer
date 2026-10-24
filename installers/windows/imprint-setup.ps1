@@ -1,7 +1,8 @@
 # Invoked once from the Inno Setup [Run] section right after files are copied.
 # Runs in the user's context, not elevated. Delegates venv creation + dep
 # install to the bundled `uv.exe` + `imprint bootstrap` - no host Python
-# required.
+# required. Finally restarts a running dashboard server so it serves the
+# installed release.
 #
 # Runs in a VISIBLE PowerShell window (Inno [Run] without /runhidden) so the
 # user can watch uv download Python + wheels and see any errors as they
@@ -149,6 +150,14 @@ if (Test-Path $WslSelections) {
 New-Item -ItemType File -Path $Sentinel -Force | Out-Null
 Log-Line "Setup complete."
 Set-Content -Path $ResultFile -Value '0' -Encoding ascii
+
+# A dashboard server that kept running through an update or repair still
+# serves the code it started with. Whoever started it (the desktop app,
+# `imprint ui`) starts it again from what was just installed (ADR 0048).
+# With no server running this does nothing; a failure leaves setup complete.
+Log-Line "Restarting a running dashboard server..."
+$restartExit = Invoke-Imprint -Arguments @('ui', 'restart')
+if ($restartExit -ne 0) { Log-Line "Dashboard restart failed (exit=$restartExit); close and reopen Imprint." }
 
 if ($Interactive) {
     Write-Host ""

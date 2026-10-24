@@ -70,11 +70,22 @@ class UpdateModuleTests(unittest.TestCase):
             deadline = time.time() + 10
             while time.time() < deadline and not updates.status()['log']:
                 time.sleep(0.05)
-            self.assertEqual(updates.status(), {'running': True, 'log': ['[*] Downloading']})
+            self.assertEqual(updates.status(), {'running': True, 'failed': False, 'log': ['[*] Downloading']})
             self.assertEqual(updates._process.args[1:], ['update', '-y'])
             self.assertNotEqual(os.getpgid(updates._process.pid), os.getpgid(0))
             with self.assertRaisesRegex(updates.UpdateConflict, 'already running'):
                 updates.start()
+
+    @unittest.skipIf(os.name == 'nt', 'uses a POSIX script as the CLI')
+    def test_only_an_updater_that_exits_with_an_error_has_failed(self):
+        # A successful exit hands over to the installer or the server restart.
+        for body, failed in (("print('[+] Installer started')", False), ("sys.exit('[x] checksum mismatch')", True)):
+            with patch.object(updates.job_queue, 'find_imprint_binary', return_value=self._fake_cli(body)), \
+                    patch.object(updates.job_queue, 'active_job', return_value=None):
+                updates.start()
+                updates._process.wait(timeout=10)
+                self.assertEqual(updates.status()['running'], False)
+                self.assertEqual(updates.status()['failed'], failed)
 
     def test_start_waits_for_a_running_job(self):
         with patch.object(updates.job_queue, 'active_job', return_value={'id': 'j1'}), \
@@ -111,8 +122,8 @@ class UpdateEndpointTests(unittest.TestCase):
 
     def test_status_is_reported_even_when_the_check_fails(self):
         with patch.object(updates, 'check', side_effect=RuntimeError('offline')), \
-                patch.object(updates, 'status', return_value={'running': False, 'log': []}):
-            self.assertEqual(self.api.api_update(), {'running': False, 'log': [], 'error': 'offline'})
+                patch.object(updates, 'status', return_value={'running': False, 'failed': False, 'log': []}):
+            self.assertEqual(self.api.api_update(), {'running': False, 'failed': False, 'log': [], 'error': 'offline'})
 
 
 if __name__ == '__main__':
