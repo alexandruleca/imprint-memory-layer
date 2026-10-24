@@ -31,6 +31,18 @@ from the [earlier CLI](lfm-audio-prototype.md) remain separate.
 
 ## Build the optional speech runtime
 
+Platform follow-up ([ADR 0044](adr/0044-native-desktop-voice-platforms.md)) adds
+native source builds for Windows x64 and macOS Intel/Apple Silicon. The live
+installer now downloads portable weights without the Linux CLI archive, builds
+per-target executables and verifies their target/source/build fingerprints.
+Native results are tracked in platform validation; a platform being enabled
+does not by itself mean it has passed its native checks.
+
+On Windows use CMake and Visual Studio C++ Build Tools (x64); on macOS use CMake
+and Xcode Command Line Tools, with macOS 13 or later. Run the same command below
+using the native Python executable. Windows paths such as `C:\imprint-voice`
+can avoid excessively long build paths. CPU builds do not require CUDA or Metal.
+
 The speech worker is currently enabled on **Linux x64 CPU, including WSL2**.
 There is no PyTorch dependency and no implicit model download on Start. Install a
 C++ compiler and CMake, then from the repository root run:

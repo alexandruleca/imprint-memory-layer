@@ -1,0 +1,72 @@
+name: Native voice
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/local-voice-avatar]
+    paths:
+      - 'imprint/voice*.py'
+      - 'imprint/lfm_audio.py'
+      - 'scripts/smoke-live-voice.py'
+      - 'tests/test_voice.py'
+      - '.github/workflows/voice-native.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voice-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  speech:
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONPATH: .
+      VOICE_CACHE: ${{ runner.temp }}/imprint-voice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements/base.lock.txt
+            requirements/cpu.lock.txt
+      - name: Install locked runtime dependencies
+        run: python -m pip install --require-hashes -r requirements/base.lock.txt -r requirements/cpu.lock.txt
+      - name: Configure native Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Voice regressions
+        run: python -m unittest discover -s tests -p test_voice.py -v
+      - name: Restore portable model weights
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VOICE_CACHE }}/*.gguf
+          key: lfm-voice-q4-7d525f883a077e20afb782f2ff618edcae0e39e4
+      - name: Build verified private native worker
+        shell: bash
+        run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4
+      - name: Verify idempotent build
+        shell: bash
+        run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4
+      - name: Exercise real speech, transport and cancellation
+        shell: bash
+        run: python scripts/smoke-live-voice.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-evidence"
+      - name: Preserve native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/voice-evidence/summary.json
+            ${{ env.VOICE_CACHE }}/live-build.json
+          if-no-files-found: warn

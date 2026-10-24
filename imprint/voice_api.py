@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import secrets
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -35,11 +36,11 @@ def runtime_root() -> Path | None:
 class Worker:
     """One owned model, held only while an explicit voice session is open."""
     def __init__(self):
-        self.process: asyncio.subprocess.Process | None = None
+        self.process: subprocess.Popen | None = None
         self.client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
-        if self.process and self.process.returncode is None:
+        if self.process and self.process.poll() is None:
             return
         await self.stop()
         root = runtime_root()
@@ -54,18 +55,19 @@ class Worker:
                    "-mv", str(root / lfm.VOCODER), "--tts-speaker-file", str(root / lfm.TOKENIZER),
                    "-t", "4", "-c", "4096", "-ngl", "0", "--no-mmproj-offload", "--offline",
                    "--host", "127.0.0.1", "--port", str(port), "--seed", "42"]
-        environment = {key: value for key, value in os.environ.items()
-                       if key in {"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"}}
+        environment = voice_runtime.child_environment()
         environment.update(IMPRINT_VOICE_BACKEND_TOKEN=token, OMP_NUM_THREADS="4")
         # Upstream logs can echo private prompts. Never publish or retain them.
-        self.process = await asyncio.create_subprocess_exec(
-            *command, cwd=root, env=environment, stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        # Popen works on both Windows Selector and Proactor loops (including
+        # uvicorn/threaded test servers); asyncio subprocess pipes do not.
+        self.process = subprocess.Popen(
+            command, cwd=root, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, **voice_runtime.child_options())
         self.client = httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", trust_env=False,
                                         headers={"Authorization": f"Bearer {token}"}, timeout=90)
         try:
             async with asyncio.timeout(90):
-                while self.process.returncode is None:
+                while self.process.poll() is None:
                     try:
                         response = await self.client.get("/health", timeout=.5)
                         if response.status_code == 200:
@@ -83,13 +85,13 @@ class Worker:
             await self.client.aclose()
             self.client = None
         process, self.process = self.process, None
-        if process and process.returncode is None:
+        if process and process.poll() is None:
             process.terminate()
             try:
-                await asyncio.wait_for(process.wait(), 2)
-            except TimeoutError:
+                await asyncio.to_thread(process.wait, timeout=2)
+            except subprocess.TimeoutExpired:
                 process.kill()
-                await process.wait()
+                await asyncio.to_thread(process.wait)
 
     async def stream(self, system: str, content):
         await self.start()
@@ -151,8 +153,7 @@ sessions = Sessions()
 def status():
     root = runtime_root()
     return {"configured": root is not None, "installed": bool(root and (root / "live-build.json").is_file()),
-            "supported": os.name == "posix" and __import__("platform").system() == "Linux"
-            and __import__("platform").machine().lower() in {"x86_64", "amd64"},
+            "supported": voice_runtime.supported(),
             "busy": sessions.active, "chat_provider": config_schema.resolve("chat.provider")[0],
             "workspace": config.get_active_workspace(), "model": "LFM2.5-Audio · 1.5B", "language": "en"}
 

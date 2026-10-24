@@ -80,12 +80,11 @@ def extract_runner(root: Path) -> None:
                 Path(name).unlink(missing_ok=True)
 
 
-def install(root: Path) -> None:
-    _platform()
+def _install_assets(root: Path, assets: dict[str, int]) -> None:
     from filelock import FileLock
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     with FileLock(str(root / ".install.lock")):
-        for asset, size in ASSETS.items():
+        for asset, size in assets.items():
             target = root / asset
             expected = expected_digest("lfm-audio-q4", REVISION, asset)
             if target.is_file() and target.stat().st_size == size and _digest(target) == expected:
@@ -109,7 +108,27 @@ def install(root: Path) -> None:
                 os.replace(name, target)
             finally:
                 Path(name).unlink(missing_ok=True)
-        extract_runner(root)
+
+
+def install_weights(root: Path) -> None:
+    """Portable model data only; never downloads/executes the Linux CLI."""
+    _install_assets(root, {name: size for name, size in ASSETS.items() if name != ARCHIVE})
+
+
+def verify_weights(root: Path) -> None:
+    for asset, size in ASSETS.items():
+        if asset == ARCHIVE:
+            continue
+        path = root / asset
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != size:
+            raise memory.PrototypeError("Voice weights are missing or invalid; run the explicit install command.")
+        verify_archive(path, expected_digest("lfm-audio-q4", REVISION, asset))
+
+
+def install(root: Path) -> None:
+    _platform()
+    _install_assets(root, ASSETS)
+    extract_runner(root)
 
 
 def verify_runtime(root: Path) -> Path:

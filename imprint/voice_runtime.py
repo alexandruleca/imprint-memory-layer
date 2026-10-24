@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import shutil
 import subprocess
@@ -20,6 +21,38 @@ SOURCE_REVISION = "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b"
 SOURCE_SHA256 = expected_digest("lfm-audio-live-source", SOURCE_REVISION, "live-source.tar.gz")
 PATCH_VERSION = 1
 SERVER = "llama-liquid-audio-server"
+BUILD_VERSION = 2
+
+
+def target() -> str:
+    system, machine = platform.system(), platform.machine().lower()
+    arch = {"amd64": "x64", "x86_64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
+    if (system, arch) not in {("Linux", "x64"), ("Windows", "x64"), ("Darwin", "x64"), ("Darwin", "arm64")}:
+        raise PrototypeError("Voice supports Linux x64, Windows x64, and macOS Intel/Apple Silicon.")
+    return {"Linux": "linux", "Windows": "windows", "Darwin": "macos"}[system] + "-" + arch
+
+
+def supported() -> bool:
+    try:
+        target()
+        return True
+    except PrototypeError:
+        return False
+
+
+def native_binary(root: Path) -> Path:
+    return root / "live-native" / target() / (SERVER + (".exe" if target() == "windows-x64" else ""))
+
+
+def child_options() -> dict:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def child_environment() -> dict[str, str]:
+    allowed = {"path", "home", "lang", "lc_all", "tmpdir", "systemroot", "windir", "temp", "tmp", "userprofile"}
+    return {key: value for key, value in os.environ.items() if key.lower() in allowed}
 
 
 def patched_server(source: str) -> str:
@@ -77,15 +110,22 @@ def patched_server(source: str) -> str:
 
 
 def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
-    lfm._platform()
+    current = target()
     if not 1 <= jobs <= 16:
         raise PrototypeError("Build jobs must be 1–16.")
     executable = shutil.which(cmake)
     if not executable:
         raise PrototypeError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
-    lfm.install(root)
+    lfm.install_weights(root)
     from filelock import FileLock
     with FileLock(str(root / ".live-build.lock")):
+        try:
+            verify(root)
+        except PrototypeError:
+            pass
+        else:
+            print("Verified cached live voice worker. No rebuild needed.", flush=True)
+            return
         archive = root / "live-source.tar.gz"
         if not archive.is_file() or lfm._digest(archive) != SOURCE_SHA256:
             url = f"https://codeload.github.com/tdakhran/llama.cpp/tar.gz/{SOURCE_REVISION}"
@@ -109,15 +149,29 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
             source.extractall(source_root, filter="data")
         tree = source_root / f"llama.cpp-{SOURCE_REVISION}"
         server = tree / "tools/liquid-audio/server.cpp"
-        server.write_text(patched_server(server.read_text()))
-        build = root / "live-build"
+        server.write_bytes(patched_server(server.read_text()).encode("utf-8"))
+        build = root / f"live-build-{current}"
+        options = ["-DGGML_METAL=OFF", "-DGGML_OPENMP=OFF", "-DGGML_BLAS=OFF"]
+        if current == "windows-x64":
+            options += ["-A", "x64", "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
+        elif current.startswith("macos-"):
+            options += ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0", "-DCMAKE_OSX_ARCHITECTURES=" +
+                        ("arm64" if current.endswith("arm64") else "x86_64")]
+            if current.endswith("arm64"):
+                options += ["-DGGML_CPU_ARM_ARCH=armv8.2-a+fp16+dotprod"]
         subprocess.run([executable, "-S", str(tree), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                         "-DGGML_NATIVE=OFF", "-DGGML_CUDA=OFF", "-DGGML_VULKAN=OFF",
                         "-DBUILD_SHARED_LIBS=OFF", "-DLLAMA_CURL=OFF", "-DLLAMA_OPENSSL=OFF",
-                        "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF"], check=True)
-        subprocess.run([executable, "--build", str(build), "--target", SERVER, "-j", str(jobs)], check=True)
-        binary = build / "bin" / SERVER
+                        "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF", *options], check=True)
+        subprocess.run([executable, "--build", str(build), "--config", "Release", "--target", SERVER,
+                        "-j", str(jobs)], check=True)
+        name = SERVER + (".exe" if current == "windows-x64" else "")
+        built = build / "bin" / ("Release" if current == "windows-x64" else "") / name
+        binary = native_binary(root)
+        binary.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.copy2(built, binary)
         metadata = {"source_revision": SOURCE_REVISION, "patch_version": PATCH_VERSION,
+                    "build_version": BUILD_VERSION, "target": current,
                     "patch_sha256": hashlib.sha256(server.read_bytes()).hexdigest(),
                     "binary_sha256": lfm._digest(binary)}
         (root / "live-build.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -126,10 +180,11 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
 
 
 def verify(root: Path) -> Path:
-    lfm.verify_runtime(root)
+    current = target()
+    lfm.verify_weights(root)
     try:
         metadata = json.loads((root / "live-build.json").read_text())
-        binary = root / "live-build/bin" / SERVER
+        binary = native_binary(root)
         # Check the patch implementation too, so a patch update requires rebuild.
         with tarfile.open(root / "live-source.tar.gz") as archive:
             if lfm._digest(root / "live-source.tar.gz") != SOURCE_SHA256:
@@ -137,6 +192,7 @@ def verify(root: Path) -> Path:
             original = archive.extractfile(f"llama.cpp-{SOURCE_REVISION}/tools/liquid-audio/server.cpp").read().decode()
         digest = hashlib.sha256(patched_server(original).encode()).hexdigest()
         if (metadata.get("source_revision") != SOURCE_REVISION or metadata.get("patch_version") != PATCH_VERSION
+                or metadata.get("target") != current or metadata.get("build_version") != BUILD_VERSION
                 or metadata.get("patch_sha256") != digest or binary.is_symlink()
                 or metadata.get("binary_sha256") != lfm._digest(binary)):
             raise PrototypeError("Live voice worker changed; rebuild the voice runtime.")

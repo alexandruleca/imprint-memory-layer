@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import os
+import platform
 from pathlib import Path
 import socket
 import tempfile
@@ -33,7 +34,8 @@ async def run(runtime: Path, output: Path):
     address = f"http://127.0.0.1:{sock.getsockname()[1]}"
     runner = uvicorn.Server(uvicorn.Config(app, log_level="error", proxy_headers=False, ws_max_size=2_000_000))
     serving = asyncio.create_task(runner.serve(sockets=[sock]))
-    results = {"model": "LFM2.5-Audio-1.5B-Q4", "platform": "Linux x64 CPU", "checks": {}}
+    results = {"model": "LFM2.5-Audio-1.5B-Q4", "platform": platform.platform(),
+               "target": voice.voice_runtime.target(), "checks": {}}
     try:
         while not runner.started:
             await asyncio.sleep(.02)

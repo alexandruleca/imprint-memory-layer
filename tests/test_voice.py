@@ -27,6 +27,7 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / "live-build.json").write_text("{}")
         for patcher in [patch.dict(os.environ, {"IMPRINT_DATA_DIR": str(self.root), "IMPRINT_VOICE_RUNTIME_DIR": str(self.root)}),
+                        patch.object(voice.voice_runtime, "supported", return_value=True),
                         patch.object(voice, "sessions", voice.Sessions())]:
             patcher.start(); self.addCleanup(patcher.stop)
         app = FastAPI()
@@ -200,7 +201,8 @@ class VoiceChatPolicyTests(unittest.TestCase):
 
 
 class LiveRuntimeIntegrityTests(unittest.TestCase):
-    def test_worker_verification_rejects_binary_source_and_patch_drift(self):
+    @patch.object(voice_runtime, "target", return_value="linux-x64")
+    def test_worker_verification_rejects_binary_source_and_patch_drift(self, _target):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive = root / "live-source.tar.gz"
@@ -208,14 +210,15 @@ class LiveRuntimeIntegrityTests(unittest.TestCase):
                 entry = tarfile.TarInfo(f"llama.cpp-{voice_runtime.SOURCE_REVISION}/tools/liquid-audio/server.cpp")
                 entry.size = len(b"original")
                 output.addfile(entry, io.BytesIO(b"original"))
-            binary = root / "live-build/bin" / voice_runtime.SERVER
+            binary = voice_runtime.native_binary(root)
             binary.parent.mkdir(parents=True)
             binary.write_bytes(b"native fixture")
             metadata = {"source_revision": voice_runtime.SOURCE_REVISION, "patch_version": voice_runtime.PATCH_VERSION,
+                        "target": voice_runtime.target(), "build_version": voice_runtime.BUILD_VERSION,
                         "patch_sha256": hashlib.sha256(b"patched fixture").hexdigest(),
                         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}
             (root / "live-build.json").write_text(json.dumps(metadata))
-            with patch.object(voice_runtime.lfm, "verify_runtime"), \
+            with patch.object(voice_runtime.lfm, "verify_weights"), \
                     patch.object(voice_runtime, "SOURCE_SHA256", hashlib.sha256(archive.read_bytes()).hexdigest()), \
                     patch.object(voice_runtime, "patched_server", return_value="patched fixture"):
                 self.assertEqual(voice_runtime.verify(root), binary)
@@ -241,6 +244,18 @@ class LiveRuntimeIntegrityTests(unittest.TestCase):
                 with self.assertRaises(PrototypeError):
                     voice_runtime.install(Path("unused"))
             download.assert_not_called()
+
+    def test_native_targets_include_windows_and_both_mac_architectures(self):
+        for system, machine, expected in [("Windows", "AMD64", "windows-x64"), ("Darwin", "arm64", "macos-arm64"),
+                                          ("Darwin", "x86_64", "macos-x64"), ("Linux", "x86_64", "linux-x64")]:
+            with patch.object(voice_runtime.platform, "system", return_value=system), \
+                    patch.object(voice_runtime.platform, "machine", return_value=machine):
+                self.assertEqual(voice_runtime.target(), expected)
+                self.assertTrue(voice_runtime.supported())
+                self.assertEqual(voice_runtime.native_binary(Path("cache")).suffix, ".exe" if system == "Windows" else "")
+        with patch.object(voice_runtime.platform, "system", return_value="Windows"), \
+                patch.object(voice_runtime.platform, "machine", return_value="arm64"):
+            self.assertFalse(voice_runtime.supported())
 
 
 if __name__ == "__main__":
