@@ -3,7 +3,7 @@
 Unlike the explicit ``imprint ui start`` daemon, this process exits when
 Electron closes the pipe, including after an Electron crash. No HTTP shutdown
 endpoint or shared Qdrant termination is needed. A restart request exits with
-``RESTART_EXIT_CODE`` and Electron starts the service again (ADR 0048).
+``RESTART_EXIT_CODE`` and Electron starts the service again (ADR 0050).
 """
 
 from __future__ import annotations

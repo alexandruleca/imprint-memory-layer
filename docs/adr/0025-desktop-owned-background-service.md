@@ -6,7 +6,7 @@ description: Show startup progress before Python loads and separate hiding Impri
 - Status: Accepted
 - Date: 2026-10-23
 - Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0024](0024-enforce-local-service-boundaries.md)
-- Desktop-owned services not registering in `imprint_ui.json` is superseded by [ADR 0048](0048-registered-dashboard-server-and-supervised-restart.md); the original rationale below is preserved.
+- Desktop-owned services not registering in `imprint_ui.json` is superseded by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md); the original rationale below is preserved.
 
 ## Context
 

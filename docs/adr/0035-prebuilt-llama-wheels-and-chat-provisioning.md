@@ -32,7 +32,7 @@ Two more facts shape the design:
 - Windows x64 and Linux x64/arm64 (glibc) use upstream's prebuilt CPU wheel through direct URLs. The universal lock records each wheel's sha256, matching the digest GitHub publishes.
 - Every other platform keeps the PyPI source distribution, with its existing hash. On macOS that build enables Metal, so Apple Silicon keeps GPU offload; the corrupt Metal wheel is not used.
 
-`--require-hashes` installs therefore never compile on Windows or Linux x64/arm64. The GPU profile's CUDA rebuild (`ensureLlamaCppGPU`) is unchanged. *ADR 0047 later replaced that rebuild with upstream's hash-locked Vulkan wheels.*
+`--require-hashes` installs therefore never compile on Windows or Linux x64/arm64. The GPU profile's CUDA rebuild (`ensureLlamaCppGPU`) is unchanged. *ADR 0049 later replaced that rebuild with upstream's hash-locked Vulkan wheels.*
 
 `imprint profile add-llm` installs only the LLM overlay, the same steps `setupBackend` runs for `--with-llm`:
 

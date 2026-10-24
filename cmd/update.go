@@ -341,7 +341,7 @@ func downloadVerified(target *release.Release, asset *release.ReleaseAsset, dir 
 }
 
 // restartUI restarts the running dashboard server, whoever started it, so it
-// serves the installed code (ADR 0048). The installed binary does it.
+// serves the installed code (ADR 0050). The installed binary does it.
 func restartUI(binPath string) {
 	output.Info("Restarting the dashboard server...")
 	if err := runner.Run(binPath, "ui", "restart"); err != nil {

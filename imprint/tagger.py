@@ -697,7 +697,7 @@ def _call_llm_raw_text(full_input: str) -> str:
         if err or llm is None:
             return ""
         # No grammar: on a GPU it cost more than the inference itself
-        # (ADR 0047). The reply is parsed and validated like a remote one.
+        # (ADR 0049). The reply is parsed and validated like a remote one.
         from .local_llm import complete
         return complete(llm, full_input)
 

@@ -262,7 +262,7 @@ def api_update_start():
 
 @app.post("/api/restart")
 def api_restart():
-    """Restart this server so it serves the installed code (ADR 0048).
+    """Restart this server so it serves the installed code (ADR 0050).
 
     It stops serving once in-flight requests finish and exits with
     ``RESTART_EXIT_CODE``; the desktop app or ``imprint ui`` that started it
@@ -1448,7 +1448,7 @@ def _launch_browser(url: str):
     webbrowser.open(url)
 
 
-# ── Serving (ADR 0048) ────────────────────────────────────────
+# ── Serving (ADR 0050) ────────────────────────────────────────
 
 # A server exits with this status when asked to restart, and whoever started
 # it (the desktop app, `imprint ui`) starts it again with the installed code.

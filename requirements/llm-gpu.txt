@@ -1,6 +1,6 @@
 # The GPU build of the LLM overlay: installed instead of llm.txt on the gpu
 # and auto profiles. Setup keeps it only when llama.cpp finds a GPU, and
-# installs llm.txt otherwise (ADR 0047).
+# installs llm.txt otherwise (ADR 0049).
 #
 # Windows x64 and Linux x64 use upstream's prebuilt Vulkan wheel. Vulkan
 # offloads to any NVIDIA, AMD or Intel GPU through the graphics driver alone:

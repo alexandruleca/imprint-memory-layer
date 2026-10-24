@@ -1,5 +1,5 @@
 ---
-title: ADR 0047 — llama.cpp GPU offload through upstream's Vulkan wheels
+title: ADR 0049 — llama.cpp GPU offload through upstream's Vulkan wheels
 description: The gpu and auto profiles install llama-cpp-python's hash-locked Vulkan build and keep it only when llama.cpp finds a GPU, replacing the nvcc rebuild.
 ---
 

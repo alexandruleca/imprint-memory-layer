@@ -305,7 +305,7 @@ func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
 // installLLMOverlay installs the local LLM binding into an existing venv.
 // The gpu and auto profiles install its GPU build (Vulkan on Windows and
 // Linux x64, Metal on macOS) and keep it only when llama.cpp finds a GPU;
-// otherwise the CPU build replaces it (ADR 0047). Both are the same version,
+// otherwise the CPU build replaces it (ADR 0049). Both are the same version,
 // so uv swaps them by wheel URL.
 func installLLMOverlay(uv, venvPython, venvPip, projectDir, profile string) {
 	if profile != "cpu" {

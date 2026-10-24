@@ -28,7 +28,7 @@ type uiState struct {
 }
 
 // uiRestartExitCode is the status a dashboard server exits with when asked to
-// restart. Whoever started it starts it again (ADR 0048). EX_TEMPFAIL.
+// restart. Whoever started it starts it again (ADR 0050). EX_TEMPFAIL.
 const uiRestartExitCode = 75
 
 // errNoUIServer reports that no dashboard server is running.
@@ -37,7 +37,7 @@ var errNoUIServer = errors.New("UI server not running")
 // UI dispatches `imprint ui` subcommands. Every dashboard server registers
 // itself in data/imprint_ui.json while it serves, whichever launcher started
 // it (the desktop app or this command), so stop, status and restart act on
-// the server that is actually running (ADR 0048).
+// the server that is actually running (ADR 0050).
 //
 //	imprint ui                   — foreground (exits when you Ctrl+C)
 //	imprint ui start [--port N]  — background daemon, detached
@@ -90,7 +90,7 @@ func uiServe(args []string) {
 
 // superviseUI runs the dashboard server with this process's standard streams
 // and starts it again each time it exits for a restart, so a restart serves
-// the installed code under the same owner (ADR 0048).
+// the installed code under the same owner (ADR 0050).
 func superviseUI(pyArgs []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)

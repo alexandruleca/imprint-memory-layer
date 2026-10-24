@@ -6,7 +6,7 @@ const { spawn } = require('node:child_process');
 
 // The service exits with this status when asked to restart (`imprint ui
 // restart`, or `imprint update` once a release is installed). Starting it again
-// serves the installed code under the same owner (ADR 0048). EX_TEMPFAIL.
+// serves the installed code under the same owner (ADR 0050). EX_TEMPFAIL.
 const RESTART_EXIT_CODE = 75;
 
 class DesktopService {

@@ -500,7 +500,7 @@ and native graphical matrix above. No release or installer was published.
 
 ## Registered dashboard server and supervised restart (2026-10-24)
 
-[ADR 0048](adr/0048-registered-dashboard-server-and-supervised-restart.md)
+[ADR 0050](adr/0050-registered-dashboard-server-and-supervised-restart.md)
 follows a native Windows installer update from v0.20.0 to v0.21.0. The install's
 `update-setup.log` and `imprint_ui.log` show that Restart Manager shut down only
 the portable executable's stub, while the extracted desktop app and its

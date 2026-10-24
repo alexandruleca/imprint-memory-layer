@@ -2,7 +2,7 @@
 
 The CLI resolves releases and knows how this installation updates. This
 module asks it for a report, starts it detached (it restarts this server
-once the new release is installed, ADR 0048) and reads its progress back
+once the new release is installed, ADR 0050) and reads its progress back
 from its log.
 """
 

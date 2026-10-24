@@ -1,5 +1,5 @@
 ---
-title: ADR 0048 — Registered dashboard server and supervised restart
+title: ADR 0050 — Registered dashboard server and supervised restart
 description: The serving dashboard registers itself, and every launcher starts it again when it exits for a restart, so updates replace it whoever started it.
 ---
 

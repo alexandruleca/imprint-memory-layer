@@ -153,7 +153,7 @@ Set-Content -Path $ResultFile -Value '0' -Encoding ascii
 
 # A dashboard server that kept running through an update or repair still
 # serves the code it started with. Whoever started it (the desktop app,
-# `imprint ui`) starts it again from what was just installed (ADR 0048).
+# `imprint ui`) starts it again from what was just installed (ADR 0050).
 # With no server running this does nothing; a failure leaves setup complete.
 Log-Line "Restarting a running dashboard server..."
 $restartExit = Invoke-Imprint -Arguments @('ui', 'restart')

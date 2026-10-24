@@ -23,7 +23,7 @@ Packaging requires Bash, rsync, Python 3, downloaded uv and the selected CLI bin
 
 Normalized Electron files live in `build/electron/linux-{amd64,arm64}/imprint-ui`, `build/electron/imprint-ui.app` and `build/electron/imprint-ui.exe`. Packaging never substitutes one Linux architecture for the other. Set `REQUIRE_ELECTRON=1` to fail when a desktop shell is missing; without it a local archive may provide the browser dashboard only.
 
-`scripts/validate-release.py` checks runtime files, dashboard JavaScript, CLI/uv architecture and Linux AppImage architecture, and excludes development/user state. Runtime Python dependencies use the hashed locks: `base.lock.txt` plus exactly one ONNX Runtime overlay, `cpu.lock.txt` or `gpu.lock.txt`, and one LLM overlay when selected, `llm.lock.txt` or its GPU build `llm-gpu.lock.txt` ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md), [ADR 0047](adr/0047-llama-gpu-offload-through-vulkan-wheels.md)). Refresh them deliberately; uv keeps the pins already present in each output file:
+`scripts/validate-release.py` checks runtime files, dashboard JavaScript, CLI/uv architecture and Linux AppImage architecture, and excludes development/user state. Runtime Python dependencies use the hashed locks: `base.lock.txt` plus exactly one ONNX Runtime overlay, `cpu.lock.txt` or `gpu.lock.txt`, and one LLM overlay when selected, `llm.lock.txt` or its GPU build `llm-gpu.lock.txt` ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md), [ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md)). Refresh them deliberately; uv keeps the pins already present in each output file:
 
 ```bash
 uv pip compile requirements/base.txt --universal --python-version 3.12 --generate-hashes -o requirements/base.lock.txt
