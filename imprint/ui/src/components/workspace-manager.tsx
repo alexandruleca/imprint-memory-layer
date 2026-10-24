@@ -2,7 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { Check, ChevronDown, FolderOpen, Plus } from "lucide-react";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   createWorkspace,
@@ -13,9 +31,9 @@ import {
   wipeWorkspace,
   type WorkspaceScope,
 } from "@/lib/api";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Hint } from "@/components/hint";
+import { Spinner } from "@/components/loaders";
 import { MigrateDialog } from "@/components/migrate-dialog";
-import { Modal } from "@/components/modal";
 import { WorkspaceRoots } from "@/components/workspace-roots";
 
 export type WorkspacesState = { active: string; workspaces: string[] };
@@ -29,10 +47,25 @@ export async function activateWorkspace(name: string) {
   window.location.reload();
 }
 
-type PendingAction =
-  | { kind: "delete"; name: string }
-  | { kind: "wipe"; name: string }
-  | null;
+type PendingAction = { kind: "delete" | "wipe"; name: string };
+
+/** What each destructive action asks before it runs; the user types `confirmText` to enable it. */
+const CONFIRM = {
+  delete: {
+    title: (name: string) => `Delete workspace '${name}'?`,
+    description: "This permanently removes the workspace's Qdrant collection, SQLite graph, and WAL. Cannot be undone.",
+    confirmText: (name: string) => name,
+    label: "Delete",
+    done: (name: string) => `Deleted workspace '${name}'`,
+  },
+  wipe: {
+    title: (name: string) => `Wipe workspace '${name}'?`,
+    description: "Deletes all vectors + facts in this workspace. The workspace itself stays (can be re-used after). Cannot be undone.",
+    confirmText: () => "wipe",
+    label: "Wipe",
+    done: (name: string) => `Wiped workspace '${name}'`,
+  },
+};
 
 /** Create, switch, edit (roots), wipe and delete workspaces. */
 export function WorkspaceManager() {
@@ -41,8 +74,11 @@ export function WorkspaceManager() {
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState("");
-  const [pending, setPending] = useState<PendingAction>(null);
+  const [pending, setPending] = useState<PendingAction | null>(null);
+  const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [migrateOpen, setMigrateOpen] = useState(false);
 
@@ -65,20 +101,41 @@ export function WorkspaceManager() {
     const name = newName.trim();
     if (!name) return;
     setError("");
+    setCreating(true);
     try {
       await createWorkspace(name);
       setNewName("");
+      toast.success(`Created workspace '${name}'`);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
     }
+  }
+
+  async function switchTo(name: string) {
+    setSwitching(name);
+    try {
+      await activateWorkspace(name);
+    } catch (e) {
+      setSwitching(null);
+      toast.error(`Could not switch to ${name}`, { description: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  function ask(action: PendingAction) {
+    setTyped("");
+    setLog([]);
+    setPending(action);
   }
 
   function confirmAction() {
     if (!pending) return;
-    const run = pending.kind === "delete"
-      ? (cb: (ev: Record<string, unknown>) => void) => deleteWorkspace(pending.name, cb)
-      : (cb: (ev: Record<string, unknown>) => void) => wipeWorkspace(pending.name, false, cb);
+    const { kind, name } = pending;
+    const run = kind === "delete"
+      ? (cb: (ev: Record<string, unknown>) => void) => deleteWorkspace(name, cb)
+      : (cb: (ev: Record<string, unknown>) => void) => wipeWorkspace(name, false, cb);
     setBusy(true);
     setLog([]);
     run((ev) => {
@@ -86,7 +143,13 @@ export function WorkspaceManager() {
         setLog((l) => [...l, ev.text as string]);
       } else if (ev.type === "done") {
         setBusy(false);
+        // The log stays open when the command fails, so its output explains why.
+        if (ev.status === "failed" || ev.status === "cancelled") {
+          setLog((l) => [...l, `\nThe command ${ev.status} (exit code ${ev.exit_code ?? "unknown"}).`]);
+          return;
+        }
         setPending(null);
+        toast.success(CONFIRM[kind].done(name));
         refresh().catch((e) => setError(String(e)));
       } else if (ev.type === "error") {
         setLog((l) => [...l, `ERROR: ${ev.error}`]);
@@ -94,6 +157,9 @@ export function WorkspaceManager() {
       }
     });
   }
+
+  const confirm = pending && CONFIRM[pending.kind];
+  const confirmText = pending && confirm ? confirm.confirmText(pending.name) : "";
 
   return (
     <>
@@ -110,8 +176,8 @@ export function WorkspaceManager() {
               placeholder="new-workspace"
               className="h-9 flex-1 text-sm"
             />
-            <Button type="submit" disabled={!newName.trim()}>
-              <Plus aria-hidden /> Create
+            <Button type="submit" disabled={!newName.trim() || creating}>
+              {creating ? <Spinner /> : <Plus aria-hidden />} Create
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">{WORKSPACE_NAME_HINT}</p>
@@ -132,9 +198,9 @@ export function WorkspaceManager() {
                     <div className="flex items-center gap-2">
                       <span className="truncate font-medium">{ws}</span>
                       {isActive && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-muted px-2 py-0.5 text-[11px] font-medium">
-                          <Check className="size-3" aria-hidden /> Active
-                        </span>
+                        <Badge variant="outline" className="bg-muted">
+                          <Check aria-hidden /> Active
+                        </Badge>
                       )}
                     </div>
                     <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -148,8 +214,8 @@ export function WorkspaceManager() {
                   </div>
                   <div className="flex gap-1.5">
                     {!isActive && (
-                      <Button variant="outline" size="sm" onClick={() => activateWorkspace(ws)}>
-                        Switch
+                      <Button variant="outline" size="sm" disabled={switching !== null} onClick={() => switchTo(ws)}>
+                        {switching === ws && <Spinner />} Switch
                       </Button>
                     )}
                     <Button
@@ -167,20 +233,22 @@ export function WorkspaceManager() {
                       variant="outline"
                       size="sm"
                       aria-label={`Wipe ${ws}`}
-                      onClick={() => setPending({ kind: "wipe", name: ws })}
+                      onClick={() => ask({ kind: "wipe", name: ws })}
                     >
                       Wipe
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      aria-label={`Delete ${ws}`}
-                      onClick={() => setPending({ kind: "delete", name: ws })}
-                      disabled={isDefault || isActive}
-                      title={isDefault ? "The default workspace cannot be deleted" : isActive ? "Switch to another workspace first" : undefined}
-                    >
-                      Delete
-                    </Button>
+                    {isDefault || isActive ? (
+                      // A disabled button takes no pointer events; the hint sits on a wrapper.
+                      <Hint label={isDefault ? "The default workspace cannot be deleted" : "Switch to another workspace first"}>
+                        <span className="inline-flex">
+                          <Button variant="destructive" size="sm" aria-label={`Delete ${ws}`} disabled>Delete</Button>
+                        </span>
+                      </Hint>
+                    ) : (
+                      <Button variant="destructive" size="sm" aria-label={`Delete ${ws}`} onClick={() => ask({ kind: "delete", name: ws })}>
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {isEditing && scope && (
@@ -211,41 +279,39 @@ export function WorkspaceManager() {
         </div>
       </div>
 
-      <ConfirmDialog
-        open={pending?.kind === "delete"}
-        title={`Delete workspace '${pending?.kind === "delete" ? pending.name : ""}'?`}
-        description="This permanently removes the workspace's Qdrant collection, SQLite graph, and WAL. Cannot be undone."
-        confirmText={pending?.kind === "delete" ? pending.name : undefined}
-        confirmLabel="Delete"
-        destructive
-        busy={busy}
-        onCancel={() => !busy && setPending(null)}
-        onConfirm={confirmAction}
-      >
-        {busy && log.length > 0 && (
-          <pre className="max-h-32 overflow-auto bg-muted rounded p-2 text-xs font-mono whitespace-pre-wrap">
-            {log.join("")}
-          </pre>
+      <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open && !busy) setPending(null); }}>
+        {pending && confirm && (
+          <AlertDialogContent aria-busy={busy}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{confirm.title(pending.name)}</AlertDialogTitle>
+              <AlertDialogDescription>{confirm.description}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                Type <code className="rounded bg-muted px-1 font-mono">{confirmText}</code> to confirm:
+              </p>
+              <Input
+                aria-label={`Type ${confirmText} to confirm`}
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                autoFocus
+                disabled={busy}
+              />
+            </div>
+            {log.length > 0 && (
+              <pre className="max-h-32 overflow-auto rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap">
+                {log.join("")}
+              </pre>
+            )}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <Button variant="destructive" onClick={confirmAction} disabled={busy || typed !== confirmText}>
+                {busy && <Spinner />} {confirm.label}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
         )}
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={pending?.kind === "wipe"}
-        title={`Wipe workspace '${pending?.kind === "wipe" ? pending.name : ""}'?`}
-        description="Deletes all vectors + facts in this workspace. The workspace itself stays (can be re-used after). Cannot be undone."
-        confirmText="wipe"
-        confirmLabel="Wipe"
-        destructive
-        busy={busy}
-        onCancel={() => !busy && setPending(null)}
-        onConfirm={confirmAction}
-      >
-        {busy && log.length > 0 && (
-          <pre className="max-h-32 overflow-auto bg-muted rounded p-2 text-xs font-mono whitespace-pre-wrap">
-            {log.join("")}
-          </pre>
-        )}
-      </ConfirmDialog>
+      </AlertDialog>
 
       <MigrateDialog
         open={migrateOpen}
@@ -258,20 +324,22 @@ export function WorkspaceManager() {
   );
 }
 
-/** The workspace manager as a modal, opened from the top bar. */
+/** The workspace manager as a dialog, opened from the top bar. */
 export function WorkspaceDialog({ onClose }: { onClose: () => void }) {
   return (
-    <Modal label="Manage workspaces" onClose={onClose} className="max-w-2xl p-0">
-      <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
-        <div>
-          <h2 className="text-base font-semibold">Workspaces</h2>
-          <p className="text-sm text-muted-foreground">Isolated memory spaces. Switching reloads the dashboard.</p>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent showCloseButton={false} className="gap-0 p-0 sm:max-w-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+          <DialogHeader className="gap-1">
+            <DialogTitle>Manage workspaces</DialogTitle>
+            <DialogDescription>Isolated memory spaces. Switching reloads the dashboard.</DialogDescription>
+          </DialogHeader>
+          <Button variant="ghost" size="sm" onClick={onClose}>Done</Button>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose}>Done</Button>
-      </div>
-      <div className="max-h-[70dvh] overflow-y-auto px-6 py-5">
-        <WorkspaceManager />
-      </div>
-    </Modal>
+        <div className="max-h-[70dvh] overflow-y-auto px-6 py-5">
+          <WorkspaceManager />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

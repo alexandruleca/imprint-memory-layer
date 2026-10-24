@@ -25,7 +25,9 @@ test('empty search, filters, full memory, keyboard and responsive layout', async
   await page.goto('/search/');
   await expect(page.getByText('What would you like to remember?')).toBeVisible();
   await page.getByLabel('Filter by project').fill('imprint');
-  await page.getByLabel('Memory type', { exact: true }).selectOption('decision');
+  await page.getByRole('combobox', { name: 'Memory type' }).click();
+  await page.getByRole('option', { name: 'decision' }).click();
+  await expect(page.getByRole('combobox', { name: 'Memory type' })).toContainText('decision');
   await page.getByLabel('Search query', { exact: true }).fill('missing');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.getByText('No matching memories')).toBeVisible();

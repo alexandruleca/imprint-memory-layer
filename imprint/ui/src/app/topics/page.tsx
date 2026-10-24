@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Tags } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getTopics, getTopicDetail } from "@/lib/api";
-import { ListSkeleton } from "@/components/loaders";
+import { CardGridSkeleton, ListSkeleton } from "@/components/loaders";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MigrateDialog } from "@/components/migrate-dialog";
 import type { TopicOverviewData, TopicDetailData, MemoryNode } from "@/lib/types";
@@ -16,16 +19,38 @@ export default function TopicsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<TopicDetailData | null>(null);
   const [migrateOpen, setMigrateOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  // The topic whose detail is wanted now; a slower earlier answer is dropped.
+  const requested = useRef<string | null>(null);
 
   useEffect(() => {
-    getTopics().then(setData).catch(console.error);
+    getTopics().then(setData).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
   async function selectTopic(name: string) {
+    requested.current = name;
     setSelected(name);
-    const d = await getTopicDetail(name);
-    setDetail(d);
+    setLoading(true);
+    try {
+      const d = await getTopicDetail(name);
+      if (requested.current === name) setDetail(d);
+    } catch (e) {
+      if (requested.current !== name) return;
+      setSelected(null);
+      setDetail(null);
+      toast.error(`Could not load ${name}`, { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      if (requested.current === name) setLoading(false);
+    }
   }
+
+  if (error) return (
+    <div className="p-8 space-y-4">
+      <h2 className="text-2xl font-bold">Topics</h2>
+      <p role="alert" className="text-sm text-destructive">Topics could not load: {error}</p>
+    </div>
+  );
 
   if (!data) return (
     <div className="p-8 space-y-4">
@@ -43,11 +68,13 @@ export default function TopicsPage() {
     return (
       <div className="p-8 space-y-4">
         <h2 className="text-2xl font-bold">Topics</h2>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-muted-foreground">No topics found. Run <code>imprint retag</code> to generate topic tags for existing memories.</p>
-          </CardContent>
-        </Card>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Tags aria-hidden /></EmptyMedia>
+            <EmptyTitle>No topics found</EmptyTitle>
+            <EmptyDescription>Run <code>imprint retag</code> to generate topic tags for existing memories.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </div>
     );
   }
@@ -60,22 +87,29 @@ export default function TopicsPage() {
         <ScrollArea className="h-[600px] col-span-1">
           <div className="space-y-1 pr-4">
             {data.topics.map((t) => (
-              <div
+              <Button
                 key={t.id}
-                className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center ${
-                  selected === t.name ? "bg-primary/20 border border-primary" : "hover:bg-muted"
+                variant="ghost"
+                aria-pressed={selected === t.name}
+                className={`h-auto w-full justify-between p-2 font-normal ${
+                  selected === t.name ? "bg-primary/20 border border-primary hover:bg-primary/20" : ""
                 }`}
                 onClick={() => selectTopic(t.name)}
               >
                 <span className="font-medium">{t.name}</span>
                 <Badge variant="secondary">{t.count.toLocaleString()}</Badge>
-              </div>
+              </Button>
             ))}
           </div>
         </ScrollArea>
 
         <div className="col-span-2">
-          {detail ? (
+          {loading ? (
+            <div className="space-y-4" aria-busy="true">
+              <Skeleton className="h-24 w-full rounded-xl" />
+              <CardGridSkeleton count={4} />
+            </div>
+          ) : detail ? (
             <div className="space-y-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
@@ -112,9 +146,11 @@ export default function TopicsPage() {
               </ScrollArea>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              Select a topic to view details
-            </div>
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyTitle>Select a topic to view details</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           )}
         </div>
       </div>

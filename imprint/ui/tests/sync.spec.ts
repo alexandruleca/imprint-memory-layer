@@ -12,6 +12,15 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/desktop-learn/history', route => route.fulfill({ json: { seen: {}, count: 0 } }));
 });
 
+test('a paired-device list that cannot be read shows why, not an empty list', async ({ page }) => {
+  await page.route('**/api/sync/peers', route => route.fulfill({
+    status: 500, json: { error: 'Could not read paired devices: sync-pairs.sqlite3 is damaged' },
+  }));
+  await page.goto('/sync/');
+  await expect(page.getByRole('alert').filter({ hasText: 'sync-pairs.sqlite3 is damaged' })).toBeVisible();
+  await expect(page.getByText('No paired devices yet')).toHaveCount(0);
+});
+
 test('paired-device controls pause and require confirmation to forget both devices', async ({ page }) => {
   let peer = {
     id: 'pair-1', peer: { hostname: 'workstation', fingerprint: 'bbbbbbbb', user: 'bob', os: 'linux' },
@@ -32,7 +41,7 @@ test('paired-device controls pause and require confirmation to forget both devic
   expect(changes).toEqual([{ action: 'enabled', enabled: false }]);
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await page.getByRole('button', { name: 'Forget…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Forget this device on both sides?' });
+  const dialog = page.getByRole('alertdialog', { name: 'Forget this device on both sides?' });
   await expect(dialog).toContainText('ALL paired workspaces');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(changes).toHaveLength(2);
@@ -80,8 +89,11 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
   await page.route('**/api/sync/cancel', route => route.fulfill({ json: { ok: true } }));
   await page.goto('/sync/');
   const panel = page.getByRole('tabpanel');
-  await expect(panel.getByLabel('Workspace to serve')).toHaveValue('default');
-  await panel.getByLabel('Workspace to serve').selectOption('team');
+  const served = panel.getByRole('combobox', { name: 'Workspace to serve' });
+  await expect(served).toContainText('default (active)');
+  await served.click();
+  await page.getByRole('option', { name: 'team' }).click();
+  await expect(served).toContainText('team');
   await panel.getByRole('radio', { name: /^Send only/ }).check();
   await panel.getByLabel(/^Relay/).fill('sync.example.com');
   await panel.getByRole('button', { name: 'Start Serving' }).click();
@@ -91,7 +103,8 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
 
   // A second session: the peer is trusted and an old client pushes anyway.
   await page.reload();
-  await panel.getByLabel('Workspace to serve').selectOption('team');
+  await served.click();
+  await page.getByRole('option', { name: 'team' }).click();
   await panel.getByRole('radio', { name: /^Send only/ }).check();
   await panel.getByRole('button', { name: 'Start Serving' }).click();
   await expect(panel.getByText('Sync Complete')).toBeVisible();
@@ -141,7 +154,7 @@ test('receive one way into a new workspace and show the negotiated plan', async 
   await workspace.fill('from-alice');
   await expect(panel.getByText(/New workspace — created when/)).toBeVisible();
 
-  // The direction group is a native radio group: arrow keys move the choice.
+  // The direction group is a radio group: arrow keys move the choice.
   await panel.getByRole('radio', { name: /^Two-way/ }).focus();
   await page.keyboard.press('ArrowRight');
   await expect(panel.getByRole('radio', { name: /^Send only/ })).toBeChecked();
@@ -197,7 +210,8 @@ test('migrate dialog copies by default', async ({ page }) => {
   await page.getByRole('button', { name: 'Copy / move memories…' }).click();
   await expect(page.getByRole('radio', { name: /^Copy/ })).toBeChecked();
   await page.getByRole('button', { name: 'shared' }).click();
-  await page.getByRole('combobox', { name: /^To/ }).selectOption('team');
+  await page.getByRole('combobox', { name: 'To', exact: true }).click();
+  await page.getByRole('option', { name: 'team' }).click();
   await page.getByRole('button', { name: 'Copy', exact: true }).click();
   await expect(page.getByText('source unchanged')).toBeVisible();
   expect(body).toMatchObject({ from: 'default', to: 'team', project: 'shared', copy: true });

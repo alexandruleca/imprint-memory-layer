@@ -1,7 +1,14 @@
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
+import { useId } from "react";
 import { Maximize, Shuffle, SlidersHorizontal, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { Hint } from "@/components/hint";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import type { GraphForces } from "./graph-canvas";
 
@@ -18,14 +25,13 @@ const BREADTH = [
   { depth: 3, label: "Most" },
 ];
 
-const iconButton =
-  "grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-muted data-[popup-open]:text-foreground";
-
 function ToolButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} aria-label={label} title={label} className={iconButton}>
-      <Icon className="size-4" aria-hidden />
-    </button>
+    <Hint label={label} side="left">
+      <Button variant="ghost" size="icon" onClick={onClick} aria-label={label} className="text-muted-foreground">
+        <Icon aria-hidden />
+      </Button>
+    </Hint>
   );
 }
 
@@ -55,62 +61,59 @@ export function GraphToolbar({
       <ToolButton icon={ZoomIn} label="Zoom in" onClick={() => onZoom(1.3)} />
       <ToolButton icon={ZoomOut} label="Zoom out" onClick={() => onZoom(1 / 1.3)} />
       <ToolButton icon={Maximize} label="Fit to view" onClick={onFit} />
-      <div className="mx-1.5 my-0.5 h-px bg-border" />
+      <Separator className="mx-1.5 my-0.5 data-horizontal:w-auto" />
       <ToolButton icon={Shuffle} label="Re-run layout" onClick={onRelayout} />
-      <Popover.Root>
-        <Popover.Trigger className={iconButton} aria-label="Graph settings" title="Graph settings">
-          <SlidersHorizontal className="size-4" aria-hidden />
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Positioner side="left" align="end" sideOffset={10} className="z-50">
-            <Popover.Popup className="w-72 rounded-xl border border-border bg-popover p-4 text-sm text-popover-foreground shadow-2xl outline-none transition-[opacity,transform] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
-              <Popover.Title className="text-sm font-semibold">Graph settings</Popover.Title>
+      <Popover>
+        <Hint label="Graph settings" side="left">
+          <PopoverTrigger render={<Button variant="ghost" size="icon" aria-label="Graph settings" className="text-muted-foreground" />}>
+            <SlidersHorizontal aria-hidden />
+          </PopoverTrigger>
+        </Hint>
+        <PopoverContent side="left" align="end" sideOffset={10} className="w-72 gap-0 p-4">
+          <PopoverTitle className="font-semibold">Graph settings</PopoverTitle>
 
-              <Section title="Display">
-                <Row label="Labels" htmlFor="graph-labels">
-                  <Switch id="graph-labels" checked={settings.showLabels} onCheckedChange={(v) => set({ showLabels: v })} />
-                </Row>
-                <Row label="Connections" htmlFor="graph-edges">
-                  <Switch id="graph-edges" checked={settings.showEdges} onCheckedChange={(v) => set({ showEdges: v })} />
-                </Row>
-              </Section>
+          <Section title="Display">
+            <Row label="Labels" htmlFor="graph-labels">
+              <Switch id="graph-labels" checked={settings.showLabels} onCheckedChange={(v) => set({ showLabels: v })} />
+            </Row>
+            <Row label="Connections" htmlFor="graph-edges">
+              <Switch id="graph-edges" checked={settings.showEdges} onCheckedChange={(v) => set({ showEdges: v })} />
+            </Row>
+          </Section>
 
-              <Section title="Items per group">
-                <div role="radiogroup" aria-label="Items per group" className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
-                  {BREADTH.map((b) => (
-                    <button
-                      key={b.depth}
-                      type="button"
-                      role="radio"
-                      aria-checked={settings.depth === b.depth}
-                      disabled={!breadthApplies}
-                      onClick={() => set({ depth: b.depth })}
-                      className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50 aria-checked:bg-background aria-checked:text-foreground aria-checked:shadow-sm"
-                    >
-                      {b.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {breadthApplies
-                    ? "How many topics, sources and chunks to show."
-                    : "Applies inside a project, topic or source."}
-                </p>
-              </Section>
+          <Section title="Items per group">
+            <RadioGroup
+              aria-label="Items per group"
+              value={settings.depth}
+              onValueChange={(depth) => set({ depth: depth as number })}
+              disabled={!breadthApplies}
+              className="flex gap-4"
+            >
+              {BREADTH.map((b) => (
+                <Label key={b.depth} className="font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-50">
+                  <RadioGroupItem value={b.depth} />
+                  {b.label}
+                </Label>
+              ))}
+            </RadioGroup>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {breadthApplies
+                ? "How many topics, sources and chunks to show."
+                : "Applies inside a project, topic or source."}
+            </p>
+          </Section>
 
-              <Section title="Layout">
-                <Slider id="graph-repel" label="Spacing" value={settings.forces.repel} min={200} max={4000} step={100} onChange={(v) => force({ repel: v })} />
-                <Slider id="graph-collide" label="Node padding" value={settings.forces.collide} min={2} max={60} step={2} onChange={(v) => force({ collide: v })} />
-                <Slider id="graph-gravity" label="Gravity" value={settings.forces.centerStrength} min={0} max={0.3} step={0.01} onChange={(v) => force({ centerStrength: v })} />
-              </Section>
+          <Section title="Layout">
+            <ForceSlider label="Spacing" value={settings.forces.repel} min={200} max={4000} step={100} onChange={(v) => force({ repel: v })} />
+            <ForceSlider label="Node padding" value={settings.forces.collide} min={2} max={60} step={2} onChange={(v) => force({ collide: v })} />
+            <ForceSlider label="Gravity" value={settings.forces.centerStrength} min={0} max={0.3} step={0.01} onChange={(v) => force({ centerStrength: v })} />
+          </Section>
 
-              <button type="button" onClick={onReset} className="mt-4 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-                Reset to defaults
-              </button>
-            </Popover.Popup>
-          </Popover.Positioner>
-        </Popover.Portal>
-      </Popover.Root>
+          <Button variant="link" size="xs" onClick={onReset} className="mt-4 self-start px-0 text-muted-foreground hover:text-foreground">
+            Reset to defaults
+          </Button>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -127,27 +130,26 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ label, htmlFor, children }: { label: string; htmlFor: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between py-1">
-      <label htmlFor={htmlFor} className="text-sm">{label}</label>
+      <Label htmlFor={htmlFor} className="font-normal">{label}</Label>
       {children}
     </div>
   );
 }
 
-function Slider({ id, label, value, min, max, step, onChange }: {
-  id: string; label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void;
+function ForceSlider({ label, value, min, max, step, onChange }: {
+  label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void;
 }) {
+  const labelId = useId();
   return (
-    <div className="py-1">
-      <label htmlFor={id} className="text-sm">{label}</label>
-      <input
-        id={id}
-        type="range"
+    <div className="space-y-2.5 py-1">
+      <Label id={labelId} className="font-normal">{label}</Label>
+      <Slider
+        aria-labelledby={labelId}
+        value={[value]}
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1 block w-full accent-primary"
+        onValueChange={(v) => onChange(Array.isArray(v) ? v[0] : (v as number))}
       />
     </div>
   );

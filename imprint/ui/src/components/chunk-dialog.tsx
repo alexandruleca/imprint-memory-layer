@@ -1,8 +1,7 @@
 "use client";
 
-import { Modal } from "./modal";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DeviceProvenance } from "./device-provenance";
 import type { DeviceIdentity, PathContext } from "@/lib/types";
 
@@ -26,40 +25,29 @@ export function ChunkDialog({ chunk, onClose }: Props) {
   if (!chunk) return null;
 
   return (
-    <Modal label={chunk.label || "Memory content"} onClose={onClose} className="max-w-3xl p-0">
-      <div className="flex max-h-[85dvh] flex-col">
-        <div className="flex items-start justify-between gap-3 p-4 border-b border-border shrink-0">
-          <div className="space-y-1.5 min-w-0">
-            {chunk.label && (
-              <p className="text-sm font-medium">{chunk.label}</p>
-            )}
-            {chunk.source && (
-              <p className="text-xs text-muted-foreground break-all">{chunk.source}</p>
-            )}
-            <DeviceProvenance origin={chunk.recorded_device} paths={chunk.path_context} />
-            <div className="flex gap-1 flex-wrap">
-              {chunk.project && <Badge variant="outline" className="text-xs">{chunk.project}</Badge>}
-              {chunk.type && <Badge variant="secondary" className="text-xs">{chunk.type}</Badge>}
-              {chunk.tags?.lang && <Badge className="text-xs">{chunk.tags.lang}</Badge>}
-              {chunk.tags?.topics?.slice(0, 4).map((t) => (
-                <Badge key={t} className="text-xs">{t}</Badge>
-              ))}
-            </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="flex max-h-[85dvh] flex-col gap-0 p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 gap-1.5 border-b border-border p-4 pr-10">
+          <DialogTitle className={chunk.label ? "" : "sr-only"}>{chunk.label || "Memory content"}</DialogTitle>
+          {chunk.source && (
+            <DialogDescription className="text-xs break-all">{chunk.source}</DialogDescription>
+          )}
+          <DeviceProvenance origin={chunk.recorded_device} paths={chunk.path_context} />
+          <div className="flex gap-1 flex-wrap">
+            {chunk.project && <Badge variant="outline" className="text-xs">{chunk.project}</Badge>}
+            {chunk.type && <Badge variant="secondary" className="text-xs">{chunk.type}</Badge>}
+            {chunk.tags?.lang && <Badge className="text-xs">{chunk.tags.lang}</Badge>}
+            {chunk.tags?.topics?.slice(0, 4).map((t) => (
+              <Badge key={t} className="text-xs">{t}</Badge>
+            ))}
           </div>
-          <button
-            aria-label="Close memory"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        </DialogHeader>
         <div className="overflow-y-auto p-4 flex-1">
           <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
             {chunk.content || "(empty)"}
           </pre>
         </div>
-      </div>
-    </Modal>
+      </DialogContent>
+    </Dialog>
   );
 }

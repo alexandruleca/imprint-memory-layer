@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api-base";
+import { Button } from "@/components/ui/button";
 
 export function Heartbeat() {
   const [offline, setOffline] = useState(false);
@@ -21,6 +22,6 @@ export function Heartbeat() {
   if (!offline) return null;
   return <div role="status" aria-live="polite" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 rounded-lg border border-amber-500/50 bg-background p-4 shadow-xl max-w-lg text-sm flex gap-3 items-center">
     <p>Local service is unavailable. Start Imprint or wait for it to reconnect.</p>
-    <button className="text-primary underline shrink-0" onClick={() => setRetry((value) => value + 1)}>Retry connection</button>
+    <Button variant="link" className="h-auto shrink-0 p-0 underline" onClick={() => setRetry((value) => value + 1)}>Retry connection</Button>
   </div>;
 }

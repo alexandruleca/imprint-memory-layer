@@ -10,15 +10,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
-import { cancelJob, getQueue, tailJobStream } from "@/lib/api";
+import { CancelButton } from "@/components/ingestion-progress";
+import { getQueue, tailJobStream } from "@/lib/api";
 import {
   CheckCircle2,
   XCircle,
   Ban,
   Clock,
   PlayCircle,
-  X,
   ChevronRight,
   ChevronDown,
 } from "lucide-react";
@@ -57,6 +59,15 @@ function summarizeBody(body: Record<string, unknown>): string {
     else parts.push(`${k}=${String(v)}`);
   }
   return parts.join(" ") || "—";
+}
+
+/** One line of a job list that has nothing in it. */
+function EmptyList({ children }: { children: React.ReactNode }) {
+  return (
+    <Empty className="items-start p-0 text-left">
+      <EmptyDescription className="text-xs">{children}</EmptyDescription>
+    </Empty>
+  );
 }
 
 function StatusIcon({ status }: { status: QueueJobStatus }) {
@@ -108,7 +119,7 @@ export default function QueuePage() {
     return (
       <div className="p-8">
         <h2 className="text-2xl font-bold">Queue</h2>
-        <p className="text-sm text-muted-foreground mt-2">Loading…</p>
+        <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading…</p>
       </div>
     );
   }
@@ -117,7 +128,7 @@ export default function QueuePage() {
     return (
       <div className="p-8 space-y-2">
         <h2 className="text-2xl font-bold">Queue</h2>
-        <p className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-destructive">
           Can&apos;t reach the queue API: {error}. Restart the dashboard
           (<code>imprint ui restart</code>) to pick up the new endpoints.
         </p>
@@ -153,10 +164,10 @@ export default function QueuePage() {
               job={active}
               expandedId={openLog}
               onToggleLog={(id) => setOpenLog(openLog === id ? null : id)}
-              onCancel={() => cancelJob(active.id).catch(() => {})}
+              cancellable
             />
           ) : (
-            <p className="text-xs text-muted-foreground">Nothing running.</p>
+            <EmptyList>Nothing running.</EmptyList>
           )}
         </CardContent>
       </Card>
@@ -170,7 +181,7 @@ export default function QueuePage() {
         </CardHeader>
         <CardContent>
           {queued.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Queue is empty.</p>
+            <EmptyList>Queue is empty.</EmptyList>
           ) : (
             <div className="space-y-2">
               {queued.map((j, i) => (
@@ -180,7 +191,7 @@ export default function QueuePage() {
                   indexLabel={`${i + 1}.`}
                   expandedId={openLog}
                   onToggleLog={(id) => setOpenLog(openLog === id ? null : id)}
-                  onCancel={() => cancelJob(j.id).catch(() => {})}
+                  cancellable
                 />
               ))}
             </div>
@@ -194,7 +205,7 @@ export default function QueuePage() {
         </CardHeader>
         <CardContent>
           {recent.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No history yet.</p>
+            <EmptyList>No history yet.</EmptyList>
           ) : (
             <div className="space-y-2">
               {recent.map((j) => (
@@ -216,21 +227,19 @@ export default function QueuePage() {
 function JobRow({
   job,
   indexLabel,
-  onCancel,
+  cancellable = false,
   expandedId,
   onToggleLog,
 }: {
   job: QueueJob;
   indexLabel?: string;
-  onCancel?: () => void;
+  cancellable?: boolean;
   expandedId: string | null;
   onToggleLog: (id: string) => void;
 }) {
   const dur = jobDuration(job);
   const durStr = dur !== null ? formatDuration(dur) : null;
   const expanded = expandedId === job.id;
-  const cancellable =
-    (job.status === "queued" || job.status === "running") && onCancel;
 
   return (
     <div className="rounded-md border border-border bg-card/40">
@@ -241,6 +250,7 @@ function JobRow({
           </span>
         )}
         <StatusIcon status={job.status} />
+        <span className="sr-only">{job.status}</span>
         <Badge variant="outline" className="text-[10px] uppercase shrink-0">
           {job.command}
         </Badge>
@@ -267,31 +277,29 @@ function JobRow({
             exit {job.exit_code}
           </Badge>
         )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-muted-foreground"
-          onClick={() => onToggleLog(job.id)}
-          title={expanded ? "Hide log" : "Show log"}
-        >
-          {expanded ? (
-            <ChevronDown className="w-3.5 h-3.5" />
-          ) : (
-            <ChevronRight className="w-3.5 h-3.5" />
-          )}
-        </Button>
-        {cancellable && (
+        <Hint label={expanded ? "Hide log" : "Show log"}>
           <Button
-            type="button"
             variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-muted-foreground hover:text-red-600"
-            onClick={onCancel}
-            title={job.status === "running" ? "Cancel job" : "Remove from queue"}
+            size="icon-sm"
+            className="text-muted-foreground"
+            onClick={() => onToggleLog(job.id)}
+            aria-label={expanded ? "Hide log" : "Show log"}
+            aria-expanded={expanded}
           >
-            <X className="w-3.5 h-3.5" />
+            {expanded ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
           </Button>
+        </Hint>
+        {cancellable && (job.status === "queued" || job.status === "running") && (
+          <CancelButton
+            job={job}
+            label={job.status === "running" ? "Cancel job" : "Remove from queue"}
+            className="h-7 px-2 text-muted-foreground hover:text-red-600"
+            iconClassName="w-3.5 h-3.5"
+          />
         )}
       </div>
       {expanded && (
@@ -303,7 +311,7 @@ function JobRow({
             {job.pid != null && <span>pid {job.pid}</span>}
           </div>
           {job.error && (
-            <p className="text-[11px] text-red-600 font-mono">{job.error}</p>
+            <p className="text-[11px] text-destructive font-mono">{job.error}</p>
           )}
           <JobLog key={job.id} jobId={job.id} live={job.status === "running"} />
         </div>

@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { ArrowUpCircle, CheckCircle2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/modal";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Spinner } from "@/components/loaders";
 import { getUpdate, getVersion, startUpdate, type UpdateInfo, type UpdateMethod } from "@/lib/api";
 
@@ -71,51 +78,47 @@ export function UpdateButton() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-sm font-medium text-background shadow-xs outline-none transition-opacity hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        {busy ? <Spinner className="size-4" /> : <ArrowUpCircle className="size-4" aria-hidden />}
+      <Button onClick={() => setOpen(true)}>
+        {busy ? <Spinner /> : <ArrowUpCircle aria-hidden />}
         <span className="md:hidden">{busy ? "Updating" : "Update"}</span>
         <span className="hidden md:inline">{busy ? `Updating to ${target}…` : `Update to ${target}`}</span>
-      </button>
-      {open && (
-        <Modal label="Update Imprint" onClose={() => setOpen(false)} className="max-w-lg p-0">
-          <div className="border-b border-border px-6 py-4">
-            <h2 className="text-base font-semibold">Update Imprint</h2>
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent showCloseButton={false} className="gap-0 p-0 sm:max-w-lg">
+          <DialogHeader className="gap-1 border-b border-border px-6 py-4">
+            <DialogTitle>Update Imprint</DialogTitle>
+            <DialogDescription className="flex flex-wrap items-center gap-x-2">
               <span>
                 {info.current} → <span className="font-medium text-foreground">{target}</span>
               </span>
               {info.url && (
-                <a href={info.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline">
+                <a href={info.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
                   Release notes <ExternalLink className="size-3" aria-hidden />
                 </a>
               )}
-            </p>
-          </div>
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 px-6 py-5 text-sm">
             <Body phase={phase} info={info} target={target} log={log} />
           </div>
-          <div className="flex justify-end gap-2 border-t border-border px-6 py-3">
+          <DialogFooter className="mx-0 mb-0 px-6 py-3">
             {phase.kind === "done" ? (
-              <Button size="sm" onClick={() => window.location.reload()}>Reload dashboard</Button>
+              <Button onClick={() => window.location.reload()}>Reload dashboard</Button>
             ) : (
               <>
-                <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                <Button variant="ghost" onClick={() => setOpen(false)}>
                   {busy ? "Hide" : "Close"}
                 </Button>
                 {!info.unsupported && (phase.kind === "idle" || phase.kind === "stopped" || phase.kind === "error") && (
-                  <Button size="sm" onClick={begin}>
+                  <Button onClick={begin}>
                     {phase.kind === "idle" ? "Update now" : "Try again"}
                   </Button>
                 )}
               </>
             )}
-          </div>
-        </Modal>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -142,7 +145,7 @@ function Body({ phase, info, target, log }: { phase: Phase; info: UpdateInfo; ta
       )}
       {(phase.kind === "starting" || phase.kind === "updating") && (
         <p role="status" className="flex items-center gap-2">
-          <Spinner className="size-4" /> Updating to {target}. The dashboard reconnects when the new version is running.
+          <Spinner /> Updating to {target}. The dashboard reconnects when the new version is running.
         </p>
       )}
       {phase.kind === "stopped" && (

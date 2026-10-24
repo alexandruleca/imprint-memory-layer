@@ -18,7 +18,7 @@ test('cleanup previews before confirmation and applies to the reviewed workspace
   await page.goto('/sources/');
   await page.getByText('Workspace roots and cleanup').click();
   await page.getByLabel('Cleanup target').fill('project/wrong');
-  await page.getByLabel('Include directory descendants').check();
+  await page.getByRole('checkbox', { name: 'Include directory descendants' }).check();
   await page.getByRole('button', { name: 'Preview cleanup' }).click();
   await expect(page.getByRole('status')).toContainText('2 chunks in 1 sources');
   expect(requests).toHaveLength(1);
@@ -45,9 +45,9 @@ test('overlapping root requires an explicit sharing confirmation', async ({ page
   await page.getByText('Workspace roots and cleanup').click();
   await page.getByLabel('Workspace root directory').fill('/shared');
   await page.getByRole('button', { name: 'Add root', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Share this root across workspaces?' })).toContainText('beta');
+  await expect(page.getByRole('alertdialog', { name: 'Share this root across workspaces?' })).toContainText('beta');
   expect(confirmations).toEqual([false]);
   await page.getByRole('button', { name: 'Allow overlap and add root' }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
   expect(confirmations).toEqual([false, true]);
 });

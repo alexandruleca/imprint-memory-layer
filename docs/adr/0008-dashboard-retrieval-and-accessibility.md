@@ -29,3 +29,5 @@ Native dialog behavior depends on the supported Electron/browser baseline. Searc
 ## Validation
 
 Production export/TypeScript, clean lint, and browser scenarios for mobile overflow, filters, empty results, errors/retry, stale request cancellation, full-memory dialog/Escape/focus, keyboard shortcut and reconnect. Native Electron graphical tests remain pending.
+
+Dialog follow-up: [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) replaces the native dialog primitive with the shadcn (Base UI) `Dialog` and `AlertDialog`, which keep the labelled modal, focus trap, Escape, inert background and focus restoration required above.

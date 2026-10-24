@@ -6,6 +6,11 @@ import { ChevronDown, ChevronUp, Network, RotateCw, Search as SearchIcon, X } fr
 import { getGraphScope, getMemory, getTopicDetail } from "@/lib/api";
 import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
 import { GraphSkeleton, Spinner } from "@/components/loaders";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
+import { Kbd } from "@/components/ui/kbd";
 import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeKind, GraphScopeData, MemoryNode } from "@/lib/types";
 import { GraphBreadcrumbs, scopeKind, type ScopeCrumb } from "./_components/breadcrumbs";
 import { GraphCanvas, type GraphCanvasHandle, type GraphForces } from "./_components/graph-canvas";
@@ -85,6 +90,7 @@ function GraphPageContent() {
   const [query, setQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(-1);
   const [chunkDialog, setChunkDialog] = useState<ChunkPreview | null>(null);
+  const [openingChunk, setOpeningChunk] = useState(false);
   const [topicResult, setTopicResult] = useState<{ key: string; nodes: MemoryNode[] }>({ key: "", nodes: [] });
 
   useEffect(() => {
@@ -189,9 +195,11 @@ function GraphPageContent() {
 
   const readChunk = useCallback((node: GraphNode) => {
     const fallback = { label: node.label, source: node.fullPath, project: node.project, content: node.content || "" };
+    setOpeningChunk(true);
     getMemory(node.id.replace(/^chunk:/, ""))
       .then((m) => setChunkDialog({ ...fallback, content: m.content || fallback.content }))
-      .catch(() => setChunkDialog(fallback));
+      .catch(() => setChunkDialog(fallback))
+      .finally(() => setOpeningChunk(false));
   }, []);
 
   const open = useCallback((node: GraphNode) => {
@@ -244,30 +252,33 @@ function GraphPageContent() {
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2.5">
         <h2 className="text-lg font-semibold">Graph</h2>
         <GraphBreadcrumbs crumbs={crumbs} onGo={(i) => goTo(trail.slice(0, i + 1))} />
-        <div className="flex w-full items-center gap-1 rounded-lg border border-input bg-input/30 px-2.5 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 sm:ml-auto sm:w-72">
-          <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          <input
+        <InputGroup className="w-full sm:ml-auto sm:w-72">
+          <InputGroupAddon>
+            <SearchIcon className="size-3.5" aria-hidden />
+          </InputGroupAddon>
+          <InputGroupInput
             ref={findRef}
             value={query}
             onChange={(e) => { setQuery(e.target.value); setMatchIndex(-1); }}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); stepMatch(e.shiftKey ? -1 : 1); } }}
             placeholder="Find in graph"
             aria-label="Find in graph"
-            className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
-          {matchList ? (
-            <>
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground" role="status">
-                {matchList.length === 0 ? "No matches" : `${matchIndex >= 0 ? matchIndex + 1 : 0}/${matchList.length}`}
-              </span>
-              <button type="button" aria-label="Previous match" onClick={() => stepMatch(-1)} disabled={!matchList.length} className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40"><ChevronUp className="size-3.5" /></button>
-              <button type="button" aria-label="Next match" onClick={() => stepMatch(1)} disabled={!matchList.length} className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40"><ChevronDown className="size-3.5" /></button>
-              <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); setMatchIndex(-1); }} className="grid size-6 place-items-center rounded text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
-            </>
-          ) : (
-            <kbd className="hidden shrink-0 rounded border border-border px-1.5 font-mono text-[10px] text-muted-foreground sm:block">/</kbd>
-          )}
-        </div>
+          <InputGroupAddon align="inline-end">
+            {matchList ? (
+              <>
+                <InputGroupText role="status" className="text-xs tabular-nums">
+                  {matchList.length === 0 ? "No matches" : `${matchIndex >= 0 ? matchIndex + 1 : 0}/${matchList.length}`}
+                </InputGroupText>
+                <InputGroupButton size="icon-xs" aria-label="Previous match" onClick={() => stepMatch(-1)} disabled={!matchList.length}><ChevronUp aria-hidden /></InputGroupButton>
+                <InputGroupButton size="icon-xs" aria-label="Next match" onClick={() => stepMatch(1)} disabled={!matchList.length}><ChevronDown aria-hidden /></InputGroupButton>
+                <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => { setQuery(""); setMatchIndex(-1); }}><X aria-hidden /></InputGroupButton>
+              </>
+            ) : (
+              <Kbd className="hidden sm:inline-flex">/</Kbd>
+            )}
+          </InputGroupAddon>
+        </InputGroup>
       </header>
 
       <div className="relative flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,#ffffff,var(--background)_75%)]">
@@ -286,37 +297,41 @@ function GraphPageContent() {
         />
 
         {!data && !graphResult.error && <div className="absolute inset-0 grid"><GraphSkeleton /></div>}
-        {loading && data && (
+        {((loading && data) || openingChunk) && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur" role="status">
-            <Spinner className="size-3.5" /> Loading {kind ? KINDS[kind].label.toLowerCase() : "overview"}…
+            <Spinner className="size-3.5" /> {openingChunk ? "Opening chunk…" : `Loading ${kind ? KINDS[kind].label.toLowerCase() : "overview"}…`}
           </div>
         )}
         {!loading && graphResult.error && (
-          <div role="alert" aria-label="Graph error" className="absolute left-1/2 top-3 z-20 flex w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-xl border border-destructive/50 bg-card/95 p-3 text-sm shadow-lg backdrop-blur">
-            <span className="min-w-0 flex-1">The graph could not load: {graphResult.error}</span>
-            <button type="button" onClick={() => setReload((r) => r + 1)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-muted">
-              <RotateCw className="size-3.5" aria-hidden /> Retry
-            </button>
-          </div>
+          <Alert variant="destructive" aria-label="Graph error" className="absolute left-1/2 top-3 z-20 w-[min(28rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-xl border-destructive/50 bg-card/95 p-3 pr-24 shadow-lg backdrop-blur">
+            <AlertDescription className="text-foreground">The graph could not load: {graphResult.error}</AlertDescription>
+            <AlertAction className="top-1/2 right-3 -translate-y-1/2">
+              <Button variant="outline" size="sm" onClick={() => setReload((r) => r + 1)}>
+                <RotateCw aria-hidden /> Retry
+              </Button>
+            </AlertAction>
+          </Alert>
         )}
         {empty && (
-          <CenteredNote title={scope === "root" ? "No memories in this workspace yet" : "Nothing to show here"}>
-            {scope === "root" ? (
-              <>Index a project with <code className="rounded bg-muted px-1 font-mono text-xs">imprint ingest &lt;dir&gt;</code> or use quick ingest on the <Link href="/" className="underline underline-offset-4 hover:text-foreground">dashboard</Link>; projects and their topics appear here.</>
+          <CenteredNote
+            title={scope === "root" ? "No memories in this workspace yet" : "Nothing to show here"}
+            description={scope === "root" ? (
+              <>Index a project with <code className="rounded bg-muted px-1 font-mono text-xs">imprint ingest &lt;dir&gt;</code> or use quick ingest on the <Link href="/">dashboard</Link>; projects and their topics appear here.</>
             ) : "This scope has no connected memories."}
-          </CenteredNote>
+          />
         )}
         {allHidden && (
-          <CenteredNote title="Every kind is hidden">
-            <button type="button" onClick={() => setHidden(new Set())} className="mt-1 rounded-lg border border-border px-3 py-1 text-xs text-foreground hover:bg-muted">Show all</button>
-          </CenteredNote>
+          <CenteredNote
+            title="Every kind is hidden"
+            action={<Button variant="outline" size="sm" onClick={() => setHidden(new Set())}>Show all</Button>}
+          />
         )}
 
         {neighborhood && selected && (
           <div className="absolute left-1/2 top-3 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 py-1 pl-3 pr-1 text-xs shadow-lg backdrop-blur">
             <Network className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
             <span className="truncate">Connections of <span className="font-medium">{selected.label}</span></span>
-            <button type="button" onClick={() => setNeighborhood(false)} className="shrink-0 rounded-full px-2 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">Show all</button>
+            <Button variant="ghost" size="xs" onClick={() => setNeighborhood(false)} className="rounded-full font-normal text-muted-foreground">Show all</Button>
           </div>
         )}
 
@@ -367,14 +382,19 @@ function GraphPageContent() {
   );
 }
 
-function CenteredNote({ title, children }: { title: string; children: React.ReactNode }) {
+function CenteredNote({ title, description, action }: { title: string; description?: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-6">
-      <div className="pointer-events-auto max-w-sm rounded-xl border border-border bg-card/90 p-5 text-center shadow-lg backdrop-blur">
-        <Network className="mx-auto size-6 text-muted-foreground" aria-hidden />
-        <p className="mt-2 font-medium">{title}</p>
-        <div className="mt-1 text-sm text-muted-foreground">{children}</div>
-      </div>
+      <Empty className="pointer-events-auto max-w-sm flex-none border border-solid border-border bg-card/90 p-5 shadow-lg backdrop-blur">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Network aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle>{title}</EmptyTitle>
+          {description && <EmptyDescription>{description}</EmptyDescription>}
+        </EmptyHeader>
+        {action && <EmptyContent>{action}</EmptyContent>}
+      </Empty>
     </div>
   );
 }

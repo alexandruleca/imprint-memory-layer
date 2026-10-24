@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { ArrowRight, Check, Copy, Network, X } from "lucide-react";
+import { toast } from "sonner";
+import { Hint } from "@/components/hint";
+import { Spinner } from "@/components/loaders";
+import { Button } from "@/components/ui/button";
 import type { GraphNode, MemoryNode } from "@/lib/types";
 import { KIND_ORDER, KINDS, nodeColor } from "./graph-style";
 
@@ -52,9 +56,9 @@ export function NodeDetails({
             {node.kind === "chunk" && node.project && ` · ${node.project}`}
           </p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close details" className="-m-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
-          <X className="size-4" aria-hidden />
-        </button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close details" className="-m-1 text-muted-foreground">
+          <X aria-hidden />
+        </Button>
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
@@ -71,17 +75,24 @@ export function NodeDetails({
               {topicChunks && ` · ${topicChunks.length}`}
             </h4>
             {topicChunks === null ? (
-              <p className="text-xs text-muted-foreground">Loading…</p>
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Spinner className="size-3" /> Loading…</p>
             ) : topicChunks.length === 0 ? (
               <p className="text-xs text-muted-foreground">No chunks found.</p>
             ) : (
               <ul className="max-h-48 overflow-y-auto rounded-lg border border-border">
                 {topicChunks.map((chunk) => (
                   <li key={chunk.id} className="border-b border-border/60 last:border-0">
-                    <button type="button" onClick={() => onReadChunk(chunk)} title={chunk.label} className="block w-full truncate px-2.5 py-1.5 text-left text-xs hover:bg-muted/60">
-                      <span className="mr-1.5 font-mono text-muted-foreground">#{chunk.chunk_index}</span>
-                      {chunk.label}
-                    </button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => onReadChunk(chunk)}
+                      title={chunk.label}
+                      className="h-auto w-full justify-start rounded-none px-2.5 py-1.5 text-left text-xs font-normal"
+                    >
+                      <span className="truncate">
+                        <span className="mr-1.5 font-mono text-muted-foreground">#{chunk.chunk_index}</span>
+                        {chunk.label}
+                      </span>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -100,23 +111,14 @@ export function NodeDetails({
       </div>
 
       <div className="flex gap-2 border-t border-border p-3">
-        <button
-          type="button"
-          onClick={() => onOpen(node)}
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
+        <Button size="sm" onClick={() => onOpen(node)} className="flex-1 text-xs">
           {node.kind === "chunk" ? "Read chunk" : `Open ${kind.label.toLowerCase()}`}
-          <ArrowRight className="size-3.5" aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={onNeighborhood}
-          aria-pressed={neighborhood}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted aria-pressed:bg-muted"
-        >
-          <Network className="size-3.5" aria-hidden />
+          <ArrowRight aria-hidden />
+        </Button>
+        <Button variant="outline" size="sm" onClick={onNeighborhood} aria-pressed={neighborhood} className="text-xs aria-pressed:bg-muted">
+          <Network aria-hidden />
           {neighborhood ? "Show all" : "Only its connections"}
-        </button>
+        </Button>
       </div>
     </aside>
   );
@@ -131,22 +133,23 @@ function NeighborGroup({ kind, nodes, onSelect }: { kind: GraphNode["kind"]; nod
       <ul className="flex flex-wrap gap-1">
         {shown.map((n) => (
           <li key={n.id} className="min-w-0 max-w-full">
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="xs"
               onClick={() => onSelect(n.id)}
               title={n.label}
-              className="flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-0.5 text-xs transition-colors hover:border-foreground/30 hover:bg-muted"
+              className="max-w-full shrink gap-1.5 rounded-md bg-background/60 px-2 font-normal hover:border-foreground/30"
             >
               <span className="size-1.5 shrink-0 rounded-full" style={{ background: nodeColor(n) }} aria-hidden />
               <span className="truncate">{n.label}</span>
-            </button>
+            </Button>
           </li>
         ))}
         {nodes.length > SHOWN_PER_KIND && (
           <li>
-            <button type="button" onClick={() => setAll((v) => !v)} className="rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="xs" onClick={() => setAll((v) => !v)} className="font-normal text-muted-foreground">
               {all ? "Show fewer" : `+${nodes.length - SHOWN_PER_KIND} more`}
-            </button>
+            </Button>
           </li>
         )}
       </ul>
@@ -160,15 +163,17 @@ function PathRow({ path }: { path: string }) {
     navigator.clipboard?.writeText(path).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
+    }).catch(() => toast.error("Could not copy the path"));
   };
   const Icon = copied ? Check : Copy;
   return (
     <div className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2">
       <code className="min-w-0 flex-1 break-all font-mono text-[11px] leading-relaxed text-muted-foreground">{path}</code>
-      <button type="button" onClick={copy} aria-label={copied ? "Path copied" : "Copy path"} title={copied ? "Copied" : "Copy path"} className="-mr-1 grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
-        <Icon className="size-3.5" aria-hidden />
-      </button>
+      <Hint label={copied ? "Copied" : "Copy path"}>
+        <Button variant="ghost" size="icon-xs" onClick={copy} aria-label={copied ? "Path copied" : "Copy path"} className="-mr-1 text-muted-foreground">
+          <Icon className="size-3.5" aria-hidden />
+        </Button>
+      </Hint>
     </div>
   );
 }

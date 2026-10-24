@@ -2,14 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { SearchIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Alert } from "@/components/ui/alert";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Kbd } from "@/components/ui/kbd";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { searchMemories, getMemory } from "@/lib/api";
 import { CardGridSkeleton, Spinner } from "@/components/loaders";
 import { ChunkDialog } from "@/components/chunk-dialog";
 import type { MemoryNode } from "@/lib/types";
+
+// "All types" is no type filter; Base UI keeps null for "nothing selected".
+const TYPES = [
+  { value: null, label: "All types" },
+  ...["decision", "pattern", "finding", "bug", "architecture", "milestone"].map((value) => ({ value, label: value })),
+];
+const MODES = [
+  { value: "hybrid", label: "Semantic + exact terms" },
+  { value: "semantic", label: "Semantic only" },
+];
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
@@ -85,7 +100,7 @@ export default function SearchPage() {
     <div className="p-4 sm:p-8 space-y-5 max-w-7xl mx-auto">
       <header>
         <h1 className="text-2xl font-bold">Search your memory</h1>
-        <p className="text-sm text-muted-foreground mt-1">Find decisions, code and prior work. Use a phrase, symbol or filename. <kbd className="text-xs">Ctrl / ⌘ K</kbd></p>
+        <p className="text-sm text-muted-foreground mt-1">Find decisions, code and prior work. Use a phrase, symbol or filename. <Kbd>Ctrl / ⌘ K</Kbd></p>
       </header>
       <form onSubmit={doSearch} className="space-y-3" aria-label="Search memories">
         <div className="flex gap-2">
@@ -95,41 +110,51 @@ export default function SearchPage() {
           <Button type="submit" disabled={!query.trim()}>{loading && <Spinner className="w-4 h-4" />} {loading ? "Search again" : "Search"}</Button>
         </div>
         <div className="flex flex-wrap gap-3 text-xs">
-          <label className="space-y-1">Project
+          <label className="flex flex-col gap-1">Project
             <Input aria-label="Filter by project" value={project} onChange={(event) => setProject(event.target.value)} placeholder="All projects" className="h-8 w-44" />
           </label>
-          <label className="space-y-1">Memory type
-            <select aria-label="Memory type" value={type} onChange={(event) => setType(event.target.value)} className="block h-8 rounded-md border border-input bg-background px-2">
-              <option value="">All types</option>
-              {["decision", "pattern", "finding", "bug", "architecture", "milestone"].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="space-y-1">Search method
-            <select aria-label="Search method" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)} className="block h-8 rounded-md border border-input bg-background px-2">
-              <option value="hybrid">Semantic + exact terms</option><option value="semantic">Semantic only</option>
-            </select>
-          </label>
+          <div className="flex flex-col gap-1">
+            <span>Memory type</span>
+            <Select items={TYPES} value={type || null} onValueChange={(value) => setType(value ?? "")}>
+              <SelectTrigger aria-label="Memory type" className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TYPES.map((item) => <SelectItem key={item.label} value={item.value}>{item.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span>Search method</span>
+            <Select items={MODES} value={mode} onValueChange={(value) => setMode(value as typeof mode)}>
+              <SelectTrigger aria-label="Search method" className="w-52"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MODES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </form>
-      {error && <div role="alert" aria-label="Search error" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">{error} Submit the search to retry.</div>}
+      {error && <Alert variant="destructive" aria-label="Search error">{error} Submit the search to retry.</Alert>}
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
         {loading ? `Searching for “${submitted}”…` : submitted && !error ? `${results.length} ${results.length === 1 ? "result" : "results"} for “${submitted}”` : "Your memories stay in the selected workspace."}
       </p>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" aria-busy={loading}>
         <section aria-label="Search results" className="space-y-2 lg:max-h-[65vh] overflow-auto">
           {loading && <CardGridSkeleton count={3} />}
-          {!loading && !error && results.length === 0 && <Card><CardContent className="p-6 space-y-2">
-            <h2 className="font-medium">{submitted ? "No matching memories" : "What would you like to remember?"}</h2>
-            <p className="text-sm text-muted-foreground">{submitted ? "Try a shorter phrase, an exact identifier, or remove a filter. If this source is new, index it first." : "Search a decision, a feature, or a debugging problem. Add sources to make them searchable here."}</p>
-            <Link className="text-sm text-primary underline" href="/commands/">Index a folder or document</Link>
-          </CardContent></Card>}
-          {results.map((node, index) => <button key={node.id} type="button" onClick={() => { detailRequest.current?.abort(); setOpening(false); setSelected(node); }}
-            aria-pressed={selected?.id === node.id} className={`block w-full rounded-lg border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-primary ${selected?.id === node.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}>
+          {!loading && !error && results.length === 0 && <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon"><SearchIcon aria-hidden /></EmptyMedia>
+              <EmptyTitle>{submitted ? "No matching memories" : "What would you like to remember?"}</EmptyTitle>
+              <EmptyDescription>{submitted ? "Try a shorter phrase, an exact identifier, or remove a filter. If this source is new, index it first." : "Search a decision, a feature, or a debugging problem. Add sources to make them searchable here."}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent><Link className="text-sm text-primary underline" href="/commands/">Index a folder or document</Link></EmptyContent>
+          </Empty>}
+          {results.map((node, index) => <Button key={node.id} variant="outline" onClick={() => { detailRequest.current?.abort(); setOpening(false); setSelected(node); }}
+            aria-pressed={selected?.id === node.id} className={`block h-auto w-full whitespace-normal p-4 text-left font-normal ${selected?.id === node.id ? "border-primary bg-primary/5 hover:bg-primary/5" : "hover:bg-muted/40"}`}>
             <div className="flex items-start justify-between gap-2"><h2 className="font-medium text-sm break-words">{index + 1}. {node.label || node.source || node.content.slice(0, 90)}</h2><Badge variant="outline">{node.match_type || "semantic"}</Badge></div>
             <p className="text-xs text-muted-foreground mt-2 break-all">{node.source || "Manual memory"}</p>
             <div className="flex flex-wrap gap-1 mt-2"><Badge variant="secondary">{node.project || "No project"}</Badge><Badge variant="outline">{node.type || "memory"}</Badge></div>
             <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{node.content}</p>
-          </button>)}
+          </Button>)}
         </section>
         <section aria-label="Memory details" className="min-w-0">
           {selected && <Card><CardContent className="p-5 space-y-4">
@@ -142,7 +167,7 @@ export default function SearchPage() {
             </dl>
             <p className="text-xs text-muted-foreground">Indexed context may be outdated. Verify current source files before making changes.</p>
             <pre className="text-sm whitespace-pre-wrap break-words font-sans bg-muted/50 p-4 rounded-md max-h-80 overflow-auto">{selected.content}</pre>
-            <Button variant="outline" size="sm" onClick={openFull} aria-busy={opening} aria-disabled={opening}>{opening ? "Opening…" : "Open full memory"}</Button>
+            <Button variant="outline" size="sm" onClick={openFull} aria-busy={opening} aria-disabled={opening}>{opening && <Spinner />}{opening ? "Opening…" : "Open full memory"}</Button>
           </CardContent></Card>}
         </section>
       </div>

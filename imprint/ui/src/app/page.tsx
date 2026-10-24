@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { getStats, getOverview } from "@/lib/api";
 import { DashboardSkeleton } from "@/components/loaders";
 import { IngestionProgress } from "@/components/ingestion-progress";
@@ -92,7 +93,7 @@ export default function DashboardPage() {
       <div className="p-8">
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p className="text-destructive">Failed to connect to API: {error}</p>
+            <p role="alert" className="text-destructive">Failed to connect to API: {error}</p>
             <p className="text-sm text-muted-foreground mt-2">
               Make sure the API server is running: <code>imprint ui start</code>
             </p>
@@ -113,11 +114,14 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground mt-1">Overview of your AI memory store</p>
       </div>
 
-      {stats.total === 0 && <Card><CardContent className="p-5 space-y-2">
-        <h2 className="font-semibold">Build your first memory</h2>
-        <p className="text-sm text-muted-foreground">1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</p>
-        <p className="text-xs text-muted-foreground">Only selected sources are indexed. Secrets and files outside a selected folder are excluded.</p>
-      </CardContent></Card>}
+      {stats.total === 0 && <Empty className="border bg-card">
+        <EmptyHeader className="max-w-xl">
+          <EmptyMedia variant="icon"><Database aria-hidden /></EmptyMedia>
+          <EmptyTitle><h2 className="font-semibold">Build your first memory</h2></EmptyTitle>
+          <EmptyDescription>1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</EmptyDescription>
+          <EmptyDescription className="text-xs">Only selected sources are indexed. Secrets and files outside a selected folder are excluded.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>}
       <QuickIngest />
       <IngestionProgress />
 

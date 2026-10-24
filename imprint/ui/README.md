@@ -34,7 +34,17 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 | `/queue` | **Queue** — active + queued + history for ingest/refresh/retag jobs, with cancel |
 | `/settings` | Settings (`imprint config`) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The dashboard loads the bundled Inter variable font through `next/font/local` (ADR 0008).
+
+## Components
+
+Controls and overlays come from the shadcn components in `src/components/ui` (base-nova style on `@base-ui/react`, ADR 0039). They are generated source owned by this repository; the generator is not a dependency (ADR 0013). To add one, generate it in a throwaway project (`npx shadcn@4.22.1 add <name> --cwd <scratch copy>`), copy the new file into `src/components/ui` and import `cn` from `@/lib/utils`.
+
+- Hover hints: `Hint` (`src/components/hint.tsx`) wraps a control in a `Tooltip`; icon-only controls still need an `aria-label`.
+- Spinners beside text: `Spinner` from `src/components/loaders.tsx` is hidden from assistive technology, since the text already says what is loading.
+- Feedback: `toast` from `sonner`; the layout mounts the `Toaster` once. `JobToasts` announces queued jobs that end.
+- Ingest and refresh: `enqueueCommand` (`src/lib/api.ts`) asks to approve a root the server refused (409 `root_not_approved`) through the one `RootApprovalDialog` in the layout, then submits the job again.
+- Desktop window: elements with `app-drag` move the frameless window. `globals.css` turns the handles off while a dialog, alert dialog, sheet, popover, menu or select is open, keyed on their `data-slot` names. A new overlay component must be added to that rule.
 
 ## Learn More
 

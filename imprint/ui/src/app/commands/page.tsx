@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { streamCommand, getConfig } from "@/lib/api";
 import { Spinner } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -86,20 +90,28 @@ export default function CommandsPage() {
       <h2 className="text-2xl font-bold">Commands</h2>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
+        <ToggleGroup
+          aria-label="Commands"
+          orientation="vertical"
+          spacing={2}
+          value={[selectedCmd.name]}
+          onValueChange={(value) => {
+            const cmd = COMMANDS.find((c) => c.name === value[0]);
+            if (cmd) { setSelectedCmd(cmd); setParams({}); }
+          }}
+        >
           {COMMANDS.map((cmd) => (
-            <Card
+            <ToggleGroupItem
               key={cmd.name}
-              className={`cursor-pointer transition-colors ${selectedCmd.name === cmd.name ? "border-primary" : "hover:border-muted-foreground/30"}`}
-              onClick={() => { setSelectedCmd(cmd); setParams({}); }}
+              value={cmd.name}
+              variant="outline"
+              className="h-auto flex-col items-start gap-0 border-border bg-card p-3 text-left font-normal whitespace-normal hover:border-muted-foreground/30 aria-pressed:border-primary aria-pressed:bg-card"
             >
-              <CardContent className="p-3">
-                <p className="text-sm font-medium">{cmd.label}</p>
-                <p className="text-xs text-muted-foreground">{cmd.desc}</p>
-              </CardContent>
-            </Card>
+              <span className="text-sm font-medium">{cmd.label}</span>
+              <span className="text-xs text-muted-foreground">{cmd.desc}</span>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
 
         <div className="col-span-2 space-y-4">
           <Card>
@@ -110,31 +122,32 @@ export default function CommandsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {selectedCmd.fields.map((f) => (
-                <div key={f.key} className="flex items-center gap-2">
-                  <label className="text-sm w-36 text-muted-foreground">{f.label}</label>
-                  {f.type === "checkbox" ? (
-                    <Switch
-                      checked={!!params[f.key]}
-                      onCheckedChange={(checked: boolean) => setParams({ ...params, [f.key]: checked })}
-                    />
-                  ) : (
-                    <Input
-                      value={(params[f.key] as string) ?? ("default" in f ? (f as { default: string }).default : "")}
-                      onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
-                      className="flex-1 h-8 text-sm"
-                    />
-                  )}
-                </div>
-              ))}
-              <button
-                onClick={runCommand}
-                disabled={running}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50 flex items-center gap-2"
-              >
-                {running && <Spinner className="w-3.5 h-3.5" />}
+              {selectedCmd.fields.map((f) => {
+                const id = `command-${selectedCmd.name}-${f.key}`;
+                return (
+                  <div key={f.key} className="flex items-center gap-2">
+                    <Label htmlFor={id} className="w-36 font-normal text-muted-foreground">{f.label}</Label>
+                    {f.type === "checkbox" ? (
+                      <Switch
+                        id={id}
+                        checked={!!params[f.key]}
+                        onCheckedChange={(checked: boolean) => setParams({ ...params, [f.key]: checked })}
+                      />
+                    ) : (
+                      <Input
+                        id={id}
+                        value={(params[f.key] as string) ?? ("default" in f ? (f as { default: string }).default : "")}
+                        onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
+                        className="flex-1 text-sm"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              <Button onClick={runCommand} disabled={running}>
+                {running && <Spinner />}
                 {running ? "Running..." : "Run"}
-              </button>
+              </Button>
             </CardContent>
           </Card>
 
@@ -179,24 +192,25 @@ export default function CommandsPage() {
                 <CardTitle className="text-sm capitalize">{group}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-1.5">
-                  {items.map((s) => (
-                    <div key={s.key} className="flex items-start gap-2 text-xs">
-                      <code className="text-muted-foreground shrink-0 w-44 truncate" title={s.key}>
-                        {s.key}
-                      </code>
-                      <span className="font-mono truncate flex-1" title={String(s.value)}>
-                        {String(s.value)}
-                      </span>
-                      <Badge
-                        variant={s.source === "default" ? "secondary" : "outline"}
-                        className="text-[10px] shrink-0"
-                      >
-                        {s.source}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
+                <Table className="table-fixed text-xs">
+                  <TableBody>
+                    {items.map((s) => (
+                      <TableRow key={s.key}>
+                        <TableCell className="w-44 truncate px-0 py-1 font-mono text-muted-foreground" title={s.key}>
+                          {s.key}
+                        </TableCell>
+                        <TableCell className="truncate py-1 font-mono" title={String(s.value)}>
+                          {String(s.value)}
+                        </TableCell>
+                        <TableCell className="w-20 px-0 py-1 text-right">
+                          <Badge variant={s.source === "default" ? "secondary" : "outline"} className="text-[10px]">
+                            {s.source}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
           ))}

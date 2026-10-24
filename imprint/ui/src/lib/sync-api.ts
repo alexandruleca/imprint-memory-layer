@@ -158,7 +158,7 @@ export interface PairedDevice {
 
 export async function getPairedDevices(): Promise<PairedDevice[]> {
   const res = await fetch(`${API_BASE}/api/sync/peers`);
-  if (!res.ok) throw new Error("Could not load paired devices");
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Could not load paired devices");
   return (await res.json()).peers;
 }
 

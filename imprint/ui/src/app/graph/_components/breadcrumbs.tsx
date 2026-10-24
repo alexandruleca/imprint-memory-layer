@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, House } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { GraphNodeKind } from "@/lib/types";
 import { KINDS } from "./graph-style";
 
@@ -31,23 +32,22 @@ export function GraphBreadcrumbs({
           return (
             <li key={`${c.scope}-${i}`} className={`flex items-center gap-0.5 ${isLast ? "min-w-0" : "shrink-0"}`}>
               {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => onGo(i)}
                 disabled={isLast}
                 aria-current={isLast ? "page" : undefined}
                 title={c.label}
-                className={`flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${
-                  isLast
-                    ? "font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                className={`min-w-0 shrink gap-1.5 px-1.5 text-sm ${
+                  isLast ? "font-medium text-foreground disabled:opacity-100" : "font-normal text-muted-foreground"
                 }`}
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden />
                 <span className={`truncate ${isLast ? "max-w-[16rem]" : "max-w-[9rem]"}`}>
                   {i === 0 ? "Overview" : c.label}
                 </span>
-              </button>
+              </Button>
             </li>
           );
         })}

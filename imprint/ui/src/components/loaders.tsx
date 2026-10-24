@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner as SpinnerIcon } from "@/components/ui/spinner";
 
 export function DashboardSkeleton() {
   return (
@@ -77,26 +78,10 @@ export function CardGridSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-export function Spinner({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg
-      className={`animate-spin ${className}`}
-      xmlns="http://www.w3.org/2000/svg"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <circle
-        className="opacity-25"
-        cx="12" cy="12" r="10"
-        stroke="currentColor" strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-      />
-    </svg>
-  );
+/** The spinner beside text that already says what is loading, so it stays
+ * out of the accessibility tree instead of announcing "Loading" again. */
+export function Spinner({ className }: { className?: string }) {
+  return <SpinnerIcon aria-hidden className={className} />;
 }
 
 export function GraphSkeleton() {
@@ -120,18 +105,6 @@ export function GraphSkeleton() {
         <Spinner className="w-6 h-6 text-muted-foreground mt-24" />
         <p className="text-xs text-muted-foreground">Loading graph data...</p>
       </div>
-    </div>
-  );
-}
-
-export function ChatSessionsSkeleton({ count = 5 }: { count?: number }) {
-  return (
-    <div className="p-2 space-y-1">
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="p-2 rounded">
-          <Skeleton className="h-3.5 w-full" />
-        </div>
-      ))}
     </div>
   );
 }

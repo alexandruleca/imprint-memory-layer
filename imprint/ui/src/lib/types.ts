@@ -132,8 +132,9 @@ export interface ConfigSetting {
 export interface ChatSession {
   id: string;
   title: string;
-  created: number;
-  updated: number;
+  created_at: number;
+  updated_at: number;
+  message_count?: number;
 }
 
 export interface ChatMessage {
@@ -142,6 +143,34 @@ export interface ChatMessage {
   tool_name?: string;
   tool_args?: Record<string, unknown>;
 }
+
+/** /api/chat/status. A missing local binding or model is set up by the first chat. */
+export interface ChatStatus {
+  enabled: boolean;
+  installed: boolean;
+  provider: string;
+  model?: string;
+  model_ready: boolean;
+  model_path: string;
+  model_file?: string;
+  error: string | null;
+}
+
+/** One server-sent event of a chat reply (imprint/chat.py stream_reply). */
+export type ChatEvent =
+  | { type: "install_start" }
+  | { type: "install_progress"; line: string }
+  | { type: "install_complete" }
+  | { type: "download_start"; file: string; repo: string; path: string }
+  | { type: "download_progress"; downloaded: number; total: number }
+  | { type: "download_complete"; path: string }
+  | { type: "load_start" }
+  | { type: "token"; text: string }
+  | { type: "tool_call"; name: string; args: Record<string, unknown> }
+  | { type: "tool_result"; name: string; result: string }
+  | { type: "assistant_message"; text: string }
+  | { type: "error"; error: string }
+  | { type: "done" };
 
 export interface IngestionJob {
   pid: number;

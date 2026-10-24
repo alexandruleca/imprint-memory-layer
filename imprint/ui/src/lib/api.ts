@@ -1,4 +1,5 @@
 import { API_BASE } from "./api-base";
+import { requestRootApproval, type RootRequest } from "./root-approval";
 
 export type WorkspaceScope = {
   workspace: string; roots: string[];
@@ -18,6 +19,18 @@ export function changeWorkspaceRoot(body: { workspace: string; path: string; act
 export function purgeSources(body: { workspace: string; target: string; kind: "path" | "source"; recursive: boolean; apply?: boolean }) {
   return fetchAPI<PurgePreview>("/api/sources/purge", { method: "POST", body: JSON.stringify(body) });
 }
+/** What moving a project, or some of its sources, to another project changes (ADR 0036). */
+export type ProjectMove = {
+  workspace: string; project: string; target: string;
+  /** The whole project moves: a merge when the target exists. */
+  whole: boolean;
+  chunks: number; sources: number; target_exists: boolean;
+  sample: string[]; applied: boolean;
+};
+/** Preview a move; apply it with the workspace the preview returned. Without `sources` the whole project moves. */
+export function moveProject(body: { project: string; target: string; sources?: string[]; workspace?: string; apply?: boolean }) {
+  return fetchAPI<ProjectMove>("/api/projects/move", { method: "POST", body: JSON.stringify(body) });
+}
 
 async function fetchAPI<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -29,9 +42,18 @@ async function fetchAPI<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
-    throw new Error(typeof detail.detail === "string" ? detail.detail : (detail.error || `Request failed (${res.status})`));
+    throw new ApiError(typeof detail.detail === "string" ? detail.detail : (detail.error || `Request failed (${res.status})`), detail);
   }
   return res.json();
+}
+
+/** A refused request, with the JSON body the server explained it in. */
+export class ApiError extends Error {
+  readonly body: Record<string, unknown>;
+  constructor(message: string, body: Record<string, unknown>) {
+    super(message);
+    this.body = body;
+  }
 }
 
 // ── Data endpoints ─────────────────────────────────────────────
@@ -46,6 +68,9 @@ import type {
   StatsData,
   ConfigSetting,
   ChatSession,
+  ChatMessage,
+  ChatStatus,
+  ChatEvent,
   IngestionJob,
   QueueJob,
   QueueResponse,
@@ -296,7 +321,7 @@ export function retagMemories(
 // ── Chat ────────────────────────────────────────────────────────
 
 export async function getChatStatus() {
-  return fetchAPI<{ enabled: boolean; installed: boolean }>("/api/chat/status");
+  return fetchAPI<ChatStatus>("/api/chat/status");
 }
 
 export async function getChatSessions() {
@@ -308,7 +333,7 @@ export async function createChatSession() {
 }
 
 export async function getChatSession(id: string) {
-  return fetchAPI(`/api/chat/sessions/${encodeURIComponent(id)}`);
+  return fetchAPI<ChatSession & { messages: ChatMessage[] }>(`/api/chat/sessions/${encodeURIComponent(id)}`);
 }
 
 export async function deleteChatSession(id: string) {
@@ -324,38 +349,38 @@ export async function renameChatSession(id: string, title: string) {
   });
 }
 
-export function streamChat(
+/** Stream one reply; resolves when the server closes the stream. Aborting
+ * `signal` stops the reply (the server keeps what was already streamed) and
+ * rejects with an AbortError. */
+export async function streamChat(
   sessionId: string,
   message: string,
-  onEvent: (ev: Record<string, unknown>) => void,
-): AbortController {
-  const ctrl = new AbortController();
-  fetch(`${API_BASE}/api/chat`, {
+  onEvent: (ev: ChatEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, message }),
-    signal: ctrl.signal,
-  }).then(async (res) => {
-    const reader = res.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            onEvent(JSON.parse(line.slice(6)));
-          } catch {}
-        }
-      }
-    }
+    signal,
   });
-  return ctrl;
+  if (!res.ok || !res.body) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.error || `Request failed (${res.status})`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) onEvent(JSON.parse(line.slice(6)) as ChatEvent);
+    }
+  }
 }
 
 // ── Config ──────────────────────────────────────────────────────
@@ -378,14 +403,23 @@ export async function resetConfigValue(key: string) {
 
 // ── Queue / Commands ───────────────────────────────────────────
 
+/** Queue a CLI command. An ingest or refresh outside the workspace's roots
+ * asks the user to approve the root first and is then submitted again; it
+ * fails with the server's refusal when the user declines. */
 export async function enqueueCommand(
   command: string,
   body: Record<string, unknown>,
 ): Promise<{ job_id: string; position: number }> {
-  return fetchAPI(`/api/commands/${command}`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  try {
+    return await fetchAPI(`/api/commands/${command}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.body.code !== "root_not_approved") throw error;
+    if (!(await requestRootApproval(error.body as RootRequest))) throw error;
+    return enqueueCommand(command, body);
+  }
 }
 
 export async function cancelJob(

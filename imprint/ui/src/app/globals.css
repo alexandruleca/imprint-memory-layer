@@ -90,11 +90,6 @@
   40% { opacity: 1; transform: scale(1); }
 }
 
-@keyframes blink-cursor {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -105,15 +100,24 @@
   html {
     @apply font-sans;
   }
-  /* Frameless desktop window (ui-electron): Chromium turns app-region boxes
-     into window-drag rectangles in document order and ignores stacking, so a
-     drag handle stays draggable underneath anything drawn over it. Whatever
-     floats above the page (the top layer: modal dialogs, their backdrop,
-     popovers; and Base UI's portalled popups) is never a drag handle. */
-  :modal,
-  :popover-open,
-  ::backdrop,
-  [data-base-ui-portal] {
+}
+
+/* Frameless desktop window (ui-electron): .app-drag elements (the top bar's
+   empty space and the sidebar header) move the window, and .app-no-drag
+   controls inside them stay clickable. Chromium hit-tests drag regions ahead
+   of the page and ignores stacking, and no-drag boxes drawn over a handle do
+   not reliably carve it out, so a handle under an overlay swallows the
+   overlay's clicks. While a dialog, menu, popover or select is open the
+   handles are therefore not drag regions at all. Tooltips take no clicks. */
+@layer components {
+  .app-drag {
+    -webkit-app-region: drag;
+  }
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
+  html:has(:is([data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"],
+      [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="select-content"])[data-open]) .app-drag {
     -webkit-app-region: no-drag;
   }
 }

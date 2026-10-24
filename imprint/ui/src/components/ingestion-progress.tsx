@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Hint } from "@/components/hint";
 import { cancelJob, getQueue } from "@/lib/api";
 import { Spinner } from "@/components/loaders";
 import { HardDriveDownload, Sparkles, X, ListOrdered } from "lucide-react";
@@ -53,6 +56,33 @@ export function IngestionProgress() {
   );
 }
 
+/** Cancels a running job or removes a queued one. Success shows as the job
+ * leaving its list (and a job toast once it ends); a refusal is reported. */
+export function CancelButton({ job, label, className, iconClassName }: {
+  job: QueueJob; label: string; className: string; iconClassName: string;
+}) {
+  const [cancelling, setCancelling] = useState(false);
+
+  async function cancel() {
+    setCancelling(true);
+    try {
+      const result = await cancelJob(job.id);
+      if (!result.ok) throw new Error(result.error || "The job could not be cancelled");
+    } catch (e) {
+      setCancelling(false);
+      toast.error(`Could not cancel imprint ${job.command}`, { description: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  return (
+    <Hint label={label}>
+      <Button variant="ghost" size="sm" className={className} onClick={cancel} disabled={cancelling} aria-label={label}>
+        {cancelling ? <Spinner className={iconClassName} /> : <X className={iconClassName} />}
+      </Button>
+    </Hint>
+  );
+}
+
 function ActiveCard({ job }: { job: QueueJob }) {
   const isTagging = job.phase === "llm_tagging";
   const label = isTagging ? "LLM tagging" : job.command;
@@ -90,25 +120,11 @@ function ActiveCard({ job }: { job: QueueJob }) {
           <span className="text-xs text-muted-foreground tabular-nums shrink-0">
             {processed}/{total} {unit}
           </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-muted-foreground hover:text-red-600"
-            onClick={() => cancelJob(job.id).catch(() => {})}
-            title="Cancel running job"
-          >
-            <X className="w-3.5 h-3.5" />
-          </Button>
+          <CancelButton job={job} label="Cancel running job" className="h-7 px-2 text-muted-foreground hover:text-red-600" iconClassName="w-3.5 h-3.5" />
         </div>
 
         <div className="space-y-1.5">
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full bg-foreground transition-all duration-700 ease-out"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          <Progress value={pct} aria-label={`${label} progress`} className="[&_[data-slot=progress-track]]:h-2" />
           <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
             <span>
               {Math.round(pct)}% &middot;{" "}
@@ -149,16 +165,7 @@ function QueuedList({ jobs }: { jobs: QueueJob[] }) {
               <span className="truncate flex-1 text-muted-foreground">
                 {summarizeBody(j.body)}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-1.5 text-muted-foreground hover:text-red-600"
-                onClick={() => cancelJob(j.id).catch(() => {})}
-                title="Remove from queue"
-              >
-                <X className="w-3 h-3" />
-              </Button>
+              <CancelButton job={j} label="Remove from queue" className="h-6 px-1.5 text-muted-foreground hover:text-red-600" iconClassName="w-3 h-3" />
             </li>
           ))}
         </ul>

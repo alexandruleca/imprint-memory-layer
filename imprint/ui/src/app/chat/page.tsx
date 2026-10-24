@@ -1,214 +1,305 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import Link from "next/link";
+import { ArrowDown, CircleAlert, Info, PanelLeft } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LogoMark } from "@/components/logo-mark";
 import {
-  getChatSessions,
-  createChatSession,
-  getChatSession,
-  deleteChatSession,
-  streamChat,
+  createChatSession, deleteChatSession, getChatSession, getChatSessions, getChatStatus,
+  renameChatSession, streamChat,
 } from "@/lib/api";
-import { ChatSessionsSkeleton } from "@/components/loaders";
-import { ThinkingDots, ToolWorkingIndicator, TypingCursor } from "@/components/chat-indicators";
-import { Markdown } from "@/components/markdown";
-import type { ChatSession, ChatMessage } from "@/lib/types";
+import type { ChatSession, ChatStatus } from "@/lib/types";
+import { applyEvent, pendingReply, turnsFromHistory, type AssistantTurn, type Turn } from "./_lib/turns";
+import { Composer } from "./_components/composer";
+import { Conversation } from "./_components/conversation";
+import { SessionList } from "./_components/session-list";
+
+/** The chat this browser had open last; reopened on the next visit. */
+const LAST_CHAT = "imprint.chat.last";
+
+const SUGGESTIONS = [
+  "What did we decide recently?",
+  "Which projects are indexed?",
+  "What do you know about this workspace?",
+];
+
+function storedChat(): string | null {
+  try { return localStorage.getItem(LAST_CHAT); } catch { return null; }
+}
+
+function rememberChat(id: string | null) {
+  try {
+    if (id) localStorage.setItem(LAST_CHAT, id);
+    else localStorage.removeItem(LAST_CHAT);
+  } catch {}
+}
+
+/** The server titles a chat after its first line; show the same at once. */
+const titleFrom = (text: string) => text.trim().split("\n")[0].slice(0, 60);
+
+function modelLabel(status: ChatStatus | null): string {
+  if (!status) return "";
+  if (status.provider !== "local") return `${status.provider} · ${status.model ?? ""}`;
+  const file = status.model_file || status.model_path.split(/[\\/]/).pop() || "";
+  return `Local · ${file.replace(/\.gguf$/i, "")}`;
+}
+
+function SetupNotice({ status }: { status: ChatStatus | null }) {
+  if (!status) return null;
+  if (status.error) {
+    return (
+      <Alert variant="destructive">
+        <CircleAlert />
+        <AlertTitle>Chat can&apos;t reach {status.provider}</AlertTitle>
+        <AlertDescription>
+          {status.error}. Set it in <Link href="/settings">Settings</Link>, or switch <code>chat.provider</code> to local.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  if (status.provider !== "local" || (status.installed && status.model_ready)) return null;
+  const steps = [
+    !status.installed && "installs the llama.cpp runtime",
+    !status.model_ready && "downloads the model (a few GB)",
+  ].filter(Boolean);
+  return (
+    <p className="flex items-start justify-center gap-2 text-xs text-muted-foreground">
+      <Info className="mt-px size-3.5 shrink-0" aria-hidden />
+      <span>Your first message sets up local chat: Imprint {steps.join(" and ")} on this device, once.</span>
+    </p>
+  );
+}
 
 export default function ChatPage() {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessions, setSessions] = useState<ChatSession[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [loadingChat, setLoadingChat] = useState(false);
+  const [status, setStatus] = useState<ChatStatus | null>(null);
   const [streaming, setStreaming] = useState(false);
-  const [streamText, setStreamText] = useState("");
-  const [thinking, setThinking] = useState(false);
-  const [workingTool, setWorkingTool] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Bumped whenever another chat is shown, so late responses for the
+  // previous one are dropped.
+  const view = useRef(0);
+
+  function refreshSessions() {
+    getChatSessions().then(({ sessions }) => setSessions(sessions)).catch(() => {});
+  }
+
+  async function openChat(id: string) {
+    abortRef.current?.abort();
+    const current = ++view.current;
+    setActiveId(id);
+    rememberChat(id);
+    setListOpen(false);
+    setLoadingChat(true);
+    setAtBottom(true);
+    try {
+      const chat = await getChatSession(id);
+      if (current === view.current) setTurns(turnsFromHistory(chat.messages ?? []));
+    } catch {
+      if (current === view.current) startNew();
+    } finally {
+      if (current === view.current) setLoadingChat(false);
+    }
+    composerRef.current?.focus();
+  }
+
+  function startNew() {
+    abortRef.current?.abort();
+    view.current++;
+    setActiveId(null);
+    setTurns([]);
+    setLoadingChat(false);
+    setListOpen(false);
+    composerRef.current?.focus();
+  }
 
   useEffect(() => {
+    getChatStatus().then(setStatus).catch(() => {});
     getChatSessions()
-      .then((d) => setSessions(d.sessions))
-      .finally(() => setSessionsLoading(false));
+      .then(({ sessions }) => {
+        setSessions(sessions);
+        // Reopen the chat this browser was last in, else the latest one;
+        // with no chats yet, the page starts as a new chat.
+        const last = sessions.find((session) => session.id === storedChat()) ?? sessions[0];
+        if (last) void openChat(last.id);
+      })
+      .catch(() => setSessions([]));
+    // Runs once: openChat only touches refs and state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function selectSession(id: string) {
-    setActiveId(id);
-    const sess = await getChatSession(id) as { messages?: ChatMessage[] };
-    setMessages(sess.messages || []);
-    setStreamText("");
-  }
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && atBottom) el.scrollTop = el.scrollHeight;
+  }, [turns, atBottom]);
 
-  async function newSession() {
-    const sess = await createChatSession();
-    setSessions((prev) => [sess, ...prev]);
-    setActiveId(sess.id);
-    setMessages([]);
-  }
-
-  async function delSession(id: string) {
-    await deleteChatSession(id);
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    if (activeId === id) {
-      setActiveId(null);
-      setMessages([]);
-    }
-  }
-
-  function sendMessage(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || !activeId || streaming) return;
-    const msg = input.trim();
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: msg }]);
-    setStreaming(true);
-    setStreamText("");
-    setThinking(true);
-    setWorkingTool(null);
-
-    let accumulated = "";
-    streamChat(activeId, msg, (ev) => {
-      if (ev.type === "token") {
-        setThinking(false);
-        setWorkingTool(null);
-        accumulated += ev.text as string;
-        setStreamText(accumulated);
-      } else if (ev.type === "tool_call") {
-        setThinking(false);
-        setWorkingTool(ev.name as string);
-        accumulated += `\n[Tool: ${ev.name}]\n`;
-        setStreamText(accumulated);
-      } else if (ev.type === "tool_result") {
-        setWorkingTool(null);
-        accumulated += `[Result: ${(ev.result as string || "").slice(0, 200)}]\n`;
-        setStreamText(accumulated);
-      } else if (ev.type === "assistant_message") {
-        setMessages((prev) => [...prev, { role: "assistant", content: ev.text as string }]);
-        setStreamText("");
-        setStreaming(false);
-        setThinking(false);
-        setWorkingTool(null);
-      } else if (ev.type === "done") {
-        if (accumulated && !streaming) return;
-        setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
-        setStreamText("");
-        setStreaming(false);
-        setThinking(false);
-        setWorkingTool(null);
-      } else if (ev.type === "error") {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${ev.error}` }]);
-        setStreamText("");
-        setStreaming(false);
-        setThinking(false);
-        setWorkingTool(null);
-      }
+  function updateReply(change: (turn: AssistantTurn) => AssistantTurn) {
+    setTurns((prev) => {
+      const last = prev[prev.length - 1];
+      return last?.role === "assistant" ? [...prev.slice(0, -1), change(last)] : prev;
     });
   }
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamText, thinking, workingTool]);
+  async function send(text: string) {
+    if (streaming) return;
+    const current = view.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setStreaming(true);
+    setAtBottom(true);
+    setTurns((prev) => [...prev, { role: "user", text }, pendingReply()]);
+    try {
+      let id = activeId;
+      if (!id) {
+        const session = await createChatSession();
+        id = session.id;
+        if (current !== view.current) return;
+        setActiveId(id);
+        rememberChat(id);
+        setSessions((prev) => [{ ...session, title: titleFrom(text) }, ...(prev ?? [])]);
+      }
+      await streamChat(id, text, (event) => {
+        if (current === view.current) updateReply((turn) => applyEvent(turn, event));
+      }, controller.signal);
+    } catch (error) {
+      if (current !== view.current) return;
+      if (controller.signal.aborted) updateReply((turn) => ({ ...turn, stopped: true }));
+      else updateReply((turn) => ({ ...turn, error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      if (current === view.current) updateReply((turn) => ({ ...turn, streaming: false }));
+      setStreaming(false);
+      refreshSessions();
+      // The first reply may have installed the runtime or downloaded the model.
+      getChatStatus().then(setStatus).catch(() => {});
+    }
+  }
+
+  function retry() {
+    const lastUser = turns.findLast((turn) => turn.role === "user");
+    if (!lastUser || lastUser.role !== "user") return;
+    setTurns((prev) => prev.slice(0, -2));
+    void send(lastUser.text);
+  }
+
+  async function rename(id: string, title: string) {
+    setSessions((prev) => prev?.map((session) => (session.id === id ? { ...session, title } : session)) ?? prev);
+    await renameChatSession(id, title).catch(() => {});
+    refreshSessions();
+  }
+
+  async function remove(id: string) {
+    await deleteChatSession(id).catch(() => {});
+    setSessions((prev) => prev?.filter((session) => session.id !== id) ?? prev);
+    if (storedChat() === id) rememberChat(null);
+    if (activeId === id) startNew();
+  }
+
+  const list = (
+    <SessionList
+      sessions={sessions}
+      activeId={activeId}
+      onSelect={(id) => void openChat(id)}
+      onNew={startNew}
+      onRename={(id, title) => void rename(id, title)}
+      onDelete={(id) => void remove(id)}
+    />
+  );
+  const model = modelLabel(status);
+  const title = sessions?.find((session) => session.id === activeId)?.title ?? "New chat";
+  const draft = !loadingChat && turns.length === 0;
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <div className="w-56 border-r border-border flex flex-col">
-        <div className="p-3 border-b border-border">
-          <button onClick={newSession} className="w-full text-sm bg-primary text-primary-foreground rounded px-3 py-1.5">
-            New Chat
-          </button>
-        </div>
-        <ScrollArea className="flex-1">
-          {sessionsLoading ? (
-            <ChatSessionsSkeleton count={5} />
-          ) : (
-            <div className="p-2 space-y-0.5">
-              {sessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={`p-2 rounded text-xs cursor-pointer flex justify-between group ${
-                    activeId === s.id ? "bg-accent" : "hover:bg-muted"
-                  }`}
-                  onClick={() => selectSession(s.id)}
-                >
-                  <span className="truncate">{s.title || "New chat"}</span>
-                  <button
-                    className="opacity-0 group-hover:opacity-100 text-destructive text-xs"
-                    onClick={(e) => { e.stopPropagation(); delSession(s.id); }}
-                  >
-                    x
-                  </button>
-                </div>
+    <div className="flex h-full min-h-0">
+      <aside className="hidden w-64 shrink-0 border-r border-border md:block">{list}</aside>
+      <Sheet open={listOpen} onOpenChange={setListOpen}>
+        <SheetContent side="left" className="w-72 p-0">
+          <SheetTitle className="sr-only">Chats</SheetTitle>
+          {list}
+        </SheetContent>
+      </Sheet>
+
+      <section aria-label="Chat" className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+          <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Show chats" onClick={() => setListOpen(true)}>
+            <PanelLeft />
+          </Button>
+          <h2 className="truncate text-sm font-medium">{title}</h2>
+        </header>
+
+        {draft ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-4 pb-16">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <LogoMark className="size-10" />
+              <h1 className="text-2xl font-semibold tracking-tight">What do you want to recall?</h1>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Imprint answers from your indexed projects, decisions and past conversations.
+              </p>
+            </div>
+            <Composer ref={composerRef} autoFocus model={model} streaming={streaming} onSend={send}
+              onStop={() => abortRef.current?.abort()} className="max-w-2xl" />
+            <div className="flex flex-wrap justify-center gap-2">
+              {SUGGESTIONS.map((suggestion) => (
+                <Button key={suggestion} variant="outline" size="sm" className="rounded-full font-normal"
+                  onClick={() => void send(suggestion)}>
+                  {suggestion}
+                </Button>
               ))}
             </div>
-          )}
-        </ScrollArea>
-      </div>
-
-      <div className="flex-1 flex flex-col">
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-3 max-w-3xl mx-auto">
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] rounded-lg p-3 text-sm ${
-                  m.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : m.role === "tool"
-                    ? "bg-muted text-xs font-mono"
-                    : "bg-card border border-border"
-                }`}>
-                  {m.role === "tool" ? (
-                    <pre className="whitespace-pre-wrap font-sans">{m.content}</pre>
-                  ) : (
-                    <Markdown text={m.content} />
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {thinking && !streamText && (
-              <div className="flex justify-start">
-                <ThinkingDots />
-              </div>
-            )}
-
-            {workingTool && (
-              <div className="flex justify-start">
-                <ToolWorkingIndicator toolName={workingTool} />
-              </div>
-            )}
-
-            {streamText && (
-              <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-lg p-3 text-sm bg-card border border-border">
-                  <Markdown text={streamText} />
-                  {streaming && <TypingCursor />}
-                </div>
-              </div>
-            )}
-            <div ref={scrollRef} />
+            <div className="w-full max-w-2xl"><SetupNotice status={status} /></div>
           </div>
-        </ScrollArea>
-
-        <form onSubmit={sendMessage} className="p-4 border-t border-border">
-          <div className="flex gap-2 max-w-3xl mx-auto">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={activeId ? "Ask about your codebase..." : "Create a new chat first"}
-              disabled={!activeId || streaming}
-              className="flex-1"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
-              disabled={!activeId || streaming || !input.trim()}
-            >
-              Send
-            </button>
-          </div>
-        </form>
-      </div>
+        ) : (
+          <>
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={scrollRef}
+                className="h-full overflow-y-auto"
+                onScroll={(event) => {
+                  const el = event.currentTarget;
+                  setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 48);
+                }}
+              >
+                {loadingChat ? (
+                  <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6" aria-busy="true" aria-label="Loading chat">
+                    <Skeleton className="ml-auto h-10 w-2/5 rounded-2xl" />
+                    <div className="space-y-2"><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-4 w-3/5" /></div>
+                    <Skeleton className="ml-auto h-10 w-1/3 rounded-2xl" />
+                    <div className="space-y-2"><Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-2/3" /></div>
+                  </div>
+                ) : (
+                  <Conversation turns={turns} onRetry={retry} />
+                )}
+              </div>
+              {!atBottom && (
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="Scroll to latest"
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-sm"
+                  onClick={() => setAtBottom(true)}
+                >
+                  <ArrowDown />
+                </Button>
+              )}
+            </div>
+            <div className="mx-auto w-full max-w-3xl space-y-2 px-4 pb-4">
+              {status?.error && <SetupNotice status={status} />}
+              <Composer ref={composerRef} model={model} streaming={streaming} onSend={send}
+                onStop={() => abortRef.current?.abort()} />
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

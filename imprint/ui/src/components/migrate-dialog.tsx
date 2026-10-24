@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Modal } from "@/components/modal";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Spinner } from "@/components/loaders";
 import {
   getOverview,
   getTopics,
@@ -60,7 +67,7 @@ function MigrateDialogContent({
   const [selection, setSelection] = useState(preset?.value ?? "");
   // Copy is the non-destructive default here; the CLI keeps move as its default.
   const [transfer, setTransfer] = useState<Transfer>("copy");
-  const transferName = useId();
+  const fieldId = useId();
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -127,7 +134,12 @@ function MigrateDialogContent({
           setLog((l) => [...l, ev.text as string]);
         } else if (ev.type === "done") {
           setBusy(false);
-          if (!dryRun) setDone(true);
+          if (ev.status === "failed" || ev.status === "cancelled") {
+            toast.error(`${transfer === "copy" ? "Copy" : "Move"} ${ev.status}`, { description: "The log shows what happened." });
+          } else if (!dryRun) {
+            setDone(true);
+            toast.success(`${transfer === "copy" ? "Copied" : "Moved"} ${selection} to ${toWs}`);
+          }
         } else if (ev.type === "error") {
           setLog((l) => [...l, `ERROR: ${ev.error}`]);
           setBusy(false);
@@ -146,31 +158,32 @@ function MigrateDialogContent({
   const presetLocked = Boolean(preset);
   const title = preset ? `Copy or move ${preset.mode}` : "Copy or move between workspaces";
 
+  const label = (w: string) => (w === activeWorkspace ? `${w} (active)` : w);
+
   return (
-    <Modal label={title} onClose={handleClose} busy={busy} className="max-w-2xl space-y-4 p-5">
-        <h3 className="text-base font-semibold">{title}</h3>
+    <Dialog open onOpenChange={(next) => { if (!next && !busy) handleClose(); }}>
+      <DialogContent showCloseButton={false} aria-busy={busy} className="sm:max-w-2xl">
+        <DialogTitle>{title}</DialogTitle>
 
         {!presetLocked && (
-          <div className="flex gap-2 text-xs">
+          <ToggleGroup
+            aria-label="Select by"
+            size="sm"
+            variant="outline"
+            value={[mode]}
+            disabled={busy}
+            onValueChange={(value) => {
+              // Selecting the current mode again would leave none selected.
+              if (!value[0]) return;
+              setMode(value[0] as Mode);
+              setSelection("");
+              setFilter("");
+            }}
+          >
             {(["project", "topic", "source"] as Mode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => {
-                  setMode(m);
-                  setSelection("");
-                  setFilter("");
-                }}
-                className={`px-3 py-1 rounded ${
-                  mode === m
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted hover:bg-muted/80"
-                }`}
-                disabled={busy}
-              >
-                By {m}
-              </button>
+              <ToggleGroupItem key={m} value={m}>By {m}</ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         )}
 
         {presetLocked && (
@@ -183,68 +196,47 @@ function MigrateDialogContent({
         )}
 
         <div className="grid grid-cols-2 gap-3 text-sm">
-          <label className="space-y-1">
-            <span className="text-xs text-muted-foreground">From</span>
-            <select
-              value={fromWs}
-              onChange={(e) => setFromWs(e.target.value)}
-              className="w-full bg-muted rounded px-2 py-1 text-sm"
-              disabled={busy}
-            >
-              {workspaces.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                  {w === activeWorkspace ? " (active)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs text-muted-foreground">To</span>
-            <select
-              value={toWs}
-              onChange={(e) => setToWs(e.target.value)}
-              className="w-full bg-muted rounded px-2 py-1 text-sm"
-              disabled={busy}
-            >
-              <option value="">— select —</option>
-              {workspaces
-                .filter((w) => w !== fromWs)
-                .map((w) => (
-                  <option key={w} value={w}>
-                    {w}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <div className="space-y-1">
+            <Label htmlFor={`${fieldId}-from`} className="text-xs font-normal text-muted-foreground">From</Label>
+            <Select items={workspaces.map((w) => ({ value: w, label: label(w) }))} value={fromWs} disabled={busy}
+              onValueChange={(value) => setFromWs(value as string)}>
+              <SelectTrigger id={`${fieldId}-from`} className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {workspaces.map((w) => <SelectItem key={w} value={w}>{label(w)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`${fieldId}-to`} className="text-xs font-normal text-muted-foreground">To</Label>
+            <Select value={toWs || null} disabled={busy} onValueChange={(value) => setToWs((value as string | null) ?? "")}>
+              <SelectTrigger id={`${fieldId}-to`} className="w-full"><SelectValue placeholder="Select a workspace" /></SelectTrigger>
+              <SelectContent>
+                {workspaces.filter((w) => w !== fromWs).map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <fieldset disabled={busy}>
-          <legend className="text-xs text-muted-foreground mb-1">Copy or move</legend>
-          <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <p id={`${fieldId}-transfer`} className="text-xs text-muted-foreground">Copy or move</p>
+          <RadioGroup aria-labelledby={`${fieldId}-transfer`} value={transfer} disabled={busy}
+            onValueChange={(value) => setTransfer(value as Transfer)} className="grid gap-2 sm:grid-cols-2">
             {TRANSFERS.map((option) => (
-              <label
+              <Label
                 key={option.value}
-                className={`flex items-start gap-2 rounded border p-2 text-xs cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
+                className={`items-start rounded border p-2 text-xs font-normal leading-normal cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-primary ${
                   transfer === option.value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
                 }`}
               >
-                <input
-                  type="radio"
-                  name={transferName}
-                  value={option.value}
-                  checked={transfer === option.value}
-                  onChange={() => setTransfer(option.value)}
-                  className="mt-0.5 accent-primary"
-                />
+                <RadioGroupItem value={option.value} className="mt-0.5" />
                 <span>
                   <span className="block font-medium">{option.label}</span>
                   <span className="text-muted-foreground">{option.detail}</span>
                 </span>
-              </label>
+              </Label>
             ))}
-          </div>
-        </fieldset>
+          </RadioGroup>
+        </div>
 
         {!presetLocked && (
           <div className="space-y-1">
@@ -252,29 +244,31 @@ function MigrateDialogContent({
               {mode} to {transfer}
             </span>
             <Input
+              aria-label={`Filter ${mode}s`}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder={`Filter ${mode}s…`}
-              className="h-8 text-sm"
+              className="text-sm"
               disabled={busy}
             />
-            <div className="max-h-44 overflow-y-auto border border-border rounded">
+            <div className="max-h-44 overflow-y-auto rounded border border-border p-1">
               {filtered.length === 0 ? (
-                <div className="p-2 text-xs text-muted-foreground">
-                  no matches
-                </div>
+                <Empty className="p-2">
+                  <EmptyDescription className="text-xs">No matches</EmptyDescription>
+                </Empty>
               ) : (
                 filtered.map((opt) => (
-                  <button
+                  <Button
                     key={opt}
+                    variant="ghost"
+                    size="xs"
+                    aria-pressed={selection === opt}
                     onClick={() => setSelection(opt)}
                     disabled={busy}
-                    className={`w-full text-left px-2 py-1 text-xs font-mono hover:bg-muted ${
-                      selection === opt ? "bg-muted" : ""
-                    }`}
+                    className={`w-full justify-start font-mono font-normal ${selection === opt ? "bg-muted" : ""}`}
                   >
-                    {opt}
-                  </button>
+                    <span className="truncate">{opt}</span>
+                  </Button>
                 ))
               )}
             </div>
@@ -287,10 +281,9 @@ function MigrateDialogContent({
           </pre>
         )}
 
-        <div className="flex justify-between gap-2 pt-1">
+        <DialogFooter className="sm:justify-between">
           <Button
             variant="ghost"
-            size="sm"
             onClick={handleClose}
             disabled={busy}
           >
@@ -299,21 +292,21 @@ function MigrateDialogContent({
           <div className="flex gap-2">
             <Button
               variant="outline"
-              size="sm"
               onClick={() => run(true)}
               disabled={!canRun}
             >
               Dry run
             </Button>
             <Button
-              size="sm"
               onClick={() => run(false)}
               disabled={!canRun}
             >
+              {busy && <Spinner />}
               {busy ? "Running…" : transfer === "copy" ? "Copy" : "Move"}
             </Button>
           </div>
-        </div>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

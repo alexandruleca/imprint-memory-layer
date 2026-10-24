@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/modal";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
 import {
   getFsRoots,
@@ -159,34 +162,34 @@ export function PathBrowserDialog({
     title ?? (mode === "file" ? "Pick file" : mode === "any" ? "Pick path" : "Pick directory");
 
   return (
-    <Modal label={dialogTitle} onClose={onCancel} className="max-w-3xl p-0">
-      <div className="flex h-[min(560px,calc(90dvh-2px))] flex-col gap-3 p-4">
+    <Dialog open onOpenChange={(next) => { if (!next) onCancel(); }}>
+      <DialogContent showCloseButton={false} className="flex h-[min(560px,calc(90dvh-2px))] flex-col gap-3 sm:max-w-3xl">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">{dialogTitle}</h3>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Switch
-                checked={showHidden}
-                onCheckedChange={(v: boolean) => setShowHidden(v)}
-              />
-              Show hidden
-            </label>
-          </div>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <Label className="text-xs font-normal text-muted-foreground">
+            <Switch
+              checked={showHidden}
+              onCheckedChange={(v: boolean) => setShowHidden(v)}
+            />
+            Show hidden
+          </Label>
         </div>
 
         {/* Path bar */}
         <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => parent && navigate(parent)}
-            disabled={!parent || loading}
-            title="Parent directory"
-          >
-            <ArrowUp className="w-3.5 h-3.5" />
-          </Button>
+          <Hint label="Parent directory">
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label="Parent directory"
+              onClick={() => parent && navigate(parent)}
+              disabled={!parent || loading}
+            >
+              <ArrowUp />
+            </Button>
+          </Hint>
           <Input
+            aria-label="Path"
             value={manual || cwd}
             onChange={(e) => setManual(e.target.value)}
             onKeyDown={(e) => {
@@ -197,26 +200,28 @@ export function PathBrowserDialog({
             }}
             onBlur={() => setManual("")}
             placeholder="Type absolute path and press Enter"
-            className="flex-1 h-8 text-xs font-mono"
+            className="flex-1 font-mono text-xs"
           />
         </div>
 
         {/* Breadcrumbs */}
         {crumbs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-0.5 text-[11px] text-muted-foreground">
+          <nav aria-label="Path breadcrumbs" className="flex flex-wrap items-center gap-0.5">
             {crumbs.map((c, i) => (
-              <button
+              <Button
                 key={c.path}
+                variant="ghost"
+                size="xs"
                 onClick={() => navigate(c.path)}
-                className="hover:text-foreground font-mono px-1 py-0.5 rounded hover:bg-muted"
+                className="px-1 font-mono text-[11px] font-normal text-muted-foreground"
               >
                 {c.label}
                 {i < crumbs.length - 1 && (
-                  <span className="text-muted-foreground/40 ml-0.5">/</span>
+                  <span className="text-muted-foreground/40">/</span>
                 )}
-              </button>
+              </Button>
             ))}
-          </div>
+          </nav>
         )}
 
         {/* Body */}
@@ -226,19 +231,17 @@ export function PathBrowserDialog({
             <ScrollArea className="h-full">
               <div className="p-1.5 space-y-0.5">
                 {roots.map((r) => (
-                  <button
-                    key={r.path}
-                    onClick={() => navigate(r.path)}
-                    className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-muted"
-                    title={r.path}
-                  >
-                    {r.label === "Home" ? (
-                      <Home className="w-3.5 h-3.5 shrink-0" />
-                    ) : (
-                      <Folder className="w-3.5 h-3.5 shrink-0" />
-                    )}
-                    <span className="truncate">{r.label}</span>
-                  </button>
+                  <Hint key={r.path} label={r.path} side="right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigate(r.path)}
+                      className="w-full justify-start font-normal"
+                    >
+                      {r.label === "Home" ? <Home aria-hidden /> : <Folder aria-hidden />}
+                      <span className="truncate">{r.label}</span>
+                    </Button>
+                  </Hint>
                 ))}
               </div>
             </ScrollArea>
@@ -249,38 +252,39 @@ export function PathBrowserDialog({
             <ScrollArea className="h-full">
               <div ref={listRef} className="p-1.5">
                 {loading ? (
-                  <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                    <Spinner className="w-3.5 h-3.5" /> Loading…
+                  <div role="status" className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+                    <Spinner className="size-3.5" /> Loading…
                   </div>
                 ) : error ? (
-                  <div className="p-3 text-xs text-destructive font-mono break-all">
+                  <p role="alert" className="p-3 text-xs text-destructive font-mono break-all">
                     {error}
-                  </div>
+                  </p>
                 ) : entries.length === 0 ? (
-                  <div className="p-3 text-xs text-muted-foreground">
-                    Empty directory.
-                  </div>
+                  <Empty className="p-3">
+                    <EmptyDescription className="text-xs">Empty directory.</EmptyDescription>
+                  </Empty>
                 ) : (
                   entries.map((entry) => {
                     const isSel = selected?.abs_path === entry.abs_path;
                     const disabled = !entry.is_dir && mode === "dir";
                     return (
-                      <button
+                      <Button
                         key={entry.abs_path}
+                        variant="ghost"
+                        size="sm"
+                        aria-pressed={entry.is_dir ? undefined : isSel}
                         onClick={() => onRowClick(entry)}
                         onDoubleClick={() => onRowDoubleClick(entry)}
                         disabled={disabled}
-                        className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs ${
-                          isSel ? "bg-primary/20" : "hover:bg-muted"
-                        } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+                        className={`w-full justify-start font-normal ${isSel ? "bg-muted" : ""}`}
                       >
                         {entry.is_dir ? (
-                          <FolderOpen className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <FolderOpen className="text-muted-foreground" aria-hidden />
                         ) : (
-                          <FileIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <FileIcon className="text-muted-foreground" aria-hidden />
                         )}
-                        <span className="truncate font-mono">{entry.name}</span>
-                      </button>
+                        <span className="truncate font-mono text-xs">{entry.name}</span>
+                      </Button>
                     );
                   })
                 )}
@@ -307,7 +311,7 @@ export function PathBrowserDialog({
             </Button>
           </div>
         </div>
-      </div>
-    </Modal>
+      </DialogContent>
+    </Dialog>
   );
 }

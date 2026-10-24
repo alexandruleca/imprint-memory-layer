@@ -1,8 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ArrowLeft, ArrowLeftRight, ArrowRight, Link2, MonitorSmartphone, Pause, Play, Trash2 } from "lucide-react";
-import { ConfirmDialog } from "./confirm-dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Spinner } from "@/components/loaders";
 import { getPairedDevices, controlPairedDevice, type PairedDevice } from "@/lib/sync-api";
 
 /** How this device's workspace relates to the peer's, from this side. */
@@ -37,16 +49,20 @@ function State({ peer }: { peer: PairedDevice }) {
 
 export function PairedDevices() {
   const [peers, setPeers] = useState<PairedDevice[]>([]);
+  // Whether the list was ever read: a failed read says nothing about pairings.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  // The change under way, so its button shows progress and the others wait.
+  const [pending, setPending] = useState<{ id: string; action: "enabled" | "forget" } | null>(null);
   const [forget, setForget] = useState<PairedDevice | null>(null);
+  const busy = pending !== null;
 
   useEffect(() => {
     let cancelled = false;
     async function refresh() {
       try {
         const result = await getPairedDevices();
-        if (!cancelled) { setPeers(result); setError(""); }
+        if (!cancelled) { setPeers(result); setLoaded(true); setError(""); }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
@@ -57,14 +73,17 @@ export function PairedDevices() {
   }, []);
 
   async function change(peer: PairedDevice, action: "enabled" | "forget") {
-    setBusy(true); setError("");
+    setPending({ id: peer.id, action }); setError("");
     try {
       await controlPairedDevice(peer.id, action, !peer.enabled);
       setPeers(await getPairedDevices());
       setForget(null);
+      const host = peer.peer.hostname;
+      toast.success(action === "forget" ? `Forgot ${host} on this device`
+        : peer.enabled ? `Paused automatic sync with ${host}` : `Resumed automatic sync with ${host}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally { setBusy(false); }
+    } finally { setPending(null); }
   }
 
   return (
@@ -78,24 +97,30 @@ export function PairedDevices() {
         </p>
       </div>
       {error && <p role="alert" className="px-5 pt-4 text-sm text-destructive sm:px-6">{error}</p>}
-      {!peers.length ? (
-        <div className="flex items-start gap-3 px-5 py-5 sm:px-6">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
-            <Link2 className="size-4 text-muted-foreground" aria-hidden />
-          </span>
-          <div className="text-sm">
-            <p className="font-medium">No paired devices yet</p>
-            <p className="text-muted-foreground">
+      {!loaded ? (
+        !error && (
+          <p className="flex items-center gap-2 px-5 py-8 text-sm text-muted-foreground sm:px-6" role="status">
+            <Spinner /> Loading paired devices…
+          </p>
+        )
+      ) : !peers.length ? (
+        <Empty className="px-5 py-8 sm:px-6">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Link2 className="text-muted-foreground" aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle>No paired devices yet</EmptyTitle>
+            <EmptyDescription>
               To pair, turn on &ldquo;Enable automatic sync with this device&rdquo; on both devices during a live sync.
-            </p>
-          </div>
-        </div>
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <ul className="divide-y divide-border">
           {peers.map((peer) => {
             const direction = DIRECTION[peer.direction] ?? DIRECTION.both;
             const Arrow = direction.icon;
-            const pending = peer.state === "forget_pending";
+            const removing = peer.state === "forget_pending";
             return (
               <li key={peer.id} className="flex flex-wrap items-start gap-x-4 gap-y-3 px-5 py-4 sm:px-6">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
@@ -114,32 +139,25 @@ export function PairedDevices() {
                     <span className="text-xs text-muted-foreground">· {direction.label} · {peer.relay.replace(/^wss?:\/\//, "")}</span>
                   </p>
                   <p className="text-xs text-muted-foreground" role="status">
-                    {pending
+                    {removing
                       ? "Revoked locally. Remote removal pending: keep Imprint running on both devices until they reconnect."
                       : peer.enabled ? "Automatic sync enabled" : "Automatic sync paused on this device"}
                     {peer.last_sync ? ` · last sync ${ago(peer.last_sync)}` : ""}
                     {peer.last_error ? ` · last connection: ${peer.last_error}` : ""}
                   </p>
                 </div>
-                {!pending && (
+                {!removing && (
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void change(peer, "enabled")}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50"
-                    >
-                      {peer.enabled ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
+                    <Button variant="outline" disabled={busy} onClick={() => void change(peer, "enabled")}>
+                      {pending?.id === peer.id && pending.action === "enabled"
+                        ? <Spinner className="size-3.5" />
+                        : peer.enabled ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
                       {peer.enabled ? "Pause" : "Resume"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setForget(peer)}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-destructive transition-colors hover:bg-red-50 disabled:opacity-50"
-                    >
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => setForget(peer)}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive">
                       <Trash2 className="size-3.5" aria-hidden /> Forget…
-                    </button>
+                    </Button>
                   </div>
                 )}
               </li>
@@ -147,16 +165,24 @@ export function PairedDevices() {
           })}
         </ul>
       )}
-      <ConfirmDialog
-        open={forget !== null}
-        title="Forget this device on both sides?"
-        description={`Remove automatic pairing with ${forget?.peer.hostname ?? "this device"} for ALL paired workspaces. Existing memories remain. The other device forgets this one when both reconnect to the relay; offline removal stays pending.`}
-        confirmLabel="Forget device"
-        busy={busy}
-        destructive
-        onCancel={() => setForget(null)}
-        onConfirm={() => { if (forget) void change(forget, "forget"); }}
-      />
+      <AlertDialog open={forget !== null} onOpenChange={(open) => { if (!open && !busy) setForget(null); }}>
+        <AlertDialogContent aria-busy={busy}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Forget this device on both sides?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove automatic pairing with {forget?.peer.hostname ?? "this device"} for ALL paired workspaces. Existing
+              memories remain. The other device forgets this one when both reconnect to the relay; offline removal stays
+              pending.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <Button variant="destructive" disabled={busy} onClick={() => { if (forget) void change(forget, "forget"); }}>
+              {busy && <Spinner />} Forget device
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

@@ -22,7 +22,7 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | Accepted | Content provenance, safe source replacement and bounded hybrid ranking. |
 | [0006](0006-durable-mcp-and-preserved-client-config.md) | Accepted | Durable writes, workspace binding, diagnostics and preserved profiles. |
 | [0007](0007-verified-runtime-and-desktop-baseline.md) | Accepted | Hashed dependencies/downloads, Electron 45, macOS 13 and container parity. |
-| [0008](0008-dashboard-retrieval-and-accessibility.md) | Accepted | Same-origin dashboard, usable search states and accessible modal behavior. |
+| [0008](0008-dashboard-retrieval-and-accessibility.md) | Accepted (dialog primitive superseded by [0039](0039-shadcn-overlays-and-desktop-drag-handles.md)) | Same-origin dashboard, usable search states and accessible modal behavior. |
 | [0009](0009-model-profiles-and-embedding-identity.md) | Proposed | Evaluate local model profiles with explicit embedding identity and safe re-embedding. |
 | [0010](0010-qwen-defaults-and-explicit-reindex.md) | Accepted | Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. |
 | [0011](0011-nightly-trivy-security-scanning.md) | Accepted | Nightly Trivy repository scans, retained reports and a high/critical failure gate. |
@@ -53,4 +53,5 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0036](0036-move-memories-between-projects.md) | Accepted | Projects place memories their writers named; workspace rules applied at every write keep moves through refresh, learning and sync, without changing source keys. |
 | [0037](0037-learn-every-integrated-client-store.md) | Accepted | Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use. |
 | [0038](0038-gpu-runtime-ships-cuda-libraries.md) | Accepted | The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version. |
+| [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Accepted | Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open. |
 | [0040](0040-documents-with-nothing-to-index.md) | Accepted | A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. |

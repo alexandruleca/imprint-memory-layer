@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronRight, FileCode } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { listSources, getSourceSummary, getSourceLineage } from "@/lib/api";
-import { ListSkeleton } from "@/components/loaders";
+import { CardGridSkeleton, ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { MigrateDialog } from "@/components/migrate-dialog";
 import { ChunkDialog } from "@/components/chunk-dialog";
 import { WorkspaceSources } from "@/components/workspace-sources";
@@ -25,27 +29,44 @@ export default function SourcesPage() {
   const [expandedChunk, setExpandedChunk] = useState<string | null>(null);
   const [chunkDialog, setChunkDialog] = useState<MemoryNode | null>(null);
   const [migrateOpen, setMigrateOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [opening, setOpening] = useState(false);
+  // The source whose detail is wanted now; a slower earlier answer is dropped.
+  const requested = useRef<string | null>(null);
 
   useEffect(() => {
     listSources({ limit: 500 })
       .then((data) => {
         setSources(data.sources);
       })
-      .catch(console.error)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
 
   const filtered = sources.filter((source) => source.source.toLowerCase().includes(filter.trim().toLowerCase()));
 
   async function selectSource(sourceKey: string) {
+    requested.current = sourceKey;
     setSelected(sourceKey);
     setExpandedChunk(null);
-    const [sum, lin] = await Promise.all([
-      getSourceSummary(sourceKey),
-      getSourceLineage(sourceKey),
-    ]);
-    setSummary(sum);
-    setLineage(lin);
+    setOpening(true);
+    try {
+      const [sum, lin] = await Promise.all([
+        getSourceSummary(sourceKey),
+        getSourceLineage(sourceKey),
+      ]);
+      if (requested.current !== sourceKey) return;
+      setSummary(sum);
+      setLineage(lin);
+    } catch (e) {
+      if (requested.current !== sourceKey) return;
+      setSelected(null);
+      setSummary(null);
+      setLineage(null);
+      toast.error(`Could not load ${sourceKey}`, { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      if (requested.current === sourceKey) setOpening(false);
+    }
   }
 
   if (loading)
@@ -66,7 +87,9 @@ export default function SourcesPage() {
       <h2 className="text-2xl font-bold">
         Sources ({sources.length.toLocaleString()} files)
       </h2>
+      {error && <p role="alert" className="text-sm text-destructive">Sources could not load: {error}</p>}
       <WorkspaceSources selectedSource={selected} onPurged={async () => {
+        requested.current = null; setOpening(false);
         setSelected(null); setSummary(null); setLineage(null); setChunkDialog(null);
         const data = await listSources({ limit: 500 });
         setSources(data.sources);
@@ -76,6 +99,7 @@ export default function SourcesPage() {
         {/* Left panel: source list */}
         <div className="col-span-1 space-y-2">
           <Input
+            aria-label="Filter sources"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter sources..."
@@ -84,29 +108,34 @@ export default function SourcesPage() {
           <ScrollArea className="h-[580px]">
             <div className="space-y-0.5 pr-4">
               {filtered.map((s) => (
-                <div
+                <Button
                   key={s.source}
-                  className={`p-2 rounded cursor-pointer text-sm flex justify-between items-center gap-2 ${
-                    selected === s.source
-                      ? "bg-primary/20 border border-primary"
-                      : "hover:bg-muted"
+                  variant="ghost"
+                  aria-pressed={selected === s.source}
+                  className={`h-auto w-full justify-between gap-2 p-2 font-normal ${
+                    selected === s.source ? "bg-primary/20 border border-primary hover:bg-primary/20" : ""
                   }`}
                   onClick={() => selectSource(s.source)}
                 >
-                  <span className="font-mono text-xs truncate flex-1">
+                  <span className="font-mono text-xs truncate flex-1 text-left">
                     {s.source}
                   </span>
                   <Badge variant="secondary" className="shrink-0">
                     {s.chunks}
                   </Badge>
-                </div>
+                </Button>
               ))}
               {filtered.length === 0 && (
-                <p className="text-sm text-muted-foreground py-4">
-                  {sources.length === 0
-                    ? "No indexed sources. Run 'imprint ingest' to index a project."
-                    : "No sources match filter."}
-                </p>
+                <Empty className="py-8">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon"><FileCode aria-hidden /></EmptyMedia>
+                    <EmptyDescription>
+                      {sources.length === 0
+                        ? "No indexed sources. Run 'imprint ingest' to index a project."
+                        : "No sources match filter."}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               )}
             </div>
           </ScrollArea>
@@ -114,7 +143,12 @@ export default function SourcesPage() {
 
         {/* Right panel: source detail + chunks */}
         <div className="col-span-2">
-          {summary ? (
+          {opening ? (
+            <div className="space-y-4" aria-busy="true">
+              <Skeleton className="h-40 w-full rounded-xl" />
+              <CardGridSkeleton count={4} />
+            </div>
+          ) : summary ? (
             <div className="space-y-4">
               {/* Summary card */}
               <Card>
@@ -192,27 +226,25 @@ export default function SourcesPage() {
                     <ScrollArea className="h-[380px]">
                       <div className="space-y-1.5 pr-4">
                         {lineage.chunks.map((chunk: MemoryNode) => (
-                          <div
+                          <Collapsible
                             key={chunk.id}
-                            className={`rounded border cursor-pointer transition-colors ${
+                            open={expandedChunk === chunk.id}
+                            onOpenChange={(open) => setExpandedChunk(open ? chunk.id : null)}
+                            className={`rounded border transition-colors ${
                               expandedChunk === chunk.id
                                 ? "border-primary bg-primary/5"
                                 : "border-transparent hover:bg-muted"
                             }`}
-                            onClick={() =>
-                              setExpandedChunk(
-                                expandedChunk === chunk.id ? null : chunk.id
-                              )
-                            }
                           >
-                            <div className="flex items-center gap-2 p-2">
+                            <CollapsibleTrigger className="group/chunk flex w-full items-center gap-2 rounded p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                              <ChevronRight className="size-3 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/chunk:rotate-90" aria-hidden />
                               <span className="text-xs text-muted-foreground font-mono w-8 shrink-0">
                                 #{chunk.chunk_index}
                               </span>
                               <span className="text-xs truncate flex-1">
                                 {chunk.label}
                               </span>
-                              <div className="flex gap-1 shrink-0">
+                              <span className="flex gap-1 shrink-0">
                                 {chunk.tags?.topics
                                   ?.slice(0, 2)
                                   .map((t: string) => (
@@ -224,22 +256,17 @@ export default function SourcesPage() {
                                       {t}
                                     </Badge>
                                   ))}
-                              </div>
-                            </div>
-                            {expandedChunk === chunk.id && (
-                              <div className="mx-2 mb-2 space-y-1.5">
-                                <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
-                                  {chunk.content}
-                                </pre>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setChunkDialog(chunk); }}
-                                  className="text-xs px-2 py-1 rounded bg-muted hover:bg-muted/70"
-                                >
-                                  View full
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                              </span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="mx-2 mb-2 space-y-1.5">
+                              <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
+                                {chunk.content}
+                              </pre>
+                              <Button variant="secondary" size="xs" onClick={() => setChunkDialog(chunk)}>
+                                View full
+                              </Button>
+                            </CollapsibleContent>
+                          </Collapsible>
                         ))}
                       </div>
                     </ScrollArea>
@@ -248,9 +275,11 @@ export default function SourcesPage() {
               )}
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              Select a source file to view details and chunks
-            </div>
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyTitle>Select a source file to view details and chunks</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           )}
         </div>
       </div>

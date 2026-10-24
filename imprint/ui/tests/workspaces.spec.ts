@@ -48,8 +48,8 @@ test('top bar switches the active workspace and reloads', async ({ page }) => {
   const trigger = page.getByRole('button', { name: 'Workspace: alpha' });
   await expect(trigger).toBeVisible();
   await trigger.click();
-  await expect(page.getByRole('button', { name: 'alpha', exact: true })).toHaveAttribute('aria-current', 'true');
-  await page.getByRole('button', { name: 'beta', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'alpha', exact: true })).toBeChecked();
+  await page.getByRole('menuitemradio', { name: 'beta', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Workspace: beta' })).toBeVisible();
   expect(posts.switch).toEqual([{ workspace: 'beta' }]);
 });
@@ -58,8 +58,8 @@ test('top bar creates a workspace and switches to it', async ({ page }) => {
   const { posts } = await mockApi(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Workspace: alpha' }).click();
-  await page.getByRole('button', { name: 'New workspace' }).click();
-  const name = page.getByLabel('New workspace name');
+  await page.getByRole('menuitem', { name: 'New workspace…' }).click();
+  const name = page.getByRole('dialog', { name: 'New workspace' }).getByLabel('New workspace name');
   await name.fill('Bad Name');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText('must be lowercase alphanumeric')).toBeVisible();
@@ -74,7 +74,7 @@ test('manage dialog edits roots and guards deletion', async ({ page }) => {
   const { posts } = await mockApi(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Workspace: alpha' }).click();
-  await page.getByRole('button', { name: 'Manage workspaces…' }).click();
+  await page.getByRole('menuitem', { name: 'Manage workspaces…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Manage workspaces' });
   await expect(dialog.getByRole('listitem').filter({ hasText: 'alpha' })).toContainText('/home/me/notes');
 
@@ -88,7 +88,7 @@ test('manage dialog edits roots and guards deletion', async ({ page }) => {
   expect(posts.roots).toEqual([{ workspace: 'beta', path: '/data/beta', action: 'add', allow_overlap: false }]);
 
   await dialog.getByRole('button', { name: 'Delete beta' }).click();
-  const confirm = page.getByRole('dialog', { name: "Delete workspace 'beta'?" });
+  const confirm = page.getByRole('alertdialog', { name: "Delete workspace 'beta'?" });
   await expect(confirm.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
   await confirm.getByLabel('Type beta to confirm').fill('beta');
   await expect(confirm.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
@@ -130,7 +130,7 @@ test('a Windows server offers its WSL distributions as picker roots', async ({ p
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Workspace: alpha' }).click();
-  await page.getByRole('button', { name: 'Manage workspaces…' }).click();
+  await page.getByRole('menuitem', { name: 'Manage workspaces…' }).click();
   const manager = page.getByRole('dialog', { name: 'Manage workspaces' });
   await manager.getByRole('button', { name: 'Edit beta' }).click();
   await manager.getByRole('button', { name: 'Pick folder' }).click();

@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Spinner } from "@/components/loaders";
 import { enqueueCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
-import { Globe, FileText, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play, CheckCircle2 } from "lucide-react";
+import { Globe, FileText, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play, CheckCircle2, CircleAlert } from "lucide-react";
 
 type Command = "ingest-url" | "ingest" | "refresh" | "retag" | "learn";
 
@@ -97,7 +100,7 @@ const ACTIONS: Action[] = [
     id: "learn",
     command: "learn",
     label: "Learn",
-    desc: "Index Claude Code conversation transcripts + memory files",
+    desc: "Index Claude Code and Codex conversations (including WSL profiles) and memory files",
     icon: GraduationCap,
     fields: [],
   },
@@ -115,11 +118,9 @@ export function QuickIngest() {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [browsing, setBrowsing] = useState<Field | null>(null);
 
-  function selectAction(id: string) {
-    if (active === id) {
-      setActive(null);
-    } else {
-      setActive(id);
+  function selectAction(id: string | undefined) {
+    setActive(id ?? null);
+    if (id) {
       setParams({});
       setStatus({ kind: "idle" });
     }
@@ -167,36 +168,33 @@ export function QuickIngest() {
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+        <ToggleGroup
+          aria-label="Quick actions"
+          spacing={2}
+          value={active ? [active] : []}
+          onValueChange={(value) => selectAction(value[0])}
+          className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 2xl:grid-cols-6"
+        >
           {ACTIONS.map((a) => {
             const Icon = a.icon;
-            const isActive = active === a.id;
             return (
-              <button
+              <ToggleGroupItem
                 key={a.id}
-                aria-pressed={isActive}
-                onClick={() => selectAction(a.id)}
-                className={`relative rounded-lg border p-3 text-left transition-colors ${
-                  isActive
-                    ? "border-primary bg-muted/40"
-                    : "border-border hover:border-muted-foreground/40 hover:bg-muted/20"
-                }`}
+                value={a.id}
+                variant="outline"
+                className="h-auto min-w-0 justify-start gap-2 border-border p-3 text-left font-normal whitespace-normal hover:border-muted-foreground/40 hover:bg-muted/20 aria-pressed:border-primary aria-pressed:bg-muted/40"
               >
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-muted text-foreground"
-                  >
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{a.label}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{a.desc}</p>
-                  </div>
-                </div>
-              </button>
+                <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-foreground">
+                  <Icon aria-hidden />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{a.label}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{a.desc}</span>
+                </span>
+              </ToggleGroupItem>
             );
           })}
-        </div>
+        </ToggleGroup>
 
         {activeAction && (
           <div className="space-y-3 pt-2 border-t">
@@ -204,13 +202,9 @@ export function QuickIngest() {
               <p className="text-xs text-muted-foreground">
                 <code className="bg-muted px-1.5 py-0.5 rounded">imprint {activeAction.command}</code>
               </p>
-              <button
-                onClick={() => setActive(null)}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" size="icon-sm" onClick={() => setActive(null)} aria-label="Close">
+                <X />
+              </Button>
             </div>
             <div className="space-y-2">
               {activeAction.fields.filter((f) =>
@@ -219,9 +213,9 @@ export function QuickIngest() {
                 const id = `quick-${activeAction.id}-${f.key}`;
                 return (
                   <div key={f.key} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                    <label htmlFor={id} className="text-xs text-muted-foreground shrink-0 sm:w-36">
+                    <Label htmlFor={id} className="text-xs font-normal text-muted-foreground shrink-0 sm:w-36">
                       {f.label}
-                    </label>
+                    </Label>
                     {f.type === "checkbox" ? (
                       <Switch
                         id={id}
@@ -239,13 +233,12 @@ export function QuickIngest() {
                             setParams({ ...params, [f.key]: e.target.value })
                           }
                           placeholder={f.placeholder}
-                          className="min-w-0 flex-1 h-8 text-sm"
+                          className="min-w-0 flex-1 text-sm"
                         />
                         {f.browse && (
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
                             onClick={() => setBrowsing(f)}
                           >
                             {f.browse === "file" ? "Browse…" : "Pick folder"}
@@ -266,41 +259,40 @@ export function QuickIngest() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button onClick={run} size="sm" disabled={submitting}>
-                {submitting ? (
-                  <Spinner className="w-3.5 h-3.5" />
-                ) : (
-                  <Play className="w-3.5 h-3.5" />
-                )}{" "}
+              <Button onClick={run} disabled={submitting}>
+                {submitting ? <Spinner /> : <Play aria-hidden />}
                 {submitting ? "Queuing…" : "Run"}
               </Button>
             </div>
 
             {status.kind === "enqueued" && (
-              <div className="flex items-center gap-2 text-xs rounded-md border border-emerald-600/30 bg-emerald-50 px-3 py-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                <span className="flex-1">
-                  {status.position > 0 ? (
-                    <>
-                      Queued at position <strong>{status.position}</strong> — will
-                      start when the current job finishes.
-                    </>
-                  ) : (
-                    <>Started now.</>
-                  )}
-                </span>
-                <Link
-                  href="/queue"
-                  className="text-emerald-700 underline-offset-2 hover:underline shrink-0"
-                >
-                  view queue
-                </Link>
-              </div>
+              <Alert role="status" className="border-emerald-600/30 bg-emerald-50">
+                <CheckCircle2 className="text-emerald-700" aria-hidden />
+                <AlertDescription className="flex items-center gap-2 text-xs text-foreground">
+                  <span className="flex-1">
+                    {status.position > 0 ? (
+                      <>
+                        Queued at position <strong>{status.position}</strong> — will
+                        start when the current job finishes.
+                      </>
+                    ) : (
+                      <>Started now.</>
+                    )}
+                  </span>
+                  <Link
+                    href="/queue"
+                    className="text-emerald-700 no-underline underline-offset-2 hover:underline shrink-0"
+                  >
+                    view queue
+                  </Link>
+                </AlertDescription>
+              </Alert>
             )}
             {status.kind === "error" && (
-              <div className="text-xs text-red-700 bg-red-50 border border-red-600/30 rounded-md px-3 py-2">
-                {status.message}
-              </div>
+              <Alert variant="destructive" className="border-destructive/30 bg-destructive/5">
+                <CircleAlert aria-hidden />
+                <AlertDescription className="text-xs">{status.message}</AlertDescription>
+              </Alert>
             )}
           </div>
         )}

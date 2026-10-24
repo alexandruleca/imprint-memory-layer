@@ -1,6 +1,8 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
+import { Hint } from "@/components/hint";
+import { Button } from "@/components/ui/button";
 import type { GraphEdgeKind, GraphNodeKind } from "@/lib/types";
 import { EDGE_KINDS, KIND_ORDER, KINDS } from "./graph-style";
 
@@ -50,18 +52,19 @@ export function GraphLegend({
           const Toggle = visible ? Eye : EyeOff;
           return (
             <li key={kind}>
-              <button
-                type="button"
-                aria-pressed={visible}
-                onClick={() => onToggle(kind)}
-                title={visible ? `Hide ${KINDS[kind].plural.toLowerCase()}` : `Show ${KINDS[kind].plural.toLowerCase()}`}
-                className="group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted"
-              >
-                <span className={`grid size-3 place-items-center ${visible ? "" : "opacity-40"}`}><Swatch kind={kind} /></span>
-                <span className={`flex-1 ${visible ? "text-foreground" : "text-muted-foreground line-through"}`}>{KINDS[kind].plural}</span>
-                <span className="tabular-nums text-muted-foreground">{counts[kind]}</span>
-                <Toggle className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden />
-              </button>
+              <Hint label={`${visible ? "Hide" : "Show"} ${KINDS[kind].plural.toLowerCase()}`} side="right">
+                <Button
+                  variant="ghost"
+                  aria-pressed={visible}
+                  onClick={() => onToggle(kind)}
+                  className="group h-auto w-full justify-start gap-2 px-1.5 py-1 text-left text-xs font-normal"
+                >
+                  <span className={`grid size-3 place-items-center ${visible ? "" : "opacity-40"}`}><Swatch kind={kind} /></span>
+                  <span className={`flex-1 ${visible ? "text-foreground" : "text-muted-foreground line-through"}`}>{KINDS[kind].plural}</span>
+                  <span className="tabular-nums text-muted-foreground">{counts[kind]}</span>
+                  <Toggle className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden />
+                </Button>
+              </Hint>
             </li>
           );
         })}

@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress, ProgressLabel } from "@/components/ui/progress";
 import type { DatasetProgress } from "@/lib/types";
 
 function pct(done: number, total: number): number {
@@ -11,25 +12,13 @@ export function SyncProgressBar({
   done,
   total,
 }: DatasetProgress) {
-  const p = pct(done, total);
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span className="capitalize">{dataset}</span>
-        <span className="tabular-nums">
-          {done}/{total}
-        </span>
-      </div>
-      <div className="h-2 bg-muted rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-500 ease-out"
-          style={{
-            width: `${p}%`,
-            background: "linear-gradient(90deg, #0a0a0a, #525252)",
-          }}
-        />
-      </div>
-    </div>
+    <Progress value={pct(done, total)} className="gap-1">
+      <ProgressLabel className="text-xs font-normal capitalize text-muted-foreground">{dataset}</ProgressLabel>
+      <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+        {done}/{total}
+      </span>
+    </Progress>
   );
 }
 

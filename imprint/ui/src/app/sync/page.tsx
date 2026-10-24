@@ -5,7 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Hint } from "@/components/hint";
 import { PairedDevices } from "@/components/paired-devices";
+import { toast } from "sonner";
 import { Spinner } from "@/components/loaders";
 import { SyncProgressGroup } from "@/components/sync-progress";
 import {
@@ -136,8 +144,8 @@ function StatLine({ label, stats }: { label: string; stats: SyncStats }) {
 /** Pairing is opt-in on both devices; see ADR 0020. */
 function AutoSyncOption({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3.5 transition-colors hover:border-foreground/30 has-[:checked]:border-foreground has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-foreground" />
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-background p-3.5 transition-colors hover:border-foreground/30 has-data-checked:border-foreground has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ring">
+      <Checkbox checked={checked} onCheckedChange={onChange} className="mt-0.5" />
       <span className="text-sm">
         <span className="block font-medium">Enable automatic sync with this device</span>
         <span className="block text-xs text-muted-foreground">
@@ -155,54 +163,23 @@ const FIELD = "h-9 w-full max-w-xs rounded-lg border border-input bg-background 
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      toast.success("Code copied");
+      setTimeout(() => setCopied(false), 1500);
+    }, () => toast.error("Could not copy: select the code and copy it instead."));
+  }
   return (
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-      className="p-1 rounded hover:bg-muted transition-colors"
-      title="Copy"
-    >
-      {copied ? (
-        <Check className="w-3.5 h-3.5 text-emerald-700" />
-      ) : (
-        <Copy className="w-3.5 h-3.5 text-muted-foreground" />
-      )}
-    </button>
-  );
-}
-
-// ── Button helper ──────────────────────────────────────────────
-
-function Btn({
-  onClick,
-  disabled,
-  variant = "primary",
-  children,
-  className = "",
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "outline" | "destructive";
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const base = "inline-flex h-9 w-fit items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50";
-  const variants = {
-    primary: "bg-primary text-primary-foreground shadow-sm hover:bg-primary/85",
-    outline: "border border-input bg-background hover:bg-muted",
-    destructive: "bg-destructive text-white hover:bg-destructive/90",
-  };
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`${base} ${variants[variant]} ${className}`}
-    >
-      {children}
-    </button>
+    <Hint label="Copy">
+      <Button variant="ghost" size="icon-sm" onClick={copy} aria-label="Copy code">
+        {copied ? (
+          <Check className="text-emerald-700" aria-hidden />
+        ) : (
+          <Copy className="text-muted-foreground" aria-hidden />
+        )}
+      </Button>
+    </Hint>
   );
 }
 
@@ -236,7 +213,7 @@ function ExportCard() {
         <p className="text-xs text-muted-foreground">
           Creates a Qdrant snapshot + knowledge graph backup and downloads it as a zip file.
         </p>
-        <Btn onClick={doExport} disabled={state === "loading"}>
+        <Button size="lg" onClick={doExport} disabled={state === "loading"}>
           {state === "loading" ? (
             <>
               <Spinner className="w-4 h-4" /> Exporting...
@@ -246,7 +223,7 @@ function ExportCard() {
               <Download className="w-4 h-4" /> Download Snapshot
             </>
           )}
-        </Btn>
+        </Button>
         {message && (
           <p className={`text-xs ${state === "error" ? "text-destructive" : "text-emerald-700"}`}>
             {message}
@@ -304,24 +281,20 @@ function ImportCard() {
         <p className="text-xs text-muted-foreground">
           Restore a snapshot bundle from another device. Select a .zip export file.
         </p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".zip"
-          onChange={onFileChange}
-          className="sr-only"
-        />
+        {/* The Choose File button opens it. */}
+        <input ref={fileRef} type="file" accept=".zip" onChange={onFileChange} hidden />
         <div className="flex items-center gap-2">
-          <Btn variant="outline" onClick={() => fileRef.current?.click()}>
+          <Button size="lg" variant="outline" onClick={() => fileRef.current?.click()}>
             Choose File
-          </Btn>
+          </Button>
           {filename && (
             <span className="text-xs text-muted-foreground truncate max-w-[200px]">
               {filename}
             </span>
           )}
         </div>
-        <Btn
+        <Button
+          size="lg"
           onClick={doImport}
           disabled={!filename || state === "loading"}
         >
@@ -334,7 +307,7 @@ function ImportCard() {
               <Upload className="w-4 h-4" /> Import
             </>
           )}
-        </Btn>
+        </Button>
         {message && (
           <p className={`text-xs ${state === "error" ? "text-destructive" : "text-emerald-700"}`}>
             {message}
@@ -404,11 +377,16 @@ function DirectionField({
   value: SyncDirection;
   onChange: (direction: SyncDirection) => void;
 }) {
-  const name = useId();
+  const legend = useId();
   return (
-    <fieldset>
-      <legend className="mb-2 text-sm font-medium">Direction</legend>
-      <div className="grid gap-2 sm:grid-cols-3">
+    <div>
+      <p id={legend} className="mb-2 text-sm font-medium">Direction</p>
+      <RadioGroup
+        aria-labelledby={legend}
+        value={value}
+        onValueChange={(next) => onChange(next as SyncDirection)}
+        className="gap-2 sm:grid-cols-3"
+      >
         {DIRECTIONS.map((option) => (
           <label
             key={option.value}
@@ -416,22 +394,15 @@ function DirectionField({
               value === option.value ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/30"
             }`}
           >
-            <input
-              type="radio"
-              name={name}
-              value={option.value}
-              checked={value === option.value}
-              onChange={() => onChange(option.value)}
-              className="mt-0.5 accent-foreground"
-            />
+            <RadioGroupItem value={option.value} className="mt-0.5" />
             <span>
               <span className="block text-sm font-medium">{option.label}</span>
               <span className="text-muted-foreground">{option[side]}</span>
             </span>
           </label>
         ))}
-      </div>
-    </fieldset>
+      </RadioGroup>
+    </div>
   );
 }
 
@@ -618,14 +589,26 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
             <label htmlFor={workspaceId} className="block text-sm font-medium">
               Workspace to serve
             </label>
-            <select id={workspaceId} value={workspace} onChange={(e) => setChosen(e.target.value)} className={FIELD}>
-              {workspaces.workspaces.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                  {name === workspaces.active ? " (active)" : ""}
-                </option>
-              ))}
-            </select>
+            <Select
+              items={workspaces.workspaces.map((name) => ({
+                value: name,
+                label: name === workspaces.active ? `${name} (active)` : name,
+              }))}
+              value={workspace || null}
+              onValueChange={(next) => { if (next) setChosen(next); }}
+            >
+              <SelectTrigger id={workspaceId} className="w-full max-w-xs data-[size=default]:h-9">
+                <SelectValue placeholder="Loading workspaces…" />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaces.workspaces.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                    {name === workspaces.active ? " (active)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <DirectionField side="serve" value={direction} onChange={setDirection} />
           <AutoSyncOption checked={remember} onChange={setRemember} />
@@ -644,9 +627,9 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
               A self-hosted relay host, e.g. sync.example.com. Sessions are end-to-end encrypted either way.
             </p>
           </div>
-          <Btn onClick={start} disabled={!workspace}>
+          <Button size="lg" onClick={start} disabled={!workspace}>
             <Radio className="size-4" /> Start Serving
-          </Btn>
+          </Button>
         </>
       )}
 
@@ -672,9 +655,9 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
               in Sync → Receive.
             </p>
           </div>
-          <Btn variant="outline" onClick={stop}>
+          <Button size="lg" variant="outline" onClick={stop}>
             <X className="size-4" /> Stop
-          </Btn>
+          </Button>
         </>
       )}
 
@@ -683,15 +666,15 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
           <StatusPill tone="waiting">Incoming Sync Request</StatusPill>
           <DeviceCard device={state.peer}>The code was verified. {approvalText(served)}</DeviceCard>
           <div className="flex flex-wrap gap-2">
-            <Btn onClick={() => decide("accept")} disabled={state.submitting}>
+            <Button size="lg" onClick={() => decide("accept")} disabled={state.submitting}>
               <Check className="size-4" /> Accept once
-            </Btn>
-            <Btn variant="outline" onClick={() => decide("trust")} disabled={state.submitting}>
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => decide("trust")} disabled={state.submitting}>
               <ShieldCheck className="size-4" /> Trust & accept
-            </Btn>
-            <Btn variant="outline" onClick={() => decide("reject")} disabled={state.submitting} className="text-destructive">
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => decide("reject")} disabled={state.submitting} className="text-destructive">
               <X className="size-4" /> Reject
-            </Btn>
+            </Button>
           </div>
           {state.submitting && (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -712,9 +695,9 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
         <>
           <StatusPill tone={statusTone(state.status)} busy>{statusLabel(state.status)}</StatusPill>
           <SyncProgressGroup datasets={state.datasets} />
-          <Btn variant="outline" onClick={stop}>
+          <Button size="lg" variant="outline" onClick={stop}>
             <X className="size-4" /> Cancel
-          </Btn>
+          </Button>
         </>
       )}
 
@@ -735,9 +718,9 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
       {state.phase !== "idle" && <SessionNotes notes={notes} />}
 
       {(state.phase === "done" || state.phase === "error") && (
-        <Btn variant="outline" onClick={reset}>
+        <Button size="lg" variant="outline" onClick={reset}>
           {state.phase === "done" ? "New Session" : "Retry"}
-        </Btn>
+        </Button>
       )}
     </div>
   );
@@ -931,9 +914,9 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
           </div>
           <DirectionField side="receive" value={direction} onChange={setDirection} />
           <AutoSyncOption checked={remember} onChange={setRemember} />
-          <Btn onClick={connect} disabled={!codeInput.trim() || loading || Boolean(problem)}>
+          <Button size="lg" onClick={connect} disabled={!codeInput.trim() || loading || Boolean(problem)}>
             <Plug className="size-4" /> Connect
-          </Btn>
+          </Button>
         </>
       )}
 
@@ -944,12 +927,12 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
             This is the device that served the code. If you do not recognise it, do not send: the pull still runs.
           </DeviceCard>
           <div className="flex flex-wrap gap-2">
-            <Btn onClick={() => decidePush("accept")} disabled={state.submitting}>
+            <Button size="lg" onClick={() => decidePush("accept")} disabled={state.submitting}>
               <Check className="size-4" /> Send
-            </Btn>
-            <Btn variant="outline" onClick={() => decidePush("reject")} disabled={state.submitting}>
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => decidePush("reject")} disabled={state.submitting}>
               <X className="size-4" /> Don&apos;t send
-            </Btn>
+            </Button>
           </div>
         </>
       )}
@@ -962,9 +945,9 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
         <>
           <StatusPill tone={statusTone(state.status)} busy>{statusLabel(state.status)}</StatusPill>
           <SyncProgressGroup datasets={state.datasets} />
-          <Btn variant="outline" onClick={stop}>
+          <Button size="lg" variant="outline" onClick={stop}>
             <X className="size-4" /> Cancel
-          </Btn>
+          </Button>
         </>
       )}
 
@@ -986,9 +969,9 @@ function ReceivePanel({ workspaces }: { workspaces: Workspaces }) {
       {state.phase !== "idle" && <SessionNotes notes={notes} />}
 
       {(state.phase === "done" || state.phase === "error") && (
-        <Btn variant="outline" onClick={reset}>
+        <Button size="lg" variant="outline" onClick={reset}>
           {state.phase === "done" ? "New Session" : "Retry"}
-        </Btn>
+        </Button>
       )}
     </div>
   );
@@ -1017,6 +1000,7 @@ function DesktopExportsCard() {
   const [history, setHistory] = useState<DesktopExportEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastScan, setLastScan] = useState<DesktopScanResult | null>(null);
   const [error, setError] = useState("");
 
@@ -1043,6 +1027,12 @@ function DesktopExportsCard() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  async function refresh() {
+    setRefreshing(true);
+    await reloadHistory();
+    setRefreshing(false);
+  }
 
   async function scan() {
     setScanning(true);
@@ -1074,7 +1064,7 @@ function DesktopExportsCard() {
         </p>
 
         <div className="flex items-center gap-2">
-          <Btn onClick={scan} disabled={scanning}>
+          <Button size="lg" onClick={scan} disabled={scanning}>
             {scanning ? (
               <>
                 <Spinner className="w-4 h-4" /> Scanning…
@@ -1084,14 +1074,14 @@ function DesktopExportsCard() {
                 <RefreshCw className="w-4 h-4" /> Scan Downloads now
               </>
             )}
-          </Btn>
-          <Btn variant="outline" onClick={reloadHistory} disabled={loading}>
-            <RefreshCw className="w-3.5 h-3.5" /> Refresh history
-          </Btn>
+          </Button>
+          <Button size="lg" variant="outline" onClick={refresh} disabled={loading || refreshing}>
+            {refreshing ? <Spinner className="w-3.5 h-3.5" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh history
+          </Button>
         </div>
 
         {error && (
-          <p className="text-xs text-destructive">{error}</p>
+          <p role="alert" className="text-xs text-destructive">{error}</p>
         )}
 
         {lastScan && (
@@ -1132,35 +1122,52 @@ function DesktopExportsCard() {
               <Spinner className="w-3 h-3" /> Loading…
             </div>
           ) : history.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              None yet. Export from claude.ai or chat.openai.com, then click
-              <span className="font-mono"> Scan Downloads now</span>.
-            </p>
+            <Empty className="border border-dashed border-border p-5">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <FileArchive aria-hidden />
+                </EmptyMedia>
+                <EmptyTitle>No exports indexed yet</EmptyTitle>
+                <EmptyDescription className="text-xs">
+                  Export from claude.ai or chat.openai.com, then click
+                  <span className="font-mono"> Scan Downloads now</span>.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
-            <ul className="space-y-1.5 max-h-64 overflow-y-auto">
-              {history.map((e) => {
-                const fileName = e.path.split("/").pop() || e.path;
-                return (
-                  <li
-                    key={e.path + e.indexed_at}
-                    className="flex items-center gap-2 text-xs rounded-lg border border-border px-2.5 py-1.5"
-                  >
-                    <Badge variant="outline" className={originBadge(e.origin)}>
-                      {e.origin}
-                    </Badge>
-                    <span className="font-mono truncate flex-1" title={e.path}>
-                      {fileName}
-                    </span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {e.chunks} chunks
-                    </span>
-                    <span className="text-muted-foreground tabular-nums min-w-[52px] text-right">
-                      {relativeTime(e.indexed_at)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="max-h-64 overflow-y-auto rounded-xl border border-border">
+              <Table className="text-xs">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Origin</TableHead>
+                    <TableHead>File</TableHead>
+                    <TableHead className="text-right">Chunks</TableHead>
+                    <TableHead className="text-right">Indexed</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((e) => {
+                    const fileName = e.path.split("/").pop() || e.path;
+                    return (
+                      <TableRow key={e.path + e.indexed_at}>
+                        <TableCell>
+                          <Badge variant="outline" className={originBadge(e.origin)}>
+                            {e.origin}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-0 w-full truncate font-mono" title={e.path}>
+                          {fileName}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{e.chunks}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {relativeTime(e.indexed_at)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </div>
       </CardContent>
