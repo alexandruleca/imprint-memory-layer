@@ -34,3 +34,5 @@ Purge is not a cross-database transaction. Partial failures remain visible, pres
 ## Validation
 
 Tests cover first binding, sibling roots, symlink escape, competing claims, confirmed overlap, cwd filtering, preview immutability, recursive boundaries, old-model cleanup, other-workspace preservation, exclusion/restore and a workspace switch during embedding. HTTP tests enforce explicit workspace/boolean apply values. Browser tests exercise preview/typed confirmation and overlap approval. Record hosted native results in platform validation.
+
+Learning follow-up: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) supersedes the conversation-learning and desktop-export rules above. Learning no longer requires an approved root; roots still gate filesystem ingestion and refresh.

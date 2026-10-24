@@ -31,15 +31,13 @@ func Learn(args []string) {
 	lock := acquireOrEnqueue(dataDir, "learn", args)
 	defer lock.Release()
 
+	// Learn reads the clients' own stores, so it needs no approved root. Each
+	// conversation's recorded cwd decides whether it belongs to this workspace
+	// (workspace_policy.transcript_allowed, ADR 0034).
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
 		"IMPRINT_DATA_DIR=" + dataDir,
 	}
-	runPython(venvPython, envVars, `
-from imprint.workspace_policy import roots
-if not roots():
-    raise ValueError("Approve this workspace's project/export roots first: imprint workspace roots add <directory>")
-`)
 
 	desktop := false
 	watch := false

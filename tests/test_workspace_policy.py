@@ -65,17 +65,44 @@ class WorkspacePolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             policy.ensure_ingest_paths([str(alias / 'file.py')], 'alpha')
 
-    def test_conversation_scope_uses_recorded_cwd(self):
-        policy.add_root(str(self.a), 'alpha')
+    def test_conversation_ownership_uses_recorded_cwd(self):
         transcript = self.root / 'session.jsonl'
-        transcript.write_text(json.dumps({'cwd': str(self.a)}))
-        self.assertTrue(policy.transcript_allowed(transcript, 'alpha'))
-        transcript.write_text('\n'.join(json.dumps({'cwd': str(path)}) for path in [self.a, self.b]))
-        self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
-        transcript.write_text(json.dumps({'type': 'message'}))
-        self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
-        transcript.write_text(json.dumps({'cwd': '.'}))
-        self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
+        def owner(*cwds):
+            transcript.write_text('\n'.join(json.dumps({'cwd': str(cwd)}) for cwd in cwds))
+            return [ws for ws in ('alpha', 'beta') if policy.transcript_allowed(transcript, ws)]
+        # Learning needs no approved root: no workspace has claimed this project.
+        self.assertEqual(owner(self.a), ['alpha', 'beta'])
+        policy.add_root(str(self.a), 'alpha')
+        self.assertEqual(owner(self.a / 'sub'), ['alpha'])
+        self.assertEqual(owner(self.b), ['alpha', 'beta'])
+        # Touching another workspace's project keeps the whole conversation out.
+        self.assertEqual(owner(self.a, self.b), ['alpha'])
+        # A root shared on purpose shares its conversations.
+        policy.add_root(str(self.a), 'beta', allow_overlap=True)
+        self.assertEqual(owner(self.a), ['alpha', 'beta'])
+        for content in (json.dumps({'type': 'message'}), json.dumps({'cwd': '.'})):
+            transcript.write_text(content)
+            self.assertFalse(policy.transcript_allowed(transcript, 'alpha'))
+
+    def test_desktop_exports_scan_download_folders_without_roots_but_not_other_folders(self):
+        import zipfile
+        from imprint import cli_desktop_learn as desktop
+        config.switch_workspace('alpha')
+        downloads, elsewhere = self.root / 'Downloads', self.b / 'exports'
+        for folder in (downloads, elsewhere):
+            folder.mkdir()
+            with zipfile.ZipFile(folder / 'data-2026-10-24-export.zip', 'w') as export:
+                export.writestr('conversations.json', json.dumps([{'name': folder.name}]))
+        (downloads / 'linked-data-2026-10-24.zip').symlink_to(elsewhere / 'data-2026-10-24-export.zip')
+        with patch.object(desktop, '_downloads_roots', return_value=[downloads]), \
+                patch.object(desktop, '_ingest_json_file', return_value=1) as ingest:
+            self.assertEqual(desktop.scan_once_api()['indexed_zips'], 1)
+            self.assertEqual(ingest.call_args.args[2], str((downloads / 'data-2026-10-24-export.zip').resolve()))
+            with self.assertRaisesRegex(ValueError, 'outside the workspace roots'):
+                desktop.scan_once_api([str(elsewhere)])
+            policy.add_root(str(self.b), 'alpha')
+            self.assertEqual(desktop.scan_once_api([str(elsewhere)])['indexed_zips'], 1)
+        self.assertEqual(policy.roots('alpha'), [str(self.b.resolve())])
 
     def test_unknown_workspaces_and_empty_cleanup_targets_fail(self):
         with self.assertRaises(ValueError):

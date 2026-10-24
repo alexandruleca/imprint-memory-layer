@@ -134,7 +134,13 @@ imprint workspace roots remove /code/my-project --workspace research
 
 Roots resolve symlinks and use path-component boundaries. An overlap error identifies the other workspaces; `--allow-overlap` explicitly confirms sharing. The dashboard offers the same action with confirmation under **Sources → Workspace roots and cleanup** for the active workspace, and under **Manage workspaces → Edit** for any workspace. Removing a root retains indexed data. Policy is stored separately in `data/workspace-policy.sqlite3`.
 
-Existing data is retained; old provenance does not automatically establish ownership. Approve intended roots and purge mistakes. `learn` requires roots first, imports transcripts only when their recorded cwd stays inside approved roots, and skips cwd-less/mixed-outside transcripts. Auto-memory import requires that project evidence. Desktop exports must live under approved roots, with per-workspace import tracking. Inline/URL content and deliberate migrations use the selected workspace directly.
+**Pick folder** browses the machine the Imprint service runs on, with breadcrumbs in that machine's path syntax. On a Windows installation it lists each WSL distribution as a root (for example **WSL Ubuntu** at `\\wsl.localhost\Ubuntu\`), so Linux folders can be picked and approved. These are the same `\\wsl.localhost\<distro>\…` paths that WSL clients connected to the Windows runtime use (ADR 0026). A root typed as `\\wsl$\<distro>\…` is a different path for the comparison and does not cover them. Linux-style paths such as `/home/me` are not guessed on Windows.
+
+Existing data is retained; old provenance does not automatically establish ownership. Approve intended roots and purge mistakes. Inline/URL content and deliberate migrations use the selected workspace directly.
+
+### Learning needs no root
+
+`imprint learn` reads Claude Code's own transcript store and the Downloads folders where desktop exports land, so it needs no approved root. Roots decide which workspace each conversation belongs to. A conversation is learned when every working directory it recorded is inside this workspace's roots or outside every other workspace's roots. Conversations about another workspace's projects stay there, and conversations with no recorded working directory are skipped. Auto-memory files and the Stop hook follow the same rule. Desktop exports are tracked per workspace. Extra export folders passed with `--path` must be inside approved roots. See [ADR 0034](adr/0034-learn-from-client-stores-by-conversation-ownership.md).
 
 ## Purge mistaken files or directories
 

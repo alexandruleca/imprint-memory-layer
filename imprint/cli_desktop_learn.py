@@ -20,6 +20,10 @@ Usage:
 
 Re-run safe: indexed zips are tracked per workspace in
 ``data/desktop_exports_<workspace>.json``.
+
+The Downloads folders are where these exports land, so scanning them needs
+no workspace root. Extra ``--path`` folders are the caller's choice and must
+be inside the workspace's approved roots (ADR 0034).
 """
 
 from __future__ import annotations
@@ -166,6 +170,10 @@ def _iter_candidate_zips(roots: list[Path]):
             for entry in root.iterdir():
                 if not entry.is_file() or entry.suffix.lower() != ".zip":
                     continue
+                # Read exports from the scanned folder itself, not through a
+                # link to somewhere else.
+                if entry.resolve().parent != root.resolve():
+                    continue
                 if entry.stat().st_size > _MAX_ZIP_SIZE:
                     continue
                 if _CANDIDATE_FILENAME_RE.match(entry.name):
@@ -242,9 +250,7 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
 
 def _process_zip(zip_path: Path, origin: str) -> int:
     """Extract + index one export zip. Returns chunks inserted."""
-    from .workspace_policy import path_allowed, is_excluded
-    if not path_allowed(zip_path):
-        raise ValueError('Desktop export is outside approved workspace roots')
+    from .workspace_policy import is_excluded
     if is_excluded(path=str(zip_path)):
         return 0
     project = {
@@ -286,9 +292,13 @@ def _scan_once(extra_paths: list[str], *, verbose: bool = True) -> dict:
           ],
         }
     """
+    from .workspace_policy import path_allowed
     roots = _downloads_roots()
     for p in extra_paths:
         path = Path(p).expanduser()
+        if not path_allowed(str(path)):
+            raise ValueError(f'{path} is outside the workspace roots. Approve it first: '
+                             'imprint workspace roots add <directory>')
         if path.is_dir() and path not in roots:
             roots.append(path)
 
@@ -310,9 +320,6 @@ def _scan_once(extra_paths: list[str], *, verbose: bool = True) -> dict:
     }
 
     for zip_path in _iter_candidate_zips(roots):
-        from .workspace_policy import path_allowed
-        if not path_allowed(zip_path):
-            continue
         result["scanned"] += 1
         digest = _sha256(zip_path)
         if digest in seen:
@@ -399,21 +406,25 @@ def main() -> int:
             print(f"Unknown argument: {a}", file=sys.stderr)
             return 1
 
-    if watch:
-        print()
-        print(f"  {C_CYAN}Watching{C_RESET} for new conversation exports every {interval}s (Ctrl+C to stop)")
-        try:
-            while True:
-                stats = _scan_once(extra_paths)
-                if stats["indexed_zips"] > 0:
-                    _print_summary(stats)
-                time.sleep(interval)
-        except KeyboardInterrupt:
+    try:
+        if watch:
             print()
-            print("  stopped.")
-            return 0
+            print(f"  {C_CYAN}Watching{C_RESET} for new conversation exports every {interval}s (Ctrl+C to stop)")
+            try:
+                while True:
+                    stats = _scan_once(extra_paths)
+                    if stats["indexed_zips"] > 0:
+                        _print_summary(stats)
+                    time.sleep(interval)
+            except KeyboardInterrupt:
+                print()
+                print("  stopped.")
+                return 0
 
-    stats = _scan_once(extra_paths)
+        stats = _scan_once(extra_paths)
+    except ValueError as error:  # An unapproved --path folder.
+        print(f"  {error}", file=sys.stderr)
+        return 1
     _print_summary(stats, prefix="")
     return 0
 

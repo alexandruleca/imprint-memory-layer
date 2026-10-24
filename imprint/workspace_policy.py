@@ -101,11 +101,20 @@ def path_allowed(path, workspace=None):
 
 
 def transcript_allowed(path, workspace=None):
-    """Use recorded cwd evidence, never the lossy encoded Claude folder name."""
+    """Whether a client conversation belongs to ``workspace`` (ADR 0034).
+
+    Ownership comes from the recorded cwd evidence, never the lossy encoded
+    Claude folder name: every cwd must be inside this workspace's roots or
+    outside every other workspace's roots. A conversation about a project
+    another workspace claimed stays there; one no workspace claimed is learned
+    by the workspace that learns it. Without cwd evidence it belongs nowhere.
+    """
     import json
-    approved = [Path(root) for root in roots(workspace)]
-    if not approved:
-        return False
+    ws = workspace_name(workspace)
+    with _db() as conn:
+        claims = conn.execute('SELECT workspace, path FROM roots').fetchall()
+    own = [Path(root) for owner, root in claims if owner == ws]
+    others = [Path(root) for owner, root in claims if owner != ws]
     seen = False
     with open(path, encoding='utf-8') as transcript:
         for line in transcript:
@@ -115,7 +124,10 @@ def transcript_allowed(path, workspace=None):
                 continue
             if cwd:
                 seen = True
-                if not isinstance(cwd, str) or not Path(native_path(cwd)).is_absolute() or not any(contains(root, canonical(cwd)) for root in approved):
+                if not isinstance(cwd, str) or not Path(native_path(cwd)).is_absolute():
+                    return False
+                where = canonical(cwd)
+                if not any(contains(root, where) for root in own) and any(contains(root, where) for root in others):
                     return False
     return seen
 

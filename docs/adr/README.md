@@ -29,7 +29,7 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0012](0012-native-package-runtime-and-silent-installs.md) | Accepted | Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke. |
 | [0013](0013-remediate-security-scan-dependencies.md) | Accepted | Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching. |
 | [0014](0014-main-only-release-packaging.md) | Accepted | Compile/test branches; package and publish release artifacts only from main. |
-| [0015](0015-workspace-roots-and-source-purge.md) | Accepted | Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. |
+| [0015](0015-workspace-roots-and-source-purge.md) | Accepted; learning rules superseded by [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. |
 | [0016](0016-sync-direction-and-workspace-sharing.md) | Accepted (details superseded by 0018) | Per-machine sync direction policies, per-session workspace selection and copy migration for sharing curated workspaces. |
 | [0017](0017-device-provenance-and-local-project-paths.md) | Accepted | Portable memory origin, current-device context and approved local project-path mappings. |
 | [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Accepted | One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback. |
@@ -48,3 +48,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0031](0031-website-analytics-and-public-relay-status.md) | Accepted | GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page. |
 | [0032](0032-one-onnx-runtime-per-environment.md) | Accepted | Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. |
 | [0033](0033-stored-secret-settings.md) | Accepted | Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence. |
+| [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Accepted | Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. |

@@ -70,25 +70,26 @@ class WSLPathTests(unittest.TestCase):
                 '--cwd', '/home/test/project', '--home', '/home/test', 'hook', 'post-search']), 0)
             chdir.assert_called_once_with(r'\\wsl.localhost\Ubuntu\home\test\project')
 
-    def test_transcript_cwd_still_requires_approved_root(self):
-        from imprint import workspace_policy as policy
-        with tempfile.TemporaryDirectory() as directory:
+    def test_transcript_cwd_is_translated_before_the_ownership_check(self):
+        from imprint import config, workspace_policy as policy
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(Path(directory) / 'data'), 'IMPRINT_WORKSPACE': ''}):
             # Stored roots are canonical; temp paths are not on macOS
             # (/var -> /private/var) or Windows (8.3 short names).
-            root = Path(directory).resolve()
-            transcript = root / 'session.jsonl'
+            project = Path(directory).resolve() / 'project'
+            project.mkdir()
+            config.register_workspace('alpha')
+            config.register_workspace('beta')
+            transcript = Path(directory) / 'session.jsonl'
             transcript.write_text(json.dumps({'cwd': '/home/test/project'}))
-            # Fixture maps the Windows UNC to a local native directory, then
+            # Fixture maps the WSL path to a local native directory, then
             # exercises the real policy check. The bridge adds no root itself.
-            with patch.object(policy, 'native_path', side_effect=lambda p: str(root) if p == '/home/test/project' else p):
-                with patch.object(policy, 'roots', return_value=[]):
-                    self.assertFalse(policy.transcript_allowed(str(transcript)))
-
-                with patch.object(policy, 'roots', return_value=[str(root)]):
-                    self.assertTrue(policy.transcript_allowed(str(transcript)))
-                transcript.write_text(json.dumps({'cwd': '/outside/root'}))
-                with patch.object(policy, 'roots', return_value=[str(root)]):
-                    self.assertFalse(policy.transcript_allowed(str(transcript)))
+            with patch.object(policy, 'native_path', side_effect=lambda p: str(project) if p == '/home/test/project' else p):
+                self.assertTrue(policy.transcript_allowed(str(transcript), 'alpha'))
+                policy.add_root('/home/test/project', 'beta')
+                self.assertFalse(policy.transcript_allowed(str(transcript), 'alpha'))
+                self.assertTrue(policy.transcript_allowed(str(transcript), 'beta'))
+            self.assertEqual(policy.roots('alpha'), [])
 
     def test_unapproved_stop_does_not_launch_any_transcript_consumer(self):
         from imprint import hook_entry, workspace_policy

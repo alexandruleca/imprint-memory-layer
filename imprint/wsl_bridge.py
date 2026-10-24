@@ -104,7 +104,7 @@ def main(argv=None):
             approved = False
         if not approved:
             payload.pop('transcript_path', None)
-            print('Imprint skipped transcript outside approved workspace roots.', file=sys.stderr)
+            print('Imprint skipped a conversation that belongs to another workspace or records no working directory.', file=sys.stderr)
     sys.stdin = io.StringIO(json.dumps(payload))
     sys.argv = ['hook_entry.py', args.args[0], args.data_dir]
     from imprint.hook_entry import main as hook_main

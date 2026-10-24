@@ -171,10 +171,10 @@ Keep it running in the background while you request new exports:
 ```bash
 imprint learn --desktop --watch            # polls every 30 s by default
 imprint learn --desktop --interval 300     # every 5 min
-imprint learn --desktop --path ~/Archive   # extra root(s) in addition to Downloads
+imprint learn --desktop --path ~/Archive   # extra folder(s) in addition to Downloads
 ```
 
-`imprint learn` on its own still indexes Claude Code transcripts and auto-memory files exactly as before; `--desktop` is additive.
+`imprint learn` on its own indexes Claude Code transcripts and auto-memory files; `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
 
 ## Install a specific version or channel
 

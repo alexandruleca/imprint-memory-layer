@@ -164,7 +164,7 @@ dedup/replace by `name`, and avoids a trip through the job queue. See
 | POST | `/api/sync/cancel` | Cancel an active peer-sync session by `session_id`. |
 | POST | `/api/sync/approve` | Resolve a pending sync decision. Body: `{"session_id": "...", "decision": "accept" \| "trust" \| "reject"}`. Serving: answers `approval_required` (`trust` also remembers the device). Joining: answers `confirm_push` (`accept` sends the workspace, anything else skips the push). |
 | GET | `/api/desktop-learn/history` | Previously-indexed Claude Desktop / ChatGPT Desktop export zips (SHA-keyed). |
-| POST | `/api/desktop-learn/scan` | One-shot Downloads scan for new desktop-app conversation exports. Body (optional): `{"paths": ["/extra/dir", ...]}`. Returns the structured scan result used by the dashboard. |
+| POST | `/api/desktop-learn/scan` | One-shot Downloads scan for new desktop-app conversation exports. Body (optional): `{"paths": ["/extra/dir", ...]}`; extra folders must be inside the workspace's approved roots (ADR 0034). Returns the structured scan result used by the dashboard. |
 
 Live peer sync runs the same sessions as `imprint sync` (one implementation,
 `imprint/sync_ws.py`), end-to-end encrypted — see [sync](./sync.md). Beyond
