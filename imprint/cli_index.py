@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs
 from imprint import extractors
 from imprint.progress import write_progress, clear_progress
-from imprint.source_state import allowed_source, fingerprint, stamp_records, unchanged, missing_sources
+from imprint.source_state import (allowed_source, fingerprint, stamp_records, unchanged, missing_sources,
+                                  extraction_profile, no_text_reason, known_no_text, remember_no_text)
 from imprint._cli_signals import install as _install_signals
 
 _install_signals()
@@ -498,10 +499,16 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
     records = []
     mtime = os.path.getmtime(file_path)
     source_key = f"{project}/{rel}"
+    profile = extraction_profile()
+    reason = None
 
     if is_doc:
+        # A document already found to have no text under this profile is not read again.
+        reason = None if force else known_no_text(snapshot["source_hash"], profile)
+        doc_list = []
         try:
-            doc_list = extractors.dispatch_by_ext(file_path)
+            if reason is None:
+                doc_list = extractors.dispatch_by_ext(file_path)
         except extractors.ExtractorUnavailable as e:
             print(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
             sys.exit(1)
@@ -549,7 +556,9 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
             content = f.read(max_bytes + 1)
         if not content.strip():
             stamp_records([], file_path, snapshot)
-            vs.delete_by_source(source_key, project=project)
+            held = vs.get_source_summary(source_key)
+            if held:
+                vs.delete_by_source(source_key, project=held["project"])
             clear_progress()
             print("  Empty file: prior chunks cleared")
             return
@@ -581,8 +590,17 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
             })
 
     if not records:
+        # Nothing to index is an outcome, not a failure. Chunks of an earlier
+        # version stay: the document may still hold that text, unreadable now.
+        stamp_records([], file_path, snapshot)
+        reason = reason or no_text_reason(file_path, profile)
+        remember_no_text(snapshot["source_hash"], profile, reason)
         clear_progress()
-        raise ValueError("No indexable text extracted; prior chunks retained")
+        held = vs.get_source_summary(source_key)
+        kept = f"; kept {held['chunk_count']} chunks of an earlier version" if held else ""
+        print(f"  {C_YELLOW}Nothing to index:{C_RESET} {rel}: {reason}{kept}")
+        print()
+        return
 
     # Replace any existing chunks for this source
     records = stamp_records(records, file_path, snapshot)
@@ -695,6 +713,9 @@ def _llm_tag_recent(
             points=[point_id],
         )
     tagged += len(batch_updates)
+    # Payload-only updates change no point count: log them so readers of the
+    # data fingerprint (dashboard caches) see the new types and tags.
+    vs._wal_log("llm_tag", count=tagged)
 
     if print_bar and total_hint:
         print_bar(tagged, total_hint, time.time() - t0)
@@ -840,7 +861,9 @@ def _main(command: str = "ingest"):
         return records
 
     def read_and_chunk(args):
-        """Read a file and chunk it. Returns list of record dicts or None.
+        """Read a file and chunk it. Returns (records, no_text_reason), or None
+        when reading failed. A file with nothing to index returns no records:
+        an empty text file with no reason, a document without text with one.
 
         Each chunk gets its own structured tag payload derived by the tagger
         (deterministic lang/layer/kind + keyword-matched domain tags).
@@ -883,15 +906,18 @@ def _main(command: str = "ingest"):
                         for index, record in enumerate(all_records):
                             record["chunk_index"] = index
                 if not all_records:
-                    raise ValueError("No indexable text extracted; prior chunks retained")
-                return stamp_records(all_records, fpath, snapshot)
+                    stamp_records([], fpath, snapshot)
+                    reason = no_text_reason(fpath, profile)
+                    remember_no_text(snapshot["source_hash"], profile, reason)
+                    return [], reason
+                return stamp_records(all_records, fpath, snapshot), ""
             else:
                 if snapshot["source_size"] > max_file_bytes:
                     raise ValueError(f"File exceeds ingest.max_file_bytes ({max_file_bytes}); prior chunks retained")
                 with open(fpath, 'r', encoding='utf-8') as f:
                     content = f.read(max_file_bytes + 1)
                 if not content.strip():
-                    return stamp_records([], fpath, snapshot)
+                    return stamp_records([], fpath, snapshot), ""
                 chunks = chunk_file(content, rel, chunk_mode=None)
                 if not chunks:
                     raise ValueError("Chunker produced no chunks for nonempty text")
@@ -899,7 +925,7 @@ def _main(command: str = "ingest"):
                 source_key = f"{project}/{rel}"
                 return stamp_records(_chunks_to_records(
                     chunks, project, rel, source_key, mtime, {}, None,
-                ), fpath, snapshot)
+                ), fpath, snapshot), ""
         except Exception as e:
             failures.append(rel)
             print(f"\n  [error] {rel}: {e}", file=sys.stderr)
@@ -912,21 +938,30 @@ def _main(command: str = "ingest"):
             all_files.append((project, rel, fpath))
 
     # Compare complete byte fingerprints, including timestamp-preserving edits.
+    # A document already found to have no text is read again only once its
+    # bytes or the extraction profile (OCR settings and tools) changed.
+    profile = extraction_profile()
     known_states = vs.get_source_states()
     pre_skipped = 0
+    known_no_text_count = 0
+    no_text = []
     filtered = []
     for project, rel, fpath in all_files:
         source_key = f"{project}/{rel}"
-        if not force and unchanged(fingerprint(fpath), known_states.get(source_key)):
+        current = fingerprint(fpath)
+        if not force and unchanged(current, known_states.get(source_key)):
             pre_skipped += 1
+        elif (not force and extractors.is_doc_extension(os.path.splitext(rel)[1])
+              and known_no_text(current["source_hash"], profile)):
+            known_no_text_count += 1
         else:
             filtered.append((project, rel, fpath))
     all_files = filtered
     stale_sources = missing_sources(known_states, [path for path, _ in pairs])
     cleaned = 0
     stored = 0
-    skipped = pre_skipped
-    processed = pre_skipped
+    skipped = pre_skipped + known_no_text_count
+    processed = skipped
     grand_total = grand_total  # bar total stays on full file count
     t_start = time.time()
     cancelled = False
@@ -961,12 +996,22 @@ def _main(command: str = "ingest"):
                 skipped += 1
                 continue
 
-            if not result:
-                # A verified empty file is an explicit deletion of its old chunks.
-                project, rel, _ = args
-                cleaned += bool(vs.delete_by_source(f"{project}/{rel}", project=project))
+            records, reason = result
+            project, rel, _ = args
+            source_key = f"{project}/{rel}"
+            if reason:
+                # Nothing to index, not a failure. Chunks of an earlier version
+                # stay: the document may still hold that text, unreadable now.
+                skipped += 1
+                no_text.append((rel, reason, source_key in known_states))
                 continue
-            pending_batch.extend(result)
+            if not records:
+                # A verified empty file is an explicit deletion of its old chunks.
+                if source_key in known_states:
+                    vs.delete_by_source(source_key, project=known_states[source_key].get("project", ""))
+                    cleaned += 1
+                continue
+            pending_batch.extend(records)
 
             # Flush batch when large enough
             if len(pending_batch) >= BATCH_SIZE:
@@ -1018,6 +1063,11 @@ def _main(command: str = "ingest"):
     reset_gpu_retries()
     print(f"  Stored:   {stored}")
     print(f"  Skipped:  {skipped}")
+    if no_text or known_no_text_count:
+        print(f"  No text:  {len(no_text) + known_no_text_count} documents with nothing to index "
+              f"(retried once the file or the OCR settings change)")
+        for rel, reason, kept in no_text:
+            print(f"    {rel}: {reason}{'; kept the chunks of its earlier version' if kept else ''}")
     if failures:
         print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
     if llm_tagged:

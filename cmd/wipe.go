@@ -167,6 +167,7 @@ func wipeEverything(projectDir, dataDir string, force bool) {
 		"wal*.jsonl         (write-ahead logs)",
 		".sessions/         (session state)",
 		"workspace.json     (workspace config)",
+		"extraction-results.sqlite3 (documents found to have no text)",
 	}
 
 	fmt.Println()
@@ -238,7 +239,9 @@ func wipeEverything(projectDir, dataDir string, force bool) {
 	}
 
 	// Remove other files
-	for _, name := range []string{"qdrant.pid", "workspace.json"} {
+	// extraction-results.sqlite3 is shared by every workspace (keyed by
+	// content hash, ADR 0040), so only wiping everything removes it.
+	for _, name := range []string{"qdrant.pid", "workspace.json", "extraction-results.sqlite3"} {
 		path := filepath.Join(dataDir, name)
 		if platform.FileExists(path) {
 			if err := os.Remove(path); err != nil {

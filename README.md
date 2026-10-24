@@ -159,6 +159,9 @@ imprint retag [--project] [--all]
 imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
                            # move memories between workspaces (preserves vectors);
                            # --copy keeps the source, e.g. to curate a workspace to share
+imprint move <project> <target> [--source KEY]... [--apply]
+                           # preview moving a project (or some of its sources) to another project;
+                           # --apply moves them and keeps later refresh/learn/sync writes there
 imprint config             # show all settings with current values
 imprint config set <k> <v> # persist a setting (e.g. model.name, qdrant.port)
 imprint config get <key>   # show one setting with source + default

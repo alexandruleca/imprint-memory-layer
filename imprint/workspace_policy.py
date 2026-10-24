@@ -23,6 +23,8 @@ def _db():
         conn.execute('CREATE TABLE IF NOT EXISTS roots (workspace TEXT, path TEXT, PRIMARY KEY(workspace, path))')
         conn.execute('CREATE TABLE IF NOT EXISTS exclusions (workspace TEXT, kind TEXT, path TEXT, recursive INTEGER, PRIMARY KEY(workspace, kind, path))')
         conn.execute('CREATE TABLE IF NOT EXISTS project_roots (workspace TEXT, project TEXT, path TEXT, PRIMARY KEY(workspace, project))')
+        # Placement rules for moved memories (imprint.projects, ADR 0036)
+        conn.execute('CREATE TABLE IF NOT EXISTS placements (workspace TEXT, project TEXT, source TEXT, target TEXT, PRIMARY KEY(workspace, project, source))')
         conn.commit()
         conn.execute('BEGIN IMMEDIATE')
         yield conn
@@ -237,6 +239,7 @@ def remove_workspace(workspace):
         conn.execute('DELETE FROM roots WHERE workspace=?', (workspace,))
         conn.execute('DELETE FROM exclusions WHERE workspace=?', (workspace,))
         conn.execute('DELETE FROM project_roots WHERE workspace=?', (workspace,))
+        conn.execute('DELETE FROM placements WHERE workspace=?', (workspace,))
 
 
 def map_project(project, path, workspace=None):

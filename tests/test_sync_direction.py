@@ -101,6 +101,17 @@ class WorkspaceSyncStorageTests(unittest.TestCase):
         self.assertIn('team', config.get_known_workspaces())
         self.assertEqual(config.get_active_workspace(), 'default')
 
+    def test_migrating_a_project_takes_the_facts_of_sources_moved_into_it(self):
+        from imprint import projects
+        self.prepare()
+        vs.store_batch(self.records(['brief'], project='Desktop', source='Desktop/brief.pdf'))
+        kg.add('brief', 'describes', 'naming', source='Desktop/brief.pdf')
+        projects.move('Desktop', 'shared', ['Desktop/brief.pdf'], apply=True)
+        copied, _, facts = cli_migrate.migrate('default', 'team', project='shared', copy=True)
+        self.assertEqual((copied, facts), (3, 2))
+        objects = {fact['object'] for fact in kg.query(workspace='team')}
+        self.assertEqual(objects, {'qdrant', 'naming'})
+
     def test_dry_run_changes_nothing_and_move_removes_source(self):
         self.prepare()
         cli_migrate.migrate('default', 'curated', project='shared', dry_run=True)

@@ -5,7 +5,7 @@ workspace's collection **preserving the existing vectors** (no re-embedding),
 then deletes from source unless ``--copy`` is given.  Copying curates a
 workspace (for example one to share with ``imprint sync serve --workspace
 WS2 --send-only``) without taking anything away from the source.  Also
-copies knowledge-graph facts that share the same project tag or source key.
+copies the knowledge-graph facts about the migrated memories' sources.
 
 Usage:
     python -m imprint.cli_migrate --from WS1 --to WS2 --project NAME [--copy] [--dry-run]
@@ -48,14 +48,16 @@ def _build_filter(project: str, topic: str, source: str) -> qm.Filter:
 def _migrate_kg_facts(
     from_workspace: str,
     to_workspace: str,
-    project: str,
-    source: str,
+    sources: set[str],
+    prefix: str,
     dry_run: bool,
 ) -> int:
-    """Copy KG facts whose source matches from one DB to another.
+    """Copy the KG facts about the migrated memories from one DB to another.
 
-    - If `project` given: copies facts whose source starts with '<project>/'.
-    - If `source` given: copies facts whose source equals the exact key.
+    A fact goes along when its source is one of the migrated memories' source
+    keys or, for a project, starts with '<project>/' (facts recorded under the
+    project's name). Memories moved into a project keep the source key they
+    were indexed under (ADR 0036), so the name prefix alone misses theirs.
 
     Facts the target already holds — same (subject, predicate, object,
     valid_from), the key sync dedups on — are skipped, so repeating a copy
@@ -65,16 +67,7 @@ def _migrate_kg_facts(
     NOT deleted — facts are usually additive and safe to keep as historical.
     """
     src_db = _config.graph_db_path(from_workspace)
-    if not src_db.exists():
-        return 0
-
-    if source:
-        where_sql = "source = ?"
-        where_val: tuple = (source,)
-    elif project:
-        where_sql = "source LIKE ?"
-        where_val = (f"{project}/%",)
-    else:
+    if not src_db.exists() or not (sources or prefix):
         return 0
 
     try:
@@ -82,10 +75,10 @@ def _migrate_kg_facts(
         origin = 'recorded_device' if 'recorded_device' in {row[1] for row in conn.execute('PRAGMA table_info(facts)')} else "'{}'"
         cur = conn.execute(
             f"SELECT subject, predicate, object, valid_from, ended, source, {origin} "
-            f"FROM facts WHERE {where_sql}",
-            where_val,
+            f"FROM facts WHERE source != ''",
         )
-        rows = cur.fetchall()
+        rows = [row for row in cur.fetchall()
+                if row[5] in sources or (prefix and row[5].startswith(prefix))]
         conn.close()
     except sqlite3.OperationalError:
         return 0
@@ -176,6 +169,7 @@ def migrate(
     offset = None
     pending_points: list = []
     pending_ids: list = []
+    sources: set[str] = {source} if source else set()
     t0 = time.time()
 
     while True:
@@ -200,6 +194,8 @@ def migrate(
                 qm.PointStruct(id=pt.id, vector=new_vec, payload=pt.payload or {})
             )
             pending_ids.append(pt.id)
+            if (pt.payload or {}).get("source"):
+                sources.add(pt.payload["source"])
 
             if len(pending_points) >= batch_size:
                 if not dry_run:
@@ -237,7 +233,7 @@ def migrate(
     kg_copied = 0
     if project or source:
         kg_copied = _migrate_kg_facts(
-            from_workspace, to_workspace, project, source, dry_run,
+            from_workspace, to_workspace, sources, f"{project}/" if project else "", dry_run,
         )
 
     elapsed = time.time() - t0

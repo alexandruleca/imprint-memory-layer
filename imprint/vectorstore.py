@@ -291,6 +291,9 @@ def store(
     from .workspace_policy import check_records, workspace_name
     workspace = workspace_name(workspace)
     check_records([{'source': source, 'source_path': source_path}], workspace)
+    from .projects import place
+    placed = place([{'project': project, 'source': source}], workspace)[0]
+    project = placed['project']
     client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
     if memory_id in _live_existing_ids(client, coll, [memory_id]):
@@ -303,6 +306,7 @@ def store(
         "_mid": memory_id,
         "content": content,
         "project": project,
+        "origin_project": placed["origin_project"],
         "type": type,
         "tags": _normalize_tags(tags),
         "source": source,
@@ -391,6 +395,8 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
     from . import device
     records = [device.prepare(record, imported=imported) for record in records]
     check_records(records, workspace)
+    from .projects import place
+    records = place(records, workspace)
     client, coll = _ensure_collection(workspace)
     existing = set() if force else _live_existing_ids(client, coll, (
         _make_id(r["content"], r.get("project", ""), r.get("source", ""), r.get("chunk_index"))
@@ -487,6 +493,9 @@ def replace_source(records: list[dict], source: str, project: str,
         raise ValueError("Replacement records must belong to the specified source and project")
     from .workspace_policy import workspace_name
     workspace = workspace_name(workspace)
+    from .projects import place
+    records = place(records, workspace)
+    project = records[0]["project"]
     inserted, skipped = store_batch(records, workspace=workspace, **({"force": True} if force else {}))
     client, coll = _ensure_collection(workspace)
     ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
@@ -540,6 +549,9 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     from .workspace_policy import check_records, workspace_name
     workspace = workspace_name(workspace)
     check_records(records, workspace)
+    # After the sender's IDs check out: this workspace's rules place them.
+    from .projects import place
+    records = place(records, workspace)
     client, coll = _ensure_collection(workspace)
     existing = _live_existing_ids(client, coll, (
         record_id(r)
@@ -881,7 +893,7 @@ def get_source_summary(
             offset=offset,
             with_payload=["content", "project", "type", "tags", "source_type", "source",
                           "source_mtime", "chunk_index", "source_path", "recorded_device", "recorded_at",
-                          "source_device", "source_relative_path", "source_path_local"],
+                          "source_device", "source_relative_path", "source_path_local", "origin_project"],
             with_vectors=False,
         )
         all_points.extend(points)
@@ -975,7 +987,7 @@ def get_chunks_by_source(
             scroll_filter=flt,
             limit=_SCAN_BATCH,
             offset=offset,
-            with_payload=["content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local"],
+            with_payload=["content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local", "origin_project"],
             with_vectors=False,
         )
         all_points.extend(points)

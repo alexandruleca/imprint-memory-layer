@@ -14,7 +14,7 @@ imprint workspace roots add /code/project --workspace work
 imprint workspace map project /code/project --workspace work
 ```
 
-Normal file ingestion sets the project mapping automatically. A mapping changes only this device's workspace policy; root approval/sharing rules still apply. Maps are not synced.
+Normal file ingestion sets the project mapping automatically. A mapping changes only this device's workspace policy; root approval/sharing rules still apply. Maps are not synced. A file's project-relative path resolves under the mapping of the project it was indexed in (its `origin_project`), so a file moved to another project ([ADR 0036](adr/0036-move-memories-between-projects.md)) still resolves to where it lives.
 
 A memory can reference `C:\Users\alice\project\src\app.py` from A while B uses `/code/project`. Imprint preserves the original as a reference and resolves `src/app.py` through B's approved map. Retrieval adds `path_context`: current device/cwd, original path, status and optional `local_source_path`. A hint requires an existing file inside both the approved root and current process cwd. Traversal/symlink escape produce no hint. Hashes describe indexed bytes; verify current files before edits.
 

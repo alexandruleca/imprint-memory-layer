@@ -55,7 +55,8 @@ from .cli_viz import (
     build_graph_scope,
     get_neighbors,
     get_memory,
-    check_for_changes,
+    data_fingerprint,
+    reset_cache,
     _get_overview,
     _get_project_detail,
     _build_global_filter,
@@ -438,6 +439,30 @@ async def api_sources_purge(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
+@app.post('/api/projects/move')
+async def api_projects_move(request: Request):
+    """Preview, or apply, moving a project's memories to another project (ADR 0036).
+
+    ``sources`` lists the source keys to move; without it the whole project
+    moves (a merge when the target exists). Apply needs the workspace the
+    preview returned, like purge.
+    """
+    from .projects import run_move
+    body = await request.json()
+    try:
+        if not isinstance(body.get('apply', False), bool):
+            raise ValueError('apply must be a boolean')
+        if body.get('apply') and not body.get('workspace'):
+            raise ValueError('Apply requires the explicit workspace returned by preview')
+        sources = body.get('sources')
+        if sources is not None and not isinstance(sources, list):
+            raise ValueError('sources must be a list of source keys, or left out to move the whole project')
+        return await asyncio.to_thread(run_move, body.get('project'), body.get('target'), sources,
+                                       workspace=body.get('workspace'), apply=body.get('apply', False))
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
 # ── Chat ───────────────────────────────────────────────────────
 
 @app.get("/api/chat/status")
@@ -540,15 +565,23 @@ _shutdown_event = threading.Event()
 
 
 @app.get("/api/stream")
-def api_stream():
-    def event_stream():
-        version = 0
+async def api_stream():
+    """An ``update`` event whenever the active workspace's data changes.
+
+    Pages refetch on it; their reads are fresh either way (cli_viz checks
+    the data fingerprint on every cached read). The heartbeat lets a closed
+    connection end its stream instead of waiting for the next change.
+    """
+    async def event_stream():
+        seen, version = await asyncio.to_thread(data_fingerprint), 0
         while not _shutdown_event.is_set():
-            if check_for_changes():
-                from .cli_viz import _data_version
-                version = _data_version
+            await asyncio.sleep(2)
+            current = await asyncio.to_thread(data_fingerprint)
+            if current != seen:
+                seen, version = current, version + 1
                 yield f"event: update\ndata: {json.dumps({'version': version})}\n\n"
-            _shutdown_event.wait(2)  # interruptible sleep
+            else:
+                yield ": heartbeat\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -849,17 +882,8 @@ def _reset_after_wipe():
         except Exception:
             pass
     kg._conns.clear()
-    # Clear dashboard caches if cli_viz is loaded
-    try:
-        from . import cli_viz
-        cli_viz._overview_cache = None
-        cli_viz._project_cache.clear()
-        cli_viz._cross_project_cache = None
-        cli_viz._last_wal_size = 0
-        cli_viz._last_row_count = -1
-        cli_viz._data_version = 0
-    except Exception:
-        pass
+    # The wiped store restarts its WAL and point count, so forget cached views
+    reset_cache()
 
 
 # Allowed commands — just run the `imprint` binary directly.

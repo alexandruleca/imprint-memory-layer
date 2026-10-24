@@ -92,6 +92,7 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/project/{name}` | Stats + top sources + top topics per project. |
+| POST | `/api/projects/move` | Preview, or apply, moving a project's memories (`sources: [keys]`, or all of them) to `target`. Apply needs `apply: true` and the `workspace` the preview returned. See [ADR 0036](adr/0036-move-memories-between-projects.md). |
 | GET | `/api/topics` | Topic facet counts. |
 | GET | `/api/topic/{name}` | Projects + memories tagged with one topic. |
 | GET | `/api/graph` | Graph walk. `?scope=root\|project:X\|topic:X\|source:X\|chunk:X&depth=1..3`. |
@@ -236,11 +237,15 @@ stored in the session as the assistant's message.
 
 ## Streams & long-polling
 
-Three endpoints return **Server-Sent Events**:
+These endpoints return **Server-Sent Events**:
 
 - `/api/jobs/{id}/stream` — live stdout/stderr for a background job
 - `/api/chat` — agent tokens + tool call events
 - `/api/sync/serve` and `/api/sync/receive` — peer-sync progress events
+- `/api/stream` — an `update` event when the active workspace's data changes
+  (any process: ingest jobs, agents, sync). Overview and project views are
+  checked against the data on every read, so refetching after an event, or
+  at any time, returns current data.
 
 Use `EventSource` in the browser, `sseclient` in Python, or `curl -N` to
 consume. Postman shows raw bytes — useful for inspecting events but not for

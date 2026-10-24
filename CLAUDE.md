@@ -68,6 +68,7 @@ imprint learn              # index Claude Code conversations + memory files
 imprint learn --desktop    # also index Claude Desktop / ChatGPT Desktop export zips
 imprint refresh <dir>      # re-index changed files only
 imprint refresh-urls       # re-fetch stored URLs by ETag/Last-Modified
+imprint move <project> <target> [--source KEY]... [--apply]  # move memories between projects (ADR 0036)
 imprint config [set|get|reset] ...
 imprint server <cmd>       # Qdrant daemon: start | stop | status | log
 imprint ui [start|stop|status|open|restart|log]

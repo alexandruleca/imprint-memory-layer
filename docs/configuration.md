@@ -103,7 +103,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `tagger.local.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
 | **Ingest (docs + URLs)** | | |
 | `ingest.doc_formats` | `pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json` | Comma-separated doc formats enabled for the file walker |
-| `ingest.ocr_enabled` | `false` | OCR for scanned PDFs + images (requires `tesseract`) |
+| `ingest.ocr_enabled` | `false` | OCR for scanned PDFs + images (requires `tesseract`; PDFs also need poppler). Without it, a PDF with no text layer is skipped with this hint, not failed, and retried once OCR settings or tools change ([ADR 0040](adr/0040-documents-with-nothing-to-index.md)) |
 | `ingest.ocr_lang` | `eng` | Tesseract language codes (e.g. `eng+fra`) |
 | `ingest.max_doc_size_mb` | `25` | Per-file byte cap for document extraction |
 | `ingest.url_timeout_sec` | `30` | HTTP connect timeout for URL fetch |

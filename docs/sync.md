@@ -57,7 +57,8 @@ The public relay at `wss://imprint.alexandruleca.com` is the default — pass `-
 
 - Qdrant points — content, metadata **and the stored vector**, streamed in batches. Each record carries the sender's `embedding_identity`; the importer rejects a missing or mismatched identity before any upsert, so both machines need the same embedding profile (see [embedding profile compatibility](#embedding-profile-compatibility)). Imports dedup by the record's logical ID.
 - Knowledge graph facts (SQLite `facts` table) — streamed in batches, deduped by `(subject, predicate, object, valid_from)`.
-- **Not** transferred: other workspaces, the WAL, config, the trust list, workspace roots and purge exclusions.
+- **Not** transferred: other workspaces, the WAL, config, the trust list, workspace roots, purge exclusions and project placement rules.
+- Moved memories travel with their origin project. The receiver places them by its own rules, so each device keeps its own project layout and copies dedupe instead of undoing a move ([ADR 0036](adr/0036-move-memories-between-projects.md)).
 - Imported records are evidence, not authority: `imprint refresh-urls` (and the MCP refresh) re-fetch only URLs this device recorded, never URLs that arrived through sync.
 
 ### Automatic sync between paired devices

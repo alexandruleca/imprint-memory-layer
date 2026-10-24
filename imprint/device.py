@@ -10,7 +10,10 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from . import config
 
-FIELDS = ['recorded_device', 'recorded_at', 'source_device', 'source_relative_path', 'source_path_local']
+# origin_project: the project its writer named, which the project-relative
+# path and project mapping refer to after the memory moves (ADR 0036).
+FIELDS = ['recorded_device', 'recorded_at', 'source_device', 'source_relative_path', 'source_path_local',
+          'origin_project']
 TRANSFER_FIELDS = FIELDS + ['source_path', 'source_hash', 'source_size', 'source_type', 'source_url',
                            'doc_metadata', 'etag', 'last_modified']
 UNKNOWN = {'id': '', 'name': 'Unknown origin (legacy)', 'os': ''}
@@ -58,7 +61,7 @@ def _identity(value):
 def relative_path(record):
     rel = record.get('source_relative_path', '')
     if not rel and record.get('source_type') in ('file', 'ocr'):
-        prefix = str(record.get('project', '')) + '/'
+        prefix = str(origin_project(record)) + '/'
         source = record.get('source', '')
         if source.startswith(prefix):
             rel = source[len(prefix):]
@@ -68,6 +71,11 @@ def relative_path(record):
     if PurePosixPath(rel).is_absolute() or PureWindowsPath(rel).drive or '..' in PurePosixPath(rel).parts or '\x00' in rel:
         return ''
     return rel
+
+
+def origin_project(record):
+    """The project the memory's writer named; a moved memory keeps it."""
+    return record.get('origin_project') or record.get('project', '')
 
 
 def prepare(record, *, imported=False):
@@ -121,7 +129,7 @@ def context(record, workspace=None, cwd=None):
         return result
     result['path_status'] = 'foreign-unmapped' if result['source_device']['id'] else 'unknown-origin'
     rel = relative_path(record)
-    mapping = policy.project_root(record.get('project', ''), workspace)
+    mapping = policy.project_root(origin_project(record), workspace)
     candidate = None
     if mapping and rel:
         root = Path(mapping).resolve()

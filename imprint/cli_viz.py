@@ -420,16 +420,13 @@ def build_stats() -> dict:
 
 # ── Cross-project similarity ──────────────────────────────────────
 
-_cross_project_cache: dict | None = None
-_cross_project_version = -1
-
-
 def build_cross_project_similarity(sample_per_project: int = 5, k: int = 5) -> dict:
     """Sample vectors from each project, find cross-project neighbors."""
-    global _cross_project_cache, _cross_project_version
-    if _cross_project_cache and _cross_project_version == _data_version:
-        return _cross_project_cache
+    return _cached(("cross-project", sample_per_project, k),
+                   lambda: _cross_project_similarity(sample_per_project, k))
 
+
+def _cross_project_similarity(sample_per_project: int, k: int) -> dict:
     client, coll = vs._ensure_collection()
 
     # Get projects via facet
@@ -498,10 +495,7 @@ def build_cross_project_similarity(sample_per_project: int = 5, k: int = 5) -> d
         for k, v in edge_counts.items()
     ], key=lambda e: e["weight"], reverse=True)[:20]
 
-    result = {"edges": edges, "pairs": edge_pairs}
-    _cross_project_cache = result
-    _cross_project_version = _data_version
-    return result
+    return {"edges": edges, "pairs": edge_pairs}
 
 
 # ── Timeline ──────────────────────────────────────────────────────
@@ -605,9 +599,6 @@ def build_kg_data(subject: str = "", limit: int = 200) -> dict:
     return {"nodes": nodes, "edges": edges, "total": len(facts)}
 
 
-# ── Change detection + caching ──────────────────────────────────
-
-_last_wal_size = 0
 # ── Source lineage (chunk siblings) ───────────────────────────────
 
 def build_source_lineage(source_key: str, workspace: str | None = None) -> dict:
@@ -1006,63 +997,70 @@ def _center_id_for_scope(scope: str) -> str:
     return ""
 
 
-_last_row_count = -1
-_data_version = 0
-_overview_cache = None
-_overview_cache_version = -1
-_project_cache: dict[str, tuple[int, dict]] = {}  # name -> (version, data)
-_PROJECT_CACHE_MAX = 30
+# ── Freshness + caching ──────────────────────────────────────────
+#
+# Aggregate views are cached against a fingerprint of the data they were
+# built from, and the fingerprint is checked on every read. Writers in any
+# process (ingest subprocesses, MCP, sync) append to the workspace WAL or
+# change its point count, so a read after a write never returns the view
+# from before it. Nothing else has to run for a cache to notice a change.
+
+_CACHE_MAX = 32
+_cache: dict[tuple, tuple[tuple, dict]] = {}  # view key -> (fingerprint, data)
+_cache_lock = threading.Lock()
 
 
-def check_for_changes():
-    global _last_wal_size, _last_row_count, _data_version
-    changed = False
-    wp = config.wal_path()
+def data_fingerprint() -> tuple | None:
+    """The active collection with its WAL size and point count, or None
+    when the store cannot be read (nothing is cached then)."""
+    workspace = config.get_active_workspace()
     try:
-        size = os.path.getsize(wp) if wp.exists() else 0
+        client, coll = vs._ensure_collection(workspace)
+        count = client.get_collection(coll).points_count or 0
+    except Exception:
+        return None
+    try:
+        size = os.path.getsize(config.wal_path(workspace))
     except OSError:
         size = 0
-    if size != _last_wal_size:
-        _last_wal_size = size
-        changed = True
-    try:
-        client, coll = vs._ensure_collection()
-        info = client.get_collection(coll)
-        count = info.points_count or 0
-        if count != _last_row_count:
-            _last_row_count = count
-            changed = True
-    except Exception:
-        pass
-    if changed:
-        _data_version += 1
-    return changed
+    return coll, size, count
+
+
+def _cached(key: tuple, build) -> dict:
+    # Fingerprint before building: a write that lands mid-build changes the
+    # fingerprint, so the next read rebuilds instead of keeping this result.
+    fingerprint = data_fingerprint()
+    with _cache_lock:
+        hit = _cache.get(key)
+    if fingerprint is not None and hit and hit[0] == fingerprint:
+        return hit[1]
+    data = build()
+    if fingerprint is not None:
+        with _cache_lock:
+            _cache.pop(key, None)
+            if len(_cache) >= _CACHE_MAX:
+                del _cache[next(iter(_cache))]
+            _cache[key] = (fingerprint, data)
+    return data
+
+
+def reset_cache() -> None:
+    """Forget cached views, e.g. after a wipe recreated the store."""
+    with _cache_lock:
+        _cache.clear()
 
 
 def _get_overview(filters: dict | None = None) -> dict:
-    global _overview_cache, _overview_cache_version
     # Filtered requests bypass cache
     if filters:
         return build_overview(filters)
-    if _overview_cache and _overview_cache_version == _data_version:
-        return _overview_cache
-    _overview_cache = build_overview()
-    _overview_cache_version = _data_version
-    return _overview_cache
+    return _cached(("overview",), build_overview)
 
 
 def _get_project_detail(name: str, filters: dict | None = None) -> dict:
     if filters:
         return build_project_detail(name, filters)
-    cached = _project_cache.get(name)
-    if cached and cached[0] == _data_version:
-        return cached[1]
-    data = build_project_detail(name)
-    if len(_project_cache) >= _PROJECT_CACHE_MAX:
-        oldest = next(iter(_project_cache))
-        del _project_cache[oldest]
-    _project_cache[name] = (_data_version, data)
-    return data
+    return _cached(("project", name), lambda: build_project_detail(name))
 
 
 # ── HTML page ──────────────────────────────────────────────────
@@ -3369,18 +3367,17 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Connection", "keep-alive")
             self.end_headers()
             try:
+                seen, version = data_fingerprint(), 0
                 while True:
-                    if check_for_changes():
-                        global _overview_cache
-                        _overview_cache = None
-                        _project_cache.clear()
-                        msg = json.dumps({"version": _data_version, "total": _last_row_count})
+                    time.sleep(2)
+                    current = data_fingerprint()
+                    if current != seen:
+                        seen, version = current, version + 1
+                        msg = json.dumps({"version": version})
                         self.wfile.write(f"event: update\ndata: {msg}\n\n".encode())
-                        self.wfile.flush()
                     else:
                         self.wfile.write(": heartbeat\n\n".encode())
-                        self.wfile.flush()
-                    time.sleep(2)
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
@@ -3408,11 +3405,6 @@ class VizHandler(http.server.BaseHTTPRequestHandler):
             config.switch_workspace(name)
             # Reset Qdrant client to pick up new collection
             vs._client = None
-            global _overview_cache, _last_wal_size, _last_row_count
-            _overview_cache = None
-            _project_cache.clear()
-            _last_wal_size = 0
-            _last_row_count = 0
             self._json({"ok": True, "active": config.get_active_workspace()})
 
         elif path == "/api/chat/sessions":
@@ -3571,7 +3563,6 @@ def launch_app_window(url: str):
 # ── Main ──────────────────────────────────────────────────────
 
 def main():
-    global _last_wal_size, _last_row_count
     port = DEFAULT_PORT
     args = sys.argv[1:]
     for i, arg in enumerate(args):
@@ -3580,26 +3571,9 @@ def main():
 
     print(f"\n  \033[0;36mStarting Imprint Graph...\033[0m")
 
-    # Warm up Qdrant connection + initial counts
-    try:
-        client, coll = vs._ensure_collection()
-        info = client.get_collection(coll)
-        total = info.points_count or 0
-    except Exception:
-        total = 0
-
-    wp = config.wal_path()
-    try:
-        _last_wal_size = os.path.getsize(wp) if wp.exists() else 0
-    except OSError:
-        _last_wal_size = 0
-    _last_row_count = total
-
-    # Pre-warm overview cache
-    _get_overview()
-
-    projects = len((_overview_cache or {}).get("projects", []))
-    print(f"  {total} memories, {projects} projects")
+    # Warm up the Qdrant connection and the overview cache
+    overview = _get_overview()
+    print(f"  {overview['total']} memories, {len(overview['projects'])} projects")
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), VizHandler)
     url = f"http://127.0.0.1:{port}"

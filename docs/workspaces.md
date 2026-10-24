@@ -36,6 +36,27 @@ graph LR
 
 Projects are identified by **canonical name** from the manifest, not the file path. The same project at different paths on different machines gets the same identity — this makes sync work across machines.
 
+Files outside any manifest go into a fallback project named after the ingested folder: ingesting `~/Desktop` creates a project `Desktop`.
+
+## Move memories between projects
+
+A catch-all project such as `Desktop` can be sorted afterwards. On the dashboard's **Projects** page, pick a project, select sources and choose **Move selected…**. Use **Move or merge…** to move the whole project; moving into an existing project merges into it. Either way you review what moves before confirming. From the CLI:
+
+```bash
+imprint move Desktop branding --source "Desktop/Naming Questionnaire.pdf"           # preview
+imprint move Desktop branding --source "Desktop/Naming Questionnaire.pdf" --apply
+imprint move imprint-memory-layer imprint --apply                                   # merge a whole project
+```
+
+The project a memory's writer named (ingestion from the folder, learning from the conversation's directory, an agent from its argument) is its *origin project*. A move records a rule in this workspace's policy: the origin project, or one of its sources, goes to the target. Every write applies these rules, so refresh, learning and sync keep moved memories where you put them. Merging a whole project also sends memories saved later under its old name to the target.
+
+- Source keys do not change. A moved file keeps `Desktop/<file>`, which records where it was indexed. Graph facts, purge and `file_chunks` keep working. The file stays where it is, so refresh the folder it lives in to pick up edits.
+- Vectors are reused, but logical IDs change, because they include the project.
+- Rules belong to this device's workspace, like roots and exclusions, and are not synced. A paired device keeps its own layout. Copies it sends back are placed by your rules, so they do not undo the move. Make the same move there for the same layout.
+- To undo, move the sources back. For a merge, move back the sources whose keys start with the old project's name.
+
+Moves preview by default, share the ingestion lock, and apply only to the workspace that was previewed. See [ADR 0036](adr/0036-move-memories-between-projects.md).
+
 ## Workspaces
 
 Workspaces provide isolated memory environments. Each workspace gets its own Qdrant collection, SQLite knowledge graph, and write-ahead log — complete data isolation on the same Qdrant server.
@@ -117,7 +138,7 @@ imprint migrate --from default --to team --project payments-api --copy
 imprint migrate --from default --to team --topic auth --copy
 ```
 
-A real run registers a new target workspace without switching to it; a dry run changes nothing, not even the target. Project and source transfers also copy their source-linked knowledge-graph facts (topic transfers have none); facts are never removed from the source and facts the target already holds are skipped, so re-running a copy refreshes the curated workspace without duplicates. A copy does not delete: memories you later remove from the source stay in the target until you remove them there. The dashboard's **Copy / move memories…** dialog (workspace menu → **Manage workspaces**, or **Settings → Workspaces**) offers the same choice and defaults to **Copy**.
+A real run registers a new target workspace without switching to it; a dry run changes nothing, not even the target. Project and source transfers also copy the knowledge-graph facts about the transferred memories' sources, including files moved into the project from another one (topic transfers copy none); facts are never removed from the source and facts the target already holds are skipped, so re-running a copy refreshes the curated workspace without duplicates. A copy does not delete: memories you later remove from the source stay in the target until you remove them there. The dashboard's **Copy / move memories…** dialog (workspace menu → **Manage workspaces**, or **Settings → Workspaces**) offers the same choice and defaults to **Copy**.
 
 Live sync works on one workspace, end-to-end encrypted, and never switches the active one. `imprint sync serve --workspace team --send-only` shares only `team`, read-only, and prints a share code; the joining machine runs `imprint sync <code>` and picks its own destination with `--workspace` (created when the data arrives). Joining only receives unless it adds `--two-way` or `--send-only`, and then it is shown the serving device and asked before anything is sent. See [sync](sync.md#share-part-of-your-memory) and [ADR 0016](adr/0016-sync-direction-and-workspace-sharing.md).
 

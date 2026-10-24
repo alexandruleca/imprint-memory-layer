@@ -99,6 +99,8 @@ func main() {
 		cmd.Workspace(os.Args[2:])
 	case "purge":
 		cmd.Purge(os.Args[2:])
+	case "move":
+		cmd.Move(os.Args[2:])
 	case "device":
 		cmd.Device(os.Args[2:])
 	case "wipe":
@@ -175,6 +177,8 @@ Usage:
   imprint workspace map <project> <directory>  Map shared project paths to this device's checkout
   imprint device            Show this device and the current working directory
   imprint purge <path>       Preview file/directory cleanup (--apply deletes; --source matches source keys)
+  imprint move <project> <target> [--source KEY]...
+                             Preview moving a project, or some of its sources, to another project (--apply moves)
   imprint wipe [--force]     Wipe active workspace (--all for everything)
   imprint update [--version vX.Y.Z] [--dev] [-y] [--check]
                              Upgrade imprint in place. Preserves data/ and .venv/.
