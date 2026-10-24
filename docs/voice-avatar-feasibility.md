@@ -7,6 +7,8 @@ description: Proposed local voice pipeline, NVIDIA component choices, interrupti
 
 Reviewed **2026-10-24**, against Imprint commit `bbbbb1f` and the upstream sources linked below. **Status: research proposal, not an accepted architecture or implemented feature.** Upstream default branches are moving references; implementation must pin revisions and model hashes.
 
+Implementation follow-up: the user subsequently selected [LFM2.5-Audio-1.5B as the primary smaller-model experiment](lfm-audio-prototype.md), recorded in [ADR 0042](adr/0042-lfm-audio-cpu-experiment.md). The complete live voice/avatar design remains proposed; the implemented step exercises offline CPU speech with startup memory snapshots.
+
 **Feasible:** an optional floating 3D head that listens, answers through the same local LLM and memory tools as dashboard chat, speaks incrementally, and stops when the user talks over it. The recommended first implementation is a streaming ASR → existing Imprint chat agent → streaming TTS pipeline, with local avatar rendering and optional NVIDIA Audio2Face animation.
 
 **Conditional:** consistently fast responses with all models resident on a laptop GPU, robust speakerphone interruption, natural backchannels, Romanian speech output, and identical desktop behavior across platforms. These need measured prototypes. An interruptible cascade can listen during playback and cancel speech; it does not automatically reproduce a speech model's learned simultaneous dialogue, prosody or backchannels.
@@ -91,6 +93,24 @@ Recommended responsibilities:
 Proposed control events include `speech_started`, `transcript_partial`, `transcript_final`, `reply_delta`, `audio_chunk`, `face_frame`, `playback_ack`, `interrupt`, `turn_cancelled` and `error`. These are design names, not existing endpoints. Bind every event to an immutable workspace, session, turn and generation identifier, plus sequence numbers and audio timestamps. Changing workspace ends or explicitly rebinds the voice session. Only one window owns microphone capture and audible playback; other windows observe session state.
 
 ## Speech and avatar choices
+
+### Smaller alternatives to PersonaPlex
+
+Follow-up research, 2026-10-24: the user asked about smaller choices while the PersonaPlex runtime was being prepared. No alternative below has been benchmarked on this machine, and this shortlist does not change the accepted experimental adapter in ADR 0041.
+
+| Candidate | Size and role | Imprint tradeoff |
+| --- | --- | --- |
+| Existing chat model + Nemotron streaming ASR + Pocket TTS | Reuses the configured chat model; adds approximately 600M recognition and 100M synthesis components | Preferred product evaluation path for retaining chat behavior and memory tools. Interruption is implemented in the media pipeline; it does not imply learned PersonaPlex-style backchannels. |
+| LFM2.5-Audio-1.5B | Approximately 1.5B total, native English speech/text input and output | Strong smaller single-model research candidate. Uses its own conversational backbone and custom LFM Open License v1.0; live tool integration and simultaneous dialogue behavior need separate proof. |
+| Existing chat model + Nemotron ASR + Magpie TTS | Approximately 600M recognition + 357M synthesis components beside the existing chat model | NVIDIA-focused version of the original cascade proposal, suitable for comparison with the CPU TTS path. |
+
+[Pocket TTS](https://github.com/kyutai-labs/pocket-tts) documents CPU execution and streaming. Its current repository also lists newly released English models with 18.2M, 6.9M and 1.9M parameters including the decoder; evaluate speech quality before preferring those over the established 100M option. These are TTS components, not complete conversational assistants. [Nemotron ASR](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b) supplies streaming English recognition; [Magpie](https://huggingface.co/nvidia/magpie_tts_multilingual_357m) supplies dedicated speech synthesis.
+
+Liquid AI documents a [1.5B audio model](https://huggingface.co/LiquidAI/LFM2.5-Audio-1.5B) and official [GGUF artifacts/runners](https://huggingface.co/LiquidAI/LFM2.5-Audio-1.5B-GGUF). At GGUF revision `7d525f883a077e20afb782f2ff618edcae0e39e4`, the four required Q4_0 artifacts total 1,074,794,688 bytes (about **1.07 GB of weights**), including the backbone, audio projector, tokenizer and vocoder. This is not peak RAM/VRAM or a latency measurement. The card specifies a specialized audio runner; an ordinary text-only llama.cpp server does not establish speech compatibility. Streaming audio output alone does not establish PersonaPlex-equivalent full-duplex interaction or MCP tool support.
+
+The floating head and Audio2Face animation remain separate from the conversational-model choice. All candidates still need cancellation, echo handling, playback synchronization, local boundaries and native-platform validation.
+
+### Initial component and rendering candidates
 
 For English ASR, first test **Nemotron Speech Streaming EN 0.6B**, which is explicitly designed for cache-aware streaming English transcription. For TTS, first test **MagpieTTS Multilingual 357M** through the native runtime. Both weights use NVIDIA Open Model terms. Magpie's current v2607 card lists 12 languages, excluding Romanian, and is a dedicated text-to-speech layer suitable for a cascade. [ASR card](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b), [TTS card](https://huggingface.co/nvidia/magpie_tts_multilingual_357m).
 

@@ -118,7 +118,7 @@ def write_session(path: Path, session: dict) -> None:
         raise
 
 
-def load_session(path: Path) -> dict:
+def load_session(path: Path, *, identity: dict | None = None) -> dict:
     with path.open("rb") as stream:
         payload = stream.read(128 * 1024 + 1)
     if len(payload) > 128 * 1024:
@@ -129,8 +129,9 @@ def load_session(path: Path) -> dict:
         raise PrototypeError("Invalid session JSON.") from error
     if not isinstance(session, dict) or session.get("schema") != 1 or session.get("mode") != "startup_snapshot":
         raise PrototypeError("Unsupported session format.")
-    if (session.get("source_revision") != SOURCE_REVISION or session.get("model_revision") != MODEL_REVISION
-            or session.get("model_repo") != MODEL_REPO or session.get("language") != "en"):
+    expected = identity or {"source_revision": SOURCE_REVISION, "model_revision": MODEL_REVISION,
+                            "model_repo": MODEL_REPO}
+    if any(session.get(key) != value for key, value in expected.items()) or session.get("language") != "en":
         raise PrototypeError("Session uses a different runtime/model revision or language; prepare it again.")
     prompt = session.get("text_prompt")
     if not isinstance(prompt, str) or not prompt.startswith(INSTRUCTIONS) or not len(prompt) <= MAX_PROMPT_CHARS:
@@ -153,7 +154,7 @@ def validate_source(source: Path) -> None:
         raise PrototypeError("PersonaPlex server source checksum does not match.")
 
 
-async def _prepare(args) -> dict:
+async def _prepare(args, *, identity: dict | None = None) -> dict:
     from fastmcp import Client
     from fastmcp.client.transports import StdioTransport
 
@@ -170,6 +171,8 @@ async def _prepare(args) -> dict:
     async with Client(transport, timeout=args.timeout, init_timeout=min(args.timeout, 30)) as client:
         session = await prepare_session(client, workspace=args.workspace, queries=args.query,
                                         project=args.project, max_chars=args.max_chars)
+    if identity is not None:
+        session.update(identity)
     write_session(args.output, session)
     return session
 

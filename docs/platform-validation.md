@@ -309,3 +309,18 @@ See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the [protot
 | Pinned model access | Unavailable | A metadata-only request using the available Imprint/Hugging Face credentials returned `GatedRepoError`; no weights were downloaded. |
 
 Not run: real PersonaPlex model import/load, microphone capture, audible responses, speech grounding, Opus decoding, interruption/echo tests, GPU latency/VRAM benchmarks, native Windows/macOS/Linux desktop execution, floating-head rendering or installer/update behavior. CI now installs the hashed adapter-test overlay on its native matrix; those jobs have not been executed for this branch in this session.
+
+## LFM2.5-Audio CPU experiment (2026-10-24)
+
+The user selected LFM2.5-Audio-1.5B as primary after requesting a smaller option. See [ADR 0042](adr/0042-lfm-audio-cpu-experiment.md), the [experiment guide](lfm-audio-prototype.md) and [raw smoke evidence](evidence/2026-10-24-lfm-audio-cpu-smoke.json). Work continues on `feat/local-voice-avatar`. PersonaPlex model access was subsequently granted using the interactive shell's credentials, but its setup/downloads were stopped before model inference when the direction changed.
+
+| Check | Result | Evidence and limits |
+| --- | --- | --- |
+| Native model/runtime installation | Passed, Linux x64 under WSL2 | Four Q4 artifact checksums/sizes and the official Ubuntu runner archive verified at `7d525f883a077e20afb782f2ff618edcae0e39e4`; unpacked native files reverified before execution. Embedded build: 7641 (`68d8edf2`). No PyTorch profile needed. |
+| Real speech synthesis | Passed, two smoke runs | Produced non-silent 24 kHz mono float32 WAV for an English question. One run generated 2.30 seconds of audio in 1.83 seconds including native startup, excluding asset verification. No listening panel or pronunciation-quality score. |
+| Real speech recognition | Passed, two smoke runs | The same model transcribed the synthesized question correctly. Synthetic speech is not representative of microphone/noise/accent coverage. |
+| Memory-conditioned speech replies | Passed, two names per run | The same WAV question returned “Nimbus” or “Comet” according to the current MCP snapshot, omitting the distractor. MCP uses the real registry with disposable retrieval fixtures at the storage boundary; no embedding/retrieval-quality claim or real user-memory test. |
+| Local CPU resource measurements | Observed | Four threads, no GPU: fresh native process/model loads took 2.95–4.52 seconds for complete reply generation across two runs; sampled peak RSS about 1754 MiB. Timings exclude asset verification and include startup. Filesystem caches/load were uncontrolled, and first-audio latency was not measured. |
+| Regression suite | Passed, 295 Python tests | Includes 8 new LFM tests plus the earlier PersonaPlex adapter tests. Fixtures cover idempotent install/repair, archive paths/symlinks, tampering, float/PCM WAV, identity isolation, privacy, bounds and owned-child timeout. |
+
+Not run: live microphone input, streaming playback, first-audio latency, barge-in, echo cancellation, learned full-duplex conversation, live MCP tool use/writes, voice persistence, head rendering, real GPU inference or native Windows/macOS/ARM execution. Native CI for this branch has not been run in this session. The result establishes a promising small CPU speech experiment, not the complete real-time avatar assistant.

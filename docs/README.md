@@ -15,6 +15,8 @@ Proposed voice interface: [voice assistant and floating avatar feasibility](voic
 
 Experimental implementation: [PersonaPlex memory prototype](personaplex-prototype.md), with read-only MCP startup snapshots and a separate pinned voice runtime.
 
+Primary smaller-model experiment: [LFM2.5-Audio local voice](lfm-audio-prototype.md), with verified native CPU artifacts, read-only memory snapshots and offline speech tests.
+
 Cross-device context: [devices and portable project paths](devices.md).
 
 Experimental browser capture: [Chrome extension (WIP)](browser-extension.md).

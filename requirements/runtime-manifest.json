@@ -1,4 +1,15 @@
 {
+  "lfm-audio-q4": {
+    "assets": {
+      "LFM2.5-Audio-1.5B-Q4_0.gguf": "3583bee853be20331ca342b0593fefd8acc43fb61a41ec6f1a1dc7465823e0d8",
+      "llama-liquid-audio-ubuntu-x64.zip": "e587627538182b23b7aa3a37fdeea7a858b4edf38aeaa89637cc87300d209d3e",
+      "mmproj-LFM2.5-Audio-1.5B-Q4_0.gguf": "6b483682c263b100f8cc8022d61507e446b1d320b9febc328e7960f72d03f7ea",
+      "tokenizer-LFM2.5-Audio-1.5B-Q4_0.gguf": "01ec6afe4578bb1e02a4d43d87e7e5827d6b3d94d2d36912ee931b9c3050f1c1",
+      "vocoder-LFM2.5-Audio-1.5B-Q4_0.gguf": "423cfcb054f41b69a5706226c243abc96d2531c3aff1121f7a2ed17149b79c95"
+    },
+    "upstream": "https://huggingface.co/LiquidAI/LFM2.5-Audio-1.5B-GGUF/tree/7d525f883a077e20afb782f2ff618edcae0e39e4",
+    "version": "7d525f883a077e20afb782f2ff618edcae0e39e4"
+  },
   "qdrant": {
     "assets": {
       "qdrant-aarch64-apple-darwin.tar.gz": "adf795d7c2ac9d93677517fd58b119e9bb5bc8fc5143ac9b581a6f8264def8da",

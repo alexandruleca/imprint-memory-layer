@@ -5,6 +5,8 @@ description: Experimental English voice launcher with a read-only Imprint MCP me
 
 ## Current scope
 
+Follow-up: the user chose the smaller [LFM2.5-Audio experiment](lfm-audio-prototype.md) as primary. Work continues on `feat/local-voice-avatar`; this PersonaPlex adapter is retained as a separate research path. Hugging Face access was subsequently confirmed after loading the user's interactive shell environment, but PersonaPlex downloads/setup were stopped before model inference when the user selected LFM. Earlier validation results below retain their original scope.
+
 This branch implements the first PersonaPlex experiment from the [feasibility plan](voice-avatar-feasibility.md): retrieve a bounded memory snapshot through Imprint MCP, then inject it into a separately provisioned PersonaPlex server at conversation startup. English is the confirmed first language. [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) records the boundary and runtime decisions.
 
 Implemented commands:

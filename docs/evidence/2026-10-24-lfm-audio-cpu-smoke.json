@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-24",
+  "purpose": "Functional smoke, not a comparative quality or latency benchmark",
+  "platform": "Linux x86_64 under WSL2",
+  "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX",
+  "threads": 4,
+  "runtime_build": "7641 (68d8edf2), GNU 13.3.0 for Linux x86_64",
+  "weights_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+  "base_commit": "9fe3dc6",
+  "working_tree_changes": true,
+  "script": "scripts/smoke-lfm-audio.py",
+  "first_audio_latency_measured": false,
+  "timings_include_native_startup": true,
+  "timings_include_runtime_verification": false,
+  "runs": [
+    {
+      "question_tts": {
+        "schema": 1,
+        "backend": "lfm-audio",
+        "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+        "mode": "tts",
+        "device": "cpu",
+        "threads": 4,
+        "elapsed_seconds": 1.8315790360011306,
+        "peak_rss_mib_sampled": 1694.80078125,
+        "text": "",
+        "audio": {
+          "sample_rate": 24000,
+          "seconds": 2.3,
+          "rms": 0.034648517193471666,
+          "format": "float32"
+        },
+        "snapshot_workspace": null,
+        "includes_runtime_verification_time": false
+      },
+      "question_asr": {
+        "schema": 1,
+        "backend": "lfm-audio",
+        "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+        "mode": "asr",
+        "device": "cpu",
+        "threads": 4,
+        "elapsed_seconds": 1.0788996990013402,
+        "peak_rss_mib_sampled": 1714.78125,
+        "text": "What is the name of our release mascot?",
+        "audio": null,
+        "snapshot_workspace": null,
+        "includes_runtime_verification_time": false
+      },
+      "answers": {
+        "Nimbus": {
+          "schema": 1,
+          "backend": "lfm-audio",
+          "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+          "mode": "reply",
+          "device": "cpu",
+          "threads": 4,
+          "elapsed_seconds": 2.9530288519999885,
+          "peak_rss_mib_sampled": 1754.015625,
+          "text": "The release mascot is named Nimbus.",
+          "audio": {
+            "sample_rate": 24000,
+            "seconds": 3.1,
+            "rms": 0.050923788721756465,
+            "format": "float32"
+          },
+          "snapshot_workspace": "default",
+          "includes_runtime_verification_time": false
+        },
+        "Comet": {
+          "schema": 1,
+          "backend": "lfm-audio",
+          "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+          "mode": "reply",
+          "device": "cpu",
+          "threads": 4,
+          "elapsed_seconds": 3.439913976999378,
+          "peak_rss_mib_sampled": 1753.80859375,
+          "text": "The release mascot is named Comet.",
+          "audio": {
+            "sample_rate": 24000,
+            "seconds": 4.46,
+            "rms": 0.031449972009074074,
+            "format": "float32"
+          },
+          "snapshot_workspace": "default",
+          "includes_runtime_verification_time": false
+        }
+      },
+      "limitations": [
+        "retrieval storage is a fixture",
+        "synthetic voice input",
+        "CPU cold turns",
+        "no microphone, echo or interruption test",
+        "two memory-name checks are not a grounding quality benchmark"
+      ]
+    },
+    {
+      "question_tts": {
+        "schema": 1,
+        "backend": "lfm-audio",
+        "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+        "mode": "tts",
+        "device": "cpu",
+        "threads": 4,
+        "elapsed_seconds": 2.1816775020015484,
+        "peak_rss_mib_sampled": 1694.546875,
+        "text": "",
+        "audio": {
+          "sample_rate": 24000,
+          "seconds": 2.3,
+          "rms": 0.034648517193471666,
+          "format": "float32"
+        },
+        "snapshot_workspace": null,
+        "includes_runtime_verification_time": false
+      },
+      "question_asr": {
+        "schema": 1,
+        "backend": "lfm-audio",
+        "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+        "mode": "asr",
+        "device": "cpu",
+        "threads": 4,
+        "elapsed_seconds": 1.4876307479971729,
+        "peak_rss_mib_sampled": 1714.3828125,
+        "text": "What is the name of our release mascot?",
+        "audio": null,
+        "snapshot_workspace": null,
+        "includes_runtime_verification_time": false
+      },
+      "answers": {
+        "Nimbus": {
+          "schema": 1,
+          "backend": "lfm-audio",
+          "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+          "mode": "reply",
+          "device": "cpu",
+          "threads": 4,
+          "elapsed_seconds": 3.984379407000233,
+          "peak_rss_mib_sampled": 1753.6484375,
+          "text": "The release mascot is named Nimbus.",
+          "audio": {
+            "sample_rate": 24000,
+            "seconds": 3.1,
+            "rms": 0.050923788721756465,
+            "format": "float32"
+          },
+          "snapshot_workspace": "default",
+          "includes_runtime_verification_time": false
+        },
+        "Comet": {
+          "schema": 1,
+          "backend": "lfm-audio",
+          "model_revision": "7d525f883a077e20afb782f2ff618edcae0e39e4",
+          "mode": "reply",
+          "device": "cpu",
+          "threads": 4,
+          "elapsed_seconds": 4.5216878350001934,
+          "peak_rss_mib_sampled": 1753.53125,
+          "text": "The release mascot is named Comet.",
+          "audio": {
+            "sample_rate": 24000,
+            "seconds": 4.46,
+            "rms": 0.031449972009074074,
+            "format": "float32"
+          },
+          "snapshot_workspace": "default",
+          "includes_runtime_verification_time": false
+        }
+      },
+      "limitations": [
+        "retrieval storage is a fixture",
+        "synthetic voice input",
+        "CPU cold turns",
+        "no microphone, echo or interruption test",
+        "two memory-name checks are not a grounding quality benchmark"
+      ]
+    }
+  ]
+}
