@@ -18,6 +18,7 @@ import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
 import { getStats, streamCommand } from "@/lib/api";
+import { useFollowOutput } from "@/lib/use-follow-output";
 import { cn } from "@/lib/utils";
 
 type Field =
@@ -75,7 +76,6 @@ export default function CommandsPage() {
   const [browsing, setBrowsing] = useState<Extract<Field, { kind: "path" }> | null>(null);
   const [copied, setCopied] = useState(false);
   const controller = useRef<AbortController | null>(null);
-  const end = useRef<HTMLSpanElement>(null);
   const running = run.state === "running";
 
   useEffect(() => {
@@ -83,7 +83,7 @@ export default function CommandsPage() {
     return () => controller.current?.abort();
   }, []);
 
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [output]);
+  const log = useFollowOutput(output);
 
   const missing = selected.fields.some((f) => "required" in f && f.required && !String(params[f.key] ?? "").trim());
 
@@ -239,10 +239,9 @@ export default function CommandsPage() {
                 </Hint>
               </div>
             </div>
-            <ScrollArea className="h-80 bg-muted/30">
+            <ScrollArea className="h-80 bg-muted/30" viewportRef={log}>
               <pre aria-live="polite" className="min-h-80 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
                 {output || <span className="text-muted-foreground">{running ? "Waiting for output…" : "Run a command to see its output here."}</span>}
-                <span ref={end} />
               </pre>
             </ScrollArea>
           </Card>

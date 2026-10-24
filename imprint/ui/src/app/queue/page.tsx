@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -15,6 +15,7 @@ import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
 import { CancelButton } from "@/components/ingestion-progress";
 import { getQueue, tailJobStream } from "@/lib/api";
+import { useFollowOutput } from "@/lib/use-follow-output";
 import {
   CheckCircle2,
   XCircle,
@@ -322,7 +323,7 @@ function JobRow({
 
 function JobLog({ jobId, live }: { jobId: string; live: boolean }) {
   const [lines, setLines] = useState<string[]>([]);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scroller = useFollowOutput(lines);
 
   useEffect(() => {
     const ctrl = tailJobStream(jobId, (ev) => {
@@ -333,15 +334,10 @@ function JobLog({ jobId, live }: { jobId: string; live: boolean }) {
     return () => ctrl.abort();
   }, [jobId]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ block: "end" });
-  }, [lines]);
-
   return (
-    <ScrollArea className="h-40">
+    <ScrollArea className="h-40" viewportRef={scroller}>
       <pre className="text-[10.5px] font-mono whitespace-pre-wrap break-words bg-muted rounded p-2">
         {lines.join("") || (live ? "waiting for output…" : "(no output)")}
-        <span ref={scrollRef} />
       </pre>
     </ScrollArea>
   );
