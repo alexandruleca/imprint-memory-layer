@@ -146,7 +146,8 @@ export function GraphCanvas({
           style: { labelFontFamily: font },
           state: {
             active: { opacity: 1, halo: true, haloLineWidth: 8, haloStrokeOpacity: 0.2 },
-            inactive: { opacity: 0.14 },
+            // A fade, not a hide: the rest of the graph stays readable around a hovered node.
+            inactive: { opacity: 0.4 },
             dim: { opacity: 0.12 },
             match: { halo: true, haloStroke: "#f59e0b", haloStrokeOpacity: 0.5, haloLineWidth: 12, opacity: 1 },
             selected: { stroke: CANVAS.focusRing, lineWidth: 2.5, halo: true, haloStroke: CANVAS.focusRing, haloStrokeOpacity: 0.22, haloLineWidth: 14, labelFontWeight: 600 },
@@ -156,7 +157,7 @@ export function GraphCanvas({
           type: "line",
           state: {
             active: { strokeOpacity: 0.85 },
-            inactive: { strokeOpacity: 0.03 },
+            inactive: { strokeOpacity: 0.12 },
             dim: { strokeOpacity: 0.03 },
             related: { strokeOpacity: 0.8 },
           },
@@ -166,7 +167,10 @@ export function GraphCanvas({
           "drag-canvas",
           "zoom-canvas",
           { type: "drag-element-force" },
-          { type: "hover-activate", degree: 1, state: "active", inactiveState: "inactive", animation: false },
+          // Only nodes: in a dense graph the pointer crosses edges constantly, and
+          // restating every element on each crossing made the whole graph flicker.
+          { type: "hover-activate", enable: (event: IPointerEvent) => event.targetType === "node",
+            degree: 1, state: "active", inactiveState: "inactive", animation: false },
           {
             type: "auto-adapt-label",
             padding: 2,
