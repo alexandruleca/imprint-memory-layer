@@ -1,18 +1,31 @@
-Imprint Echo · anime holographic head, version 3
+Imprint Echo · anime holographic heads
 
-Based on Sendagaya Shino, a CC0 beta VRoid Studio sample model by pixiv Inc.
+Both looks are adaptations of CC0 beta VRoid Studio sample models by pixiv Inc.
 Original publisher's explicit CC0 dedication:
 https://vroid.pixiv.help/hc/ja/articles/360013482714
-See CC0-1.0.txt beside this file.
+See CC0-1.0.txt beside this file. Pinned source mirror (the embedded VRM
+metadata of each model also says CC0):
+https://github.com/madjin/vrm-samples/tree/e16eb187100149a315ad92c3c9968f1d5baa6c7d/vroid/beta
 
-Pinned source mirror (original embedded VRM metadata also says CC0):
-https://github.com/madjin/vrm-samples/blob/e16eb187100149a315ad92c3c9968f1d5baa6c7d/vroid/beta/Sendagaya_Shino.vrm
-SHA256: 1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5
+imprint-echo.glb · Echo, version 4
+  Source: Sendagaya_Shino.vrm
+  SHA256: 1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5
+  Imprint changes: head-only bind-pose extraction, shorter rear hair, color
+  palette, the source hair clip removed, an original hairband with modeled
+  ribbon bows.
 
-Imprint changes: head-only bind-pose extraction, shorter rear hair, color palette,
-original headband/clasp, ordinary glTF export, retained mouth/blink expressions,
-holographic shading and fine animated wire contours. Echo is an adaptation of
-this sample, not an original model sculpt or a licensed Haruhi character asset.
-Imprint modifications and new artwork follow the repository’s Apache-2.0 license;
-see Apache-2.0.txt beside this file. The original source remains CC0-1.0.
-Rebuild with scripts/build-echo-avatar.mjs; the shipped model loads entirely locally.
+imprint-iris.glb · Iris, version 1
+  Source: Victoria_Rubin.vrm
+  SHA256: b1372131bdbf233f46320146d565f342a7e4f6f4b8f2aefb301f1a283ec07e1e
+  Imprint changes: head-only bind-pose extraction, the ribbon and the side
+  tail it ties removed, folded locks, color palette, an original generated
+  pale iris texture without pupils.
+
+Both keep the source mouth/blink expressions and are exported as ordinary glTF;
+the dashboard adds holographic shading and fine animated wire contours.
+imprint-echo.jpg and imprint-iris.jpg are previews rendered from these files.
+These are adaptations of the samples, not original model sculpts and not
+licensed character assets of any anime series.
+Imprint modifications and new artwork follow the repository's Apache-2.0 license;
+see Apache-2.0.txt beside this file. The original sources remain CC0-1.0.
+Rebuild with scripts/build-echo-avatar.mjs; the shipped models load entirely locally.
