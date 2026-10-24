@@ -134,6 +134,8 @@ imprint workspace roots remove /code/my-project --workspace research
 
 Roots resolve symlinks and use path-component boundaries. An overlap error identifies the other workspaces; `--allow-overlap` explicitly confirms sharing. The dashboard offers the same action with confirmation under **Sources → Workspace roots and cleanup** for the active workspace, and under **Manage workspaces → Edit** for any workspace. Removing a root retains indexed data. Policy is stored separately in `data/workspace-policy.sqlite3`.
 
+An ingest or refresh started from the dashboard (quick actions, Commands) that the roots would refuse is checked before it is queued. Instead of a job that fails later, the dashboard asks whether to approve the folder as a root of the active workspace and names any other workspace that already has it, so approving confirms that sharing. Once approved, the job is submitted again. Declining queues nothing.
+
 **Pick folder** browses the machine the Imprint service runs on, with breadcrumbs in that machine's path syntax. On a Windows installation it lists each WSL distribution as a root (for example **WSL Ubuntu** at `\\wsl.localhost\Ubuntu\`), so Linux folders can be picked and approved. These are the same `\\wsl.localhost\<distro>\…` paths that WSL clients connected to the Windows runtime use (ADR 0026). A root typed as `\\wsl$\<distro>\…` is a different path for the comparison and does not cover them. Linux-style paths such as `/home/me` are not guessed on Windows.
 
 Existing data is retained; old provenance does not automatically establish ownership. Approve intended roots and purge mistakes. Inline/URL content and deliberate migrations use the selected workspace directly.

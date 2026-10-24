@@ -875,7 +875,9 @@ async def api_run_command(command: str, request: Request):
 
     Returns ``{job_id, position}`` immediately. Clients should open
     ``GET /api/jobs/{job_id}/stream`` for live output and call
-    ``POST /api/jobs/{job_id}/cancel`` to abort.
+    ``POST /api/jobs/{job_id}/cancel`` to abort. An ingest or refresh whose
+    ``dir`` lies outside the workspace's roots is refused with 409 and
+    ``code: root_not_approved``, naming the root to approve.
     """
     body = {}
     if request.headers.get("content-type", "").startswith("application/json"):
@@ -889,6 +891,10 @@ async def api_run_command(command: str, request: Request):
 
     try:
         job_id = job_queue.enqueue(command, body)
+    except job_queue.RootNotApproved as error:
+        # The dashboard asks to approve the root, then submits the job again.
+        return JSONResponse({'error': str(error), 'code': 'root_not_approved', 'workspace': error.workspace,
+                             'root': error.root, 'overlaps': error.overlaps}, status_code=409)
     except ValueError as error:
         return JSONResponse({'error': str(error)}, status_code=400)
     snapshot = job_queue.list_queue(recent_limit=0)

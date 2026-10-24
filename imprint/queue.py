@@ -168,13 +168,32 @@ def _mark_done(job_id: str, loop: asyncio.AbstractEventLoop) -> None:
 
 # ── Public API ─────────────────────────────────────────────────
 
+class RootNotApproved(ValueError):
+    """An ingest or refresh the workspace's roots would refuse (ADR 0015).
+
+    Raised at enqueue time instead of letting the job fail when it runs, so a
+    client can offer to approve ``root`` and submit the job again.
+    """
+
+    def __init__(self, workspace: str, root: str, overlaps: list[str]):
+        super().__init__(f'{root} is not an approved root of workspace {workspace!r}. '
+                         'Approve it with imprint workspace roots add <directory>.')
+        self.workspace, self.root, self.overlaps = workspace, root, overlaps
+
+
 def enqueue(command: str, body: dict | None) -> str:
     _init_db()
     job_id = uuid.uuid4().hex
     from . import config
     # Capture the workspace now, rather than when this job eventually runs.
-    from .workspace_policy import workspace_name
+    from .workspace_policy import unapproved_root, workspace_name
     workspace = workspace_name((body or {}).get('workspace'))
+    # The dashboard names the path in `dir` (see build_command_args). Argv the
+    # CLI passes through is checked when the job runs, as a direct call would be.
+    if command in ("ingest", "refresh") and (body or {}).get("dir"):
+        refused = unapproved_root(body["dir"], workspace)
+        if refused:
+            raise RootNotApproved(**refused)
     body_json = json.dumps({**(body or {}), "_workspace": workspace})
     now = time.time()
     with _db_lock, _connect() as conn:

@@ -136,6 +136,16 @@ through the same single-slot queue the dashboard uses.
 `migrate` takes `from`, `to`, one of `project` / `topic` / `source`, and the
 booleans `copy` (keep the source's memories; `--copy`) and `dry_run`.
 
+`ingest` and `refresh` take the path as `dir`. A `dir` the workspace's approved
+roots would refuse is rejected before anything is queued, with 409
+`{"error", "code": "root_not_approved", "workspace", "root", "overlaps"}`:
+`root` is the directory to approve (the path, or a file's folder) and
+`overlaps` lists other workspaces whose roots it shares. A workspace without
+roots binds its first ingest as usual. The dashboard offers to add `root`
+through `POST /api/workspace/roots` (confirming any sharing) and submits the
+job again. CLI argv sent as `args` is checked when the job runs, like a direct
+CLI call. See [workspaces](workspaces.md#approved-roots-and-sharing).
+
 ```bash
 # Ingest a URL in the "docs" project
 curl -s -X POST http://localhost:8420/api/commands/ingest-url \

@@ -44,9 +44,14 @@ def contains(root, path):
     return path == root or path.is_relative_to(root)
 
 
+def _overlaps(conn, ws, path):
+    """Other workspaces whose roots contain, or lie inside, ``path``."""
+    return sorted({owner for owner, other in conn.execute('SELECT workspace, path FROM roots')
+                   if owner != ws and (contains(Path(other), path) or contains(path, Path(other)))})
+
+
 def _add_root(conn, ws, path, allow_overlap):
-    conflicts = sorted({owner for owner, other in conn.execute('SELECT workspace, path FROM roots')
-                        if owner != ws and (contains(Path(other), path) or contains(path, Path(other)))})
+    conflicts = _overlaps(conn, ws, path)
     if conflicts and not allow_overlap:
         raise ValueError(f'Root overlaps workspace(s): {", ".join(conflicts)}. Confirm with workspace roots add --allow-overlap.')
     conn.execute('INSERT OR IGNORE INTO roots VALUES (?, ?)', (ws, str(path)))
@@ -84,7 +89,7 @@ def ensure_ingest_paths(paths, workspace=None):
     with _db() as conn:
         approved = [Path(row[0]) for row in conn.execute('SELECT path FROM roots WHERE workspace=?', (ws,))]
         if not approved:
-            first = paths[0] if paths[0].is_dir() else paths[0].parent
+            first = ingest_root(paths[0])
             if not first.is_dir():
                 raise ValueError('Ingest root does not exist')
             _add_root(conn, ws, first, False)
@@ -93,6 +98,33 @@ def ensure_ingest_paths(paths, workspace=None):
             if not any(contains(root, path) for root in approved):
                 raise ValueError(f'{path} is outside workspace {ws!r} roots. Use imprint workspace roots add <directory> to approve another root.')
     return ws
+
+
+def ingest_root(path):
+    """The directory whose approval admits ``path``: itself, or a file's folder."""
+    return path if path.is_dir() else path.parent
+
+
+def unapproved_root(path, workspace=None):
+    """The root ``ensure_ingest_paths([path], workspace)`` would refuse, without binding anything.
+
+    None when that ingest is admitted, including when it would bind the first
+    root of a workspace without roots. Otherwise the directory that admits
+    ``path`` once approved, with the other workspaces whose roots it overlaps:
+    adding it then needs their sharing confirmed (ADR 0015).
+    """
+    ws, path = workspace_name(workspace), canonical(path)
+    root = ingest_root(path)
+    with _db() as conn:
+        approved = [Path(row[0]) for row in conn.execute('SELECT path FROM roots WHERE workspace=?', (ws,))]
+        if any(contains(other, path) for other in approved):
+            return None
+        if not approved and not root.is_dir():
+            raise ValueError('Ingest root does not exist')
+        overlaps = _overlaps(conn, ws, root)
+        if not approved and not overlaps:
+            return None
+        return {'workspace': ws, 'root': str(root), 'overlaps': overlaps}
 
 
 def path_allowed(path, workspace=None):
