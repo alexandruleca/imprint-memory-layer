@@ -80,7 +80,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
             <Button variant="ghost" size="icon-lg" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>
           </>}
       </div>
-      <p className="voice-privacy" role="status">{voice.phase === "error" ? voice.detail : voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally"}</p>
+      <p className="voice-privacy" role="status">{voice.phase === "error" || (!voice.microphone && voice.connected && voice.detail.includes("permission")) ? voice.detail : voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally"}</p>
       <form className="voice-text" onSubmit={event => { event.preventDefault(); if (voice.connected && text.trim()) { client.current?.text(text); setText(""); input.current?.focus(); } }}>
         <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} disabled={!voice.connected} onChange={event => setText(event.target.value)}/>
         <Button type="submit" variant="ghost" size="icon-sm" aria-label="Send question" disabled={!voice.connected || !text.trim()}><ArrowUpRight size={17}/></Button>

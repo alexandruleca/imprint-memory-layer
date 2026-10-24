@@ -150,12 +150,19 @@ export class VoiceClient {
       this.source.connect(this.capture).connect(this.silent).connect(context.destination);
       stream.getAudioTracks().forEach(track => { track.enabled = this.snapshot.mode === "handsfree"; });
       this.update({ microphone: true, detail: this.snapshot.mode === "ptt" ? "Hold to talk" : "Listening for your voice" });
-    } catch {
+    } catch (error) {
       if (this.stopped || epoch !== this.epoch) return;
       this.stream?.getTracks().forEach(track => track.stop()); this.stream = undefined;
       this.capture?.disconnect(); this.capture?.port.close(); this.capture = undefined;
       this.source?.disconnect(); this.source = undefined; this.silent?.disconnect(); this.silent = undefined;
-      this.update({ microphone: false, detail: "Microphone unavailable. Check permissions, or type below." });
+      const denied = error instanceof DOMException && error.name === "NotAllowedError";
+      const platform = window.electronAPI?.platform;
+      const detail = denied && platform === "darwin"
+        ? "Microphone permission denied. Allow Imprint in System Settings → Privacy & Security → Microphone."
+        : denied && platform === "win32"
+          ? "Microphone permission denied. Allow microphone access for desktop apps in Windows Settings → Privacy & security."
+          : "Microphone unavailable. Check permissions, or type below.";
+      this.update({ microphone: false, detail });
     } finally {
       if (epoch === this.epoch) this.micPending = false;
     }

@@ -40,6 +40,18 @@ The experimental [PersonaPlex adapter](personaplex-prototype.md) uses a separate
 
 The smaller [LFM audio experiment](lfm-audio-prototype.md) uses explicitly downloaded native CPU artifacts, with model/runner SHA256 digests in `runtime-manifest.json` (ADR 0042). It adds no Python profile dependencies, implicit model download or supported installer target. Keep its runtime cache and private speech exports outside release sources.
 
+The [live Echo companion](live-voice.md) has a separate explicit source-build
+command for Windows x64, macOS Intel/Apple Silicon (13+) and Linux x64. It shares
+portable GGUF weights and verifies the patched native worker, without downloading
+the historical Linux CLI on other operating systems. Windows builds need CMake
+and Visual Studio C++ Build Tools; Macs need CMake and Xcode Command Line Tools.
+The `Native voice` workflow runs real speech/transport/lifetime checks and native
+Electron transparency/dashboard-toggle checks with disposable data and profiles.
+macOS interactive TCC consent, signing/notarization and acoustic validation remain
+separate from automated fake-mic/typed tests. Entitlement and microphone usage text
+are included in the desktop build configuration. Developer caches are not bundled
+into installers. See [ADR 0044](adr/0044-native-desktop-voice-platforms.md).
+
 Intel macOS uses ONNX Runtime 1.23.2 through platform markers because newer releases no longer publish its CPython 3.12 wheel. Other CPU targets retain the current runtime. Windows silent installation skips interactive wizard pages and has a 15-minute CI deadline with process-tree cleanup and retained installer/bootstrap logs. Native package jobs and runtime checks have explicit timeouts; see [ADR 0012](adr/0012-native-package-runtime-and-silent-installs.md).
 
 The Windows setup helper logs ordinary native stderr as progress and uses the global native exit code to detect failure; Windows PowerShell 5.1 must not turn bootstrap's stderr banner into a terminating error or shadow the updated exit code with a local variable. The helper decodes native output as UTF-8 and sets `NO_COLOR`, so `first-run.log` is plain UTF-8 text. It reopens the log for every line, so the installer wizard polls it with `LoadStringsFromLockedFile` (read/write sharing); a share-read poll makes an append fail and aborts setup. The Windows native CI job runs `scripts/test-windows-setup.ps1` against both successful stderr output and a real nonzero exit before runtime provisioning, with a concurrent poller using the wizard's sharing mode and checks for UTF-8 decoding and absent ANSI escapes.
