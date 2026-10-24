@@ -152,6 +152,35 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertEqual("".join(spoken).strip(), reply.strip())
         self.assertTrue(all(len(part) <= 240 for part in spoken))
 
+    def test_first_chat_download_has_progress_and_a_separate_budget_without_private_logs(self):
+        async def events(*args):
+            yield {"type": "install_start"}
+            yield {"type": "install_progress", "line": "PRIVATE /user/profile/install.log"}
+            await asyncio.sleep(.15)
+            yield {"type": "download_start", "path": "/PRIVATE/model.gguf", "repo": "PRIVATE"}
+            yield {"type": "download_progress", "downloaded": 12, "total": 24}
+            await asyncio.sleep(.15)
+            yield {"type": "load_start"}
+            yield {"type": "token", "text": "A local answer."}
+            yield {"type": "done"}
+        async def native(*args):
+            yield {"type": "audio", "data": "AAAAAA==", "sample_rate": 24000, "format": "pcm16"}
+        with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(voice, "chat_events", side_effect=events), \
+                patch.object(voice, "TURN_TIMEOUT", .1), patch.object(voice, "CHAT_SETUP_TIMEOUT", 5):
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="chat")}); ws.receive_json(); ws.receive_json()
+                ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
+                received = []
+                while not received or received[-1]["type"] != "done":
+                    event = ws.receive_json(); received.append(event)
+                    self.assertNotEqual(event["type"], "error", event)
+        self.assertIn({"type": "provision", "stage": "download", "downloaded": 12, "total": 24, "id": 1}, received)
+        self.assertNotIn("PRIVATE", json.dumps(received))
+        self.assertTrue(any(event["type"] == "audio" for event in received))
+
 
 class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_startup_budget_includes_asset_verification_before_launch(self):

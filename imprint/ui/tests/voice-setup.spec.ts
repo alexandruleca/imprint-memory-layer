@@ -39,13 +39,14 @@ test('first-time setup explains size and saved downloads before an explicit acti
   expect(fixture.starts()).toBe(1);
 });
 
-test('download bytes remain visible across navigation; preparation has no fabricated percentage', async ({ page }) => {
+test('download bytes remain visible across navigation; preparation has no fabricated percentage', async ({ page }, testInfo) => {
   const fixture = await prepareSetup(page);
   await page.goto('/voice/');
   await page.getByRole('button', { name: 'Download & set up Echo' }).click();
   fixture.update({ downloaded: 537397344 });
   await expect(page.getByRole('progressbar', { name: 'Voice model download' })).toHaveAttribute('aria-valuenow', '50');
   await expect(page.getByText('537 MB of 1.07 GB')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('echo-download-progress.png'), fullPage: true });
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   const indicator = page.getByRole('link', { name: /Echo · 50%.*View voice setup/ });
   await expect(indicator).toBeVisible();
@@ -88,5 +89,5 @@ test('compact first-run setup leaves the head transparent and fits a narrow wind
   await expect(page.locator('.voice-compact')).toHaveCSS('border-top-width', '0px');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page.getByRole('button', { name: 'Download & set up Echo' })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('echo-first-setup-compact.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('echo-first-setup-compact.png'), fullPage: true, omitBackground: true });
 });

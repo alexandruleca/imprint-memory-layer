@@ -2,12 +2,14 @@ import { API_BASE } from "./api-base";
 
 export type VoiceMode = "ptt" | "handsfree";
 export type VoicePhase = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
+export type VoicePreparation = { stage: "install" | "download" | "load"; downloaded: number; total: number };
 export type VoiceSnapshot = {
   phase: VoicePhase; detail: string; connected: boolean; microphone: boolean;
   mode: VoiceMode; held: boolean; user: string; answer: string; workspace: string;
+  preparation: VoicePreparation | null;
 };
 export const initialVoice: VoiceSnapshot = { phase: "idle", detail: "Ready when you are", connected: false,
-  microphone: false, mode: "ptt", held: false, user: "", answer: "", workspace: "" };
+  microphone: false, mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null };
 
 // Adaptive energy VAD, with onset hysteresis, endpoint silence and pre-roll.
 // This is intentionally separate from the acoustic model; see live-voice.md.
@@ -218,20 +220,26 @@ export class VoiceClient {
     this.sources.clear(); this.nextAudio = 0; this.level = 0;
     if (this.snapshot.connected) {
       if (pending) this.send({ type: "cancel" });
-      this.update({ phase: "ready", detail: this.snapshot.mode === "ptt" ? "Hold to talk" : "Listening for your voice" });
+      this.update({ phase: "ready", preparation: null, detail: this.snapshot.mode === "ptt" ? "Hold to talk" : "Listening for your voice" });
     }
   }
-  private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string }) {
+  private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string; stage?: string; downloaded?: number; total?: number }) {
     if (event.type === "connecting") { this.update({ detail: "Loading local voice…" }); return; }
     if (event.type === "ready") { this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace }); return; }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
     if (!event.id || event.id !== this.accepted) return;
     if (event.type === "user") this.update({ user: event.text || "" });
-    if (event.type === "text") this.update({ answer: this.snapshot.answer + event.text });
+    if (event.type === "provision" && ["install", "download", "load"].includes(event.stage || "")) {
+      const stage = event.stage as VoicePreparation["stage"];
+      this.update({ preparation: { stage, downloaded: Math.max(0, event.downloaded || 0), total: Math.max(0, event.total || 0) },
+        detail: stage === "download" ? "Downloading your chat model…" : stage === "install" ? "Setting up local chat…" : "Loading your chat model…" });
+      return;
+    }
+    if (event.type === "text") this.update({ answer: this.snapshot.answer + event.text, preparation: null });
     if (event.type === "state") this.update({ detail: event.state === "transcribing" ? "Hearing your question…" : "Thinking…" });
-    if (event.type === "tool") this.update({ detail: `Checking memory · ${event.name}` });
+    if (event.type === "tool") this.update({ detail: `Checking memory · ${event.name}`, preparation: null });
     if (event.type === "audio" && event.data) this.play(event.data);
-    if (event.type === "done") this.complete = event.id;
+    if (event.type === "done") { this.complete = event.id; this.update({ preparation: null }); }
     if (event.type === "error") { this.interrupt(); this.update({ detail: event.error || "Try again." }); }
   }
   private play(encoded: string) {
@@ -276,6 +284,6 @@ export class VoiceClient {
     void this.context?.close().catch(() => {}); this.context = undefined;
     this.micPending = false;
     clearInterval(this.timer); this.timer = undefined; this.gate.reset(); this.heldFrames = [];
-    this.update({ connected: false, microphone: false, held: false, phase: "idle", detail: "Microphone off" });
+    this.update({ connected: false, microphone: false, held: false, preparation: null, phase: "idle", detail: "Microphone off" });
   }
 }

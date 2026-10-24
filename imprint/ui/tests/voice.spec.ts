@@ -148,3 +148,22 @@ test('push-to-talk captures through AudioWorklet and sends a bounded WAV on rele
   await page.getByRole('button', { name: 'Stop conversation and microphone' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Microphone off' })).toBeVisible();
 });
+
+test('first-time chat setup shows real download progress in Voice and ignores late progress after interruption', async ({ page }) => {
+  const server = await prepare(page);
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('textbox', { name: 'Type a question' }).fill('Hello');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect.poll(() => server.controls.some(c => c.type === 'turn')).toBe(true);
+  server.send({ type: 'provision', id: 1, stage: 'install' });
+  await expect(page.getByRole('heading', { name: 'Installing local chat support' })).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'Local chat model preparation' })).not.toHaveAttribute('aria-valuenow');
+  server.send({ type: 'provision', id: 1, stage: 'download', downloaded: 500000000, total: 1000000000 });
+  await expect(page.getByRole('progressbar', { name: 'Local chat model preparation' })).toHaveAttribute('aria-valuenow', '50');
+  await expect(page.getByText('500 MB of 1.00 GB')).toBeVisible();
+  await expect(page.getByText(/Chat setup continues if you stop voice/)).toBeVisible();
+  await page.getByRole('button', { name: 'Interrupt reply' }).click();
+  server.send({ type: 'provision', id: 1, stage: 'download', downloaded: 900000000, total: 1000000000 });
+  await expect(page.getByRole('region', { name: 'Local chat preparation' })).toHaveCount(0);
+});

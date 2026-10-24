@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/loaders";
 import { formatDownloadBytes, setupLabels, useVoiceSetup } from "@/lib/voice-setup";
+import type { VoicePreparation } from "@/lib/voice-client";
 
 const guide = "https://github.com/alexandruleca/imprint-memory-layer/blob/feat/local-voice-avatar/docs/live-voice.md#first-time-setup-in-imprint";
 const problems: Record<string, string> = {
@@ -18,6 +19,21 @@ const problems: Record<string, string> = {
   setup: "Echo setup couldn't start. Restart Imprint and try again. Your existing downloads are kept.",
 };
 const steps = ["Download", "Prepare", "Ready"];
+
+export function VoiceChatSetup({ preparation, compact = false }: { preparation: VoicePreparation | null; compact?: boolean }) {
+  if (!preparation) return null;
+  const { stage, downloaded, total } = preparation;
+  const percent = stage === "download" && total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : null;
+  const title = stage === "install" ? "Installing local chat support" : stage === "download" ? "Downloading your chat model" : "Loading your chat model";
+  return <section className={`echo-setup ${compact ? "echo-setup-compact" : ""}`} aria-label="Local chat preparation" aria-busy="true">
+    <div className="echo-setup-heading"><Spinner className="size-4"/><div><p className="echo-setup-eyebrow">{stage === "load" ? "SAME MODEL AS CHAT" : "FIRST-TIME CHAT SETUP"}</p><h2>{title}</h2></div></div>
+    <div className="echo-setup-progress"><div className="echo-setup-progress-label"><span role="status">{title}</span><span>{percent !== null ? `${percent}%` : "In progress"}</span></div>
+      <Progress aria-label="Local chat model preparation" value={percent}/>
+      <p>{stage === "download" ? total > 0 ? `${formatDownloadBytes(downloaded)} of ${formatDownloadBytes(total)}` : `${formatDownloadBytes(downloaded)} downloaded` : "This can take a few minutes. Your question will continue when the model is ready."}</p>
+    </div>
+    {stage !== "load" && <p className="echo-setup-description">This is separate from Echo’s voice files and uses the same model as Chat. Chat setup continues if you stop voice; saved files are reused.</p>}
+  </section>;
+}
 
 export function VoiceSetup({ setup, compact = false }: { setup: ReturnType<typeof useVoiceSetup>; compact?: boolean }) {
   const { state, error, pending, start, cancel } = setup;
@@ -49,6 +65,7 @@ export function VoiceSetup({ setup, compact = false }: { setup: ReturnType<typeo
       {state?.stage === "cancelled" && <p className="echo-setup-description">Verified files are saved. Continue whenever you’re ready; the current unfinished file downloads again.</p>}
       {error && <p role="alert" className="echo-setup-error">{error}</p>}
       {!busy && <div className="echo-setup-facts"><span><HardDrive size={13} aria-hidden/> Allow 4 GB free for setup</span><span><ShieldCheck size={13} aria-hidden/> Mic stays off</span></div>}
+      {!busy && <p className="echo-setup-description">Using the same model as Chat may need a separate model download. Choosing LFM 1.5B needs no additional chat model.</p>}
       <div className="echo-setup-actions">
         {busy ? <Button variant="outline" size="sm" disabled={pending || state?.stage === "cancelling"} onClick={() => void cancel()}>{state?.stage === "cancelling" ? "Cancelling…" : "Cancel setup"}</Button>
           : <Button className="echo-setup-download" disabled={pending || !state || !!error} onClick={() => void start()}>{pending ? <Spinner/> : <ArrowDownToLine size={16} aria-hidden/>}{pending ? "Starting setup…" : state?.stage === "blocked" ? "Check again" : state?.stage === "error" ? "Retry setup" : state?.stage === "cancelled" ? "Continue setup" : "Download & set up Echo"}</Button>}

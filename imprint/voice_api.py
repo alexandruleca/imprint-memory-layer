@@ -27,6 +27,8 @@ router = APIRouter(prefix="/api/voice")
 MAX_MESSAGE = 2_000_000
 MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
 STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load.
+TURN_TIMEOUT = 120
+CHAT_SETUP_TIMEOUT = 1800  # First-time binding/model provisioning is not a reply.
 
 
 def worker_threads() -> int:
@@ -399,7 +401,7 @@ async def stream(websocket: WebSocket):
                 if not flag.is_set():
                     await send({**event, "id": identifier})
             try:
-                async with asyncio.timeout(120):
+                async with asyncio.timeout(TURN_TIMEOUT) as turn_budget:
                     question = message.get("text", "").strip()
                     if message.get("audio"):
                         content = await audio_content(message["audio"])
@@ -439,8 +441,12 @@ async def stream(websocket: WebSocket):
                                         await emit(audio)
 
                         pending = ""
+                        provisioning = False
                         async for event in chat_events(question, list(history), workspace, flag):
                             kind = event["type"]
+                            if provisioning and kind in {"token", "tool_call"}:
+                                turn_budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
+                                provisioning = False
                             if kind == "error":
                                 raise PrototypeError("The chat model could not reply. Open Chat to check its setup.")
                             if kind == "token":
@@ -457,8 +463,17 @@ async def stream(websocket: WebSocket):
                                     await synthesize(phrase)
                             elif kind == "tool_call":
                                 await emit({"type": "tool", "name": event["name"]})
-                            elif kind in {"load_start", "install_start", "download_start"}:
-                                await emit({"type": "state", "state": "loading chat model"})
+                            elif kind in {"install_start", "download_start", "download_progress", "download_complete", "load_start"}:
+                                if kind in {"install_start", "download_start"} and not provisioning:
+                                    turn_budget.reschedule(asyncio.get_running_loop().time() + CHAT_SETUP_TIMEOUT)
+                                    provisioning = True
+                                stage = "install" if kind == "install_start" else "download" if kind.startswith("download_") and kind != "download_complete" else "load"
+                                progress = {"type": "provision", "stage": stage}
+                                for name in ("downloaded", "total"):
+                                    value = event.get(name)
+                                    if type(value) is int and 0 <= value <= 1_000_000_000_000:
+                                        progress[name] = value
+                                await emit(progress)
                         if pending.strip():
                             await synthesize(pending)
                     if answer.strip():

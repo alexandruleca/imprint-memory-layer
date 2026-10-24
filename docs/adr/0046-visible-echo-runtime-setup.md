@@ -28,6 +28,16 @@ Preparation has an indeterminate indicator, without an invented percentage or
 completion time. Keep a top-bar status link visible across dashboard navigation.
 Never start voice or enable the microphone upon setup completion.
 
+Also disclose the separate model needed by the default same-Chat reasoning
+route. Forward its existing install/download/load events into a visible voice
+preparation panel with actual byte progress, excluding raw package logs, paths
+and repository metadata. First-time chat provisioning gets a bounded 30-minute
+setup budget; return to the ordinary two-minute reply budget on its first token.
+Otherwise a valid initial model download could exhaust the reply timeout before
+it finishes. Preserve ADR 0035's policy of completing chat provisioning safely
+after voice cancellation; clearly disclose this and reject stale progress after
+interruption. The LFM-only route needs no additional chat model.
+
 Use a dedicated managed setup child and a bounded JSON progress protocol. The
 browser may start/cancel the fixed installer, but cannot supply cache paths,
 URLs, executables or commands. Mutation endpoints require the exact local

@@ -453,5 +453,23 @@ pinning and dashboard on/off session cleanup. Fresh byte downloads and cached
 reuse use small hash-verified network fixtures in unit tests; first-run UI states
 use API fixtures. This does not establish a fresh 1.07 GB UI-driven download or
 fresh compiler installation on a user's machine. Native Windows/macOS execution
-of this new setup/cancellation path is a separate gate from the previous native
-speech evidence above.
+of this new setup/cancellation path passed on source `1980545`: the
+[native setup/speech/desktop run](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40087296414)
+passed Windows x64, Intel Mac, Apple Silicon and Linux x64, including 25 voice
+checks and the real setup owner/descendant shutdown test. Each graphical job
+also invoked the managed setup child against its verified native cache and
+reached ready. The [general CI](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40087296430)
+passed all five native backend targets, frontend and workflow checks. This
+establishes cached setup and native process lifecycle, not a fresh full UI
+download/build or real microphone/TCC validation.
+
+Follow-up for the same-Chat route: Voice now forwards real chat install/download/
+load progress without raw package logs, paths or repository metadata. A bounded
+first-time setup budget is separate from normal reply generation. A regression
+delays provisioning beyond the ordinary reply timeout, verifies actual byte
+events and privacy filtering, then completes the spoken reply. A browser case
+checks chat download percentage/bytes and rejection of late progress after
+interruption. This path does not benchmark or freshly provision the actual chat
+model; the existing chat provisioning policy remains in force.
+The follow-up passed 26 voice/setup Python checks and 11 voice/setup browser
+scenarios locally, plus the UI production build and lint.

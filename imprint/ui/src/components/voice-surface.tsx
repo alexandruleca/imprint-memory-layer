@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { VoiceClient, initialVoice, type VoiceSnapshot } from "@/lib/voice-client";
 import { API_BASE } from "@/lib/api-base";
 import { useVoiceSetup } from "@/lib/voice-setup";
-import { VoiceSetup } from "@/components/voice-setup";
+import { VoiceSetup, VoiceChatSetup } from "@/components/voice-setup";
 import "@/styles/voice.css";
 
 const EchoAvatar = dynamic(() => import("./echo-avatar"), { ssr: false });
@@ -46,7 +46,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     if (window.electronAPI?.openCompanion) window.electronAPI.openCompanion();
     else window.open("/companion/", "imprint-echo", "popup,width=380,height=560");
   }
-  return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready ? "voice-needs-setup" : ""}`} data-phase={voice.phase}>
+  return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready || voice.preparation ? "voice-needs-setup" : ""}`} data-phase={voice.phase}>
     <header className={`voice-header ${compact ? "app-drag" : ""}`}>
       <div className="voice-wordmark"><AudioLines size={17} aria-hidden="true"/><span>IMPRINT <b>/ ECHO</b></span></div>
       <div className="voice-window-actions app-no-drag">
@@ -58,6 +58,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     </header>
     {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
     {!ready && !compact && <VoiceSetup setup={setup}/>}
+    {!compact && <VoiceChatSetup preparation={voice.preparation}/>}
     <div className="voice-stage">
       <div className="voice-halo" aria-hidden="true"/>
       <EchoAvatar phase={voice.phase} energy={energy} compact={compact}/>
@@ -86,6 +87,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
             <Button variant="ghost" size="icon-lg" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>
           </>}
       </div>
+      {compact && <VoiceChatSetup preparation={voice.preparation} compact/>}
       <p className="voice-privacy" role="status">{voice.phase === "error" || (!voice.microphone && voice.connected && voice.detail.includes("permission")) ? voice.detail : voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally"}</p>
       <form className="voice-text" onSubmit={event => { event.preventDefault(); if (voice.connected && text.trim()) { client.current?.text(text); setText(""); input.current?.focus(); } }}>
         <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} disabled={!voice.connected} onChange={event => setText(event.target.value)}/>
