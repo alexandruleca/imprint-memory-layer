@@ -52,9 +52,9 @@ installer-macos:
 	./installers/macos/build-pkg.sh --version "$$VER" --arch "$$ARCH" --source "$$SRC" --out "$$OUT"
 
 # Build the Windows .exe installer.
-# Usage: make installer-windows (requires iscc / Inno Setup 6 on PATH, Windows host)
+# Usage: make installer-windows (requires iscc / Inno Setup 6.3+ on PATH, Windows host)
 installer-windows:
-	@command -v iscc >/dev/null || { echo "iscc (Inno Setup 6) not on PATH"; exit 1; }
+	@command -v iscc >/dev/null || { echo "iscc (Inno Setup 6.3+) not on PATH"; exit 1; }
 	@VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
 	SRC="$$(pwd)/dist/imprint-windows-amd64"; \
 	[ -d "$$SRC" ] || { echo "Missing $$SRC — run 'make all && make package' first"; exit 1; }; \
@@ -75,13 +75,13 @@ package-local:
 
 # Build the Windows installer from an already-staged tree (runs iscc directly).
 # Usage: make installer-local [PLAT=windows/amd64]
-# Requires: iscc (Inno Setup 6) on PATH.
+# Requires: iscc (Inno Setup 6.3+) on PATH.
 installer-local:
 	$(eval _PLAT := $(or $(PLAT),windows/amd64))
 	$(eval _OS   := $(word 1,$(subst /, ,$(_PLAT))))
 	$(eval _ARCH := $(word 2,$(subst /, ,$(_PLAT))))
 	$(eval _NAME := imprint-$(_OS)-$(_ARCH))
-	@command -v iscc >/dev/null || { echo "iscc (Inno Setup 6) not on PATH"; exit 1; }
+	@command -v iscc >/dev/null || { echo "iscc (Inno Setup 6.3+) not on PATH"; exit 1; }
 	@[ -d "dist/$(_NAME)" ] || { echo "Missing dist/$(_NAME) — run 'make package-local' first"; exit 1; }
 	@VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
 	SRC="$$(pwd)/dist/$(_NAME)"; \

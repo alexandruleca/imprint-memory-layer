@@ -18,6 +18,9 @@ func main() {
         if err != nil { os.Exit(1) }; json.NewEncoder(f).Encode(os.Args[1:]); f.Close()
     }
     fmt.Fprintln(os.Stderr, "ordinary progress on stderr")
+    if os.Getenv("NO_COLOR") == "" { fmt.Println("\033[0;36m[*]\033[0m colored progress") }
+    fmt.Println("\u2192 utf-8 progress")
+    for i := 0; i < 300; i++ { fmt.Println("progress line", i) }
     if os.Getenv("IMPRINT_SETUP_TEST_FAIL")=="1" { os.Exit(23) }
 }
 '@ | Set-Content $fixture -Encoding ascii
@@ -37,6 +40,21 @@ func main() {
         $env:IMPRINT_SETUP_TEST_FAIL = "$fail"
         $env:IMPRINT_SETUP_TEST_ARGS = Join-Path $dest 'calls.jsonl'
         "Ubuntu Test|claude-code`nUbuntu Test|codex" | Set-Content "$dest/.wsl-integrations.txt" -Encoding utf8
+        # Poll the log the way the wizard does (LoadStringsFromLockedFile:
+        # read access, read/write sharing); appends must never collide with it.
+        $ready = Join-Path $dest 'poller.ready'
+        $poller = Start-Job -ArgumentList "$dest/first-run.log", $ready -ScriptBlock {
+            param($log, $ready)
+            New-Item -ItemType File -Path $ready | Out-Null
+            while ($true) {
+                try {
+                    $reader = New-Object System.IO.StreamReader ([System.IO.File]::Open($log, 'Open', 'Read', 'ReadWrite'))
+                    $null = $reader.ReadToEnd()
+                    $reader.Dispose()
+                } catch {}
+            }
+        }
+        while (-not (Test-Path $ready)) { Start-Sleep -Milliseconds 50 }
         $child = Start-Process powershell.exe -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
             '-File', "`"$dest/imprint-setup.ps1`"", '-InstallDir', "`"$dest`"", '-Profile', 'cpu', '-NoLlm'
@@ -48,16 +66,19 @@ func main() {
             taskkill /PID $child.Id /T /F
             throw 'Setup regression fixture timed out'
         }
+        Remove-Job $poller -Force
         $child.Refresh()
+        $log = Get-Content "$dest/first-run.log" -Raw -Encoding UTF8
         if ($child.ExitCode -ne $fail) {
             Get-Content "$dest/stdout.log", "$dest/stderr.log"
+            $log
             throw "Expected exit $fail, got $($child.ExitCode)"
         }
         if ((Get-Content "$dest/.setup-result").Trim() -ne "$fail") { throw 'Wrong setup result' }
         if ((Test-Path "$dest/.first-run.done") -ne ($fail -eq 0)) { throw 'Wrong completion sentinel' }
-        if ((Get-Content "$dest/first-run.log" -Raw) -notmatch 'ordinary progress on stderr') {
-            throw 'Native stderr was not retained'
-        }
+        if ($log -notmatch 'ordinary progress on stderr') { throw 'Native stderr was not retained' }
+        if (-not $log.Contains("$([char]0x2192) utf-8 progress")) { throw 'Native UTF-8 output was not decoded as UTF-8' }
+        if ($log.Contains([string][char]27)) { throw 'ANSI escapes reached the log' }
         if ($fail -eq 0) {
             $calls = @(Get-Content $env:IMPRINT_SETUP_TEST_ARGS | ForEach-Object { ,(ConvertFrom-Json $_) })
             $wslCalls = @($calls | Where-Object { $_[0] -eq 'wsl' })
@@ -67,8 +88,9 @@ func main() {
             }
         }
     }
-    Write-Host 'Windows PowerShell setup stderr and nonzero-exit regressions passed'
+    Write-Host 'Windows PowerShell setup stderr, nonzero-exit and log regressions passed'
 } finally {
+    Get-Job | Remove-Job -Force
     Remove-Item Env:IMPRINT_SETUP_TEST_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:IMPRINT_SETUP_TEST_ARGS -ErrorAction SilentlyContinue
     Remove-Item $root -Recurse -Force

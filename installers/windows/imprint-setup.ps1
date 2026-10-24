@@ -27,6 +27,12 @@ param(
 $ErrorActionPreference = "Stop"
 $InformationPreference = "Continue"
 
+# The log is plain UTF-8 text. imprint.exe and uv write UTF-8, which
+# Windows PowerShell would otherwise decode with the OEM code page, and they
+# honor NO_COLOR, which keeps ANSI escapes out of the file.
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+$env:NO_COLOR = '1'
+
 $Bin      = Join-Path $InstallDir "bin\imprint.exe"
 $Uv       = Join-Path $InstallDir "bin\uv.exe"
 $Sentinel = Join-Path $InstallDir ".first-run.done"

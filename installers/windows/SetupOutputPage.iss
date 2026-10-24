@@ -1,5 +1,5 @@
 // Wizard page that streams imprint bootstrap output inline.
-// Requires Inno Setup 6.1+ (CreateCallback).
+// Requires Inno Setup 6.3+ (LoadStringsFromLockedFile).
 // Included from imprint.iss [Code] section.
 //
 // Exposes:
@@ -32,7 +32,8 @@ const
 // Called by Win32 timer every 300 ms. Reads the log file and updates the memo.
 procedure BootstrapTimerProc(hWnd: HWND; uMsg: UINT; idEvent: UINT_PTR; dwTime: DWORD);
 var
-  LogContent: AnsiString;
+  LogLines: TArrayOfString;
+  LogContent: string;
   LogPath: string;
   SetupResult: AnsiString;
 begin
@@ -40,9 +41,13 @@ begin
 
   LogPath  := ExpandConstant('{app}\first-run.log');
 
-  if LoadStringFromFile(LogPath, LogContent) then
+  // imprint-setup.ps1 reopens the log for every appended line. Read with
+  // read/write sharing so a poll never makes one of those appends fail; the
+  // file is UTF-8, which the Strings variant decodes.
+  if LoadStringsFromLockedFile(LogPath, LogLines) then
   begin
-    GOutputMemo.Lines.Text := String(LogContent);
+    LogContent := StringJoin(#13#10, LogLines);
+    GOutputMemo.Lines.Text := LogContent;
     SendMessageScroll(GOutputMemo.Handle, WM_VSCROLL, SB_BOTTOM, 0);
   end;
 
@@ -63,7 +68,7 @@ begin
   end;
 
   // Failure: PS1 wrote "FAILED:" to log and exited non-zero.
-  if ((Length(LogContent) > 0) and (Pos('FAILED:', String(LogContent)) > 0)) or
+  if ((Length(LogContent) > 0) and (Pos('FAILED:', LogContent) > 0)) or
      (DWORD(BootstrapTicks() - GBootStarted) > 1800000) then
   begin
     KillTimer(0, GTimerID);
