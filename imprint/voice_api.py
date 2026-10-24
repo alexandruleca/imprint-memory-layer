@@ -28,6 +28,13 @@ MAX_MESSAGE = 2_000_000
 MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
 
 
+def worker_threads() -> int:
+    cores = os.cpu_count() or 1
+    if hasattr(os, "sched_getaffinity"):
+        cores = min(cores, len(os.sched_getaffinity(0)))
+    return max(1, min(4, cores))
+
+
 def runtime_root() -> Path | None:
     value, _ = config_schema.resolve("voice.runtime_dir")
     return Path(value).expanduser().resolve() if value else None
@@ -48,15 +55,17 @@ class Worker:
             raise PrototypeError("Voice is not set up. Configure voice.runtime_dir after building the local runtime.")
         binary = await asyncio.to_thread(voice_runtime.verify, root)
         token = secrets.token_urlsafe(48)
+        threads = str(worker_threads())
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
         command = [str(binary), "-m", str(root / lfm.MODEL), "-mm", str(root / lfm.PROJECTOR),
                    "-mv", str(root / lfm.VOCODER), "--tts-speaker-file", str(root / lfm.TOKENIZER),
-                   "-t", "4", "-c", "4096", "-ngl", "0", "--no-mmproj-offload", "--offline",
+                   "-t", threads, "-tb", threads, "--poll", "0", "--poll-batch", "0",
+                   "-c", "4096", "-ngl", "0", "--no-mmproj-offload", "--offline",
                    "--host", "127.0.0.1", "--port", str(port), "--seed", "42"]
         environment = voice_runtime.child_environment()
-        environment.update(IMPRINT_VOICE_BACKEND_TOKEN=token, IMPRINT_VOICE_LIFETIME_PIPE="1", OMP_NUM_THREADS="4")
+        environment.update(IMPRINT_VOICE_BACKEND_TOKEN=token, IMPRINT_VOICE_LIFETIME_PIPE="1", OMP_NUM_THREADS=threads)
         # Upstream logs can echo private prompts. Never publish or retain them.
         # Popen works on both Windows Selector and Proactor loops (including
         # uvicorn/threaded test servers); asyncio subprocess pipes do not.
@@ -312,7 +321,22 @@ async def stream(websocket: WebSocket):
         workspace, engine = lease["workspace"], lease["engine"]
         history: deque = deque(maxlen=6)
         await send({"type": "connecting"})
-        await sessions.worker.start()
+        # A closed companion must cancel a cold model load as well as an active
+        # turn. HTTP/WebSocket disconnects aren't observed while awaiting only
+        # the worker's readiness probe.
+        boot = asyncio.create_task(sessions.worker.start())
+        disconnected = asyncio.create_task(websocket.receive_text())
+        try:
+            done, _ = await asyncio.wait({boot, disconnected}, return_when=asyncio.FIRST_COMPLETED)
+            if disconnected in done:
+                disconnected.result()  # Propagate disconnect; reject early controls.
+                raise PrototypeError("Wait for voice readiness before sending controls.")
+            await boot
+        finally:
+            for task in (boot, disconnected):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(boot, disconnected, return_exceptions=True)
         await send({"type": "ready", "workspace": workspace, "engine": engine})
         deadline = time.monotonic() + 1800
 

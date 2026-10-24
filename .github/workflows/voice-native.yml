@@ -57,7 +57,8 @@ jobs:
       - name: Voice regressions
         run: python -m unittest discover -s tests -p test_voice.py -v
       - name: Restore verified native worker cache
-        uses: actions/cache@v4
+        id: native-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ${{ env.VOICE_CACHE }}/live-source.tar.gz
@@ -72,6 +73,15 @@ jobs:
       - name: Build verified private native worker
         shell: bash
         run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4
+      - name: Cache verified native build
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ env.VOICE_CACHE }}/live-source.tar.gz
+            ${{ env.VOICE_CACHE }}/live-build.json
+            ${{ env.VOICE_CACHE }}/live-native
+          key: voice-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('imprint/voice_runtime.py', 'requirements/runtime-manifest.json') }}
       - name: Verify idempotent build
         shell: bash
         run: python -m imprint.voice_runtime --runtime-dir "$VOICE_CACHE" --jobs 4

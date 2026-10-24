@@ -21,10 +21,18 @@ try {
   delete environment.ELECTRON_RUN_AS_NODE;
   app = await electron.launch({ executablePath: require('electron'),
     args: [path.join(root, 'main.js'), `--imprint-url=${url}`, `--user-data-dir=${profile}`,
-      ...process.platform === 'linux' ? ['--no-sandbox'] : [], '--enable-unsafe-swiftshader',
+      ...process.platform === 'linux' ? ['--no-sandbox'] : [], '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader',
       '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'], env: environment });
   const actualProfile = await app.evaluate(({ app }) => app.getPath('userData'));
   if (!actualProfile.startsWith(profile)) throw Error('Native smoke requires a disposable profile');
+  // Hosted desktops need not have a physical playback endpoint. A silent sink
+  // still runs the graph/clock; production keeps the user's actual speakers.
+  await app.context().addInitScript(() => {
+    const Original = window.AudioContext;
+    window.AudioContext = class extends Original {
+      constructor(options) { super({ ...options, sinkId: { type: 'none' } }); }
+    };
+  });
   let main;
   for (let i = 0; i < 100; i++) {
     main = app.windows().find(window => window.url().startsWith(url));
@@ -82,12 +90,23 @@ try {
   }
   const result = { platform: `${process.platform}/${process.arch}`, electron: await app.evaluate(() => process.versions.electron),
     disposableProfile: true, realCompanionLoaded: true, alwaysOnTop: true, syntheticMicrophonePermission: testMicrophone,
-    transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true,
-    limits: ['synthetic microphone', 'no real acoustic test', 'software WebGL',
+    transparentWithoutPanel: true, dashboardToggleStopsSession: true, stopAndClose: true, silentWebAudioSink: true,
+    limits: ['synthetic microphone', 'no real acoustic/output-device test', 'silent WebAudio test output', 'software WebGL',
       ...process.platform === 'darwin' ? ['interactive macOS TCC microphone consent requires manual validation'] : [],
       ...process.platform === 'linux' ? ['no-sandbox for the Linux graphical test'] : []] };
   await fs.writeFile(path.join(output, 'summary.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result));
+} catch (error) {
+  if (app) {
+    for (const [index, page] of app.windows().entries()) {
+      await page.screenshot({ path: path.join(output, `failure-${index}.png`), omitBackground: true }).catch(() => {});
+      const content = await page.locator('body').innerText().catch(() => 'Window unavailable');
+      await fs.writeFile(path.join(output, `failure-${index}.txt`), content.slice(0, 12000));
+      const graphics = await page.locator('.echo-canvas').getAttribute('data-error').catch(() => null);
+      if (graphics) await fs.writeFile(path.join(output, `graphics-${index}.txt`), graphics);
+    }
+  }
+  throw error;
 } finally {
   await app?.close();
   await fs.rm(profile, { recursive: true, force: true });

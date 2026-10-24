@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import tarfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -153,6 +154,33 @@ class VoiceBoundaryTests(unittest.TestCase):
 
 
 class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_threads_respect_small_cpu_allocations(self):
+        with patch.object(voice.os, "cpu_count", return_value=3), \
+                patch.object(voice.os, "sched_getaffinity", return_value={0, 1, 2}, create=True):
+            self.assertEqual(voice.worker_threads(), 3)
+        with patch.object(voice.os, "cpu_count", return_value=16), \
+                patch.object(voice.os, "sched_getaffinity", return_value={0, 1}, create=True):
+            self.assertEqual(voice.worker_threads(), 2)
+
+    async def test_closing_during_cold_start_cancels_model_load_and_releases_session(self):
+        registry = voice.Sessions()
+        token = registry.issue("default", "http://127.0.0.1:8420", "lfm")
+        socket = SimpleNamespace(headers={"host": "127.0.0.1:8420", "origin": "http://127.0.0.1:8420"},
+                                 client=SimpleNamespace(host="127.0.0.1"), accept=AsyncMock(), close=AsyncMock(),
+                                 send_json=AsyncMock(), receive_text=AsyncMock(side_effect=[json.dumps({"token": token}), WebSocketDisconnect()]))
+        cancelled = asyncio.Event()
+        async def slow_start():
+            try:
+                await asyncio.sleep(30)
+            finally:
+                cancelled.set()
+        with patch.object(voice, "sessions", registry), patch.object(registry.worker, "start", side_effect=slow_start), \
+                patch.object(registry.worker, "stop", new_callable=AsyncMock) as stop:
+            await asyncio.wait_for(voice.stream(socket), 1)
+            self.assertTrue(cancelled.is_set())
+            self.assertFalse(registry.active)
+            stop.assert_awaited()
+
     async def test_microphone_wav_limits_and_encoding(self):
         content = await voice.audio_content(base64.b64encode(wav_bytes()).decode())
         self.assertEqual(content[0]["input_audio"]["format"], "wav")

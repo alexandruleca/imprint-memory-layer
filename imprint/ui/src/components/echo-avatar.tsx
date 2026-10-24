@@ -104,7 +104,12 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
         frame = requestAnimationFrame(draw);
       } catch (error) { dispose(); throw error; }
     }
-    void mount().catch(() => { if (!cancelled) setFailed(true); });
+    void mount().catch(error => {
+      if (!cancelled) {
+        container.dataset.error = error instanceof Error ? error.message.slice(0, 160) : "WebGL preview unavailable";
+        setFailed(true);
+      }
+    });
     return () => { cancelled = true; release?.(); };
   }, [compact]);
   return <div ref={host} className="echo-canvas" role="img" aria-label="Echo, an abstract holographic face made of luminous particles">

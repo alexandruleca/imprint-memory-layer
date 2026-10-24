@@ -81,6 +81,11 @@ def main():
                 with Image.open(args.output_dir / "companion.png") as image:
                     if image.mode != "RGBA" or image.getpixel((0, 0))[3] != 0:
                         raise RuntimeError("Companion screenshot must have transparent background pixels")
+            except BaseException:
+                args.output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                log.flush()
+                shutil.copy2(Path(directory) / "api.log", args.output_dir / "api.log")
+                raise
             finally:
                 api.terminate()
                 try: api.wait(timeout=5)
