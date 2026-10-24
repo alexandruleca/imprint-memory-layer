@@ -7,6 +7,10 @@ Single source of truth for all user-facing settings. Each setting has:
 - A short description
 
 Precedence: env var > config.json > hardcoded default.
+
+Secret settings resolve like any other, but every display surface (CLI,
+dashboard API) shows them through ``display_value`` so the stored value is
+never echoed back.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ class Setting:
     default: Any     # "Xenova/bge-m3"
     type: type       # str, int, float, bool
     desc: str        # one-line description
+    secret: bool = False  # credential: never displayed, only its last 4 characters
 
 
 SETTINGS: list[Setting] = [
@@ -46,6 +51,11 @@ SETTINGS: list[Setting] = [
     Setting("model.pooling",    "IMPRINT_POOLING",          "auto",           str,   "Pooling strategy: auto / cls / mean / last"),
     Setting("model.query_instruction", "IMPRINT_QUERY_INSTRUCTION", "auto", str, "Query instruction (auto = model-specific; Qwen wraps Instruct/Query)"),
     Setting("model.output",     "IMPRINT_MODEL_OUTPUT",     "auto",           str,   "ONNX output name (auto = preferred pooled/token output)"),
+
+    # ── Hugging Face Hub ──────────────────────────────────────
+    # The env var is the standard one, so an exported HF_TOKEN overrides the
+    # stored token. Unset in both, downloads fall back to `hf auth login`.
+    Setting("huggingface.token", "HF_TOKEN",                "",               str,   "Hugging Face access token for model downloads", secret=True),
 
     # ── Qdrant ────────────────────────────────────────────────
     Setting("qdrant.host",      "IMPRINT_QDRANT_HOST",      "127.0.0.1",      str,   "Qdrant host (auto-spawn requires loopback)"),
@@ -277,6 +287,15 @@ def resolve_all() -> list[tuple[str, Any, str, Any, str]]:
     return results
 
 
+def display_value(setting: Setting, value: Any) -> Any:
+    """The value as shown to users: secrets reveal only whether they are set
+    and their last four characters."""
+    if not setting.secret or not value:
+        return value
+    value = str(value)
+    return "****" + (value[-4:] if len(value) >= 12 else "")
+
+
 # ── Mutations ────────────────────────────────────────────────
 
 def set_value(key: str, raw: str) -> Any:
@@ -332,6 +351,8 @@ def cli_list() -> None:
 
     current_group = ""
     # Find max key length for alignment
+    rows = [(key, display_value(SETTINGS_BY_KEY[key], val), source, default, desc)
+            for key, val, source, default, desc in rows]
     max_key = max(len(r[0]) for r in rows)
     max_val = max(len(str(r[1])) for r in rows)
 
@@ -366,7 +387,7 @@ def cli_get(key: str) -> None:
         _print_did_you_mean(key)
         sys.exit(1)
     s = SETTINGS_BY_KEY[key]
-    print(f"{key} = {val}")
+    print(f"{key} = {display_value(s, val)}")
     print(f"  source:  {source}")
     print(f"  env var: {s.env}")
     print(f"  default: {s.default}")
@@ -384,7 +405,7 @@ def cli_set(key: str, value: str) -> None:
     except ValueError as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
-    print(f"{C_GREEN}[+]{C_RESET} {key} = {val}")
+    print(f"{C_GREEN}[+]{C_RESET} {key} = {display_value(SETTINGS_BY_KEY[key], val)}")
 
 
 def cli_reset(key: str) -> None:
@@ -411,7 +432,7 @@ def cli_reset_all() -> None:
 def cli_status_overrides() -> None:
     """Print non-default settings for imprint status. Outputs nothing if all defaults."""
     rows = resolve_all()
-    overrides = [(k, v, src) for k, v, src, _d, _desc in rows if src != "default"]
+    overrides = [(k, display_value(SETTINGS_BY_KEY[k], v), src) for k, v, src, _d, _desc in rows if src != "default"]
     if not overrides:
         return
     max_key = max(len(k) for k, _, _ in overrides)

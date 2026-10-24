@@ -780,18 +780,20 @@ def api_job_cancel(job_id: str):
 
 @app.get("/api/config")
 def api_config():
-    from .config_schema import SETTINGS, resolve
+    # Secret values never leave the process; display_value masks them.
+    from .config_schema import SETTINGS, display_value, resolve
     settings = []
     for s in SETTINGS:
         val, source = resolve(s.key)
         settings.append({
             "key": s.key,
-            "value": val,
+            "value": display_value(s, val),
             "source": source,
             "default": s.default,
             "type": s.type.__name__,
             "env": s.env,
             "desc": s.desc,
+            "secret": s.secret,
         })
     return {"settings": settings}
 
@@ -802,12 +804,22 @@ async def api_config_set(key: str, request: Request):
     value = body.get("value")
     if value is None:
         return {"error": "value required"}
-    from .config_schema import set_value
+    from .config_schema import SETTINGS_BY_KEY, display_value, set_value
     try:
         val = set_value(key, str(value))
-        return {"ok": True, "value": val}
+        return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val)}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.delete("/api/config/{key:path}")
+def api_config_reset(key: str):
+    """Remove the config.json override, like `imprint config reset <key>`."""
+    from .config_schema import reset_value
+    try:
+        return {"ok": True, "removed": reset_value(key)}
+    except KeyError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
 
 
 # ── CLI command execution ──────────────────────────────────────

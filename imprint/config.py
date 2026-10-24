@@ -104,6 +104,17 @@ CHUNK_SIZE_CHARS = int(os.environ.get("IMPRINT_CHUNK_SIZE", str(CHUNK_SIZE_PROSE
 CHUNK_HARD_MAX = _get("chunker.hard_max")
 CHUNK_SEMANTIC_THRESHOLD = _get("chunker.semantic_threshold")
 
+# ── Hugging Face Hub ───────────────────────────────────────────
+def hub_token() -> str | None:
+    """Token for Hugging Face downloads: HF_TOKEN env > config.json.
+
+    Resolved on every call so a token saved in the dashboard reaches the
+    running API server as well as the processes it starts. ``None`` lets
+    huggingface_hub use its own login (``hf auth login``).
+    """
+    return _get("huggingface.token") or None
+
+
 # ── Embedding runtime ──────────────────────────────────────────
 ONNX_THREADS = _get("model.threads")
 GPU_MEM_MB = _get("model.gpu_mem_mb")

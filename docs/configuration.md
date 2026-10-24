@@ -41,7 +41,21 @@ imprint config reset model.device
 imprint config reset --all
 ```
 
-`imprint config` groups settings visually by prefix (`model.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
+`imprint config` groups settings visually by prefix (`model.*`, `huggingface.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
+
+The dashboard's **Settings** page edits the same values. **Reset** (or **Remove**, for a secret) deletes the `config.json` override, like `imprint config reset <key>`.
+
+## Hugging Face token
+
+Imprint downloads the embedding model and the optional local helper GGUF from the Hugging Face Hub. Without a token those downloads are anonymous: they work for the default public models but are rate-limited, and huggingface_hub warns about unauthenticated requests. Gated or private repositories need a token. Create a read token at <https://huggingface.co/settings/tokens>, then store it in one of these ways:
+
+- Dashboard: **Settings → Huggingface → `huggingface.token`**. Click the value, paste the token and save. The field is a password input and starts empty.
+- CLI: `imprint config set huggingface.token hf_...`. The token appears on the command line and in shell history, so prefer the dashboard or the environment variable on shared machines.
+- Environment: export the standard `HF_TOKEN` variable. It takes precedence over the stored token.
+
+Every Imprint process reads the token when it downloads, so a token saved in the dashboard applies to the running dashboard server and to the ingest, refresh and learn processes it starts. It is also used by MCP and hook processes, with no restart needed. Embedding downloads pass it to `huggingface_hub`, and GGUF downloads send it as an `Authorization` header to `huggingface.co`. httpx drops that header if a redirect leaves the host. With neither `HF_TOKEN` nor a stored token set, downloads use huggingface_hub's own login (`hf auth login`). One case is not covered: Chonkie's own model2vec fallback, which runs only when Imprint's embedding model cannot load, sees `HF_TOKEN` and `hf auth login` but not the stored token.
+
+`huggingface.token` is a **secret** setting. `imprint config`, `imprint config get`/`set`, `imprint status` and `GET /api/config` show only `****` plus its last four characters, and only for tokens of 12 characters or more. The raw value is stored only in `data/config.json`. Imprint writes that file through a temporary file created with owner-only permissions (`0600` on macOS/Linux). On Windows it inherits the per-user install directory's ACL. Uninstalling without keeping data deletes it. See [ADR 0033](adr/0033-stored-secret-settings.md).
 
 ## All Settings
 
@@ -61,6 +75,8 @@ imprint config reset --all
 | `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last |
 | `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |
 | `model.output` | `auto` | Named ONNX output selection |
+| **Hugging Face Hub** | | |
+| `huggingface.token` | — | Access token for model downloads. Secret: displayed masked. Its env var is the standard `HF_TOKEN`, not an `IMPRINT_*` name |
 | **Qdrant** | | |
 | `qdrant.host` | `127.0.0.1` | Qdrant host; auto-spawn requires a literal loopback IP or `localhost` |
 | `qdrant.port` | `6333` | Qdrant HTTP port |
@@ -122,7 +138,7 @@ imprint config reset --all
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
-Each setting also has an `IMPRINT_*` env var (shown via `imprint config get <key>`). Env vars still work and take priority over config.json.
+Each setting also has an env var, `IMPRINT_*` except `HF_TOKEN` (shown via `imprint config get <key>`). Env vars still work and take priority over config.json.
 
 ## Local service boundaries
 

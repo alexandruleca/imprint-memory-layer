@@ -119,7 +119,8 @@ def _load_locked():
     model_key = hashlib.sha256(f"{config.MODEL_NAME}@{config.MODEL_REVISION}".encode()).hexdigest()[:16]
     model_dir = config.get_data_dir() / "models" / "embeddings" / model_key
     def download(filename):
-        return hf_hub_download(config.MODEL_NAME, filename, revision=config.MODEL_REVISION, local_dir=model_dir)
+        return hf_hub_download(config.MODEL_NAME, filename, revision=config.MODEL_REVISION, local_dir=model_dir,
+                               token=config.hub_token())
     model_path = download(config.MODEL_FILE)
     from . import model_profiles as profiles
     if (config.MODEL_NAME, config.MODEL_REVISION, config.MODEL_FILE) == (profiles.EMBEDDING_REPO, profiles.EMBEDDING_REVISION, profiles.EMBEDDING_FILE):

@@ -371,6 +371,11 @@ export async function setConfigValue(key: string, value: unknown) {
   });
 }
 
+/** Remove the config.json override so the env var or default applies. */
+export async function resetConfigValue(key: string) {
+  return fetchAPI(`/api/config/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+
 // ── Queue / Commands ───────────────────────────────────────────
 
 export async function enqueueCommand(

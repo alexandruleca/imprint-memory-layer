@@ -125,6 +125,8 @@ export interface ConfigSetting {
   type: string;
   env: string;
   desc: string;
+  /** Credential: `value` is masked ("****" + last 4 characters, or empty when unset). */
+  secret?: boolean;
 }
 
 export interface ChatSession {

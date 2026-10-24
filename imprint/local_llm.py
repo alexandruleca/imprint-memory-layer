@@ -16,6 +16,8 @@ def download(repo: str, filename: str, target: Path, progress_cb=None) -> Path:
     """Serialize downloads across roles/processes and verify the default artifact."""
     import httpx
     from filelock import FileLock
+    from huggingface_hub.utils import build_hf_headers
+    from . import config
     from .downloads import verify_archive
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -31,7 +33,10 @@ def download(repo: str, filename: str, target: Path, progress_cb=None) -> Path:
         tmp = Path(name)
         try:
             with os.fdopen(fd, "wb") as stream:
+                # Same credentials as hf_hub_download. httpx drops the
+                # Authorization header when a redirect leaves huggingface.co.
                 with httpx.stream("GET", f"https://huggingface.co/{repo}/resolve/{revision}/{filename}",
+                                  headers=build_hf_headers(token=config.hub_token()),
                                   follow_redirects=True, timeout=httpx.Timeout(60, read=300)) as response:
                     response.raise_for_status()
                     total = int(response.headers.get("Content-Length") or 0)

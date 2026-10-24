@@ -47,3 +47,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0030](0030-chrome-extension-release-zip.md) | Accepted | Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations. |
 | [0031](0031-website-analytics-and-public-relay-status.md) | Accepted | GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page. |
 | [0032](0032-one-onnx-runtime-per-environment.md) | Accepted | Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. |
+| [0033](0033-stored-secret-settings.md) | Accepted | Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence. |

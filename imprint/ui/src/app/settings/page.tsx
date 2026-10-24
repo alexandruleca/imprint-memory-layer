@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { getConfig, setConfigValue } from "@/lib/api";
+import { getConfig, resetConfigValue, setConfigValue } from "@/lib/api";
 import { SettingsSkeleton } from "@/components/loaders";
 import { WorkspaceManager } from "@/components/workspace-manager";
 import type { ConfigSetting } from "@/lib/types";
@@ -26,6 +26,18 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await setConfigValue(key, editValue);
+      const d = await getConfig();
+      setSettings(d.settings);
+      setEditing(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetValue(key: string) {
+    setSaving(true);
+    try {
+      await resetConfigValue(key);
       const d = await getConfig();
       setSettings(d.settings);
       setEditing(null);
@@ -74,6 +86,8 @@ export default function SettingsPage() {
                           onChange={(e) => setEditValue(e.target.value)}
                           className="h-7 text-xs"
                           autoFocus
+                          aria-label={s.key}
+                          {...(s.secret ? { type: "password", autoComplete: "off", placeholder: "Paste a new value" } : {})}
                           onKeyDown={(e) => e.key === "Enter" && saveValue(s.key)}
                         />
                         <button
@@ -88,12 +102,29 @@ export default function SettingsPage() {
                         </button>
                       </div>
                     ) : (
-                      <div
-                        className="font-mono text-xs cursor-pointer hover:bg-muted p-1 rounded"
-                        onClick={() => { setEditing(s.key); setEditValue(String(s.value)); }}
-                      >
-                        {String(s.value)}
+                      <div className="flex items-center gap-2">
+                        {/* Secrets arrive masked, so editing one starts empty. */}
+                        <button
+                          type="button"
+                          className="flex-1 text-left font-mono text-xs cursor-pointer hover:bg-muted p-1 rounded"
+                          onClick={() => { setEditing(s.key); setEditValue(s.secret ? "" : String(s.value)); }}
+                        >
+                          {s.secret && !s.value ? <span className="text-muted-foreground">Not set</span> : String(s.value)}
+                        </button>
+                        {s.source === "config" && (
+                          <button
+                            type="button"
+                            onClick={() => resetValue(s.key)}
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                            disabled={saving}
+                          >
+                            {s.secret ? "Remove" : "Reset"}
+                          </button>
+                        )}
                       </div>
+                    )}
+                    {s.secret && s.source === "env" && (
+                      <p className="text-xs text-muted-foreground mt-1">{s.env} is set in the environment and takes precedence.</p>
                     )}
                   </div>
                   <Badge variant={s.source === "default" ? "secondary" : "outline"} className="text-xs">
