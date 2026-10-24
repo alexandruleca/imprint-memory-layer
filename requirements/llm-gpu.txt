@@ -1,0 +1,16 @@
+# The GPU build of the LLM overlay: installed instead of llm.txt on the gpu
+# and auto profiles. Setup keeps it only when llama.cpp finds a GPU, and
+# installs llm.txt otherwise (ADR 0047).
+#
+# Windows x64 and Linux x64 use upstream's prebuilt Vulkan wheel. Vulkan
+# offloads to any NVIDIA, AMD or Intel GPU through the graphics driver alone:
+# no CUDA toolkit, no compiler. The Vulkan loader (vulkan-1.dll /
+# libvulkan.so.1) is a hard dependency; machines without it fail setup's
+# offload check and get the CPU wheel.
+#
+# Every other platform is the same as llm.txt: macOS builds from source with
+# Metal, so it offloads too; Linux arm64 and the rest run on CPU.
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-vulkan/llama_cpp_python-0.3.36-py3-none-win_amd64.whl ; sys_platform == "win32" and platform_machine == "AMD64"
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-vulkan/llama_cpp_python-0.3.36-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ; sys_platform == "linux" and platform_machine == "aarch64"
+llama-cpp-python==0.3.36 ; (sys_platform != "win32" or platform_machine != "AMD64") and (sys_platform != "linux" or (platform_machine != "x86_64" and platform_machine != "aarch64"))

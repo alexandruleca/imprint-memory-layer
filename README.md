@@ -111,7 +111,7 @@ imprint update -y           # skip confirmation (CI / scripts)
 
 Re-running `install.sh` also works and now prompts before overwriting an existing install. For non-interactive upgrades pass `--yes` or set `IMPRINT_ASSUME_YES=1`.
 
-**If GPU setup fails once** (e.g. Blackwell + old nvcc) the failure is remembered in `data/gpu_state.json` so future `imprint setup` runs skip the broken path silently. After you upgrade the toolchain, force a retry with:
+**If the CUDA check fails once** the failure is remembered in `data/gpu_state.json`, so future `imprint setup` runs keep the CPU embedding runtime instead of reinstalling the GPU one. After you update the driver, force a retry with:
 
 ```bash
 imprint setup --retry-gpu
@@ -136,7 +136,7 @@ imprint setup --retry-gpu
 ```bash
 imprint setup [target]     # install deps, register MCP, configure the chosen host tool
                            #   target: claude-code (default) | cursor | codex | copilot | cline | all
-                           # add --retry-gpu to forget a sticky GPU failure and retry ORT / llama-cpp CUDA
+                           # add --retry-gpu to forget a sticky ONNX Runtime CUDA failure and retry it
 imprint update [--version v0.3.1] [--dev] [-y] [--check]
                            # install the latest release the way this install was set up; preserves data/ and .venv/
 imprint uninstall [-y] [--keep-data]

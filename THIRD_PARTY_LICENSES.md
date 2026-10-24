@@ -14,7 +14,7 @@ From [go.mod](go.mod):
 
 ## Python Dependencies
 
-Split across [requirements/base.txt](requirements/base.txt) (always installed), one ONNX Runtime build from [requirements/cpu.txt](requirements/cpu.txt) or [requirements/gpu.txt](requirements/gpu.txt), and [requirements/llm.txt](requirements/llm.txt) (opt-in with `--with-llm`):
+Split across [requirements/base.txt](requirements/base.txt) (always installed), one ONNX Runtime build from [requirements/cpu.txt](requirements/cpu.txt) or [requirements/gpu.txt](requirements/gpu.txt), and [requirements/llm.txt](requirements/llm.txt) or its GPU build [requirements/llm-gpu.txt](requirements/llm-gpu.txt) (opt-in with `--with-llm`):
 
 | Package | License | Profile | Source |
 |---|---|---|---|

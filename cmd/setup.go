@@ -150,18 +150,20 @@ type ortRuntime struct {
 }
 
 func ortRuntimes(projectDir string) map[string]ortRuntime {
-	requirements := func(name string) string {
-		locked := filepath.Join(projectDir, "requirements", name+".lock.txt")
-		if platform.FileExists(locked) {
-			return locked
-		}
-		return filepath.Join(projectDir, "requirements", name+".txt")
-	}
-	base := requirements("base")
+	base := requirementsFile(projectDir, "base")
 	return map[string]ortRuntime{
-		"cpu": {Name: "cpu", Requirements: []string{base, requirements("cpu")}, Distribution: "onnxruntime"},
-		"gpu": {Name: "gpu", Requirements: []string{base, requirements("gpu")}, Distribution: "onnxruntime-gpu"},
+		"cpu": {Name: "cpu", Requirements: []string{base, requirementsFile(projectDir, "cpu")}, Distribution: "onnxruntime"},
+		"gpu": {Name: "gpu", Requirements: []string{base, requirementsFile(projectDir, "gpu")}, Distribution: "onnxruntime-gpu"},
 	}
+}
+
+// requirementsFile prefers the hash-locked file when the install ships it.
+func requirementsFile(projectDir, name string) string {
+	locked := filepath.Join(projectDir, "requirements", name+".lock.txt")
+	if platform.FileExists(locked) {
+		return locked
+	}
+	return filepath.Join(projectDir, "requirements", name+".txt")
 }
 
 // overlay is the runtime's own requirements file, the one after base.
@@ -301,20 +303,30 @@ func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
 }
 
 // installLLMOverlay installs the local LLM binding into an existing venv.
-// The CUDA rebuild only fires for the gpu and auto profiles.
-func installLLMOverlay(uv, venvPython, venvPip, projectDir, dataDir, profile string) {
-	installLlmReqs(uv, venvPython, venvPip, llmRequirements(projectDir))
-	if profile == "gpu" || profile == "auto" {
-		ensureLlamaCppGPU(uv, venvPython, venvPip, projectDir, dataDir)
+// The gpu and auto profiles install its GPU build (Vulkan on Windows and
+// Linux x64, Metal on macOS) and keep it only when llama.cpp finds a GPU;
+// otherwise the CPU build replaces it (ADR 0047). Both are the same version,
+// so uv swaps them by wheel URL.
+func installLLMOverlay(uv, venvPython, venvPip, projectDir, profile string) {
+	if profile != "cpu" {
+		installLlmReqs(uv, venvPython, venvPip, requirementsFile(projectDir, "llm-gpu"))
+		if llamaOffloads(venvPython) {
+			output.Success("Local LLM offloads to the GPU")
+			return
+		}
+		output.Info("llama.cpp found no GPU it can use — installing its CPU build")
 	}
+	installLlmReqs(uv, venvPython, venvPip, requirementsFile(projectDir, "llm"))
 }
 
-// llmRequirements prefers the hash-locked LLM overlay when the install ships it.
-func llmRequirements(projectDir string) string {
-	if locked := filepath.Join(projectDir, "requirements", "llm.lock.txt"); platform.FileExists(locked) {
-		return locked
-	}
-	return filepath.Join(projectDir, "requirements", "llm.txt")
+// llamaOffloads reports whether the installed binding loads and has a GPU
+// device: llama_supports_gpu_offload() asks llama.cpp's device registry, so
+// it is false on a GPU build that found no usable GPU. A build whose Vulkan
+// loader is missing fails to import.
+func llamaOffloads(venvPython string) bool {
+	out, err := runner.RunCapture(venvPython, "-c",
+		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
+	return err == nil && strings.HasSuffix(strings.TrimSpace(out), "True")
 }
 
 // scopeUv scopes every uv invocation (including nested pip calls) to
@@ -352,7 +364,7 @@ func resolveInstallProfile(stored profileState) string {
 	return profile
 }
 
-// installLlmReqs layers requirements/llm.txt on top of the base install.
+// installLlmReqs layers one LLM overlay (llm or llm-gpu) on top of the base install.
 func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
 	if !platform.FileExists(llmReqs) {
 		output.Warn("llm requirements not found at " + llmReqs + " — skipping LLM overlay")
@@ -392,17 +404,6 @@ func pipInstall(uv, venvPython, venvPip string, args ...string) error {
 	}
 	full := append([]string{"install"}, args...)
 	return runner.Run(venvPip, full...)
-}
-
-// pipInstallEnv is pipInstall with an env override (used by the CUDA
-// llama-cpp rebuild where CMAKE_ARGS must be passed through).
-func pipInstallEnv(uv, venvPython, venvPip string, env []string, args ...string) (string, error) {
-	if uv != "" {
-		full := append([]string{"pip", "install", "--python", venvPython}, args...)
-		return runner.RunCaptureEnv(uv, env, full...)
-	}
-	full := append([]string{"install"}, args...)
-	return runner.RunCaptureEnv(venvPip, env, full...)
 }
 
 // pipUninstall removes packages from the venv, preferring uv.
@@ -566,7 +567,7 @@ func setupBackend() backendPaths {
 
 	// ── Optional local LLM tagger (llama-cpp-python) ───────────
 	if llmOn {
-		installLLMOverlay(uv, venvPython, venvPip, projectDir, dataDir, profile)
+		installLLMOverlay(uv, venvPython, venvPip, projectDir, profile)
 	} else {
 		output.Skip("Local LLM tagger skipped (--with-llm not set)")
 	}
@@ -955,292 +956,6 @@ func checkOrtGPU(venvPython, dataDir string, gpu ortRuntime) bool {
 	}
 	_ = gpustate.Save(dataDir, state)
 	return ok
-}
-
-// findNvcc locates the nvcc binary. Checks PATH first, then falls back to
-// CUDA_HOME / CUDA_PATH / CUDA_ROOT env vars and common install locations
-// (Linux: /usr/local/cuda*, /opt/cuda*; Windows: NVIDIA GPU Computing
-// Toolkit). Returns absolute path, or "" if nvcc can't be found.
-// When multiple versioned installs exist, picks the highest version.
-func findNvcc() string {
-	if p, ok := runner.Exists("nvcc"); ok {
-		return p
-	}
-	bin := "nvcc"
-	if runtime.GOOS == "windows" {
-		bin = "nvcc.exe"
-	}
-	for _, key := range []string{"CUDA_HOME", "CUDA_PATH", "CUDA_ROOT"} {
-		if root := os.Getenv(key); root != "" {
-			cand := filepath.Join(root, "bin", bin)
-			if _, err := os.Stat(cand); err == nil {
-				return cand
-			}
-		}
-	}
-	var patterns []string
-	switch runtime.GOOS {
-	case "windows":
-		patterns = []string{
-			`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin\nvcc.exe`,
-		}
-	case "darwin":
-		patterns = []string{
-			"/usr/local/cuda/bin/nvcc",
-			"/usr/local/cuda-*/bin/nvcc",
-			"/Developer/NVIDIA/CUDA-*/bin/nvcc",
-		}
-	default:
-		patterns = []string{
-			"/usr/local/cuda/bin/nvcc",
-			"/usr/local/cuda-*/bin/nvcc",
-			"/opt/cuda/bin/nvcc",
-			"/opt/cuda-*/bin/nvcc",
-			"/usr/lib/cuda/bin/nvcc",
-		}
-	}
-	var best string
-	var bestMajor, bestMinor int
-	for _, pat := range patterns {
-		matches, _ := filepath.Glob(pat)
-		for _, m := range matches {
-			if _, err := os.Stat(m); err != nil {
-				continue
-			}
-			major, minor := cudaVersionFromPath(m)
-			if best == "" || major > bestMajor || (major == bestMajor && minor > bestMinor) {
-				best = m
-				bestMajor, bestMinor = major, minor
-			}
-		}
-	}
-	return best
-}
-
-// cudaVersionFromPath extracts a (major, minor) version from a CUDA install
-// path like "/usr/local/cuda-12.8/bin/nvcc" or ".../CUDA/v12.8/bin/nvcc.exe".
-// Returns (0, 0) when the path carries no version hint (e.g. the unversioned
-// /usr/local/cuda symlink) so versioned installs are preferred over it.
-var cudaVersionRe = regexp.MustCompile(`(?:cuda[-/]?|CUDA[\\/]v)(\d+)\.(\d+)`)
-
-func cudaVersionFromPath(p string) (int, int) {
-	m := cudaVersionRe.FindStringSubmatch(p)
-	if m == nil {
-		return 0, 0
-	}
-	major, _ := strconv.Atoi(m[1])
-	minor, _ := strconv.Atoi(m[2])
-	return major, minor
-}
-
-// nvccVersion returns the major.minor of the installed nvcc, or "" if nvcc
-// can't be found. Example outputs: "12.6", "13.0".
-func nvccVersion() string {
-	nvcc := findNvcc()
-	if nvcc == "" {
-		return ""
-	}
-	out, err := runner.RunCapture(nvcc, "--version")
-	if err != nil {
-		return ""
-	}
-	re := regexp.MustCompile(`release (\d+)\.(\d+)`)
-	m := re.FindStringSubmatch(out)
-	if m == nil {
-		return ""
-	}
-	return m[1] + "." + m[2]
-}
-
-// cudaPath returns the CUDA toolkit root (parent of bin/nvcc), falling back
-// to /usr/local/cuda for Linux defaults.
-func cudaPath() string {
-	if nvcc := findNvcc(); nvcc != "" {
-		if resolved, err := filepath.EvalSymlinks(nvcc); err == nil {
-			return filepath.Dir(filepath.Dir(resolved))
-		}
-		return filepath.Dir(filepath.Dir(nvcc))
-	}
-	return "/usr/local/cuda"
-}
-
-// computeCap returns the reported compute capability of GPU 0, e.g. "12.0"
-// (Blackwell) or "8.6" (Ampere). Empty string on failure.
-func computeCap() string {
-	nvsmi, ok := runner.Exists("nvidia-smi")
-	if !ok {
-		return ""
-	}
-	out, err := runner.RunCapture(nvsmi, "--query-gpu=compute_cap", "--format=csv,noheader")
-	if err != nil {
-		return ""
-	}
-	return strings.Split(strings.TrimSpace(out), "\n")[0]
-}
-
-// archFlagFor turns a compute_cap like "12.0" into the CMAKE_CUDA_ARCHITECTURES
-// value ("120") the CMake CUDA backend expects. Returns a broad fallback list
-// if the cap can't be parsed, so older/unknown GPUs still build.
-func archFlagFor(cap string) string {
-	cap = strings.TrimSpace(cap)
-	if cap == "" {
-		return "75;80;86;89;90"
-	}
-	parts := strings.Split(cap, ".")
-	if len(parts) != 2 {
-		return "75;80;86;89;90"
-	}
-	return parts[0] + parts[1]
-}
-
-// nvccSupportsCap reports whether the installed nvcc can generate SASS for
-// the given compute capability. Blackwell (sm_120) needs nvcc 12.8+. Unknown
-// versions get the benefit of the doubt — we let the rebuild try and fail.
-func nvccSupportsCap(nvcc, cap string) bool {
-	if nvcc == "" || cap == "" {
-		return true
-	}
-	var nvMajor, nvMinor int
-	if _, err := fmt.Sscanf(nvcc, "%d.%d", &nvMajor, &nvMinor); err != nil {
-		return true
-	}
-	var capMajor, capMinor int
-	if _, err := fmt.Sscanf(cap, "%d.%d", &capMajor, &capMinor); err != nil {
-		return true
-	}
-	// Blackwell: needs nvcc >= 12.8
-	if capMajor >= 12 {
-		return nvMajor > 12 || (nvMajor == 12 && nvMinor >= 8)
-	}
-	// Hopper sm_90: nvcc 12.x ok. Older: anything reasonable.
-	return true
-}
-
-// ensureLlamaCppGPU rebuilds llama-cpp-python with CUDA offload when a
-// compatible NVIDIA GPU + toolchain is present. Remembers failures per
-// {gpu, nvcc, compute_cap} in gpu_state.json so repeat setup runs don't
-// spam the same retry-and-fail cycle.
-func ensureLlamaCppGPU(uv, venvPython, venvPip, projectDir, dataDir string) {
-	// Quick check: is llama_cpp even installed?
-	if _, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
-		return
-	}
-
-	// Already has GPU offload? Clear any stale sentinel and move on.
-	if hasGPU, _ := runner.RunCapture(venvPython, "-c",
-		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())"); strings.TrimSpace(hasGPU) == "True" {
-		output.Skip("llama-cpp-python has GPU offload (CUDA)")
-		if st := gpustate.Load(dataDir); st.LlamaCudaFailed != nil {
-			st.LlamaCudaFailed = nil
-			_ = gpustate.Save(dataDir, st)
-		}
-		return
-	}
-
-	// No NVIDIA GPU → CPU is fine.
-	nvsmi, hasNvsmi := runner.Exists("nvidia-smi")
-	if !hasNvsmi {
-		output.Skip("llama-cpp-python using CPU (no NVIDIA GPU)")
-		return
-	}
-	gpuName, err := runner.RunCapture(nvsmi, "--query-gpu=name", "--format=csv,noheader")
-	if err != nil || strings.TrimSpace(gpuName) == "" {
-		output.Skip("llama-cpp-python using CPU (no NVIDIA GPU)")
-		return
-	}
-	gpuShort := strings.Split(strings.TrimSpace(gpuName), "\n")[0]
-	cap := computeCap()
-	nvcc := nvccVersion()
-	currentEnv := gpustate.Env{GPU: gpuShort, Nvcc: nvcc, ComputeCap: cap, Python: pythonTag(venvPython)}
-
-	// Sticky skip: same env already failed once.
-	state := gpustate.Load(dataDir)
-	if state.LlamaCudaFailed != nil && gpustate.SameEnv(state.LlamaCudaFailed.Env, currentEnv) {
-		output.Skip("llama-cpp CUDA rebuild skipped — previous attempt failed for this GPU/nvcc combo (imprint setup --retry-gpu to retry)")
-		return
-	}
-
-	// nvcc not found anywhere (PATH, CUDA_HOME/PATH/ROOT, or common install
-	// dirs). Warn with an actionable hint instead of attempting a doomed
-	// compile that produces a bare "exit status 1" and no diagnostic.
-	if nvcc == "" {
-		output.Warn(fmt.Sprintf(
-			"llama-cpp CUDA rebuild skipped — nvcc not found on PATH, CUDA_HOME, or standard install dirs. Install CUDA Toolkit 12.8+ to enable GPU offload for %s (sm_%s):\n%s",
-			gpuShort, archFlagFor(cap), platform.CUDAInstallHint(),
-		))
-		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
-		_ = gpustate.Save(dataDir, state)
-		return
-	}
-
-	// Nvcc too old for this compute cap? Warn once and bail instead of
-	// burning minutes on a rebuild that cannot produce valid SASS.
-	if !nvccSupportsCap(nvcc, cap) {
-		output.Warn(fmt.Sprintf(
-			"llama-cpp CUDA rebuild skipped — %s (sm_%s) requires nvcc 12.8+, found %s. Upgrade:\n%s",
-			gpuShort, archFlagFor(cap), nvcc, platform.CUDAInstallHint(),
-		))
-		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
-		_ = gpustate.Save(dataDir, state)
-		return
-	}
-
-	arch := archFlagFor(cap)
-	cudaRoot := cudaPath()
-	nvccPath := findNvcc()
-	output.Info(fmt.Sprintf("NVIDIA GPU found: %s (sm_%s) — rebuilding llama-cpp-python with CUDA (nvcc %s, %s)...",
-		gpuShort, arch, nvcc, cudaRoot))
-
-	env := []string{
-		fmt.Sprintf("CMAKE_ARGS=-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=%s", arch),
-		"CUDA_PATH=" + cudaRoot,
-		"CUDA_HOME=" + cudaRoot,
-	}
-	// If nvcc was found off-PATH (CUDA_HOME or glob fallback), prepend its
-	// bin dir so the cmake invocation inside pip can locate nvcc during the
-	// build.
-	if nvccPath != "" {
-		if _, onPath := runner.Exists("nvcc"); !onPath {
-			nvccBin := filepath.Dir(nvccPath)
-			sep := ":"
-			if runtime.GOOS == "windows" {
-				sep = ";"
-			}
-			env = append(env, "PATH="+nvccBin+sep+os.Getenv("PATH"))
-			output.Info("nvcc not on PATH — using " + nvccPath + " for build")
-		}
-	}
-	if out, err := pipInstallEnv(uv, venvPython, venvPip, env,
-		"llama-cpp-python", "--force-reinstall", "--no-cache-dir"); err != nil {
-		output.Warn("Failed to rebuild llama-cpp-python with CUDA: " + err.Error() + " — using CPU")
-		if tail := lastNonBlankLines(out, 5); tail != "" {
-			output.Warn("pip/compile tail:\n" + tail)
-		}
-		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
-		_ = gpustate.Save(dataDir, state)
-		// Try to restore a working CPU build so the tagger still loads.
-		_ = pipInstall(uv, venvPython, venvPip, "llama-cpp-python", "--force-reinstall", "--no-cache-dir")
-		return
-	}
-
-	check, checkErr := runner.RunCapture(venvPython, "-c",
-		"import llama_cpp.llama_cpp as ll; print(ll.llama_supports_gpu_offload())")
-	if checkErr != nil {
-		output.Warn("llama-cpp-python CUDA build broken (can't import) — reinstalling CPU version")
-		_ = pipInstall(uv, venvPython, venvPip, "llama-cpp-python", "--force-reinstall", "--no-cache-dir")
-		state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
-		_ = gpustate.Save(dataDir, state)
-		return
-	}
-	if strings.TrimSpace(check) == "True" {
-		output.Success("llama-cpp-python rebuilt with CUDA — " + gpuShort)
-		state.LlamaCudaFailed = nil
-		_ = gpustate.Save(dataDir, state)
-		return
-	}
-	output.Warn("llama-cpp-python rebuilt but GPU offload still unavailable — check CUDA toolkit")
-	state.LlamaCudaFailed = &gpustate.LlamaCudaFail{Env: currentEnv, TS: gpustate.Now()}
-	_ = gpustate.Save(dataDir, state)
 }
 
 func parsePackageVersion(pipShowOutput string) string {

@@ -61,3 +61,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0044](0044-native-desktop-voice-platforms.md) | Accepted (native validation tracked separately) | Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. |
 | [0045](0045-setting-choices-and-gpu-auto-select.md) | Accepted | Settings declare their choices; the GPU device defaults to the first one the CUDA runtime supports. |
 | [0046](0046-visible-echo-runtime-setup.md) | Accepted | Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. |
+| [0047](0047-llama-gpu-offload-through-vulkan-wheels.md) | Accepted | The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed. |

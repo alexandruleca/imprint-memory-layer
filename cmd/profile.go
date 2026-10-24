@@ -77,7 +77,7 @@ func addLLM() {
 	scopeUv(projectDir)
 	stored := loadProfile(projectDir)
 	installLLMOverlay(uvBinary(projectDir), venvPython, platform.VenvBin(projectDir, "pip"),
-		projectDir, platform.DataDir(projectDir), resolveInstallProfile(stored))
+		projectDir, resolveInstallProfile(stored))
 	if out, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
 		output.Fail("llama-cpp-python does not import after installing:\n" + lastNonBlankLines(out, 3))
 	}

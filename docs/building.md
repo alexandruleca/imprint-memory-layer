@@ -23,18 +23,19 @@ Packaging requires Bash, rsync, Python 3, downloaded uv and the selected CLI bin
 
 Normalized Electron files live in `build/electron/linux-{amd64,arm64}/imprint-ui`, `build/electron/imprint-ui.app` and `build/electron/imprint-ui.exe`. Packaging never substitutes one Linux architecture for the other. Set `REQUIRE_ELECTRON=1` to fail when a desktop shell is missing; without it a local archive may provide the browser dashboard only.
 
-`scripts/validate-release.py` checks runtime files, dashboard JavaScript, CLI/uv architecture and Linux AppImage architecture, and excludes development/user state. Runtime Python dependencies use the hashed locks: `base.lock.txt` plus exactly one ONNX Runtime overlay, `cpu.lock.txt` or `gpu.lock.txt`, and `llm.lock.txt` when selected ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md)). Refresh them deliberately; uv keeps the pins already present in each output file:
+`scripts/validate-release.py` checks runtime files, dashboard JavaScript, CLI/uv architecture and Linux AppImage architecture, and excludes development/user state. Runtime Python dependencies use the hashed locks: `base.lock.txt` plus exactly one ONNX Runtime overlay, `cpu.lock.txt` or `gpu.lock.txt`, and one LLM overlay when selected, `llm.lock.txt` or its GPU build `llm-gpu.lock.txt` ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md), [ADR 0047](adr/0047-llama-gpu-offload-through-vulkan-wheels.md)). Refresh them deliberately; uv keeps the pins already present in each output file:
 
 ```bash
 uv pip compile requirements/base.txt --universal --python-version 3.12 --generate-hashes -o requirements/base.lock.txt
 uv pip compile requirements/cpu.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/cpu.lock.txt
 uv pip compile requirements/gpu.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/gpu.lock.txt
 uv pip compile requirements/llm.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/llm.lock.txt
+uv pip compile requirements/llm-gpu.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/llm-gpu.lock.txt
 ```
 
 Every pin in `gpu.lock.txt` needs `win_amd64` and manylinux (x86_64, aarch64) wheels. Some NVIDIA patch releases ship Linux only; exclude them in `gpu.txt` ([ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md)).
 
-The base interpreter is managed Python 3.12. Base/GPU/LLM profile locks enforce hashes; GPU repair and local source-build paths still require separate reproducibility work. uv and Qdrant archives are verified against `requirements/runtime-manifest.json`; unknown versions require a manifest update or an explicitly managed binary. Release install/update verifies `SHA256SUMS`. Model downloads are separate. An installer with bundled uv still needs a network for first-run downloads; it is not an offline distribution.
+The base interpreter is managed Python 3.12. Base/GPU/LLM profile locks enforce hashes; local source-build paths (macOS and other platforms without a prebuilt llama.cpp wheel) still require separate reproducibility work. uv and Qdrant archives are verified against `requirements/runtime-manifest.json`; unknown versions require a manifest update or an explicitly managed binary. Release install/update verifies `SHA256SUMS`. Model downloads are separate. An installer with bundled uv still needs a network for first-run downloads; it is not an offline distribution.
 
 The experimental [PersonaPlex adapter](personaplex-prototype.md) uses a separately provisioned model runtime. Its `requirements/personaplex-test.lock.txt` overlay is for development/CI only, not a runtime profile. Release staging excludes both test requirement files and the archive validator rejects them if present (ADR 0041).
 

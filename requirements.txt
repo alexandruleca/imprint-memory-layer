@@ -5,6 +5,7 @@
 #   requirements/cpu.txt    — onnxruntime CPU build (profile=cpu, or no usable GPU)
 #   requirements/gpu.txt    — onnxruntime-gpu build (profile=gpu, or auto with an NVIDIA GPU)
 #   requirements/llm.txt    — llama-cpp-python local tagger + chat (--with-llm only)
+#   requirements/llm-gpu.txt — its GPU build (Vulkan/Metal), used instead of llm.txt when llama.cpp finds a GPU
 #
 # This file is a dev convenience: `pip install -r requirements.txt` installs
 # the full historical stack. Production installers use
