@@ -79,8 +79,8 @@ test('declining leaves the roots alone and reports the refusal', async ({ page }
 test('the commands page shares the approval and streams the retried job', async ({ page }) => {
   const state = await mockApi(page);
   await page.goto('/commands/');
-  await page.getByRole('button', { name: /Refresh Files/ }).click();
-  await page.getByLabel('Directory path').fill(ROOT);
+  await page.getByRole('button', { name: /Refresh files/ }).click();
+  await page.getByLabel('Directory').fill(ROOT);
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Approve root' }).click();
   await expect(page.getByText('Refreshed 3 files')).toBeVisible();

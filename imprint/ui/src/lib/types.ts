@@ -127,6 +127,18 @@ export interface ConfigSetting {
   desc: string;
   /** Credential: `value` is masked ("****" + last 4 characters, or empty when unset). */
   secret?: boolean;
+  /** Known values; some, such as GPUs, are read from this device. */
+  choices?: ConfigChoice[];
+  /** Values outside `choices` are valid too. */
+  custom?: boolean;
+}
+
+export interface ConfigChoice {
+  value: string | number | boolean;
+  label: string;
+  detail: string;
+  /** Why this device cannot use the value; empty when it can. */
+  unavailable: string;
 }
 
 export interface ChatSession {

@@ -63,3 +63,57 @@ test('an HF_TOKEN environment variable is reported as taking precedence', async 
   await expect(card).toContainText('HF_TOKEN is set in the environment and takes precedence.');
   await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(0);
 });
+
+const UNSUPPORTED = 'CUDA 13 needs compute capability 7.5+, this GPU has 6.1';
+
+// Mirrors imprint/api.py for a setting whose choices are read from the device.
+async function mockGpuApi(page: Page) {
+  const state = { value: '1', puts: [] as unknown[] };
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'model.device', value: 'gpu', source: 'config', default: 'cpu', type: 'str', env: 'IMPRINT_DEVICE',
+      desc: 'Compute device: auto / cpu / gpu', custom: false, choices: [
+        { value: 'auto', label: 'Auto', detail: '', unavailable: '' },
+        { value: 'cpu', label: 'CPU', detail: '', unavailable: '' },
+        { value: 'gpu', label: 'GPU', detail: '', unavailable: '' },
+      ] },
+    { key: 'model.gpu_device', value: state.value, source: 'config', default: 'auto', type: 'device_index',
+      env: 'IMPRINT_GPU_DEVICE', desc: 'CUDA device index', custom: true, choices: [
+        { value: 'auto', label: 'Auto', detail: 'First GPU the installed CUDA runtime supports', unavailable: '' },
+        { value: '0', label: '0: NVIDIA GeForce RTX 4080 Laptop GPU', detail: '12 GB, compute 8.9', unavailable: '' },
+        { value: '1', label: '1: NVIDIA GeForce GTX 1060 6GB', detail: '6 GB, compute 6.1', unavailable: UNSUPPORTED },
+      ] },
+  ] } }));
+  await page.route('**/api/config/model.gpu_device', async route => {
+    const body = route.request().postDataJSON();
+    state.puts.push(body);
+    state.value = body.value;
+    await route.fulfill({ json: { ok: true, value: body.value } });
+  });
+  return state;
+}
+
+test('GPUs are picked from a list that explains which ones cannot run, or entered by index', async ({ page }) => {
+  const state = await mockGpuApi(page);
+  await page.goto('/settings/');
+  const trigger = page.getByRole('combobox', { name: 'GPU device' });
+  await expect(trigger).toHaveText(/1: NVIDIA GeForce GTX 1060 6GB/);
+  await expect(page.getByRole('alert').filter({ hasText: UNSUPPORTED })).toBeVisible();
+
+  await trigger.click();
+  await page.getByRole('option', { name: /0: NVIDIA GeForce RTX 4080/ }).click();
+  await expect.poll(() => state.puts).toEqual([{ value: '0' }]);
+  await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
+  await expect(trigger).toHaveText(/0: NVIDIA GeForce RTX 4080/);
+  await expect(page.getByRole('alert').filter({ hasText: UNSUPPORTED })).toHaveCount(0);
+
+  await trigger.click();
+  await page.getByRole('option', { name: 'Custom value…' }).click();
+  const custom = page.getByLabel('Custom GPU device');
+  await custom.fill('3');
+  await page.getByRole('button', { name: 'Save model.gpu_device' }).click();
+  await expect.poll(() => state.puts).toEqual([{ value: '0' }, { value: '3' }]);
+  await expect(trigger).toHaveText('Custom: 3');
+  await expect(custom).toHaveValue('3');
+});

@@ -2,22 +2,47 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import {
+  Bot, Boxes, Cpu, Database, FileInput, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors, Tags,
+  type LucideIcon,
+} from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { getConfig, resetConfigValue, setConfigValue } from "@/lib/api";
-import { SettingsSkeleton, Spinner } from "@/components/loaders";
+import { SettingsSkeleton } from "@/components/loaders";
 import { WorkspaceManager } from "@/components/workspace-manager";
+import { SettingRow, settingTitle } from "./_components/setting-row";
 import type { ConfigSetting } from "@/lib/types";
+
+const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> = {
+  model: { title: "Embeddings", desc: "The embedding model and the hardware it runs on.", icon: Cpu },
+  huggingface: { title: "Hugging Face", desc: "Access for gated or private model downloads.", icon: KeyRound },
+  qdrant: { title: "Vector store", desc: "The local Qdrant server that holds memories.", icon: Database },
+  chunker: { title: "Chunking", desc: "How files are split before embedding.", icon: Scissors },
+  tagger: { title: "Tagging", desc: "Topic tags added to every chunk.", icon: Tags },
+  ingest: { title: "Ingestion", desc: "Documents, OCR and URL fetching.", icon: FileInput },
+  voice: { title: "Voice", desc: "The native live voice runtime.", icon: Mic },
+  chat: { title: "Chat", desc: "The dashboard chat assistant.", icon: MessageSquare },
+  summarizer: { title: "Session summaries", desc: "LLM summaries written when a session ends.", icon: ScrollText },
+  collection: { title: "Storage", desc: "Collection naming.", icon: Layers },
+};
+const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };
+
+function groupOf(key: string) {
+  return key.split(".")[0];
+}
+
+function matches(s: ConfigSetting, query: string) {
+  const text = `${s.key} ${s.desc} ${settingTitle(s.key)} ${GROUPS[groupOf(s.key)]?.title ?? ""}`.toLowerCase();
+  return query.split(/\s+/).every((word) => text.includes(word));
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ConfigSetting[]>([]);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     getConfig()
@@ -26,127 +51,145 @@ export default function SettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Secret values never appear in these messages: only the key does.
-  async function saveValue(key: string) {
-    setSaving(true);
+  // Rows confirm success inline. Secret values never appear in these
+  // messages: only the key does.
+  async function saveValue(key: string, value: string) {
     try {
-      await setConfigValue(key, editValue);
-      const d = await getConfig();
-      setSettings(d.settings);
-      setEditing(null);
-      toast.success(`Saved ${key}`);
+      await setConfigValue(key, value);
+      setSettings((await getConfig()).settings);
+      return true;
     } catch (e) {
       toast.error(`Could not save ${key}`, { description: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setSaving(false);
+      return false;
     }
   }
 
-  async function resetValue(key: string, secret?: boolean) {
-    setSaving(true);
+  async function resetValue(s: ConfigSetting) {
     try {
-      await resetConfigValue(key);
-      const d = await getConfig();
-      setSettings(d.settings);
-      setEditing(null);
-      toast.success(`${secret ? "Removed" : "Reset"} ${key}`);
+      await resetConfigValue(s.key);
+      setSettings((await getConfig()).settings);
+      return true;
     } catch (e) {
-      toast.error(`Could not ${secret ? "remove" : "reset"} ${key}`, { description: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setSaving(false);
+      toast.error(`Could not ${s.secret ? "remove" : "reset"} ${s.key}`, { description: e instanceof Error ? e.message : String(e) });
+      return false;
     }
-  }
-
-  const groups: Record<string, ConfigSetting[]> = {};
-  for (const s of settings) {
-    const group = s.key.split(".")[0];
-    (groups[group] ||= []).push(s);
   }
 
   if (loading) return <SettingsSkeleton />;
 
+  const q = query.trim().toLowerCase();
+  const groups: [string, ConfigSetting[]][] = [];
+  for (const s of settings) {
+    if (q && !matches(s, q)) continue;
+    const name = groupOf(s.key);
+    const group = groups.find(([g]) => g === name);
+    if (group) group[1].push(s);
+    else groups.push([name, [s]]);
+  }
+  const showWorkspaces = !q || "workspaces roots sources".includes(q);
+
   return (
-    <div className="p-8 space-y-6">
-      <h2 className="text-2xl font-bold">Settings</h2>
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold">Settings</h1>
+          <p className="max-w-xl text-sm text-muted-foreground">
+            Saved to this device&apos;s <code className="rounded bg-muted px-1 text-xs">config.json</code>. Environment
+            variables take precedence. Running servers apply changes when they restart.
+          </p>
+        </div>
+        <InputGroup className="w-full sm:w-72">
+          <InputGroupAddon><Search /></InputGroupAddon>
+          <InputGroupInput aria-label="Filter settings" placeholder="Filter settings" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </InputGroup>
+      </header>
       {error && <p role="alert" className="text-sm text-destructive">Settings could not load: {error}</p>}
 
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Workspaces</CardTitle></CardHeader>
-        <CardContent>
-          <WorkspaceManager />
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="sticky top-6 hidden space-y-0.5 self-start lg:block">
+          {showWorkspaces && <NavLink href="#workspaces" icon={Boxes} label="Workspaces" />}
+          {groups.map(([name, items]) => (
+            <NavLink
+              key={name}
+              href={`#settings-${name}`}
+              icon={GROUPS[name]?.icon ?? Bot}
+              label={GROUPS[name]?.title ?? name}
+              changed={items.filter((s) => s.source !== "default").length}
+            />
+          ))}
+        </nav>
 
-      {Object.entries(groups).map(([group, items]) => (
-        <Card key={group}>
-          <CardHeader>
-            <CardTitle className="text-sm capitalize">{group}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {items.map((s) => (
-                <div key={s.key} className="flex items-center gap-4 text-sm py-1 border-b border-border last:border-0">
-                  <div className="w-56">
-                    <p className="font-mono text-xs">{s.key}</p>
-                    <p className="text-xs text-muted-foreground">{s.desc}</p>
-                  </div>
-                  <div className="flex-1">
-                    {editing === s.key ? (
-                      <div className="flex gap-2">
-                        <Input
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          className="h-7 text-xs"
-                          autoFocus
-                          aria-label={s.key}
-                          {...(s.secret ? { type: "password", autoComplete: "off", placeholder: "Paste a new value" } : {})}
-                          onKeyDown={(e) => e.key === "Enter" && saveValue(s.key)}
-                        />
-                        <Button size="xs" onClick={() => saveValue(s.key)} disabled={saving}>
-                          {saving && <Spinner />}
-                          Save
-                        </Button>
-                        <Button variant="ghost" size="xs" onClick={() => setEditing(null)} className="text-muted-foreground">
-                          Cancel
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        {/* Secrets arrive masked, so editing one starts empty. */}
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          className="h-auto flex-1 justify-start whitespace-normal break-all p-1 text-left font-mono text-xs font-normal"
-                          onClick={() => { setEditing(s.key); setEditValue(s.secret ? "" : String(s.value)); }}
-                        >
-                          {s.secret && !s.value ? <span className="text-muted-foreground">Not set</span> : String(s.value)}
-                        </Button>
-                        {s.source === "config" && (
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={() => resetValue(s.key, s.secret)}
-                            className="text-muted-foreground"
-                            disabled={saving}
-                          >
-                            {s.secret ? "Remove" : "Reset"}
-                          </Button>
+        <div className="min-w-0 space-y-6">
+          {showWorkspaces && (
+            <Card id="workspaces" className="scroll-mt-6">
+              <SectionHeader icon={Boxes} title="Workspaces" desc="Isolated memory stores, their roots and sources." />
+              <CardContent><WorkspaceManager /></CardContent>
+            </Card>
+          )}
+
+          {groups.map(([name, items]) => {
+            const meta = GROUPS[name] ?? { title: name, desc: "", icon: Bot };
+            let subgroup = "";
+            return (
+              <Card key={name} id={`settings-${name}`} className="scroll-mt-6 gap-0 pb-0">
+                <SectionHeader icon={meta.icon} title={meta.title} desc={meta.desc} />
+                <CardContent className="@container mt-4 divide-y divide-border border-t border-border px-0">
+                  {items.map((s) => {
+                    const prefix = s.key.split(".").slice(0, -1).join(".");
+                    const heading = SUBGROUPS[prefix] && prefix !== subgroup ? SUBGROUPS[prefix] : "";
+                    subgroup = prefix;
+                    return (
+                      <div key={s.key}>
+                        {heading && (
+                          <p className="bg-muted/40 px-4 py-1.5 text-xs font-medium text-muted-foreground sm:px-6">{heading}</p>
                         )}
+                        <SettingRow setting={s} onSave={saveValue} onReset={resetValue} />
                       </div>
-                    )}
-                    {s.secret && s.source === "env" && (
-                      <p className="text-xs text-muted-foreground mt-1">{s.env} is set in the environment and takes precedence.</p>
-                    )}
-                  </div>
-                  <Badge variant={s.source === "default" ? "secondary" : "outline"} className="text-xs">
-                    {s.source}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            );
+          })}
+
+          {q && !groups.length && !showWorkspaces && (
+            <Empty className="border border-dashed border-border">
+              <EmptyHeader>
+                <EmptyTitle>No matching settings</EmptyTitle>
+                <EmptyDescription>Nothing matches &ldquo;{query}&rdquo;.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, desc }: { icon: LucideIcon; title: string; desc: string }) {
+  return (
+    <CardHeader className="flex items-center gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <CardTitle>{title}</CardTitle>
+        {desc && <CardDescription className="text-xs">{desc}</CardDescription>}
+      </div>
+    </CardHeader>
+  );
+}
+
+function NavLink({ href, icon: Icon, label, changed = 0 }: { href: string; icon: LucideIcon; label: string; changed?: number }) {
+  return (
+    <a href={href} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+      <Icon className="size-4 shrink-0" />
+      <span className="flex-1 truncate">{label}</span>
+      {changed > 0 && (
+        <span className="rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary" title={`${changed} changed from the default`}>
+          {changed}
+        </span>
+      )}
+    </a>
   );
 }

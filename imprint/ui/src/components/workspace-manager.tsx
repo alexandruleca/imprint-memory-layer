@@ -212,7 +212,7 @@ export function WorkspaceManager() {
                       </span>
                     </p>
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {!isActive && (
                       <Button variant="outline" size="sm" disabled={switching !== null} onClick={() => switchTo(ws)}>
                         {switching === ws && <Spinner />} Switch

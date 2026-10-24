@@ -111,32 +111,43 @@ export function GraphSkeleton() {
 
 export function SettingsSkeleton() {
   return (
-    <div className="p-8 space-y-6">
-      <Skeleton className="h-8 w-32" />
-      <Card>
-        <CardHeader><Skeleton className="h-4 w-24" /></CardHeader>
-        <CardContent>
-          <div className="flex gap-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-8 w-20 rounded" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-      {Array.from({ length: 3 }).map((_, i) => (
-        <Card key={i}>
-          <CardHeader><Skeleton className="h-4 w-20" /></CardHeader>
-          <CardContent className="space-y-3">
-            {Array.from({ length: 4 }).map((_, j) => (
-              <div key={j} className="flex items-center gap-4 py-1">
-                <Skeleton className="h-8 w-56" />
-                <Skeleton className="h-6 flex-1" />
-                <Skeleton className="h-5 w-14 rounded-full" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ))}
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8" aria-busy="true" aria-label="Loading settings">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-4 w-80 max-w-full" />
+        </div>
+        <Skeleton className="h-8 w-full sm:w-72" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)]">
+        <div className="hidden space-y-2 lg:block">
+          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-7 w-full" />)}
+        </div>
+        <div className="space-y-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="gap-0 pb-0">
+              <CardHeader className="flex items-center gap-3">
+                <Skeleton className="size-8 rounded-lg" />
+                <div className="space-y-1.5">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+              </CardHeader>
+              <CardContent className="mt-4 divide-y divide-border border-t border-border px-0">
+                {Array.from({ length: 3 }).map((_, j) => (
+                  <div key={j} className="flex items-center justify-between gap-6 px-4 py-4 sm:px-6">
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-56 max-w-full" />
+                    </div>
+                    <Skeleton className="hidden h-8 w-80 sm:block" />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
