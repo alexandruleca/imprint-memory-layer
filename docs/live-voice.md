@@ -35,8 +35,8 @@ Platform follow-up ([ADR 0044](adr/0044-native-desktop-voice-platforms.md)) adds
 native source builds for Windows x64 and macOS Intel/Apple Silicon. The live
 installer now downloads portable weights without the Linux CLI archive, builds
 per-target executables and verifies their target/source/build fingerprints.
-Native results are tracked in platform validation; a platform being enabled
-does not by itself mean it has passed its native checks.
+Executed native results and remaining manual gates are recorded in
+[platform validation](platform-validation.md#native-echo-and-transparent-desktop-2026-10-24).
 
 On Windows use CMake and Visual Studio C++ Build Tools (x64); on macOS use CMake
 and Xcode Command Line Tools, with macOS 13 or later. Run the same command below
@@ -101,6 +101,12 @@ and enables typed questions. **Enable microphone** is a separate explicit action
 When testing, use a temporary `IMPRINT_DATA_DIR`; never run setup or fixture
 retrieval against real user profiles.
 
+Cold startup verifies the entire weight cache before loading the model. A slow
+or busy disk can make this much slower than a warm speech turn. Startup has a
+two-minute total limit and a separate 90-second native readiness limit; Cancel
+or closing the companion releases the session while it loads. A timeout suggests
+closing other applications and retrying, without weakening the integrity check.
+
 This experimental cache is operator-owned, outside distributions and the main
 installer/uninstaller. Delete its dedicated directory deliberately when no longer
 needed. Windows ARM, Linux ARM and GPU inference are not enabled by this pilot.
@@ -154,6 +160,7 @@ automatically. **Float Echo** can also open it. The face floats directly over th
 desktop with transparent pixels, no enclosing card, border or panel; individual
 controls have small backdrops for readability. Drag its header/grip, optionally
 pin it on top, and close it independently of the dashboard.
+[Transparent native preview](assets/voice/echo-transparent-preview.png).
 Opening it stops the dashboard voice session; start the companion explicitly.
 The tray also exposes Float Echo. In an ordinary browser this opens a compact
 popup; desktop transparency, dragging and pinning require the Electron shell.
@@ -230,17 +237,17 @@ retrieval-conditioned streamed replies, mid-speech cancellation, a fresh turn af
 cancellation and real TTS around a fixture chat reasoner. It uses disposable data
 and a retrieval storage fixture. It does not benchmark the actual Qwen chat model,
 real microphones, speaker echo, pronunciation quality or full duplex audio-model
-reasoning. See [platform validation](platform-validation.md#echo-live-voice-pilot-2026-10-24)
+reasoning. See [platform validation](platform-validation.md#native-echo-and-transparent-desktop-2026-10-24)
 and the checked-in evidence for executed results.
 
-The native Electron 45.0.0 graphical smoke also passed on Linux/WSLg with a
-disposable profile, synthetic mic and software WebGL. It checked the actual
-companion renderer, separate window, pin, permission, Stop and Close. The test
-used `--no-sandbox` for the local WSL run; it does not establish packaged sandbox
-behavior or native Windows/macOS support. Its reproducible driver is
+The native Electron 45.0.0 graphical smoke checks the actual companion renderer,
+transparent screenshot pixels, separate window, pin and dashboard on/off session
+cleanup. Its reproducible driver is
 `ui-electron/smoke-voice.mjs`; `scripts/smoke-voice-desktop.py` supplies a disposable
 API/profile and checks PNG transparency. Native CI combines speech and graphical
-checks. macOS automation uses a typed session rather than bypassing production
+checks on Windows x64, macOS Intel/Apple Silicon and Linux x64. Linux automation
+uses `--no-sandbox`; it does not establish packaged sandbox behavior.
+macOS automation uses a typed session rather than bypassing production
 TCC policy for a fake mic; interactive consent remains a manual gate. Optional
 `--native-logs` on the speech smoke retains native logs from disposable synthetic
 fixtures only for diagnosis. Production request logs remain discarded. Graphical

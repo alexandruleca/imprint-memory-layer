@@ -154,6 +154,21 @@ class VoiceBoundaryTests(unittest.TestCase):
 
 
 class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_startup_budget_includes_asset_verification_before_launch(self):
+        import time
+        worker = voice.Worker()
+        def slow_verification(root):
+            time.sleep(.05)
+            return root / "worker"
+        with patch.object(voice, "runtime_root", return_value=Path("unused")), \
+                patch.object(voice, "STARTUP_TIMEOUT", .01), \
+                patch.object(voice.voice_runtime, "verify", side_effect=slow_verification), \
+                patch.object(voice.subprocess, "Popen") as launch:
+            with self.assertRaisesRegex(PrototypeError, "too long to load"):
+                await worker.start()
+            launch.assert_not_called()
+            self.assertIsNone(worker.process)
+
     async def test_threads_respect_small_cpu_allocations(self):
         with patch.object(voice.os, "cpu_count", return_value=3), \
                 patch.object(voice.os, "sched_getaffinity", return_value={0, 1, 2}, create=True):

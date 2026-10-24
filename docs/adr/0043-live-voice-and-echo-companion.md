@@ -7,6 +7,11 @@ description: Explicit speech runtime, same-chat reasoning, optional VAD and a fl
 - Date: 2026-10-24
 - Related: [0042](0042-lfm-audio-cpu-experiment.md), [0024](0024-enforce-local-service-boundaries.md), [0025](0025-desktop-owned-background-service.md)
 
+Follow-up: [ADR 0044](0044-native-desktop-voice-platforms.md) extends the worker
+to native Windows and macOS and adds the dashboard toggle, borderless transparent
+treatment and software 3D rendering. The Linux-only rationale below records the
+original pilot scope; current validation is recorded in platform validation.
+
 ## Context
 
 The user authorized implementation after the offline LFM CPU experiment, selected

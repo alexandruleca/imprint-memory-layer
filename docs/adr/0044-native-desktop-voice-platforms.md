@@ -53,6 +53,13 @@ WebAudio output on virtual desktops without speaker devices. This is not acousti
 validation. Limit model threads to available CPUs (at most four) and disable
 thread polling so small M1 allocations are not overwhelmed by idle pools.
 
+Allow up to two minutes for cold startup, including complete cache integrity
+verification, with a separate 90-second native readiness limit. Native graphical
+tests include both phases in their wait: Windows verification alone took 21
+seconds under the software-rendered desktop, so a readiness-only test budget
+incorrectly rejected a model that subsequently became ready. Timeout and closing
+the companion release the owned session; integrity checks are never skipped.
+
 Native CI builds and exercises real speech, HTTP/WebSocket transport, workspace
 binding, authentication and mid-speech cancellation on Windows, macOS Intel,
 macOS Apple Silicon and Linux. A workflow definition or cross-compilation is

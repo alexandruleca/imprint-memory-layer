@@ -356,3 +356,48 @@ ratings, robust hands-free speakerphone behavior, actual Qwen voice latency,
 phoneme-aligned animation, learned full-duplex reasoning, native Windows/macOS/ARM
 speech workers, GPU inference, packaged desktop sandbox/installer tests or CI.
 No real user memory stores or client profiles were used as test fixtures.
+
+## Native Echo and transparent desktop (2026-10-24)
+
+Follow-up to the Linux pilot: [ADR 0044](adr/0044-native-desktop-voice-platforms.md)
+and the [current setup guide](live-voice.md). The optional live worker now builds
+natively for Windows x64, macOS Intel/Apple Silicon and Linux x64. Its model/cache
+is external to distributions; no release or installer was published for this work.
+
+The floating face has transparent background pixels with no enclosing panel or
+border. Individual controls remain readable against small backdrops. The
+dashboard's **Floating Echo** switch opens/closes the window and follows manual
+close events. Off destroys the window and releases the voice session; on never
+starts microphone capture. WebGL is preferred, with an animated projection of
+the same 3D particles/morphs onto transparent canvas when WebGL2 is unavailable.
+The [native preview](assets/voice/echo-transparent-preview.png) retains its alpha
+channel; a viewer may display transparent pixels against black or a checkerboard.
+
+Native tests use disposable API data, synthetic questions, retrieval/chat
+fixtures and isolated Electron profiles. They check real native TTS/ASR,
+memory-conditioned streamed replies, authentication/origin denial, workspace
+pinning, mid-speech cancellation, recovery and worker exit on parent-pipe EOF.
+Graphical checks load the real GLB, verify transparent PNG pixels, pin the window,
+start a local voice session and close it using the dashboard switch.
+
+The portable build explicitly reads/writes source patches as UTF-8 (Windows'
+default code page previously changed the patch fingerprint). Thread/batch limits
+respect CPU allocation and polling is disabled: an oversubscribed three-CPU M1
+runner previously needed 138 seconds for 2.3 seconds of TTS; the corrected policy
+passed its native speech gate. Hosted Mac desktops lack WebGL2, which motivated
+the actual software 3D fallback. Hosted audio tests use a silent WebAudio sink
+so they exercise the graph without requiring physical speaker endpoints.
+
+Local regressions passed: 310 Python tests, 53 browser scenarios and 19 Electron
+policy/lifecycle tests. The final audio startup change also passed the six voice
+browser cases, lint and production UI build. Generated UI output is excluded
+from the commits.
+
+Remaining manual gates: physical microphone/output devices, acoustic echo and
+room noise, actual local-chat-model voice latency, intelligibility/accent ratings,
+interactive macOS TCC consent, oldest supported OS versions and signed/notarized
+packaged installers. macOS graphical automation uses typed sessions and does not
+bypass TCC; Windows/Linux use Chromium's synthetic microphone. Linux GUI testing
+uses `--no-sandbox`. These checks do not establish packaged sandbox behavior or
+learned full-duplex speech reasoning. Windows ARM, Linux ARM voice and GPU speech
+inference remain outside this pilot.

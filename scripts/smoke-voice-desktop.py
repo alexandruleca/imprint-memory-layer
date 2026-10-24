@@ -102,7 +102,7 @@ def main():
                 else:
                     raise RuntimeError("Disposable GUI API timed out")
                 subprocess.run([node, "ui-electron/smoke-voice.mjs", f"http://127.0.0.1:{port}",
-                                str(args.output_dir.resolve())], env=env, check=True, timeout=180)
+                                str(args.output_dir.resolve())], env=env, check=True, timeout=210)
                 from PIL import Image
                 with Image.open(args.output_dir / "companion.png") as image:
                     if image.mode != "RGBA" or image.getpixel((0, 0))[3] != 0:

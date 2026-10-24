@@ -26,6 +26,7 @@ from .personaplex import INSTRUCTIONS, PrototypeError, _json
 router = APIRouter(prefix="/api/voice")
 MAX_MESSAGE = 2_000_000
 MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
+STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load.
 
 
 def worker_threads() -> int:
@@ -47,6 +48,14 @@ class Worker:
         self.client: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
+        try:
+            async with asyncio.timeout(STARTUP_TIMEOUT):
+                await self._start()
+        except TimeoutError:
+            await self.stop()
+            raise PrototypeError("Voice took too long to load. Close other applications and try again.") from None
+
+    async def _start(self) -> None:
         if self.process and self.process.poll() is None:
             return
         await self.stop()

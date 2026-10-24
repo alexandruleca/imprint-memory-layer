@@ -66,7 +66,8 @@ try {
   if (!pinned) throw Error('Companion did not pin');
   await popup.getByLabel('Voice reasoning model').selectOption('lfm');
   await popup.getByRole('button', { name: 'Start conversation' }).click();
-  await popup.getByRole('button', { name: 'Enable microphone' }).waitFor({ timeout: 95000 });
+  // Include integrity verification, model load and owned-process cleanup.
+  await popup.getByRole('button', { name: 'Enable microphone' }).waitFor({ timeout: 130000 });
   const testMicrophone = process.platform !== 'darwin';
   // Real macOS TCC consent is a human OS dialog, even for a fake Chromium mic.
   // Check typed-session lifecycle there without bypassing production policy.
