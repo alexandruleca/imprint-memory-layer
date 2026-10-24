@@ -1,8 +1,18 @@
-# Installed on top of base.txt when --with-llm is set.
+# Installed on top of base.txt when --with-llm is set (or on first local chat).
 # Runs the shared optional Qwen3.5-4B helper locally via
 # llama.cpp bindings. First use auto-downloads the GGUF into data/models/.
 # Disable with: imprint config set chat.enabled false
 #
+# PyPI publishes llama-cpp-python only as source, which needs a C/C++
+# toolchain that Windows machines usually lack. Where upstream publishes a
+# prebuilt CPU wheel for the platform, install that release asset instead
+# (ADR 0035). Other platforms build the same version from source; on macOS
+# that build enables Metal (upstream's Metal wheel is not used: its archive
+# fails CRC checks).
+#
 # GPU profile + --with-llm force-rebuilds this wheel with CUDA support —
 # see ensureLlamaCppGPU in cmd/setup.go.
-llama-cpp-python>=0.3.0
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-win_amd64.whl ; sys_platform == "win32" and platform_machine == "AMD64"
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ; sys_platform == "linux" and platform_machine == "aarch64"
+llama-cpp-python==0.3.36 ; (sys_platform != "win32" or platform_machine != "AMD64") and (sys_platform != "linux" or (platform_machine != "x86_64" and platform_machine != "aarch64"))

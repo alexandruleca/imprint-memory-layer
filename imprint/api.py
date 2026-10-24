@@ -495,30 +495,43 @@ async def api_chat(request: Request):
     prior = chat_store.get_messages(sid)
     chat_store.append_message(sid, role="user", content=user_msg)
     workspace = config.get_active_workspace()
+    return StreamingResponse(_chat_events(sid, prior, user_msg, workspace),
+                             media_type="text/event-stream")
 
-    def stream():
-        pending_tool = None
-        try:
-            for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace):
-                etype = ev.get("type")
-                if etype == "tool_call":
-                    pending_tool = ev
-                elif etype == "tool_result" and pending_tool:
-                    chat_store.append_message(
-                        sid, role="tool", content=ev.get("result", ""),
-                        tool_name=pending_tool.get("name"),
-                        tool_args=pending_tool.get("args"),
-                    )
-                    pending_tool = None
-                elif etype == "assistant_message":
-                    chat_store.append_message(
-                        sid, role="assistant", content=ev.get("text", ""),
-                    )
-                yield f"data: {json.dumps(ev)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+def _chat_events(sid: str, prior: list[dict], user_msg: str, workspace: str):
+    """Stream one reply as SSE and record it in the session."""
+    pending_tool = None
+    # The reply as streamed so far. A client that stops the reply closes
+    # this generator; what it already showed stays in the conversation.
+    partial, answered = [], False
+    try:
+        for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace):
+            etype = ev.get("type")
+            if etype == "token":
+                partial.append(ev.get("text", ""))
+            elif etype == "tool_call":
+                partial.append("\n")
+                pending_tool = ev
+            elif etype == "tool_result" and pending_tool:
+                chat_store.append_message(
+                    sid, role="tool", content=ev.get("result", ""),
+                    tool_name=pending_tool.get("name"),
+                    tool_args=pending_tool.get("args"),
+                )
+                pending_tool = None
+            elif etype == "assistant_message":
+                answered = True
+                chat_store.append_message(
+                    sid, role="assistant", content=ev.get("text", ""),
+                )
+            yield f"data: {json.dumps(ev)}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+    finally:
+        text = "".join(partial).strip()
+        if not answered and text:
+            chat_store.append_message(sid, role="assistant", content=text)
 
 
 # ── SSE live updates ───────────────────────────────────────────

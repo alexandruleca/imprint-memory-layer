@@ -49,4 +49,5 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0032](0032-one-onnx-runtime-per-environment.md) | Accepted | Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. |
 | [0033](0033-stored-secret-settings.md) | Accepted | Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence. |
 | [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Accepted | Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. |
+| [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) | Accepted | `llama-cpp-python` installs from upstream's hash-pinned prebuilt wheels where they exist; the first local chat installs the binding and downloads the model, with progress in the chat. |
 | [0038](0038-gpu-runtime-ships-cuda-libraries.md) | Accepted | The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version. |

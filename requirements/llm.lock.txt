@@ -10,8 +10,17 @@ jinja2==3.1.6 \
     # via
     #   -c requirements/base.lock.txt
     #   llama-cpp-python
-llama-cpp-python==0.3.36 \
+llama-cpp-python==0.3.36 ; (platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (platform_machine != 'AMD64' and sys_platform == 'win32') or (sys_platform != 'linux' and sys_platform != 'win32') \
     --hash=sha256:832db0699007f1be95a7e41ef12e88926b02ba836461e36a36372db2760c1a2e
+    # via -r requirements/llm.txt
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ; platform_machine == 'aarch64' and sys_platform == 'linux' \
+    --hash=sha256:410bdf3cf66478f55de0ad51dd6ab241424591bdd36aff086b000d155ac182c6
+    # via -r requirements/llm.txt
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; platform_machine == 'x86_64' and sys_platform == 'linux' \
+    --hash=sha256:c8a3e98093e950d7a770f794842e36f2db82b2933e8762ed7b5ffd435011e8e4
+    # via -r requirements/llm.txt
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-win_amd64.whl ; platform_machine == 'AMD64' and sys_platform == 'win32' \
+    --hash=sha256:ae5e88a2cf464e5a2dde7c8898c2d5c71cc24d03cac6396bf7509456bde0b9fb
     # via -r requirements/llm.txt
 markupsafe==3.0.4 \
     --hash=sha256:007e1ffd9bf65bb6ee96df7b258fc632a4868dd5566037986c64781f35a36e98 \

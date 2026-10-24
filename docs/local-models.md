@@ -5,7 +5,7 @@ description: Configure the shared optional Qwen3.5 helper for tags, session summ
 
 The default optional helper is [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B), Apache-2.0, using [Unsloth's Q4_K_M GGUF](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF). Text-only inference needs no vision projector. Its 2.74 GB file is pinned to revision `e87f176479d0855a907a41277aca2f8ee7a09523` with a source-controlled SHA256. First use needs internet; subsequent inference uses local files. Custom GGUF repositories retain their configured downloads and should be pinned/verified by their operator.
 
-Embeddings, ordinary search and explicit MCP stores do not require this helper. LLM tagging and session summaries remain opt-in. The dashboard loads the model only when chat is invoked. Install the optional binding using `imprint profile add-llm`.
+Embeddings, ordinary search and explicit MCP stores do not require this helper. LLM tagging and session summaries remain opt-in. The dashboard loads the model only when chat is invoked. The first local chat installs the optional `llama-cpp-python` binding and downloads the model if either is missing, and shows the progress in the chat; `imprint profile add-llm` installs the binding from the CLI (ADR 0035). Windows x64 and Linux x64/arm64 install upstream's prebuilt CPU wheel; macOS and other platforms build it from source, which needs a C/C++ toolchain (Xcode Command Line Tools on macOS).
 
 ## Enable the roles you want
 

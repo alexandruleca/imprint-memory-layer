@@ -300,9 +300,59 @@ func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
 	}
 }
 
+// installLLMOverlay installs the local LLM binding into an existing venv.
+// The CUDA rebuild only fires for the gpu and auto profiles.
+func installLLMOverlay(uv, venvPython, venvPip, projectDir, dataDir, profile string) {
+	installLlmReqs(uv, venvPython, venvPip, llmRequirements(projectDir))
+	if profile == "gpu" || profile == "auto" {
+		ensureLlamaCppGPU(uv, venvPython, venvPip, projectDir, dataDir)
+	}
+}
+
+// llmRequirements prefers the hash-locked LLM overlay when the install ships it.
+func llmRequirements(projectDir string) string {
+	if locked := filepath.Join(projectDir, "requirements", "llm.lock.txt"); platform.FileExists(locked) {
+		return locked
+	}
+	return filepath.Join(projectDir, "requirements", "llm.txt")
+}
+
+// scopeUv scopes every uv invocation (including nested pip calls) to
+// Imprint's install tree so the downloaded Python + wheel cache stay
+// isolated from any other uv user on the machine. Uninstalling Imprint
+// removes these dirs too. UV_PYTHON_INSTALL_DIR is respected by
+// `uv python install` + implicit downloads done by `uv venv`; the wheel
+// cache gets its own dir via UV_CACHE_DIR.
+func scopeUv(projectDir string) {
+	pyInstallDir := platform.UvPythonInstallDir(projectDir)
+	uvCache := platform.UvCacheDir(projectDir)
+	os.MkdirAll(pyInstallDir, 0755)
+	os.MkdirAll(uvCache, 0755)
+	os.Setenv("UV_PYTHON_INSTALL_DIR", pyInstallDir)
+	os.Setenv("UV_CACHE_DIR", uvCache)
+}
+
+// resolveInstallProfile picks the install profile.
+// Priority: explicit CLI flag > env var > persisted profile.json > auto.
+func resolveInstallProfile(stored profileState) string {
+	profile := strings.ToLower(strings.TrimSpace(installProfile))
+	if profile == "" {
+		profile = strings.ToLower(strings.TrimSpace(os.Getenv("IMPRINT_PROFILE")))
+	}
+	if profile == "" {
+		profile = stored.Profile
+	}
+	if profile == "" {
+		profile = "auto"
+	}
+	if profile != "cpu" && profile != "gpu" && profile != "auto" {
+		output.Warn("Unknown profile '" + profile + "' — falling back to auto")
+		profile = "auto"
+	}
+	return profile
+}
+
 // installLlmReqs layers requirements/llm.txt on top of the base install.
-// ensureLlamaCppGPU is invoked separately so the CUDA rebuild only fires
-// when the user opted into GPU profile.
 func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
 	if !platform.FileExists(llmReqs) {
 		output.Warn("llm requirements not found at " + llmReqs + " — skipping LLM overlay")
@@ -437,10 +487,6 @@ func setupBackend() backendPaths {
 	projectDir := platform.FindProjectDir()
 	venvDir := platform.VenvDir(projectDir)
 	dataDir := platform.DataDir(projectDir)
-	llmReqs := filepath.Join(projectDir, "requirements", "llm.txt")
-	if locked := filepath.Join(projectDir, "requirements", "llm.lock.txt"); platform.FileExists(locked) {
-		llmReqs = locked
-	}
 
 	// When running from a read-only app bundle, mutable state (venv, data)
 	// is redirected to ~/.local/share/imprint/. Ensure the parent exists.
@@ -448,36 +494,11 @@ func setupBackend() backendPaths {
 		os.MkdirAll(mutableBase, 0755)
 	}
 
-	// Scope every uv invocation (including nested pip calls below) to
-	// Imprint's install tree so the downloaded Python + wheel cache stay
-	// isolated from any other uv user on the machine. Uninstalling Imprint
-	// removes these dirs too. UV_PYTHON_INSTALL_DIR is respected by
-	// `uv python install` + implicit downloads done by `uv venv`; the wheel
-	// cache gets its own dir via UV_CACHE_DIR.
-	pyInstallDir := platform.UvPythonInstallDir(projectDir)
-	uvCache := platform.UvCacheDir(projectDir)
-	os.MkdirAll(pyInstallDir, 0755)
-	os.MkdirAll(uvCache, 0755)
-	os.Setenv("UV_PYTHON_INSTALL_DIR", pyInstallDir)
-	os.Setenv("UV_CACHE_DIR", uvCache)
+	scopeUv(projectDir)
 
 	// ── Resolve install profile ────────────────────────────────
-	// Priority: explicit CLI flag > env var > persisted profile.json > auto.
 	stored := loadProfile(projectDir)
-	profile := strings.ToLower(strings.TrimSpace(installProfile))
-	if profile == "" {
-		profile = strings.ToLower(strings.TrimSpace(os.Getenv("IMPRINT_PROFILE")))
-	}
-	if profile == "" {
-		profile = stored.Profile
-	}
-	if profile == "" {
-		profile = "auto"
-	}
-	if profile != "cpu" && profile != "gpu" && profile != "auto" {
-		output.Warn("Unknown profile '" + profile + "' — falling back to auto")
-		profile = "auto"
-	}
+	profile := resolveInstallProfile(stored)
 	var llmOn bool
 	switch {
 	case withLLM != nil:
@@ -545,11 +566,7 @@ func setupBackend() backendPaths {
 
 	// ── Optional local LLM tagger (llama-cpp-python) ───────────
 	if llmOn {
-		installLlmReqs(uv, venvPython, venvPip, llmReqs)
-		// Only attempt CUDA rebuild when the user opted into GPU profile.
-		if profile == "gpu" || profile == "auto" {
-			ensureLlamaCppGPU(uv, venvPython, venvPip, projectDir, dataDir)
-		}
+		installLLMOverlay(uv, venvPython, venvPip, projectDir, dataDir, profile)
 	} else {
 		output.Skip("Local LLM tagger skipped (--with-llm not set)")
 	}

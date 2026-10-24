@@ -15,7 +15,7 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 **Optional — GPU acceleration:**
 - NVIDIA GPU whose driver supports CUDA 13 (R580 or newer) for ~20× faster embedding. The GPU profile installs the CUDA and cuDNN libraries itself (about 1.3 GB); no CUDA toolkit is needed (pick `--profile gpu` at install, or run `imprint profile set gpu` later — see [embeddings.md](./embeddings.md))
 
-**Optional — local LLM tagger** — `llama-cpp-python` is skipped by default to keep the install footprint small. Opt in with `--with-llm` at install time or `imprint profile add-llm` afterward.
+**Optional — local LLM tagger** — `llama-cpp-python` is skipped by default to keep the install footprint small. Opt in with `--with-llm` at install time or `imprint profile add-llm` afterward; the dashboard's first local chat also installs it. Windows x64 and Linux x64/arm64 get upstream's prebuilt CPU wheel, so no compiler is needed; macOS builds it from source with the Xcode Command Line Tools (ADR 0035).
 
 **LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically in the base profile. No extra steps needed for any provider.
 
@@ -126,7 +126,7 @@ curl -fsSL .../install.sh | bash -s -- --profile cpu --no-llm
 curl -fsSL .../install.sh | bash -s -- --non-interactive
 ```
 
-Swap profile after the fact with `imprint profile set gpu`, add the LLM tagger with `imprint profile add-llm`, or drop it with `imprint profile drop-llm`. Each mutation re-runs the installer's bootstrap step via `uv`.
+Swap profile after the fact with `imprint profile set gpu`, add the LLM tagger with `imprint profile add-llm`, or drop it with `imprint profile drop-llm`. `set` and `drop-llm` re-run the installer's bootstrap step via `uv`. `add-llm` installs only the LLM overlay into the existing environment, so it is safe while the dashboard or an MCP server is running.
 
 ## Supported hosts
 

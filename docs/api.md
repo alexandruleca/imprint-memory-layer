@@ -208,6 +208,22 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 | DELETE | `/api/chat/sessions/{sid}` | Delete session. |
 | POST | `/api/chat` | Send a message. Returns an SSE stream of tokens + tool calls. |
 
+`/api/chat` events, in order of appearance:
+
+- `install_start`, `install_progress` (`line`), `install_complete`: the first
+  local chat installs the llama.cpp binding (`imprint profile add-llm`).
+- `download_start` (`file`, `repo`, `path`), `download_progress`
+  (`downloaded`, `total` bytes), `download_complete`: the model download.
+- `load_start`: the local model is being loaded into memory.
+- `token` (`text`): reply text. Tool-call markup is never streamed, so the
+  tokens of a reply concatenate to what the user sees.
+- `tool_call` (`name`, `args`), `tool_result` (`name`, `result`).
+- `assistant_message` (`text`): the complete reply, stored in the session.
+- `error` (`error`), then `done`.
+
+Closing the stream early stops the reply; the text already streamed is
+stored in the session as the assistant's message.
+
 ## Streams & long-polling
 
 Three endpoints return **Server-Sent Events**:

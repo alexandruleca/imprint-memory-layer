@@ -8,13 +8,16 @@ All providers share the same tool loop backed by Imprint's MCP tools.
 
 Structured so the import is cheap: we only try to import `llama_cpp` and
 `huggingface_hub` at call time via helpers; the dashboard still works if they're missing.
+The first local chat installs the binding and downloads the model (ADR 0035).
 """
 
 from __future__ import annotations
 
+import importlib
 import json
-import queue
+import os
 import re
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -27,18 +30,26 @@ from . import server as _mcp_server
 
 # ── Optional deps ────────────────────────────────────────────
 
-import os
+llama_cpp: Any = None
+_llama_import_error: str | None = None
 
-try:  # pragma: no cover - import-time feature detection
-    import llama_cpp  # type: ignore
-    from imprint import _llama_compat
-    _llama_compat.apply()
-    LLAMA_AVAILABLE = True
-    _LLAMA_IMPORT_ERROR: str | None = None
-except Exception as e:  # pragma: no cover
-    llama_cpp = None  # type: ignore[assignment]
-    LLAMA_AVAILABLE = False
-    _LLAMA_IMPORT_ERROR = str(e)
+
+def _llama() -> Any:
+    """The llama.cpp binding, or None while it is not installed. A failed
+    import is retried on the next call, so a binding installed while the
+    dashboard runs is picked up without a restart."""
+    global llama_cpp, _llama_import_error
+    if llama_cpp is None:
+        importlib.invalidate_caches()
+        try:
+            import llama_cpp as module  # type: ignore
+            from imprint import _llama_compat
+            _llama_compat.apply()
+        except Exception as e:
+            _llama_import_error = str(e)
+            return None
+        llama_cpp, _llama_import_error = module, None
+    return llama_cpp
 
 
 # ── Provider config ─────────────────────────────────────────
@@ -280,8 +291,8 @@ def load_model() -> tuple[Any, str | None]:
     global _llm
     if _llm is not None:
         return _llm, None
-    if not LLAMA_AVAILABLE:
-        return None, f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR}). Run: imprint profile add-llm"
+    if _llama() is None:
+        return None, f"llama-cpp-python not installed ({_llama_import_error}). Run: imprint profile add-llm"
 
     with _llm_lock:
         if _llm is not None:
@@ -301,6 +312,114 @@ def load_model() -> tuple[Any, str | None]:
             return None, f"model load failed: {e}"
 
     return _llm, None
+
+
+# ── First-use provisioning ───────────────────────────────────
+# The first local chat installs the binding (`imprint profile add-llm`) and
+# downloads the model. One process-wide job does both; every chat stream that
+# needs it follows the job's events. A stream that closes never interrupts
+# the job: stopping uv mid-install would leave a half-written venv.
+
+class _Provisioning:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        self.finished = False
+        self.error: str | None = None
+        self._cond = threading.Condition()
+
+    def emit(self, event: dict) -> None:
+        with self._cond:
+            self.events.append(event)
+            self._cond.notify_all()
+
+    def finish(self, error: str | None = None) -> None:
+        with self._cond:
+            self.error, self.finished = error, True
+            self._cond.notify_all()
+
+    def follow(self) -> Generator[dict, None, None]:
+        """Every event from the start, then new ones until the job ends."""
+        seen = 0
+        while True:
+            with self._cond:
+                self._cond.wait_for(lambda: len(self.events) > seen or self.finished)
+                batch, finished = self.events[seen:], self.finished
+            seen += len(batch)
+            yield from batch
+            if finished:
+                return
+
+
+_provisioning_lock = threading.Lock()
+_provisioning: _Provisioning | None = None
+
+
+def _model_missing() -> bool:
+    """The configured model is not downloaded yet. An explicit
+    chat.model_path is the user's own file and is never downloaded."""
+    path, err = _resolve_local_model_path()
+    return not err and path is not None and not path.exists() and not _cfg("chat.model_path")
+
+
+def _provision() -> _Provisioning:
+    """Join the running provisioning job, or start one."""
+    global _provisioning
+    with _provisioning_lock:
+        if _provisioning is None or _provisioning.finished:
+            _provisioning = _Provisioning()
+            threading.Thread(target=_run_provisioning, args=(_provisioning,), daemon=True).start()
+        return _provisioning
+
+
+def _install_binding(job: _Provisioning) -> None:
+    from .queue import _strip_ansi, find_imprint_binary
+    env = {**os.environ, "PYTHONUTF8": "1"}
+    tail: list[str] = []
+    with subprocess.Popen(
+        [find_imprint_binary(), "profile", "add-llm"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        encoding="utf-8", errors="replace", bufsize=1,
+        start_new_session=True, env=env,
+    ) as proc:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = _strip_ansi(raw).rstrip()
+            if line:
+                tail = (tail + [line])[-5:]
+                job.emit({"type": "install_progress", "line": line})
+    if proc.returncode != 0:
+        raise RuntimeError("installing llama-cpp-python failed:\n" + "\n".join(tail))
+    if _llama() is None:
+        raise RuntimeError(f"llama-cpp-python does not import after installing: {_llama_import_error}")
+
+
+def _run_provisioning(job: _Provisioning) -> None:
+    try:
+        if _llama() is None:
+            job.emit({"type": "install_start"})
+            _install_binding(job)
+            job.emit({"type": "install_complete"})
+
+        if _model_missing():
+            path, _ = _resolve_local_model_path()
+            job.emit({"type": "download_start", "file": _cfg("chat.model_file"),
+                      "repo": _cfg("chat.model_repo"), "path": str(path)})
+            last_emit = 0.0
+
+            def _cb(done: int, total: int) -> None:
+                nonlocal last_emit
+                now = time.time()
+                if now - last_emit > 0.2 or (total and done >= total):
+                    last_emit = now
+                    job.emit({"type": "download_progress", "downloaded": done, "total": total})
+
+            p, e = download_model(progress_cb=_cb)
+            if e or p is None:
+                raise RuntimeError(e or "download failed")
+            job.emit({"type": "download_complete", "path": str(p)})
+        job.finish()
+    except Exception as e:
+        job.finish(str(e))
 
 
 def status() -> dict:
@@ -323,23 +442,15 @@ def status() -> dict:
             "error": f"{key_env} not set" if missing_key else None,
         }
 
-    # Local provider
-    if not LLAMA_AVAILABLE:
-        return {
-            "enabled": enabled,
-            "installed": False,
-            "provider": "local",
-            "model_ready": False,
-            "model_path": "",
-            "error": f"llama-cpp-python not installed ({_LLAMA_IMPORT_ERROR}). Run: imprint profile add-llm",
-        }
-
+    # Local provider. A missing binding or model is not an error: the first
+    # chat provisions both.
+    installed = _llama() is not None
     explicit = _cfg("chat.model_path")
     if explicit:
         p = Path(explicit)
         return {
             "enabled": enabled,
-            "installed": True,
+            "installed": installed,
             "provider": "local",
             "model_ready": p.exists() or _llm is not None,
             "model_path": str(p),
@@ -350,7 +461,7 @@ def status() -> dict:
     local = _models_dir() / fname if fname else None
     return {
         "enabled": enabled,
-        "installed": True,
+        "installed": installed,
         "provider": "local",
         "model_ready": (local is not None and local.exists()) or _llm is not None,
         "model_path": str(local) if local else "",
@@ -365,6 +476,14 @@ def status() -> dict:
 _TOOL_OPEN = "<tool_call>"
 _TOOL_CLOSE = "</tool_call>"
 _TOOL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+def _partial_open_tag(text: str) -> int:
+    """Length of a trailing "<tool_c…" that may still become a tool call."""
+    for n in range(min(len(_TOOL_OPEN) - 1, len(text)), 0, -1):
+        if _TOOL_OPEN.startswith(text[-n:]):
+            return n
+    return 0
 
 
 def _parse_tool_call(text: str) -> dict | None:
@@ -473,6 +592,10 @@ def stream_reply(
     """Yield SSE-ready event dicts.
 
     Event types:
+      {"type": "install_start"} / {"type": "install_progress", "line": str} / {"type": "install_complete"}
+      {"type": "download_start", "file", "repo", "path"} / {"type": "download_progress", "downloaded", "total"}
+      {"type": "download_complete", "path": str}
+      {"type": "load_start"}                         # loading the local model into memory
       {"type": "token", "text": str}
       {"type": "tool_call", "name": str, "args": dict}
       {"type": "tool_result", "name": str, "result": str}
@@ -497,51 +620,17 @@ def stream_reply(
             yield {"type": "done"}
             return
     else:
-        # ── Local: auto-download model if missing ──
-        local_path, perr = _resolve_local_model_path()
-        if not perr and local_path is not None and not local_path.exists() \
-                and not _cfg("chat.model_path"):
-            repo = _cfg("chat.model_repo")
-            fname = _cfg("chat.model_file")
-            yield {
-                "type": "download_start",
-                "file": fname, "repo": repo,
-                "path": str(local_path),
-            }
+        # ── Local: install the binding and download the model on first use ──
+        if _llama() is None or _model_missing():
+            job = _provision()
+            yield from job.follow()
+            if job.error:
+                yield {"type": "error", "error": job.error}
+                yield {"type": "done"}
+                return
 
-            q: queue.Queue = queue.Queue()
-            def _cb(done: int, total: int) -> None:
-                q.put(("progress", done, total))
-
-            result: dict = {}
-            def _worker() -> None:
-                p, e = download_model(progress_cb=_cb)
-                q.put(("done", p, e))
-
-            threading.Thread(target=_worker, daemon=True).start()
-
-            last_emit = 0.0
-            while True:
-                ev = q.get()
-                kind = ev[0]
-                if kind == "progress":
-                    _, done, total = ev
-                    now = time.time()
-                    if now - last_emit > 0.2 or (total and done >= total):
-                        last_emit = now
-                        yield {
-                            "type": "download_progress",
-                            "downloaded": done, "total": total,
-                        }
-                else:  # "done"
-                    _, p, e = ev
-                    if e or p is None:
-                        yield {"type": "error", "error": e or "download failed"}
-                        yield {"type": "done"}
-                        return
-                    yield {"type": "download_complete", "path": str(p)}
-                    break
-
+        if _llm is None:
+            yield {"type": "load_start"}
         llm, err = load_model()
         if err or llm is None:
             yield {"type": "error", "error": err or "model unavailable"}
@@ -589,10 +678,18 @@ def stream_reply(
             yield {"type": "done"}
             return
 
+        visible = 0
         try:
             for text in token_stream:
                 buffer += text
-                yield {"type": "token", "text": text}
+                # A tool call is text in the reply: stream only what precedes
+                # it, holding back a tail that may still become its open tag.
+                end = buffer.find(_TOOL_OPEN)
+                if end < 0:
+                    end = len(buffer) - _partial_open_tag(buffer)
+                if end > visible:
+                    yield {"type": "token", "text": buffer[visible:end]}
+                    visible = end
         except Exception as e:
             yield {"type": "error", "error": f"generation failed: {e}"}
             yield {"type": "done"}
@@ -604,6 +701,8 @@ def stream_reply(
 
         call = _parse_tool_call(buffer)
         if call is None:
+            if len(buffer) > visible:
+                yield {"type": "token", "text": buffer[visible:]}
             final_assistant_chunks.append(buffer)
             break
 

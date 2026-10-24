@@ -43,9 +43,7 @@ func Profile(args []string) {
 		fmt.Fprintf(os.Stderr, "→ switching to profile=%s\n", target)
 		_ = setupBackend()
 	case "add-llm":
-		SetWithLLM(true)
-		fmt.Fprintln(os.Stderr, "→ installing llama-cpp-python (local tagger + chat)")
-		_ = setupBackend()
+		addLLM()
 	case "drop-llm":
 		SetWithLLM(false)
 		fmt.Fprintln(os.Stderr, "→ dropping llama-cpp-python from active profile")
@@ -63,6 +61,29 @@ func Profile(args []string) {
 	default:
 		output.Fail("unknown `profile` subcommand: " + args[0])
 	}
+}
+
+// addLLM installs only the local LLM overlay into the existing environment
+// and records it in profile.json. Re-running setupBackend would also re-sync
+// the ONNX Runtime, which fails on Windows while the dashboard or an MCP
+// server holds the venv's libraries open; the dashboard runs this command on
+// the first local chat (ADR 0035).
+func addLLM() {
+	projectDir := platform.FindProjectDir()
+	venvPython := platform.VenvPython(projectDir)
+	if !platform.FileExists(venvPython) {
+		output.Fail("No Imprint environment at " + platform.VenvDir(projectDir) + " — run `imprint setup` first")
+	}
+	scopeUv(projectDir)
+	stored := loadProfile(projectDir)
+	installLLMOverlay(uvBinary(projectDir), venvPython, platform.VenvBin(projectDir, "pip"),
+		projectDir, platform.DataDir(projectDir), resolveInstallProfile(stored))
+	if out, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
+		output.Fail("llama-cpp-python does not import after installing:\n" + lastNonBlankLines(out, 3))
+	}
+	stored.WithLLM = true
+	saveProfile(projectDir, stored)
+	output.Success("Local LLM runtime installed")
 }
 
 func printProfile() {
@@ -85,4 +106,3 @@ func printProfile() {
 	fmt.Printf("State file: %s\n", p)
 	fmt.Printf("Venv:  %s\n", filepath.Dir(filepath.Dir(platform.VenvPython(projectDir))))
 }
-
