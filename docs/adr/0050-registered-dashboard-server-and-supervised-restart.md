@@ -50,6 +50,7 @@ Ownership does not change: a desktop-owned service stays desktop-owned and Quit 
 ## Consequences
 
 - An update by any method replaces the running dashboard server with the installed code without changing who owns it. The page that started the update reloads itself into the new version. The false "stopped" state and **Try again** after a Windows installer handover are gone.
+- Stopping or restarting waits at most 5 seconds for in-flight requests (`GRACEFUL_SHUTDOWN_SECONDS`), then closes the rest. Unbounded, a restart on Windows hung about once in 40 attempts after the v0.22.0 release: when a client resets its socket, CPython 3.12's proactor transport raises in `_call_connection_lost` before notifying uvicorn, so uvicorn waits for a connection that is already gone.
 - The desktop shell (Electron's main process and preload) keeps running the code it started with until the app is quit and reopened. The dashboard pages come from the server and are current.
 - `imprint ui stop` also stops a desktop-owned service; the app then shows "Local service stopped" with **Try again**. `imprint ui status` reports it.
 - A daemon started by `imprint ui start` is now two processes: the Go supervisor and the Python server. `imprint ui stop` stops the server, and the supervisor exits with it.

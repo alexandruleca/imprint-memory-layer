@@ -134,6 +134,13 @@ class ParentWatchTests(unittest.TestCase):
 
 
 class RestartEndpointTests(unittest.TestCase):
+    def test_stopping_never_waits_on_clients_indefinitely(self):
+        # A Windows client reset can leave a connection uvicorn believes open.
+        from imprint import api
+        server = api.DashboardServer(port=0)
+        self.addCleanup(setattr, api.app.state, 'server', None)
+        self.assertEqual(server.config.timeout_graceful_shutdown, api.GRACEFUL_SHUTDOWN_SECONDS)
+
     def test_an_app_served_without_a_dashboard_server_cannot_restart(self):
         from imprint import api
         with patch.object(api.app.state, 'server', None):

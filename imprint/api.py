@@ -1455,6 +1455,11 @@ def _launch_browser(url: str):
 # EX_TEMPFAIL from sysexits.h: a temporary condition, try again.
 RESTART_EXIT_CODE = 75
 
+# Stopping waits this long for in-flight requests, then closes the rest. On
+# Windows a client that resets its socket can make asyncio skip
+# connection_lost, so uvicorn would wait for that connection forever.
+GRACEFUL_SHUTDOWN_SECONDS = 5
+
 
 def registration_path() -> Path:
     """``data/imprint_ui.json``: the process serving the dashboard and its port."""
@@ -1472,7 +1477,7 @@ class DashboardServer(uvicorn.Server):
     def __init__(self, host: str = "127.0.0.1", port: int = 8420):
         super().__init__(uvicorn.Config(
             app, host=host, port=port, log_level="info", proxy_headers=False,
-            ws_max_size=2_000_000,
+            ws_max_size=2_000_000, timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
         ))
         self.restart_requested = False
         app.state.server = self
