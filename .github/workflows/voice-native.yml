@@ -28,9 +28,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONPATH: .
-      VOICE_CACHE: ${{ runner.temp }}/imprint-voice
     steps:
       - uses: actions/checkout@v4
+      - name: Select external voice cache
+        shell: bash
+        run: echo "VOICE_CACHE=$RUNNER_TEMP/imprint-voice" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
