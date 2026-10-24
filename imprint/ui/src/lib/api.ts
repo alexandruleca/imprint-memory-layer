@@ -145,6 +145,9 @@ export interface UpdateInfo {
   unsupported?: string;
   /** An update started by this server is still running. */
   running: boolean;
+  /** That update exited with an error. A successful exit hands over to the
+   * installer or the server restart; the new version then serves. */
+  failed: boolean;
   log: string[];
   error?: string;
 }
