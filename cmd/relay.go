@@ -18,11 +18,24 @@ import (
 	"nhooyr.io/websocket"
 )
 
+type relayFrame struct {
+	kind websocket.MessageType
+	data []byte
+}
+
 type relayRoom struct {
 	provider *websocket.Conn
 	consumer *websocket.Conn
-	created  time.Time
-	mu       sync.Mutex
+	// A peer receives forwarded frames once ready: after the frames held for
+	// it are written, so they arrive first and in order.
+	providerReady, consumerReady bool
+	// Frames the connected peer sent before the other one joined. Paired
+	// devices connect at the same moment and the consumer opens the key
+	// exchange; dropping that frame left both sides waiting for each other.
+	held      []relayFrame
+	heldBytes int
+	created   time.Time
+	mu        sync.Mutex
 }
 
 var (
@@ -51,6 +64,9 @@ const (
 	relayWriteTimeout = 5 * time.Minute
 	// A room still waiting for its second peer after this long is closed.
 	relayUnpairedTTL = time.Hour
+	// Until both peers are in a room, a peer only opens the handshake. A
+	// peer sending more than this before the other joins is disconnected.
+	relayHeldLimit = 1 << 20
 )
 
 func Relay(args []string, version string) {
@@ -203,9 +219,9 @@ func relayPeer(w http.ResponseWriter, r *http.Request) {
 		rooms[id] = room
 	}
 	room.mu.Lock()
-	slot := &room.consumer
+	slot, ready := &room.consumer, &room.consumerReady
 	if role == "provider" {
-		slot = &room.provider
+		slot, ready = &room.provider, &room.providerReady
 	}
 	// A taken role is refused: a later connection must not replace the
 	// peer a session is already talking to.
@@ -223,22 +239,58 @@ func relayPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward messages from this conn to the peer
+	// Deliver what the other peer sent before this one joined, including
+	// frames it sends while that is under way, then receive directly.
 	ctx := context.Background()
-	for {
+	open := true
+	for open {
+		room.mu.Lock()
+		frames := room.held
+		room.held, room.heldBytes = nil, 0
+		if len(frames) == 0 {
+			*ready = true
+		}
+		room.mu.Unlock()
+		if len(frames) == 0 {
+			break
+		}
+		for _, frame := range frames {
+			writeCtx, cancel := context.WithTimeout(ctx, relayWriteTimeout)
+			err := conn.Write(writeCtx, frame.kind, frame.data)
+			cancel()
+			if err != nil {
+				open = false
+				break
+			}
+		}
+	}
+
+	// Forward messages from this conn to the peer, holding them while the
+	// peer has not joined or is still receiving what was held for it.
+	for open {
 		msgType, data, err := conn.Read(ctx)
 		if err != nil {
 			break
 		}
 		room.mu.Lock()
 		var peer *websocket.Conn
-		if role == "provider" {
+		if role == "provider" && room.consumerReady {
 			peer = room.consumer
-		} else {
+		} else if role == "consumer" && room.providerReady {
 			peer = room.provider
+		}
+		overflow := false
+		if peer == nil {
+			room.held = append(room.held, relayFrame{msgType, data})
+			room.heldBytes += len(data)
+			overflow = room.heldBytes > relayHeldLimit
 		}
 		room.mu.Unlock()
 
+		if overflow {
+			conn.Close(websocket.StatusPolicyViolation, "too much data before the other peer joined")
+			break
+		}
 		if peer == nil {
 			continue
 		}
@@ -256,17 +308,18 @@ func relayPeer(w http.ResponseWriter, r *http.Request) {
 	room.mu.Lock()
 	var peer *websocket.Conn
 	if room.provider == conn {
-		room.provider = nil
+		room.provider, room.providerReady = nil, false
 		peer = room.consumer
-		room.consumer = nil
+		room.consumer, room.consumerReady = nil, false
 	}
 	if room.consumer == conn {
-		room.consumer = nil
+		room.consumer, room.consumerReady = nil, false
 		if peer == nil {
 			peer = room.provider
 		}
-		room.provider = nil
+		room.provider, room.providerReady = nil, false
 	}
+	room.held, room.heldBytes = nil, 0
 	empty := room.provider == nil && room.consumer == nil
 	room.mu.Unlock()
 	if empty {

@@ -176,6 +176,62 @@ func TestRelayRefusesATakenRole(t *testing.T) {
 	}
 }
 
+// TestRelayHoldsFramesUntilThePeerJoins: paired devices connect at the same
+// moment, and the consumer may open the key exchange before the provider is
+// in the room. Its frames reach the provider when it joins, in order and
+// before anything the consumer sends after that.
+func TestRelayHoldsFramesUntilThePeerJoins(t *testing.T) {
+	base := newTestRelay(t)
+	room := nextRoom(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	consumer := dialRole(t, base, room, "consumer")
+	for _, msg := range []string{"key exchange", "one", "two"} {
+		if err := consumer.Write(ctx, websocket.MessageText, []byte(msg)); err != nil {
+			t.Fatalf("consumer write %q: %v", msg, err)
+		}
+	}
+	// Let the relay read them while the provider is still absent.
+	time.Sleep(50 * time.Millisecond)
+
+	provider := dialRole(t, base, room, "provider")
+	if err := consumer.Write(ctx, websocket.MessageText, []byte("after")); err != nil {
+		t.Fatalf("consumer write: %v", err)
+	}
+	for _, want := range []string{"key exchange", "one", "two", "after"} {
+		if _, got, err := provider.Read(ctx); err != nil || string(got) != want {
+			t.Fatalf("provider read %q, %v; want %q", got, err, want)
+		}
+	}
+	if err := provider.Write(ctx, websocket.MessageText, []byte("reply")); err != nil {
+		t.Fatalf("provider write: %v", err)
+	}
+	if _, got, err := consumer.Read(ctx); err != nil || string(got) != "reply" {
+		t.Fatalf("consumer read %q, %v; want reply", got, err)
+	}
+}
+
+// TestRelayDisconnectsAPeerSendingTooMuchAlone bounds what a peer can make
+// the relay hold before the other one joins.
+func TestRelayDisconnectsAPeerSendingTooMuchAlone(t *testing.T) {
+	base := newTestRelay(t)
+	room := nextRoom(t)
+	consumer := dialRole(t, base, room, "consumer")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chunk := make([]byte, 256<<10)
+	for i := 0; i < 8; i++ {
+		if err := consumer.Write(ctx, websocket.MessageBinary, chunk); err != nil {
+			break
+		}
+	}
+	if _, _, err := consumer.Read(ctx); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("peer alone in a room was not stopped: %v", err)
+	}
+}
+
 // TestRelayClosesOversizedMessages bounds what one client can make the
 // relay buffer.
 func TestRelayClosesOversizedMessages(t *testing.T) {
