@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { VoicePhase } from "@/lib/voice-client";
 
-export default function EchoAvatar({ phase, energy, compact = false }: {
-  phase: VoicePhase; energy: () => number; compact?: boolean;
+/** ``model`` names a bundled look: /models/imprint-<model>.glb. */
+export default function EchoAvatar({ phase, energy, model, compact = false }: {
+  phase: VoicePhase; energy: () => number; model: string; compact?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const current = useRef({ phase, energy });
@@ -117,10 +118,10 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
       }
       release = dispose;
       try {
-        const model = await new GLTFLoader().loadAsync("/models/imprint-echo.glb");
-        if (cancelled) { disposeModel(model.scene); return; }
+        const loaded = await new GLTFLoader().loadAsync(`/models/imprint-${model}.glb`);
+        if (cancelled) { disposeModel(loaded.scene); return; }
         const surfaces: import("three").Mesh[] = [];
-        model.scene.traverse(object => { if (object instanceof THREE.Mesh) surfaces.push(object); });
+        loaded.scene.traverse(object => { if (object instanceof THREE.Mesh) surfaces.push(object); });
         for (const object of surfaces) {
           const material = object.material as import("three").MeshBasicMaterial;
           if (!software) {
@@ -151,7 +152,7 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
             }
           }
         }
-        group.add(model.scene);
+        group.add(loaded.scene);
         container.dataset.loaded = "true";
         frame = requestAnimationFrame(draw);
       } catch (error) { dispose(); throw error; }
@@ -163,7 +164,7 @@ export default function EchoAvatar({ phase, energy, compact = false }: {
       }
     });
     return () => { cancelled = true; release?.(); };
-  }, [compact]);
+  }, [compact, model]);
   return <div ref={host} className="echo-canvas" role="img" aria-label="Echo, an anime holographic head with luminous contours">
     {failed && <div className="echo-fallback"><span>✧</span><p>Echo</p><small>3D preview unavailable. Voice controls are still available.</small></div>}
   </div>;

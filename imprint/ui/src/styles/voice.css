@@ -583,3 +583,77 @@
 .voice-compact:has([aria-label="Local chat preparation"]) .voice-settings,
 .voice-compact:has([aria-label="Local chat preparation"]) .voice-transcript { display: none; }
 @media(max-height:480px) { .voice-compact .voice-stage { min-height: 55px; } .voice-compact .voice-settings { margin-top: 3px; } }
+
+/* Echo's look: preview cards from the voice.avatar setting's choices. */
+.echo-look {
+  margin: 14px auto 0;
+  max-width: 520px;
+}
+.echo-avatars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.echo-avatars-compact {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.echo-avatar-option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  height: auto;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid #2c414f;
+  border-radius: 10px;
+  background: #0e1921;
+  color: #b2c9d5;
+  text-align: left;
+  white-space: normal;
+}
+.echo-avatar-option:hover {
+  border-color: #3f6378;
+  background: #112230;
+}
+.echo-avatar-option[aria-pressed="true"] {
+  border-color: #5cc8ff;
+  background: #10283a;
+  box-shadow: 0 0 0 1px #5cc8ff55, 0 0 18px #5cc8ff26;
+  color: #dceaf1;
+}
+.echo-avatar-option img {
+  flex: none;
+  border-radius: 8px;
+  background: #090f16;
+}
+.echo-avatar-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.echo-avatar-option b {
+  font-size: 12px;
+  font-weight: 600;
+}
+.echo-avatar-option small {
+  font-size: 10px;
+  color: #8ea5b4;
+  line-height: 1.35;
+}
+.echo-avatars-compact .echo-avatar-option {
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+}
+.voice-look {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 320px;
+  font-size: 9px;
+  color: #8ea5b4;
+}

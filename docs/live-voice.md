@@ -215,15 +215,24 @@ Opening it stops the dashboard voice session; start the companion explicitly.
 The tray also exposes Float Echo. In an ordinary browser this opens a compact
 popup; desktop transparency, dragging and pinning require the Electron shell.
 
-The renderer uses a locally bundled Three.js module and a reproducible
-[glTF binary head](../imprint/ui/public/models/imprint-echo.glb). The asset is a head-only adaptation of pixiv’s CC0 beta **Sendagaya Shino** model,
-with shortened rear hair, a new headband/clasp, modeled eyes/eyelids/lips,
-`jawOpen`/`blink` expressions, a cool holographic surface and fine connected wire
-contours. It replaces the earlier procedural particle template. The user’s Haruhi
-reference guides the anime direction; this is a credited sample adaptation rather
-than an original sculpt or Haruhi model. Source checksums, the publisher’s CC0
-release and attribution accompany the model. Rebuild with
-`node imprint/ui/scripts/build-echo-avatar.mjs [path/to/pinned-source.vrm]`.
+Echo has two looks. Choose one during first-time setup, under **Echo's look**
+on the Voice page or as `voice.avatar` in Settings, and change it anytime; the
+companion uses it the next time it opens.
+
+- **Echo** ([glTF head](../imprint/ui/public/models/imprint-echo.glb)): a head-only adaptation of pixiv’s CC0 beta
+  **Sendagaya Shino** model, with shortened rear hair, the source hair clip removed and a warm hairband with modeled ribbon bows.
+- **Iris** ([glTF head](../imprint/ui/public/models/imprint-iris.glb)): a head-only adaptation of the CC0 beta
+  **Victoria Rubin** model, with straight-cut bangs, indigo locks folded at the jaw, its ribbon and side tail removed,
+  and a generated pale lavender iris without pupils.
+
+The renderer uses a locally bundled Three.js module. Both heads keep modeled eyes/eyelids/lips and
+`jawOpen`/`blink` expressions, and get a cool holographic surface and fine connected wire
+contours. They replace the earlier procedural particle template. The user’s Haruhi and Hinata
+references guide the anime direction; these are credited sample adaptations, not original sculpts
+or licensed character models. Source checksums, the publisher’s CC0
+release and attribution accompany the models. Rebuild with
+`node imprint/ui/scripts/build-echo-avatar.mjs [echo|iris] [path/to/pinned-source.vrm]`;
+without arguments it rebuilds both.
 The authoring command may fetch the pinned source; the app loads only local files.
 No camera, face tracking, external avatar service or NVIDIA Audio2Face is needed.
 [ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls.

@@ -8,6 +8,9 @@ import { VoiceClient, initialVoice, type VoiceSnapshot } from "@/lib/voice-clien
 import { API_BASE } from "@/lib/api-base";
 import { useVoiceSetup } from "@/lib/voice-setup";
 import { VoiceSetup, VoiceChatSetup } from "@/components/voice-setup";
+import { AvatarPicker } from "@/components/avatar-picker";
+import { getConfig, setConfigValue } from "@/lib/api";
+import type { ConfigChoice } from "@/lib/types";
 import "@/styles/voice.css";
 
 const EchoAvatar = dynamic(() => import("./echo-avatar"), { ssr: false });
@@ -21,6 +24,10 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [pinned, setPinned] = useState(false);
   const [desktop, setDesktop] = useState(false);
   const [shortcutAvailable, setShortcutAvailable] = useState(true);
+  // Echo's look (the voice.avatar setting); null until it is known, so the
+  // default never flashes before a different choice loads.
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [looks, setLooks] = useState<ConfigChoice[]>([]);
   const setup = useVoiceSetup();
   const client = useRef<VoiceClient | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -39,6 +46,11 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     void window.electronAPI?.getCompanionState?.().then(state => { if (state) { setPinned(state.pinned); setShortcutAvailable(state.shortcutAvailable !== false); } });
     const controller = new AbortController();
     void fetch(`${API_BASE}/api/voice/status`, { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(setRuntime).catch(() => {});
+    void getConfig().then(config => {
+      const setting = config.settings?.find(s => s.key === "voice.avatar");
+      setLooks(setting?.choices ?? []);
+      setAvatar(String(setting?.value || "echo"));
+    }).catch(() => setAvatar("echo"));
     function hidden() { if (document.hidden) client.current?.stop(); }
     function blur() { client.current?.release(false); }
     function transfer() { if (!compact) client.current?.stop(); }
@@ -51,6 +63,14 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
     && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
   const active = voice.connected || voice.phase === "connecting";
+  async function chooseLook(next: string) {
+    const previous = avatar;
+    setAvatar(next);
+    try { await setConfigValue("voice.avatar", next); } catch { setAvatar(previous); }
+  }
+  const picker = looks.length > 1 && avatar
+    ? (compactPicker: boolean) => <AvatarPicker choices={looks} value={avatar} onChange={look => void chooseLook(look)} compact={compactPicker}/>
+    : null;
   function popout() {
     client.current?.stop();
     if (window.electronAPI?.openCompanion) window.electronAPI.openCompanion();
@@ -76,10 +96,11 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     </header>
     {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
     {!ready && !compact && <VoiceSetup setup={setup}/>}
+    {!ready && !compact && picker && <div className="echo-look"><p className="echo-setup-eyebrow">CHOOSE HOW ECHO LOOKS</p>{picker(false)}</div>}
     {!compact && <VoiceChatSetup preparation={voice.preparation}/>}
     <div className="voice-stage">
       <div className="voice-halo" aria-hidden="true"/>
-      <EchoAvatar phase={voice.phase} energy={energy} compact={compact}/>
+      {avatar && <EchoAvatar phase={voice.phase} energy={energy} model={avatar} compact={compact}/>}
       <div className="voice-caption"><span className={`voice-dot ${active ? "active" : ""}`}/><span>{voice.phase === "idle" ? "ECHO · LOCAL VOICE COMPANION" : voice.detail}</span></div>
     </div>
     <div className="voice-control-area">
@@ -116,11 +137,12 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} disabled={active} onChange={event => setEngine(event.target.value as "chat" | "lfm")}>
           <option value="chat" disabled={runtime?.chat_provider !== "local"}>Same local model as Chat</option><option value="lfm">Small voice model · LFM 1.5B</option>
         </select></label>
+        {picker && !compact && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
         {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
       </div>
       </>}
     </div>
-    {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href="/models/imprint-echo.glb" download><Download size={13}/> Download 3D model</a></footer>}
+    {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href={`/models/imprint-${avatar || "echo"}.glb`} download><Download size={13}/> Download 3D model</a></footer>}
     {compact && desktop && <div className="voice-grip"><GripHorizontal size={14}/><span>Drag anywhere · {shortcutAvailable ? `${shortcut} to recall` : "Recall from Imprint tray menu"}</span></div>}
   </section>;
 }

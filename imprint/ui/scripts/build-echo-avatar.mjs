@@ -1,40 +1,95 @@
-// Rebuild the bundled anime head. No network or model download occurs at runtime.
-// Sendagaya Shino is CC0, explicitly confirmed by pixiv's original release page.
-// The optional local argument makes rebuilding independent of the mirror.
+// Rebuild the bundled anime heads. No network or model download occurs at runtime.
+// Every source is a CC0 VRoid beta sample, explicitly confirmed by pixiv's
+// original release page; the build refuses any other license.
+//   node scripts/build-echo-avatar.mjs [echo|iris] [local.vrm]
+// Without an avatar id it rebuilds all of them from the pinned mirror. The
+// optional local file makes rebuilding independent of the mirror.
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as THREE from "three";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const revision = "e16eb187100149a315ad92c3c9968f1d5baa6c7d";
-const url = `https://raw.githubusercontent.com/madjin/vrm-samples/${revision}/vroid/beta/Sendagaya_Shino.vrm`;
-const data = process.argv[2]
-  ? await fs.readFile(process.argv[2])
-  : Buffer.from(await (await fetch(url)).arrayBuffer());
-if (
-  crypto.createHash("sha256").update(data).digest("hex") !==
-  "1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5"
-)
+const SKIN = [0.87, 0.96, 1, 1],
+  LINES = [0.14, 0.12, 0.2, 1];
+// Each avatar is a head cut from one sample and given its own palette.
+// Shared mesh names (Echo_Face, Echo_Hair) are the roles the renderer animates.
+const AVATARS = {
+  echo: {
+    file: "Sendagaya_Shino.vrm",
+    sha256: "1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5",
+    title: "Sendagaya Shino",
+    node: "Imprint_Echo",
+    version: 4,
+    artwork: "Echo anime hologram",
+    generator: "Imprint Echo anime-head pipeline v3",
+    // Head center (m) in the source; hair below hairBelow is folded up by
+    // hairFold, here into a shoulder-free bob.
+    center: 1.5,
+    hairBelow: 1.4,
+    hairFold: 0.17,
+    colors: [[/_Hair_00_HAIR_01$/, [0.23, 0.16, 0.13, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, LINES]],
+    // The source's crossed hair clip; Echo wears ribbons instead.
+    drop: /_Hair_00_HAIR_02$/,
+    dropHair: [],
+    iris: null,
+    accessories: echoAccessories,
+  },
+  iris: {
+    file: "Victoria_Rubin.vrm",
+    sha256: "b1372131bdbf233f46320146d565f342a7e4f6f4b8f2aefb301f1a283ec07e1e",
+    title: "Victoria Rubin",
+    node: "Imprint_Iris",
+    version: 1,
+    artwork: "Iris anime hologram",
+    generator: "Imprint Echo anime-head pipeline v3",
+    // Straight-cut bangs stay as modeled; the locks fold just below the jaw.
+    center: 1.57,
+    hairBelow: 1.44,
+    hairFold: 0.3,
+    // Deep indigo hair, bangs included.
+    colors: [[/_Hair_00_HAIR_0[12]$/, [0.035, 0.045, 0.15, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, [0.08, 0.08, 0.16, 1]]],
+    // The source's ribbon, the side tail it ties (hair primitives) and iris highlights.
+    drop: /_Hair_00_HAIR_03$|_EyeHighlight_/,
+    dropHair: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 58, 59],
+    iris: paleIris,
+    accessories: () => {},
+  },
+};
+const wanted = process.argv[2] ? [process.argv[2]] : Object.keys(AVATARS);
+for (const id of wanted) {
+  const avatar = AVATARS[id];
+  if (!avatar) throw Error(`Unknown avatar ${id}; expected ${Object.keys(AVATARS).join(", ")}`);
+  const url = `https://raw.githubusercontent.com/madjin/vrm-samples/${revision}/vroid/beta/${avatar.file}`;
+  const data = process.argv[3]
+    ? await fs.readFile(process.argv[3])
+    : Buffer.from(await (await fetch(url)).arrayBuffer());
+  await build(id, avatar, data);
+}
+
+async function build(id, avatar, data) {
+if (crypto.createHash("sha256").update(data).digest("hex") !== avatar.sha256)
   throw Error("Source model checksum mismatch");
 const jsonLength = data.readUInt32LE(12),
   source = JSON.parse(data.subarray(20, 20 + jsonLength));
 const binary = data.subarray(28 + jsonLength);
 if (source.extensions.VRM.meta.licenseName !== "CC0")
-  throw Error("Expected the CC0 beta model");
+  throw Error("Expected a CC0 beta model");
 const result = {
-  asset: { version: "2.0", generator: "Imprint Echo anime-head pipeline v3", copyright: "pixiv Sendagaya Shino: CC0-1.0; Imprint adaptations: Apache-2.0" },
+  asset: { version: "2.0", generator: avatar.generator, copyright: `pixiv ${avatar.title}: CC0-1.0; Imprint adaptations: Apache-2.0` },
   extensionsUsed: ["KHR_materials_unlit"],
   scene: 0,
   scenes: [{ nodes: [0] }],
   nodes: [
     {
-      name: "Imprint_Echo",
+      name: avatar.node,
       children: [],
       extras: {
-        version: 3,
-        artwork: "Echo anime hologram",
-        source: "Sendagaya Shino / pixiv / CC0",
+        version: avatar.version,
+        artwork: avatar.artwork,
+        source: `${avatar.title} / pixiv / CC0`,
         license: "CC0-1.0 source; Apache-2.0 adaptations",
         morphs: "jawOpen, blink",
       },
@@ -117,8 +172,14 @@ function material(id) {
   if (materialMap.has(id)) return materialMap.get(id);
   const s = source.materials[id],
     t = source.textures[s.pbrMetallicRoughness.baseColorTexture.index];
-  let ti = imageMap.get(t.source);
-  if (ti === undefined) {
+  const color = avatar.colors.find(([pattern]) => pattern.test(s.name))?.[1] ?? SKIN;
+  const generated = avatar.iris && /_EyeIris_/.test(s.name);
+  let ti = generated ? undefined : imageMap.get(t.source);
+  if (generated) {
+    // Same UV layout as the source sheet: one oval per eye.
+    const image = result.images.push({ bufferView: view(avatar.iris()), mimeType: "image/png" }) - 1;
+    ti = result.textures.push({ sampler: t.sampler, source: image }) - 1;
+  } else if (ti === undefined) {
     const im = source.images[t.source],
       v = source.bufferViews[im.bufferView];
     const image =
@@ -139,12 +200,7 @@ function material(id) {
       name: s.name,
       pbrMetallicRoughness: {
         baseColorTexture: { index: ti },
-        baseColorFactor:
-          id === 15
-            ? [0.23, 0.16, 0.13, 1]
-            : id === 2 || id === 3 || id === 4
-              ? [0.14, 0.12, 0.2, 1]
-              : [0.87, 0.96, 1, 1],
+        baseColorFactor: color,
         metallicFactor: 0,
         roughnessFactor: 1,
       },
@@ -174,18 +230,25 @@ function attribute(id, kind, hair = false) {
 }
 const scale = 7.8;
 // VRM 0.x faces -Z. Bake its bind pose into ordinary glTF, keeping only the head.
-// Shorten the long rear locks into a shoulder-free bob; retain the modeled bangs.
+// An avatar with hairBelow folds the long rear locks into a shoulder-free bob.
 function position(values, hair = false, delta = false) {
+  const cut = hair ? avatar.hairBelow : null;
   return values.map((v, i) => {
     if (i % 3 === 0 || i % 3 === 2) return -v * scale;
     if (delta) return v * scale;
-    return ((hair && v < 1.4 ? 1.4 + (v - 1.4) * 0.17 : v) - 1.5) * scale;
+    return ((cut !== null && v < cut ? cut + (v - cut) * avatar.hairFold : v) - avatar.center) * scale;
   });
 }
+// Mouth and blink come from the model's own VRM expression presets.
+const preset = (name) =>
+  source.extensions.VRM.blendShapeMaster.blendShapeGroups.find((g) => g.presetName === name).binds[0].index;
+const morphs = [preset("a"), preset("blink")];
 for (const mi of [0, 2]) {
   const s = source.meshes[mi],
     primitives = [];
-  for (const p of s.primitives) {
+  for (const [index, p] of s.primitives.entries()) {
+    if (avatar.drop?.test(source.materials[p.material].name)) continue;
+    if (mi === 2 && avatar.dropHair.includes(index)) continue;
     const attributes = {
       POSITION: attribute(p.attributes.POSITION, "position", mi === 2),
       NORMAL: attribute(p.attributes.NORMAL, "normal"),
@@ -193,7 +256,7 @@ for (const mi of [0, 2]) {
     };
     const targets =
       mi === 0
-        ? [29, 12].map((index) => ({
+        ? morphs.map((index) => ({
             POSITION: attribute(p.targets[index].POSITION, "delta"),
           }))
         : undefined;
@@ -215,7 +278,6 @@ for (const mi of [0, 2]) {
   result.nodes[0].children.push(result.nodes.length);
   result.nodes.push({ name: mi === 0 ? "Echo_Face" : "Echo_Hair", mesh });
 }
-// Fine luminous headband and one asymmetric clasp give Echo her own silhouette.
 function addGeometry(name, g, color) {
   const mesh = result.meshes.length;
   const mat =
@@ -246,24 +308,7 @@ function addGeometry(name, g, color) {
   result.nodes[0].children.push(result.nodes.length);
   result.nodes.push({ name, mesh });
 }
-const curve = new THREE.CatmullRomCurve3(
-  Array.from({ length: 31 }, (_, i) => {
-    const a = (Math.PI * i) / 30;
-    return new THREE.Vector3(
-      -0.91 * Math.cos(a),
-      0.16 + 0.98 * Math.sin(a),
-      -0.08,
-    );
-  }),
-);
-addGeometry(
-  "Echo_Headband",
-  new THREE.TubeGeometry(curve, 64, 0.022, 6, false),
-  [0.42, 0.85, 1, 1],
-);
-const clasp = new THREE.OctahedronGeometry(0.085, 0);
-clasp.translate(0.92, 0.6, 0.26);
-addGeometry("Echo_Clasp", clasp, [1, 0.76, 0.35, 1]);
+avatar.accessories(addGeometry);
 result.buffers = [{ byteLength: offset }];
 const body = Buffer.concat(chunks);
 const json = Buffer.from(JSON.stringify(result));
@@ -278,8 +323,113 @@ head.write("JSON", 16);
 const bh = Buffer.alloc(8);
 bh.writeUInt32LE(body.length);
 bh.write("BIN\0", 4);
-const dest = path.resolve(here, "../public/models/imprint-echo.glb");
+const dest = path.resolve(here, `../public/models/imprint-${id}.glb`);
 await fs.writeFile(dest, Buffer.concat([head, padded, bh, body]));
 console.log(
   `${dest}: ${body.length} bytes, modeled anime face with jaw/blink morphs`,
 );
+}
+
+// A pale, pupil-less iris sheet: lavender that deepens toward a thin ring,
+// a soft upper-lid shadow and faint radial streaks. 512x256, eyes centered at
+// the quarter points like the VRoid source sheet.
+function paleIris() {
+  const width = 512,
+    height = 256,
+    rows = [];
+  for (let y = 0; y < height; y++) {
+    const row = Buffer.alloc(1 + width * 3);
+    for (let x = 0; x < width; x++) {
+      const dx = ((x % 256) - 128) / 59,
+        dy = (y - 128) / 67,
+        r = Math.hypot(dx, dy);
+      let rgb = [1, 1, 1];
+      if (r <= 1) {
+        const depth = Math.min(1, Math.max(0, (r - 0.3) / 0.7)) ** 2,
+          lid = Math.max(0, -dy) ** 1.6 * 0.22,
+          streak = 0.025 * Math.sin(Math.atan2(dy, dx) * 36) * r,
+          ring = r > 0.9 ? (r - 0.9) / 0.1 : 0;
+        rgb = [0.95, 0.93, 1].map((c, k) => {
+          const deep = [0.72, 0.68, 0.9][k],
+            edge = [0.5, 0.47, 0.72][k];
+          const v = (c + (deep - c) * depth) * (1 - lid) + streak;
+          return v + (edge - v) * ring * 0.85;
+        });
+      }
+      rgb.forEach((v, k) => (row[1 + x * 3 + k] = Math.round(Math.min(1, Math.max(0, v)) * 255)));
+    }
+    rows.push(row);
+  }
+  const chunk = (type, body) => {
+    const out = Buffer.alloc(12 + body.length);
+    out.writeUInt32BE(body.length);
+    out.write(type, 4);
+    body.copy(out, 8);
+    out.writeUInt32BE(crc32(out.subarray(4, 8 + body.length)), 8 + body.length);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", zlib.deflateSync(Buffer.concat(rows), { level: 9 })),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+function crc32(bytes) {
+  let crc = ~0;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return ~crc >>> 0;
+}
+
+// A warm hairband hugging the hair, tied off with a ribbon bow above each ear.
+function echoAccessories(addGeometry) {
+  const rx = 0.97,
+    ry = 0.99,
+    lift = 0.16,
+    depth = -0.06,
+    end = 0.5; // the band stops at the bows, above the ears
+  const curve = new THREE.CatmullRomCurve3(
+    Array.from({ length: 31 }, (_, i) => {
+      const a = end + ((Math.PI - 2 * end) * i) / 30;
+      return new THREE.Vector3(-rx * Math.cos(a), lift + ry * Math.sin(a), depth);
+    }),
+  );
+  const band = [1, 0.8, 0.22, 1];
+  addGeometry("Echo_Headband", new THREE.TubeGeometry(curve, 72, 0.03, 8, false), band);
+  for (const [side, name] of [[-1, "Right"], [1, "Left"]]) {
+    const a = side < 0 ? end : Math.PI - end,
+      out = side < 0 ? -1 : 1,
+      at = new THREE.Vector3(-rx * Math.cos(a) + out * 0.05, lift + ry * Math.sin(a), depth);
+    const place = (g) => {
+      g.rotateZ(out * 0.4);
+      g.translate(at.x, at.y, at.z);
+      return g;
+    };
+    // Two soft fabric wings swept forward and back, a knot, two tails.
+    for (const [z, sweep] of [[1, 0.42], [-1, -0.36]]) {
+      const wing = new THREE.SphereGeometry(1, 20, 14);
+      wing.scale(0.03, 0.085, 0.17);
+      wing.translate(0, 0, 0.14);
+      wing.rotateX(-sweep);
+      if (z < 0) wing.rotateY(Math.PI);
+      addGeometry(`Echo_Ribbon${name}Wing${z > 0 ? "Front" : "Back"}`, place(wing), band);
+    }
+    const knot = new THREE.SphereGeometry(0.055, 16, 12);
+    knot.scale(0.8, 1, 1.1);
+    addGeometry(`Echo_Ribbon${name}Knot`, place(knot), band);
+    for (const [z, swing] of [[0.04, 0.45], [-0.05, -0.35]]) {
+      const tail = new THREE.BoxGeometry(0.016, 0.24, 0.07);
+      tail.translate(0, -0.13, 0);
+      tail.rotateX(swing);
+      tail.translate(0, -0.02, z);
+      addGeometry(`Echo_Ribbon${name}Tail${z > 0 ? "Front" : "Back"}`, place(tail), band);
+    }
+  }
+}

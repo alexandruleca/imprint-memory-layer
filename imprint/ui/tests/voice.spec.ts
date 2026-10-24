@@ -195,3 +195,37 @@ test('floating launcher distinguishes dragging from opening and supports keyboar
   expect(await calls()).toContain('move'); expect(await calls()).not.toContain('open');
   await button.press('Enter'); expect(await calls()).toContain('open');
 });
+
+test("Echo's look is picked from previews, saved, and loads its own model", async ({ page }) => {
+  await prepare(page);
+  const state = { value: 'echo', puts: [] as unknown[] };
+  const choices = [
+    { value: 'echo', label: 'Echo', detail: 'Brown bob, warm hairband with ribbon bows', unavailable: '' },
+    { value: 'iris', label: 'Iris', detail: 'Indigo straight cut, pale lavender eyes', unavailable: '' },
+  ];
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'voice.avatar', value: state.value, source: 'default', default: 'echo', type: 'str', env: 'IMPRINT_VOICE_AVATAR',
+      desc: 'How Echo looks; change it anytime', choices, custom: false },
+  ] } }));
+  await page.route('**/api/config/voice.avatar', async route => {
+    const body = route.request().postDataJSON();
+    state.puts.push(body);
+    state.value = body.value;
+    await route.fulfill({ json: { ok: true, value: body.value } });
+  });
+  const models: string[] = [];
+  page.on('request', request => { if (/\/models\/imprint-\w+\.glb$/.test(request.url())) models.push(request.url().split('/').pop()!); });
+
+  await page.goto('/voice/');
+  await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
+  expect(models).toEqual(['imprint-echo.glb']);
+  const looks = page.getByRole('group', { name: "Echo's look" });
+  await expect(looks.getByRole('button', { name: /^Echo:/ })).toHaveAttribute('aria-pressed', 'true');
+
+  await looks.getByRole('button', { name: /^Iris:/ }).click();
+  await expect.poll(() => state.puts).toEqual([{ value: 'iris' }]);
+  await expect.poll(() => models).toEqual(['imprint-echo.glb', 'imprint-iris.glb']);
+  await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
+  await expect(looks.getByRole('button', { name: /^Iris:/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('link', { name: 'Download 3D model' })).toHaveAttribute('href', '/models/imprint-iris.glb');
+});
