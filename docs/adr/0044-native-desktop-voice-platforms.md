@@ -7,6 +7,10 @@ description: Portable model weights, platform-specific private speech workers an
 - Date: 2026-10-24
 - Related: [0043](0043-live-voice-and-echo-companion.md)
 
+Follow-up: [ADR 0046](0046-visible-echo-runtime-setup.md) adds explicit UI-driven
+provisioning and a managed default cache. The manual source-build path remains
+available; system toolchains are not installed automatically.
+
 ## Context
 
 The user requested Windows and macOS support after the Linux Echo pilot. The

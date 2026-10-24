@@ -430,3 +430,28 @@ bypass TCC; Windows/Linux use Chromium's synthetic microphone. Linux GUI testing
 uses `--no-sandbox`. These checks do not establish packaged sandbox behavior or
 learned full-duplex speech reasoning. Windows ARM, Linux ARM voice and GPU speech
 inference remain outside this pilot.
+
+## Visible first-time Echo setup (2026-10-24)
+
+[ADR 0046](adr/0046-visible-echo-runtime-setup.md) adds a prominent initial setup
+card, actual model byte progress, separate engine preparation, top-bar status
+across navigation and cancel/retry/tool guidance. Downloads require an explicit
+action; completion never opens the microphone. The floating face stays
+transparent with setup beneath it among the controls.
+
+Executed locally on Linux/WSL2: 25 voice/setup Python checks, including a real
+owner-pipe EOF test with an actual descendant process; four new first-run browser
+scenarios and the six existing voice scenarios; lint and the production UI build;
+documentation build and workflow lint. Full workspace browser discovery passed
+58 tests, including concurrent settings work outside this change. No real
+client profile or memory store was used.
+
+The real disposable API/Electron smoke also passed. It invoked the managed
+setup child against the already verified LFM cache, reached ready without new
+downloads, then checked transparent head rendering, synthetic mic permission,
+pinning and dashboard on/off session cleanup. Fresh byte downloads and cached
+reuse use small hash-verified network fixtures in unit tests; first-run UI states
+use API fixtures. This does not establish a fresh 1.07 GB UI-driven download or
+fresh compiler installation on a user's machine. Native Windows/macOS execution
+of this new setup/cancellation path is a separate gate from the previous native
+speech evidence above.

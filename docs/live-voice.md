@@ -29,7 +29,39 @@ model prompt injection or incorrect answers. No recorded audio, transcripts or
 conversation files are persisted by the live session. Explicit offline exports
 from the [earlier CLI](lfm-audio-prototype.md) remain separate.
 
-## Build the optional speech runtime
+## First-time setup in Imprint
+
+Open **Voice** or turn on **Floating Echo**. If the speech files are missing,
+**Set up Echo, once** shows the approximately **1.07 GB** English model download
+and the **4 GB** of free space needed during setup. Choose **Download & set up
+Echo** to begin. Opening the page never starts a download automatically.
+
+Imprint checks CMake, the native C++ build tools and available space before the
+large download. Missing tools appear with **Check again** and platform setup
+details. Windows needs Visual Studio C++ Build Tools (x64); Mac needs Xcode
+Command Line Tools; Linux needs a C++ compiler. All need CMake. Imprint does not
+install system tools for you.
+
+The UI shows actual downloaded model bytes and verification, followed by engine
+download/preparation and final checks. Engine preparation has an indeterminate
+indicator because compiler progress does not provide a reliable percentage.
+This can take a few minutes. A top-bar indicator links back to setup while you
+continue using other dashboard pages. Completion enables **Start conversation**;
+it never opens the microphone or starts a conversation automatically.
+
+**Cancel setup** stops its owned download/build process tree. Verified files are
+kept; the unfinished file downloads again on retry. Closing the companion or
+leaving Voice does not cancel setup. Closing the API stops it. A connection error
+keeps reconnecting to its status; retry joins an existing job rather than
+starting another download.
+
+With no `voice.runtime_dir` override, files live in `voice/` under Imprint's data
+directory. An existing setting/environment override is respected; setup does not
+rewrite unrelated configuration. This dedicated optional cache is excluded from
+distributions. [ADR 0046](adr/0046-visible-echo-runtime-setup.md) records the
+provisioning policy. The CLI path below remains available for advanced setup.
+
+## Build the optional speech runtime manually
 
 Platform follow-up ([ADR 0044](adr/0044-native-desktop-voice-platforms.md)) adds
 native source builds for Windows x64 and macOS Intel/Apple Silicon. The live
@@ -46,7 +78,7 @@ can avoid excessively long build paths. CPU builds do not require CUDA or Metal.
 The live speech worker has native CPU targets for **Windows x64, macOS Intel and
 Apple Silicon (13+), and Linux x64 including WSL2**. Platform validation records
 executed results separately from enabled targets.
-There is no PyTorch dependency and no implicit model download on Start. Install a
+There is no PyTorch dependency and no implicit model download on Start conversation. Install a
 C++ compiler and CMake, then from the repository root run:
 
 ```bash
@@ -107,8 +139,9 @@ two-minute total limit and a separate 90-second native readiness limit; Cancel
 or closing the companion releases the session while it loads. A timeout suggests
 closing other applications and retrying, without weakening the integrity check.
 
-This experimental cache is operator-owned, outside distributions and the main
-installer/uninstaller. Delete its dedicated directory deliberately when no longer
+This optional cache is excluded from distributions. The UI's default is the
+dedicated `voice/` directory under local data; an explicit external directory
+remains operator-owned. Delete only its dedicated directory when no longer
 needed. Windows ARM, Linux ARM and GPU inference are not enabled by this pilot.
 The earlier offline CLI remains Linux-only; the live installer never downloads
 or executes that historical Linux CLI archive.

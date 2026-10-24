@@ -2,6 +2,7 @@
 """Native Echo graphical check using only a disposable API/profile and fake mic."""
 import argparse
 import contextlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -101,8 +102,24 @@ def main():
                         time.sleep(.1)
                 else:
                     raise RuntimeError("Disposable GUI API timed out")
+                # Exercise the real managed setup child against the already
+                # verified native cache. It must reuse it without build tools or
+                # new downloads, and must not start a microphone/session.
+                address = f"http://127.0.0.1:{port}"
+                request = urllib.request.Request(address + "/api/voice/setup", data=b"", method="POST",
+                                                 headers={"Origin": address})
+                with opener.open(request, timeout=5) as response:
+                    setup_state = json.load(response)
+                deadline = time.monotonic() + 120
+                while setup_state["busy"] and time.monotonic() < deadline:
+                    time.sleep(.2)
+                    with opener.open(address + "/api/voice/setup", timeout=5) as response:
+                        setup_state = json.load(response)
+                if setup_state["stage"] != "ready" or setup_state["busy"] or not setup_state["installed"]:
+                    raise RuntimeError(f"Managed cached setup failed: {setup_state}")
                 subprocess.run([node, "ui-electron/smoke-voice.mjs", f"http://127.0.0.1:{port}",
                                 str(args.output_dir.resolve())], env=env, check=True, timeout=210)
+                (args.output_dir / "setup.json").write_text(json.dumps(setup_state, indent=2) + "\n", encoding="utf-8")
                 from PIL import Image
                 with Image.open(args.output_dir / "companion.png") as image:
                     if image.mode != "RGBA" or image.getpixel((0, 0))[3] != 0:

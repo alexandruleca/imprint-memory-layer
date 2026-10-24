@@ -12,9 +12,11 @@ on:
       - 'ui-electron/**'
       - 'imprint/ui/src/components/companion-toggle.tsx'
       - 'imprint/ui/src/components/echo-avatar.tsx'
+      - 'imprint/ui/src/components/voice-*.tsx'
+      - 'imprint/ui/src/lib/voice-*.ts'
       - 'imprint/ui/src/lib/echo-canvas-renderer.ts'
       - 'imprint/ui/src/styles/voice.css'
-      - 'tests/test_voice.py'
+      - 'tests/test_voice*.py'
       - '.github/workflows/voice-native.yml'
 
 permissions:
@@ -57,7 +59,7 @@ jobs:
         with:
           arch: x64
       - name: Voice regressions
-        run: python -m unittest discover -s tests -p test_voice.py -v
+        run: python -m unittest discover -s tests -p "test_voice*.py" -v
       - name: Restore verified native worker cache
         id: native-cache
         uses: actions/cache/restore@v4

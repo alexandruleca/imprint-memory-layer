@@ -80,20 +80,28 @@ def extract_runner(root: Path) -> None:
                 Path(name).unlink(missing_ok=True)
 
 
-def _install_assets(root: Path, assets: dict[str, int]) -> None:
+def _install_assets(root: Path, assets: dict[str, int], *, progress=None, download_prefix="") -> None:
     from filelock import FileLock
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    completed, total = 0, sum(assets.values())
+    def report(stage, asset, received=0):
+        if progress:
+            progress({"stage": stage, "asset": asset, "downloaded": completed + received, "total": total})
     with FileLock(str(root / ".install.lock")):
         for asset, size in assets.items():
             target = root / asset
             expected = expected_digest("lfm-audio-q4", REVISION, asset)
-            if target.is_file() and target.stat().st_size == size and _digest(target) == expected:
+            report("verifying", asset)
+            if not target.is_symlink() and target.is_file() and target.stat().st_size == size and _digest(target) == expected:
+                completed += size
+                report("verifying", asset)
                 print(f"Verified cached {asset}", flush=True)
                 continue
             remote = f"runners/{asset}" if asset == ARCHIVE else asset
             url = f"https://huggingface.co/{MODEL_REPO}/resolve/{REVISION}/{remote}"
-            fd, name = tempfile.mkstemp(dir=root, suffix=".part")
+            fd, name = tempfile.mkstemp(dir=root, prefix=download_prefix, suffix=".part")
             print(f"Downloading {asset} ({size} bytes)", flush=True)
+            report("downloading", asset)
             try:
                 with os.fdopen(fd, "wb") as output, urllib.request.urlopen(url, timeout=180) as response:
                     received = 0
@@ -102,17 +110,21 @@ def _install_assets(root: Path, assets: dict[str, int]) -> None:
                         if received > size:
                             raise memory.PrototypeError("Download exceeds its pinned size.")
                         output.write(chunk)
+                        report("downloading", asset, received)
                 if received != size:
                     raise memory.PrototypeError("Incomplete runtime download.")
+                report("verifying", asset, received)
                 verify_archive(Path(name), expected)
                 os.replace(name, target)
+                completed += size
             finally:
                 Path(name).unlink(missing_ok=True)
 
 
-def install_weights(root: Path) -> None:
+def install_weights(root: Path, *, progress=None, download_prefix="") -> None:
     """Portable model data only; never downloads/executes the Linux CLI."""
-    _install_assets(root, {name: size for name, size in ASSETS.items() if name != ARCHIVE})
+    _install_assets(root, {name: size for name, size in ASSETS.items() if name != ARCHIVE},
+                    progress=progress, download_prefix=download_prefix)
 
 
 def verify_weights(root: Path) -> None:

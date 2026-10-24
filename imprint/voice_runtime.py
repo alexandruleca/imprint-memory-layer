@@ -116,14 +116,17 @@ def patched_server(source: str) -> str:
     return source
 
 
-def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
+def install(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=None, download_prefix="") -> None:
     current = target()
     if not 1 <= jobs <= 16:
         raise PrototypeError("Build jobs must be 1–16.")
     executable = shutil.which(cmake)
     if not executable:
         raise PrototypeError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
-    lfm.install_weights(root)
+    lfm.install_weights(root, progress=progress, download_prefix=download_prefix)
+    def report(stage):
+        if progress:
+            progress({"stage": stage})
     from filelock import FileLock
     with FileLock(str(root / ".live-build.lock")):
         try:
@@ -133,10 +136,11 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
         else:
             print("Verified cached live voice worker. No rebuild needed.", flush=True)
             return
+        report("engine")
         archive = root / "live-source.tar.gz"
         if not archive.is_file() or lfm._digest(archive) != SOURCE_SHA256:
             url = f"https://codeload.github.com/tdakhran/llama.cpp/tar.gz/{SOURCE_REVISION}"
-            fd, name = tempfile.mkstemp(dir=root)
+            fd, name = tempfile.mkstemp(dir=root, prefix=download_prefix, suffix=".part")
             try:
                 with os.fdopen(fd, "wb") as out, urllib.request.urlopen(url, timeout=120) as response:
                     total = 0
@@ -150,6 +154,7 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
                 os.replace(name, archive)
             finally:
                 Path(name).unlink(missing_ok=True)
+        report("preparing")
         source_root = root / "live-source"
         source_root.mkdir(mode=0o700, exist_ok=True)
         with tarfile.open(archive) as source:
@@ -166,12 +171,16 @@ def install(root: Path, *, cmake: str = "cmake", jobs: int = 4) -> None:
                         ("arm64" if current.endswith("arm64") else "x86_64")]
             if current.endswith("arm64"):
                 options += ["-DGGML_CPU_ARM_ARCH=armv8.2-a+fp16+dotprod"]
+        report("building")
+        # Browser progress contains stages, never raw compiler output or paths.
+        output = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if progress else {}
         subprocess.run([executable, "-S", str(tree), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
                         "-DGGML_NATIVE=OFF", "-DGGML_CUDA=OFF", "-DGGML_VULKAN=OFF",
                         "-DBUILD_SHARED_LIBS=OFF", "-DLLAMA_CURL=OFF", "-DLLAMA_OPENSSL=OFF",
-                        "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF", *options], check=True)
+                        "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF", *options], check=True, **output)
         subprocess.run([executable, "--build", str(build), "--config", "Release", "--target", SERVER,
-                        "-j", str(jobs)], check=True)
+                        "-j", str(jobs)], check=True, **output)
+        report("finishing")
         name = SERVER + (".exe" if current == "windows-x64" else "")
         built = build / "bin" / ("Release" if current == "windows-x64" else "") / name
         binary = native_binary(root)

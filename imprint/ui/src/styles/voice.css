@@ -9,6 +9,62 @@
   padding: 28px 40px 22px;
   font-family: var(--font-inter),sans-serif;
 }
+.echo-setup {
+  position: relative;
+  z-index: 2;
+  max-width: 640px;
+  margin: 24px auto;
+  padding: 25px;
+  border: 1px solid #a7d8ee25;
+  border-radius: 20px;
+  background: linear-gradient(135deg,#132430f5,#0c1823f5);
+  box-shadow: 0 16px 60px #0002;
+  text-align: left;
+  text-shadow: none;
+}
+.echo-setup-heading { display: flex; align-items: center; gap: 12px; }
+.echo-setup-icon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; border-radius: 12px; background: #a7d8ee12; color: #bce9fa; }
+.echo-setup-icon svg { width: 19px; height: 19px; }
+.echo-setup-eyebrow { margin: 0 0 4px; color: #8fadb9; font-size: 8px; letter-spacing: .14em; }
+.echo-setup h2 { font-size: 19px; line-height: 1.35; letter-spacing: -.025em; font-weight: 500; }
+.echo-setup-size { margin-left: auto; white-space: nowrap; font-size: 11px; color: #afd9ec; }
+.echo-setup-description { margin: 17px 0; color: #9fb7c3; font-size: 12px; line-height: 1.7; }
+.echo-setup-steps { display: flex; justify-content: space-between; list-style: none; padding: 0; margin: 21px 0; gap: 12px; }
+.echo-setup-steps li { display: flex; gap: 7px; align-items: center; color: #738c99; font-size: 11px; }
+.echo-setup-steps li > span { display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid #8ba7b12a; border-radius: 50%; font-size: 9px; }
+.echo-setup-steps li[data-current=true],.echo-setup-steps li[data-done=true] { color: #c4e8f5; }
+.echo-setup-steps li[data-current=true] > span { border-color: #a5d9ed; background: #a5d9ed14; }
+.echo-setup-steps li[data-done=true] > span { background: #a5d9ed20; }
+.echo-setup-progress { margin: 20px 0; }
+.echo-setup-progress-label { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 12px; color: #c5e2ee; font-size: 11px; }
+.echo-setup-progress-label > span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; color: #8faab8; }
+.echo-setup-progress [data-slot=progress-track] { background: #a5d9ed18; height: 5px; }
+.echo-setup-progress [data-slot=progress-indicator] { background: #b2e4f8; }
+.echo-setup-progress p { margin-top: 10px; color: #849eac; font-size: 10px; line-height: 1.6; }
+.echo-setup-facts { display: flex; flex-wrap: wrap; gap: 14px; margin: 18px 0; color: #91aab6; font-size: 10px; }
+.echo-setup-facts > span { display: inline-flex; align-items: center; gap: 6px; }
+.echo-setup-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.echo-setup-actions a { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: #9cbdcc; }
+.echo-setup-download { background: #caeafa!important; color: #0b2532!important; border: 0; }
+.echo-setup-download:hover { background: #e2f5ff!important; }
+.echo-setup-error { margin: 16px 0; font-size: 12px; line-height: 1.7; color: #f0bfb7; }
+.echo-setup-tools { margin-top: 18px; font-size: 10px; line-height: 1.7; color: #91aab6; }
+.echo-setup-tools summary { cursor: pointer; }
+.echo-setup-tools p { margin-top: 8px; }
+.voice-needs-setup:not(.voice-compact) .voice-intro { position: relative; top: auto; left: auto; max-width: 640px; margin: 36px auto 24px; }
+.voice-needs-setup:not(.voice-compact) .voice-intro h1 { font-size: 30px; margin: 12px 0; }
+.voice-needs-setup:not(.voice-compact) .voice-intro h1 br { display: none; }
+.voice-needs-setup:not(.voice-compact) .voice-intro p { max-width: none; }
+.voice-needs-setup:not(.voice-compact) .voice-stage { height: 220px; padding-left: 0; }
+.voice-needs-setup:not(.voice-compact) .voice-caption { padding-left: 0; }
+.echo-setup-compact { padding: 16px; margin: 15px 0 0; border-radius: 16px; }
+.echo-setup-compact h2 { font-size: 16px; }
+.echo-setup-compact .echo-setup-size { font-size: 9px; }
+.echo-setup-compact .echo-setup-icon { width: 28px; height: 28px; border-radius: 8px; }
+.echo-setup-compact .echo-setup-description { font-size: 11px; margin: 12px 0; }
+.echo-setup-compact .echo-setup-facts { font-size: 9px; gap: 9px; }
+.echo-setup-compact .echo-setup-download { font-size: 11px; }
+.voice-compact.voice-needs-setup .voice-stage { height: 190px; }
 .voice-header,.voice-window-actions,.voice-wordmark,.voice-primary-controls,.voice-footer,.voice-footer a {
   display: flex;
   align-items: center;

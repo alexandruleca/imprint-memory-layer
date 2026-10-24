@@ -6,6 +6,8 @@ import { ArrowUpRight, Download, GripHorizontal, Mic, MicOff, Pin, Square, X, Au
 import { Button } from "@/components/ui/button";
 import { VoiceClient, initialVoice, type VoiceSnapshot } from "@/lib/voice-client";
 import { API_BASE } from "@/lib/api-base";
+import { useVoiceSetup } from "@/lib/voice-setup";
+import { VoiceSetup } from "@/components/voice-setup";
 import "@/styles/voice.css";
 
 const EchoAvatar = dynamic(() => import("./echo-avatar"), { ssr: false });
@@ -18,6 +20,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [text, setText] = useState("");
   const [pinned, setPinned] = useState(false);
   const [desktop, setDesktop] = useState(false);
+  const setup = useVoiceSetup();
   const client = useRef<VoiceClient | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -35,14 +38,15 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     return () => { clearTimeout(timer); controller.abort(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
   }, [compact]);
   const energy = () => client.current?.level || 0;
-  const ready = runtime?.installed && runtime.supported;
+  const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
+    && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
   const active = voice.connected || voice.phase === "connecting";
   function popout() {
     client.current?.stop();
     if (window.electronAPI?.openCompanion) window.electronAPI.openCompanion();
     else window.open("/companion/", "imprint-echo", "popup,width=380,height=560");
   }
-  return <section className={`voice-surface ${compact ? "voice-compact" : ""}`} data-phase={voice.phase}>
+  return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready ? "voice-needs-setup" : ""}`} data-phase={voice.phase}>
     <header className={`voice-header ${compact ? "app-drag" : ""}`}>
       <div className="voice-wordmark"><AudioLines size={17} aria-hidden="true"/><span>IMPRINT <b>/ ECHO</b></span></div>
       <div className="voice-window-actions app-no-drag">
@@ -52,13 +56,15 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         </> : <Button variant="ghost" onClick={popout} className="voice-popout"><ArrowUpRight size={15}/> Float Echo</Button>}
       </div>
     </header>
-    {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/><em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
+    {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
+    {!ready && !compact && <VoiceSetup setup={setup}/>}
     <div className="voice-stage">
       <div className="voice-halo" aria-hidden="true"/>
       <EchoAvatar phase={voice.phase} energy={energy} compact={compact}/>
       <div className="voice-caption"><span className={`voice-dot ${active ? "active" : ""}`}/><span>{voice.phase === "idle" ? "ECHO · LOCAL VOICE COMPANION" : voice.detail}</span></div>
     </div>
     <div className="voice-control-area">
+      {!ready ? compact && <VoiceSetup setup={setup} compact/> : <>
       <div className="voice-modes" role="group" aria-label="Microphone mode">
         <Button variant="ghost" aria-pressed={voice.mode === "ptt"} onClick={() => client.current?.setMode("ptt")}>Push to talk</Button>
         <Button variant="ghost" aria-pressed={voice.mode === "handsfree"} onClick={() => client.current?.setMode("handsfree")}>Hands-free</Button>
@@ -92,7 +98,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         </select></label>
         {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
       </div>
-      {runtime && !ready && <div className="voice-setup"><p>{runtime.supported ? "Local voice needs its optional speech runtime." : "Voice supports Windows x64, macOS Intel/Apple Silicon and Linux x64."}</p><a href="https://github.com/alexandruleca/imprint-memory-layer/blob/feat/local-voice-avatar/docs/live-voice.md" target="_blank" rel="noreferrer">Voice setup guide <ArrowUpRight size={12}/></a></div>}
+      </>}
     </div>
     {!compact && <footer className="voice-footer"><span>PARTICLE STUDY 03 / ECHO</span><a href="/models/imprint-echo.glb" download><Download size={13}/> Download 3D model</a></footer>}
     {compact && desktop && <div className="voice-grip app-drag"><GripHorizontal size={16}/><span>Drag to move</span></div>}

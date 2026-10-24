@@ -19,7 +19,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 import httpx
 
-from . import config, config_schema, lfm_audio as lfm, voice_runtime
+from . import config, config_schema, lfm_audio as lfm, voice_runtime, voice_setup
 from .http_security import local_host, local_origin, loopback_address
 from .personaplex import INSTRUCTIONS, PrototypeError, _json
 
@@ -36,9 +36,8 @@ def worker_threads() -> int:
     return max(1, min(4, cores))
 
 
-def runtime_root() -> Path | None:
-    value, _ = config_schema.resolve("voice.runtime_dir")
-    return Path(value).expanduser().resolve() if value else None
+def runtime_root() -> Path:
+    return voice_setup.runtime_root()
 
 
 class Worker:
@@ -177,6 +176,48 @@ def status():
             "workspace": config.get_active_workspace(), "model": "LFM2.5-Audio · 1.5B", "language": "en"}
 
 
+def check_setup_origin(request: Request, *, mutate=False) -> None:
+    expected = f"http://{request.headers.get('host', '')}"
+    origin = request.headers.get("origin")
+    if (not request.client or not loopback_address(request.client.host) or not local_origin(expected)
+            or (origin is not None and origin != expected) or (mutate and origin != expected)):
+        raise HTTPException(403, "Voice setup requires the local dashboard origin")
+
+
+async def empty_setup_body(request: Request) -> None:
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > 2:
+            raise HTTPException(400, "Voice setup does not accept paths, URLs or commands")
+    if body not in (b"", b"{}"):
+        raise HTTPException(400, "Invalid setup control")
+
+
+@router.get("/setup")
+def setup_status(request: Request):
+    check_setup_origin(request)
+    return voice_setup.setup.snapshot()
+
+
+@router.post("/setup")
+async def setup_start(request: Request):
+    check_setup_origin(request, mutate=True)
+    await empty_setup_body(request)
+    if sessions.active:
+        raise HTTPException(409, "Stop your voice conversation before setting up Echo")
+    if not voice_runtime.supported():
+        raise HTTPException(409, "Voice is unavailable on this platform")
+    return voice_setup.setup.start()
+
+
+@router.post("/setup/cancel")
+async def setup_cancel(request: Request):
+    check_setup_origin(request, mutate=True)
+    await empty_setup_body(request)
+    return voice_setup.setup.cancel()
+
+
 @router.post("/sessions")
 async def create_session(request: Request):
     origin = request.headers.get("origin", f"http://{request.headers.get('host', '')}")
@@ -200,6 +241,8 @@ async def create_session(request: Request):
         raise HTTPException(400, "Invalid workspace or voice engine") from None
     if engine == "chat" and config_schema.resolve("chat.provider")[0] != "local":
         raise HTTPException(409, "Select a local chat provider or use the small voice model")
+    if voice_setup.setup.snapshot()["busy"]:
+        raise HTTPException(409, "Echo setup is still running")
     if not status()["installed"] or not status()["supported"]:
         raise HTTPException(409, "Build and configure the local voice runtime first")
     return {"token": sessions.issue(workspace, origin, engine), "workspace": workspace, "expires_in": 30}
@@ -326,6 +369,8 @@ async def stream(websocket: WebSocket):
             raise PrototypeError("Voice session expired. Start again.")
         if sessions.active:
             raise PrototypeError("Voice is already open in another window. Stop it there first.")
+        if voice_setup.setup.snapshot()["busy"]:
+            raise PrototypeError("Wait for Echo setup to finish before starting voice.")
         sessions.active = owned = True
         workspace, engine = lease["workspace"], lease["engine"]
         history: deque = deque(maxlen=6)
@@ -481,5 +526,6 @@ async def stream(websocket: WebSocket):
 
 
 async def shutdown() -> None:
+    voice_setup.setup.cancel()
     sessions.leases.clear()
     await sessions.worker.stop()
