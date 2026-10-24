@@ -45,6 +45,8 @@
 .echo-setup-facts > span { display: inline-flex; align-items: center; gap: 6px; }
 .echo-setup-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .echo-setup-actions a { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: #9cbdcc; }
+.echo-setup-actions > button:not(.echo-setup-download) { background: #a7d8ee0d; border-color: #a7d8ee44; color: #c5e6f5; }
+.echo-setup-actions > button:not(.echo-setup-download):hover { background: #a7d8ee20; }
 .echo-setup-download { background: #caeafa!important; color: #0b2532!important; border: 0; }
 .echo-setup-download:hover { background: #e2f5ff!important; }
 .echo-setup-error { margin: 16px 0; font-size: 12px; line-height: 1.7; color: #f0bfb7; }
