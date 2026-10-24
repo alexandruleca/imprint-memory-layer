@@ -167,7 +167,7 @@ def _call_summarizer_llm(full_input: str) -> str:
 
     if provider == "local":
         from .tagger import _load_tagger_model
-        from .local_llm import complete_json, INFERENCE_LOCK
+        from .local_llm import complete, INFERENCE_LOCK
         llm, error = _load_tagger_model()
         if error or llm is None:
             raise RuntimeError(error or "Local summarizer unavailable")
@@ -192,7 +192,7 @@ def _call_summarizer_llm(full_input: str) -> str:
                 if len(tokens) > budget:
                     body = llm.detokenize(tokens[-budget:]).decode("utf-8", errors="replace")
                 full_input = _SUMMARIZER_PROMPT + body
-            return complete_json(llm, full_input, schema, max_tokens=1500)
+            return complete(llm, full_input, max_tokens=1500, schema=schema)
 
     is_remote = provider in ("anthropic", "openai", "gemini")
     if is_remote:

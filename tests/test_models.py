@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from imprint import config, embeddings, local_llm
+from imprint import config, embeddings, local_llm, tagger
 
 
 class EncodingTests(unittest.TestCase):
@@ -132,13 +132,26 @@ class LocalHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'context exceeded'):
             local_llm.fit_messages(llm, [{'role': 'user', 'content': 'x' * 100}], 20)
 
-    def test_structured_response_uses_schema_grammar(self):
+    def test_a_schema_constrains_the_reply_and_none_leaves_it_free(self):
         llm = MagicMock()
         llm.create_chat_completion.return_value = {'choices': [{'message': {'content': '{"type":"finding"}'}}]}
         schema = {'type': 'object'}
         with patch.object(local_llm, 'fit_messages', side_effect=lambda llm, messages, limit: messages):
-            self.assertIn('finding', local_llm.complete_json(llm, 'classify', schema))
-        self.assertEqual(llm.create_chat_completion.call_args.kwargs['response_format'], {'type': 'json_object', 'schema': schema})
+            self.assertIn('finding', local_llm.complete(llm, 'summarize', schema=schema))
+            self.assertEqual(llm.create_chat_completion.call_args.kwargs['response_format'], {'type': 'json_object', 'schema': schema})
+            self.assertIn('finding', local_llm.complete(llm, 'classify'))
+            self.assertNotIn('response_format', llm.create_chat_completion.call_args.kwargs)
+
+    def test_local_classification_is_unconstrained_and_validated(self):
+        llm = MagicMock()
+        llm.create_chat_completion.return_value = {'choices': [{'message': {'content':
+            'Here it is:\n```json\n{"type": "Decision", "domains": ["auth"], "topics": ["Token Refresh"]}\n```'}}]}
+        with patch.object(tagger, '_get_llm_provider', return_value='local'), \
+             patch.object(tagger, '_load_tagger_model', return_value=(llm, None)), \
+             patch.object(local_llm, 'fit_messages', side_effect=lambda llm, messages, limit: messages):
+            result = tagger.derive_llm_classify('We decided to refresh tokens in the auth middleware.')
+        self.assertNotIn('response_format', llm.create_chat_completion.call_args.kwargs)
+        self.assertEqual((result['type'], result['domains']), ('decision', ['auth']))
 
     def test_context_pruning_preserves_request_during_tool_loop(self):
         llm = MagicMock()

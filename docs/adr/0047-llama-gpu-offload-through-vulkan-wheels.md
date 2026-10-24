@@ -5,7 +5,7 @@ description: The gpu and auto profiles install llama-cpp-python's hash-locked Vu
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: ADR 0032, ADR 0035, ADR 0038
+- Related: ADR 0010, ADR 0032, ADR 0035, ADR 0038
 
 ## Context
 
@@ -48,7 +48,9 @@ The cpu profile installs `llm.lock.txt` directly. Setup checks this on every run
 
 The nvcc rebuild is removed, along with its toolkit discovery, compute-capability parsing, the `llama_cuda_failed` record and the CUDA toolkit install hints. `data/gpu_state.json` keeps only the ONNX Runtime verdict. `--retry-gpu` clears that verdict as before.
 
-Runtime code is unchanged. `n_gpu_layers=-1` offloads every layer, and llama.cpp picks the devices: all discrete GPUs, or the integrated GPU when there is no discrete one.
+`n_gpu_layers=-1` offloads every layer, and llama.cpp picks the devices: all discrete GPUs, or the integrated GPU when there is no discrete one.
+
+Local classification no longer constrains its reply with a JSON-schema grammar, which amends ADR 0010 for tagging. llama.cpp checks the grammar on the CPU for every generated token, and on a GPU that cost more than the inference itself. The reply goes through `_parse_llm_classification` and `_validate_classification`, the same path remote providers' replies take, including its fallback when parsing fails. Summaries keep their grammar: their output is longer and nested, and was not measured without it. `local_llm.complete` therefore takes an optional schema.
 
 ## Alternatives
 
@@ -61,7 +63,7 @@ Runtime code is unchanged. `n_gpu_layers=-1` offloads every layer, and llama.cpp
 
 - On the measured machine, LLM tagging is about 4.8× faster with no toolkit or compiler. AMD and Intel GPUs get offload for the first time.
 - An integrated-only machine offloads to its iGPU. Setting `tagger.local.n_gpu_layers` and `chat.n_gpu_layers` to `0` restores CPU inference.
-- The JSON schema grammar in `local_llm.complete_json` costs about 3–4 s per exchange on GPU: 8.0 s against 4.1 s without it on Vulkan, and 4.7 s against 1.7 s on CUDA. Every ungrammared output in those runs was valid JSON. Dropping the grammar is a separate decision.
+- Without the grammar, a tagging call takes about 4.1 s on Vulkan instead of 8.0 s (CUDA: 1.7 s instead of 4.7 s). All 13 unconstrained replies in those runs were valid JSON, but nothing now guarantees it. A malformed reply falls back to keyword domains, as a malformed remote reply already did.
 - Upgrading the binding means updating the version in every URL of both overlays and recompiling both locks from scratch.
 - macOS and platforms without a prebuilt wheel still build from source, as before.
 

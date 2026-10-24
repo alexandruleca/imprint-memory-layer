@@ -120,11 +120,13 @@ def fit_messages(llm, messages: list[dict], max_tokens: int) -> list[dict]:
             raise ValueError("Local helper context exceeded; shorten the input or increase the configured context")
 
 
-def complete_json(llm, full_input: str, schema: dict, max_tokens: int = 512) -> str:
+def complete(llm, full_input: str, max_tokens: int = 512, schema: dict | None = None) -> str:
+    """One bounded chat turn. A schema constrains the output with a grammar;
+    without one the caller validates the text."""
     with INFERENCE_LOCK:
         messages = fit_messages(llm, [{"role": "user", "content": full_input}], max_tokens)
+        constraint = {"response_format": {"type": "json_object", "schema": schema}} if schema else {}
         response = llm.create_chat_completion(
-            messages=messages, max_tokens=max_tokens, temperature=0.1,
-            response_format={"type": "json_object", "schema": schema},
+            messages=messages, max_tokens=max_tokens, temperature=0.1, **constraint,
         )
         return response["choices"][0]["message"].get("content") or ""

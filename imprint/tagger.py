@@ -696,15 +696,10 @@ def _call_llm_raw_text(full_input: str) -> str:
         llm, err = _load_tagger_model()
         if err or llm is None:
             return ""
-        from .local_llm import complete_json
-        schema = {
-            "type": "object", "additionalProperties": False,
-            "properties": {key: ({"type": "array", "items": {"type": "string"}, "maxItems": 5 if key == "domains" else 4}
-                                 if key in ("domains", "topics") else {"type": "string"})
-                           for key in _CLASSIFY_FALLBACK},
-            "required": list(_CLASSIFY_FALLBACK),
-        }
-        return complete_json(llm, full_input, schema)
+        # No grammar: on a GPU it cost more than the inference itself
+        # (ADR 0047). The reply is parsed and validated like a remote one.
+        from .local_llm import complete
+        return complete(llm, full_input)
 
     if provider == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY")
