@@ -339,7 +339,7 @@ function JobLog({ jobId, live }: { jobId: string; live: boolean }) {
 
   return (
     <ScrollArea className="h-40">
-      <pre className="text-[10.5px] font-mono whitespace-pre-wrap bg-muted rounded p-2">
+      <pre className="text-[10.5px] font-mono whitespace-pre-wrap break-words bg-muted rounded p-2">
         {lines.join("") || (live ? "waiting for output…" : "(no output)")}
         <span ref={scrollRef} />
       </pre>
