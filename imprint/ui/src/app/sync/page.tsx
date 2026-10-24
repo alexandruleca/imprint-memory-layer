@@ -55,7 +55,7 @@ function formatStats(s: SyncStats | undefined): string {
   if (!s) return "";
   const parts: string[] = [];
   if (s.memories) {
-    parts.push(`${s.memories.inserted} memories inserted, ${s.memories.skipped} skipped`);
+    parts.push(`${s.memories.inserted} memories inserted, ${s.memories.updated ?? 0} retagged, ${s.memories.skipped} skipped`);
   }
   if (s.facts) {
     parts.push(`${s.facts.inserted} facts inserted, ${s.facts.skipped} skipped`);

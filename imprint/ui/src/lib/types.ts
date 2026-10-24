@@ -325,7 +325,8 @@ export interface SyncEvent {
 }
 
 export interface SyncStats {
-  memories: { inserted: number; skipped: number };
+  /** `updated`: memories already here whose newer tags replaced ours. */
+  memories: { inserted: number; updated?: number; skipped: number };
   facts: { inserted: number; skipped: number };
 }
 

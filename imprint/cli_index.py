@@ -680,16 +680,7 @@ def _llm_tag_recent(
             batch_updates.append((pt.id, new_tags, new_type))
 
             if len(batch_updates) >= FLUSH_SIZE:
-                for point_id, tags, typ in batch_updates:
-                    payload: dict = {"tags": tags}
-                    if typ:
-                        payload["type"] = typ
-                        payload["llm_tagged"] = True
-                    client.set_payload(
-                        collection_name=coll,
-                        payload=payload,
-                        points=[point_id],
-                    )
+                vs.set_classifications(client, coll, batch_updates)
                 tagged += len(batch_updates)
                 batch_updates = []
 
@@ -702,16 +693,7 @@ def _llm_tag_recent(
             break
 
     # Flush remaining
-    for point_id, tags, typ in batch_updates:
-        payload = {"tags": tags}
-        if typ:
-            payload["type"] = typ
-            payload["llm_tagged"] = True
-        client.set_payload(
-            collection_name=coll,
-            payload=payload,
-            points=[point_id],
-        )
+    vs.set_classifications(client, coll, batch_updates)
     tagged += len(batch_updates)
     # Payload-only updates change no point count: log them so readers of the
     # data fingerprint (dashboard caches) see the new types and tags.

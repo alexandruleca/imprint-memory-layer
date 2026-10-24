@@ -83,11 +83,50 @@ class WorkspaceSyncStorageTests(unittest.TestCase):
             buffer.write('\n'.join(sync_ws.stream_export_lines('default')) + '\n')
         self.addCleanup(os.unlink, buffer.name)
         stats = sync_ws.process_import_buffer(buffer.name, 'team')
-        self.assertEqual(stats['memories'], {'inserted': 3, 'skipped': 0})
+        self.assertEqual(stats['memories'], {'inserted': 3, 'updated': 0, 'skipped': 0})
         self.assertEqual(stats['facts'], {'inserted': 1, 'skipped': 0})
         self.assertEqual(self.count('team'), 3)
         self.assertEqual(kg.count(workspace='team'), 1)
         self.assertEqual(config.get_active_workspace(), 'default')
+
+    def sync(self, sender, receiver):
+        with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as buffer:
+            buffer.write('\n'.join(sync_ws.stream_export_lines(sender)) + '\n')
+        self.addCleanup(os.unlink, buffer.name)
+        return sync_ws.process_import_buffer(buffer.name, receiver)['memories']
+
+    def tags(self, workspace, content):
+        client, coll = vs._ensure_collection(workspace)
+        rows, _ = client.scroll(coll, with_payload=True, limit=100)
+        return next(row for row in rows if row.payload['content'] == content).payload
+
+    def retag(self, workspace, content, domain, kind=''):
+        client, coll = vs._ensure_collection(workspace)
+        rows, _ = client.scroll(coll, with_payload=['content'], limit=100)
+        point = next(row.id for row in rows if row.payload['content'] == content)
+        vs.set_classifications(client, coll, [(point, {'domain': [domain]}, kind)])
+
+    def test_a_retag_on_either_device_reaches_the_other(self):
+        """Workspaces stand in for devices A (default) and B (team)."""
+        self.prepare()
+        config.register_workspace('team')
+        self.assertEqual(self.sync('default', 'team'), {'inserted': 3, 'updated': 0, 'skipped': 0})
+
+        self.retag('team', 'shared one', 'from-b', 'decision')
+        self.assertEqual(self.sync('team', 'default'), {'inserted': 0, 'updated': 1, 'skipped': 2})
+        on_a, on_b = self.tags('default', 'shared one'), self.tags('team', 'shared one')
+        for key in ('tags', 'type', 'llm_tagged', 'tagged_at'):
+            self.assertEqual(on_a[key], on_b[key], key)
+        self.assertEqual((on_a['tags']['domain'], on_a['type'], on_a['llm_tagged']), (['from-b'], 'decision', True))
+        # Converged: syncing either way changes nothing.
+        self.assertEqual(self.sync('default', 'team')['updated'], 0)
+        self.assertEqual(self.sync('team', 'default')['updated'], 0)
+
+        # A's clock runs far behind B's, yet A's later retag still wins.
+        with patch('imprint.vectorstore.time.time', return_value=1.0):
+            self.retag('default', 'shared one', 'from-a')
+        self.assertEqual(self.sync('default', 'team')['updated'], 1)
+        self.assertEqual(self.tags('team', 'shared one')['tags']['domain'], ['from-a'])
 
     def test_migrate_copy_keeps_source_and_repeats_without_duplicates(self):
         self.prepare()

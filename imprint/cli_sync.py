@@ -222,8 +222,8 @@ def _stats(stats: dict | None) -> str:
     memories = (stats or {}).get("memories", {})
     facts = (stats or {}).get("facts", {})
     present = memories.get("skipped", 0) + facts.get("skipped", 0)
-    return (f"{memories.get('inserted', 0)} new memories, {facts.get('inserted', 0)} new facts"
-            f" ({present} already present)")
+    return (f"{memories.get('inserted', 0)} new memories, {memories.get('updated', 0)} retagged,"
+            f" {facts.get('inserted', 0)} new facts ({present} already present)")
 
 
 def _plan(event: dict) -> str:

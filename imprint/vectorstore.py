@@ -263,6 +263,50 @@ def _live_existing_ids(client, collection: str, memory_ids: Iterable[str]) -> se
     return existing
 
 
+def _tagged_at(client, collection: str, memory_ids: Iterable[str]) -> dict[str, float]:
+    """The classification stamp of each requested memory that exists (0 when
+    it was never tagged after creation)."""
+    requested = list(dict.fromkeys(memory_ids))
+    stamps = {}
+    for start in range(0, len(requested), 256):
+        points = client.retrieve(collection_name=collection,
+                                 ids=[_point_uuid(mid) for mid in requested[start:start + 256]],
+                                 with_payload=["_mid", "tagged_at"], with_vectors=False)
+        stamps.update((point.payload["_mid"], float(point.payload.get("tagged_at") or 0))
+                      for point in points if point.payload and point.payload.get("_mid"))
+    return stamps
+
+
+def set_classifications(client, collection: str, updates: list[tuple[str, dict, str]]) -> None:
+    """Store tags, and an LLM type when there is one, from tagging existing points.
+
+    ``tagged_at`` moves past both now and the stamp it replaces, so this
+    classification supersedes the previous one in every synced copy whatever
+    the devices' clocks say (ADR 0051).
+    """
+    if not updates:
+        return
+    previous = {}
+    ids = [point_id for point_id, _, _ in updates]
+    for start in range(0, len(ids), 256):
+        for point in client.retrieve(collection_name=collection, ids=ids[start:start + 256],
+                                     with_payload=["tagged_at"], with_vectors=False):
+            previous[str(point.id)] = float((point.payload or {}).get("tagged_at") or 0)
+    now = time.time()
+    for point_id, tags, kind in updates:
+        payload: dict = {"tags": _normalize_tags(tags), "tagged_at": max(now, previous.get(str(point_id), 0.0) + 0.001)}
+        if kind:
+            payload["type"] = kind
+            payload["llm_tagged"] = True
+        client.set_payload(collection_name=collection, payload=payload, points=[point_id])
+
+
+def _classification(record: dict) -> dict:
+    """The synced classification of a received record (ADR 0051)."""
+    return {"tags": _normalize_tags(record.get("tags")), "type": record.get("type", ""),
+            "llm_tagged": bool(record.get("llm_tagged", False)), "tagged_at": float(record["tagged_at"])}
+
+
 # ── store / store_batch ─────────────────────────────────────────
 def store(
     content: str,
@@ -517,12 +561,14 @@ def replace_source(records: list[dict], source: str, project: str,
     return inserted, skipped
 
 
-def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int]:
+def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int, int]:
     """Store records that already carry vectors — skip embedding entirely.
 
     Each record: {content, vector, project?, type?, tags?, source?,
-                  chunk_index?, source_mtime?}.
-    Returns (inserted, skipped).
+                  chunk_index?, source_mtime?, llm_tagged?, tagged_at?}.
+    A record this workspace already has updates only its classification, and
+    only when its ``tagged_at`` is newer (ADR 0051).
+    Returns (inserted, retagged, skipped).
     """
     from . import device
     records = [device.prepare(record, imported=True) for record in records]
@@ -553,20 +599,29 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     from .projects import place
     records = place(records, workspace)
     client, coll = _ensure_collection(workspace)
-    existing = _live_existing_ids(client, coll, (
-        record_id(r)
-        for r in records))
+    stamps = _tagged_at(client, coll, (record_id(r) for r in records))
 
     new_records = []
+    retagged: dict[str, dict] = {}
     pending_ids = set()
     for r in records:
         mid = record_id(r)
-        if mid not in existing and mid not in pending_ids:
+        if mid in stamps:
+            # Last tagged wins; ties keep the local classification.
+            if float(r.get("tagged_at") or 0) > stamps[mid]:
+                stamps[mid] = float(r["tagged_at"])
+                retagged[mid] = r
+        elif mid not in pending_ids:
             pending_ids.add(mid)
             new_records.append({**r, "_mid": mid})
 
+    for mid, r in retagged.items():
+        client.set_payload(collection_name=coll, payload=_classification(r), points=[_point_uuid(mid)])
+    if retagged:
+        _wal_log("sync_retag", workspace=workspace, count=len(retagged))
+
     if not new_records:
-        return 0, len(records)
+        return 0, len(retagged), len(records) - len(retagged)
 
     points: list[qm.PointStruct] = []
     now = time.time()
@@ -590,6 +645,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "source_path": r.get("source_path", ""),
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
+            **({"tagged_at": float(r["tagged_at"])} if r.get("tagged_at") else {}),
             **device.provenance(r),
         }
         points.append(
@@ -612,7 +668,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     gc.collect()
 
     _maybe_compact(inserted)
-    return inserted, len(records) - inserted
+    return inserted, len(retagged), len(records) - inserted - len(retagged)
 
 
 def _maybe_compact(just_inserted: int) -> None:

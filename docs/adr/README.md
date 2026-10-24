@@ -65,3 +65,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0048](0048-anime-echo-and-desktop-recovery.md) | Accepted | Modeled anime hologram, whole-head drag, recovery shortcut and a floating launcher after Close/minimize. |
 | [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Accepted | The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed. |
 | [0050](0050-registered-dashboard-server-and-supervised-restart.md) | Accepted | The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. |
+| [0051](0051-synced-tags-follow-the-latest-retag.md) | Accepted | Each memory carries a tagged_at stamp; sync gives a memory both devices hold the classification that was set last. |

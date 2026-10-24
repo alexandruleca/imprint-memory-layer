@@ -140,17 +140,56 @@ class StorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'profile mismatch'):
             vs.store_batch_precomputed([record])
         record['embedding_identity'] = config.embedding_identity()
-        self.assertEqual(vs.store_batch_precomputed([record]), (1, 0))
+        self.assertEqual(vs.store_batch_precomputed([record]), (1, 0, 0))
 
     def test_sync_preserves_note_identity_and_rejects_unrelated_ids(self):
         mid = vs.store('A durable note', project='project', source='manual')
         record = {'content': 'A durable note', 'project': 'project', 'source': 'manual',
                   'chunk_index': 0, 'id': mid, 'vector': [1., 0., 0.],
                   'embedding_identity': config.embedding_identity()}
-        self.assertEqual(vs.store_batch_precomputed([record]), (0, 1))
+        self.assertEqual(vs.store_batch_precomputed([record]), (0, 0, 1))
         record['id'] = 'aaaaaaaaaaaaaaaa'
         with self.assertRaisesRegex(ValueError, 'logical ID'):
             vs.store_batch_precomputed([record])
+
+    def received(self, mid, **classification):
+        return {'content': 'A durable note', 'project': 'project', 'source': 'manual', 'chunk_index': 0,
+                'id': mid, 'vector': [1., 0., 0.], 'embedding_identity': config.embedding_identity(),
+                **classification}
+
+    def classification(self, mid):
+        point = self.client.retrieve(config.collection_name(), [vs._point_uuid(mid)], with_payload=True)[0]
+        return {key: point.payload.get(key) for key in ('tags', 'type', 'llm_tagged', 'tagged_at')}
+
+    def test_a_newer_received_classification_replaces_the_local_one(self):
+        mid = vs.store('A durable note', project='project', source='manual')
+        retagged = {'tags': {'domain': ['auth'], 'topics': ['token-refresh']}, 'type': 'decision',
+                    'llm_tagged': True, 'tagged_at': 2000.0}
+        self.assertEqual(vs.store_batch_precomputed([self.received(mid, **retagged)]), (0, 1, 0))
+        self.assertEqual(self.classification(mid), {
+            'tags': {'lang': '', 'layer': '', 'kind': '', 'domain': ['auth'], 'topics': ['token-refresh']},
+            'type': 'decision', 'llm_tagged': True, 'tagged_at': 2000.0})
+
+    def test_an_older_or_equal_received_classification_is_ignored(self):
+        mid = vs.store('A durable note', project='project', source='manual')
+        client, coll = vs._ensure_collection()
+        with patch('imprint.vectorstore.time.time', return_value=2000.0):
+            vs.set_classifications(client, coll, [(vs._point_uuid(mid), {'domain': ['local']}, 'pattern')])
+        local = self.classification(mid)
+        for stamp in (1999.0, local['tagged_at']):
+            stale = {'tags': {'domain': ['stale']}, 'type': 'bug', 'tagged_at': stamp}
+            self.assertEqual(vs.store_batch_precomputed([self.received(mid, **stale)]), (0, 0, 1))
+        self.assertEqual(self.classification(mid), local)
+
+    def test_a_local_retag_supersedes_the_stamp_it_replaces_whatever_the_clock(self):
+        mid = vs.store('A durable note', project='project', source='manual')
+        client, coll = vs._ensure_collection()
+        point = vs._point_uuid(mid)
+        vs.store_batch_precomputed([self.received(mid, tags={'domain': ['peer']}, tagged_at=5000.0)])
+        with patch('imprint.vectorstore.time.time', return_value=100.0):  # this clock is far behind
+            vs.set_classifications(client, coll, [(point, {'domain': ['local']}, '')])
+        self.assertGreater(self.classification(mid)['tagged_at'], 5000.0)
+        self.assertEqual(self.classification(mid)['tags']['domain'], ['local'])
 
     def test_force_refresh_bypasses_unchanged_file_hashes(self):
         from imprint import cli_index

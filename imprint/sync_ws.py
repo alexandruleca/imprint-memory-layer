@@ -566,7 +566,7 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
         from .device import TRANSFER_FIELDS
         for pl in vs._scroll_all([
             "_mid", "content", "project", "type", "tags", "source",
-            "chunk_index", "source_mtime", "timestamp",
+            "chunk_index", "source_mtime", "timestamp", "llm_tagged", "tagged_at",
         ] + TRANSFER_FIELDS, workspace=workspace, with_vectors=True):
             rec = {
                 "id": pl.get("_mid", ""),
@@ -580,6 +580,9 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
                 "timestamp": pl.get("timestamp", 0),
                 "embedding_identity": config.embedding_identity(),
                 **{key: pl[key] for key in TRANSFER_FIELDS if key in pl},
+                # The classification and when it was set (ADR 0051); absent
+                # until a memory is tagged after creation.
+                **{key: pl[key] for key in ("llm_tagged", "tagged_at") if pl.get(key)},
             }
             vec = pl.get("_vector")
             if vec is not None:
@@ -627,7 +630,9 @@ def process_import_buffer(
     """Process a JSONL buffer file, importing memories and facts into
     ``workspace``.
 
-    Returns stats dict: {memories: {inserted, skipped}, facts: {inserted, skipped}}.
+    Returns stats dict: {memories: {inserted, updated, skipped}, facts: {inserted, skipped}}.
+    ``updated`` counts memories this workspace had whose newer classification
+    replaced the local one (ADR 0051).
     ``on_progress`` is called after each stored batch; an exception it raises
     stops the import there. Every memory must carry its vector (every
     release that streams memories sends them); none is embedded here.
@@ -640,14 +645,14 @@ def process_import_buffer(
         kg = None
 
     stats = {
-        "memories": {"inserted": 0, "skipped": 0},
+        "memories": {"inserted": 0, "updated": 0, "skipped": 0},
         "facts": {"inserted": 0, "skipped": 0},
     }
     totals: dict[str, int] = {"memories": 0, "facts": 0}
 
     def progress(dataset: str) -> None:
         if on_progress:
-            done = stats[dataset]["inserted"] + stats[dataset]["skipped"]
+            done = sum(stats[dataset].values())
             on_progress(dataset, done, totals.get(dataset, 0))
 
     def import_memories(records: list[dict]) -> None:
@@ -670,10 +675,11 @@ def process_import_buffer(
                 "id": r.get("id"),
                 "embedding_identity": r.get("embedding_identity"),
             }
-            p.update({key: r[key] for key in TRANSFER_FIELDS if key in r})
+            p.update({key: r[key] for key in TRANSFER_FIELDS + ["llm_tagged", "tagged_at"] if key in r})
             payloads.append(prepare(p, imported=True))
-        ins, sk = vs.store_batch_precomputed(payloads, workspace=workspace)
+        ins, upd, sk = vs.store_batch_precomputed(payloads, workspace=workspace)
         stats["memories"]["inserted"] += int(ins)
+        stats["memories"]["updated"] += int(upd)
         stats["memories"]["skipped"] += int(sk)
         progress("memories")
 

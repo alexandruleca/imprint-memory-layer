@@ -170,21 +170,13 @@ def retag(
 def _flush_updates(
     client, coll: str, updates: list[tuple[str, dict, str]]
 ) -> None:
-    """Batch-update tags + type payloads via set_payload.
+    """Batch-update tags + type payloads.
 
-    Stamps ``llm_tagged: True`` whenever the LLM produced a type (i.e., the
-    LLM classification succeeded) so future retag runs can skip this point.
+    ``llm_tagged: True`` is stamped whenever the LLM produced a type (i.e.
+    the LLM classification succeeded) so future retag runs can skip this
+    point, and ``tagged_at`` lets sync carry the new tags to peers.
     """
-    for point_id, new_tags, new_type in updates:
-        payload: dict = {"tags": new_tags}
-        if new_type:
-            payload["type"] = new_type
-            payload["llm_tagged"] = True
-        client.set_payload(
-            collection_name=coll,
-            payload=payload,
-            points=[point_id],
-        )
+    vectorstore.set_classifications(client, coll, updates)
 
 
 def main():
