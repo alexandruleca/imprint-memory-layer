@@ -1,6 +1,7 @@
 /* Echo follows the dashboard's light theme. The desktop companion floats over
- * other windows, so .voice-compact keeps a dark glass palette. */
-.voice-surface {
+ * other windows, so .voice-compact keeps a dark glass palette. The settings
+ * panel is portaled out of the surface, so it carries the same palettes. */
+.voice-surface,.voice-options {
   --echo-bg: var(--background);
   --echo-ink: var(--foreground);
   --echo-muted: var(--muted-foreground);
@@ -18,6 +19,8 @@
   --echo-cta-hover: oklch(0.3 0 0);
   --echo-error: var(--destructive);
   --echo-shadow: 0 1px 2px #0000000a, 0 8px 28px #0000000d;
+}
+.voice-surface {
   position: relative;
   min-height: 100%;
   overflow: hidden;
@@ -398,7 +401,7 @@
   background: transparent;
   scrollbar-width: thin;
 }
-.voice-compact {
+.voice-compact,.voice-options-compact {
   --echo-bg: transparent;
   --echo-ink: #dceaf1;
   --echo-muted: #92a5b1;
@@ -416,6 +419,8 @@
   --echo-cta-hover: #e4f5fc;
   --echo-error: #f0bfb7;
   --echo-shadow: 0 16px 60px #0002;
+}
+.voice-compact {
   padding: 16px 20px 12px;
   border: 0;
   border-radius: 0;
@@ -426,27 +431,16 @@
 }
 .voice-compact .voice-window-actions button,
 .voice-compact .voice-modes,
-.voice-compact .voice-text,
-.voice-compact .voice-settings,
-.voice-compact .voice-transcript,
 .voice-compact .voice-primary-controls > button:not(.voice-start) {
   background: var(--echo-panel);
   border-radius: 16px;
   box-shadow: 0 2px 12px #0002;
 }
-.voice-compact .voice-text {
-  padding: 5px 10px;
-  border: 0;
-}
-.voice-compact .voice-modes,
-.voice-compact .voice-settings {
+.voice-compact .voice-modes {
   width: fit-content;
   margin-left: auto;
   margin-right: auto;
   padding: 4px 8px;
-}
-.voice-compact .voice-transcript {
-  padding: 8px 12px;
 }
 .voice-compact .voice-stage {
   height: 265px;
@@ -482,23 +476,6 @@
 .voice-compact .voice-privacy {
   font-size: 9px;
   margin: 10px 0 12px;
-}
-.voice-compact .voice-settings {
-  margin-top: 12px;
-}
-.voice-compact .voice-transcript {
-  max-height: 90px;
-  font-size: 11px;
-}
-.voice-grip {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 5px;
-  font-size: 8px;
-  color: var(--echo-faint);
-  margin: 14px -4px -4px;
-  height: 14px;
 }
 @media(min-width:1200px) {
   .voice-stage {
@@ -585,7 +562,6 @@
 .companion-document,.companion-document body,.companion-document main { height: 100%; overflow: hidden; }
 .voice-compact { display: flex; flex-direction: column; height: 100dvh; min-height: 0; padding: 12px 16px 8px; overflow: hidden; box-sizing: border-box; user-select: none; }
 .voice-compact .voice-header { flex: 0 0 28px; }
-.voice-compact .voice-window-actions .voice-pin[aria-pressed=true] { color: var(--echo-glow); background: var(--echo-selected); box-shadow: inset 0 0 0 1px var(--echo-glow); }
 .voice-compact .voice-stage { flex: 1 1 0; min-height: 80px; height: auto!important; margin: 0!important; cursor: grab; }
 .voice-compact .voice-stage:active { cursor: grabbing; }
 .voice-compact .echo-canvas { position: absolute; inset: 0; }
@@ -598,14 +574,6 @@
 .voice-compact .voice-privacy { margin: 5px 0; font-size: 9px; line-height: 12px; max-height: 24px; overflow: hidden; }
 /* A failure explains itself in full, even in the small window. */
 .voice-compact .voice-privacy[data-alert] { max-height: none; }
-.voice-compact .voice-text { margin: 5px 0; min-height: 32px; padding: 2px 8px; }
-.voice-compact .voice-text input { min-width: 0; user-select: text; }
-.voice-compact .voice-settings { margin-top: 6px; padding: 4px 8px; gap: 4px; font-size: 9px; }
-.voice-compact .voice-settings select { max-width: 170px; }
-.voice-compact .voice-transcript { margin: 5px 0; max-height: 40px; overflow: hidden; font-size: 10px; line-height: 13px; user-select: text; }
-.voice-compact .voice-transcript p { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
-.voice-compact .voice-transcript p:last-child { -webkit-line-clamp: 2; }
-.voice-compact .voice-grip { flex: 0 0 14px; margin: 6px 0 0; font-size: 8px; }
 .voice-compact .echo-setup { margin: 7px 0 0; padding: 12px; }
 .voice-compact .echo-setup-description { margin: 9px 0; line-height: 1.5; font-size: 10px; }
 .voice-compact .echo-setup-progress { margin: 10px 0; }
@@ -613,11 +581,8 @@
 .voice-compact .echo-setup-error { margin: 8px 0; line-height: 1.5; font-size: 10px; }
 .voice-compact .echo-setup-download { min-height: 30px; height: 30px; }
 .voice-compact .echo-setup-actions { gap: 6px; }
-.voice-compact:has([aria-label="Local chat preparation"]) .voice-modes,
-.voice-compact:has([aria-label="Local chat preparation"]) .voice-text,
-.voice-compact:has([aria-label="Local chat preparation"]) .voice-settings,
-.voice-compact:has([aria-label="Local chat preparation"]) .voice-transcript { display: none; }
-@media(max-height:480px) { .voice-compact .voice-stage { min-height: 55px; } .voice-compact .voice-settings { margin-top: 3px; } }
+.voice-compact:has([aria-label="Local chat preparation"]) .voice-modes { display: none; }
+@media(max-height:480px) { .voice-compact .voice-stage { min-height: 55px; } }
 
 /* Echo's look: preview cards from the voice.avatar setting's choices. */
 .echo-look {
@@ -694,3 +659,40 @@
   font-size: 9px;
   color: var(--echo-muted);
 }
+
+/* Companion settings (ADR 0070): everything except talking, on demand. The
+ * panel is portaled to the document, outside the head's drag handler, and is
+ * never a native drag region. */
+.voice-options,.voice-options * { -webkit-app-region: no-drag; app-region: no-drag; }
+.voice-options {
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 56px));
+  overflow-y: auto;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--echo-panel);
+  color: var(--echo-ink);
+  box-shadow: var(--echo-shadow);
+  font-size: 12px;
+  text-shadow: none;
+}
+.voice-options-compact { border: 1px solid var(--echo-line-strong); user-select: none; }
+/* The panel scrolls as a whole; its sections keep their height. */
+.voice-options > * { flex-shrink: 0; }
+.voice-options [data-slot=popover-title] { font-size: 12px; font-weight: 500; }
+.voice-options .voice-settings { flex-direction: column; align-items: stretch; gap: 12px; margin: 0; }
+.voice-options .voice-settings label { justify-content: space-between; font-size: 11px; color: var(--echo-muted); }
+.voice-options .voice-settings select { flex: 1 1 100%; width: 100%; min-height: 32px; padding: 5px 8px; border-radius: 7px; font-size: 11px; }
+.voice-options .voice-settings input[type=range] { flex: 1; }
+.voice-options .voice-settings small,.voice-options small { width: auto; text-align: left; font-size: 10px; line-height: 1.5; color: var(--echo-faint); }
+.voice-options .voice-look { max-width: none; align-items: stretch; font-size: 11px; }
+.voice-options .voice-text { margin: 0; }
+.voice-options .voice-text input { user-select: text; }
+.voice-options .voice-transcript { margin: 0; max-height: 120px; font-size: 11px; line-height: 1.5; user-select: text; }
+.voice-option-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.voice-option-actions button { font-size: 11px; color: var(--echo-ink); }
+.voice-option-actions button:hover { background: var(--echo-hover); }
+.voice-options .voice-pin[aria-pressed=true] { color: var(--echo-glow); background: var(--echo-selected); box-shadow: inset 0 0 0 1px var(--echo-glow); }
+.voice-control-area > .voice-look { margin: 18px auto 0; }
+.voice-compact .voice-stage { touch-action: none; }

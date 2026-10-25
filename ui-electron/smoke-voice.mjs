@@ -89,11 +89,13 @@ try {
   if (!recovered.visible || !recovered.inBounds) throw Error('Echo recovery did not restore an offscreen head: '+JSON.stringify(recovered));
   const overflow = await popup.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.documentElement.scrollWidth > innerWidth);
   if (overflow) throw Error('The compact voice view must fit without document scrolling');
+  await popup.getByRole('button', { name: 'Companion settings' }).click();
   await popup.getByRole('button', { name: 'Keep companion on top' }).click();
   const pinned = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
     .find(window => window.webContents.getURL().endsWith('/companion/'))?.isAlwaysOnTop());
   if (!pinned) throw Error('Companion did not pin');
   await popup.getByLabel('Voice reasoning model').selectOption('lfm');
+  await popup.keyboard.press('Escape');
   await popup.getByRole('button', { name: 'Start conversation' }).click();
   // Include integrity verification, model load and owned-process cleanup.
   await popup.getByRole('button', { name: 'Enable microphone' }).waitFor({ timeout: 130000 });

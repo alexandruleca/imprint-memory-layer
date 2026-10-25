@@ -399,3 +399,78 @@ test('normal open restores the saved monitor; recall moves Echo to the cursor di
   h.shortcuts.values().next().value(); await settle();
   assert.ok(echo.getBounds().x>=0 && echo.getBounds().x<1920);
 });
+
+test('hidden dashboard docks the companion to the launcher and either drag moves both', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  await h.invoke('voice-set-companion', dashboard, true);
+  const head = h.windows[2];
+  h.emit('win-close', dashboard); await settle();
+  const launcher = h.windows[3];
+  assert.equal(head.isAlwaysOnTop(), true);
+  const delta = () => ({ x: head.getBounds().x - launcher.getBounds().x, y: head.getBounds().y - launcher.getBounds().y });
+  const relative = delta();
+  const initial = head.getBounds();
+  h.emit('launcher-drag-start', launcher, { x: 0, y: 0 });
+  h.emit('launcher-drag-move', launcher, { x: 60, y: -20 });
+  assert.equal(head.getBounds().x, initial.x + 60); assert.equal(head.getBounds().y, initial.y - 20);
+  assert.deepEqual(delta(), relative);
+  h.emit('launcher-drag-end', launcher);
+  assert.deepEqual(delta(), relative);
+  const before = launcher.getBounds();
+  h.emit('voice-drag-start', head, { x: 100, y: 100 });
+  h.emit('voice-drag-move', head, { x: 120, y: 130 });
+  assert.equal(launcher.getBounds().x, before.x + 20); assert.equal(launcher.getBounds().y, before.y + 30);
+  h.emit('voice-drag-end', head);
+  assert.deepEqual(delta(), relative);
+  // Pinning while grouped records the choice; the group keeps the head on top.
+  h.emit('voice-pin-companion', head, false);
+  assert.equal(head.isAlwaysOnTop(), true);
+  h.emit('launcher-open', launcher);
+  assert.equal(launcher.visible, false); assert.equal(head.isAlwaysOnTop(), false);
+  const undocked = launcher.getBounds();
+  h.emit('voice-drag-start', head, { x: 0, y: 0 }); h.emit('voice-drag-move', head, { x: 10, y: 10 });
+  assert.deepEqual(launcher.getBounds(), undocked);
+});
+
+test('the pin state the companion shows is the user choice, not the grouped on-top state', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  await h.invoke('voice-set-companion', dashboard, true);
+  const head = h.windows[2];
+  h.emit('voice-pin-companion', head, true);
+  assert.equal((await h.invoke('voice-companion-state', head)).pinned, true);
+  h.emit('win-close', dashboard); await settle();
+  h.emit('voice-pin-companion', head, false);
+  assert.equal((await h.invoke('voice-companion-state', head)).pinned, false);
+  assert.equal(head.isAlwaysOnTop(), true);
+  h.emit('launcher-open', h.windows[3]);
+  assert.equal(head.isAlwaysOnTop(), false);
+});
+
+test('group layout stays in one work area and stacks on narrow displays', () => {
+  const { dockCompanion } = require('./companion');
+  for (const area of [{ x: -1000, y: 40, width: 1000, height: 700 }, { x: 0, y: 0, width: 320, height: 480 }]) {
+    const group = dockCompanion({ x: 9000, y: 9000, width: 400, height: 640 }, { x: -9000, y: 9000 }, area);
+    for (const bounds of Object.values(group)) {
+      assert.ok(bounds.x >= area.x && bounds.y >= area.y);
+      assert.ok(bounds.x + bounds.width <= area.x + area.width);
+      assert.ok(bounds.y + bounds.height <= area.y + area.height);
+    }
+  }
+});
+
+test('group drag completion uses intended positions when native bounds notifications lag', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  await h.invoke('voice-set-companion', h.windows[1], true);
+  const head = h.windows[2]; h.emit('win-close', h.windows[1]); await settle();
+  const launcher = h.windows[3], initialHead = head.getBounds(), initialIcon = launcher.getBounds();
+  h.emit('voice-drag-start', head, { x: 0, y: 0 });
+  h.emit('voice-drag-move', head, { x: 40, y: -20 });
+  // The launcher still reports its old native position at pointer-up.
+  launcher.bounds = initialIcon;
+  h.emit('voice-drag-end', head);
+  assert.equal(head.getBounds().x - launcher.getBounds().x, initialHead.x - initialIcon.x);
+  assert.equal(head.getBounds().y - launcher.getBounds().y, initialHead.y - initialIcon.y);
+  assert.equal(head.getBounds().x, initialHead.x + 40);
+});

@@ -114,8 +114,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a node ui-electron/smoke-companion-controls.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
             xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           else
+            node ui-electron/smoke-companion-controls.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
             python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           fi
       - name: Preserve native evidence
@@ -127,4 +129,5 @@ jobs:
             ${{ runner.temp }}/voice-evidence/
             ${{ env.VOICE_CACHE }}/live-build.json
             ${{ runner.temp }}/voice-desktop/
+            ${{ runner.temp }}/voice-controls/
           if-no-files-found: warn

@@ -8,7 +8,7 @@ const { execFile } = require('node:child_process');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
 const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
-const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage } = require('./companion');
+const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage, dockCompanion, clampFloatingGroup } = require('./companion');
 const { desktopRuntime } = require('./runtime');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
@@ -48,19 +48,22 @@ let attempt = 0;
 let quitting = false;
 let cleanupFinished = false;
 let companionDrag = null;
+// The user's pin choice. While the dashboard is hidden the companion is grouped
+// with the launcher and stays on top regardless (ADR 0070).
+let companionPinned = false;
 let shortcutAvailable = false;
 
 function savedCompanionBounds(name = 'echo-window.json') {
   try { return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), name), 'utf8')); }
   catch { return null; }
 }
-function saveCompanionBounds(window = companionWin, name = 'echo-window.json') {
+function saveCompanionBounds(window = companionWin, name = 'echo-window.json', bounds = null) {
   if (!window || window.isDestroyed()) return;
   try {
     const directory = app.getPath('userData');
     fs.mkdirSync(directory, { recursive: true });
     const file = path.join(directory, name);
-    fs.writeFileSync(file + '.tmp', JSON.stringify(window.getBounds()), { mode: 0o600 });
+    fs.writeFileSync(file + '.tmp', JSON.stringify(bounds || window.getBounds()), { mode: 0o600 });
     fs.renameSync(file + '.tmp', file);
   } catch { /* Position persistence must not stop voice or window recovery. */ }
 }
@@ -71,6 +74,31 @@ function companionArea(bounds = null) {
   return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
 }
 function recoverCompanion() { return openCompanion(true); }
+
+// While the dashboard is hidden, the companion docks beside the launcher and
+// either window's drag moves both (ADR 0070).
+function floatingGroup() {
+  return wantLauncher && !!companionWin && !!launcherWin && !companionWin.isDestroyed() && !launcherWin.isDestroyed();
+}
+function placeFloatingGroup(group) {
+  companionWin.setBounds(group.companion); launcherWin.setBounds(group.launcher);
+  saveCompanionBounds(companionWin, 'echo-window.json', group.companion);
+  saveCompanionBounds(launcherWin, 'launcher-window.json', group.launcher);
+}
+function dockFloatingGroup() {
+  if (!floatingGroup()) return;
+  const bounds = launcherWin.getBounds();
+  placeFloatingGroup(dockCompanion(companionWin.getBounds(), bounds, companionArea(bounds)));
+  companionWin.setAlwaysOnTop(true);
+}
+function finishFloatingGroup(targets) {
+  if (!floatingGroup()) return false;
+  // Native position reports can lag setPosition independently for each window;
+  // clamp and save the positions the drag intended, never a half-updated pair.
+  const companion = targets?.companion || companionWin.getBounds();
+  placeFloatingGroup(clampFloatingGroup(companion, targets?.launcher || launcherWin.getBounds(), companionArea(companion)));
+  return true;
+}
 
 const windowOptions = {
   title: 'Imprint',
@@ -231,6 +259,7 @@ function showWindow() {
     window.show();
     window.focus();
     launcherWin?.hide();
+    companionWin?.setAlwaysOnTop(companionPinned);
   }
 }
 
@@ -249,7 +278,7 @@ async function hideDashboard() {
 }
 async function showLauncher() {
   if (quitting || phase !== 'ready') return;
-  if (launcherWin) { launcherWin.showInactive(); return; }
+  if (launcherWin) { launcherWin.showInactive(); dockFloatingGroup(); return; }
   const saved = savedCompanionBounds('launcher-window.json');
   const window = new BrowserWindow({ ...windowOptions, ...fitLauncher(saved, companionArea(saved)),
     title: 'Imprint launcher', transparent: true, backgroundColor: '#00000000', resizable: false,
@@ -262,7 +291,7 @@ async function showLauncher() {
   });
   try {
     await window.loadURL(`${UI_ORIGIN}/launcher/`);
-    if (!quitting && wantLauncher && !window.isDestroyed()) window.showInactive();
+    if (!quitting && wantLauncher && !window.isDestroyed()) { window.showInactive(); dockFloatingGroup(); }
   } catch { if (!window.isDestroyed()) window.destroy(); }
 }
 function trustedLauncher(event) {
@@ -278,16 +307,25 @@ ipcMain.on('launcher-menu', event => {
     { type: 'separator' }, { label: 'Quit Imprint', click: () => app.quit() }]).popup({ window: launcherWin });
 });
 ipcMain.on('launcher-drag-start', (event, origin) => {
-  if (trustedLauncher(event) && point(origin)) launcherDrag = { bounds: launcherWin.getBounds(), origin };
+  if (trustedLauncher(event) && point(origin)) launcherDrag = { bounds: launcherWin.getBounds(), origin,
+    companion: floatingGroup() ? companionWin.getBounds() : null };
 });
 ipcMain.on('launcher-drag-move', (event, current) => {
   if (!trustedLauncher(event) || !launcherDrag) return;
   const bounds = dragBounds(launcherDrag.bounds, launcherDrag.origin, current);
-  if (bounds) launcherWin.setPosition(bounds.x, bounds.y);
+  if (!bounds) return;
+  launcherWin.setPosition(bounds.x, bounds.y);
+  if (launcherDrag.companion && floatingGroup()) {
+    const head = dragBounds(launcherDrag.companion, launcherDrag.origin, current);
+    launcherDrag.targets = { companion: head, launcher: bounds };
+    companionWin.setPosition(head.x, head.y);
+  }
 });
 ipcMain.on('launcher-drag-end', event => {
-  if (!trustedLauncher(event)) return;
+  if (!trustedLauncher(event) || !launcherDrag) return;
+  const { targets } = launcherDrag;
   launcherDrag = null;
+  if (finishFloatingGroup(targets)) return;
   launcherWin.setBounds(fitLauncher(launcherWin.getBounds(), screen.getDisplayMatching(launcherWin.getBounds()).workArea));
   saveCompanionBounds(launcherWin, 'launcher-window.json');
 });
@@ -325,7 +363,7 @@ function trustedDashboardSender(event) {
     && sameOrigin(event.sender.getURL(), UI_ORIGIN);
 }
 function companionState() {
-  return { open: !!companionWin, pinned: !!companionWin?.isAlwaysOnTop(), shortcut: SHORTCUT, shortcutAvailable };
+  return { open: !!companionWin, pinned: companionPinned, shortcut: SHORTCUT, shortcutAvailable };
 }
 function notifyCompanion() {
   const state = companionState();
@@ -340,7 +378,7 @@ async function openCompanion(recover = false) {
     if (companionWin.isMinimized()) companionWin.restore();
     if (recover && process.platform === 'darwin') app.focus?.({ steal: true });
     companionWin.show(); companionWin.moveTop(); companionWin.focus();
-    saveCompanionBounds(); return;
+    saveCompanionBounds(); dockFloatingGroup(); return;
   }
   const saved = savedCompanionBounds();
   const bounds = fitBounds(saved, companionArea(recover ? null : saved), recover);
@@ -350,6 +388,7 @@ async function openCompanion(recover = false) {
     minWidth: 280, minHeight: 360, transparent: true, backgroundColor: '#00000000',
     resizable: false, hasShadow: false, alwaysOnTop: false, acceptFirstMouse: true });
   companionWin = window;
+  companionPinned = false;
   notifyCompanion();
   window.on('close', () => saveCompanionBounds(window));
   window.on('closed', () => { if (companionWin === window) companionWin = null; companionDrag = null; notifyCompanion(); });
@@ -363,7 +402,7 @@ async function openCompanion(recover = false) {
   window.webContents.on('render-process-gone', () => window.destroy());
   try {
     await window.loadURL(`${UI_ORIGIN}/companion/`);
-    if (!quitting && !window.isDestroyed()) { window.show(); window.focus(); }
+    if (!quitting && !window.isDestroyed()) { window.show(); window.focus(); dockFloatingGroup(); }
   } catch { if (!window.isDestroyed()) window.destroy(); }
 }
 ipcMain.handle('voice-companion-state', event => trustedDashboardSender(event)
@@ -380,16 +419,25 @@ ipcMain.on('voice-recover-companion', event => {
 });
 ipcMain.on('voice-drag-start', (event, origin) => {
   if (companionWin?.webContents !== event.sender || !trustedVoiceSender(event) || !point(origin)) return;
-  companionDrag = { bounds: companionWin.getBounds(), origin };
+  companionDrag = { bounds: companionWin.getBounds(), origin,
+    launcher: floatingGroup() ? launcherWin.getBounds() : null };
 });
 ipcMain.on('voice-drag-move', (event, current) => {
   if (!companionDrag || companionWin?.webContents !== event.sender || !trustedVoiceSender(event)) return;
   const bounds = dragBounds(companionDrag.bounds, companionDrag.origin, current);
-  if (bounds) companionWin.setPosition(bounds.x, bounds.y);
+  if (!bounds) return;
+  companionWin.setPosition(bounds.x, bounds.y);
+  if (companionDrag.launcher && floatingGroup()) {
+    const icon = dragBounds(companionDrag.launcher, companionDrag.origin, current);
+    companionDrag.targets = { companion: bounds, launcher: icon };
+    launcherWin.setPosition(icon.x, icon.y);
+  }
 });
 ipcMain.on('voice-drag-end', event => {
-  if (companionWin?.webContents !== event.sender || !trustedVoiceSender(event)) return;
+  if (!companionDrag || companionWin?.webContents !== event.sender || !trustedVoiceSender(event)) return;
+  const { targets } = companionDrag;
   companionDrag = null;
+  if (finishFloatingGroup(targets)) return;
   const bounds = companionWin.getBounds();
   companionWin.setBounds(fitBounds(bounds, screen.getDisplayMatching(bounds).workArea));
   saveCompanionBounds();
@@ -400,7 +448,8 @@ ipcMain.on('voice-close-companion', event => {
 });
 ipcMain.on('voice-pin-companion', (event, pinned) => {
   if (typeof pinned === 'boolean' && companionWin?.webContents === event.sender && trustedVoiceSender(event)) {
-    companionWin.setAlwaysOnTop(pinned); notifyCompanion();
+    companionPinned = pinned;
+    companionWin.setAlwaysOnTop(pinned || floatingGroup()); notifyCompanion();
   }
 });
 // Echo looks toward the pointer anywhere on screen. While a voice page watches,
@@ -484,6 +533,7 @@ app.whenReady().then(() => {
   screen.on('display-removed', () => {
     if (companionWin) void recoverCompanion();
     if (launcherWin) launcherWin.setBounds(fitLauncher(null, companionArea()));
+    dockFloatingGroup();
   });
   screen.on('display-metrics-changed', () => {
     if (launcherWin) launcherWin.setBounds(fitLauncher(launcherWin.getBounds(), screen.getDisplayMatching(launcherWin.getBounds()).workArea));
@@ -491,6 +541,7 @@ app.whenReady().then(() => {
       const bounds = companionWin.getBounds();
       companionWin.setBounds(fitBounds(bounds, screen.getDisplayMatching(bounds).workArea));
     }
+    dockFloatingGroup();
   });
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(true); return; }

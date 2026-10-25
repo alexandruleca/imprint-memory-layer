@@ -54,6 +54,13 @@ macOS interactive TCC consent, Developer ID signing/notarization and acoustic
 validation remain separate from automated fake-mic/typed tests. The fake-media
 switches skip TCC entirely. Developer caches are not bundled into installers. See
 [ADR 0044](adr/0044-native-desktop-voice-platforms.md).
+`node ui-electron/smoke-companion-controls.mjs [dashboard-out] [screenshot-dir]`
+runs real Electron against the built dashboard and a disposable fixture API, with
+no voice model download: it opens Companion settings, picks the reasoning model
+in the native select with the keyboard, picks a look, then hides the dashboard
+and drags the docked launcher and head, checking they move together
+([ADR 0070](adr/0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)).
+The native voice workflow runs it on every target before the real-model smoke.
 
 electron-builder signs the macOS desktop app ad hoc as a bundle (`mac.identity: "-"`,
 no hardened runtime), sealing its `Info.plist` with the microphone usage text.

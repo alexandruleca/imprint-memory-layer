@@ -205,7 +205,10 @@ from any dashboard page, following manual close and error events. Off destroys
 the renderer and releases its microphone/session; on never enables the mic
 automatically. **Float Echo** can also open it. The face floats directly over the
 desktop with transparent pixels, no enclosing card, border or panel; individual
-controls have small backdrops for readability. Drag it by the head, the header or the grip; the controls never drag it. Optionally pin it on top. Typing a question works before a conversation starts: sending it starts one and delivers the question once Echo is ready.
+controls have small backdrops for readability. Drag it by the head or the header;
+the controls and the settings panel never drag it. Typing a question works before
+a conversation starts: sending it starts one and delivers the question once Echo
+is ready.
 Its position and monitor are restored on normal open and kept inside the available display area. Press
 **Ctrl+Alt+Shift+E** on Windows/Linux or **⌘⌥⇧E** on Mac to bring it to the cursor’s
 display and focus it. The tray’s **Float Echo** action also recalls it if the OS
@@ -215,6 +218,15 @@ of the dashboard.
 Opening it stops the dashboard voice session; start the companion explicitly.
 The tray also exposes Float Echo. In an ordinary browser this opens a compact
 popup; desktop transparency, dragging and pinning require the Electron shell.
+
+Only talking stays on the companion's screen: **Push to talk**/**Hands-free**,
+the current action and the status line. The **Companion settings** button opens
+the rest: Echo's look, the reasoning model, the hands-free speech threshold, the
+question field and transcript, **Interrupt**, **Stop**, **Keep on top** (which
+shows whether Echo is pinned) and **Close**, plus how to move and recall Echo.
+Settings close with Escape or a click outside; while they are open, a press on
+the head closes them instead of moving the window. The Voice page has the same
+button for its reasoning model and threshold.
 
 Echo has three looks. Choose one during first-time setup, under **Echo's look**
 on the Voice page or as `voice.avatar` in Settings, and change it anytime; the
@@ -255,6 +267,17 @@ retains the existing owned-service shutdown policy. On Mac the menu-bar tray
 image is two-thirds of its previous size. The compact companion fits its viewport
 without a page scrollbar; long transcript text is bounded and full setup details
 remain on the Voice page.
+
+While the dashboard is closed, hidden or minimized, an open companion docks
+beside the floating Imprint button, or above it on a narrow display. Dragging
+either the button or the head moves both; the pair is kept inside one display's
+work area and both positions are saved. The grouped companion stays on top with
+the button. Clicking the button reopens the dashboard and restores the
+companion's own **Keep on top** choice; the head then moves on its own again.
+Closing the companion leaves the button. Recalling Echo while the dashboard is
+hidden docks it beside the button again.
+[ADR 0070](adr/0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)
+records the grouping, the drag handles and the settings panel.
 
 Speech energy drives the jaw from actual playback audio; it is not phoneme/viseme
 alignment. Idle motion and occasional blinks are subtle; controls show the listening/thinking state.

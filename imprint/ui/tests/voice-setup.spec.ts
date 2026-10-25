@@ -111,6 +111,7 @@ for (const size of [{width:400,height:640},{width:320,height:420}]) {
       expect(fit.bottom).toBeLessThanOrEqual(size.height); expect(fit.top).toBeGreaterThanOrEqual(40); expect(fit.scroll).toBeLessThanOrEqual(fit.inner);
     }
     await page.getByRole('button',{name:'Hands-free',exact:true}).click();
+    await page.getByRole('button',{name:'Companion settings'}).click();
     await expect(page.getByRole('slider',{name:'Speech detection threshold'})).toBeVisible();
     expect(await page.getByRole('slider',{name:'Speech detection threshold'}).evaluate(el=>el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(size.height);
   });

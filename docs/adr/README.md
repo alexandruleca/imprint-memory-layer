@@ -99,8 +99,9 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0044](0044-native-desktop-voice-platforms.md) **Native Windows and macOS voice.** Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. Amended by [ADR 0046](0046-visible-echo-runtime-setup.md) (UI-driven setup), [ADR 0047](0047-bundled-private-voice-engine.md) (bundled engine) and [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) (entitlements).
 - [ADR 0046](0046-visible-echo-runtime-setup.md) **Visible first-time Echo setup.** Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. Amended by [ADR 0047](0047-bundled-private-voice-engine.md) (release toolchain policy).
 - [ADR 0047](0047-bundled-private-voice-engine.md) **Bundle the private voice engine.** Native release engines remove the end-user compiler requirement while preserving explicit verified model downloads.
-- [ADR 0048](0048-anime-echo-and-desktop-recovery.md) **Anime Echo and recoverable desktop controls.** Whole-head drag, a recovery shortcut and a floating launcher after Close/minimize for the Echo companion and dashboard. Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md) (Echo's look).
+- [ADR 0048](0048-anime-echo-and-desktop-recovery.md) **Anime Echo and recoverable desktop controls.** Whole-head drag, a recovery shortcut and a floating launcher after Close/minimize for the Echo companion and dashboard. Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md) (Echo's look) and [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) (drag handles and the launcher group).
 - [ADR 0054](0054-echo-looks-declare-their-motion.md) **Echo's looks declare their motion and follow the pointer.** Looks declare gaze, spin and pulse as glTF node extras; the heads' eyes turn at their eye bones; Echo is a generated core that follows the pointer across the screen.
+- [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) **The floating companion moves with the launcher and keeps its options in settings.** While the dashboard is hidden the companion docks beside the launcher and either window drags both; only the head and header drag it; everything except talking sits in a settings panel.
 
 ### Runtime, installers and release
 
@@ -175,7 +176,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0045](0045-setting-choices-and-gpu-auto-select.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | Settings declare their choices; the GPU device defaults to auto |
 | [0046](0046-visible-echo-runtime-setup.md) | 2026-10-24 | Amended by [ADR 0047](0047-bundled-private-voice-engine.md) | Visible first-time Echo setup |
 | [0047](0047-bundled-private-voice-engine.md) | 2026-10-24 | Accepted | Bundle the private voice engine |
-| [0048](0048-anime-echo-and-desktop-recovery.md) | 2026-10-24 | Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md) | Anime Echo and recoverable desktop controls |
+| [0048](0048-anime-echo-and-desktop-recovery.md) | 2026-10-24 | Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md), [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | Anime Echo and recoverable desktop controls |
 | [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | 2026-10-24 | Accepted | llama.cpp GPU offload through upstream's Vulkan wheels |
 | [0050](0050-registered-dashboard-server-and-supervised-restart.md) | 2026-10-24 | Accepted | Registered dashboard server and supervised restart |
 | [0051](0051-synced-tags-follow-the-latest-retag.md) | 2026-10-24 | Accepted | Synced tags follow the latest retag |
@@ -196,6 +197,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0066](0066-dev-prereleases-from-the-dev-branch.md) | 2026-10-25 | Accepted | Dev prereleases from the dev branch |
 | [0067](0067-background-llm-tagging-that-yields-to-every-job.md) | 2026-10-25 | Accepted | Background LLM tagging that yields to every other job |
 | [0068](0068-merge-identical-waiting-jobs.md) | 2026-10-25 | Accepted | Merge identical waiting jobs |
+| [0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | 2026-10-25 | Accepted | The floating companion moves with the launcher and keeps its options in settings |
 
 ## How to write and maintain ADRs
 

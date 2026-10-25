@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowUpRight, Download, GripHorizontal, Mic, MicOff, Pin, Square, X, AudioLines } from "lucide-react";
+import { ArrowUpRight, Download, Mic, MicOff, Pin, Settings2, Square, X, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { VoiceClient, initialVoice, type VoiceSnapshot } from "@/lib/voice-client";
 import { API_BASE } from "@/lib/api-base";
 import { useVoiceSetup } from "@/lib/voice-setup";
@@ -24,6 +25,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [pinned, setPinned] = useState(false);
   const [desktop, setDesktop] = useState(false);
   const [shortcutAvailable, setShortcutAvailable] = useState(true);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   // Echo's look (the voice.avatar setting); null until it is known, so the
   // default never flashes before a different choice loads.
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -76,6 +78,12 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const picker = looks.length > 1 && avatar
     ? (compactPicker: boolean) => <AvatarPicker choices={looks} value={avatar} onChange={look => void chooseLook(look)} compact={compactPicker}/>
     : null;
+  // The full page shows these under its controls; the companion keeps them in its settings panel.
+  const textForm = <form className="voice-text" onSubmit={event => { event.preventDefault(); if (text.trim()) { client.current?.ask(text, engine); setText(""); input.current?.focus(); } }}>
+    <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} onChange={event => setText(event.target.value)}/>
+    <Button type="submit" variant="ghost" size="icon-sm" aria-label="Send question" disabled={!text.trim()}><ArrowUpRight size={17}/></Button>
+  </form>;
+  const transcript = (voice.user || voice.answer) && <div className="voice-transcript"><p className="voice-user">{voice.user}</p><p>{voice.answer || "…"}</p></div>;
   function popout() {
     client.current?.stop();
     if (window.electronAPI?.openCompanion) window.electronAPI.openCompanion();
@@ -83,8 +91,10 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   }
   return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready || voice.preparation ? "voice-needs-setup" : ""}`} data-phase={voice.phase}
     onPointerDown={event => {
-      // The head, header and grip move the window; the controls never do.
-      if (!compact || !desktop || event.button !== 0 || !(event.target instanceof Element)
+      // The head and header move the window (ADR 0070). The controls never do, nor
+      // the settings panel, whose events reach this handler through its portal.
+      if (!compact || !desktop || optionsOpen || event.button !== 0 || !(event.target instanceof Element)
+          || !event.currentTarget.contains(event.target)
           || event.target.closest(".voice-control-area,.voice-window-actions")) return;
       drag.current = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId);
       window.electronAPI?.beginCompanionDrag?.({ x: event.screenX, y: event.screenY }); event.preventDefault();
@@ -99,10 +109,28 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     <header className="voice-header">
       <div className="voice-wordmark"><AudioLines size={17} aria-hidden="true"/><span>IMPRINT <b>/ ECHO</b></span></div>
       <div className="voice-window-actions">
-        {compact ? <>
-          {desktop && <Button variant="ghost" size="icon-sm" aria-label={pinned ? "Unpin companion" : "Keep companion on top"} aria-pressed={pinned} title={pinned ? "On top · click to unpin" : "Keep on top"} className="voice-pin" onClick={() => window.electronAPI?.pinCompanion(!pinned)}><Pin size={14} fill={pinned ? "currentColor" : "none"}/></Button>}
-          <Button variant="ghost" size="icon-sm" aria-label="Close companion" onClick={() => { client.current?.stop(); if (window.electronAPI?.closeCompanion) window.electronAPI.closeCompanion(); else window.close(); }}><X size={16}/></Button>
-        </> : <Button variant="ghost" onClick={popout} className="voice-popout"><ArrowUpRight size={15}/> Float Echo</Button>}
+        {!compact && <Button variant="ghost" onClick={popout} className="voice-popout"><ArrowUpRight size={15}/> Float Echo</Button>}
+        <Popover open={optionsOpen} onOpenChange={setOptionsOpen}>
+          <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Companion settings"/>}><Settings2 size={16}/></PopoverTrigger>
+          <PopoverContent align="end" className={`voice-options ${compact ? "voice-options-compact" : ""}`} aria-label="Companion settings">
+            <PopoverTitle>Companion settings</PopoverTitle>
+            {compact && picker && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
+            <div className="voice-settings">
+              <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} disabled={active} onChange={event => setEngine(event.target.value as "chat" | "lfm")}>
+                <option value="chat" disabled={runtime?.chat_provider !== "local"}>Same local model as Chat</option><option value="lfm">Small voice model · LFM 1.5B</option>
+              </select></label>
+              {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
+            </div>
+            {compact && ready && textForm}{compact && ready && transcript}
+            {compact && <div className="voice-option-actions">
+              {active && <><Button variant="ghost" aria-label="Interrupt reply" onClick={() => client.current?.interrupt()}><Square size={14}/> Interrupt</Button>
+                <Button variant="ghost" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={14}/> Stop</Button></>}
+              {desktop && <Button variant="ghost" aria-label={pinned ? "Unpin companion" : "Keep companion on top"} aria-pressed={pinned} className="voice-pin" onClick={() => window.electronAPI?.pinCompanion(!pinned)}><Pin size={14} fill={pinned ? "currentColor" : "none"}/> {pinned ? "On top" : "Keep on top"}</Button>}
+              <Button variant="ghost" aria-label="Close companion" onClick={() => { client.current?.stop(); if (window.electronAPI?.closeCompanion) window.electronAPI.closeCompanion(); else window.close(); }}><X size={14}/> Close</Button>
+            </div>}
+            {compact && desktop && <small className="voice-hint">Drag Echo to move it; with the dashboard hidden, Echo and the Imprint button move together. {shortcutAvailable ? `${shortcut} recalls Echo.` : "Recall Echo from the Imprint tray menu."}</small>}
+          </PopoverContent>
+        </Popover>
       </div>
     </header>
     {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
@@ -133,27 +161,16 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
                 onKeyUp={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); client.current?.release(); } }}
                 onBlur={() => client.current?.release(false)}><Mic size={18}/>{voice.held ? "Release to send" : "Hold to talk"}</Button>
               : <Button className="voice-start" onClick={() => client.current?.interrupt()}><Mic size={18}/> Listening · interrupt</Button>}
-            <Button variant="ghost" size="icon-lg" aria-label="Interrupt reply" onClick={() => client.current?.interrupt()}><Square size={16}/></Button>
-            <Button variant="ghost" size="icon-lg" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>
+            {!compact && <><Button variant="ghost" size="icon-lg" aria-label="Interrupt reply" onClick={() => client.current?.interrupt()}><Square size={16}/></Button>
+              <Button variant="ghost" size="icon-lg" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={18}/></Button></>}
           </>}
       </div>
       {compact && <VoiceChatSetup preparation={voice.preparation} compact/>}
       <p className="voice-privacy" role="status" data-alert={voice.phase === "error" || !!voice.microphoneError || undefined}>{voice.phase === "error" ? voice.detail : voice.microphoneError || (voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally")}</p>
-      <form className="voice-text" onSubmit={event => { event.preventDefault(); if (text.trim()) { client.current?.ask(text, engine); setText(""); input.current?.focus(); } }}>
-        <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} onChange={event => setText(event.target.value)}/>
-        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Send question" disabled={!text.trim()}><ArrowUpRight size={17}/></Button>
-      </form>
-      {(voice.user || voice.answer) && <div className="voice-transcript"><p className="voice-user">{voice.user}</p><p>{voice.answer || "…"}</p></div>}
-      <div className="voice-settings">
-        <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} disabled={active} onChange={event => setEngine(event.target.value as "chat" | "lfm")}>
-          <option value="chat" disabled={runtime?.chat_provider !== "local"}>Same local model as Chat</option><option value="lfm">Small voice model · LFM 1.5B</option>
-        </select></label>
-        {picker && !compact && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
-        {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
-      </div>
+      {!compact && textForm}{!compact && transcript}
+      {!compact && picker && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
       </>}
     </div>
     {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href={`/models/imprint-${avatar || "echo"}.glb`} download><Download size={13}/> Download 3D model</a></footer>}
-    {compact && desktop && <div className="voice-grip"><GripHorizontal size={14}/><span>Drag Echo to move · {shortcutAvailable ? `${shortcut} to recall` : "Recall from Imprint tray menu"}</span></div>}
   </section>;
 }

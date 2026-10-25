@@ -87,9 +87,13 @@ test('compact companion hides dashboard chrome and exposes hands-free controls',
   await page.setViewportSize({ width: 380, height: 610 });
   await page.goto('/companion/');
   await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Close companion' })).toBeVisible();
+  // Only talking stays on screen; everything else waits behind Companion settings.
+  await expect(page.getByRole('button', { name: 'Close companion' })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Voice reasoning model' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Hands-free', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Hands-free', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  await expect(page.getByRole('button', { name: 'Close companion' })).toBeVisible();
   await expect(page.getByRole('slider', { name: 'Speech detection threshold' })).toBeVisible();
   await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
   await expect(page.locator('.voice-compact')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -123,18 +127,48 @@ test('companion: a typed question starts the conversation; controls never drag t
   await page.setViewportSize({ width: 380, height: 610 });
   await page.goto('/companion/');
   await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
+  await page.locator('.voice-privacy').click();
+  await page.getByRole('button', { name: 'Companion settings' }).click();
   const question = page.getByRole('textbox', { name: 'Type a question' });
   await question.click();
   await page.keyboard.type('What did I decide about caching?');
   await expect(question).toHaveValue('What did I decide about caching?');
   await page.locator('.voice-text').click({ position: { x: 4, y: 16 } }); // the box's padding beside the field
-  await page.locator('.voice-privacy').click();
   await page.getByText('Voice reasoning').click();
+  await page.getByText('Companion settings', { exact: true }).click();
   expect(await bridge.calls()).not.toContain('drag-start');
-  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Send question' }).click();
   await expect.poll(() => server.controls.find(control => control.type === 'turn')?.text).toBe('What did I decide about caching?');
   await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+  // Every control in the panel is outside the native drag region.
+  const regions = await page.getByRole('dialog', { name: 'Companion settings' }).locator('select,input,button,label')
+    .evaluateAll(elements => elements.map(element => getComputedStyle(element).getPropertyValue('app-region')));
+  expect(regions.length).toBeGreaterThan(3);
+  expect(regions.every(value => value === 'no-drag')).toBe(true);
+});
+
+test('companion: settings close with Escape; while open, a press on the head closes them instead of dragging', async ({ page }) => {
+  await prepare(page);
+  const bridge = await companionBridge(page);
+  await page.setViewportSize({ width: 380, height: 610 });
+  await page.goto('/companion/');
+  await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Companion settings' });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  await expect(dialog).toBeVisible();
+  // A point on the head that the panel does not cover.
+  const box = (await page.locator('.voice-stage').boundingBox())!, panel = (await dialog.boundingBox())!;
+  const head = { x: box.x + 6, y: Math.max(box.y + 6, Math.min(box.y + box.height - 6, panel.y + panel.height + 6)) };
+  expect(head.x < panel.x || head.y > panel.y + panel.height).toBe(true);
+  await page.mouse.click(head.x, head.y);
+  await expect(dialog).toHaveCount(0);
+  expect(await bridge.calls()).not.toContain('drag-start');
+  await page.mouse.click(head.x, head.y);
+  expect(await bridge.calls()).toEqual(['drag-start', 'drag-end']);
 });
 
 test('companion: the head drags the window, and a release it missed ends the drag', async ({ page }) => {
@@ -164,6 +198,7 @@ test('companion: pin shows the on-top state the main process reports', async ({ 
   await prepare(page);
   const bridge = await companionBridge(page);
   await page.goto('/companion/');
+  await page.getByRole('button', { name: 'Companion settings' }).click();
   const pin = page.getByRole('button', { name: 'Keep companion on top' });
   const unpinnedColor = await pin.evaluate(element => getComputedStyle(element).color);
   await pin.click();
@@ -291,6 +326,7 @@ test('first-time chat setup shows real download progress in Voice and ignores la
 test('compact chat download keeps cancellation controls inside the viewport', async ({ page }) => {
   const server = await prepare(page); await page.setViewportSize({ width: 320, height: 420 });
   await page.goto('/companion/'); await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('button', { name: 'Companion settings' }).click();
   await page.getByRole('textbox', { name: 'Type a question' }).fill('Hello');
   await page.getByRole('button', { name: 'Send question' }).click();
   await expect.poll(() => server.controls.some(c => c.type === 'turn')).toBe(true);
