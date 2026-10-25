@@ -1,7 +1,7 @@
 """Imprint MCP Server — lightweight memory for Claude Code."""
 
 import sys
-from typing import Annotated
+from typing import Annotated, Literal
 from pydantic import Field
 
 from fastmcp import FastMCP
@@ -222,6 +222,74 @@ def wake_up(workspace: str = "") -> str:
     return "\n".join(lines)
 
 
+# ── Reads shared by the read tools and recall ────────────────
+# Each read normalizes its arguments and fetches records exactly once; the
+# tools format the records, and recall merges records from several reads.
+# Arguments a reader does not accept (workspace, output budgets) belong to
+# the caller.
+
+def search_rows(query: Annotated[str, Field(min_length=1, max_length=4000)], project: str = "",
+                type: str = "", lang: str = "", layer: str = "", kind: str = "", domain: str = "",
+                limit: int = 5, offset: int = 0, mode: Literal["hybrid", "semantic"] = "hybrid",
+                source: str = "", *, workspace: str) -> list[dict]:
+    if not query.strip():
+        raise ValueError("query is required")
+    if len(query) > 4000 or mode not in {"hybrid", "semantic"}:
+        raise ValueError("query must be at most 4000 characters; mode must be hybrid or semantic")
+    tag_filters: dict = {}
+    if lang:
+        tag_filters["lang"] = lang
+    if layer:
+        tag_filters["layer"] = layer
+    if kind:
+        tag_filters["kind"] = kind
+    if domain:
+        doms = [d.strip() for d in domain.split(",") if d.strip()]
+        if doms:
+            tag_filters["domain"] = doms
+    return vs.search(
+        query, limit=max(1, min(limit, 50)), offset=max(0, min(offset, 255)), project=project, type=type,
+        tag_filters=tag_filters or None, workspace=workspace, mode=mode, source=source,
+    )
+
+
+def memory_row(memory_id: str, *, workspace: str) -> dict:
+    from .cli_viz import get_memory as read_memory
+    return dict(read_memory(memory_id, workspace=workspace))
+
+
+def _memory_id(id: str) -> str:
+    return id.split(":", 1)[-1] if id.startswith("chunk:") else id
+
+
+def neighbor_rows(id: str, k: int = 10, *, workspace: str) -> list[dict]:
+    from .cli_viz import get_neighbors
+    data = get_neighbors(_memory_id(id), k=max(1, min(int(k or 10), 30)), workspace=workspace)
+    return (data or {}).get("neighbors", []) if isinstance(data, dict) else []
+
+
+def chunk_rows(source: str, start: int = 0, end: int = -1, project: str = "", *, workspace: str) -> list[dict]:
+    start = max(0, start)
+    if end >= 0 and end < start:
+        raise ValueError("end must be greater than or equal to start")
+    end_val = min(end, start + 19) if end >= start else start + 19
+    return vs.get_chunks_by_source(source, start=start, end=end_val, project=project, workspace=workspace)
+
+
+def summary_row(source: str, project: str = "", *, workspace: str) -> dict | None:
+    return vs.get_source_summary(source, project=project, workspace=workspace)
+
+
+def source_rows(project: str = "", lang: str = "", layer: str = "", limit: int = 50, *,
+                workspace: str) -> list[tuple[str, int]]:
+    return vs.list_sources(project=project, lang=lang, layer=layer, limit=max(1, min(limit, 200)),
+                           workspace=workspace)
+
+
+def fact_rows(subject: str = "", predicate: str = "", limit: int = 20, *, workspace: str) -> list[dict]:
+    return kg.query(subject=subject, predicate=predicate, limit=max(1, min(limit, 100)), workspace=workspace)
+
+
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 def search(
     query: Annotated[str, Field(min_length=1, max_length=4000)],
@@ -262,31 +330,15 @@ def search(
     if err:
         return err
 
-    if not query.strip():
-        return "Error: query is required"
-    if len(query) > 4000 or mode not in {"hybrid", "semantic"}:
-        return "Error: query must be at most 4000 characters; mode must be hybrid or semantic"
     if detail not in {'compact', 'full'} or not 1200 <= max_chars <= 12000:
         return 'Error: detail must be compact or full; max_chars must be 1200–12000'
+    try:
+        results = search_rows(query, project, type, lang, layer, kind, domain, limit, offset, mode, source,
+                              workspace=ws)
+    except ValueError as error:
+        return f"Error: {error}"
     limit = max(1, min(limit, 50))
     offset = max(0, min(offset, 255))
-
-    tag_filters: dict = {}
-    if lang:
-        tag_filters["lang"] = lang
-    if layer:
-        tag_filters["layer"] = layer
-    if kind:
-        tag_filters["kind"] = kind
-    if domain:
-        doms = [d.strip() for d in domain.split(",") if d.strip()]
-        if doms:
-            tag_filters["domain"] = doms
-
-    results = vs.search(
-        query, limit=limit, offset=offset, project=project, type=type,
-        tag_filters=tag_filters or None, workspace=ws, mode=mode, source=source,
-    )
 
     if detail == 'compact':
         from .mcp_output import compact_search
@@ -510,9 +562,8 @@ def get_memory(memory_id: str, workspace: str = "", start: int = 0, max_chars: i
         return err
     if start < 0 or not 100 <= max_chars <= 12000:
         return 'Error: start must be nonnegative; max_chars must be 100–12000'
-    from .cli_viz import get_memory as read_memory
     import json
-    data = dict(read_memory(memory_id, workspace=ws))
+    data = memory_row(memory_id, workspace=ws)
     content = data.get("content", "")
     data["content"] = content[start:start + max_chars]
     data['start'] = start
@@ -535,7 +586,7 @@ def kg_query(subject: str = "", predicate: str = "", limit: int = 20, workspace:
     ws, err = _validate_ws(workspace)
     if err:
         return err
-    facts = kg.query(subject=subject, predicate=predicate, limit=max(1, min(limit, 100)), workspace=ws)
+    facts = fact_rows(subject, predicate, limit, workspace=ws)
 
     if not facts:
         return "No facts found."
@@ -792,9 +843,7 @@ def list_sources(
     if err:
         return err
 
-    sources = vs.list_sources(
-        project=project, lang=lang, layer=layer, limit=max(1, min(limit, 200)), workspace=ws,
-    )
+    sources = source_rows(project, lang, layer, limit, workspace=ws)
 
     if not sources:
         return "No indexed sources found. Use 'imprint ingest <dir>' to index a project."
@@ -824,7 +873,7 @@ def file_summary(
     if err:
         return err
 
-    summary = vs.get_source_summary(source, project=project, workspace=ws)
+    summary = summary_row(source, project, workspace=ws)
     if summary is None:
         return f"Source not found in KB: {source}\nUse list_sources to discover indexed files."
 
@@ -971,11 +1020,8 @@ def neighbors(id: str, k: int = 10, workspace: str = "") -> str:
     ws, err = _validate_ws(workspace)
     if err:
         return err
-    from .cli_viz import get_neighbors
-
-    mid = id.split(":", 1)[-1] if id.startswith("chunk:") else id
-    data = get_neighbors(mid, k=max(1, min(int(k or 10), 30)), workspace=ws)
-    nbs = (data or {}).get("neighbors", []) if isinstance(data, dict) else []
+    mid = _memory_id(id)
+    nbs = neighbor_rows(id, k, workspace=ws)
     if not nbs:
         return f"No neighbors for {mid}. Try `get_memory` to confirm the id exists."
 
@@ -1024,14 +1070,10 @@ def file_chunks(
     if err:
         return err
 
-    start = max(0, start)
-    if end >= 0 and end < start:
-        return "Error: end must be greater than or equal to start"
-    end_val = min(end, start + 19) if end >= start else start + 19
-
-    chunks = vs.get_chunks_by_source(
-        source, start=start, end=end_val, project=project, workspace=ws,
-    )
+    try:
+        chunks = chunk_rows(source, start, end, project, workspace=ws)
+    except ValueError as error:
+        return f"Error: {error}"
 
     if not chunks:
         return f"No chunks found for: {source}\nUse list_sources to discover indexed files."

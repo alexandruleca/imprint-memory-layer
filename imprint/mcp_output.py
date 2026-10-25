@@ -17,6 +17,30 @@ def excerpt(content: str, query: str, width: int) -> tuple[str, int, bool]:
     return content[start:start + width], start, True
 
 
+def memory_meta(result: dict, label: str) -> list[str]:
+    """Provenance fields of one memory: label, project/type/source, hash, device and path."""
+    origin = result.get('recorded_device') or {}
+    path = result.get('path_context') or {}
+    meta = [label]
+    for key in ('project', 'type', 'source'):
+        if result.get(key):
+            meta.append(f'{key}:{str(result[key])[:256]}')
+    if result.get('source_hash'):
+        meta.append('sha256:' + result['source_hash'][:12])
+    meta.append('recorded on: ' + str(origin.get('name') or 'unknown origin')[:128]
+                + (f" [{origin['id']}]" if origin.get('id') else ''))
+    if path.get('original_source_path'):
+        meta.append('original path (reference): ' + str(path['original_source_path'])[:256])
+        meta.append('path status: ' + path.get('path_status', 'unknown'))
+    if path.get('local_source_path'):
+        meta.append('local path (verify): ' + str(path['local_source_path'])[:256])
+    return meta
+
+
+def expand_hint(memory_id: str, start: int, end: int, total: int) -> str:
+    return f'[excerpt chars {start}:{end} of {total}; expand with get_memory("{memory_id}")]'
+
+
 def compact_search(results, query, workspace, offset, limit, max_chars, threshold):
     """Emit whole result blocks and a continuation that never skips hidden hits."""
     header = f'Workspace: {workspace}. Search evidence; verify live sources before edits.\n'
@@ -30,19 +54,7 @@ def compact_search(results, query, workspace, offset, limit, max_chars, threshol
         rid = result.get('id', '')
         origin = result.get('recorded_device') or {}
         path = result.get('path_context') or {}
-        meta = [f"[{offset + index + 1}] id:{rid} sim:{result['similarity']:.3f}"]
-        for key in ('project', 'type', 'source'):
-            if result.get(key):
-                meta.append(f'{key}:{str(result[key])[:256]}')
-        if result.get('source_hash'):
-            meta.append('sha256:' + result['source_hash'][:12])
-        meta.append('recorded on: ' + str(origin.get('name') or 'unknown origin')[:128]
-                    + (f" [{origin['id']}]" if origin.get('id') else ''))
-        if path.get('original_source_path'):
-            meta.append('original path (reference): ' + str(path['original_source_path'])[:256])
-            meta.append('path status: ' + path.get('path_status', 'unknown'))
-        if path.get('local_source_path'):
-            meta.append('local path (verify): ' + str(path['local_source_path'])[:256])
+        meta = memory_meta(result, f"[{offset + index + 1}] id:{rid} sim:{result['similarity']:.3f}")
         content = result.get('content', '')
         width = min(900 if not blocks else 300, max_chars - used - len(' | '.join(meta)) - 300)
         if width < 100:
@@ -59,7 +71,7 @@ def compact_search(results, query, workspace, offset, limit, max_chars, threshol
         text, start, truncated = excerpt(content, query, width)
         block = ' | '.join(meta) + '\n' + text
         if truncated:
-            block += f'\n[excerpt chars {start}:{start + len(text)} of {len(content)}; expand with get_memory("{rid}")]'
+            block += '\n' + expand_hint(rid, start, start + len(text), len(content))
         block += '\n\n'
         if used + len(block) > max_chars - 160:
             more = True

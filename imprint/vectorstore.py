@@ -1027,7 +1027,8 @@ def get_chunks_by_source(
         end: Last chunk index to include (inclusive). None = all from start.
         project: Filter by project (optional).
 
-    Returns list of dicts: {chunk_index, content, tags}.
+    Returns list of dicts: {id, project, source, chunk_index, content, tags,
+    recorded_device, path_context}.
     """
     client, coll = _ensure_collection(workspace)
     must = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
@@ -1043,7 +1044,7 @@ def get_chunks_by_source(
             scroll_filter=flt,
             limit=_SCAN_BATCH,
             offset=offset,
-            with_payload=["content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local", "origin_project"],
+            with_payload=["_mid", "content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local", "origin_project"],
             with_vectors=False,
         )
         all_points.extend(points)
@@ -1065,6 +1066,9 @@ def get_chunks_by_source(
         if end is not None and idx > end:
             continue
         results.append({
+            "id": pl.get("_mid") or str(p.id),
+            "project": pl.get("project", ""),
+            "source": pl.get("source", ""),
             "chunk_index": idx,
             "content": pl.get("content", ""),
             "tags": pl.get("tags", {}),
