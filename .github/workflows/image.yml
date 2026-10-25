@@ -1,9 +1,11 @@
 name: Image
 
 on:
+  # Images follow stable releases only: dev prereleases publish none (ADR 0066).
   workflow_run:
     workflows: ["Release"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
@@ -37,16 +39,11 @@ jobs:
       - name: Determine channel
         id: channel
         env:
-          UPSTREAM: ${{ github.event.workflow_run.name }}
           INPUT_CHANNEL: ${{ inputs.channel }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            if [ "$UPSTREAM" = "Dev Release" ]; then
-              CHANNEL=dev
-            else
-              CHANNEL=stable
-            fi
+            CHANNEL=stable
           else
             CHANNEL="${INPUT_CHANNEL:-stable}"
           fi

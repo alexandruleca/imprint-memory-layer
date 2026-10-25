@@ -1,8 +1,10 @@
 name: Release
 
+# main publishes stable releases; dev publishes prereleases of the next stable
+# version through the same build (ADR 0066).
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
     inputs:
       bump:
@@ -12,16 +14,18 @@ on:
         type: choice
         options: [auto, patch, minor, major]
 
+# A newer dev push supersedes a dev build in progress; a stable release always
+# finishes. Each branch has its own group, so neither queues behind the other.
 concurrency:
-  group: release
-  cancel-in-progress: false
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/dev' }}
 
 permissions:
   contents: write
 
 jobs:
   analyze:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.compute.outputs.version }}
@@ -39,6 +43,14 @@ jobs:
           FORCE_BUMP: ${{ github.event.inputs.bump }}
         run: |
           set -euo pipefail
+
+          # A commit main already holds is released from main (or was found
+          # not releasable there); dev does not build it a second time.
+          if [ "$GITHUB_REF" = refs/heads/dev ] && git merge-base --is-ancestor HEAD origin/main; then
+            echo "Analysis: $(git rev-parse --short HEAD) is already on main; its release comes from main"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           LAST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
 
@@ -98,6 +110,12 @@ jobs:
             esac
           fi
 
+          # A dev build is the Nth prerelease of the version main would release.
+          if [ -n "$NEW" ] && [ "$GITHUB_REF" = refs/heads/dev ]; then
+            BUILD=$(git tag --list "v${NEW}-dev.*" | sed 's/.*-dev\.//' | grep -E '^[0-9]+$' | sort -n | tail -1 || true)
+            NEW="${NEW}-dev.$(( ${BUILD:-0} + 1 ))"
+          fi
+
           echo "Analysis: last=$LAST bump=$BUMP next=${NEW:-<skip>}"
           echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
 
@@ -118,5 +136,6 @@ jobs:
       contents: write
     with:
       version: ${{ needs.analyze.outputs.version }}
+      prerelease: ${{ github.ref == 'refs/heads/dev' }}
       publish: true
     secrets: inherit

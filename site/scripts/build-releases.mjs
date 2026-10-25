@@ -23,7 +23,9 @@ const REPO = process.env.IMPRINT_REPO || 'alexandruleca/imprint-memory-layer';
 const OUT = resolve(__dirname, '../src/data/releases.json');
 const CACHE = resolve(__dirname, '.release-cache.json');
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-const MAX_RELEASES = 30;
+// GitHub's page maximum: dev prereleases (ADR 0066) sit between stable releases,
+// and the stable history and latest Chrome extension come from this window.
+const MAX_RELEASES = 100;
 const TIMEOUT_MS = 8000;
 
 const PLATFORM_MATCHERS = [

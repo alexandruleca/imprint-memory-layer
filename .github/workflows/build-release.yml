@@ -28,14 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require main for release packaging
+      - name: Require main or dev for release packaging
         env:
           SOURCE_REF: ${{ github.ref }}
         run: |
-          if [ "$SOURCE_REF" != refs/heads/main ]; then
-            echo '::error::Release artifacts are built only from main. Use CI for branch compile/test checks.'
-            exit 1
-          fi
+          case "$SOURCE_REF" in
+            refs/heads/main | refs/heads/dev) ;;
+            *)
+              echo '::error::Release artifacts are built only from main (stable) and dev (prereleases). Use CI for branch compile/test checks.'
+              exit 1
+              ;;
+          esac
 
   voice-engines:
     needs: branch-policy
