@@ -17,7 +17,9 @@ install into the runtime the dashboard runs from, and ``disable``, ``ui``,
 ``server`` and ``uninstall`` stop or remove the dashboard itself; the page
 connects and disconnects clients with ``connect`` and ``disconnect`` instead.
 WSL profiles (Settings, ``wsl_profiles``), workspaces, purge, move, sync
-pairing and updates have their own dashboard flows.
+pairing and updates have their own dashboard flows. The API queues
+``bootstrap`` itself when Settings changes the embedding runtime (ADR 0062);
+no client can request it.
 """
 
 from __future__ import annotations

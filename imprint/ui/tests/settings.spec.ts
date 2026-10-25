@@ -117,3 +117,56 @@ test('GPUs are picked from a list that explains which ones cannot run, or entere
   await expect(trigger).toHaveText('Custom: 3');
   await expect(custom).toHaveValue('3');
 });
+
+const RTX = 'NVIDIA GeForce RTX 4080 Laptop GPU, CUDA 13';
+
+// Mirrors imprint/api.py: model.device's choices say what each value does on
+// this device, and a change that needs another ONNX Runtime build names the
+// queued `imprint bootstrap` that installs it (ADR 0062).
+async function mockDeviceApi(page: Page, auto: string, gpu: { detail: string; unavailable: string }) {
+  const state = { value: 'cpu', puts: [] as unknown[] };
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/queue**', route => route.fulfill({ json: { active: null, queued: [], recent: [] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'model.device', value: state.value, source: state.value === 'cpu' ? 'default' : 'config', default: 'cpu', type: 'str',
+      env: 'IMPRINT_DEVICE', desc: 'Compute device: auto / cpu / gpu (NVIDIA GPUs, through CUDA)', custom: false, choices: [
+        { value: 'auto', label: 'Auto', detail: auto, unavailable: '' },
+        { value: 'cpu', label: 'CPU', detail: 'The default model runs faster on the CPU', unavailable: '' },
+        { value: 'gpu', label: 'GPU', ...gpu },
+      ] },
+  ] } }));
+  await page.route('**/api/config/model.device', async route => {
+    const body = route.request().postDataJSON();
+    state.puts.push(body);
+    state.value = body.value;
+    await route.fulfill({ json: { ok: true, value: body.value, provisioning: body.value === 'cpu' ? null : 'job-1' } });
+  });
+  return state;
+}
+
+test('choosing GPU embedding says what it installs and queues the installation', async ({ page }) => {
+  const installs = `${RTX}; installs the CUDA runtime, more than 1 GB`;
+  const state = await mockDeviceApi(page, installs, { detail: installs, unavailable: '' });
+  await page.goto('/settings/');
+  const trigger = page.getByRole('combobox', { name: 'Device' });
+  await trigger.click();
+  const option = page.getByRole('option', { name: /^GPU/ });
+  await expect(option).toContainText('installs the CUDA runtime, more than 1 GB');
+  await option.click();
+  await expect.poll(() => state.puts).toEqual([{ value: 'gpu' }]);
+  const toast = page.locator('[data-sonner-toast]', { hasText: 'Installing the embedding runtime' });
+  await expect(toast).toContainText('then the dashboard restarts');
+  await toast.getByRole('button', { name: 'Open queue' }).click();
+  await expect(page).toHaveURL(/\/queue\/?$/);
+});
+
+test('a device without a usable NVIDIA GPU cannot choose GPU embedding', async ({ page }) => {
+  await mockDeviceApi(page, 'CPU here: no NVIDIA GPU found', { detail: '', unavailable: 'No NVIDIA GPU found' });
+  await page.goto('/settings/');
+  await page.getByRole('combobox', { name: 'Device' }).click();
+  const option = page.getByRole('option', { name: /^GPU/ });
+  await expect(option).toContainText('No NVIDIA GPU found');
+  await expect(option).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('option', { name: /^Auto/ })).toContainText('CPU here: no NVIDIA GPU found');
+});

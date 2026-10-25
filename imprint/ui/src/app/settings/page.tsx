@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Bot, Boxes, Cpu, Database, FileInput, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
@@ -9,7 +10,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { getConfig, resetConfigValue, setConfigValue } from "@/lib/api";
+import { getConfig, resetConfigValue, setConfigValue, type ConfigChange } from "@/lib/api";
 import { SettingsSkeleton } from "@/components/loaders";
 import { WorkspaceManager } from "@/components/workspace-manager";
 import { WslProfiles } from "@/components/wsl-profiles";
@@ -42,6 +43,7 @@ function matches(s: ConfigSetting, query: string) {
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [settings, setSettings] = useState<ConfigSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -56,9 +58,19 @@ export default function SettingsPage() {
 
   // Rows confirm success inline. Secret values never appear in these
   // messages: only the key does.
+  // A change of embedding device can need another ONNX Runtime; the server
+  // queues its installation and restarts once it is in place.
+  function announceProvisioning(change: ConfigChange) {
+    if (!change.provisioning) return;
+    toast("Installing the embedding runtime", {
+      description: "imprint bootstrap installs what this device needs, then the dashboard restarts.",
+      action: { label: "Open queue", onClick: () => router.push("/queue") },
+    });
+  }
+
   async function saveValue(key: string, value: string) {
     try {
-      await setConfigValue(key, value);
+      announceProvisioning(await setConfigValue(key, value));
       setSettings((await getConfig()).settings);
       return true;
     } catch (e) {
@@ -69,7 +81,7 @@ export default function SettingsPage() {
 
   async function resetValue(s: ConfigSetting) {
     try {
-      await resetConfigValue(s.key);
+      announceProvisioning(await resetConfigValue(s.key));
       setSettings((await getConfig()).settings);
       return true;
     } catch (e) {

@@ -385,8 +385,9 @@ def _reap_dead_running() -> None:
                 )
 
 
-async def dispatcher_loop() -> None:
-    """Run forever: pick up queued jobs one at a time and execute them."""
+async def dispatcher_loop(after_job=None) -> None:
+    """Run forever: pick up queued jobs one at a time and execute them.
+    ``after_job(command, status)`` runs in the server once each job ends."""
     global _dispatcher_wake, _dispatcher_loop
     _dispatcher_loop = asyncio.get_running_loop()
     _dispatcher_wake = asyncio.Event()
@@ -402,7 +403,7 @@ async def dispatcher_loop() -> None:
             continue
 
         try:
-            await _run_job(job)
+            await _run_job(job, after_job)
         except Exception as e:
             _finalize(job["id"], status="failed", exit_code=None, error=f"dispatcher: {e}")
 
@@ -431,7 +432,7 @@ def _next_queued() -> dict | None:
     return _row_to_dict(row) if row else None
 
 
-async def _run_job(job: dict) -> None:
+async def _run_job(job: dict, after_job=None) -> None:
     job_id = job["id"]
     command = job["command"]
     body = job.get("body") or {}
@@ -515,11 +516,12 @@ async def _run_job(job: dict) -> None:
 
         _finalize(job_id, status=status, exit_code=exit_code, error=None)
 
-        # Reset in-process caches after commands that mutate collections.
-        if status == "done" and command in ("wipe", "migrate", "workspace", "retag", "scrub"):
+        # The server running this dispatcher refreshes what the job changed.
+        # It hands in the callback: `python -m imprint.api` serves from
+        # __main__, so importing imprint.api here would reach a second copy.
+        if after_job is not None:
             try:
-                from .api import _reset_after_wipe  # lazy import
-                _reset_after_wipe()
+                after_job(command, status)
             except Exception:
                 pass
     finally:
@@ -712,6 +714,9 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.append(action)
         if body.get("name"):
             args.append(body["name"])
+    elif command == "bootstrap":
+        # Settings changed the embedding runtime (ADR 0062); a job cannot answer prompts.
+        args.append("--non-interactive")
     elif command == "wsl":
         # setup or remove one distribution's default-user profile of a client
         if body.get("action"):

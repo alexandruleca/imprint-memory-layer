@@ -392,8 +392,15 @@ export async function getConfig() {
   return fetchAPI<{ settings: ConfigSetting[] }>("/api/config");
 }
 
+/** A saved setting. `provisioning` names the queued `imprint bootstrap` job
+ * when the change needs another embedding runtime on this device. */
+export interface ConfigChange {
+  ok: boolean;
+  provisioning?: string | null;
+}
+
 export async function setConfigValue(key: string, value: unknown) {
-  return fetchAPI(`/api/config/${encodeURIComponent(key)}`, {
+  return fetchAPI<ConfigChange & { value: unknown }>(`/api/config/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: JSON.stringify({ value }),
   });
@@ -401,7 +408,7 @@ export async function setConfigValue(key: string, value: unknown) {
 
 /** Remove the config.json override so the env var or default applies. */
 export async function resetConfigValue(key: string) {
-  return fetchAPI(`/api/config/${encodeURIComponent(key)}`, { method: "DELETE" });
+  return fetchAPI<ConfigChange & { removed: boolean }>(`/api/config/${encodeURIComponent(key)}`, { method: "DELETE" });
 }
 
 // ── Queue / Commands ───────────────────────────────────────────

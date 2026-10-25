@@ -38,6 +38,7 @@ from . import imprint_graph as kg
 from . import chat as chat_mod
 from . import chat_store
 from . import commands
+from . import gpu_runtime
 from . import queue as job_queue
 from . import updates
 from .http_security import local_origin, local_host, loopback_address
@@ -110,7 +111,7 @@ app.include_router(voice_router)
 @app.on_event("startup")
 async def _start_queue_dispatcher():
     job_queue.recover_on_startup()
-    asyncio.create_task(job_queue.dispatcher_loop())
+    asyncio.create_task(job_queue.dispatcher_loop(_after_job))
     asyncio.create_task(job_queue.reaper_loop())
     from .sync_pairs import run
     app.state.sync_worker = asyncio.create_task(run())
@@ -882,7 +883,7 @@ async def api_config_set(key: str, request: Request):
         return JSONResponse({"error": str(e)}, status_code=404)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
-    return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val)}
+    return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val), "provisioning": _provision_runtime(key)}
 
 
 @app.delete("/api/config/{key:path}")
@@ -890,12 +891,56 @@ def api_config_reset(key: str):
     """Remove the config.json override, like `imprint config reset <key>`."""
     from .config_schema import reset_value
     try:
-        return {"ok": True, "removed": reset_value(key)}
+        removed = reset_value(key)
     except KeyError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
+    return {"ok": True, "removed": removed, "provisioning": _provision_runtime(key)}
+
+
+def _provision_runtime(key: str) -> str | None:
+    """Queue ``imprint bootstrap`` when changing ``key`` changed which ONNX
+    Runtime embeddings need here, and return the job's ID (ADR 0062).
+
+    Setup's own process installs the runtime: this server keeps the one it
+    loaded until that job finishes, then restarts into the new one. A queued
+    job reads the configuration when it starts, so one is enough; a running
+    job may have read it before this change, so another follows it.
+    """
+    if key not in gpu_runtime.SETTINGS:
+        return None
+    jobs = job_queue.list_queue(recent_limit=0)
+    queued = next((job for job in jobs["queued"] if job["command"] == "bootstrap"), None)
+    if queued:
+        return queued["id"]
+    running = (jobs["active"] or {}).get("command") == "bootstrap"
+    if not running and not gpu_runtime.pending():
+        return None
+    return job_queue.enqueue("bootstrap", {})
+
+
+# The ONNX Runtime this process loaded, when it imported vectorstore.
+_LOADED_RUNTIME = gpu_runtime.installed()
+
+
+def restart_into_runtime() -> None:
+    """Restart this server after a queued ``imprint bootstrap`` replaced the
+    ONNX Runtime it loaded, so it embeds with the new one (ADR 0050, 0062).
+    A server no launcher supervises keeps running until it is restarted."""
+    if app.state.server is not None and gpu_runtime.installed() != _LOADED_RUNTIME:
+        app.state.server.restart()
 
 
 # ── CLI command execution ──────────────────────────────────────
+
+
+def _after_job(command: str, status: str) -> None:
+    """Refresh this server after a queued job changed what it serves."""
+    if status != "done":
+        return
+    if command in ("wipe", "migrate", "workspace", "retag", "scrub"):
+        _reset_after_wipe()  # They mutate collections.
+    elif command == "bootstrap":
+        restart_into_runtime()  # Settings changed the embedding runtime.
 
 
 def _reset_after_wipe():
