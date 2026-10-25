@@ -15,9 +15,14 @@ def main():
     project_dir = str(Path(__file__).resolve().parent.parent)
     os.environ['PYTHONPATH'] = project_dir
     os.environ['IMPRINT_DATA_DIR'] = data_dir
-    if action == 'session-start':
-        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart',
-              'additionalContext': 'Imprint memory is available. Search prior context before exploring; verify source files before making changes.'}}))
+    if action in {'session-start', 'copilot-session-start'}:
+        context = 'Imprint memory is available. Search prior context before exploring; verify source files before making changes.'
+        # Claude Code and Codex read the context from hookSpecificOutput;
+        # GitHub Copilot reads only a top-level additionalContext.
+        if action == 'copilot-session-start':
+            print(json.dumps({'additionalContext': context}))
+        else:
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': context}}))
         return 0
     if action in {'pre-compact', 'cursor-pre-compact'}:
         key = 'user_message' if action == 'cursor-pre-compact' else 'systemMessage'

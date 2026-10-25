@@ -279,7 +279,7 @@ func TestCleanupMigratesLegacySelectionBesideCustomProfile(t *testing.T) {
 	runWSL = func(args ...string) (string, error) {
 		if strings.Contains(strings.Join(args, " "), "imprint-probe") {
 			probed = true
-			return "/default\n\n/default/.codex\n/default/.claude.json\n\n\n", nil
+			return "/default\n\n/default/.codex\n/default/.claude.json\n\n\n\n", nil
 		}
 		return filepath.Join(root, "profiles", filepath.FromSlash(strings.TrimPrefix(args[len(args)-1], "/"))), nil
 	}

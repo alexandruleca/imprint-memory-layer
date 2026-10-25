@@ -275,19 +275,7 @@ func CodexHome() string {
 	return filepath.Join(HomeDir(), ".codex")
 }
 
-// VSCodeUserDir returns the first existing VSCode user-profile directory:
-// `Code/User` first, falling back to `Code - Insiders/User`. Empty string if
-// neither is present. Used to resolve Copilot paths.
-func VSCodeUserDir() string {
-	for _, dir := range VSCodeUserDirs() {
-		if DirExists(dir) {
-			return dir
-		}
-	}
-	return ""
-}
-
-// VSCodeUserDirs includes stable and Insiders locations for symmetric cleanup.
+// VSCodeUserDirs are VS Code's stable and Insiders user-profile directories.
 func VSCodeUserDirs() []string {
 	home := HomeDir()
 	var roots []string
@@ -317,14 +305,14 @@ func VSCodeUserDirs() []string {
 	return roots
 }
 
-// CopilotMCPPath returns the user-global VSCode MCP file (`<userDir>/mcp.json`).
-// Returns empty string if no VSCode install is detected.
-func CopilotMCPPath() string {
-	d := VSCodeUserDir()
-	if d == "" {
-		return ""
+// CopilotHome is COPILOT_HOME, else ~/.copilot: GitHub Copilot's home, which
+// VS Code's Copilot harness, the Copilot CLI and JetBrains share for MCP
+// servers, instructions, hooks and sessions.
+func CopilotHome() string {
+	if dir := os.Getenv("COPILOT_HOME"); dir != "" {
+		return dir
 	}
-	return filepath.Join(d, "mcp.json")
+	return filepath.Join(HomeDir(), ".copilot")
 }
 
 // Cline's directories, resolved as Cline 4 (every surface: the VS Code
@@ -627,17 +615,6 @@ func OpenClawMCPPath() string {
 // Cline reads every file in its global rules directories as an always-on rule.
 func ClineRulesPath() string {
 	return filepath.Join(ClineDir(), "rules", "imprint.md")
-}
-
-// CopilotInstructionsPath returns the user-global Copilot custom-instructions
-// file under VSCode's prompts dir. Returns empty if no VSCode install is
-// detected.
-func CopilotInstructionsPath() string {
-	d := VSCodeUserDir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "prompts", "imprint.instructions.md")
 }
 
 // DataDir returns the data directory for imprint storage, redirecting to a

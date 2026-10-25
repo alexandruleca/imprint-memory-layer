@@ -80,7 +80,7 @@ def main(argv=None):
         # interpolate a command string or alter URLs, flags or relative keys.
         translated = cli_arguments(args.args, args.distribution, args.mounts)
         return subprocess.call([args.cli, *translated])
-    allowed = {'session-start', 'stop', 'pre-compact', 'post-search', 'pre-read'}
+    allowed = {'session-start', 'copilot-session-start', 'stop', 'pre-compact', 'post-search', 'pre-read'}
     if len(args.args) != 1 or args.args[0] not in allowed:
         parser.error('Unknown bridge hook')
     try:

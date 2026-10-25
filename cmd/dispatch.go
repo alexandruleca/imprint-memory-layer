@@ -24,9 +24,9 @@ type client struct {
 	registrations func() []clientCleanup
 	// wslHome is the client's directory in a WSL profile, for the clients a
 	// WSL profile can be registered for (imprint wsl setup). Claude Code,
-	// Codex and Cline run inside WSL (Cline's VS Code extension runs in the
-	// remote host under Remote-WSL) and get the bridge launcher, MCP entry,
-	// rules and, where the client has them, hooks. Cursor's agent runs from
+	// Codex, Copilot and Cline run inside WSL (under Remote-WSL, Cline's
+	// extension and Copilot's agent host run in the remote host) and get the
+	// bridge launcher, MCP entry, rules and, where the client has them, hooks. Cursor's agent runs from
 	// the Windows app over Remote-WSL, which Imprint's Windows Cursor setup
 	// already wires; its WSL profile only holds the conversations it records,
 	// so registering it writes nothing and lets learn read them (ADR 0052).
@@ -52,7 +52,9 @@ var clients = []client{
 	{name: "codex", label: "Codex", connect: SetupCodex, registrations: codexRegistrations,
 		wslHome: func(p wslProfile) string { return p.CodexHome },
 		store:   platform.CodexHome, wslStore: func(p wslProfile) string { return p.CodexHome }},
-	{name: "copilot", label: "GitHub Copilot", connect: SetupCopilot, registrations: copilotRegistrations},
+	{name: "copilot", label: "GitHub Copilot", connect: SetupCopilot, registrations: copilotRegistrations,
+		wslHome: func(p wslProfile) string { return p.CopilotHome },
+		store:   platform.CopilotHome, wslStore: func(p wslProfile) string { return p.CopilotHome }},
 	// Cline keeps sessions in its data directory. Its environment overrides
 	// count on this computer; a WSL profile's are not read (ADR 0026), so
 	// there they are in the default place under the probed Cline directory.

@@ -65,7 +65,7 @@ See [ADR 0025](adr/0025-desktop-owned-background-service.md) and [platform valid
 
 ### Clients inside WSL
 
-The Windows installer offers **Connect clients in WSL** after copying its files. Select the detected Claude Code, Codex, Cursor and/or Cline profiles you want to connect. They share the Windows installation's memories and dashboard; a second Linux runtime is not installed. Discovery may start a distribution, skips Docker/Rancher utility distributions and inspects the distro's default Linux user. No choices are selected on a fresh install.
+The Windows installer offers **Connect clients in WSL** after copying its files. Select the detected Claude Code, Codex, Cursor, GitHub Copilot and/or Cline profiles you want to connect. They share the Windows installation's memories and dashboard; a second Linux runtime is not installed. Discovery may start a distribution, skips Docker/Rancher utility distributions and inspects the distro's default Linux user. No choices are selected on a fresh install.
 
 Repair and silent updates reuse saved WSL choices. A fresh silent install does not change WSL profiles. Selected registration failures appear in the setup log and fail setup. Unchecking a profile stops future add/repair work for that choice; use the removal command to disconnect an existing profile.
 
@@ -79,14 +79,17 @@ $ImprintBin = Join-Path $env:LOCALAPPDATA 'Programs\Imprint\bin\imprint.exe'
 & $ImprintBin wsl setup --distribution Ubuntu --target claude-code
 & $ImprintBin wsl setup --distribution Ubuntu --target codex
 & $ImprintBin wsl setup --distribution Ubuntu --target cursor
+& $ImprintBin wsl setup --distribution Ubuntu --target copilot
 & $ImprintBin wsl setup --distribution Ubuntu --target cline
 ```
 
 A Cursor selection is for learning only. With Remote-WSL, the Windows Cursor app runs the agent against the distribution and writes its conversations to the distribution's `~/.cursor`. Registering that profile lets `imprint learn` read them and writes nothing into it. Cursor's MCP server and hooks come from `imprint setup cursor` on Windows ([ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md)).
 
+Under Remote-WSL, VS Code's Copilot agent host runs inside the distribution, as the Copilot CLI does. A Copilot selection registers in the distribution's Copilot home (`COPILOT_HOME` or `~/.copilot`): the bridge launcher, the `imprint` entry in `mcp-config.json`, the managed block in `copilot-instructions.md` and `hooks/imprint.json` (SessionStart and Stop through the bridge). Learn reads its `session-state` ([ADR 0057](adr/0057-copilot-home-as-store-config-and-hook-root.md)).
+
 Cline's VS Code extension runs inside the distribution under Remote-WSL, as the Cline CLI does, so a Cline selection registers there: the bridge launcher, the `imprint` entry in `<cline home>/data/settings/cline_mcp_settings.json` and the rule `<cline home>/rules/imprint.md`, where the Cline home is `CLINE_DIR` or `~/.cline`. Learn reads its sessions from `<cline home>/data/sessions`. Cline gets no hooks ([ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md)).
 
-For Claude Code and Codex, restart the selected client, verify the Imprint MCP server and review/trust its hooks. For Cline, reload the extension or restart the CLI. WSL Windows-executable interoperability must be enabled. The wizard detects existing default-user profile directories; it does not install Claude Code, Codex or WSL. Settings exported only by your interactive shell are not sourced during discovery. For another Linux user or profile, pass `--user <name>`, `--claude-home /absolute/profile` or `--codex-home /absolute/profile`. An explicit `--python <Windows-path>` can select an existing Windows Imprint interpreter. A non-default user's profile must also be accessible through the Windows account's WSL filesystem provider; setup does not change Linux permissions or elevate privileges.
+For Claude Code, Codex and Copilot, restart the selected client, verify the Imprint MCP server and review/trust its hooks. For Cline, reload the extension or restart the CLI. WSL Windows-executable interoperability must be enabled. The wizard detects existing default-user profile directories; it does not install Claude Code, Codex or WSL. Settings exported only by your interactive shell are not sourced during discovery. For another Linux user or profile, pass `--user <name>`, `--claude-home /absolute/profile` or `--codex-home /absolute/profile`. An explicit `--python <Windows-path>` can select an existing Windows Imprint interpreter. A non-default user's profile must also be accessible through the Windows account's WSL filesystem provider; setup does not change Linux permissions or elevate privileges.
 
 Setup does not approve or index project directories. To work with a WSL project through the Windows store, use the installed launcher from WSL (substitute `.claude` if that is your selected profile):
 
@@ -98,7 +101,7 @@ cd ~/code/my-project
 
 Existing workspace overlap, sharing and purge rules apply. Linux files are accessed through the distribution's Windows UNC namespace; mounted Windows drives use their real Windows paths, honoring custom mount locations. Windows paths returned by other tools can be translated with `wslpath -u`. Spaces, Unicode and apostrophes are supported; paths that cannot be represented through Windows filesystem APIs fail explicitly. Hook support follows the current host adapters; a configured entry alone does not establish host-side trust or transcript-version compatibility.
 
-`imprint learn` and the dashboard's **Learn** action also read each registered profile's Claude Code, Codex, Cursor and Cline conversations through `\\wsl.localhost\<distro>\…`, comparing their working directories the way the bridge does. Reading a distribution's mount table can start it. A distribution that cannot be reached is skipped and listed under "Not learned" at the end of the run; the other stores are still learned.
+`imprint learn` and the dashboard's **Learn** action also read each registered profile's Claude Code, Codex, Cursor, Copilot and Cline conversations through `\\wsl.localhost\<distro>\…`, comparing their working directories the way the bridge does. Reading a distribution's mount table can start it. A distribution that cannot be reached is skipped and listed under "Not learned" at the end of the run; the other stores are still learned.
 
 To disconnect a selected profile manually:
 
@@ -106,6 +109,7 @@ To disconnect a selected profile manually:
 & $ImprintBin wsl remove --distribution Ubuntu --target claude-code
 & $ImprintBin wsl remove --distribution Ubuntu --target codex
 & $ImprintBin wsl remove --distribution Ubuntu --target cursor
+& $ImprintBin wsl remove --distribution Ubuntu --target copilot
 & $ImprintBin wsl remove --distribution Ubuntu --target cline
 ```
 
@@ -155,7 +159,7 @@ Swap profile after the fact with `imprint profile set gpu`, add the LLM tagger w
 | `chatgpt-desktop` | — | Detection-only. ChatGPT Desktop wires MCP via in-app hosted connectors (SSE), not a local stdio config, so `setup` reports the install and points at the `supergateway` reverse-proxy pattern. |
 | `cursor` | `~/.cursor/` | MCP + hooks + always-on rule. |
 | `codex` | `~/.codex/` | Codex CLI (TOML config). |
-| `copilot` | VS Code settings | Custom instructions + `mcp.json`. |
+| `copilot` | `~/.copilot/` (`COPILOT_HOME`) | GitHub Copilot on VS Code 1.143+, the Copilot CLI and JetBrains: `mcp-config.json` entry, managed block in `copilot-instructions.md`, and `hooks/imprint.json` (SessionStart, Stop). Detected from the Copilot home, `copilot` on `PATH` or a VS Code install. `imprint learn` reads its sessions. |
 | `cline` | `~/.cline/` (`CLINE_DIR`; data in `CLINE_DATA_DIR`) | Cline 4 on every surface (VS Code extension and forks, CLI, JetBrains, desktop): MCP entry in `<data>/settings/cline_mcp_settings.json` (or `CLINE_MCP_SETTINGS_PATH`) and the rule `<CLINE_DIR>/rules/imprint.md`. No hooks; `imprint learn` reads its sessions. |
 | `openclaw` | `~/.openclaw/openclaw.json` | Also recognized as `clawdbot` / `moltbot`. Nested `mcp.servers` key. |
 
@@ -190,7 +194,7 @@ imprint learn --desktop --interval 300     # every 5 min
 imprint learn --desktop --path ~/Archive   # extra folder(s) in addition to Downloads
 ```
 
-`imprint learn` on its own indexes Claude Code transcripts and auto-memory files, Codex sessions, Cursor agent conversations and Cline sessions. It reads them from this computer's profiles (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME` or `~/.codex`, `~/.cursor`, and Cline's sessions directory: `CLINE_SESSION_DATA_DIR`, else `<CLINE_DATA_DIR, else CLINE_DIR/data, else ~/.cline/data>/sessions`) and from every client profile registered in WSL. `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
+`imprint learn` on its own indexes Claude Code transcripts and auto-memory files, Codex sessions, Cursor agent conversations, GitHub Copilot sessions and Cline sessions. It reads them from this computer's profiles (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME` or `~/.codex`, `~/.cursor`, `COPILOT_HOME` or `~/.copilot`, and Cline's sessions directory: `CLINE_SESSION_DATA_DIR`, else `<CLINE_DATA_DIR, else CLINE_DIR/data, else ~/.cline/data>/sessions`) and from every client profile registered in WSL. `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
 
 ## Install a specific version or channel
 

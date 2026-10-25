@@ -36,20 +36,20 @@ func TestClientTargetsResolveNamesAliasesAndAll(t *testing.T) {
 }
 
 func TestWSLTargetsAreTheClientsWithAWSLHome(t *testing.T) {
-	if got := wslTargets(); !slices.Equal(got, []string{"claude-code", "cursor", "codex", "cline"}) {
+	if got := wslTargets(); !slices.Equal(got, []string{"claude-code", "cursor", "codex", "copilot", "cline"}) {
 		t.Fatalf("wsl targets %v", got)
 	}
-	if got := wslTargetChoices(); got != "claude-code, cursor, codex or cline" {
+	if got := wslTargetChoices(); got != "claude-code, cursor, codex, copilot or cline" {
 		t.Fatalf("choices %q", got)
 	}
-	p := wslProfile{ClaudeHome: "/h/.claude", CodexHome: "/h/.codex", CursorHome: "/h/.cursor", ClineHome: "/h/.cline"}
-	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome, "cline": p.ClineHome} {
+	p := wslProfile{ClaudeHome: "/h/.claude", CodexHome: "/h/.codex", CursorHome: "/h/.cursor", ClineHome: "/h/.cline", CopilotHome: "/h/.copilot"}
+	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome, "cline": p.ClineHome, "copilot": p.CopilotHome} {
 		if dir, err := wslClientDir(p, target); err != nil || dir != want {
 			t.Fatalf("%s: %q, %v", target, dir, err)
 		}
 	}
 	// Learn reads each target's store; Cline's sessions are in its data directory.
-	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome, "cline": "/h/.cline/data/sessions"} {
+	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome, "cline": "/h/.cline/data/sessions", "copilot": p.CopilotHome} {
 		if dir, err := wslStoreDir(p, target); err != nil || dir != want {
 			t.Fatalf("%s store: %q, %v", target, dir, err)
 		}
@@ -57,7 +57,7 @@ func TestWSLTargetsAreTheClientsWithAWSLHome(t *testing.T) {
 	if dir, err := wslStoreDir(wslProfile{Home: "/h"}, "cline"); err != nil || dir != "" {
 		t.Fatalf("a profile without Cline has a Cline store: %q, %v", dir, err)
 	}
-	if _, err := wslClientDir(p, "vim"); err == nil || !strings.Contains(err.Error(), "claude-code, cursor, codex or cline") {
+	if _, err := wslClientDir(p, "vim"); err == nil || !strings.Contains(err.Error(), "claude-code, cursor, codex, copilot or cline") {
 		t.Fatalf("vim accepted: %v", err)
 	}
 }
@@ -182,7 +182,7 @@ func TestDisconnectingOneClientKeepsOtherWSLSelections(t *testing.T) {
 	t.Cleanup(func() { runWSL = old })
 	runWSL = func(args ...string) (string, error) {
 		if strings.Contains(strings.Join(args, " "), "imprint-probe") {
-			return "/home/me\n/home/me/.claude\n/home/me/.codex\n/home/me/.claude.json\n/home/me/.cursor\n", nil
+			return "/home/me\n/home/me/.claude\n/home/me/.codex\n/home/me/.claude.json\n/home/me/.cursor\n\n\n", nil
 		}
 		return filepath.Join(root, "profiles", filepath.FromSlash(strings.TrimPrefix(args[len(args)-1], "/"))), nil
 	}

@@ -34,6 +34,7 @@ type wslProfile struct {
 	CodexHome      string `json:"codex_home,omitempty"`
 	CursorHome     string `json:"cursor_home,omitempty"`
 	ClineHome      string `json:"cline_home,omitempty"`
+	CopilotHome    string `json:"copilot_home,omitempty"`
 }
 
 // The clients a WSL profile can be registered for, and where each keeps its
@@ -100,6 +101,8 @@ printf '%s\n' "$registry"
 if [ -d "$home/.cursor" ]; then printf '%s\n' "$home/.cursor"; else printf '\n'; fi
 cline=${CLINE_DIR:-$home/.cline}
 if [ -d "$cline" ]; then printf '%s\n' "$cline"; else printf '\n'; fi
+copilot=${COPILOT_HOME:-$home/.copilot}
+if [ -d "$copilot" ]; then printf '%s\n' "$copilot"; else printf '\n'; fi
 `
 
 func probeWSL(distro, user, home, claude, codex string) (wslProfile, error) {
@@ -111,11 +114,12 @@ func probeWSL(distro, user, home, claude, codex string) (wslProfile, error) {
 		return wslProfile{}, err
 	}
 	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
-	if len(lines) < 6 || !validLinuxPath(lines[0]) {
+	if len(lines) < 7 || !validLinuxPath(lines[0]) {
 		return wslProfile{}, fmt.Errorf("invalid WSL profile response")
 	}
-	p := wslProfile{Distribution: distro, Home: lines[0], ClaudeHome: lines[1], CodexHome: lines[2], ClaudeRegistry: lines[3], CursorHome: lines[4], ClineHome: lines[5]}
-	for _, dir := range []string{p.ClaudeHome, p.CodexHome, p.ClaudeRegistry, p.CursorHome, p.ClineHome} {
+	p := wslProfile{Distribution: distro, Home: lines[0], ClaudeHome: lines[1], CodexHome: lines[2], ClaudeRegistry: lines[3], CursorHome: lines[4],
+		ClineHome: lines[5], CopilotHome: lines[6]}
+	for _, dir := range []string{p.ClaudeHome, p.CodexHome, p.ClaudeRegistry, p.CursorHome, p.ClineHome, p.CopilotHome} {
 		if dir != "" && !validLinuxPath(dir) {
 			return wslProfile{}, fmt.Errorf("invalid WSL client path")
 		}
@@ -295,7 +299,7 @@ func wslLauncher(p wslProfile, bp backendPaths) string {
 func wslProfileMapper(p wslProfile, user string) (func(string) string, error) {
 	type root struct{ linux, windows string }
 	roots := []root{}
-	for _, value := range []string{p.ClaudeHome, p.CodexHome, p.ClineHome, p.Home} {
+	for _, value := range []string{p.ClaudeHome, p.CodexHome, p.ClineHome, p.CopilotHome, p.Home} {
 		if value == "" {
 			continue
 		}
@@ -343,7 +347,8 @@ type wslLayout struct {
 	ownRules          bool
 	hooks             string // Claude-style hooks file; "" for a client without hooks
 	hookSet           []wslHook
-	permission        bool // Claude Code's permission for Imprint's tools
+	ownedHooks        string // Copilot's hooks file, which Imprint owns whole
+	permission        bool   // Claude Code's permission for Imprint's tools
 }
 
 func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
@@ -363,6 +368,12 @@ func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
 	case "codex":
 		return wslLayout{registry: path.Join(dir, "config.toml"), rootKey: "mcp_servers", toml: true, spec: stdio,
 			rules: path.Join(dir, "AGENTS.md"), rule: instructions.CodexRule, hooks: path.Join(dir, "hooks.json"), hookSet: lifecycle}
+	case "copilot":
+		// The Copilot home's MCP servers, instructions and hooks (ADR 0057).
+		return wslLayout{registry: path.Join(dir, "mcp-config.json"), rootKey: "mcpServers",
+			spec:  copilotServer(launcher, []any{"mcp"}, map[string]any{}),
+			rules: path.Join(dir, "copilot-instructions.md"), rule: instructions.CopilotRule,
+			ownedHooks: path.Join(dir, "hooks", "imprint.json")}
 	case "cline":
 		// Cline's data and rules under its directory; its hooks receive no
 		// transcript, so it gets none (ADR 0056).
@@ -431,6 +442,12 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 			return err
 		}
 	}
+	if layout.ownedHooks != "" {
+		hooks := copilotHooks(shellQuote(launcher)+" hook copilot-session-start", shellQuote(launcher)+" hook stop")
+		if err := configfile.Write(local(layout.ownedHooks), hooks); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -484,6 +501,11 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	}
 	if layout.hooks != "" {
 		if _, err := jsonutil.RemoveHooksMatching(local(layout.hooks), []string{shellQuote(launcher) + " hook "}); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if layout.ownedHooks != "" {
+		if err := os.Remove(local(layout.ownedHooks)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
@@ -639,7 +661,8 @@ func WSL(args []string) {
 			return
 		}
 		next := "Restart the client and review/trust its hooks."
-		if dir, _ := wslClientDir(p, *target); wslLayoutOf(p, *target, dir).hooks == "" {
+		dir, _ := wslClientDir(p, *target)
+		if layout := wslLayoutOf(p, *target, dir); layout.hooks == "" && layout.ownedHooks == "" {
 			next = "Restart the client."
 		}
 		output.Success(fmt.Sprintf("Registered Imprint for %s in WSL %s. %s", *target, p.Distribution, next))

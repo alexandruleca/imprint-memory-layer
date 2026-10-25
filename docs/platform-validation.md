@@ -327,6 +327,23 @@ See [ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md). No Cline 
 
 Not run: a real Cline on any surface loading the settings and rule, real Cline sessions, the installer wizard with a Cline selection, a complete `imprint learn` storing Cline sessions, and macOS.
 
+## GitHub Copilot setup and learn (2026-10-25)
+
+See [ADR 0057](adr/0057-copilot-home-as-store-config-and-hook-root.md). No Copilot conversations exist on this machine, and the Copilot CLI is not installed. Both Copilot homes hold only `config.json` and logs, so sessions are fixtures built from the Copilot SDK's event schema. Every check used a temporary installation directory in `%TEMP%`, a disposable WSL home in `/tmp` and the installed Windows interpreter read-only; the real `~/.copilot` was only probed.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| VS Code 1.143.1 bundle (installed, read only) | Confirmed | `chat.mcp.discovery.enabled` defaults to `copilot: true`; that source reads `<COPILOT_HOME or ~/.copilot>/mcp-config.json`, the remote host's in a remote window. The Agent Host resolves the same file, and the customization migration moves user `mcp.json` servers into it. |
+| Go client, WSL, learn and cleanup tests (cross-compiled Windows test binary) | Passed | Includes Copilot setup and disconnect in a disposable home and the Copilot WSL layout. |
+| Copilot hook commands in Windows PowerShell (cross-compiled hooks test, installed interpreter) | Passed | Paths with spaces and apostrophes. `SessionStart` printed a top-level `additionalContext`; `Stop` printed `{}`. |
+| Profile probe (cross-compiled CLI, `wsl list`) | Passed | The real Ubuntu profile reported `GitHub Copilot  not enrolled  /home/<user>/.copilot`. |
+| `imprint wsl setup --target copilot` into a disposable home | Passed | Wrote the launcher, the `imprint` entry beside an existing server in `mcp-config.json`, the managed block after the user's text in `copilot-instructions.md`, and `hooks/imprint.json` beside a user hook file, with backups of the changed files. |
+| Registered hooks run as Copilot runs them (`bash -c`, PascalCase payloads) | Passed | `SessionStart` returned `additionalContext` from the Windows interpreter through the bridge. `Stop`, with a transcript that records no context, was skipped by the bridge's ownership check and printed `{}`. |
+| WSL Copilot home through the installed Windows interpreter | Passed | The home resolved to `\\wsl.localhost\Ubuntu\tmp\…\.copilot`. A session with a context was keyed by its id, named `imprint-memory-layer`, owned and parsed into the two typed questions; the session without one was not owned. |
+| `imprint wsl remove --target copilot` | Passed | Removed the entry, the block, the hooks file and the launcher; kept the other server, the user's text and the user's hook file; emptied the journal. |
+
+Needs a live, logged-in Copilot: that Copilot honors the SessionStart context and the instructions file, that `Stop` payloads carry `transcript_path` in VS Code's harness and the CLI, that the WSL Agent Host runs the distribution's hooks and MCP server, and real sessions. Not run: VS Code, the CLI or JetBrains loading `mcp-config.json`, the installer wizard with a Copilot selection, a complete `imprint learn` storing Copilot sessions, and macOS.
+
 ## PersonaPlex startup memory prototype (2026-10-24)
 
 See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the [prototype guide](personaplex-prototype.md). This validates an experimental adapter, not a supported voice/avatar product.

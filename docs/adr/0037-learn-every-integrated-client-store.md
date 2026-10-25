@@ -84,3 +84,5 @@ Native Windows and macOS working directories (`C:\…`, `/Users/…`) still get 
 Cursor follow-up: [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) adds this computer's Cursor profile and registered WSL Cursor profiles to the stores.
 
 Cline follow-up: [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) adds this computer's Cline sessions directory and registered WSL Cline profiles to the stores. The clients table now names every store.
+
+Copilot follow-up: [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) adds this computer's Copilot home (`COPILOT_HOME`, else `~/.copilot`) and registered WSL Copilot homes to the stores.

@@ -23,7 +23,7 @@ func TestWSLDiscoveryUsesExplicitDistroAndSkipsDocker(t *testing.T) {
 		if args[0] != "--distribution" || args[1] != "Ubuntu" {
 			t.Fatalf("unsafe discovery: %v", args)
 		}
-		return "/home/test\n/home/test/.claude\n/home/test/.codex\n/home/test/.claude.json\n\n\n", nil
+		return "/home/test\n/home/test/.claude\n/home/test/.codex\n/home/test/.claude.json\n\n\n\n", nil
 	}
 	listing := listWSL(t.TempDir())
 	if len(listing.Distributions) != 1 || listing.Distributions[0].Distribution != "Ubuntu" || listing.Distributions[0].Error != "" {
@@ -179,7 +179,7 @@ func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
 	old := runWSL
 	t.Cleanup(func() { runWSL = old })
 	runWSL = func(args ...string) (string, error) {
-		return "/home/test\n/home/test/.claude\n\n/home/test/.claude.json\n/home/test/.cursor\n\n", nil
+		return "/home/test\n/home/test/.claude\n\n/home/test/.claude.json\n/home/test/.cursor\n\n\n", nil
 	}
 	p, err := probeWSL("Ubuntu", "", "", "", "")
 	if err != nil || p.CursorHome != "/home/test/.cursor" || p.CodexHome != "" {
@@ -234,7 +234,7 @@ func TestWSLClineRegistrationWritesItsSettingsAndRule(t *testing.T) {
 	var probe []string
 	runWSL = func(args ...string) (string, error) {
 		probe = args
-		return "/home/test\n\n\n/home/test/.claude.json\n\n/home/test/cline dir\n", nil
+		return "/home/test\n\n\n/home/test/.claude.json\n\n/home/test/cline dir\n\n", nil
 	}
 	p, err := probeWSL("Ubuntu", "", "", "", "")
 	if err != nil || p.ClineHome != "/home/test/cline dir" || p.ClaudeHome != "" {
@@ -315,6 +315,81 @@ func TestWSLClineRegistrationWritesItsSettingsAndRule(t *testing.T) {
 	}
 }
 
+// Copilot runs inside WSL: its probed home gets the bridge launcher, the MCP
+// entry, the managed instructions block and Imprint's hooks file, whose
+// commands call the launcher (ADR 0057).
+func TestWSLCopilotRegistrationWritesItsHome(t *testing.T) {
+	old := runWSL
+	t.Cleanup(func() { runWSL = old })
+	var probe []string
+	runWSL = func(args ...string) (string, error) {
+		probe = args
+		return "/home/test\n\n\n/home/test/.claude.json\n\n\n/home/test/copilot's home\n", nil
+	}
+	p, err := probeWSL("Ubuntu", "", "", "", "")
+	if err != nil || p.CopilotHome != "/home/test/copilot's home" {
+		t.Fatalf("profile = %+v, %v", p, err)
+	}
+	if script := strings.Join(probe, " "); !strings.Contains(script, `copilot=${COPILOT_HOME:-$home/.copilot}`) {
+		t.Fatalf("probe does not honor COPILOT_HOME: %s", script)
+	}
+
+	root := t.TempDir()
+	local := func(value string) string {
+		return filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(value, "/")))
+	}
+	registry := local(path.Join(p.CopilotHome, "mcp-config.json"))
+	rules := local(path.Join(p.CopilotHome, "copilot-instructions.md"))
+	hooksFile := local(path.Join(p.CopilotHome, "hooks", "imprint.json"))
+	launcher := path.Join(p.CopilotHome, "imprint-wsl")
+	writeCleanupFixture(t, registry, `{"mcpServers":{"other":{"type":"stdio","command":"keep-other","tools":["*"]}}}`)
+	writeCleanupFixture(t, rules, "User guidance.\n")
+	bp := backendPaths{ProjectDir: `C:\Imprint`, VenvPython: `C:\Imprint\.venv\Scripts\python.exe`, DataDir: `C:\Imprint\data`}
+	apply := func() {
+		t.Helper()
+		if err := applyWSLProfile(p, bp, "copilot", local, func(string) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply()
+	first, _ := os.ReadFile(hooksFile)
+	apply()
+	second, _ := os.ReadFile(hooksFile)
+	if string(first) != string(second) {
+		t.Fatal("registration is not idempotent")
+	}
+	data, err := jsonutil.ReadJSON(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := data["mcpServers"].(map[string]any)["imprint"].(map[string]any)
+	if entry["command"] != launcher || entry["type"] != "stdio" || len(entry["tools"].([]any)) != 1 || data["mcpServers"].(map[string]any)["other"] == nil {
+		t.Fatalf("mcp-config.json = %v", data)
+	}
+	if content, _ := os.ReadFile(rules); !strings.HasPrefix(string(content), "User guidance.\n") || !strings.Contains(string(content), instructions.MarkerStart) {
+		t.Fatalf("instructions = %q", content)
+	}
+	if string(second) != string(copilotHooks(shellQuote(launcher)+" hook copilot-session-start", shellQuote(launcher)+" hook stop")) {
+		t.Fatalf("hooks = %s", second)
+	}
+
+	if err := removeWSLProfile(p, "copilot", local); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = jsonutil.ReadJSON(registry)
+	if servers := data["mcpServers"].(map[string]any); servers["imprint"] != nil || servers["other"] == nil {
+		t.Fatalf("removal left %v", servers)
+	}
+	if content, _ := os.ReadFile(rules); !strings.HasPrefix(string(content), "User guidance.\n") || strings.Contains(string(content), instructions.MarkerStart) {
+		t.Fatalf("instructions after removal = %q", content)
+	}
+	for _, gone := range []string{hooksFile, local(launcher)} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Fatalf("%s remains", gone)
+		}
+	}
+}
+
 // The listing names every WSL target from the clients table, each
 // distribution's profiles, and which of them this installation enrolled.
 func TestWSLListingReportsProfilesAndEnrollment(t *testing.T) {
@@ -327,7 +402,7 @@ func TestWSLListingReportsProfilesAndEnrollment(t *testing.T) {
 		if args[1] == "Debian" {
 			return "", errors.New("distribution unavailable")
 		}
-		return "/home/me\n/home/me/.claude\n\n/home/me/.claude.json\n/home/me/.cursor\n/home/me/.cline\n", nil
+		return "/home/me\n/home/me/.claude\n\n/home/me/.claude.json\n/home/me/.cursor\n/home/me/.cline\n\n", nil
 	}
 	project := t.TempDir()
 	ubuntu := wslProfile{Distribution: "Ubuntu", Home: "/home/me", ClaudeHome: "/home/me/.claude", CursorHome: "/home/me/.cursor"}
@@ -345,14 +420,16 @@ func TestWSLListingReportsProfilesAndEnrollment(t *testing.T) {
 
 	listing := listWSL(project)
 	encoded, _ := json.Marshal(listing)
-	want := `{"targets":[{"name":"claude-code","label":"Claude Code"},{"name":"cursor","label":"Cursor"},{"name":"codex","label":"Codex"},{"name":"cline","label":"Cline"}],` +
+	want := `{"targets":[{"name":"claude-code","label":"Claude Code"},{"name":"cursor","label":"Cursor"},{"name":"codex","label":"Codex"},{"name":"copilot","label":"GitHub Copilot"},{"name":"cline","label":"Cline"}],` +
 		`"distributions":[{"distribution":"Ubuntu","home":"/home/me","clients":[` +
 		`{"name":"claude-code","profile":"/home/me/.claude","enrolled":true},` +
 		`{"name":"cursor","profile":"/home/me/.cursor","enrolled":true},` +
 		`{"name":"codex","profile":"","enrolled":false},` +
+		`{"name":"copilot","profile":"","enrolled":false},` +
 		`{"name":"cline","profile":"/home/me/.cline","enrolled":false}]},` +
 		`{"distribution":"Debian","error":"distribution unavailable","clients":[` +
-		`{"name":"claude-code","profile":"","enrolled":false},{"name":"cursor","profile":"","enrolled":false},{"name":"codex","profile":"","enrolled":false},{"name":"cline","profile":"","enrolled":false}]}]}`
+		`{"name":"claude-code","profile":"","enrolled":false},{"name":"cursor","profile":"","enrolled":false},{"name":"codex","profile":"","enrolled":false},` +
+		`{"name":"copilot","profile":"","enrolled":false},{"name":"cline","profile":"","enrolled":false}]}]}`
 	if string(encoded) != want {
 		t.Fatalf("listing\n got %s\nwant %s", encoded, want)
 	}

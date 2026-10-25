@@ -23,6 +23,9 @@ type clientCleanup struct {
 	toml               bool
 	hooks, rules, rule string
 	permission         bool
+	// owned is a file Imprint writes whole, such as Copilot's hooks file.
+	// Like rules and hooks, another runtime's entry in registry protects it.
+	owned string
 }
 
 // The registrations of each client in the clients table: the files its
@@ -70,10 +73,18 @@ func codexRegistrations() []clientCleanup {
 	return registrations
 }
 
+// copilotRegistrations: the Copilot home's MCP servers, instructions and
+// Imprint's hooks file, plus what setup wrote before ADR 0057. That is VS
+// Code's user mcp.json entry, and a prompts file without front matter, which
+// Copilot never applied; it is removed only while it is the generated one.
 func copilotRegistrations() []clientCleanup {
-	var registrations []clientCleanup
+	home := platform.CopilotHome()
+	registrations := []clientCleanup{{registry: filepath.Join(home, "mcp-config.json"), keys: []string{"mcpServers"},
+		rules: filepath.Join(home, "copilot-instructions.md"), owned: filepath.Join(home, "hooks", "imprint.json")}}
+	prompts := instructions.MarkerStart + "\n" + instructions.CopilotRule + instructions.MarkerEnd + "\n"
 	for _, dir := range platform.VSCodeUserDirs() {
-		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "mcp.json"), keys: []string{"servers"}, rules: filepath.Join(dir, "prompts", "imprint.instructions.md")})
+		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "mcp.json"), keys: []string{"servers"},
+			rules: filepath.Join(dir, "prompts", "imprint.instructions.md"), rule: prompts})
 	}
 	return registrations
 }
@@ -203,6 +214,13 @@ func cleanupClient(c clientCleanup, project string) error {
 				return err
 			}
 			output.Success("Removed Imprint from " + c.registry)
+		}
+	}
+	if c.owned != "" {
+		if err := os.Remove(c.owned); err == nil {
+			output.Success("Removed " + c.owned)
+		} else if !os.IsNotExist(err) {
+			return err
 		}
 	}
 	if c.hooks != "" {

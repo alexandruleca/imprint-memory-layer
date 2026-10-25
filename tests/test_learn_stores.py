@@ -1,4 +1,5 @@
-"""Learning reads Claude Code, Codex, Cursor and Cline stores, local and WSL (ADR 0034, ADR 0037, ADR 0052, ADR 0056)."""
+"""Learning reads Claude Code, Codex, Cursor, Copilot and Cline stores, local and WSL
+(ADR 0034, ADR 0037, ADR 0052, ADR 0056, ADR 0057)."""
 import contextlib
 import io
 import json
@@ -20,6 +21,7 @@ MOUNTS = 'C:\\134\t/mnt/c'
 # Cline ids are <epoch ms>_<5 base36>: sessions started in the same millisecond share a prefix.
 CLINE_FIRST = '1784094124598_rruoq'
 CLINE_SECOND = '1784094124598_k2v7d'
+COPILOT_SESSION = '3f2a9c4e-8d1b-4e7a-9c2f-1a2b3c4d5e6f'
 
 
 def claude_session(cwd, question):
@@ -67,6 +69,48 @@ def cursor_conversation(question):
 def cursor_transcript(store, directory, session, question):
     folder = store / 'projects' / transcripts.folder_name(str(directory)) / 'agent-transcripts' / session
     return write(folder / f'{session}.jsonl', cursor_conversation(question))
+
+
+def copilot_events(session, cwd, question, *, changed_cwd=None, subagent_cwd=None):
+    """A Copilot session's events.jsonl records; cwd None records no working directory."""
+    counter = iter(range(1, 100))
+
+    def event(kind, data, **extra):
+        return {'id': f'e{next(counter)}', 'parentId': None, 'timestamp': '2026-10-25T08:00:00.000Z',
+                'type': kind, 'data': data, **extra}
+    start = {'sessionId': session, 'version': 1, 'producer': 'copilot-agent', 'copilotVersion': '1.0.23'}
+    if cwd:
+        start['context'] = {'cwd': cwd, 'gitRoot': cwd, 'repository': 'me/app', 'branch': 'main'}
+    events = [
+        event('session.start', start),
+        event('user.message', {'content': question, 'source': 'user', 'attachments': [],
+                               'transformedContent': f'<current_datetime>now</current_datetime>{question}<reminder>model-facing xml</reminder>'}),
+        event('assistant.turn_start', {'turnId': 't1'}),
+        event('assistant.message', {'messageId': 'a1', 'content': ANSWER, 'reasoningText': 'private reasoning',
+                                    'encryptedContent': 'opaque', 'toolRequests': [
+                                        {'toolCallId': 'c1', 'name': 'view', 'arguments': {'path': '/tool/input/path'}}]}),
+        event('tool.execution_start', {'toolCallId': 'c1', 'toolName': 'view'}),
+        event('tool.execution_complete', {'toolCallId': 'c1', 'result': {'content': 'tool output'}}),
+        # A skill's instructions and a subagent's conversation are not the user's.
+        event('user.message', {'content': 'Skill instructions for reading PDF files.', 'source': 'skill-pdf'}),
+        event('subagent.started', {'toolCallId': 'c2', 'agentName': 'explore'}),
+        event('user.message', {'content': 'Subagent prompt text', 'source': 'agent-explore'}, agentId='explore-1'),
+        event('assistant.message', {'content': 'Subagent answer text that is long enough to keep.'}, agentId='explore-1'),
+        event('assistant.message', {'content': 'Nested answer inside a tool call, long enough to keep.', 'parentToolCallId': 'c2'}),
+        event('user.message', {'content': 'Continue with the task until it is complete.', 'isAutopilotContinuation': True}),
+        event('assistant.message', {'content': 'After autopilot. ' + ANSWER}),
+        event('user.message', {'content': 'And the second question?'}),
+        event('assistant.message', {'content': 'Second answer. ' + ANSWER}),
+    ]
+    if changed_cwd:
+        events.insert(6, event('session.context_changed', {'cwd': changed_cwd, 'gitRoot': changed_cwd}))
+    if subagent_cwd:
+        events.insert(8, event('session.context_changed', {'cwd': subagent_cwd}, agentId='explore-1'))
+    return events
+
+
+def copilot_session(home, session, cwd, question, **kwargs):
+    return write(home / 'session-state' / session / 'events.jsonl', copilot_events(session, cwd, question, **kwargs))
 
 
 def cline_messages(session, question):
@@ -528,6 +572,91 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual(result, 0, output)
         self.assertEqual({(record['source'], record['project']) for record in self.stored()},
                          {(f'conversation/{CLINE_FIRST}', 'app')})
+
+    def test_learns_a_copilot_home_from_session_events(self):
+        project = self.root / 'app'
+        project.mkdir()
+        home = self.root / 'copilot'
+        copilot_session(home, COPILOT_SESSION, str(project), 'How should the cache be keyed?')
+        # A caller-chosen id, and a session that records no working directory.
+        copilot_session(home, 'release-notes', str(project), 'Where do the release notes go?')
+        copilot_session(home, 'no-context', None, 'Is this one learned?')
+        (home / 'session-state' / COPILOT_SESSION / 'workspace.yaml').write_text('cwd: /elsewhere\n', encoding='utf-8')
+
+        result, output = self.learn(('copilot', str(home)))
+
+        self.assertEqual(result, 0, output)
+        self.assertIn(f'GitHub Copilot {home}: 3 conversations', output)
+        self.assertIn('1 not this workspace', output)
+        stored = self.stored()
+        self.assertEqual({record['source'] for record in stored},
+                         {f'conversation/{COPILOT_SESSION}', 'conversation/release-notes'})
+        content = '\n'.join(record['content'] for record in stored)
+        self.assertIn('Q: How should the cache be keyed?\n\nA: Keep the cache', content)
+        self.assertIn('After autopilot.', content)
+        self.assertIn('Q: And the second question?\n\nA: Second answer.', content)
+        for hidden in ('Skill instructions', 'Subagent', 'Nested answer', 'Continue with the task', 'private reasoning',
+                       'opaque', 'tool output', '/tool/input/path', 'model-facing', 'current_datetime', 'Is this one learned'):
+            self.assertNotIn(hidden, content)
+
+    def test_copilot_context_events_are_ownership_evidence(self):
+        project, claimed = self.root / 'app', self.root / 'claimed'
+        project.mkdir()
+        claimed.mkdir()
+        policy.add_root(str(claimed), 'beta')
+        home = self.root / 'copilot'
+        mine = copilot_session(home, 'mine', str(project), 'Whose conversation is this?')
+        moved = copilot_session(home, 'moved', str(project), 'Whose conversation is this?', changed_cwd=str(claimed))
+        # A subagent working in another workspace's project keeps the session there too.
+        delegated = copilot_session(home, 'delegated', str(project), 'Whose?', subagent_cwd=str(claimed))
+        nowhere = copilot_session(home, 'nowhere', None, 'Whose?')
+        self.assertEqual(list(transcripts.cwds(moved)), [str(project), str(claimed)])
+        self.assertTrue(policy.transcript_allowed(str(mine), 'alpha'))
+        for theirs in (moved, delegated):
+            self.assertFalse(policy.transcript_allowed(str(theirs), 'alpha'))
+            self.assertTrue(policy.transcript_allowed(str(theirs), 'beta'))
+        self.assertFalse(policy.transcript_allowed(str(nowhere), 'alpha'))
+        self.assertFalse(policy.transcript_allowed(str(nowhere), 'beta'))
+
+    def test_copilot_sessions_are_named_from_their_recorded_cwd(self):
+        home = self.root / 'copilot'
+        windows = copilot_session(home, COPILOT_SESSION, 'C:\\Users\\u\\code\\personal\\shop', 'Which project?')
+        self.assertEqual(learner.identify(str(windows)), (f'conversation/{COPILOT_SESSION}', 'shop'))
+        linux = copilot_session(home, 'linux', '/home/u/code/personal/imprint-memory-layer', 'Which project?')
+        self.assertEqual(learner.identify(str(linux)), ('conversation/linux', 'imprint-memory-layer'))
+
+    def test_a_wsl_copilot_home_resolves_like_the_bridge(self):
+        wsl = self.root / 'wsl-namespace'
+
+        def native(value):
+            if value.startswith(str(self.root)):
+                return value
+            windows = wsl_paths.linux_to_windows(value, 'Ubuntu', MOUNTS)
+            prefix = '\\\\wsl.localhost\\Ubuntu\\'
+            self.assertTrue(windows.startswith(prefix), windows)
+            return str(wsl.joinpath(*windows[len(prefix):].split('\\')))
+
+        (wsl / 'home' / 'test' / 'code' / 'personal' / 'app').mkdir(parents=True)
+        copilot_session(wsl / 'home' / 'test' / '.copilot', COPILOT_SESSION, '/home/test/code/personal/app',
+                        'How should the cache be keyed?')
+
+        with patch.object(wsl_paths, 'native_path', side_effect=native), \
+                patch.object(policy, 'native_path', side_effect=native):
+            result, output = self.learn(('copilot', '/home/test/.copilot'))
+
+        self.assertEqual(result, 0, output)
+        self.assertEqual({(record['source'], record['project']) for record in self.stored()},
+                         {(f'conversation/{COPILOT_SESSION}', 'app')})
+
+    def test_stop_hook_import_of_a_copilot_session_uses_its_session_id(self):
+        project = self.root / 'app'
+        project.mkdir()
+        events = copilot_session(self.root / 'copilot', COPILOT_SESSION, str(project), 'How should the cache be keyed?')
+        with patch.object(learner.sys, 'argv', ['cli_conversations', '--transcript', str(events)]), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(learner.main(), 0)
+        self.assertIn('Stored 2', output.getvalue())
+        self.assertEqual({record['source'] for record in self.stored()}, {f'conversation/{COPILOT_SESSION}'})
 
     def test_project_names_follow_claude_folder_naming_of_the_recorded_cwd(self):
         self.assertEqual(learner.derive_project('/home/u/code/personal/imprint-memory-layer'), 'imprint-memory-layer')

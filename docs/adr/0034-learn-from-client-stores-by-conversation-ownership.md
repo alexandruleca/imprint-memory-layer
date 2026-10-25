@@ -57,3 +57,5 @@ Cursor follow-up: [ADR 0052](0052-learn-cursor-conversations-from-their-folder-n
 Store coverage follow-up: [ADR 0037](0037-learn-every-integrated-client-store.md) extends the stores this rule is applied to (`CLAUDE_CONFIG_DIR`, Codex sessions, registered WSL profiles) and counts Codex's session and turn working directories as recorded cwds.
 
 Cline follow-up: [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) counts a Cline session manifest's `cwd` and `workspace_root` as recorded cwds. A session without a manifest has no evidence.
+
+Copilot follow-up: [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) counts the `cwd` of a Copilot session's `session.start`, `session.resume` and `session.context_changed` events as recorded cwds.

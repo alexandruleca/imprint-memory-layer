@@ -103,6 +103,18 @@ class WSLPathTests(unittest.TestCase):
                 self.assertTrue(policy.transcript_allowed(str(transcript), 'beta'))
             self.assertEqual(policy.roots('alpha'), [])
 
+    def test_copilot_session_start_passes_through_the_bridge(self):
+        with tempfile.TemporaryDirectory() as data, patch.dict(os.environ), \
+                patch.object(wsl_bridge.os, 'chdir'), \
+                patch.object(wsl_bridge.sys, 'platform', 'win32'), \
+                patch.object(wsl_bridge.sys, 'stdin', io.StringIO('{"hook_event_name":"SessionStart","source":"startup"}')), \
+                patch.object(wsl_bridge.sys, 'stdout', io.StringIO()) as output, \
+                patch.object(wsl_bridge.sys, 'argv', ['wsl_bridge.py']):
+            result = wsl_bridge.main(['--data-dir', data, '--distribution', 'Ubuntu',
+                '--cwd', '/home/project', '--home', '/home/test', 'hook', 'copilot-session-start'])
+            self.assertEqual(result, 0)
+            self.assertIn('additionalContext', json.loads(output.getvalue()))
+
     def test_unapproved_stop_does_not_launch_any_transcript_consumer(self):
         from imprint import hook_entry, workspace_policy
         with tempfile.TemporaryDirectory() as data, patch.dict(os.environ), \

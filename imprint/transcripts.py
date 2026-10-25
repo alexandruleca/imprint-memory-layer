@@ -1,8 +1,9 @@
 """Coding-client transcripts: Claude Code sessions, Codex rollouts, Cursor
-agent conversations and Cline sessions.
+agent conversations, GitHub Copilot sessions and Cline sessions.
 
-Claude Code, Codex and Cursor append one JSON record per line. Cline writes a
-session's messages as one JSON document beside the session's manifest.
+Claude Code, Codex, Cursor and Copilot append one JSON record per line. Cline
+writes a session's messages as one JSON document beside the session's
+manifest.
 Learning reads three things from them: user/assistant text, the working
 directories the client recorded and the session identity. Transcript content
 is never rewritten.
@@ -30,6 +31,13 @@ _TEXT_BLOCKS = ('text', 'input_text', 'output_text')
 # (a timestamp, attached image and document lists).
 _CURSOR_QUERY = re.compile(r'<user_query>\s*(.*?)\s*</user_query>', re.DOTALL)
 _FOLDER_SEPARATORS = re.compile('[^A-Za-z0-9]+')
+# GitHub Copilot (VS Code's Copilot harness, the Copilot CLI) appends a
+# session's events to session-state/<id>/events.jsonl: {"type", "data",
+# "agentId"?, ...}. A session's working directory is in the context of its
+# session.start and session.resume events and in session.context_changed.
+_COPILOT_EVENTS = 'events.jsonl'
+_COPILOT_CONTEXT = ('session.start', 'session.resume')
+_COPILOT_MESSAGES = ('user.message', 'assistant.message')
 # Cline keeps a session in sessions/<id>/: <id>.json is its manifest and
 # <id>.messages.json its messages. Its subagents' and teammates' messages files
 # in the folder have other names.
@@ -73,9 +81,14 @@ def records(path):
 
 def recorded_cwd(record):
     """The working directory a record states, if any."""
-    if record.get('type') in _CODEX_CONTEXT:
+    kind = record.get('type')
+    if kind in _CODEX_CONTEXT:
         payload = record.get('payload')
         return payload.get('cwd') if isinstance(payload, dict) else None
+    if kind in _COPILOT_CONTEXT or kind == 'session.context_changed':
+        data = record.get('data')
+        context = data.get('context') if isinstance(data, dict) and kind in _COPILOT_CONTEXT else data
+        return context.get('cwd') if isinstance(context, dict) else None
     return record.get('cwd')
 
 
@@ -101,6 +114,11 @@ def message(record):
         if not isinstance(item, dict) or item.get('type') != 'message':
             return None
         role, content = item.get('role'), item.get('content')
+    elif record.get('type') in _COPILOT_MESSAGES:
+        data = record.get('data')
+        if not isinstance(data, dict) or not _copilot_conversation(record, data):
+            return None
+        role, content = record['type'].split('.')[0], data.get('content')
     elif 'role' not in record:  # Claude Code names the role in "type"
         role, body = record.get('type'), record.get('message')
         content = body.get('content') if isinstance(body, dict) else None
@@ -126,6 +144,18 @@ def message(record):
     if typed and role == 'user':
         text = typed(text)
     return role, text
+
+
+def _copilot_conversation(record, data):
+    """Whether a Copilot message is the user's conversation with the main
+    agent: not a subagent's, not an assistant message inside a tool call, and
+    for the user, typed rather than injected by a skill or an agent, or sent
+    by autopilot to continue."""
+    if record.get('agentId'):
+        return False
+    if record['type'] == 'assistant.message':
+        return not data.get('parentToolCallId')
+    return data.get('source') in (None, 'user') and not data.get('isAutopilotContinuation')
 
 
 def _cursor_query(text):
@@ -195,12 +225,15 @@ def session(path):
     """A transcript's session id where the client states it in full, else None.
 
     Codex states it in its session_meta record, which comes no later than its
-    first cwd. Cline names a session's folder and messages file after it.
-    Claude Code and Cursor ids are random UUIDs their file names carry.
+    first cwd. Cline and Copilot name a session's folder after it, and Cline
+    its messages file too. Claude Code and Cursor ids are random UUIDs their
+    file names carry.
     """
     path = Path(path)
     if path.name.endswith(_CLINE_MESSAGES):
         return path.parent.name if path.name == path.parent.name + _CLINE_MESSAGES else None
+    if path.name == _COPILOT_EVENTS and path.parent.parent.name == 'session-state':
+        return path.parent.name
     for record in records(path):
         found = codex_session(record)
         if found or recorded_cwd(record):
@@ -211,7 +244,8 @@ def session(path):
 def cwds(path):
     """Each working directory a transcript records, in order, repeats included.
 
-    Claude Code and Codex state them in records. Cursor's records state none:
+    Claude Code, Codex and Copilot state them in records (Copilot in its
+    session context events, subagents' included). Cursor's records state none:
     it files a conversation at ``projects/<folder>/agent-transcripts/<id>/``,
     where ``<folder>`` is its directory's path as a folder name. That name is
     the conversation's working directory when it stands for exactly one

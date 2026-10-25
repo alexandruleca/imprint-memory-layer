@@ -1,21 +1,21 @@
 """Learn coding-client conversations into imprint memory.
 
 Reads Claude Code session transcripts (plus Claude's auto-memory files), Codex
-rollouts, Cursor agent conversations and Cline sessions, extracts Q+A exchange
-pairs, classifies each by type, and stores them as searchable memories. A
+rollouts, Cursor agent conversations, GitHub Copilot sessions and Cline
+sessions, extracts Q+A exchange pairs, classifies each by type, and stores them as searchable memories. A
 conversation's recorded working directory decides its workspace (ADR 0034)
 and its project name.
 
 A store is the directory a client keeps its conversations in: Claude Code's
 CLAUDE_CONFIG_DIR (default ~/.claude), Codex's CODEX_HOME (default ~/.codex),
-Cursor's ~/.cursor or Cline's sessions directory (default
-~/.cline/data/sessions). The Go CLI's client table names them. In a WSL path
+Cursor's ~/.cursor, Copilot's COPILOT_HOME (default ~/.copilot) or Cline's
+sessions directory (default ~/.cline/data/sessions). The Go CLI's client table names them. In a WSL path
 context (IMPRINT_WSL_DISTRO, as the WSL bridge sets it) Linux paths, the
 store's and the recorded cwds, resolve the way the bridge resolves them
 (ADR 0026, ADR 0037).
 
 Usage:
-  python -m imprint.cli_conversations --store claude-code|codex|cursor|cline <dir> [--store ...]
+  python -m imprint.cli_conversations --store claude-code|codex|cursor|copilot|cline <dir> [--store ...]
   python -m imprint.cli_conversations --transcript <path>
 """
 
@@ -48,7 +48,7 @@ MIN_EXCHANGE_LEN = 100
 # /Users/<user>, Windows <drive>:\Users\<user>.
 _HOME_FOLDER = re.compile(r"-home-|-Users-|[A-Za-z]--Users-")
 
-CLIENTS = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "cline": "Cline"}
+CLIENTS = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "copilot": "GitHub Copilot", "cline": "Cline"}
 
 
 def parse_exchanges(transcript_path: str) -> list[dict]:
@@ -141,9 +141,9 @@ def derive_project(cwd: str) -> str:
     -home-user-code-imprint gives imprint. Using the recorded cwd instead of
     the path a transcript was found at gives a conversation one name however
     its store is reached (natively or through \\\\wsl.localhost), and gives
-    Codex, Cursor and Cline sessions the same names as Claude Code sessions. A home
-    on macOS (/Users/user/code/imprint) or Windows (C:\\Users\\user\\code\\imprint)
-    names projects as a Linux home does.
+    Codex, Cursor, Copilot and Cline sessions the same names as Claude Code
+    sessions. A home on macOS (/Users/user/code/imprint) or Windows
+    (C:\\Users\\user\\code\\imprint) names projects as a Linux home does.
     """
     folder = re.sub(r"[^A-Za-z0-9]", "-", cwd)
     if not _HOME_FOLDER.match(folder) or "code-" not in folder:
@@ -164,7 +164,8 @@ def identify(transcript_path: str) -> tuple[str, str]:
     Claude Code and Cursor name a transcript after its random session id, and
     its first eight characters are the source key. Codex and Cline session
     ids begin with a timestamp, which sessions started close together share,
-    so those are keyed by the whole id (transcripts.session).
+    and Copilot's can be any string its caller chose, so those are keyed by
+    the whole id (transcripts.session).
     """
     session = transcripts.session(transcript_path)
     source = f"conversation/{session or Path(transcript_path).stem[:8]}"
@@ -180,6 +181,9 @@ def store_transcripts(client: str, root: Path) -> list[Path]:
     if client == "cursor":
         # One folder per conversation; its subagents' transcripts sit a level deeper.
         return list(root.glob("projects/*/agent-transcripts/*/*.jsonl"))
+    if client == "copilot":
+        # One folder per session, named after it.
+        return list(root.glob("session-state/*/events.jsonl"))
     if client == "cline":
         # One folder per session, named after it; its subagents' and teammates'
         # messages files there have other names. An imported session belongs
@@ -467,7 +471,7 @@ def learn(stores: list[tuple[str, str]]) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Learn coding-client conversations.")
     parser.add_argument("--store", nargs=2, action="append", default=[], metavar=("CLIENT", "DIR"),
-                        help="client store to learn (claude-code, codex, cursor or cline); repeatable")
+                        help="client store to learn (claude-code, codex, cursor, copilot or cline); repeatable")
     parser.add_argument("--transcript", help="index a single transcript")
     args = parser.parse_args()
 
