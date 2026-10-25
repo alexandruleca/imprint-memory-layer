@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +71,7 @@ type updateReport struct {
 //
 //	imprint update                  # latest stable, interactive confirm
 //	imprint update --version vX.Y.Z # pinned release
-//	imprint update --dev            # latest prerelease
+//	imprint update --dev            # latest dev build (ADR 0066)
 //	imprint update -y               # skip confirm
 //	imprint update --check [--json] # print current + latest and exit
 func Update(args []string, currentVersion string) {
@@ -137,7 +136,7 @@ func printUpdateCheck(asJSON bool, currentVersion string, target *release.Releas
 		Name:            target.Name,
 		URL:             target.HTMLURL,
 		PublishedAt:     target.PublishedAt,
-		UpdateAvailable: isNewerVersion(target.TagName, currentVersion),
+		UpdateAvailable: release.Newer(target.TagName, currentVersion),
 		Method:          inst.kind,
 	}
 	if instErr != nil {
@@ -366,43 +365,6 @@ func moveBinariesAside(binDir string) {
 	}
 }
 
-// isNewerVersion reports whether release tag a is a later version than b.
-// A build without a release version ("dev") is never behind.
-func isNewerVersion(a, b string) bool {
-	va, okA := parseVersion(a)
-	vb, okB := parseVersion(b)
-	if !okA || !okB {
-		return false
-	}
-	for i := range va {
-		if va[i] != vb[i] {
-			return va[i] > vb[i]
-		}
-	}
-	return false
-}
-
-// parseVersion reads the vMAJOR.MINOR.PATCH prefix of a tag or of a
-// `git describe` version such as v0.13.1-4-gabc1234.
-func parseVersion(s string) ([3]int, bool) {
-	var v [3]int
-	parts := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(s), "v"), ".", 3)
-	if len(parts) != 3 {
-		return v, false
-	}
-	for i, part := range parts {
-		if end := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' }); end >= 0 {
-			part = part[:end]
-		}
-		n, err := strconv.Atoi(part)
-		if err != nil {
-			return v, false
-		}
-		v[i] = n
-	}
-	return v, true
-}
-
 func parseUpdateFlags(args []string) (updateFlags, error) {
 	var f updateFlags
 	for i := 0; i < len(args); i++ {
@@ -445,7 +407,8 @@ func printUpdateHelp() {
 Usage:
   imprint update                   # latest stable (prompts for confirmation)
   imprint update --version vX.Y.Z  # pin a specific release tag
-  imprint update --dev             # latest prerelease
+  imprint update --dev             # latest dev build: the newest dev prerelease,
+                                   # or the stable release once it is newer
   imprint update --check           # show current + latest and exit
   imprint update --check --json    # the same as JSON, for the dashboard
   imprint update -y | --yes        # skip confirmation prompt

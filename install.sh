@@ -10,7 +10,7 @@ set -euo pipefail
 #   IMPRINT_VERSION=v0.2.0 curl -fsSL .../install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --version v0.2.0
 #
-# Install latest dev (prerelease):
+# Install the latest dev build (a dev prerelease, or stable once it is newer):
 #   IMPRINT_CHANNEL=dev curl -fsSL .../install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --dev
 #
@@ -75,11 +75,18 @@ esac
 info "Detected platform: ${PLATFORM}/${ARCH}"
 
 # --- Resolve target tag ---
+# The dev channel's latest build is the highest release version, prerelease or
+# stable: vX.Y.Z-dev.N precedes vX.Y.Z, and a stable release of a commit dev
+# reached is not built again as a prerelease (ADR 0066).
 resolve_latest_dev() {
     command -v python3 >/dev/null || fail "--dev requires python3 for GitHub API parse"
     command -v curl >/dev/null || fail "--dev requires curl"
-    curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" \
-        | python3 -c 'import sys,json; r=json.load(sys.stdin); print(next((x["tag_name"] for x in r if x.get("prerelease")), ""))'
+    curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=30" | python3 -c '
+import json, re, sys
+def rank(release):
+    m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?", release["tag_name"])
+    return m and (int(m[1]), int(m[2]), int(m[3]), m[4] is None, int(m[4] or 0))
+print(max(((rank(r), r["tag_name"]) for r in json.load(sys.stdin) if rank(r)), default=(None, ""))[1])'
 }
 
 if [ -n "$VERSION" ]; then

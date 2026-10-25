@@ -6,28 +6,6 @@ import (
 	"testing"
 )
 
-func TestIsNewerVersion(t *testing.T) {
-	cases := []struct {
-		latest, current string
-		want            bool
-	}{
-		{"v0.14.0", "v0.13.1", true},
-		{"v0.13.10", "v0.13.9", true},
-		{"v1.0.0", "v0.99.99", true},
-		{"v0.13.1", "v0.13.1", false},
-		{"v0.13.0", "v0.13.1", false},
-		{"v0.14.0", "v0.13.1-4-gabc1234-dirty", true},
-		{"v0.13.1", "v0.13.1-4-gabc1234", false},
-		{"v0.14.0", "dev", false},
-		{"nightly", "v0.13.1", false},
-	}
-	for _, c := range cases {
-		if got := isNewerVersion(c.latest, c.current); got != c.want {
-			t.Errorf("isNewerVersion(%q, %q) = %v, want %v", c.latest, c.current, got, c.want)
-		}
-	}
-}
-
 func TestInstallKindOf(t *testing.T) {
 	inno := t.TempDir()
 	if err := os.WriteFile(filepath.Join(inno, "unins000.exe"), nil, 0o644); err != nil {

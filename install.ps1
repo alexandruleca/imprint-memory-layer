@@ -6,7 +6,7 @@
 # Pin to a specific release (env var):
 #   $env:IMPRINT_VERSION="v0.2.0"; irm .../install.ps1 | iex
 #
-# Latest dev (prerelease):
+# Latest dev build (a dev prerelease, or stable once it is newer):
 #   $env:IMPRINT_CHANNEL="dev"; irm .../install.ps1 | iex
 #
 # Direct invocation supports args:
@@ -35,15 +35,30 @@ $Channel = $env:IMPRINT_CHANNEL
 if ($Dev)    { $Channel = "dev" }
 if ($Stable) { $Channel = "stable" }
 
+# The dev channel's latest build is the highest release version, prerelease or
+# stable: vX.Y.Z-dev.N precedes vX.Y.Z, and a stable release of a commit dev
+# reached is not built again as a prerelease (ADR 0066).
+function Select-LatestDev {
+    param($Releases)
+    $ranked = foreach ($release in $Releases) {
+        if ($release.tag_name -match '^v(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?$') {
+            [pscustomobject]@{
+                Tag = $release.tag_name
+                Major = [int]$Matches[1]; Minor = [int]$Matches[2]; Patch = [int]$Matches[3]
+                Stable = -not $Matches[4]; Build = [int]$Matches[4]
+            }
+        }
+    }
+    ($ranked | Sort-Object Major, Minor, Patch, Stable, Build | Select-Object -Last 1).Tag
+}
+
 function Resolve-LatestDev {
     try {
         $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=30" -UseBasicParsing
-        $prerelease = $releases | Where-Object { $_.prerelease -eq $true } | Select-Object -First 1
-        if ($prerelease) { return $prerelease.tag_name }
     } catch {
         Write-Fail "Could not query GitHub API for dev release: $_"
     }
-    return $null
+    return Select-LatestDev $releases
 }
 
 if ($Version) {

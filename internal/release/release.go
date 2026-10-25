@@ -69,7 +69,8 @@ func VerifyReleaseArchive(release *Release, asset, path string) error {
 // and the updater stay in sync.
 const Repo = "alexandruleca/imprint-memory-layer"
 
-// Channel selects stable (latest non-prerelease) or dev (latest prerelease).
+// Channel selects stable (main's releases) or dev (dev's prereleases and
+// main's releases, whichever is newest).
 type Channel string
 
 const (
@@ -122,8 +123,9 @@ func ArchiveDirName() string {
 }
 
 // ResolveLatest hits the GitHub API and returns the newest release for the
-// given channel. Stable uses /releases/latest (GitHub-curated). Dev scans
-// /releases?per_page=30 for the newest prerelease.
+// given channel. Stable uses /releases/latest, which GitHub never points at a
+// prerelease. Dev takes the highest version among the 30 most recent
+// releases, prerelease or stable (see latestOnDev).
 func ResolveLatest(ch Channel) (*Release, error) {
 	if ch == Stable {
 		return fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", Repo))
@@ -132,13 +134,10 @@ func ResolveLatest(ch Channel) (*Release, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, r := range rels {
-		if r.Prerelease {
-			rr := r
-			return &rr, nil
-		}
+	if latest, ok := latestOnDev(rels); ok {
+		return latest, nil
 	}
-	return nil, fmt.Errorf("no prerelease found in the 30 most recent releases")
+	return nil, fmt.Errorf("no release found in the 30 most recent releases")
 }
 
 // ResolveTag fetches a specific tag. Returns 404 wrapped as a clear error.
