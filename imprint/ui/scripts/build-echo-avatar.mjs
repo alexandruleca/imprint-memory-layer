@@ -1,7 +1,7 @@
 // Rebuild the bundled anime heads. No network or model download occurs at runtime.
 // Every source is a CC0 VRoid beta sample, explicitly confirmed by pixiv's
 // original release page; the build refuses any other license.
-//   node scripts/build-echo-avatar.mjs [echo|iris] [local.vrm]
+//   node scripts/build-echo-avatar.mjs [echo|iris|kai] [local.vrm]
 // Without an avatar id it rebuilds all of them from the pinned mirror. The
 // optional local file makes rebuilding independent of the mirror.
 import fs from "node:fs/promises";
@@ -30,11 +30,14 @@ const AVATARS = {
     center: 1.5,
     hairBelow: 1.4,
     hairFold: 0.17,
+    hairTuck: 0,
     colors: [[/_Hair_00_HAIR_01$/, [0.23, 0.16, 0.13, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, LINES]],
     // The source's crossed hair clip; Echo wears ribbons instead.
     drop: /_Hair_00_HAIR_02$/,
     dropHair: [],
     iris: null,
+    recolor: [],
+    expression: null,
     accessories: echoAccessories,
   },
   iris: {
@@ -42,19 +45,51 @@ const AVATARS = {
     sha256: "b1372131bdbf233f46320146d565f342a7e4f6f4b8f2aefb301f1a283ec07e1e",
     title: "Victoria Rubin",
     node: "Imprint_Iris",
-    version: 1,
+    version: 2,
     artwork: "Iris anime hologram",
     generator: "Imprint Echo anime-head pipeline v3",
     // Straight-cut bangs stay as modeled; the locks fold just below the jaw.
     center: 1.57,
     hairBelow: 1.44,
     hairFold: 0.3,
-    // Deep indigo hair, bangs included.
-    colors: [[/_Hair_00_HAIR_0[12]$/, [0.035, 0.045, 0.15, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, [0.08, 0.08, 0.16, 1]]],
+    // Folded ends also draw in toward the head, so they taper instead of splaying.
+    hairTuck: 0.35,
+    colors: [[/_Hair_00_HAIR_0[12]$/, [1, 1, 1, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, [0.08, 0.08, 0.16, 1]]],
     // The source's ribbon, the side tail it ties (hair primitives) and iris highlights.
     drop: /_Hair_00_HAIR_03$|_EyeHighlight_/,
     dropHair: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 58, 59],
     iris: paleIris,
+    // Deep indigo hair, bangs included, keeping each strand's sheen.
+    recolor: [[/_Hair_00_HAIR_0[12]$/, [0.012, 0.016, 0.06], [0.15, 0.19, 0.46]]],
+    expression: null,
+    accessories: () => {},
+  },
+  kai: {
+    file: "HairSample_Male.vrm",
+    sha256: "7aeca142dabbc26ba0f5b9c998c8f3cb6df341287d67788427ac837223785a3f",
+    title: "HairSample_Male",
+    node: "Imprint_Kai",
+    version: 1,
+    artwork: "Kai anime hologram",
+    generator: "Imprint Echo anime-head pipeline v3",
+    // The spiky short cut stays as modeled.
+    center: 1.63,
+    hairBelow: null,
+    hairFold: 1,
+    hairTuck: 0,
+    // Recolored textures carry their own color; the factor leaves them as is.
+    colors: [[/_Hair_00_HAIR$|_EyeIris_/, [1, 1, 1, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, [0.16, 0.09, 0.05, 1]]],
+    drop: null,
+    dropHair: [],
+    iris: null,
+    // Texture brightness remapped onto a ramp: bright orange hair, warm brown eyes.
+    recolor: [
+      [/_Hair_00_HAIR$/, [0.55, 0.16, 0.02], [1, 0.62, 0.22]],
+      [/_EyeIris_/, [0.12, 0.05, 0.02], [0.66, 0.4, 0.17]],
+    ],
+    // A set, determined frown: the source's angry expression on the brows and
+    // eyes only (fading in above the mouth), so the mouth stays at rest.
+    expression: { preset: "angry", weight: 0.55, above: 1.565, fade: 0.02 },
     accessories: () => {},
   },
 };
@@ -174,10 +209,17 @@ function material(id) {
     t = source.textures[s.pbrMetallicRoughness.baseColorTexture.index];
   const color = avatar.colors.find(([pattern]) => pattern.test(s.name))?.[1] ?? SKIN;
   const generated = avatar.iris && /_EyeIris_/.test(s.name);
-  let ti = generated ? undefined : imageMap.get(t.source);
+  const ramp = avatar.recolor.find(([pattern]) => pattern.test(s.name));
+  let ti = generated || ramp ? undefined : imageMap.get(t.source);
   if (generated) {
     // Same UV layout as the source sheet: one oval per eye.
     const image = result.images.push({ bufferView: view(avatar.iris()), mimeType: "image/png" }) - 1;
+    ti = result.textures.push({ sampler: t.sampler, source: image }) - 1;
+  } else if (ramp) {
+    const im = source.images[t.source],
+      v = source.bufferViews[im.bufferView];
+    const png = binary.subarray(v.byteOffset || 0, (v.byteOffset || 0) + v.byteLength);
+    const image = result.images.push({ bufferView: view(recolor(png, ramp[1], ramp[2])), mimeType: "image/png" }) - 1;
     ti = result.textures.push({ sampler: t.sampler, source: image }) - 1;
   } else if (ti === undefined) {
     const im = source.images[t.source],
@@ -234,15 +276,25 @@ const scale = 7.8;
 function position(values, hair = false, delta = false) {
   const cut = hair ? avatar.hairBelow : null;
   return values.map((v, i) => {
-    if (i % 3 === 0 || i % 3 === 2) return -v * scale;
+    const below = cut !== null && !delta ? Math.max(0, cut - values[i - (i % 3) + 1]) : 0;
+    if (i % 3 === 0 || i % 3 === 2) return -v * (1 - avatar.hairTuck * Math.min(1, below / 0.1)) * scale;
     if (delta) return v * scale;
-    return ((cut !== null && v < cut ? cut + (v - cut) * avatar.hairFold : v) - avatar.center) * scale;
+    return ((below > 0 ? cut + (v - cut) * avatar.hairFold : v) - avatar.center) * scale;
   });
 }
 // Mouth and blink come from the model's own VRM expression presets.
 const preset = (name) =>
   source.extensions.VRM.blendShapeMaster.blendShapeGroups.find((g) => g.presetName === name).binds[0].index;
 const morphs = [preset("a"), preset("blink")];
+// An avatar with an expression keeps that preset partly applied at rest.
+const baked = avatar.expression ? { ...avatar.expression, target: preset(avatar.expression.preset) } : null;
+function bake(base, delta) {
+  return base.map((v, i) => {
+    const y = base[i - (i % 3) + 1],
+      mask = Math.min(1, Math.max(0, (y - baked.above) / baked.fade));
+    return v + baked.weight * mask * delta[i];
+  });
+}
 for (const mi of [0, 2]) {
   const s = source.meshes[mi],
     primitives = [];
@@ -250,7 +302,8 @@ for (const mi of [0, 2]) {
     if (avatar.drop?.test(source.materials[p.material].name)) continue;
     if (mi === 2 && avatar.dropHair.includes(index)) continue;
     const attributes = {
-      POSITION: attribute(p.attributes.POSITION, "position", mi === 2),
+      POSITION: mi === 0 && baked ? accessor(position(bake(read(p.attributes.POSITION), read(p.targets[baked.target].POSITION))))
+        : attribute(p.attributes.POSITION, "position", mi === 2),
       NORMAL: attribute(p.attributes.NORMAL, "normal"),
       TEXCOORD_0: attribute(p.attributes.TEXCOORD_0, "uv"),
     };
@@ -360,6 +413,10 @@ function paleIris() {
     }
     rows.push(row);
   }
+  return encodePng(width, height, 3, rows);
+}
+// 8-bit RGB (3) or RGBA (4) rows, each led by its filter byte.
+function encodePng(width, height, channels, rows) {
   const chunk = (type, body) => {
     const out = Buffer.alloc(12 + body.length);
     out.writeUInt32BE(body.length);
@@ -371,13 +428,70 @@ function paleIris() {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width);
   header.writeUInt32BE(height, 4);
-  header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
+  header.set([8, channels === 4 ? 6 : 2, 0, 0, 0], 8);
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", header),
     chunk("IDAT", zlib.deflateSync(Buffer.concat(rows), { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+// The VRoid sources' textures: 8-bit RGB/RGBA, not interlaced.
+function decodePng(png) {
+  let offset = 8, width = 0, height = 0, channels = 0;
+  const data = [];
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset),
+      type = png.toString("latin1", offset + 4, offset + 8),
+      body = png.subarray(offset + 8, offset + 8 + length);
+    if (type === "IHDR") {
+      width = body.readUInt32BE(0);
+      height = body.readUInt32BE(4);
+      if (body[8] !== 8 || body[12] !== 0 || ![2, 6].includes(body[9])) throw Error("Unsupported PNG texture");
+      channels = body[9] === 6 ? 4 : 3;
+    } else if (type === "IDAT") data.push(body);
+    offset += 12 + length;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(data)),
+    stride = width * channels,
+    pixels = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)],
+      line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? pixels[y * stride + x - channels] : 0,
+        b = y > 0 ? pixels[(y - 1) * stride + x] : 0,
+        c = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
+      const p = a + b - c,
+        predictor = [0, a, b, (a + b) >> 1, Math.abs(p - a) <= Math.abs(p - b) && Math.abs(p - a) <= Math.abs(p - c) ? a : Math.abs(p - b) <= Math.abs(p - c) ? b : c][filter];
+      pixels[y * stride + x] = (line[x] + predictor) & 255;
+    }
+  }
+  return { width, height, channels, pixels };
+}
+// Map each texel's brightness across the texture's own range onto dark..light,
+// so every strand keeps its shading in the new color. Alpha is kept.
+function recolor(png, dark, light) {
+  const { width, height, channels, pixels } = decodePng(png);
+  const lum = (i) => 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+  let lo = 255, hi = 0;
+  for (let i = 0; i < pixels.length; i += channels) {
+    if (channels === 4 && pixels[i + 3] < 16) continue;
+    lo = Math.min(lo, lum(i));
+    hi = Math.max(hi, lum(i));
+  }
+  const rows = [];
+  for (let y = 0; y < height; y++) {
+    const row = Buffer.alloc(1 + width * channels);
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * channels,
+        t = Math.min(1, Math.max(0, (lum(i) - lo) / Math.max(1, hi - lo))) ** 0.8;
+      for (let k = 0; k < 3; k++) row[1 + x * channels + k] = Math.round((dark[k] + (light[k] - dark[k]) * t) * 255);
+      if (channels === 4) row[1 + x * channels + 3] = pixels[i + 3];
+    }
+    rows.push(row);
+  }
+  return encodePng(width, height, channels, rows);
 }
 function crc32(bytes) {
   let crc = ~0;

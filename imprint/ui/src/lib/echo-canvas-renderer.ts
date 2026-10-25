@@ -108,7 +108,7 @@ export class EchoCanvasRenderer {
         const y = indices.slice(i, i + 3).map(j => projected[j * 3 + 1]);
         const z = indices.slice(i, i + 3).reduce((sum, j) => sum + projected[j * 3 + 2], 0) / 3;
         if (z < -1 || z > 1 || ((material.side !== THREE.DoubleSide || /HAIR/.test(material.name)) && (x[1] - x[0]) * (y[2] - y[0]) - (y[1] - y[0]) * (x[2] - x[0]) >= 0)) continue;
-        triangles.push({ x, y, z, color: colors[i / 3], alpha: alpha[i / 3], wire: /SKIN|HAIR_01/.test(material.name), texture, pattern, uv: uv && texture ? indices.slice(i, i + 3).flatMap(j => [uv.getX(j) * texture.width, uv.getY(j) * texture.height]) : undefined });
+        triangles.push({ x, y, z, color: colors[i / 3], alpha: alpha[i / 3], wire: /SKIN|_HAIR/.test(material.name), texture, pattern, uv: uv && texture ? indices.slice(i, i + 3).flatMap(j => [uv.getX(j) * texture.width, uv.getY(j) * texture.height]) : undefined });
       }
     });
     triangles.sort((a, b) => b.z - a.z);

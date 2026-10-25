@@ -591,26 +591,27 @@
 }
 .echo-avatars {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  align-items: stretch;
   gap: 10px;
   width: 100%;
 }
 .echo-avatars-compact {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
 }
 .echo-avatar-option {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 8px;
   height: auto;
-  padding: 8px 12px 8px 8px;
+  padding: 10px 10px 12px;
   border: 1px solid #2c414f;
   border-radius: 10px;
   background: #0e1921;
   color: #b2c9d5;
-  text-align: left;
+  text-align: center;
   white-space: normal;
 }
 .echo-avatar-option:hover {
@@ -624,13 +625,15 @@
   color: #dceaf1;
 }
 .echo-avatar-option img {
-  flex: none;
+  max-width: 100%;
+  height: auto;
   border-radius: 8px;
   background: #090f16;
 }
 .echo-avatar-option span {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
   min-width: 0;
 }
@@ -644,8 +647,8 @@
   line-height: 1.35;
 }
 .echo-avatars-compact .echo-avatar-option {
-  gap: 8px;
-  padding: 6px 10px 6px 6px;
+  gap: 4px;
+  padding: 6px 6px 8px;
 }
 .voice-look {
   display: flex;

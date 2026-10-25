@@ -1,6 +1,6 @@
 Imprint Echo · anime holographic heads
 
-Both looks are adaptations of CC0 beta VRoid Studio sample models by pixiv Inc.
+All three looks are adaptations of CC0 beta VRoid Studio sample models by pixiv Inc.
 Original publisher's explicit CC0 dedication:
 https://vroid.pixiv.help/hc/ja/articles/360013482714
 See CC0-1.0.txt beside this file. Pinned source mirror (the embedded VRM
@@ -14,16 +14,23 @@ imprint-echo.glb · Echo, version 4
   palette, the source hair clip removed, an original hairband with modeled
   ribbon bows.
 
-imprint-iris.glb · Iris, version 1
+imprint-iris.glb · Iris, version 2
   Source: Victoria_Rubin.vrm
   SHA256: b1372131bdbf233f46320146d565f342a7e4f6f4b8f2aefb301f1a283ec07e1e
   Imprint changes: head-only bind-pose extraction, the ribbon and the side
-  tail it ties removed, folded locks, color palette, an original generated
-  pale iris texture without pupils.
+  tail it ties removed, folded and tapered locks, the hair texture remapped
+  to deep indigo, an original generated pale iris texture without pupils.
 
-Both keep the source mouth/blink expressions and are exported as ordinary glTF;
+imprint-kai.glb · Kai, version 1
+  Source: HairSample_Male.vrm
+  SHA256: 7aeca142dabbc26ba0f5b9c998c8f3cb6df341287d67788427ac837223785a3f
+  Imprint changes: head-only bind-pose extraction, the hair and iris textures
+  remapped to orange and warm brown, the source's angry expression partly
+  applied to the brows and eyes.
+
+All keep the source mouth/blink expressions and are exported as ordinary glTF;
 the dashboard adds holographic shading and fine animated wire contours.
-imprint-echo.jpg and imprint-iris.jpg are previews rendered from these files.
+imprint-echo.jpg, imprint-iris.jpg and imprint-kai.jpg are previews rendered from these files.
 These are adaptations of the samples, not original model sculpts and not
 licensed character assets of any anime series.
 Imprint modifications and new artwork follow the repository's Apache-2.0 license;

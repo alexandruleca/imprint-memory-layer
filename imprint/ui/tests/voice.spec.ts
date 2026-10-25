@@ -208,6 +208,7 @@ test("Echo's look is picked from previews, saved, and loads its own model", asyn
   const choices = [
     { value: 'echo', label: 'Echo', detail: 'Brown bob, warm hairband with ribbon bows', unavailable: '' },
     { value: 'iris', label: 'Iris', detail: 'Indigo straight cut, pale lavender eyes', unavailable: '' },
+    { value: 'kai', label: 'Kai', detail: 'Spiky orange hair, a determined frown', unavailable: '' },
   ];
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [
     { key: 'voice.avatar', value: state.value, source: 'default', default: 'echo', type: 'str', env: 'IMPRINT_VOICE_AVATAR',
@@ -228,10 +229,10 @@ test("Echo's look is picked from previews, saved, and loads its own model", asyn
   const looks = page.getByRole('group', { name: "Echo's look" });
   await expect(looks.getByRole('button', { name: /^Echo:/ })).toHaveAttribute('aria-pressed', 'true');
 
-  await looks.getByRole('button', { name: /^Iris:/ }).click();
-  await expect.poll(() => state.puts).toEqual([{ value: 'iris' }]);
-  await expect.poll(() => models).toEqual(['imprint-echo.glb', 'imprint-iris.glb']);
+  await looks.getByRole('button', { name: /^Kai:/ }).click();
+  await expect.poll(() => state.puts).toEqual([{ value: 'kai' }]);
+  await expect.poll(() => models).toEqual(['imprint-echo.glb', 'imprint-kai.glb']);
   await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
-  await expect(looks.getByRole('button', { name: /^Iris:/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('link', { name: 'Download 3D model' })).toHaveAttribute('href', '/models/imprint-iris.glb');
+  await expect(looks.getByRole('button', { name: /^Kai:/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('link', { name: 'Download 3D model' })).toHaveAttribute('href', '/models/imprint-kai.glb');
 });

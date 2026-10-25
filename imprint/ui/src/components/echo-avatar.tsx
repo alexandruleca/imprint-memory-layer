@@ -148,7 +148,7 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
             };
             material.customProgramCacheKey = () => "echo-hologram-v3";
             // Shared geometry keeps eyelids/lips and their fine wire overlay aligned.
-            if (/SKIN|HAIR_01/.test(material.name)) {
+            if (/SKIN|_HAIR/.test(material.name)) {
               const wire = new THREE.Mesh(object.geometry, new THREE.MeshBasicMaterial({ color: "#8bdeff",
                 wireframe: true, transparent: true, opacity: /HAIR/.test(material.name) ? .045 : .075,
                 depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
