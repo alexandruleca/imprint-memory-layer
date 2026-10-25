@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -23,9 +24,9 @@ func TestWSLDiscoveryUsesExplicitDistroAndSkipsDocker(t *testing.T) {
 		}
 		return "/home/test\n/home/test/.claude\n/home/test/.codex\n/home/test/.claude.json\n", nil
 	}
-	profiles := listWSL()
-	if len(profiles) != 1 || profiles[0].Distribution != "Ubuntu" {
-		t.Fatalf("wrong profiles: %v", profiles)
+	listing := listWSL(t.TempDir())
+	if len(listing.Distributions) != 1 || listing.Distributions[0].Distribution != "Ubuntu" || listing.Distributions[0].Error != "" {
+		t.Fatalf("wrong profiles: %+v", listing)
 	}
 	if decodeWSL([]byte{'U', 0, 'b', 0, 'u', 0, 'n', 0, 't', 0, 'u', 0}) != "Ubuntu" {
 		t.Fatal("UTF-16 list not decoded")
@@ -220,5 +221,52 @@ func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(local(p.CursorHome)); err != nil {
 		t.Fatal("the Cursor profile was removed")
+	}
+}
+
+// The listing names every WSL target from the clients table, each
+// distribution's profiles, and which of them this installation enrolled.
+func TestWSLListingReportsProfilesAndEnrollment(t *testing.T) {
+	old := runWSL
+	t.Cleanup(func() { runWSL = old })
+	runWSL = func(args ...string) (string, error) {
+		if strings.Join(args, " ") == "--list --quiet" {
+			return "Ubuntu\r\nDebian\r\nrancher-desktop\r\n", nil
+		}
+		if args[1] == "Debian" {
+			return "", errors.New("distribution unavailable")
+		}
+		return "/home/me\n/home/me/.claude\n\n/home/me/.claude.json\n/home/me/.cursor\n", nil
+	}
+	project := t.TempDir()
+	ubuntu := wslProfile{Distribution: "Ubuntu", Home: "/home/me", ClaudeHome: "/home/me/.claude", CursorHome: "/home/me/.cursor"}
+	for _, r := range []wslRegistration{
+		{Profile: ubuntu, Target: "claude-code"},
+		{Profile: ubuntu, Target: "codex", User: "someone-else"},
+	} {
+		if err := saveWSLRegistration(project, r, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(project, ".wsl-integrations.txt"), []byte("Ubuntu|cursor\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	listing := listWSL(project)
+	encoded, _ := json.Marshal(listing)
+	want := `{"targets":[{"name":"claude-code","label":"Claude Code"},{"name":"cursor","label":"Cursor"},{"name":"codex","label":"Codex"}],` +
+		`"distributions":[{"distribution":"Ubuntu","home":"/home/me","clients":[` +
+		`{"name":"claude-code","profile":"/home/me/.claude","enrolled":true},` +
+		`{"name":"cursor","profile":"/home/me/.cursor","enrolled":true},` +
+		`{"name":"codex","profile":"","enrolled":false}]},` +
+		`{"distribution":"Debian","error":"distribution unavailable","clients":[` +
+		`{"name":"claude-code","profile":"","enrolled":false},{"name":"cursor","profile":"","enrolled":false},{"name":"codex","profile":"","enrolled":false}]}]}`
+	if string(encoded) != want {
+		t.Fatalf("listing\n got %s\nwant %s", encoded, want)
+	}
+
+	runWSL = func(...string) (string, error) { return "", errors.New("WSL is not installed") }
+	if listing := listWSL(project); listing.Error != "WSL discovery unavailable: WSL is not installed" || len(listing.Distributions) != 0 {
+		t.Fatalf("unavailable WSL: %+v", listing)
 	}
 }

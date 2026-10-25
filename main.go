@@ -125,10 +125,10 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `imprint — AI memory for Claude Code
 
 Usage:
-  imprint wsl list           Discover Claude Code and Codex profiles in WSL (Windows only)
-  imprint wsl setup --distribution NAME --target claude-code|codex
+  imprint wsl list [--json]  Show WSL distributions' client profiles and which are enrolled (Windows only)
+  imprint wsl setup --distribution NAME --target %[2]s
                              Connect a selected WSL profile to this Windows runtime
-  imprint wsl remove --distribution NAME --target claude-code|codex
+  imprint wsl remove --distribution NAME --target %[2]s
                              Remove that bridge while preserving memories and other clients
   imprint setup [target] [--profile cpu|gpu|auto] [--with-llm|--no-llm] [--retry-gpu] [--non-interactive]
                              Install deps, then connect AI clients (MCP server, hooks, instructions)
@@ -206,5 +206,5 @@ Examples:
   imprint ingest ~/code
   imprint sync serve --relay sync.example.com
   imprint sync sync.example.com/7f3a9c21-Ab3xY9Kq
-`, cmd.ClientTargets())
+`, cmd.ClientTargets(), cmd.WSLTargets())
 }

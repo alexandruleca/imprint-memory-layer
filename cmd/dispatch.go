@@ -79,6 +79,11 @@ func wslTargets() []string {
 	return names
 }
 
+// WSLTargets is the usage text of a WSL target argument.
+func WSLTargets() string {
+	return strings.Join(wslTargets(), "|")
+}
+
 // wslTargetChoices names wslTargets for messages: "a, b or c".
 func wslTargetChoices() string {
 	names := wslTargets()

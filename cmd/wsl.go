@@ -123,26 +123,136 @@ func validLinuxPath(value string) bool {
 	return strings.HasPrefix(value, "/") && !strings.ContainsAny(value, "\\\r\n\x00")
 }
 
-func listWSL() []wslProfile {
-	result := []wslProfile{}
+// wslListing is what `imprint wsl list` reports: each distribution's default
+// user profile and, for every WSL target, the client's directory there and
+// whether this installation enrolled it.
+type wslListing struct {
+	Targets       []wslTargetInfo   `json:"targets"`
+	Distributions []wslDistribution `json:"distributions"`
+	Error         string            `json:"error,omitempty"` // discovery itself failed
+}
+
+type wslTargetInfo struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+}
+
+type wslDistribution struct {
+	Distribution string      `json:"distribution"`
+	Home         string      `json:"home,omitempty"`
+	Error        string      `json:"error,omitempty"` // the profile probe failed
+	Clients      []wslClient `json:"clients"`
+}
+
+type wslClient struct {
+	Name     string `json:"name"`
+	Profile  string `json:"profile"` // "" when the client has no profile there
+	Enrolled bool   `json:"enrolled"`
+}
+
+// listWSL probes every distribution except Docker/Rancher utility ones, which
+// can start a stopped distribution (ADR 0026). Enrollment is this
+// installation's journal of default-user registrations plus the installer's
+// saved selections; custom users and homes are managed from the CLI.
+func listWSL(project string) wslListing {
+	listing := wslListing{Targets: []wslTargetInfo{}, Distributions: []wslDistribution{}}
+	for _, c := range clients {
+		if c.wslHome != nil {
+			listing.Targets = append(listing.Targets, wslTargetInfo{Name: c.name, Label: c.label})
+		}
+	}
+	enrolled, err := enrolledWSL(project)
+	if err != nil {
+		listing.Error = err.Error()
+		return listing
+	}
 	text, err := runWSL("--list", "--quiet")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "WSL discovery unavailable:", err)
-		return result
+		listing.Error = "WSL discovery unavailable: " + err.Error()
+		return listing
 	}
 	for _, name := range strings.Split(text, "\n") {
 		name = strings.TrimSpace(name)
 		if !validDistro(name) || strings.HasPrefix(strings.ToLower(name), "docker-desktop") || strings.HasPrefix(strings.ToLower(name), "rancher-desktop") {
 			continue
 		}
+		d := wslDistribution{Distribution: name, Clients: []wslClient{}}
 		p, err := probeWSL(name, "", "", "", "")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Skipping WSL distribution %s: %v\n", name, err)
+			d.Error = err.Error()
+		} else {
+			d.Home = p.Home
+		}
+		for _, c := range clients {
+			if c.wslHome == nil {
+				continue
+			}
+			state := wslClient{Name: c.name, Enrolled: enrolled[name+"|"+c.name]}
+			if err == nil {
+				state.Profile = c.wslHome(p)
+			}
+			d.Clients = append(d.Clients, state)
+		}
+		listing.Distributions = append(listing.Distributions, d)
+	}
+	return listing
+}
+
+// enrolledWSL is the set of "distribution|target" default-user profiles this
+// installation registered.
+func enrolledWSL(project string) (map[string]bool, error) {
+	records, err := readWSLRegistrations(project)
+	if err != nil {
+		return nil, err
+	}
+	enrolled := map[string]bool{}
+	for _, r := range records {
+		if r.User == "" && !r.CustomProfile {
+			enrolled[r.Profile.Distribution+"|"+r.Target] = true
+		}
+	}
+	selections, err := os.ReadFile(filepath.Join(project, ".wsl-integrations.txt"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	for _, line := range strings.Split(strings.TrimPrefix(string(selections), "\ufeff"), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			enrolled[line] = true
+		}
+	}
+	return enrolled, nil
+}
+
+func printWSLListing(listing wslListing) {
+	if listing.Error != "" {
+		output.Fail(listing.Error)
+	}
+	if len(listing.Distributions) == 0 {
+		output.Info("No WSL distributions found.")
+		return
+	}
+	labels := map[string]string{}
+	for _, t := range listing.Targets {
+		labels[t.Name] = t.Label
+	}
+	for _, d := range listing.Distributions {
+		if d.Error != "" {
+			fmt.Printf("  %s: %s\n", d.Distribution, d.Error)
 			continue
 		}
-		result = append(result, p)
+		fmt.Printf("  %s (%s)\n", d.Distribution, d.Home)
+		for _, c := range d.Clients {
+			state := "no profile"
+			if c.Enrolled {
+				state = "enrolled"
+			} else if c.Profile != "" {
+				state = "not enrolled"
+			}
+			fmt.Printf("    %-16s %-14s %s\n", labels[c.Name], state, c.Profile)
+		}
 	}
-	return result
+	fmt.Println()
+	fmt.Println("  Enroll a profile with imprint wsl setup --distribution NAME --target CLIENT; remove it with imprint wsl remove.")
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
@@ -374,7 +484,7 @@ func WSL(args []string) {
 		output.Fail("Run imprint wsl from the Windows installation")
 	}
 	if len(args) == 0 {
-		output.Fail("Usage: imprint wsl list | setup --distribution NAME --target claude-code|codex|cursor")
+		output.Fail("Usage: imprint wsl list [--json] | setup|remove --distribution NAME --target " + WSLTargets())
 	}
 	flags := flag.NewFlagSet("wsl", flag.ContinueOnError)
 	distro := flags.String("distribution", "", "WSL distribution")
@@ -385,6 +495,7 @@ func WSL(args []string) {
 	codex := flags.String("codex-home", "", "Explicit CODEX_HOME")
 	python := flags.String("python", "", "Explicit Windows Imprint interpreter (default: installed venv)")
 	installerFile := flags.String("installer-file", "", "Write installer discovery rows to this file")
+	asJSON := flags.Bool("json", false, "Print the listing as JSON (what the dashboard reads)")
 	if err := flags.Parse(args[1:]); err != nil {
 		output.Fail(err.Error())
 	}
@@ -393,25 +504,30 @@ func WSL(args []string) {
 	}
 	switch args[0] {
 	case "list":
-		profiles := listWSL()
-		if *installerFile != "" {
+		listing := listWSL(platform.FindProjectDir())
+		switch {
+		case *installerFile != "":
+			if listing.Error != "" {
+				fmt.Fprintln(os.Stderr, listing.Error)
+			}
 			var rows strings.Builder
-			for _, p := range profiles {
-				if p.ClaudeHome != "" {
-					fmt.Fprintf(&rows, "%s|claude-code\n", p.Distribution)
+			for _, d := range listing.Distributions {
+				if d.Error != "" {
+					fmt.Fprintf(os.Stderr, "Skipping WSL distribution %s: %s\n", d.Distribution, d.Error)
 				}
-				if p.CodexHome != "" {
-					fmt.Fprintf(&rows, "%s|codex\n", p.Distribution)
-				}
-				if p.CursorHome != "" {
-					fmt.Fprintf(&rows, "%s|cursor\n", p.Distribution)
+				for _, c := range d.Clients {
+					if c.Profile != "" {
+						fmt.Fprintf(&rows, "%s|%s\n", d.Distribution, c.Name)
+					}
 				}
 			}
 			if err := os.WriteFile(*installerFile, []byte(rows.String()), 0600); err != nil {
 				output.Fail(err.Error())
 			}
-		} else {
-			_ = json.NewEncoder(os.Stdout).Encode(profiles)
+		case *asJSON:
+			_ = json.NewEncoder(os.Stdout).Encode(listing)
+		default:
+			printWSLListing(listing)
 		}
 	case "setup", "remove":
 		p, err := probeWSL(*distro, *user, *home, *claude, *codex)
