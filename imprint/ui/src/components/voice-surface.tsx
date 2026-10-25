@@ -79,16 +79,22 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
     && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
   const active = voice.connected || voice.phase === "connecting";
+  // A session keeps the voice and reasoning model it started with (ADR 0071),
+  // so changing either during one starts a new session; its history is transient.
   async function chooseLook(next: string) {
     const previous = avatar;
     setAvatar(next);
-    try { await setConfigValue("voice.avatar", next); } catch { setAvatar(previous); }
+    try { await setConfigValue("voice.avatar", next); } catch { setAvatar(previous); return; }
+    if (active) void client.current?.start(engine);
   }
   const picker = looks.length > 1 && avatar
     ? (compactPicker: boolean) => <AvatarPicker choices={looks} value={avatar} onChange={look => void chooseLook(look)} compact={compactPicker}/>
     : null;
   function chooseMode(value: VoiceMode) { client.current?.setMode(value); saveVoicePreferences({ mode: value }); }
-  function chooseEngine(value: "chat" | "lfm") { setEngine(value); saveVoicePreferences({ engine: value }); }
+  function chooseEngine(value: "chat" | "lfm") {
+    setEngine(value); saveVoicePreferences({ engine: value });
+    if (active) void client.current?.start(value);
+  }
   /** The remembered microphone choice (ADR 0069): later conversations arm the
    * microphone when they are ready; clearing it turns capture off now. */
   function remember(value: boolean) {
@@ -131,9 +137,9 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
           <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Companion settings"/>}><Settings2 size={16}/></PopoverTrigger>
           <PopoverContent align="end" className={`voice-options ${compact ? "voice-options-compact" : ""}`} aria-label="Companion settings">
             <PopoverTitle>Companion settings</PopoverTitle>
-            {compact && picker && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
+            {compact && picker && <div className="voice-look"><span>Echo&apos;s look and voice</span>{picker(true)}</div>}
             <div className="voice-settings">
-              <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} disabled={active} onChange={event => chooseEngine(event.target.value as "chat" | "lfm")}>
+              <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} onChange={event => chooseEngine(event.target.value as "chat" | "lfm")}>
                 <option value="chat" disabled={runtime?.chat_provider !== "local"}>Same local model as Chat</option><option value="lfm">Small voice model · LFM 1.5B</option>
               </select></label>
               <label className="voice-check"><Checkbox aria-label="Use microphone for conversations" checked={rememberMicrophone} onCheckedChange={remember}/>Use microphone for conversations</label>
@@ -154,7 +160,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     </header>
     {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
     {!ready && !compact && <VoiceSetup setup={setup}/>}
-    {!ready && !compact && picker && <div className="echo-look"><p className="echo-setup-eyebrow">CHOOSE HOW ECHO LOOKS</p>{picker(false)}</div>}
+    {!ready && !compact && picker && <div className="echo-look"><p className="echo-setup-eyebrow">CHOOSE HOW ECHO LOOKS AND SOUNDS</p>{picker(false)}</div>}
     {!compact && <VoiceChatSetup preparation={voice.preparation}/>}
     <div className="voice-stage">
       <div className="voice-halo" aria-hidden="true"/>
@@ -188,7 +194,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       <p className="voice-privacy" role="status" data-alert={voice.phase === "error" || !!voice.microphoneError || undefined}>{voice.phase === "error" ? voice.detail : voice.microphoneError || (voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally")}</p>
       {voice.microphoneSettings && desktop && <Button variant="outline" className="voice-settings-link" onClick={() => void window.electronAPI?.openMicrophoneSettings?.()}>Open microphone settings</Button>}
       {!compact && textForm}{!compact && transcript}
-      {!compact && picker && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
+      {!compact && picker && <div className="voice-look"><span>Echo&apos;s look and voice</span>{picker(true)}</div>}
       </>}
     </div>
     {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href={`/models/imprint-${avatar || "echo"}.glb`} download><Download size={13}/> Download 3D model</a></footer>}

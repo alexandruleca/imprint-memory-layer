@@ -270,9 +270,28 @@ Settings close with Escape or a click outside; while they are open, a press on
 the head closes them instead of moving the window. The Voice page has the same
 button for its reasoning model and threshold.
 
-Echo has three looks. Choose one during first-time setup, under **Echo's look**
-on the Voice page or as `voice.avatar` in Settings, and change it anytime; the
-companion uses it the next time it opens.
+Echo has three looks, and each speaks in its own voice. Choose one during
+first-time setup, under **Echo's look and voice** on the Voice page or in the companion's
+settings, or as `voice.avatar` in Settings, and change it anytime; the companion
+uses it the next time it opens.
+
+| Look | Voice |
+| --- | --- |
+| Echo | US male, with a robotic effect |
+| Iris | US female |
+| Kai | US male |
+
+The native model is asked for the look's speaker on both reasoning routes: Chat
+text read aloud and the small model's interleaved replies. Echo's robotic effect
+is a continuous 70 Hz ring modulation with light quantization, applied to reply
+audio in the dashboard; it keeps reply length and never touches the microphone.
+No extra model, service or dependency is involved. A conversation keeps the voice
+and reasoning model it started with: changing either during one ends it and
+starts a new one once the old one has released the speech worker (waiting up to
+eight seconds), and the short conversation history starts over. How natural each
+voice sounds, whether the small model keeps the speaker through interleaved
+replies, and how intelligible the robotic effect is still need listening tests.
+[ADR 0071](adr/0071-each-look-speaks-in-its-own-voice.md) records this.
 
 - **Echo** ([glTF model](../imprint/ui/public/models/imprint-echo.glb)), the default: an original holographic core.
   Segmented rings turn at their own speeds, faster while Echo thinks; the core swells as it speaks; and a lens on the

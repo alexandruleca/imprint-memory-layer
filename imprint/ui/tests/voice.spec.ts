@@ -362,13 +362,13 @@ test("Echo's look is picked from previews, saved, and loads its own model", asyn
   await prepare(page);
   const state = { value: 'echo', puts: [] as unknown[] };
   const choices = [
-    { value: 'echo', label: 'Echo', detail: 'Holographic core, rings that turn and pulse as it speaks', unavailable: '' },
-    { value: 'iris', label: 'Iris', detail: 'Indigo straight cut, pale lavender eyes', unavailable: '' },
-    { value: 'kai', label: 'Kai', detail: 'Spiky orange hair, a determined frown', unavailable: '' },
+    { value: 'echo', label: 'Echo', detail: 'Holographic core, rings that turn and pulse as it speaks; robotic voice', unavailable: '' },
+    { value: 'iris', label: 'Iris', detail: 'Indigo straight cut, pale lavender eyes; female voice', unavailable: '' },
+    { value: 'kai', label: 'Kai', detail: 'Spiky orange hair, a determined frown; male voice', unavailable: '' },
   ];
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [
     { key: 'voice.avatar', value: state.value, source: 'default', default: 'echo', type: 'str', env: 'IMPRINT_VOICE_AVATAR',
-      desc: 'How Echo looks; change it anytime', choices, custom: false },
+      desc: 'How Echo looks and sounds; change it anytime', choices, custom: false },
   ] } }));
   await page.route('**/api/config/voice.avatar', async route => {
     const body = route.request().postDataJSON();
@@ -536,4 +536,34 @@ test('checking the remembered microphone in the companion never drags it; cleari
   await expect(page.getByRole('textbox', { name: 'Type a question' })).toBeEnabled();
   expect(await page.evaluate(() => (window as unknown as { captureCalls: number }).captureCalls)).toBe(0);
   expect(await bridge.calls()).not.toContain('drag-start');
+});
+
+test('a new look or reasoning model during a conversation starts a new session once the old one releases the worker', async ({ page }) => {
+  await prepare(page);
+  let busy = false;
+  const sessions: object[] = [], looks: string[] = [];
+  await page.route('**/api/voice/status', route => route.fulfill({ json: { installed: true, supported: true, chat_provider: 'local', busy } }));
+  await page.route('**/api/voice/sessions', route => { sessions.push(route.request().postDataJSON()); return route.fulfill({ json: { token: 'fixture', workspace: 'default' } }); });
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [{ key: 'voice.avatar', value: 'echo', source: 'default', default: 'echo',
+    type: 'str', env: 'IMPRINT_VOICE_AVATAR', desc: 'How Echo looks and sounds', custom: false, choices: ['echo', 'iris', 'kai'].map(value =>
+      ({ value, label: value[0].toUpperCase() + value.slice(1), detail: value, unavailable: '' })) }] } }));
+  await page.route('**/api/config/voice.avatar', route => { looks.push(route.request().postDataJSON().value); return route.fulfill({ json: { ok: true } }); });
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+  expect(sessions).toEqual([{ engine: 'chat' }]);
+  busy = true; // the old session has not released the worker yet
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  const model = page.getByRole('combobox', { name: 'Voice reasoning model' });
+  await expect(model).toBeEnabled();
+  await model.selectOption('lfm');
+  await expect(page.locator('.voice-caption')).toContainText('Waiting for the previous conversation');
+  await page.keyboard.press('Escape');
+  await page.getByRole('group', { name: "Echo's look" }).getByRole('button', { name: /^Iris:/ }).click();
+  await expect.poll(() => looks).toEqual(['iris']);
+  expect(sessions).toHaveLength(1);
+  busy = false;
+  await expect.poll(() => sessions.length).toBe(2);
+  expect(sessions.at(-1)).toEqual({ engine: 'lfm' });
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
 });

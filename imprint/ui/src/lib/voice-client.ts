@@ -65,6 +65,15 @@ export function microphoneProblem(step: MicrophoneStep, error: unknown, platform
   return `${plain} (${[name, message].filter(Boolean).join(": ") || "no details"})`;
 }
 
+/** Echo's robotic voice (ADR 0071): continuous 70 Hz ring modulation with light
+ * quantization, applied to reply audio only. It keeps every sample, so playback
+ * length and scheduling are unchanged; `offset` continues the phase across chunks. */
+export function robotVoice(samples: Float32Array, offset = 0) {
+  for (let i = 0; i < samples.length; i++) {
+    samples[i] = Math.round(samples[i] * (.65 + .35 * Math.sin(2 * Math.PI * 70 * (offset + i) / 24000)) * 512) / 512;
+  }
+}
+
 // Adaptive energy VAD, with onset hysteresis, endpoint silence and pre-roll.
 // This is intentionally separate from the acoustic model; see live-voice.md.
 export class VoiceGate {
@@ -158,6 +167,9 @@ export class VoiceClient {
   private question?: string;
   /** The user's remembered choice: arm the microphone whenever a conversation is ready (ADR 0069). */
   armMicrophone = false;
+  /** The session's voice effect, as the API reports it when the session is ready. */
+  private effect: string | null = null;
+  private outputSamples = 0;
   constructor(private changed: (value: VoiceSnapshot) => void) {}
   private update(values: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...values };
@@ -179,6 +191,17 @@ export class VoiceClient {
         })]);
       } finally { clearTimeout(audioTimer); }
       if (this.stopped || epoch !== this.epoch) return;
+      // A new look or reasoning model replaces the session; the old one releases
+      // the worker as it closes. One voice window owns the worker at a time.
+      for (const deadline = Date.now() + 8000; ;) {
+        const previous = await fetch(`${API_BASE}/api/voice/status`, { signal: AbortSignal.timeout(1500) });
+        if (this.stopped || epoch !== this.epoch) return;
+        if (previous.ok && !(await previous.json()).busy) break;
+        if (Date.now() >= deadline) throw new Error("Voice is open in another window. Stop it there, then try again.");
+        this.update({ detail: "Waiting for the previous conversation…" });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        if (this.stopped || epoch !== this.epoch) return;
+      }
       this.update({ detail: "Connecting locally…" });
       const response = await fetch(`${API_BASE}/api/voice/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine }) });
       if (!response.ok) { const error = await response.json(); throw new Error(error.detail || "Voice is unavailable."); }
@@ -306,15 +329,16 @@ export class VoiceClient {
     const pending = this.accepted > 0;
     this.accepted = 0; this.complete = 0;
     for (const source of this.sources) { source.onended = null; try { source.stop(); } catch {} source.disconnect(); }
-    this.sources.clear(); this.nextAudio = 0; this.level = 0;
+    this.sources.clear(); this.nextAudio = 0; this.level = 0; this.outputSamples = 0;
     if (this.snapshot.connected) {
       if (pending) this.send({ type: "cancel" });
       this.update({ phase: "ready", preparation: null, detail: this.snapshot.mode === "ptt" ? "Hold to talk" : "Listening for your voice" });
     }
   }
-  private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string; stage?: string; downloaded?: number; total?: number }) {
+  private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string; stage?: string; downloaded?: number; total?: number; effect?: string | null }) {
     if (event.type === "connecting") { this.update({ detail: "Loading local voice…" }); return; }
     if (event.type === "ready") {
+      this.effect = event.effect ?? null;
       this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace });
       const question = this.question; this.question = undefined;
       if (question) this.submit({ text: question });
@@ -344,6 +368,8 @@ export class VoiceClient {
     const view = new DataView(bytes.buffer), buffer = context.createBuffer(1, bytes.length / 2, 24000);
     const samples = buffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+    if (this.effect === "robot") robotVoice(samples, this.outputSamples);
+    this.outputSamples += samples.length;
     if (this.nextAudio - context.currentTime > 30) { this.interrupt(); this.update({ detail: "Reply paused. Ask for a shorter answer." }); return; }
     if (!this.analyser) {
       this.analyser = context.createAnalyser(); this.analyser.fftSize = 256;

@@ -6,7 +6,12 @@ description: Reference for the Imprint dashboard HTTP API, with a downloadable P
 Experimental voice routes are documented in [Echo voice companion](live-voice.md):
 `GET /api/voice/status`, `POST /api/voice/sessions` and `WS /api/voice/stream`.
 Voice requires exact same-origin loopback access and a one-use session capability;
-the native speech listener is private to the API.
+the native speech listener is private to the API. The capability pins the
+workspace, the reasoning `engine` (`chat` or `lfm`) and the voice of the
+`voice.avatar` look current when the session was created. The stream's `ready`
+event reports that `voice` and its `effect` (`robot` for Echo, otherwise
+`null`), which the dashboard applies to reply audio. A different look or engine
+takes a new session.
 
 The Imprint container runs a FastAPI server on port **8420**. Everything the
 built-in dashboard does — search, ingest, retag, graph walks, sync, chat — is

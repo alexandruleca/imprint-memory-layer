@@ -29,6 +29,15 @@ MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
 STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load.
 TURN_TIMEOUT = 120
 CHAT_SETUP_TIMEOUT = 1800  # First-time binding/model provisioning is not a reply.
+# Each of Echo's looks (the voice.avatar setting) speaks in its own voice
+# (ADR 0071): the speaker the native model is asked for, and an effect the
+# dashboard applies to reply audio.
+VOICES = {"echo": (lfm.VOICES["us_male"], "robot"), "iris": (lfm.VOICES["us_female"], None), "kai": (lfm.VOICES["us_male"], None)}
+
+
+def look_voice(look: object) -> str:
+    """The voice of the configured look; a look without one speaks as Echo."""
+    return look if isinstance(look, str) and look in VOICES else "echo"
 
 
 def worker_threads() -> int:
@@ -152,13 +161,13 @@ class Sessions:
         self.active = False
         self.worker = Worker()
 
-    def issue(self, workspace: str, origin: str, engine: str) -> str:
+    def issue(self, workspace: str, origin: str, engine: str, voice: str = "echo") -> str:
         now = time.monotonic()
         self.leases = {key: value for key, value in self.leases.items() if value["expires"] > now}
         if len(self.leases) >= 8:
             raise HTTPException(429, "Too many pending voice sessions")
         token = secrets.token_urlsafe(32)
-        self.leases[token] = {"workspace": workspace, "origin": origin, "engine": engine, "expires": now + 30}
+        self.leases[token] = {"workspace": workspace, "origin": origin, "engine": engine, "voice": voice, "expires": now + 30}
         return token
 
     def consume(self, token: str, origin: str) -> dict | None:
@@ -247,7 +256,9 @@ async def create_session(request: Request):
         raise HTTPException(409, "Echo setup is still running")
     if not status()["installed"] or not status()["supported"]:
         raise HTTPException(409, "Build and configure the local voice runtime first")
-    return {"token": sessions.issue(workspace, origin, engine), "workspace": workspace, "expires_in": 30}
+    # The capability pins the look's voice as well; a new look takes a new session.
+    voice = look_voice(config_schema.resolve("voice.avatar")[0])
+    return {"token": sessions.issue(workspace, origin, engine, voice), "workspace": workspace, "expires_in": 30}
 
 
 def check_socket(websocket: WebSocket) -> bool:
@@ -375,6 +386,7 @@ async def stream(websocket: WebSocket):
             raise PrototypeError("Wait for Echo setup to finish before starting voice.")
         sessions.active = owned = True
         workspace, engine = lease["workspace"], lease["engine"]
+        speaker, effect = VOICES[lease["voice"]]
         history: deque = deque(maxlen=6)
         await send({"type": "connecting"})
         # A closed companion must cancel a cold model load as well as an active
@@ -393,7 +405,7 @@ async def stream(websocket: WebSocket):
                 if not task.done():
                     task.cancel()
             await asyncio.gather(boot, disconnected, return_exceptions=True)
-        await send({"type": "ready", "workspace": workspace, "engine": engine})
+        await send({"type": "ready", "workspace": workspace, "engine": engine, "voice": lease["voice"], "effect": effect})
         deadline = time.monotonic() + 1800
 
         async def turn(identifier: int, message: dict, flag: threading.Event):
@@ -423,7 +435,7 @@ async def stream(websocket: WebSocket):
                             recent = recent[2:]
                         context = _json(recent)
                         content = f"{evidence}\nRecent conversation (may be interrupted): {context}\nQuestion: {question}"
-                        async for event in sessions.worker.stream("Respond with interleaved text and audio.", content):
+                        async for event in sessions.worker.stream(f"Respond with interleaved text and audio. Use the {speaker} voice.", content):
                             if event["type"] == "text":
                                 answer += event["text"]
                             await emit(event)
@@ -436,7 +448,7 @@ async def stream(websocket: WebSocket):
                                     if end < 1:
                                         end = 240
                                 part, phrase = phrase[:end], phrase[end:]
-                                async for audio in sessions.worker.stream("Perform TTS. Use the US female voice.", part):
+                                async for audio in sessions.worker.stream(f"Perform TTS. Use the {speaker} voice.", part):
                                     if audio["type"] == "audio":
                                         await emit(audio)
 

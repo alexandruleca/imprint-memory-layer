@@ -334,5 +334,52 @@ class LiveRuntimeIntegrityTests(unittest.TestCase):
             self.assertFalse(voice_runtime.supported())
 
 
+class VoiceLookTests(unittest.TestCase):
+    """Each look speaks in its own voice, pinned to the session (ADR 0071)."""
+    setUp = VoiceBoundaryTests.setUp
+    token = VoiceBoundaryTests.token
+
+    def test_every_look_has_a_voice_and_an_unknown_look_speaks_as_echo(self):
+        from imprint import config_schema
+        looks = {choice.value for choice in next(s for s in config_schema.SETTINGS if s.key == "voice.avatar").choices}
+        self.assertEqual(looks, set(voice.VOICES))
+        self.assertEqual(voice.look_voice("kai"), "kai")
+        for unknown in ("robot", "", None, ["iris"]):
+            self.assertEqual(voice.look_voice(unknown), "echo")
+
+    def test_the_configured_look_is_pinned_to_the_capability(self):
+        for look, expected in (("kai", "kai"), ("iris", "iris"), ("echo", "echo"), ("someone-else", "echo")):
+            with self.subTest(look=look), patch.dict(os.environ, {"IMPRINT_VOICE_AVATAR": look}):
+                token = self.token(engine="lfm")
+                self.assertEqual(voice.sessions.consume(token, "http://127.0.0.1:8420")["voice"], expected)
+
+    def test_both_reasoners_ask_the_native_model_for_the_look_speaker(self):
+        for engine in ("chat", "lfm"):
+            for look, (speaker, effect) in voice.VOICES.items():
+                prompts = []
+
+                async def native(system, content):
+                    prompts.append(system)
+                    yield {"type": "text", "text": "Hello."}
+                    yield {"type": "audio", "data": "AAAAAA==", "sample_rate": 24000, "format": "pcm16"}
+                with self.subTest(engine=engine, look=look), patch.dict(os.environ, {"IMPRINT_VOICE_AVATAR": look}), \
+                        patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                        patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
+                        patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                        patch.object(voice, "memory_prompt", new_callable=AsyncMock, return_value="fixture"), \
+                        patch.object(chat, "stream_reply", return_value=iter([{"type": "token", "text": "Hello."}, {"type": "done"}])):
+                    token = self.token(engine=engine)
+                    with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                        ws.send_json({"token": token})
+                        ws.receive_json()
+                        ready = ws.receive_json()
+                        self.assertEqual((ready["type"], ready["voice"], ready["effect"]), ("ready", look, effect))
+                        ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
+                        while ws.receive_json()["type"] != "done":
+                            pass
+                    self.assertTrue(prompts)
+                    self.assertIn(f"Use the {speaker} voice.", prompts[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

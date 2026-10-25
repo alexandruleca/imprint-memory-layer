@@ -103,6 +103,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0054](0054-echo-looks-declare-their-motion.md) **Echo's looks declare their motion and follow the pointer.** Looks declare gaze, spin and pulse as glTF node extras; the heads' eyes turn at their eye bones; Echo is a generated core that follows the pointer across the screen.
 - [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) **Echo opens the microphone only on the user's intent, after an OS consent check.** Enable microphone, or Start conversation once the user has chosen the microphone, asks the operating system for consent through scoped IPC before opening the device; the device remembers the choice, never the grant.
 - [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) **The floating companion moves with the launcher and keeps its options in settings.** While the dashboard is hidden the companion docks beside the launcher and either window drags both; only the head and header drag it; everything except talking sits in a settings panel.
+- [ADR 0071](0071-each-look-speaks-in-its-own-voice.md) **Each look speaks in its own voice.** The voice.avatar look also chooses Echo's voice, the native model's speaker on both reasoning routes plus a robotic effect for Echo; a session keeps the voice it started with.
 
 ### Runtime, installers and release
 
@@ -200,6 +201,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0068](0068-merge-identical-waiting-jobs.md) | 2026-10-25 | Accepted | Merge identical waiting jobs |
 | [0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | 2026-10-25 | Accepted | Echo opens the microphone only on the user's intent, after an OS consent check |
 | [0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | 2026-10-25 | Accepted | The floating companion moves with the launcher and keeps its options in settings |
+| [0071](0071-each-look-speaks-in-its-own-voice.md) | 2026-10-25 | Accepted | Each look speaks in its own voice |
 
 ## How to write and maintain ADRs
 

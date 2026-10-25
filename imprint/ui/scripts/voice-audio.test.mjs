@@ -83,3 +83,14 @@ test('a microphone the OS refused names its recovery; restricted and unknown ans
   assert.equal(microphoneSettingsHelp('permission', new MicrophoneAccessError('restricted'), 'win32'), false);
   assert.match(microphoneProblem('device', Object.assign(new Error('x'), { name: 'NotSupportedError' })), /127\.0\.0\.1/);
 });
+
+test("Echo's robot effect stays bounded, keeps every sample and is continuous across streamed chunks", () => {
+  const { robotVoice } = exportsObject;
+  const input = Float32Array.from({ length: 3000 }, (_, i) => Math.sin(i * .2) * .9);
+  const full = input.slice(); robotVoice(full);
+  assert.notDeepEqual(full, input);
+  assert.equal(full.length, input.length);
+  assert.ok(full.every(value => Number.isFinite(value) && Math.abs(value) <= 1));
+  const split = input.slice(); robotVoice(split.subarray(0, 1403)); robotVoice(split.subarray(1403), 1403);
+  assert.deepEqual(split, full);
+});

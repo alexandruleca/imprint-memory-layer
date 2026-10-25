@@ -182,10 +182,10 @@ SETTINGS: list[Setting] = [
 
     # ── Chat (optional local helper in dashboard) ───────────────
     Setting("voice.runtime_dir",   "IMPRINT_VOICE_RUNTIME_DIR",   "",                               str,   "Explicit external cache with the built native live voice runtime"),
-    Setting("voice.avatar",        "IMPRINT_VOICE_AVATAR",        "echo",                           str,   "How Echo looks; change it anytime",
-            choices=(Choice("echo", "Echo", "Holographic core, rings that turn and pulse as it speaks"),
-                     Choice("iris", "Iris", "Indigo straight cut, pale lavender eyes"),
-                     Choice("kai", "Kai", "Spiky orange hair, a determined frown"))),
+    Setting("voice.avatar",        "IMPRINT_VOICE_AVATAR",        "echo",                           str,   "How Echo looks and sounds; change it anytime",
+            choices=(Choice("echo", "Echo", "Holographic core, rings that turn and pulse as it speaks; robotic voice"),
+                     Choice("iris", "Iris", "Indigo straight cut, pale lavender eyes; female voice"),
+                     Choice("kai", "Kai", "Spiky orange hair, a determined frown; male voice"))),
     Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),
     Setting("chat.provider",       "IMPRINT_CHAT_PROVIDER",       "local",                          str,   "Chat provider: local / vllm / openai / ollama / gemini / anthropic", choices=PROVIDERS),
     Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)",
