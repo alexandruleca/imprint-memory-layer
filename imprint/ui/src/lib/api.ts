@@ -406,6 +406,38 @@ export async function resetConfigValue(key: string) {
 
 // ── Queue / Commands ───────────────────────────────────────────
 
+/** A field of a command in the catalog; `key` is the body key the API maps
+ * to the command's CLI arguments. */
+export type CommandField =
+  | { key: string; label: string; kind: "path"; browse: "dir" | "any"; required?: boolean }
+  | { key: string; label: string; kind: "text"; placeholder?: string; required?: boolean; suggest_projects?: boolean }
+  | { key: string; label: string; kind: "switch"; hint: string }
+  | { key: string; label: string; kind: "project" }
+  /** One of the catalog's clients, or "all". */
+  | { key: string; label: string; kind: "client" };
+
+/** A command the Commands page offers (imprint/commands.py). */
+export type CatalogCommand = {
+  name: string;
+  label: string;
+  description: string;
+  group: string;
+  fields: CommandField[];
+  /** Sent with every run: the CLI subcommand this entry stands for. */
+  fixed?: Record<string, string>;
+  /** What running it removes; the page asks before it runs. */
+  confirm?: string;
+};
+
+/** An AI client the CLI connects to (`imprint clients --json`). */
+export type ClientTarget = { name: string; label: string; connected: boolean; error?: string };
+
+export type CommandCatalog = { commands: CatalogCommand[]; clients: ClientTarget[] };
+
+export async function getCommandCatalog() {
+  return fetchAPI<CommandCatalog>("/api/commands");
+}
+
 /** Queue a CLI command. An ingest or refresh outside the workspace's roots
  * asks the user to approve the root first and is then submitted again; it
  * fails with the server's refusal when the user declines. */

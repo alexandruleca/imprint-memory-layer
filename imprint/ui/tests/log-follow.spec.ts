@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { mockCatalog } from './command-catalog';
 
 // Log panels follow their newest output by scrolling only themselves
 // (useFollowOutput); the page around them stays where the reader left it. The
@@ -77,6 +78,7 @@ test('a job log follows its output without moving the page and pauses while scro
 test('command output follows without moving the page', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page);
+  await mockCatalog(page);
   await page.route('**/api/commands/learn', route => route.fulfill({ json: { job_id: 'j1', position: 0 } }));
   await page.goto('/commands/');
   const run = page.getByRole('button', { name: 'Run', exact: true });

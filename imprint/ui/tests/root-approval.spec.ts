@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { mockCatalog } from './command-catalog';
 
 const ROOT = '/home/me/other-project';
 
@@ -12,6 +13,7 @@ async function mockApi(page: Page, overlaps: string[] = []) {
   await page.route('**/api/overview', route => route.fulfill({ json: { projects: [], total_memories: 1, total_facts: 0 } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'alpha', workspaces: ['alpha', 'beta'] } }));
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [] } }));
+  await mockCatalog(page);
   await page.route('**/api/commands/*', async route => {
     state.commands.push({ command: route.request().url().split('/').pop(), body: route.request().postDataJSON() });
     await route.fulfill(state.approved ? { json: { job_id: 'j1', position: 0 } } : { status: 409, json: {
