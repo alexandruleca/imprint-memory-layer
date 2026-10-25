@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Bot, Boxes, Cpu, Database, FileInput, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
-  SquareTerminal, Tags, type LucideIcon,
+  ShieldCheck, SquareTerminal, Tags, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -22,6 +22,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   qdrant: { title: "Vector store", desc: "The local Qdrant server that holds memories.", icon: Database },
   chunker: { title: "Chunking", desc: "How files are split before embedding.", icon: Scissors },
   tagger: { title: "Tagging", desc: "Topic tags added to every chunk.", icon: Tags },
+  redact: { title: "Redaction", desc: "Secrets replaced with placeholders before memories are stored.", icon: ShieldCheck },
   ingest: { title: "Ingestion", desc: "Documents, OCR and URL fetching.", icon: FileInput },
   voice: { title: "Voice", desc: "The native live voice runtime.", icon: Mic },
   chat: { title: "Chat", desc: "The dashboard chat assistant.", icon: MessageSquare },

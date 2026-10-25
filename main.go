@@ -79,6 +79,8 @@ func main() {
 		cmd.UI(os.Args[2:])
 	case "retag":
 		cmd.Retag(os.Args[2:])
+	case "scrub":
+		cmd.Scrub(os.Args[2:])
 	case "migrate":
 		cmd.Migrate(os.Args[2:])
 	case "server":
@@ -161,6 +163,8 @@ Usage:
   imprint ui restart         Restart the running UI server with the installed code
   imprint ui log             Print the UI log file path (for tail -f)
   imprint retag [--project] [--all]  Re-tag existing memories (--all re-runs even already-tagged chunks)
+  imprint scrub [--workspace NAME] [--apply]
+                             Count secrets stored in memories and facts (--apply redacts them and re-embeds)
   imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
                              Move (or --copy) memories between workspaces (preserves vectors)
   imprint server <cmd>       Manage the local Qdrant server

@@ -47,6 +47,8 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(queue._build_argv('doctor', {'probe_mcp': True}), ['imprint', 'doctor', '--probe-mcp'])
             self.assertEqual(queue._build_argv('learn', {'desktop': True}), ['imprint', 'learn', '--desktop'])
             self.assertEqual(queue._build_argv('learn', {}), ['imprint', 'learn'])
+            self.assertEqual(queue._build_argv('scrub', {}), ['imprint', 'scrub'])
+            self.assertEqual(queue._build_argv('scrub', {'apply': True}), ['imprint', 'scrub', '--apply'])
             self.assertEqual(queue._build_argv('wsl', {'action': 'setup', 'distribution': 'Ubuntu', 'target': 'cursor'}),
                              ['imprint', 'wsl', 'setup', '--distribution', 'Ubuntu', '--target', 'cursor'])
             self.assertEqual(queue._build_argv('wsl', {'action': 'remove', 'distribution': 'Debian 12', 'target': 'codex'}),

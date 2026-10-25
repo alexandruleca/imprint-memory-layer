@@ -196,7 +196,7 @@ class StorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'app.py'
             path.write_text('unchanged implementation with useful source content')
-            settings = lambda key: (False, 'env') if key.startswith('tagger.') else (2_000_000, 'default')
+            settings = lambda key: (False, 'env') if key.startswith(('tagger.', 'redact.')) else (2_000_000, 'default')
             with patch('sys.argv', ['index', directory, directory + ':fixture']), \
                  patch('imprint.config_schema.resolve', side_effect=settings), \
                  patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
@@ -260,7 +260,7 @@ class StorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'app.py'
             path.write_text('first implementation of the source')
-            settings = lambda key: (False, 'env') if key.startswith('tagger.') else (2_000_000, 'default')
+            settings = lambda key: (False, 'env') if key.startswith(('tagger.', 'redact.')) else (2_000_000, 'default')
             with patch('sys.argv', ['index', directory, directory + ':fixture']), \
                  patch('imprint.config_schema.resolve', side_effect=settings), \
                  patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
@@ -287,7 +287,7 @@ class StorageTests(unittest.TestCase):
             path = Path(directory) / 'single.py'
             content = 'large source content\n' * 3000
             path.write_text(content)
-            settings = lambda key: (False, 'env') if key.startswith('tagger.') else (2_000_000, 'default')
+            settings = lambda key: (False, 'env') if key.startswith(('tagger.', 'redact.')) else (2_000_000, 'default')
             with patch('imprint.config_schema.resolve', side_effect=settings), \
                  patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
                  patch('imprint.tagger.build_payload_tags', return_value={}), \

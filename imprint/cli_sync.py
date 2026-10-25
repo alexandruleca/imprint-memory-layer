@@ -4,7 +4,9 @@ Live sync (``serve`` / ``join``) is the terminal front-end for the sessions
 in :mod:`imprint.sync_ws`, the same ones the dashboard streams over SSE.
 
 Export creates a Qdrant collection snapshot + copies the SQLite graph DB.
-Import restores both.  **No re-embedding needed on the receiving device.**
+Import restores both, then scrubs them: a bundle is a raw copy of storage and
+may predate redaction (ADR 0060). Only memories that held secrets are
+embedded again.
 
 Usage:
     python -m imprint.cli_sync serve [--relay HOST] [--workspace NAME] [--send-only | --receive-only]
@@ -97,7 +99,7 @@ def import_snapshot(
     bundle_path: Path,
     workspace: str | None = None,
 ) -> None:
-    """Restore a snapshot bundle.  No re-embedding needed."""
+    """Restore a snapshot bundle, then redact any secrets it brought."""
     bundle = Path(bundle_path)
     if not bundle.is_dir():
         raise FileNotFoundError(f"Bundle not found: {bundle}")
@@ -140,6 +142,8 @@ def import_snapshot(
         print("  Restoring knowledge graph …", file=sys.stderr, flush=True)
         shutil.copy2(graph_file, dst)
 
+    from .cli_scrub import scrub, summary
+    print(summary(scrub(workspace, apply=True)), file=sys.stderr)
     print("  Import complete.", file=sys.stderr)
 
 

@@ -207,22 +207,10 @@ def place(records: list[dict], workspace: str | None = None) -> list[dict]:
         project = placement(origin, record.get("source", ""), rules)
         moved = {**record, "project": project, "origin_project": origin}
         if record.get("id") and project != record.get("project", ""):
-            moved["id"] = relabeled_id(record["id"], record, project)
+            from .vectorstore import relabeled_id
+            moved["id"] = relabeled_id(record["id"], record, project=project)
         placed.append(moved)
     return placed
-
-
-def relabeled_id(memory_id: str, record: dict, project: str) -> str:
-    """The logical ID ``memory_id`` takes when its memory moves to ``project``.
-
-    IDs hash the project, source, content and position (vectorstore._make_id);
-    a note stored without a position keeps that form.
-    """
-    from . import vectorstore as vs
-    content, source = record.get("content", ""), record.get("source", "")
-    if memory_id == vs._make_id(content, record.get("project", ""), source):
-        return vs._make_id(content, project, source)
-    return vs._make_id(content, project, source, record.get("chunk_index"))
 
 
 def _moved_rules(rules: dict, project: str, target: str, pairs: set[tuple[str, str]],
@@ -314,7 +302,7 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
             payload = point.payload or {}
             origin = origin_project(payload)
             placed = placement(origin, payload.get("source", ""), rules)
-            memory_id = relabeled_id(payload.get("_mid") or "", payload, placed)
+            memory_id = vs.relabeled_id(payload.get("_mid") or "", payload, project=placed)
             vector = point.vector if isinstance(point.vector, dict) else {config.QDRANT_VECTOR_NAME: point.vector}
             rewritten.append(qm.PointStruct(id=vs._point_uuid(memory_id), vector=vector, payload={
                 **payload, "_mid": memory_id, "project": placed, "origin_project": origin}))

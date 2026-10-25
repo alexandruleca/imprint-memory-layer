@@ -177,6 +177,24 @@ def _make_id(content: str, project: str = "", source: str = "", chunk_index: int
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def relabeled_id(memory_id: str, record: dict, **changes) -> str:
+    """The logical ID ``memory_id`` takes when its record's ``project`` or
+    ``content`` changes (a move, a redaction). A note stored without a
+    position keeps that form."""
+    content, project, source = record.get("content", ""), record.get("project", ""), record.get("source", "")
+    new = {"content": content, "project": project, **changes}
+    if memory_id == _make_id(content, project, source):
+        return _make_id(new["content"], new["project"], source)
+    return _make_id(new["content"], new["project"], source, record.get("chunk_index"))
+
+
+def _redacted(records: list[dict]) -> list[dict]:
+    """Records with their secrets replaced, before anything derives from
+    their content (ADR 0060)."""
+    from .redaction import redact_all
+    return [{**r, "content": text} for r, text in zip(records, redact_all([r["content"] for r in records]))]
+
+
 def _point_uuid(memory_id: str) -> str:
     """Qdrant point ids must be uuid or unsigned int. Convert our 16-hex id
     deterministically to a uuid5 so the same logical id always maps to the
@@ -338,6 +356,8 @@ def store(
     from .projects import place
     placed = place([{'project': project, 'source': source}], workspace)[0]
     project = placed['project']
+    from .redaction import redact
+    content = redact(content)
     client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
     if memory_id in _live_existing_ids(client, coll, [memory_id]):
@@ -432,8 +452,14 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
 
     Each record: {content, project?, type?, tags?, source?, chunk_index?,
                   source_mtime?}. tags may be dict or comma-string.
+    Secrets in the content are redacted first (ADR 0060).
     Returns (inserted, skipped).
     """
+    return _store_redacted(_redacted(records), workspace, force=force, imported=imported)
+
+
+def _store_redacted(records: list[dict], workspace: str | None, *, force: bool = False,
+                    imported: bool = False) -> tuple[int, int]:
     from .workspace_policy import check_records, workspace_name
     workspace = workspace_name(workspace)
     from . import device
@@ -538,9 +564,9 @@ def replace_source(records: list[dict], source: str, project: str,
     from .workspace_policy import workspace_name
     workspace = workspace_name(workspace)
     from .projects import place
-    records = place(records, workspace)
+    records = _redacted(place(records, workspace))
     project = records[0]["project"]
-    inserted, skipped = store_batch(records, workspace=workspace, **({"force": True} if force else {}))
+    inserted, skipped = _store_redacted(records, workspace, force=force)
     client, coll = _ensure_collection(workspace)
     ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
     # Refresh provenance even when unchanged chunks reused their embeddings.
@@ -561,13 +587,30 @@ def replace_source(records: list[dict], source: str, project: str,
     return inserted, skipped
 
 
+def _redacted_received(records: list[dict]) -> list[dict]:
+    """Received records after this device's redaction. A record it changes
+    takes the ID of its redacted content and drops the sender's vector."""
+    out = []
+    for record, redacted in zip(records, _redacted(records)):
+        if redacted["content"] != record["content"]:
+            redacted["vector"] = None
+            if record.get("id"):
+                redacted["id"] = relabeled_id(record["id"], record, content=redacted["content"])
+        out.append(redacted)
+    return out
+
+
 def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int, int]:
-    """Store records that already carry vectors — skip embedding entirely.
+    """Store records that carry their vectors; only redacted ones are embedded.
 
     Each record: {content, vector, project?, type?, tags?, source?,
                   chunk_index?, source_mtime?, llm_tagged?, tagged_at?}.
     A record this workspace already has updates only its classification, and
     only when its ``tagged_at`` is newer (ADR 0051).
+    Content is redacted here as in every write, whatever the sender did: a
+    record it changes takes the ID of its redacted content, and its vector,
+    computed from the secret, is replaced by an embedding of the redacted
+    text (ADR 0060).
     Returns (inserted, retagged, skipped).
     """
     from . import device
@@ -595,9 +638,10 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     from .workspace_policy import check_records, workspace_name
     workspace = workspace_name(workspace)
     check_records(records, workspace)
-    # After the sender's IDs check out: this workspace's rules place them.
+    # After the sender's IDs check out: this workspace's rules place them,
+    # and its redaction rewrites them.
     from .projects import place
-    records = place(records, workspace)
+    records = _redacted_received(place(records, workspace))
     client, coll = _ensure_collection(workspace)
     stamps = _tagged_at(client, coll, (record_id(r) for r in records))
 
@@ -622,6 +666,14 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
 
     if not new_records:
         return 0, len(retagged), len(records) - len(retagged)
+
+    redacted = [r for r in new_records if r["vector"] is None]
+    if redacted:
+        vectors = embeddings.embed_documents_batch([r["content"] for r in redacted])
+        if len(vectors) != len(redacted):
+            raise ValueError("Embedding batch returned an incomplete result; no new memories were stored")
+        for r, vector in zip(redacted, vectors):
+            r["vector"] = vector
 
     points: list[qm.PointStruct] = []
     now = time.time()

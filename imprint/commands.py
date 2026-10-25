@@ -64,6 +64,12 @@ CATALOG: tuple[dict, ...] = (
           'hint': 'Also retag chunks the LLM tagger already handled'},
          {'key': 'dry_run', 'label': 'Dry run', 'kind': 'switch', 'hint': 'Tag without writing the results'},
      ]},
+    {'name': 'scrub', 'label': 'Scrub secrets', 'group': 'Maintain',
+     'description': 'Find secrets stored in memories and facts; replace them with placeholders when applied',
+     'fields': [
+         {'key': 'apply', 'label': 'Redact them', 'kind': 'switch',
+          'hint': 'Rewrite the memories and facts found and embed changed memories again; otherwise only count them'},
+     ]},
     {'name': 'sync', 'label': 'Export snapshot', 'group': 'Maintain',
      'description': 'Write a sync bundle of the active workspace',
      'fields': [], 'fixed': {'action': 'export'}},

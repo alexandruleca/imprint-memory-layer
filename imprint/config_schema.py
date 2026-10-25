@@ -142,6 +142,11 @@ SETTINGS: list[Setting] = [
     Setting("tagger.local.n_ctx",        "IMPRINT_TAGGER_N_CTX",            8192,                            int,  "Tagger model context window tokens"),
     Setting("tagger.local.n_gpu_layers", "IMPRINT_TAGGER_N_GPU_LAYERS",     -1,                              int,  "GPU layers to offload (-1 = all)", choices=GPU_LAYERS, custom=True),
 
+    # ── Redaction (ADR 0060) ──────────────────────────────────
+    # Rules for known credential formats always run; this adds a model.
+    Setting("redact.privacy_filter", "IMPRINT_REDACT_PRIVACY_FILTER", False, bool,
+            "Also redact secrets and account numbers OpenAI Privacy Filter finds (CPU; ~810 MB download on first use; seconds per chunk)"),
+
     # ── Ingest (docs + urls) ──────────────────────────────────
     Setting("ingest.max_file_bytes",    "IMPRINT_INGEST_MAX_FILE_BYTES",    2_000_000,    int,  "Per-file byte cap for source text indexing"),
     Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),

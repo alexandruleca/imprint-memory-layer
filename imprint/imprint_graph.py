@@ -82,9 +82,11 @@ def add(
     workspace: str | None = None,
     recorded_device: dict | None = None,
 ) -> int:
-    """Add a temporal fact. Returns the fact ID."""
+    """Add a temporal fact, its secrets redacted (ADR 0060). Returns the fact ID."""
     from .workspace_policy import workspace_name, write_guard
+    from .redaction import redact_all
     workspace = workspace_name(workspace)
+    subject, predicate, object = redact_all([subject, predicate, object])
     from .device import current, _identity
     origin = current() if recorded_device is None else _identity(recorded_device)
     with write_guard([{'source': source}], workspace), _connection(workspace) as conn:
@@ -150,11 +152,14 @@ def invalidate(fact_id: int, workspace: str | None = None) -> bool:
 
 
 def import_fact(record: dict, workspace: str | None = None) -> bool:
-    """Preserve origin/timestamps and enforce exclusions on imported facts."""
+    """Preserve origin/timestamps, enforce exclusions and redact secrets
+    (whatever the sender did, ADR 0060) on imported facts."""
     from .workspace_policy import workspace_name, write_guard
     from .device import _identity
+    from .redaction import redact_all
     ws = workspace_name(workspace)
-    values = (record.get('subject', ''), record.get('predicate', ''), record.get('object', ''), record.get('valid_from', 0))
+    values = (*redact_all([record.get('subject', ''), record.get('predicate', ''), record.get('object', '')]),
+              record.get('valid_from', 0))
     with write_guard([{'source': record.get('source', '')}], ws), _connection(ws) as conn, conn:
         if conn.execute('SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?', values).fetchone():
             return False

@@ -33,6 +33,13 @@ func Sync(args []string) {
 	if !platform.FileExists(venvPython) {
 		output.Fail("Run 'imprint setup' first")
 	}
+	// Importing a bundle restores a workspace and then scrubs it (ADR 0060),
+	// so it holds the queue lock like other commands that rewrite memories.
+	// The deferred release keeps the handle alive until the process exits.
+	if args[0] == "import" {
+		lock := acquireOrFail(platform.DataDir(projectDir), "sync-import")
+		defer lock.Release()
+	}
 
 	child := runner.CommandWithEnv(venvPython, append([]string{"-m", "imprint.cli_sync"}, args...),
 		"PYTHONPATH="+projectDir,

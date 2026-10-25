@@ -516,7 +516,7 @@ async def _run_job(job: dict) -> None:
         _finalize(job_id, status=status, exit_code=exit_code, error=None)
 
         # Reset in-process caches after commands that mutate collections.
-        if status == "done" and command in ("wipe", "migrate", "workspace", "retag"):
+        if status == "done" and command in ("wipe", "migrate", "workspace", "retag", "scrub"):
             try:
                 from .api import _reset_after_wipe  # lazy import
                 _reset_after_wipe()
@@ -664,6 +664,9 @@ def build_command_args(command: str, body: dict) -> list[str]:
     elif command == "doctor":
         if body.get("probe_mcp"):
             args.append("--probe-mcp")
+    elif command == "scrub":
+        if body.get("apply"):
+            args.append("--apply")
     elif command == "retag":
         if body.get("project"):
             args.extend(["--project", body["project"]])

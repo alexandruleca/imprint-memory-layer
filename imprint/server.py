@@ -483,6 +483,7 @@ def store(
 ) -> str:
     """Store a memory (decision/pattern/finding/bug). Include the WHY.
     Returns only after durable persistence. Uses local deterministic tags.
+    Credentials in the content are stored as [REDACTED:<kind>] placeholders.
 
     Args:
         content: The note — specific, reasoning included

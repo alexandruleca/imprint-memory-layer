@@ -76,6 +76,7 @@ obscura is an external CLI binary that provides JS-rendered HTML extraction for 
 | **Qwen3.5-4B** (optional local helper default) | Apache-2.0 | https://huggingface.co/Qwen/Qwen3.5-4B (GGUF: https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) |
 | **EmbeddingGemma-300M** (optional legacy model) | [Gemma Terms of Use](https://ai.google.dev/gemma/terms) + [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) | https://huggingface.co/google/embeddinggemma-300m (ONNX: https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX) |
 | BGE-M3 (alternative) | MIT | https://huggingface.co/BAAI/bge-m3 |
+| OpenAI Privacy Filter (opt-in, `redact.privacy_filter`) | Apache-2.0 | https://huggingface.co/openai/privacy-filter (code: https://github.com/openai/privacy-filter) |
 | Model2Vec static embedder (used by chunker) | MIT | https://huggingface.co/minishlab |
 
 **Gemma is not Apache/MIT.** Users accept the Gemma Terms when downloading weights from HuggingFace. Imprint does not redistribute Gemma weights in source or Docker images. Switch to a differently-licensed model via `imprint config set model.name <repo>`.
@@ -102,11 +103,13 @@ These services are called via their official SDKs with user-supplied API keys. T
 
 ## Attribution Obligations Summary
 
+Several secret-format patterns in `imprint/redaction.py` are adapted from the rule definitions of [gitleaks](https://github.com/gitleaks/gitleaks) (MIT, consulted at commit `5f6ec56`). Its license is retained at `licenses/gitleaks/LICENSE`.
+
 The dashboard vendors the static `shadcn@4.22.1` stylesheet at `imprint/ui/src/styles/shadcn.css` without its generator/runtime dependency tree. Its upstream MIT license is retained alongside it in `shadcn-LICENSE.txt`. The stylesheet's CSS body is copied from the pinned npm package; update it deliberately with the attribution intact.
 
 | License | Applies to | Obligation met by |
 |---|---|---|
-| MIT / BSD-3-Clause | Python deps, `uv` (MIT branch), nhooyr/websocket | This file lists the packages + upstream repo URLs (where full LICENSE texts live) |
+| MIT / BSD-3-Clause | Python deps, `uv` (MIT branch), nhooyr/websocket, gitleaks rule patterns | This file lists the packages + upstream repo URLs (where full LICENSE texts live) |
 | Apache 2.0 | Python deps, `uv` (Apache branch), Qdrant, obscura | Same + no modification to upstream code. uv is the only Apache-2.0 component we *redistribute* in binary form; we elect the MIT branch of its dual license to avoid the NOTICE redistribution requirement, but honor either at the recipient's choice |
 | PSF License 2.0 | CPython (downloaded by uv on first run) | Pass-through; CPython is not redistributed by Imprint — `uv` fetches it from python-build-standalone on first bootstrap |
 | Gemma Terms | EmbeddingGemma weights | Pass-through via HuggingFace click-through; noted in [README](README.md) and [docs/embeddings.md](docs/embeddings.md) |
