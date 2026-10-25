@@ -683,3 +683,17 @@ Executed locally on Linux/WSL2: release-validation unit tests (9, plus a run
 against the extracted v0.22.1 bundle), Go `cmd` and `internal` tests, 34
 Electron unit tests, dashboard type-check/lint and the full Playwright suite
 (83 scenarios).
+
+## Secret redaction (2026-10-25)
+
+[ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md); measurements in `docs/evidence/2026-10-25-secret-redaction-cpu.json`.
+
+| Check | Result | Scope |
+| --- | --- | --- |
+| Python unittest suite | Passed, 400 tests (1 skipped: the real-model smoke without its data directory) | Adds `tests/test_redaction.py`: rule formats and a false-positive corpus, idempotence, linear matching, the setting, Privacy Filter with a stand-in model, every write path against an in-memory Qdrant (ingest, learn, MCP `store`/`ingest_content`, summaries, facts, sync import with re-embedding), devices with different settings (as workspaces), `imprint scrub` and snapshot import. |
+| Real Privacy Filter smoke, Linux x86_64 | Passed | Pinned q4f16 export from `data/models/privacy-filter/`, offline, ONNX Runtime 1.31 CPU: names and email kept, password and IBAN redacted, idempotent. |
+| Real Privacy Filter, native Windows x64 | Passed | The installed runtime's Python and onnxruntime-gpu 1.31 (CPU provider), from a temporary copy of `imprint/` and a temporary data directory: first-use download and SHA-256 verification, then redaction and per-chunk timing. The installation's config and data were not touched. |
+| `go build`, `go vet ./cmd/`, `go test ./...` | Passed | `imprint scrub` and the import lock. One `cmd` run failed transiently while other sessions held dashboard test ports; four reruns passed. |
+| Dashboard `tsc --noEmit`, ESLint on the Settings page | Passed | The Redaction settings group. Not rendered in a browser. |
+
+Not run: macOS (Intel macOS pins ONNX Runtime 1.23.2, whose support for the model's `QMoE` kernel is unverified), Linux ARM, two physical devices with different redaction settings, and the Commands page in a browser.

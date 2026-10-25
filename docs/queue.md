@@ -7,7 +7,7 @@ Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant
 ## Semantics
 
 - **One job at a time, system-wide.** A single advisory flock on `data/queue.lock` gates every heavy command, regardless of which side started it.
-- **UI queues; CLI refuses.** `POST /api/commands/{cmd}` from the dashboard writes a row to `data/queue.sqlite3` and returns a `job_id` immediately; the FastAPI dispatcher picks it up in FIFO order. Direct CLI invocations (`imprint ingest`, `imprint refresh`, `imprint retag`, `imprint ingest-url`, `imprint refresh-urls`) try the lock non-blocking — if held, they exit nonzero and print the current holder.
+- **UI queues; CLI refuses.** `POST /api/commands/{cmd}` from the dashboard writes a row to `data/queue.sqlite3` and returns a `job_id` immediately; the FastAPI dispatcher picks it up in FIFO order. Direct CLI invocations (`imprint ingest`, `imprint refresh`, `imprint retag`, `imprint scrub`, `imprint ingest-url`, `imprint refresh-urls`) try the lock non-blocking — if held, they exit nonzero and print the current holder.
 - **Unapproved roots are refused before queueing.** For `ingest` and `refresh`, `POST /api/commands/{cmd}` checks the body's `dir` against the workspace's roots with `workspace_policy.unapproved_root`, which mirrors `ensure_ingest_paths` including the first-root binding. Instead of queueing a job that would fail when it runs, it returns 409 `{error, code: "root_not_approved", workspace, root, overlaps}`; the dashboard asks to approve that root and resubmits (ADR 0015, ADR 0039).
 - **Cancel = kill the process group.** Subprocesses are spawned with `start_new_session=True`, so `killpg(pgid, SIGTERM)` takes down the Python process, its httpx worker threads (in-flight LLM tagger calls die with it), any `llama-cpp` inference thread, and any descendant helpers. If the group is still alive 3 s later, the dispatcher escalates to `SIGKILL`.
 - **Persistent history.** The SQLite queue survives API restarts. `recover_on_startup()` marks rows stuck in `running` whose PID is dead as `failed` (`error='api_restart'`) and clears stale lock files.
@@ -70,7 +70,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 | Group | Commands |
 |---|---|
 | Index | `learn` (`desktop`), `ingest`, `refresh`, `ingest-url`, `refresh-urls` |
-| Maintain | `retag`, `sync` (export) |
+| Maintain | `retag`, `scrub` (`apply`; a dry run without it, [secret redaction](redaction.md)), `sync` (export) |
 | Clients | `connect` (Connect clients), `disconnect` (Disconnect clients, confirmed first), both with `target`: a client or `all` |
 | Inspect | `status`, `doctor` (`probe_mcp`), `config` |
 

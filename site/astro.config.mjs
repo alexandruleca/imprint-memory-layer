@@ -106,6 +106,7 @@ export default defineConfig({
             { label: 'Workspaces', slug: 'workspaces' },
             { label: 'Queue', slug: 'queue' },
             { label: 'Sync', slug: 'sync' },
+            { label: 'Secret redaction', slug: 'redaction' },
           ],
         },
         {

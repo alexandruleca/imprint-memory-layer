@@ -13,6 +13,7 @@ graph LR
         INGEST[ingest]
         REFRESH[refresh]
         RETAG[retag]
+        SCRUB[scrub]
         IURL[ingest-url]
         SERVER[server start/stop]
         SYNC[sync]
@@ -23,6 +24,7 @@ graph LR
     subgraph "Python (imprint/)"
         MCP[FastMCP Server<br/><small>17 tools</small>]
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
+        RED[redaction.py<br/><small>secrets → placeholders</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
         EMB[embeddings.py<br/><small>ONNX Runtime, GPU/CPU</small>]
         KG[imprint_graph.py<br/><small>SQLite facts</small>]
@@ -50,6 +52,9 @@ graph LR
 
     MCP --> VS --> QSRV --> QSTORE
     MCP --> KG --> SQLITE
+    VS --> RED
+    KG --> RED
+    RED -.opt-in.-> PF[privacy_filter.py<br/><small>ONNX, CPU</small>]
     VS --> QR
     QR --> QBIN
     QR --> QSRV
@@ -58,6 +63,7 @@ graph LR
     INGEST --> QUEUE
     REFRESH --> QUEUE
     RETAG --> QUEUE
+    SCRUB --> QUEUE
     IURL --> QUEUE
     UI --> API --> QUEUE
     QUEUE --> QDB
@@ -90,8 +96,9 @@ graph LR
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
+| Redaction | `redaction.py` + opt-in `privacy_filter.py` | Every memory and fact write replaces credentials with `[REDACTED:<kind>]` before IDs and embeddings are computed: deterministic rules always, OpenAI Privacy Filter's secret and account-number spans when `redact.privacy_filter` is on. Sync imports are redacted on arrival; `imprint scrub` cleans stored data. See [secret redaction](redaction.md) and [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md). |
 | MCP server | FastMCP (Python) | 17 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
-| CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
+| CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `scrub`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync; sees only ciphertext |
 | Peer sync | `imprint/sync_ws.py` + `imprint/sync_crypto.py` | The one sync implementation, used by `imprint sync` (`imprint/cli_sync.py`) and the dashboard. End-to-end encrypted: SPAKE2 from the PIN in the one-time share code, then AES-256-GCM per direction. Joining receives only unless the user opts in and confirms the receiving device. See [sync](sync.md). |
 | Command queue | `imprint/queue.py` + `imprint/queue_lock.py` + `internal/queuelock` | Single-slot FIFO (SQLite at `data/queue.sqlite3`, advisory flock at `data/queue.lock`). Serializes heavy jobs across the Go CLI and the FastAPI dispatcher; cancel sends SIGTERM → SIGKILL (3s) to the subprocess process group. See [queue.md](queue.md). |
@@ -128,7 +135,8 @@ sequenceDiagram
 
     Note over C,K: Claude learns something
     C->>K: store("CORS wildcard is by design because...")
-    K->>E: embed content → vector
+    K->>K: redact secrets → [REDACTED:kind]
+    K->>E: embed redacted content → vector
     K->>Q: upsert point (vector + payload)
 
     Note over C,K: Session End

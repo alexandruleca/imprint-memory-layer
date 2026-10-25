@@ -42,8 +42,9 @@
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
 - **Imprint graph**: SQLite on disk for temporal facts.
+- **Secret redaction**: API keys, tokens, private keys and assigned passwords become `[REDACTED:<kind>]` before anything is stored, embedded or synced. OpenAI Privacy Filter can be added as an opt-in local model. See [secret redaction](docs/redaction.md).
 
-The ingestion flow: scan dir → detect project → chunk files → embed chunks → tag (lang/layer/kind/domain/topics) → upsert into Qdrant. A Stop hook auto-extracts decisions from Claude transcripts; a PreCompact hook saves context before window compression. Search goes straight to the local vector DB — no round-trip to any provider.
+The ingestion flow: scan dir → detect project → chunk files → tag (lang/layer/kind/domain/topics) → redact secrets → embed chunks → upsert into Qdrant. A Stop hook auto-extracts decisions from Claude transcripts; a PreCompact hook saves context before window compression. Search goes straight to the local vector DB — no round-trip to any provider.
 
 **Optional cloud LLM tagging** is opt-in only (`imprint config set tagger.llm true`) if you want more granular topics and are fine spending credits. Providers: Anthropic, OpenAI, Gemini, or fully-local Ollama / vLLM. Leave it off and nothing ever talks to a paid API.
 
@@ -158,7 +159,9 @@ imprint refresh <dir>      # re-index only changed files (SHA256-based)
 imprint refresh-urls       # re-check stored URLs via ETag/Last-Modified and re-index changed
 imprint retag [--project] [--all]
                            # re-run the tagger on existing memories (--all re-tags already-tagged chunks)
-# Heavy jobs (ingest/refresh/retag/ingest-url/refresh-urls) serialize via a
+imprint scrub [--workspace <name>] [--apply]
+                           # count secrets stored before redaction existed; --apply redacts and re-embeds them
+# Heavy jobs (ingest/refresh/retag/scrub/ingest-url/refresh-urls) serialize via a
 # shared queue lock. If another job is already running the CLI exits with an
 # error — cancel it from /queue in the UI or kill the PID it reports.
 imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
@@ -183,7 +186,7 @@ imprint sync <code> [--workspace <name>] [--two-way | --send-only] [--fresh]
                            # join with that code; receives only unless --two-way/--send-only (confirmed before sending)
 imprint sync watch          # auto-sync explicitly paired devices while this process runs
 imprint sync peers          # list pairings; enable/disable/forget <pair-id> controls them
-imprint sync export | import <dir>       # snapshot bundle, no re-embed on import
+imprint sync export | import <dir>       # snapshot bundle; import re-embeds only memories it scrubs
 imprint relay              # run the sync relay server
 imprint ui [start|stop|status|open|restart|log|runtime] [--port N]
                            # dashboard (FastAPI + Next.js); bare `imprint ui` runs foreground;
@@ -203,6 +206,7 @@ imprint version            # print version
 | Workspaces + project detection | [docs/workspaces.md](docs/workspaces.md) |
 | MCP tools + automatic updates | [docs/mcp.md](docs/mcp.md) |
 | Peer sync, relay server, dashboard | [docs/sync.md](docs/sync.md) |
+| Secret redaction, Privacy Filter, `imprint scrub` | [docs/redaction.md](docs/redaction.md) |
 | Command queue + cancellation | [docs/queue.md](docs/queue.md) |
 | All settings (`imprint config`) | [docs/configuration.md](docs/configuration.md) |
 | Building from source + CI/release flow | [docs/building.md](docs/building.md) |

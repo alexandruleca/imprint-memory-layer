@@ -140,11 +140,11 @@ through the same single-slot queue the dashboard uses.
 | POST | `/api/jobs/{id}/cancel` | SIGTERM the job (SIGKILL after 3 s). |
 
 **Allowlisted commands:** the catalog's (`learn`, `ingest`, `refresh`,
-`ingest-url`, `refresh-urls`, `retag`, `sync`, `connect`, `disconnect`,
+`ingest-url`, `refresh-urls`, `retag`, `scrub`, `sync`, `connect`, `disconnect`,
 `status`, `doctor`, `config`) plus the dashboard dialogs' `wipe`, `migrate`,
 `workspace` and `wsl` (Settings → WSL profiles: `action` `setup` or `remove`,
 `distribution`, `target`). `connect` and `disconnect` take `target` (a client name or
-`all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`. Commands that
+`all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`; `scrub` takes `apply`. Commands that
 install into or stop the running dashboard (`setup`, `enable`, `profile`,
 `disable`, `ui`, `server`, `uninstall`) are refused with 404; see
 [queue](queue.md#allowed-commands).

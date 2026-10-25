@@ -270,3 +270,11 @@ Opens the Imprint dashboard (FastAPI + Next.js) with memory browsing, search, st
 Vector transfers require the same encoding identity (ADR 0010). New stream records carry `embedding_identity`; unknown or mismatched precomputed vectors fail before upsert. Snapshot manifests also carry identity and are checked before recovery. Legacy streams/bundles require reindexing/export with matching settings. Workspace migration retains vectors and therefore requires compatible collections; it is not a model conversion. Raw text/source reingestion is the rebuild path. Identity is a compatibility check, not proof of peer trust.
 
 Precomputed imports preserve a supplied logical ID only when it matches the content/project/source identity, with or without the supplied chunk position. This keeps a manually stored note distinct from an indexed chunk at position zero and prevents sync from duplicating a note under a recalculated chunk ID. Conflicting IDs fail before upsert.
+
+## Secret redaction
+
+A receiving device redacts every memory and fact it imports with its own rules and settings, whatever the sending device did ([secret redaction](redaction.md), [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md)). This also covers peers on releases from before redaction existed. The sender's logical ID is validated against the content as sent, as above. A record that redaction changes is then stored under the ID of its redacted content, and embedded again from the redacted text instead of keeping the sender's vector. Records it leaves unchanged keep their ID and vector. Sending an unredacted copy again is recognised as the stored memory and skipped.
+
+Devices with the same release and `redact.privacy_filter` setting compute the same IDs. When settings differ, the stricter device stores only its own redaction. The other device keeps its own copy as well as the stricter one it receives, until it adopts the setting and runs `imprint scrub --apply`.
+
+`imprint sync import <bundle>` restores storage byte for byte, then scrubs the restored workspace. Sync carries no deletions, so scrubbing one device does not remove old copies from its peers: run `imprint scrub --apply` on each device after upgrading.

@@ -103,6 +103,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `tagger.local.model_path` | — | Absolute path to a local GGUF (overrides repo/file) |
 | `tagger.local.n_ctx` | `8192` | Tagger context window in tokens |
 | `tagger.local.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
+| **Redaction** | | |
+| `redact.privacy_filter` | `false` | Also redact the secrets and account numbers OpenAI Privacy Filter finds, after the always-on rules. CPU only, ~837 MB download on first use, seconds per chunk; a write fails rather than store less redacted text when the model cannot run. See [secret redaction](redaction.md) |
 | **Ingest (docs + URLs)** | | |
 | `ingest.doc_formats` | `pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json` | Comma-separated doc formats enabled for the file walker |
 | `ingest.ocr_enabled` | `false` | OCR for scanned PDFs + images (requires `tesseract`; PDFs also need poppler). Without it, a PDF with no text layer is skipped with this hint, not failed, and retried once OCR settings or tools change ([ADR 0040](adr/0040-documents-with-nothing-to-index.md)) |
