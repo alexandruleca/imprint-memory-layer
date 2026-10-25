@@ -6,7 +6,7 @@ description: Every Imprint process reaches one Qdrant server on loopback that th
 - Status: Accepted
 - Date: 2026-04-13
 - Recorded: 2026-10-25
-- Retrospective: reconstructed from code, docs and git history: `imprint/qdrant_runner.py`, the inline rationale this record replaces in `docs/architecture.md`, and commit b4d504d, which introduced Qdrant
+- Retrospective: reconstructed from code, docs and git history: `imprint/qdrant_runner.py`, the inline rationale this record replaces in `docs/architecture.md`, and commit b4d504d, which introduced Qdrant; and the owner's answers on 2026-10-25
 - Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (verified binary download, serialized first start), [ADR 0022](0022-http-client-lifetime-during-model-work.md) (removed the idle closer left from embedded mode), [ADR 0024](0024-enforce-local-service-boundaries.md) (loopback-only managed server), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) (heavy jobs are serialized separately), [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md) (why Qdrant rather than LanceDB)
 
 ## Context
@@ -26,7 +26,9 @@ Commit b4d504d (authored 2026-04-13, "replaced db with qdrant") replaced the ear
 - `server.py` started an idle watcher with the comment "Release the embedded Qdrant lock after 30s of no MCP activity so `knowledge ingest` (a separate process) can grab it. Without this, the MCP server pins the lock for the lifetime of Claude Code."
 - The client it shipped already connected over HTTP to a server started by the new `qdrant_runner.py`, whose docstring says it "Replaces embedded mode (single-writer, lock collisions) with a long-running local server on 127.0.0.1:6333."
 
-The repository's earliest history was rewritten on 2026-04-14: commit dates differ from author dates, and the first commit's README already describes later features. This record therefore takes its date from b4d504d's author date and uses only that commit's code as evidence. Why Qdrant replaced LanceDB is recorded in [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md).
+Whether embedded mode or the idle lock release was ever used is unknown: both appear only as leftovers in b4d504d, which already shipped the server, and the owner does not remember (asked on 2026-10-25).
+
+The repository's earliest history was rewritten on 2026-04-14: commit dates differ from author dates, and the first commit's README already describes later features. This record therefore takes its date from b4d504d's author date, and its evidence of how the decision came about from that commit's code and the owner's answers. Why Qdrant replaced LanceDB is recorded in [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md).
 
 ## Decision
 
@@ -48,7 +50,7 @@ No other alternative evaluation was recorded.
 ## Consequences
 
 - Any number of Imprint processes read and write at once; the server serializes writes internally.
-- The first start downloads a binary unless one is provided, and a daemon stays resident until it is stopped. `docs/architecture.md` put the cost at about 50 MB of binary in the data directory and about 50 MB of resident memory; no measurement behind those figures is recorded.
+- The first start downloads a binary unless one is provided, and a daemon stays resident until it is stopped. `docs/architecture.md` put the cost at about 50 MB of binary and about 50 MB of resident memory, figures the owner says came from an early benchmark that was never repeated. Measured on 2026-10-25 (see Validation), the pinned v1.17.1 release is a 28 to 35 MB download that unpacks to 96 MB on Linux x64 and 83 MB on Windows x64. The daemon's resident memory grows with the collection and with the number of CPUs it may use: on Linux x64 with 8 CPUs, 76 MB with no collections, 265 to 300 MB with 10,000 Imprint-like points and 579 to 673 MB with 100,000; with 32 CPUs, 179 MB, 521 to 607 MB and 792 to 894 MB. Half or more of each figure with points is file-backed pages of the binary and the memory-mapped storage, which the kernel can reclaim under memory pressure. These costs are several times the earlier figures. They do not by themselves reopen the decision: embedded mode, the rejected alternative, admits one process at a time whatever its memory use.
 - Imprint binds local ports (HTTP 6333 and gRPC 6334 by default). A server that already answers on the configured port is used as it is; ADR 0024 records that such a listener cannot be assumed safe.
 - Processes can race to start the server. ADR 0007's start lock serializes this.
 - Every process depends on the daemon: if it cannot start, for example because its port is taken or no binary exists for the platform, storage fails and points at `data/qdrant.log`.
@@ -59,7 +61,7 @@ No other alternative evaluation was recorded.
 - If Qdrant's embedded client supports several processes reading and writing one storage path at once, retire the auto-spawned daemon in favor of direct disk access.
 - If every read and write comes to run inside one long-lived process that owns the store, for example because MCP servers, hooks and CLI commands all reach it through the dashboard's API, the multi-process requirement is gone and embedded mode should be reconsidered.
 - If Qdrant stops publishing a release binary for a supported platform, or one the checked-in manifest can verify, auto-spawn cannot serve that platform: ship a binary for it or require a separately managed server there.
-- If measurements show the resident daemon costing much more than the roughly 50 MB of disk and memory this rationale assumed, re-weigh the trade-off.
+- If the daemon's resident memory, measured with `scripts/measure-qdrant-memory.py` as under Validation, doubles at the same collection size and CPU count, for example after a Qdrant upgrade, re-weigh the daemon against storage that several processes open directly, such as LanceDB's open-source edition ([ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md) compares the two).
 
 ## Validation
 
@@ -70,4 +72,22 @@ No validation was recorded with the original decision; the embedded-mode lock co
 - `tests/test_downloads.py`: a corrupted download and an unmanifested version are refused.
 - ADR 0007 records a native run of verified download, start, write and read, and ADR 0024 native Linux runtime and socket checks of the loopback binding.
 
-Not measured: the daemon's resident memory and disk use.
+Resident memory and disk use were measured on 2026-10-25 with `scripts/measure-qdrant-memory.py`:
+
+- **Setup.** The pinned v1.17.1 Linux x64 binary: the release archive matches the manifest's SHA-256, and the binary in it is byte-identical to the cached copy that ran. Linux x64 under WSL2 (kernel 6.18, 32 logical CPUs, about 16 GB of memory). The script starts the server through `qdrant_runner` in a throwaway data directory on free ports and creates the collection through `vectorstore._ensure_collection`, so the server environment, collection settings and 13 payload indexes are Imprint's. It ran once with all 32 CPUs and once limited to 8 with `taskset -c 0-7`: Qdrant sizes its thread pools and default segment count by the CPUs available ([configuration reference](https://qdrant.tech/documentation/ops-configuration/configuration/)), and the collection had 8 segments with 32 CPUs and 3 to 4 with 8.
+- **Data.** Synthetic points: random unit vectors, not embeddings, with Imprint-shaped payloads whose content is this checkout's tracked text in 2,000-character chunks, reused in turn. Real embeddings and a larger vocabulary may change the figures.
+- **Readings.** Resident set size from `/proc/<pid>/status`, with its private part (`RssAnon`; the rest is file-backed), 10 seconds after each step: idle with no collections, after a restart, and after 200 filtered searches. Disk is the space allocated under `data/qdrant_storage/`; Qdrant preallocates sparse files, whose apparent size is far larger.
+
+| Collection | Reading | 8 CPUs: resident (private) | 32 CPUs: resident (private) | Storage on disk, 8 / 32 CPUs |
+| --- | --- | --- | --- | --- |
+| None | Idle | 76 MB (41 MB) | 179 MB (144 MB) | 0 |
+| 10,000 points | After a restart | 265 MB (83 MB) | 521 MB (200 MB) | 118 / 117 MB |
+| 10,000 points | After 200 searches | 300 MB (83 MB) | 607 MB (227 MB) | |
+| 100,000 points | After a restart | 579 MB (248 MB) | 792 MB (395 MB) | 854 / 812 MB |
+| 100,000 points | After 200 searches | 673 MB (248 MB) | 894 MB (402 MB) | |
+
+Loading 100,000 points as fast as the server accepted them peaked at 2,064 MB resident with 8 CPUs and 2,441 MB with 32, while the optimizer built the index. Imprint's own ingestion is paced by embedding and was not measured.
+
+A read-only reading of the owner's installed Windows server on 2026-10-25, which runs the same release (its `qdrant.exe` is byte-identical to the one in the verified v1.17.1 archive) on 32 logical CPUs with 132 threads and a default workspace of 4 memories: 115 MB private bytes, a 44 MB working set and a 345 MB peak working set since it started that day. Windows trims working sets, so private bytes is the comparable figure. It is one reading of a lightly used server, not a controlled measurement.
+
+Not measured: macOS, real embeddings, and the daemon under Imprint's own ingestion.

@@ -28,8 +28,8 @@ docker run -d \
 
 Then browse `http://localhost:8420` for the dashboard. The first request takes
 longer than subsequent ones — Imprint downloads the Qwen3-Embedding-0.6B model
-(~800 MB) and the Qdrant binary (~50 MB) into `/data` on first use, then
-everything is local. Mount `/data` as a volume so the cache + Qdrant storage
+(~800 MB) and the Qdrant binary (a 33–35 MB download, 96 MB unpacked on
+x86-64) into `/data` on first use, then everything is local. Mount `/data` as a volume so the cache + Qdrant storage
 survives container restarts.
 
 ### Ingest content from the host
@@ -111,7 +111,7 @@ services:
 
 ### What's lazy (first-run downloads)
 
-- Qdrant binary (v1.17.x, ~50 MB) — written to `/data/qdrant-bin/`
+- Qdrant binary (v1.17.x, 96 MB unpacked on x86-64) — written to `/data/qdrant-bin/`
 - Qwen3-Embedding-0.6B ONNX model (~614 MB q8) — written to `/data/models/embeddings/`
   via `HF_HOME`
 - Qwen3.5-4B Q4_K_M GGUF (~2.7 GB) — written to `/data/models/` by the first

@@ -183,7 +183,7 @@ sequenceDiagram
 
 [`qdrant_runner.py`](../imprint/qdrant_runner.py) handles the lifecycle:
 
-- **First call**: downloads the pinned Qdrant binary (~50 MB) from GitHub releases into `data/qdrant-bin/`, then `subprocess.Popen([..., start_new_session=True])` so the daemon survives the parent process. Logs to `data/qdrant.log`, PID written to `data/qdrant.pid`.
+- **First call**: downloads the pinned Qdrant binary (v1.17.1: a 28–35 MB download that unpacks to 96 MB on Linux x64 and 83 MB on Windows x64; [ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md) records its measured memory) from GitHub releases into `data/qdrant-bin/`, then `subprocess.Popen([..., start_new_session=True])` so the daemon survives the parent process. Logs to `data/qdrant.log`, PID written to `data/qdrant.pid`.
 - **Subsequent calls**: cheap HTTP probe to `/readyz` — returns immediately if alive.
 - **Storage**: `data/qdrant_storage/` (collection data) + `data/qdrant_snapshots/`. Both gitignored.
 - **Network**: managed HTTP/gRPC bind only to loopback; nonlocal auto-spawn settings fail before probing/downloading. Cluster mode and browser CORS are explicitly disabled, including when inherited Qdrant environment settings enable them. See [ADR 0024](adr/0024-enforce-local-service-boundaries.md).
