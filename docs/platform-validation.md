@@ -715,3 +715,31 @@ Electron unit tests, dashboard type-check/lint and the full Playwright suite
 | Dashboard `tsc --noEmit`, ESLint on the Settings page | Passed | The Redaction settings group. Not rendered in a browser. |
 
 Not run: macOS (Intel macOS pins ONNX Runtime 1.23.2, whose support for the model's `QMoE` kernel is unverified), Linux ARM, physical devices syncing over a relay, real tagger/summarizer provider endpoints, and the Commands page in a browser.
+
+## Voice port: microphone consent, grouped companion and per-look voices (2026-10-25)
+
+Another session's uncommitted voice work was ported onto the integration branch
+and merged with the desktop fixes above
+([ADR 0069](adr/0069-echo-opens-the-microphone-only-on-the-users-intent.md),
+[ADR 0070](adr/0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md),
+[ADR 0071](adr/0071-each-look-speaks-in-its-own-voice.md)).
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `node --test` in `ui-electron` (43 tests) | Passed | Consent answers per platform, scoped consent and settings IPC with the sender rechecked after consent, the grouped launcher and head, pin state while grouped, intended positions when native reports lag. |
+| `imprint/ui/scripts/voice-audio.test.mjs` (6 tests) | Passed | Preferences recovery, consent answers, Echo's robotic effect across chunks. |
+| Dashboard `tsc --noEmit`, ESLint, production build | Passed | |
+| Full Playwright suite (112 scenarios) | Passed | Settings panel and drag handles, per-platform refusal and recovery, pending consent dropped on Stop or a change of mind, remembered microphone and mode, session restart on a new look or model. One earlier run under heavy load had three voice failures that did not recur in the next runs, including three repeats of every voice scenario. |
+| Python suite (553 tests, 1 skipped) | Passed | Includes `tests/test_adr_records.py`, the release validator's microphone usage text check and the per-look voice tests. Run after rebasing onto the queue work (ADRs 0067 and 0068). |
+| Go `vet` and `test ./...` | Passed | No Go changes. |
+| `ui-electron/smoke-microphone.mjs`, real Electron 45 under WSLg | Passed | Disposable profile, synthetic devices, no fake permission prompt, `--no-sandbox`. |
+| `ui-electron/smoke-companion-controls.mjs`, real Electron 45 under WSLg | Passed | Native select by keyboard, look picker, the real checkbox, a remembered synthetic capture on the next conversation, grouped drags from both windows. Software WebGL, `--no-sandbox`. |
+| Headless Chromium screenshots | Taken | Voice page (light) at 1440 and 390 pixels wide, companion (dark glass) at 400×640 and 320×480, with and without settings open; no horizontal overflow and no companion page scrolling. |
+
+Not run: the native voice workflow (it now runs both fixture smokes and the
+real-model smoke without the fake permission prompt on Windows, macOS and Linux),
+interactive macOS consent and recovery on Intel and Apple Silicon, Windows
+privacy toggles and hosted-runner privacy defaults, physical microphones and
+speakers, Linux portals and packaged sandboxing, grouped windows on native
+Windows and macOS desktops, and listening tests of the three voices, speaker
+consistency in the small model's interleaved replies and the robotic effect.

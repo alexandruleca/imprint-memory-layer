@@ -434,3 +434,12 @@ physical speakers; the audio clock/graph still run. Real output devices are a
 separate manual check. Worker thread counts respect available CPU allocation,
 with at most four threads and polling disabled; this avoids overwhelming small
 hosted M1 allocations during simultaneous audio-model work.
+
+Two fixture smokes run before it in native CI, without voice models.
+`ui-electron/smoke-microphone.mjs` checks the production permission handlers and
+the OS consent IPC with synthetic devices and no fake permission prompt.
+`ui-electron/smoke-companion-controls.mjs` drives Companion settings (the native
+reasoning select, a look, the remembered microphone checkbox), a remembered
+synthetic capture on the next conversation, and grouped drags of the launcher and
+head. Neither establishes how a physical microphone, the macOS prompt or the
+voices actually sound; those remain manual checks.
