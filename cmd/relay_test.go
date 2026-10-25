@@ -158,12 +158,20 @@ func TestRelayRejectsUnknownRole(t *testing.T) {
 func TestRelayRefusesATakenRole(t *testing.T) {
 	base := newTestRelay(t)
 	room := nextRoom(t)
-	provider := dialRole(t, base, room, "provider")
-	first := dialRole(t, base, room, "consumer")
-	intruder := dialRole(t, base, room, "consumer")
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	provider := dialRole(t, base, room, "provider")
+	first := dialRole(t, base, room, "consumer")
+	// The relay takes a role after the handshake completes, so a finished
+	// dial does not yet hold it. A frame delivered to the first consumer
+	// proves it does before the intruder dials.
+	if err := provider.Write(ctx, websocket.MessageBinary, []byte("hello")); err != nil {
+		t.Fatalf("provider write: %v", err)
+	}
+	if _, got, err := first.Read(ctx); err != nil || string(got) != "hello" {
+		t.Fatalf("first consumer did not join: %q, %v", got, err)
+	}
+	intruder := dialRole(t, base, room, "consumer")
 	if _, _, err := intruder.Read(ctx); websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
 		t.Fatalf("intruder not refused: %v", err)
 	}
