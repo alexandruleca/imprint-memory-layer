@@ -91,8 +91,11 @@ class FakeCLITestCase(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         if os.name == 'nt':
+            # cmd cannot carry a multi-line script; run it from a file.
+            source = Path(directory.name, 'imprint_cli.py')
+            source.write_text(script)
             cli = Path(directory.name, 'imprint.cmd')
-            cli.write_text(f'@"{sys.executable}" -c {json.dumps(script)} %*\n')
+            cli.write_text(f'@"{sys.executable}" "{source}" %*\n')
         else:
             cli = Path(directory.name, 'imprint')
             cli.write_text(f'#!{sys.executable}\n{script}\n')

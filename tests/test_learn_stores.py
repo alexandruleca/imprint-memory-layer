@@ -228,7 +228,9 @@ class LearnStoresTests(unittest.TestCase):
         folder = store / 'projects' / 'home-test-code-arnia-shopware' / 'agent-transcripts' / CURSOR_SESSION
         write(folder / f'{CURSOR_SESSION}.jsonl', cursor_conversation('How is the shop deployed?'))
 
-        with patch.object(wsl_paths, 'native_path', side_effect=native), \
+        # Learn runs a WSL store's group in that distribution's path context.
+        with patch.dict(os.environ, {'IMPRINT_WSL_DISTRO': 'Ubuntu'}), \
+                patch.object(wsl_paths, 'native_path', side_effect=native), \
                 patch.object(transcripts, 'native_path', side_effect=native), \
                 patch.object(policy, 'native_path', side_effect=native):
             result, output = self.learn(('cursor', '/home/test/.cursor'))
