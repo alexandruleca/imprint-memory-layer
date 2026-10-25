@@ -9,7 +9,9 @@ const path = require('node:path');
 
 // Exercise the actual main process with Electron windows and processes replaced
 // by observable doubles; these do not establish native graphical behavior.
-function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null } = {}) {
+const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'];
+function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
+  runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''] } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -101,14 +103,19 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     },
   };
   const intervals = new Set();
-  const modules = { electron, 'node:path': path, 'node:http': http,
+  const childProcess = { execFile(file, args, options, callback) {
+    calls.push(['cli', file, ...args]);
+    queueMicrotask(() => callback(...cli()));
+  } };
+  const modules = { electron, 'node:path': path, 'node:http': http, 'node:child_process': childProcess, './runtime': require('./runtime'),
     'node:fs': { readFileSync: () => { if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
     './companion': require('./companion'),
     './navigation': require('./navigation'), './service': { DesktopService: Service },
     './voice-permissions': require('./voice-permissions') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },
-    process: { argv: ['electron', ...packaged ? [] : ['main.js'], '--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'], platform: 'darwin' },
+    process: { argv: ['electron', ...packaged ? [] : ['main.js'], ...runtimeArgs], platform: 'darwin', env: {},
+      execPath: '/opt/imprint/bin/imprint-ui.app/Contents/MacOS/Imprint' },
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
     setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
   });
@@ -151,6 +158,33 @@ test('dashboard toggle opens and destroys Echo from any app page, reflecting man
   await h.invoke('voice-set-companion', dashboard, true);
   h.windows[3].destroy();
   assert.equal(h.invoke('voice-companion-state', dashboard).open, false);
+});
+
+test('an OS relaunch without arguments asks the bundled CLI for the runtime', async () => {
+  // Reopen after a crash, the Dock or Spotlight start the bundle with no arguments.
+  const h = harness({ runtimeArgs: [], cli: () => [null, JSON.stringify({ project_dir: '/opt/imprint',
+    data_dir: '/home/a/.local/share/imprint/data', python: '/home/a/.local/share/imprint/.venv/bin/python' })] });
+  await settle();
+  assert.ok(h.calls.some(call => Array.isArray(call) && call.join(' ') === 'cli /opt/imprint/bin/imprint ui runtime'));
+  assert.equal(h.services[0].projectDir, '/opt/imprint');
+  assert.equal(h.services[0].dataDir, '/home/a/.local/share/imprint/data');
+  assert.equal(h.services[0].python, '/home/a/.local/share/imprint/.venv/bin/python');
+});
+
+test('a relaunch whose CLI is missing shows why on the startup screen', async () => {
+  const h = harness({ runtimeArgs: [] });
+  await settle();
+  assert.equal(h.services.length, 0);
+  assert.equal(h.calls.includes('dashboard'), false);
+  assert.equal(h.windows[0].visible, true);
+  assert.match(await h.invoke('startup-state', h.windows[0]).message, /could not locate its runtime/);
+});
+
+test('a running service needs no runtime, with or without arguments', async () => {
+  const h = harness({ alreadyUp: true, runtimeArgs: [] });
+  await settle();
+  assert.equal(h.calls.some(call => Array.isArray(call) && call[0] === 'cli'), false);
+  assert.ok(h.calls.includes('dashboard'));
 });
 
 test('development launch also retains the first runtime option', async () => {

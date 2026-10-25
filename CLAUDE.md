@@ -71,7 +71,7 @@ imprint refresh-urls       # re-fetch stored URLs by ETag/Last-Modified
 imprint move <project> <target> [--source KEY]... [--apply]  # move memories between projects (ADR 0036)
 imprint config [set|get|reset] ...
 imprint server <cmd>       # Qdrant daemon: start | stop | status | log
-imprint ui [start|stop|status|open|restart|log]
+imprint ui [start|stop|status|open|restart|log|runtime]
 imprint workspace [list|switch|delete]
 imprint wipe [--force|--all]
 imprint sync serve --relay <host> | <host>/<id>

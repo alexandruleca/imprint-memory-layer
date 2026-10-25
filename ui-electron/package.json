@@ -26,6 +26,7 @@
       "preload.js",
       "navigation.js",
       "voice-permissions.js",
+      "runtime.js",
       "companion.js",
       "service.js",
       "startup.html",

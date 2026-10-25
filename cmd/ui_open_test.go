@@ -56,3 +56,33 @@ func TestUIOpenLaunchesShellBeforeRuntimeStartup(t *testing.T) {
 		t.Fatal("opening the shell must not start an independent daemon")
 	}
 }
+
+// The desktop app reads this when the OS starts it without `ui open`'s
+// arguments; it must name the same installation those arguments do.
+func TestUIRuntimePrintsTheInstallationUIOpenPasses(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("IMPRINT_DATA_DIR", dataDir)
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = write
+	UI([]string{"runtime"})
+	os.Stdout = stdout
+	write.Close()
+	var printed map[string]string
+	if err := json.NewDecoder(read).Decode(&printed); err != nil {
+		t.Fatal(err)
+	}
+	project := platform.FindProjectDir()
+	want := map[string]string{"project_dir": project, "data_dir": dataDir, "python": platform.VenvPython(project)}
+	if len(printed) != len(want) {
+		t.Fatalf("printed %v, want %v", printed, want)
+	}
+	for key, value := range want {
+		if printed[key] != value {
+			t.Fatalf("%s = %q, want %q", key, printed[key], value)
+		}
+	}
+}

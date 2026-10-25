@@ -106,6 +106,7 @@ jobs:
           grep -Fx /navigation.js /tmp/asar-files
           grep -Fx /service.js /tmp/asar-files
           grep -Fx /companion.js /tmp/asar-files
+          grep -Fx /runtime.js /tmp/asar-files
           grep -Fx /startup.html /tmp/asar-files
           grep -Fx /startup.css /tmp/asar-files
           grep -Fx /startup.js /tmp/asar-files

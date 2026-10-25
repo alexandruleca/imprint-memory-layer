@@ -4,10 +4,12 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, sy
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
+const { execFile } = require('node:child_process');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
 const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
 const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage } = require('./companion');
+const { desktopRuntime } = require('./runtime');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -20,11 +22,7 @@ function arg(name) {
 }
 const UI_URL = arg('--imprint-url') ?? 'http://127.0.0.1:8420';
 const UI_ORIGIN = dashboardURL(UI_URL).origin;
-const PROJECT_DIR = arg('--project-dir');
-const DATA_DIR = arg('--data-dir');
-const PYTHON = arg('--python') ?? (PROJECT_DIR && path.join(
-  PROJECT_DIR, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
-));
+const NAMED_RUNTIME = { projectDir: arg('--project-dir'), dataDir: arg('--data-dir'), python: arg('--python') };
 const PORT = new URL(UI_URL).port || '80';
 const PROFILE_DIR = arg('--user-data-dir');
 if (PROFILE_DIR) app.setPath('userData', path.resolve(PROFILE_DIR));
@@ -202,10 +200,10 @@ async function start() {
     service = null;
     if (!await ping()) {
       if (quitting || id !== attempt) return;
-      if (!PROJECT_DIR || !DATA_DIR || !PYTHON) {
-        throw new Error('Open Imprint using the installed shortcut or “imprint ui open” so it can locate your runtime.');
-      }
-      service = new DesktopService({ python: PYTHON, projectDir: PROJECT_DIR, dataDir: DATA_DIR, port: PORT });
+      const runtime = await desktopRuntime(NAMED_RUNTIME,
+        { platform: process.platform, execPath: process.execPath, env: process.env, execFile });
+      if (quitting || id !== attempt) return;
+      service = new DesktopService({ ...runtime, port: PORT });
       service.start(error => showError(error));
       const deadline = Date.now() + 60000;
       while (!quitting && id === attempt) {

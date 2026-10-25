@@ -45,6 +45,7 @@ var errNoUIServer = errors.New("UI server not running")
 //	imprint ui status            — show pid + URL + reachability
 //	imprint ui restart           — restart the running server with the installed code
 //	imprint ui open [--port N]   — open the desktop app (browser fallback)
+//	imprint ui runtime           — print the installation the desktop app serves, as JSON
 //	imprint ui log               — print the log file path (for `tail -f`)
 //	imprint ui serve [--port N]  — what `ui start` runs detached: the server, restarted on request
 func UI(args []string) {
@@ -61,6 +62,9 @@ func UI(args []string) {
 			return
 		case "open":
 			uiOpen(args[1:])
+			return
+		case "runtime":
+			uiRuntime(args[1:])
 			return
 		case "log":
 			uiLog(args[1:])
@@ -307,9 +311,30 @@ func uiStatus(_ []string) {
 	}
 }
 
-func uiOpen(args []string) {
+// desktopRuntime is the installation the desktop app serves. `ui open` passes
+// it to the app as arguments; `ui runtime` prints it for an app the OS
+// launched without them (Dock, Reopen after a crash, a pinned taskbar icon).
+type desktopRuntime struct {
+	ProjectDir string `json:"project_dir"`
+	DataDir    string `json:"data_dir"`
+	Python     string `json:"python"`
+}
+
+func resolveDesktopRuntime() desktopRuntime {
 	projectDir := platform.FindProjectDir()
-	dataDir := platform.DataDir(projectDir)
+	// The writable venv is outside the source bundle on installed macOS.
+	return desktopRuntime{projectDir, platform.DataDir(projectDir), platform.VenvPython(projectDir)}
+}
+
+func uiRuntime(_ []string) {
+	if err := json.NewEncoder(os.Stdout).Encode(resolveDesktopRuntime()); err != nil {
+		output.Fail("cannot write the runtime: " + err.Error())
+	}
+}
+
+func uiOpen(args []string) {
+	rt := resolveDesktopRuntime()
+	projectDir, dataDir := rt.ProjectDir, rt.DataDir
 	port := parsePort(args, 0)
 
 	st, ok := readUIState(dataDir)
@@ -322,7 +347,7 @@ func uiOpen(args []string) {
 		}
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	if launchElectron(projectDir, dataDir, url) {
+	if launchElectron(rt, url) {
 		output.Success("Opened " + url)
 		return
 	}
@@ -454,14 +479,13 @@ func stripPort(args []string) []string {
 // launchElectron tries to open the Imprint Electron app. Resolution order:
 //  1. $IMPRINT_ELECTRON env var (explicit binary path)
 //  2. imprint-ui / imprint-ui.exe / imprint-ui.app next to the running imprint binary
-//  3. npx electron ui-electron/ inside projectDir (dev mode)
-func launchElectron(projectDir, dataDir, url string) bool {
+//  3. npx electron ui-electron/ inside the project directory (dev mode)
+func launchElectron(rt desktopRuntime, url string) bool {
 	electronArgs := []string{
 		"--imprint-url=" + url,
-		"--project-dir=" + projectDir,
-		"--data-dir=" + dataDir,
-		// The writable venv is outside the source bundle on installed macOS.
-		"--python=" + platform.VenvPython(projectDir),
+		"--project-dir=" + rt.ProjectDir,
+		"--data-dir=" + rt.DataDir,
+		"--python=" + rt.Python,
 	}
 
 	// 1. Explicit override
@@ -493,7 +517,7 @@ func launchElectron(projectDir, dataDir, url string) bool {
 	}
 
 	// 3. Dev mode: npx electron ui-electron/
-	electronDir := filepath.Join(projectDir, "ui-electron")
+	electronDir := filepath.Join(rt.ProjectDir, "ui-electron")
 	if platform.FileExists(filepath.Join(electronDir, "main.js")) {
 		npx := "npx"
 		if runtime.GOOS == "windows" {

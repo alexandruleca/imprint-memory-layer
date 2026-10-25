@@ -180,8 +180,9 @@ imprint sync watch          # auto-sync explicitly paired devices while this pro
 imprint sync peers          # list pairings; enable/disable/forget <pair-id> controls them
 imprint sync export | import <dir>       # snapshot bundle, no re-embed on import
 imprint relay              # run the sync relay server
-imprint ui [start|stop|status|open|restart|log] [--port N]
-                           # dashboard (FastAPI + Next.js); bare `imprint ui` runs foreground
+imprint ui [start|stop|status|open|restart|log|runtime] [--port N]
+                           # dashboard (FastAPI + Next.js); bare `imprint ui` runs foreground;
+                           # `runtime` prints the paths the desktop app serves, as JSON
 imprint version            # print version
 ```
 
