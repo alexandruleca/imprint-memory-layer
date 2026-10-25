@@ -251,7 +251,9 @@ func TestRelayClosesOversizedMessages(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = provider.Write(ctx, websocket.MessageBinary, make([]byte, relayMaxMessage+1))
+	// The relay refuses the frame from its header and closes while the 80 MiB
+	// payload is still being sent, so read the close while the write runs.
+	go provider.Write(ctx, websocket.MessageBinary, make([]byte, relayMaxMessage+1))
 	if _, _, err := provider.Read(ctx); websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
 		t.Fatalf("oversized message not refused: %v", err)
 	}

@@ -1,0 +1,2 @@
+# Third-party chat templates are checked byte for byte against their published SHA-256.
+tests/fixtures/chat_templates/** -text
