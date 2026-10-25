@@ -18,6 +18,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from imprint import chat, voice_api as voice, voice_runtime
 from imprint.personaplex import PrototypeError
+from test_chat_stream import call_chunk, remote_provider, text_chunk, tool
 from test_lfm_audio import wav_bytes
 
 
@@ -250,32 +251,29 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
 class VoiceChatPolicyTests(unittest.TestCase):
     def test_cancellation_closes_stream_and_prevents_tool_execution(self):
         event = threading.Event()
-        closed = []
 
-        def tokens(*args):
-            try:
-                yield '<tool_call>{"name":"store","args":{"content":"No write"}}</tool_call>'
-                event.set()
-            finally:
-                closed.append(True)
+        def chunks():
+            yield call_chunk(0, "store", '{"content": "No write"}', id="a")
+            event.set()
 
-        with patch.object(chat, "_is_remote_provider", return_value=True), \
-                patch.object(chat, "_get_chat_provider", return_value="ollama"), \
-                patch.object(chat, "_stream_remote", side_effect=tokens), patch.dict(chat.TOOLS, {"store": Mock()}) as tools:
+        write = Mock()
+        client, provider = remote_provider(chunks())
+        with provider[0], provider[1], provider[2], patch.dict(chat.TOOLS, tool("store", write)):
             list(chat.stream_reply([], "hello", cancel_event=event))
-            tools["store"].assert_not_called()
-        self.assertTrue(closed)
+        write.assert_not_called()
+        self.assertTrue(client.streams[0].closed)
 
-    def test_voice_rejects_writes_and_uses_session_workspace_over_model_workspace(self):
-        calls = [iter(['<tool_call>{"name":"store","args":{"content":"x"}}</tool_call>']),
-                 iter(['<tool_call>{"name":"status","args":{"workspace":"other"}}</tool_call>']), iter(['Done.'])]
+    def test_voice_offers_read_tools_rejects_writes_and_keeps_session_workspace(self):
         write, read = Mock(), Mock(return_value="all good")
-        with patch.object(chat, "_is_remote_provider", return_value=True), \
-                patch.object(chat, "_get_chat_provider", return_value="ollama"), \
-                patch.object(chat, "_stream_remote", side_effect=calls), patch.dict(chat.TOOLS, {"store": write, "status": read}):
+        client, provider = remote_provider([call_chunk(0, "store", '{"content": "x"}', id="a")],
+                                           [call_chunk(0, "status", '{"workspace": "other"}', id="b")],
+                                           [text_chunk("Done.")])
+        with provider[0], provider[1], provider[2], patch.dict(chat.TOOLS, {**tool("store", write), **tool("status", read)}):
             list(chat.stream_reply([], "hello", workspace="alpha", read_only=True))
         write.assert_not_called()
         read.assert_called_once_with(workspace="alpha")
+        offered = [t["function"]["name"] for t in client.chat.completions.create.call_args_list[0].kwargs["tools"]]
+        self.assertEqual(offered, ["search", "kg_query", "status", "wake_up", "list_sources", "file_summary", "file_chunks"])
 
 
 class LiveRuntimeIntegrityTests(unittest.TestCase):

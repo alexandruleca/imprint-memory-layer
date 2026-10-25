@@ -1,3 +1,4 @@
+import copy
 import os
 import stat
 import sys
@@ -6,7 +7,7 @@ import threading
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from imprint import chat
 
@@ -55,10 +56,9 @@ class ProvisioningTests(unittest.TestCase):
         self.assertIsNone(chat._llama_import_error)
 
     def test_first_local_chat_installs_the_binding_then_answers(self):
-        llm = object()
+        llm = LocalModel(['Hello.'])
         with patch('imprint.queue.find_imprint_binary', return_value=self._install_creates_binding()), \
-             patch.object(chat, 'load_model', return_value=(llm, None)), \
-             patch.object(chat, '_stream_local', return_value=iter(['Hello.'])):
+             patch.object(chat, 'load_model', return_value=(llm, None)):
             events = list(chat.stream_reply([], 'hi'))
         kinds = [event['type'] for event in events]
         self.assertEqual(kinds, ['install_start', 'install_progress', 'install_complete',
@@ -107,26 +107,218 @@ class ProvisioningTests(unittest.TestCase):
         self.assertIsNone(status['error'])
 
 
-class StreamingTests(unittest.TestCase):
-    def _reply(self, *iterations):
-        with patch.object(chat, '_is_remote_provider', return_value=True), \
-             patch.object(chat, '_get_chat_provider', return_value='ollama'), \
-             patch.object(chat, '_stream_remote', side_effect=[iter(parts) for parts in iterations]), \
-             patch.dict(chat.TOOLS, {'status': lambda workspace='': 'all good'}):
-            return list(chat.stream_reply([], 'hi'))
+def text_chunk(content):
+    """A streamed OpenAI-compatible chunk carrying reply text."""
+    return types.SimpleNamespace(choices=[types.SimpleNamespace(
+        delta=types.SimpleNamespace(content=content, tool_calls=None))])
 
-    def test_tool_call_markup_is_never_streamed(self):
-        events = self._reply(['Let me check <tool', '_call>{"name": "status", "args": {}}</tool_call>'],
-                             ['All ', 'good.'])
-        tokens = [e['text'] for e in events if e['type'] == 'token']
-        self.assertEqual(tokens, ['Let me check ', 'All ', 'good.'])
-        self.assertIn({'type': 'tool_result', 'name': 'status', 'result': 'all good'}, events)
-        self.assertEqual(events[-2], {'type': 'assistant_message', 'text': 'Let me check\nAll good.'})
+
+def call_chunk(index, name=None, arguments=None, id=None):
+    """A streamed OpenAI-compatible tool_call delta."""
+    piece = types.SimpleNamespace(index=index, id=id, function=types.SimpleNamespace(name=name, arguments=arguments))
+    return types.SimpleNamespace(choices=[types.SimpleNamespace(
+        delta=types.SimpleNamespace(content=None, tool_calls=[piece]))])
+
+
+class ProviderStream:
+    """A provider's streamed response, closed when the request ends."""
+    def __init__(self, chunks):
+        self.chunks, self.closed = chunks, False
+
+    def __iter__(self):
+        return iter(self.chunks)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.closed = True
+
+
+def remote_provider(*turns):
+    """Patches for a remote provider whose successive requests stream these chunks."""
+    client = MagicMock()
+    client.streams = [ProviderStream(chunks) for chunks in turns]
+    client.chat.completions.create.side_effect = client.streams
+    return client, [patch.object(chat, '_is_remote_provider', return_value=True),
+                    patch.object(chat, '_get_chat_provider', return_value='ollama'),
+                    patch.object(chat, '_get_openai_client', return_value=client)]
+
+
+class LocalModel:
+    """A loaded GGUF whose successive generations stream these text pieces."""
+    def __init__(self, *turns):
+        self.turns, self.requests, self.rendered_tools = iter(turns), [], []
+
+    def _imprint_formatter(self, messages, tools=None):
+        self.rendered_tools.append(tools)
+        return types.SimpleNamespace(prompt='prompt')
+
+    def tokenize(self, text, **kwargs):
+        return list(text)
+
+    def n_ctx(self):
+        return 8192
+
+    def create_chat_completion(self, **request):
+        self.requests.append(copy.deepcopy(request))
+        return iter([{'choices': [{'delta': {'role': 'assistant'}}]}] +
+                    [{'choices': [{'delta': {'content': piece}}]} for piece in next(self.turns)])
+
+
+def tool(name, run):
+    """The registered tool with its implementation replaced."""
+    return {name: chat.TOOLS[name]._replace(run=run)}
+
+
+class RegistryTests(unittest.TestCase):
+    def test_every_schema_matches_the_function_that_runs(self):
+        import inspect
+        for name, entry in chat.TOOLS.items():
+            signature = inspect.signature(entry.run)
+            signature.bind(workspace='', **{key: None for key in entry.params})
+            signature.bind(workspace='', **{key: None for key in entry.required})
+            self.assertLessEqual(set(entry.required), set(entry.params), name)
+
+
+class LocalProtocolTests(unittest.TestCase):
+    def _reply(self, model, prior=(), tools=None):
+        with patch.object(chat, '_is_remote_provider', return_value=False), \
+             patch.object(chat, '_llama', return_value=object()), \
+             patch.object(chat, '_model_missing', return_value=False), \
+             patch.object(chat, '_llm', model), \
+             patch.object(chat, 'load_model', return_value=(model, None)), \
+             patch.dict(chat.TOOLS, tools or {}):
+            return list(chat.stream_reply(list(prior), 'hi'))
+
+    def test_calls_in_template_markup_run_with_schema_typed_arguments(self):
+        run = Mock(return_value='chunk two')
+        model = LocalModel(['Let me look.\n\n<tool', '_call>\n<function=file_chunks>\n<parameter=source>\nsrc/a.py\n'
+                            '</parameter>\n<parameter=start>\n2\n</parameter>\n</function>\n</tool_call>'],
+                           ['Done.'])
+        events = self._reply(model, tools=tool('file_chunks', run))
+        self.assertEqual([e['text'] for e in events if e['type'] == 'token'], ['Let me look.\n\n', 'Done.'])
+        self.assertIn({'type': 'tool_call', 'name': 'file_chunks', 'args': {'source': 'src/a.py', 'start': 2}}, events)
+        self.assertIn({'type': 'tool_result', 'name': 'file_chunks', 'result': 'chunk two'}, events)
+        run.assert_called_once_with(workspace='', source='src/a.py', start=2)
+        first, second = model.requests
+        self.assertEqual(first['tools'], chat._tool_schemas(False))
+        self.assertNotIn('stop', first)
+        self.assertEqual(model.rendered_tools[0], chat._tool_schemas(False))
+        # The template renders the call and its result from native messages.
+        self.assertEqual(second['messages'][-2:], [
+            {'role': 'assistant', 'content': 'Let me look.\n\n', 'tool_calls': [{'id': 'call_0', 'type': 'function',
+             'function': {'name': 'file_chunks', 'arguments': {'source': 'src/a.py', 'start': 2}}}]},
+            {'role': 'tool', 'tool_call_id': 'call_0', 'content': 'chunk two'},
+        ])
+        self.assertEqual(events[-2], {'type': 'assistant_message', 'text': 'Let me look.\nDone.'})
+
+    def test_every_call_of_a_turn_runs_and_strings_stay_verbatim(self):
+        store, ingest = Mock(return_value='stored'), Mock(return_value='fetched')
+        note = 'First line.\n\n    indented: 5\ntrue'
+        model = LocalModel([f'<tool_call>\n<function=store>\n<parameter=content>\n{note}\n</parameter>\n</function>\n</tool_call>\n'
+                            '<tool_call>\n<function=ingest_url>\n<parameter=url>\nhttps://example.com\n</parameter>\n'
+                            '<parameter=force>\ntrue\n</parameter>\n</function>\n</tool_call>'], ['Saved both.'])
+        events = self._reply(model, tools={**tool('store', store), **tool('ingest_url', ingest)})
+        store.assert_called_once_with(workspace='', content=note)
+        ingest.assert_called_once_with(workspace='', url='https://example.com', force=True)
+        self.assertEqual([e['type'] for e in events if e['type'].startswith('tool')],
+                         ['tool_call', 'tool_result', 'tool_call', 'tool_result'])
+        self.assertEqual([m['role'] for m in model.requests[1]['messages'][-3:]], ['assistant', 'tool', 'tool'])
+        self.assertNotIn('token', [e['type'] for e in events[:events.index({'type': 'tool_call', 'name': 'store', 'args': {'content': note}})]])
+
+    def test_a_missing_required_argument_is_the_result_the_model_reads(self):
+        search = Mock()
+        model = LocalModel(['<tool_call>\n<function=search>\n<parameter=limit>\n10\n</parameter>\n</function>\n</tool_call>'],
+                           ['Sorry.'])
+        events = self._reply(model, tools=tool('search', search))
+        search.assert_not_called()
+        error = '[tool error] bad args for search: missing required query'
+        self.assertIn({'type': 'tool_result', 'name': 'search', 'result': error}, events)
+        self.assertEqual(model.requests[1]['messages'][-1], {'role': 'tool', 'tool_call_id': 'call_0', 'content': error})
+
+    def test_json_inside_tool_call_tags_is_not_the_native_protocol(self):
+        search = Mock()
+        raw = '<tool_call>{"name": "search", "query": "alex", "limit": 10}</tool_call>'
+        events = self._reply(LocalModel([raw]), tools=tool('search', search))
+        search.assert_not_called()
+        self.assertEqual(''.join(e['text'] for e in events if e['type'] == 'token'), raw)
 
     def test_held_back_text_that_is_not_a_tag_still_streams(self):
-        events = self._reply(['1 <', ' 2'])
+        events = self._reply(LocalModel(['1 <', ' 2']))
         self.assertEqual([e['text'] for e in events if e['type'] == 'token'], ['1 ', '< 2'])
 
+    def test_stored_tool_exchanges_replay_as_native_messages(self):
+        model = LocalModel(['Still Alex.'])
+        prior = [{'role': 'user', 'content': 'who?'},
+                 {'role': 'tool', 'content': 'Alex wrote it', 'tool_name': 'search', 'tool_args': {'query': 'author'}},
+                 {'role': 'assistant', 'content': 'Alex.'}]
+        self._reply(model, prior)
+        self.assertEqual(model.requests[0]['messages'][1:], [
+            {'role': 'user', 'content': 'who?'},
+            {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'history_1', 'type': 'function',
+             'function': {'name': 'search', 'arguments': {'query': 'author'}}}]},
+            {'role': 'tool', 'tool_call_id': 'history_1', 'content': 'Alex wrote it'},
+            {'role': 'assistant', 'content': 'Alex.'},
+            {'role': 'user', 'content': 'hi'},
+        ])
+
+
+class RemoteProtocolTests(unittest.TestCase):
+    def _reply(self, *turns, tools=None, prior=()):
+        client, patches = remote_provider(*turns)
+        with patches[0], patches[1], patches[2], patch.dict(chat.TOOLS, tools or {}):
+            events = list(chat.stream_reply(list(prior), 'hi'))
+        return events, [c.kwargs for c in client.chat.completions.create.call_args_list]
+
+    def test_streamed_tool_call_deltas_run_and_return_as_tool_messages(self):
+        search = Mock(return_value='Alex is a developer')
+        events, requests = self._reply(
+            [text_chunk('Checking. '), call_chunk(0, 'search', '{"que', id='call_a'), call_chunk(0, arguments='ry": "alex"}')],
+            [text_chunk('Alex '), text_chunk('develops.')],
+            tools=tool('search', search))
+        search.assert_called_once_with(workspace='', query='alex')
+        self.assertEqual([e['text'] for e in events if e['type'] == 'token'], ['Checking. ', 'Alex ', 'develops.'])
+        self.assertIn({'type': 'tool_call', 'name': 'search', 'args': {'query': 'alex'}}, events)
+        self.assertEqual(requests[0]['tools'], chat._tool_schemas(False))
+        self.assertNotIn('stop', requests[0])
+        self.assertEqual(requests[1]['messages'][-2:], [
+            {'role': 'assistant', 'content': 'Checking. ', 'tool_calls': [{'id': 'call_a', 'type': 'function',
+             'function': {'name': 'search', 'arguments': '{"query": "alex"}'}}]},
+            {'role': 'tool', 'tool_call_id': 'call_a', 'content': 'Alex is a developer'},
+        ])
+        self.assertEqual(events[-2], {'type': 'assistant_message', 'text': 'Checking.\nAlex develops.'})
+
+    def test_parallel_calls_each_get_their_result(self):
+        status, summary = Mock(return_value='7 memories'), Mock(return_value='3 chunks')
+        _, requests = self._reply(
+            [call_chunk(0, 'status', '{}', id='a'), call_chunk(1, 'file_summary', '{"source": "x.py"}', id='b')],
+            [text_chunk('Done.')],
+            tools={**tool('status', status), **tool('file_summary', summary)})
+        summary.assert_called_once_with(workspace='', source='x.py')
+        self.assertEqual(requests[1]['messages'][-2:], [{'role': 'tool', 'tool_call_id': 'a', 'content': '7 memories'},
+                                                        {'role': 'tool', 'tool_call_id': 'b', 'content': '3 chunks'}])
+        self.assertIsNone(requests[1]['messages'][-3]['content'])
+
+    def test_malformed_arguments_end_the_reply_with_an_error(self):
+        search = Mock()
+        events, _ = self._reply([call_chunk(0, 'search', '{"query": ', id='a')], tools=tool('search', search))
+        search.assert_not_called()
+        self.assertIn('malformed arguments for search', events[-2]['error'])
+        self.assertEqual(events[-1], {'type': 'done'})
+
+    def test_stored_tool_exchanges_replay_with_json_arguments(self):
+        prior = [{'role': 'user', 'content': 'who?'},
+                 {'role': 'tool', 'content': 'Alex', 'tool_name': 'search', 'tool_args': {'query': 'author'}}]
+        _, requests = self._reply([text_chunk('Alex.')], prior=prior)
+        self.assertEqual(requests[0]['messages'][2:4], [
+            {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'history_1', 'type': 'function',
+             'function': {'name': 'search', 'arguments': '{"query": "author"}'}}]},
+            {'role': 'tool', 'tool_call_id': 'history_1', 'content': 'Alex'},
+        ])
+
+
+class ApiRecordingTests(unittest.TestCase):
     def test_stopped_reply_keeps_what_was_streamed(self):
         from imprint import api
         replies = iter([{'type': 'token', 'text': 'Half an '}, {'type': 'token', 'text': 'answer'},

@@ -98,27 +98,30 @@ def load(path: Path, n_ctx: int, n_gpu_layers: int, *, expected_sha256: str | No
         return llm
 
 
-def fit_messages(llm, messages: list[dict], max_tokens: int) -> list[dict]:
+def fit_messages(llm, messages: list[dict], max_tokens: int, tools: list[dict] | None = None) -> list[dict]:
     """Bound actual token usage, dropping old conversation turns first."""
     messages = list(messages)
     while True:
-        prompt = llm._imprint_formatter(messages=messages).prompt
+        prompt = llm._imprint_formatter(messages=messages, tools=tools).prompt
         count = len(llm.tokenize(prompt.encode(), add_bos=False, special=True))
         if count + max_tokens + 16 <= llm.n_ctx():
             return messages
-        # Tool results use the user role in the dashboard's text protocol.
-        # Keep the actual current request when pruning a long tool loop.
-        anchor = max((i for i, message in enumerate(messages)
-                      if message["role"] == "user" and not message["content"].startswith("[TOOL RESULT]")),
+        # The current request is the last user message; tool results have
+        # their own role. Keep it when pruning a long tool loop.
+        anchor = max((i for i, message in enumerate(messages) if message["role"] == "user"),
                      default=len(messages) - 1)
         if anchor > 1:
             del messages[1]
             while len(messages) > 2 and messages[1]["role"] != "user":
                 del messages[1]
-        elif len(messages) > anchor + 3:
-            del messages[anchor + 1:anchor + 3]
-        else:
+            continue
+        # Drop the loop's oldest assistant turn with its tool results, keeping the latest.
+        end = anchor + 2
+        while end < len(messages) and messages[end]["role"] == "tool":
+            end += 1
+        if end >= len(messages):
             raise ValueError("Local helper context exceeded; shorten the input or increase the configured context")
+        del messages[anchor + 1:end]
 
 
 def _before(deadline: float | None) -> None:

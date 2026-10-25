@@ -131,7 +131,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chat.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
 | `chat.max_tokens` | `1024` | Max tokens per chat response |
 | `chat.temperature` | `0.3` | Chat sampling temperature |
-| `chat.max_tool_iters` | `6` | Max tool-call iterations per chat turn |
+| `chat.max_tool_iters` | `6` | Max model turns that call tools per chat reply; a turn may call several tools |
 | **Session summarizer (opt-in, Stop hook)** | | |
 | `summarizer.enabled` | `false` | Enable the LLM-based session summarizer |
 | `summarizer.provider` | `local` | Provider: local / ollama / vllm / anthropic / openai / gemini |

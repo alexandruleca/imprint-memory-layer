@@ -22,8 +22,9 @@ routes:
   interleaved text and audio. Retrieval is fixed by Imprint; the audio model does
   not issue arbitrary MCP calls.
 
-Voice is **read-only**. The chat adapter enforces a read-tool allowlist and directs
-writes to the dashboard. The small-model prompt likewise has no write interface.
+Voice is **read-only**. The chat adapter offers the model only the read tools,
+rejects any write call, and directs writes to the dashboard. The small-model
+prompt likewise has no write interface.
 Evidence is untrusted reference material; prompting is not a guarantee against
 model prompt injection or incorrect answers. No recorded audio, transcripts or
 conversation files are persisted by the live session. Explicit offline exports

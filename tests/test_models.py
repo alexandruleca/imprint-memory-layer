@@ -124,7 +124,7 @@ class LocalHelperTests(unittest.TestCase):
     def test_context_budget_discards_history_and_rejects_oversized_current_input(self):
         llm = MagicMock()
         llm.n_ctx.return_value = 100
-        llm._imprint_formatter.side_effect = lambda messages: types.SimpleNamespace(prompt=''.join(m['content'] for m in messages))
+        llm._imprint_formatter.side_effect = lambda messages, tools=None: types.SimpleNamespace(prompt=''.join(m['content'] for m in messages))
         llm.tokenize.side_effect = lambda text, **kw: list(text)
         current = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'new'}]
         messages = [current[0], {'role': 'user', 'content': 'x' * 100}, {'role': 'assistant', 'content': 'old'}, current[-1]]
@@ -179,33 +179,46 @@ class LocalHelperTests(unittest.TestCase):
     def test_context_pruning_preserves_request_during_tool_loop(self):
         llm = MagicMock()
         llm.n_ctx.return_value = 100
-        llm._imprint_formatter.side_effect = lambda messages: types.SimpleNamespace(prompt=''.join(m['content'] for m in messages))
+        llm._imprint_formatter.side_effect = lambda messages, tools: types.SimpleNamespace(
+            prompt=''.join(m['content'] or '' for m in messages) + tools)
         llm.tokenize.side_effect = lambda text, **kw: list(text)
+        call = lambda name: {'role': 'assistant', 'content': None, 'tool_calls': [{'id': name, 'type': 'function',
+                             'function': {'name': 'search', 'arguments': {'query': name}}}]}
         messages = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'current request'},
-                    {'role': 'assistant', 'content': 'old tool call'}, {'role': 'user', 'content': '[TOOL RESULT]' + 'x' * 100},
-                    {'role': 'assistant', 'content': 'new call'}, {'role': 'user', 'content': '[TOOL RESULT]7'}]
-        result = local_llm.fit_messages(llm, messages, 20)
+                    call('old'), {'role': 'tool', 'tool_call_id': 'old', 'content': 'x' * 40},
+                    {'role': 'tool', 'tool_call_id': 'old', 'content': 'y' * 40},
+                    call('new'), {'role': 'tool', 'tool_call_id': 'new', 'content': '7'}]
+        result = local_llm.fit_messages(llm, messages, 20, tools='schemas')
         self.assertEqual(result, messages[:2] + messages[-2:])
+        self.assertEqual(llm._imprint_formatter.call_args.kwargs['tools'], 'schemas')
+        with self.assertRaisesRegex(ValueError, 'context exceeded'):
+            local_llm.fit_messages(llm, messages[:2] + [call('only'), {'role': 'tool', 'tool_call_id': 'only', 'content': 'z' * 100}], 20, tools='')
 
     def test_chat_search_uses_workspace_wake_state_and_retrieval_filters(self):
         from imprint import chat, server
         with patch.object(server, '_validate_ws', return_value=('example', None)), \
              patch.object(server, '_woken_workspaces', set()), patch.object(server, 'search', return_value='evidence') as search:
-            chat._tool_search('query', source='project/source.py', offset=10, mode='semantic', unknown='ignored')
+            result = chat._run_tool('search', {'query': 'query', 'source': 'project/source.py', 'offset': 10,
+                                               'mode': 'semantic', 'workspace': 'other'}, 'example', False)
+            self.assertEqual(result, 'evidence')
             self.assertIn('example', server._woken_workspaces)
             self.assertEqual(search.call_args.kwargs['offset'], 10)
-            self.assertNotIn('unknown', search.call_args.kwargs)
+            self.assertEqual(search.call_args.kwargs['workspace'], 'example')
+            search.reset_mock()
+            result = chat._run_tool('search', {'query': 'query', 'unknown': 'x'}, 'example', False)
+            self.assertEqual(result, '[tool error] bad args for search: unknown unknown')
+            search.assert_not_called()
 
     def test_chat_generation_receives_current_device_and_historical_path_guidance(self):
         from imprint import chat, device
         origin = {'id': 'bbbbbbbb', 'name': 'device-B', 'os': 'linux'}
-        with patch.object(chat, '_is_remote_provider', return_value=True), \
-             patch.object(chat, '_get_chat_provider', return_value='ollama'), \
+        from test_chat_stream import remote_provider, text_chunk
+        client, provider = remote_provider([text_chunk('Shared knowledge.')])
+        with provider[0], provider[1], provider[2], \
              patch.object(device, 'current', return_value=origin), \
-             patch.object(chat.os, 'getcwd', return_value='/checkout-B'), \
-             patch.object(chat, '_stream_remote', return_value=iter(['Shared knowledge.'])) as generate:
+             patch.object(chat.os, 'getcwd', return_value='/checkout-B'):
             events = list(chat.stream_reply([], 'Recall our old conversation'))
-        prompt = generate.call_args.args[0][0]['content']
+        prompt = client.chat.completions.create.call_args.kwargs['messages'][0]['content']
         self.assertIn('device-B', prompt)
         self.assertIn('/checkout-B', prompt)
         self.assertIn('Original paths in historical text', prompt)

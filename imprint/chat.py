@@ -4,7 +4,10 @@ Supports multiple providers:
 - **local**: Runs a GGUF model in-process via llama-cpp-python (fully offline)
 - **vllm / openai / ollama / gemini / anthropic**: Remote via OpenAI-compat API
 
-All providers share the same tool loop backed by Imprint's MCP tools.
+All providers share one tool registry (JSON schemas over Imprint's MCP tools)
+and one loop. Each backend speaks its native tool protocol: the local model
+through its own chat template, remote providers through API function calling
+(ADR 0059).
 
 Structured so the import is cheap: we only try to import `llama_cpp` and
 `huggingface_hub` at call time via helpers; the dashboard still works if they're missing.
@@ -21,7 +24,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, NamedTuple
 
 from . import config
 from . import config_schema
@@ -55,7 +58,7 @@ def _llama() -> Any:
 # ── Provider config ─────────────────────────────────────────
 
 _CHAT_PROVIDER_DEFAULTS: dict[str, dict] = {
-    "anthropic": {"model": "claude-haiku-4-5",  "key_env": "ANTHROPIC_API_KEY"},
+    "anthropic": {"model": "claude-haiku-4-5",  "key_env": "ANTHROPIC_API_KEY", "base_url": "https://api.anthropic.com/v1/"},
     "openai":    {"model": "gpt-4o-mini",       "key_env": "OPENAI_API_KEY"},
     "gemini":    {"model": "gemini-2.0-flash",   "key_env": "GOOGLE_API_KEY",  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"},
     "ollama":    {"model": "llama3.2",           "key_env": None, "base_url": "http://localhost:11434/v1"},
@@ -83,8 +86,22 @@ def _is_remote_provider() -> bool:
 
 
 # ── Tool registry ───────────────────────────────────────────
+# One table: what each tool runs and the JSON schema the model sees. Each
+# backend speaks its own native protocol from these schemas.
 
-def _tool_search(query: str, workspace: str = "", **kwargs: Any) -> str:
+class Tool(NamedTuple):
+    run: Callable[..., str]
+    description: str
+    params: dict[str, dict] = {}
+    required: tuple[str, ...] = ()
+    writes: bool = False
+
+
+def _param(kind: str, description: str) -> dict:
+    return {"type": kind, "description": description}
+
+
+def _tool_search(query: str, workspace: str = "", **filters: Any) -> str:
     # Skip the auto-wake preamble that search() prepends on first call.
     # The chat agent has limited context (8k) — the full wake_up output
     # (project stats, essential context, facets) easily eats 3-4k chars,
@@ -94,121 +111,166 @@ def _tool_search(query: str, workspace: str = "", **kwargs: Any) -> str:
     if error:
         return error
     _mcp_server._woken_workspaces.add(ws)
-    allowed = {"project", "type", "lang", "layer", "kind", "domain", "limit", "source", "mode", "offset"}
-    filtered = {k: v for k, v in kwargs.items() if k in allowed}
-    return _mcp_server.search(query=query, workspace=workspace, **filtered)
+    return _mcp_server.search(query=query, workspace=workspace, **filters)
 
 
-def _tool_kg_query(
-    subject: str = "", predicate: str = "", limit: int = 20, workspace: str = "",
-) -> str:
-    return _mcp_server.kg_query(
-        subject=subject, predicate=predicate, limit=limit, workspace=workspace,
-    )
-
-
-def _tool_status(workspace: str = "") -> str:
-    return _mcp_server.status(workspace=workspace)
-
-
-def _tool_wake_up(workspace: str = "") -> str:
-    return _mcp_server.wake_up(workspace=workspace)
-
-
-def _tool_list_sources(workspace: str = "", **kwargs: Any) -> str:
-    allowed = {"project", "lang", "layer", "limit"}
-    filtered = {k: v for k, v in kwargs.items() if k in allowed}
-    return _mcp_server.list_sources(workspace=workspace, **filtered)
-
-
-def _tool_file_summary(source: str, workspace: str = "", **kwargs: Any) -> str:
-    return _mcp_server.file_summary(
-        source=source, project=kwargs.get("project", ""), workspace=workspace,
-    )
-
-
-def _tool_file_chunks(source: str, workspace: str = "", **kwargs: Any) -> str:
-    return _mcp_server.file_chunks(
-        source=source,
-        start=int(kwargs.get("start", 0)),
-        end=int(kwargs.get("end", -1)),
-        project=kwargs.get("project", ""),
-        workspace=workspace,
-    )
-
-
-def _tool_store(content: str, workspace: str = "", **kwargs: Any) -> str:
-    allowed = {"project", "type", "tags", "source"}
-    filtered = {k: v for k, v in kwargs.items() if k in allowed}
-    return _mcp_server.store(content=content, workspace=workspace, **filtered)
-
-
-def _tool_kg_add(
-    subject: str, predicate: str, object: str, workspace: str = "", **kwargs: Any,
-) -> str:
-    return _mcp_server.kg_edit(
-        op="add", subject=subject, predicate=predicate, object=object,
-        source=kwargs.get("source", ""), workspace=workspace,
-    )
+def _tool_kg_add(subject: str, predicate: str, object: str, workspace: str = "", source: str = "") -> str:
+    return _mcp_server.kg_edit(op="add", subject=subject, predicate=predicate, object=object,
+                               source=source, workspace=workspace)
 
 
 def _tool_kg_invalidate(fact_id: int, workspace: str = "") -> str:
     return _mcp_server.kg_edit(op="end", fact_id=fact_id, workspace=workspace)
 
 
-def _tool_ingest_url(url: str, workspace: str = "", **kwargs: Any) -> str:
-    return _mcp_server.ingest_url(
-        url=url,
-        project=kwargs.get("project", "urls"),
-        force=bool(kwargs.get("force", False)),
-        workspace=workspace,
-    )
+_PROJECT = _param("string", "Only this project")
+_SOURCE = _param("string", "Source path exactly as list_sources or search shows it")
 
-
-TOOLS: dict[str, Callable[..., str]] = {
-    "search": _tool_search,
-    "kg_query": _tool_kg_query,
-    "status": _tool_status,
-    "wake_up": _tool_wake_up,
-    "list_sources": _tool_list_sources,
-    "file_summary": _tool_file_summary,
-    "file_chunks": _tool_file_chunks,
-    "store": _tool_store,
-    "kg_add": _tool_kg_add,
-    "kg_invalidate": _tool_kg_invalidate,
-    "ingest_url": _tool_ingest_url,
+TOOLS: dict[str, Tool] = {
+    "search": Tool(
+        _tool_search,
+        "Semantic search across all stored memories. This is the primary tool. "
+        "Use short, keyword-rich queries and narrow with filters when the domain is known.",
+        {
+            "query": _param("string", "2-4 keywords, e.g. 'auth middleware cors', not a full sentence"),
+            "project": _PROJECT,
+            "type": _param("string", "decision, pattern, finding, preference, bug or architecture"),
+            "lang": _param("string", "Language: python, typescript, go, ..."),
+            "layer": _param("string", "api, ui, tests, infra, cli or docs"),
+            "kind": _param("string", "source, test, migration or readme"),
+            "domain": _param("string", "Comma-separated domains: auth, db, api, ml, perf, security, ..."),
+            "limit": _param("integer", "Maximum results (default 5)"),
+            "offset": _param("integer", "Skip this many results, for paging"),
+            "mode": _param("string", "hybrid (default) or semantic"),
+            "source": _param("string", "Exact source path"),
+        },
+        required=("query",),
+    ),
+    "kg_query": Tool(
+        _mcp_server.kg_query,
+        "Query the temporal knowledge graph for structured facts (subject -> predicate -> object). "
+        "Use for 'what does X use?', 'what was decided about Y?' and other relationship lookups.",
+        {
+            "subject": _param("string", "Entity, partial match"),
+            "predicate": _param("string", "Relationship, partial match"),
+            "limit": _param("integer", "Maximum facts (default 20)"),
+        },
+    ),
+    "status": Tool(
+        _mcp_server.status,
+        "Quick stats: total memories, active facts and memories per project.",
+    ),
+    "wake_up": Tool(
+        _mcp_server.wake_up,
+        "Full session context: projects, essential decisions, recent activity and active facts. "
+        "Use when the user asks for a broad overview or what is in memory.",
+    ),
+    "list_sources": Tool(
+        _mcp_server.list_sources,
+        "List indexed source files with chunk counts. Start here to discover what code is in the knowledge base.",
+        {
+            "project": _PROJECT,
+            "lang": _param("string", "Language: python, typescript, go, ..."),
+            "layer": _param("string", "api, ui, tests, infra, config or docs"),
+            "limit": _param("integer", "Maximum files (default 50)"),
+        },
+    ),
+    "file_summary": Tool(
+        _mcp_server.file_summary,
+        "Overview of one indexed file: chunk count, tags, modification date and a preview. "
+        "Use it before file_chunks to learn how many chunks exist.",
+        {"source": _SOURCE, "project": _PROJECT},
+        required=("source",),
+    ),
+    "file_chunks": Tool(
+        _mcp_server.file_chunks,
+        "Read the indexed content of one file by chunk index range.",
+        {
+            "source": _SOURCE,
+            "start": _param("integer", "First chunk index, 0-based (default 0)"),
+            "end": _param("integer", "Last chunk index, inclusive; -1 reads to the end (default)"),
+            "project": _PROJECT,
+        },
+        required=("source",),
+    ),
+    "store": Tool(
+        _mcp_server.store,
+        "Store a new memory: a self-contained note that makes sense months later and explains the WHY, not just the WHAT.",
+        {
+            "content": _param("string", "The note"),
+            "project": _PROJECT,
+            "type": _param("string", "decision, pattern, finding, preference, bug, architecture or milestone"),
+            "tags": _param("string", "Comma-separated keywords"),
+            "source": _param("string", "File path or conversation topic"),
+        },
+        required=("content",),
+        writes=True,
+    ),
+    "kg_add": Tool(
+        _tool_kg_add,
+        "Add a structured fact to the knowledge graph, e.g. 'api-server uses NestJS' or 'auth decided JWT over sessions'.",
+        {
+            "subject": _param("string", "Entity"),
+            "predicate": _param("string", "Relationship"),
+            "object": _param("string", "Value"),
+            "source": _param("string", "Where the fact came from"),
+        },
+        required=("subject", "predicate", "object"),
+        writes=True,
+    ),
+    "kg_invalidate": Tool(
+        _tool_kg_invalidate,
+        "Mark a fact as ended, no longer true.",
+        {"fact_id": _param("integer", "The fact's id")},
+        required=("fact_id",),
+        writes=True,
+    ),
+    "ingest_url": Tool(
+        _mcp_server.ingest_url,
+        "Fetch a URL (web page, PDF, ...), extract its content and store it as memories. "
+        "Unchanged pages are skipped unless force is true.",
+        {
+            "url": _param("string", "http(s) URL"),
+            "project": _param("string", "Project label (default 'urls')"),
+            "force": _param("boolean", "Fetch again even if unchanged"),
+        },
+        required=("url",),
+        writes=True,
+    ),
 }
 
 
+def _tool_schemas(read_only: bool) -> list[dict]:
+    """The offered tools in the function-tool shape that OpenAI-compatible
+    APIs and Hugging Face chat templates both take."""
+    return [{"type": "function", "function": {
+        "name": name, "description": tool.description,
+        "parameters": {"type": "object", "properties": tool.params, "required": list(tool.required)},
+    }} for name, tool in TOOLS.items() if not (read_only and tool.writes)]
+
+
+def _run_tool(name: str, args: dict, workspace: str, read_only: bool) -> str:
+    """Run one call. Every failure becomes the result the model reads."""
+    tool = TOOLS.get(name)
+    if tool is None:
+        return f"[tool error] unknown tool: {name}"
+    if read_only and tool.writes:
+        return "Voice mode is read-only. Use the dashboard to make changes."
+    # Session ownership wins over model-supplied workspace arguments.
+    args = {key: value for key, value in args.items() if key != "workspace"}
+    unknown = sorted(set(args) - set(tool.params))
+    missing = [key for key in tool.required if key not in args]
+    if unknown or missing:
+        problems = ([f"missing required {', '.join(missing)}"] if missing else []) + \
+                   ([f"unknown {', '.join(unknown)}"] if unknown else [])
+        return f"[tool error] bad args for {name}: {'; '.join(problems)}"
+    try:
+        return tool.run(workspace=workspace, **args)
+    except Exception as e:
+        return f"[tool error] {name} raised: {e}"
+
+
 SYSTEM_PROMPT = """You are Imprint, a local AI memory assistant. You help users explore, query, and manage their Imprint knowledge base — a semantic index of code, decisions, patterns, conversations, and structured facts. Everything runs locally and offline.
-
-# Tool calling
-
-When you need information or want to perform an action, emit exactly ONE tool call per turn inside <tool_call> tags, then STOP and wait for the [TOOL RESULT]. Never emit two tool calls in one turn. Only answer directly when you already have enough context.
-
-Format (on its own line, no surrounding commentary):
-<tool_call>{"name": "tool_name", "args": {"key": "value"}}</tool_call>
-
-# Available tools
-
-## Searching & discovery
-- **search**(query, project?, type?, domain?, lang?, layer?, kind?, limit?) — Semantic search across all stored memories. This is your primary tool. Use short, keyword-rich queries. Filters narrow results: type can be decision/pattern/finding/preference/bug/architecture; lang can be python/typescript/go/etc; layer can be api/ui/tests/infra/cli/docs; domain can be auth/db/api/ml/perf/security/etc.
-- **kg_query**(subject?, predicate?, limit?) — Query the temporal knowledge graph for structured facts (entity → relationship → value). Use for "what does X use?", "what was decided about Y?", relationship lookups.
-- **status**() — Quick stats: total memories, active facts, projects breakdown.
-- **wake_up**() — Full session context: all projects, essential decisions, recent activity, active facts. Use when the user asks for a broad overview or "what's in memory".
-
-## File retrieval (read indexed code without filesystem access)
-- **list_sources**(project?, lang?, layer?, limit?) — List all indexed source files with chunk counts. Start here to discover what code is in the KB.
-- **file_summary**(source, project?) — Overview of one indexed file: chunk count, tags, modification date, and a preview. Use before reading chunks to see if the file has what you need.
-- **file_chunks**(source, start?, end?, project?) — Retrieve actual content of a file by chunk index range (0-based, inclusive). Use file_summary first to know how many chunks exist.
-
-## Writing & managing memories
-- **store**(content, project?, type?, tags?, source?) — Store a new memory. Write it as a self-contained note that makes sense months later. Include the WHY, not just the WHAT. type: decision/pattern/finding/preference/bug/architecture/milestone. tags: comma-separated keywords.
-- **kg_add**(subject, predicate, object, source?) — Add a structured fact to the knowledge graph. Use for relationships: "api-server uses NestJS", "auth decided JWT over sessions".
-- **kg_invalidate**(fact_id) — Mark a fact as ended/no longer true. Get the fact_id from kg_query results.
-
-## Ingesting external content
-- **ingest_url**(url, project?, force?) — Fetch a URL (webpage, PDF, etc), extract content, chunk it, and store as memories. Deduplicates by ETag/Last-Modified unless force=true.
 
 # Strategy guide
 
@@ -219,9 +281,9 @@ Format (on its own line, no surrounding commentary):
 5. **Store findings** when the user shares a decision, discovers a pattern, or resolves a bug. Good memories are specific, self-contained, and explain WHY.
 6. **Cite sources** — mention project names, file paths, or fact IDs so the user can trace your answers.
 7. **Be concise** — summarize tool results, don't parrot them back. Pull out the key insight.
-8. **Chain tools** across turns when needed. Example: search finds a pattern → file_summary gets context → file_chunks reads the actual code. You have up to 6 tool turns per message.
+8. **Chain tools** across turns when needed. Example: search finds a pattern → file_summary gets context → file_chunks reads the actual code.
 9. If the user asks you to remember or save something, use store or kg_add. If they say something is no longer true, use kg_invalidate.
-10. If no tool is needed, answer directly without a <tool_call> block."""
+10. If no tool is needed, answer directly."""
 
 
 # ── Model loader ─────────────────────────────────────────────
@@ -471,11 +533,20 @@ def status() -> dict:
     }
 
 
-# ── Tool-call parsing ────────────────────────────────────────
+# ── Local protocol: the model's own chat template ───────────
+# The GGUF's template renders the tool schemas, assistant tool_calls and
+# tool-role results itself. Qwen3.5 answers a call in this markup:
+#   <tool_call>
+#   <function=search>
+#   <parameter=query>
+#   alex
+#   </parameter>
+#   </function>
+#   </tool_call>
 
 _TOOL_OPEN = "<tool_call>"
-_TOOL_CLOSE = "</tool_call>"
-_TOOL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+_CALL_RE = re.compile(r"<tool_call>\s*<function=([^>\n]+)>(.*?)</function>\s*</tool_call>", re.DOTALL)
+_PARAM_RE = re.compile(r"<parameter=([^>\n]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
 
 
 def _partial_open_tag(text: str) -> int:
@@ -486,22 +557,58 @@ def _partial_open_tag(text: str) -> int:
     return 0
 
 
-def _parse_tool_call(text: str) -> dict | None:
-    """Find the first valid tool-call JSON block in `text`."""
-    m = _TOOL_RE.search(text)
-    if not m:
-        return None
+def _parameter_value(raw: str, schema: dict | None) -> Any:
+    """Parameter values are text. String parameters are taken verbatim; the
+    schema's other types (integer, boolean, ...) are read as JSON. A value
+    that does not parse stays text, for the tool to reject."""
+    if schema is None or schema.get("type") == "string":
+        return raw
     try:
-        obj = json.loads(m.group(1))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(obj, dict) or "name" not in obj:
-        return None
-    name = obj.get("name")
-    args = obj.get("args") or obj.get("arguments") or {}
-    if name not in TOOLS or not isinstance(args, dict):
-        return None
-    return {"name": name, "args": args, "raw": m.group(0)}
+        return json.loads(raw)
+    except ValueError:
+        return raw
+
+
+def _parse_tool_calls(text: str) -> list[dict]:
+    """The tool calls written in the template's native markup."""
+    calls = []
+    for n, match in enumerate(_CALL_RE.finditer(text)):
+        name = match.group(1).strip()
+        params = TOOLS[name].params if name in TOOLS else {}
+        args = {key.strip(): _parameter_value(value, params.get(key.strip()))
+                for key, value in _PARAM_RE.findall(match.group(2))}
+        calls.append({"id": f"call_{n}", "name": name, "args": args})
+    return calls
+
+
+def _local_turn(llm: Any, messages: list[dict], tools: list[dict], max_tokens: int,
+                temperature: float) -> Generator[str, None, list[dict]]:
+    """One assistant turn of the local model. Yields reply text and returns
+    the tool calls. Tool-call markup is never yielded: the stream holds text
+    back from the open tag on, and a trailing partial tag until it resolves."""
+    from .local_llm import INFERENCE_LOCK, fit_messages
+    with INFERENCE_LOCK:
+        messages = fit_messages(llm, messages, max_tokens, tools)
+        stream = llm.create_chat_completion(
+            messages=messages, tools=tools, stream=True,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        buffer, shown = "", 0
+        for chunk in stream:
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            buffer += (choices[0].get("delta") or {}).get("content") or ""
+            end = buffer.find(_TOOL_OPEN)
+            if end < 0:
+                end = len(buffer) - _partial_open_tag(buffer)
+            if end > shown:
+                yield buffer[shown:end]
+                shown = end
+    calls = _parse_tool_calls(buffer[shown:])
+    if not calls and len(buffer) > shown:
+        yield buffer[shown:]  # held back, but not a tool call
+    return calls
 
 
 def _trim_tool_result(result: str, max_chars: int = 4000) -> str:
@@ -510,7 +617,7 @@ def _trim_tool_result(result: str, max_chars: int = 4000) -> str:
     return result[:max_chars] + f"\n\n[...truncated {len(result) - max_chars} chars...]"
 
 
-# ── Remote provider (OpenAI-compat) streaming ───────────────
+# ── Remote protocol: OpenAI-compatible function calling ─────
 
 def _get_openai_client():
     """Build an OpenAI client for the configured remote provider."""
@@ -531,58 +638,71 @@ def _get_openai_client():
     return openai.OpenAI(**kwargs)
 
 
-def _stream_remote(messages: list[dict], max_tokens: int, temperature: float,
-                   ) -> Generator[str, None, str | None]:
-    """Stream tokens from a remote OpenAI-compat provider.
+def _wire_message(message: dict) -> dict:
+    """The API carries a call's arguments as a JSON string."""
+    if not message.get("tool_calls"):
+        return message
+    return {**message, "tool_calls": [
+        {**call, "function": {**call["function"], "arguments": json.dumps(call["function"]["arguments"])}}
+        for call in message["tool_calls"]
+    ]}
 
-    Yields token strings. Returns the finish_reason via GeneratorExit is not
-    applicable here — instead the caller collects the buffer.
-    """
-    client = _get_openai_client()
-    model = _get_chat_model()
 
-    stream = client.chat.completions.create(
-        model=model,
-        messages=messages,
+def _remote_turn(messages: list[dict], tools: list[dict], max_tokens: int,
+                 temperature: float) -> Generator[str, None, list[dict]]:
+    """One assistant turn of the remote provider. Yields reply text and
+    returns the tool calls assembled from the streamed tool_call deltas."""
+    parts: dict[int, dict] = {}
+    with _get_openai_client().chat.completions.create(
+        model=_get_chat_model(),
+        messages=[_wire_message(m) for m in messages],
+        tools=tools,
         stream=True,
         max_tokens=max_tokens,
         temperature=temperature,
-        stop=[_TOOL_CLOSE],
-    )
-    for chunk in stream:
-        choices = chunk.choices or []
-        if not choices:
-            continue
-        delta = choices[0].delta
-        text = delta.content or ""
-        if text:
-            yield text
-
-
-def _stream_local(llm: Any, messages: list[dict], max_tokens: int,
-                  temperature: float) -> Generator[str, None, None]:
-    """Stream tokens from local llama-cpp model. Yields token strings."""
-    from .local_llm import INFERENCE_LOCK, fit_messages
-    with INFERENCE_LOCK:
-        messages = fit_messages(llm, messages, max_tokens)
-        stream = llm.create_chat_completion(
-            messages=messages,
-            stream=True,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stop=[_TOOL_CLOSE],
-        )
+    ) as stream:
         for chunk in stream:
-            choices = chunk.get("choices") or []
-            if not choices:
+            if not chunk.choices:
                 continue
-            delta = choices[0].get("delta") or {}
-            text = delta.get("content") or ""
-            if text:
-                yield text
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+            for piece in delta.tool_calls or []:
+                part = parts.setdefault(piece.index, {"id": "", "name": "", "arguments": ""})
+                part["id"] = piece.id or part["id"]
+                if piece.function:
+                    part["name"] = piece.function.name or part["name"]
+                    part["arguments"] += piece.function.arguments or ""
+    calls = []
+    for _, part in sorted(parts.items()):
+        try:
+            args = json.loads(part["arguments"] or "{}")
+        except ValueError:
+            args = None
+        if not isinstance(args, dict):
+            raise ValueError(f"provider sent malformed arguments for {part['name']}: {part['arguments'][:200]}")
+        calls.append({"id": part["id"], "name": part["name"], "args": args})
+    return calls
 
 
 # ── Streaming tool loop ──────────────────────────────────────
+
+def _history(prior_messages: list[dict]) -> list[dict]:
+    """Stored conversation as native messages. A stored tool exchange is an
+    assistant tool call followed by its tool-role result."""
+    messages: list[dict] = []
+    for n, m in enumerate(prior_messages):
+        role = m.get("role")
+        content = m.get("content", "")
+        if role == "tool":
+            call = {"id": f"history_{n}", "type": "function", "function": {
+                "name": m.get("tool_name") or "tool", "arguments": m.get("tool_args") or {}}}
+            messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
+        elif role in ("user", "assistant"):
+            messages.append({"role": role, "content": content})
+    return messages
+
 
 def stream_reply(
     prior_messages: list[dict],
@@ -660,20 +780,9 @@ def stream_reply(
             'Use plain speech without markdown or code blocks. Only read tools are available in voice mode. '
             'Do not attempt to save, change, ingest or delete anything; direct changes to the dashboard.'
         )
-    for m in prior_messages:
-        role = m.get("role")
-        content = m.get("content", "")
-        if role == "tool":
-            tname = m.get("tool_name") or "tool"
-            messages.append({
-                "role": "assistant",
-                "content": f"<tool_call>{json.dumps({'name': tname, 'args': m.get('tool_args') or {}})}</tool_call>",
-            })
-            messages.append({"role": "user", "content": f"[TOOL RESULT] {content}"})
-        elif role in ("user", "assistant"):
-            messages.append({"role": role, "content": content})
-
+    messages += _history(prior_messages)
     messages.append({"role": "user", "content": user_message})
+    tools = _tool_schemas(read_only)
 
     max_iters = int(_cfg("chat.max_tool_iters"))
     max_tokens = int(_cfg("chat.max_tokens"))
@@ -684,81 +793,44 @@ def stream_reply(
     for _iter in range(max_iters):
         if cancelled():
             return
-        buffer = ""
+        if remote:
+            turn = _remote_turn(messages, tools, max_tokens, temperature)
+        else:
+            turn = _local_turn(llm, messages, tools, max_tokens, temperature)
+        text = ""
         try:
-            if remote:
-                token_stream = _stream_remote(messages, max_tokens, temperature)
-            else:
-                token_stream = _stream_local(llm, messages, max_tokens, temperature)
-        except Exception as e:
-            yield {"type": "error", "error": f"generation failed: {e}"}
-            yield {"type": "done"}
-            return
-
-        visible = 0
-        try:
-            for text in token_stream:
+            while True:
+                piece = next(turn)
                 if cancelled():
                     return
-                buffer += text
-                # A tool call is text in the reply: stream only what precedes
-                # it, holding back a tail that may still become its open tag.
-                end = buffer.find(_TOOL_OPEN)
-                if end < 0:
-                    end = len(buffer) - _partial_open_tag(buffer)
-                if end > visible:
-                    yield {"type": "token", "text": buffer[visible:end]}
-                    visible = end
+                text += piece
+                yield {"type": "token", "text": piece}
+        except StopIteration as end:
+            calls = end.value
         except Exception as e:
             yield {"type": "error", "error": f"generation failed: {e}"}
             yield {"type": "done"}
             return
         finally:
-            close = getattr(token_stream, "close", None)
-            if close:
-                close()
+            turn.close()
 
-        # Stop token strips the close tag — re-append if tool_call was opened
-        if _TOOL_OPEN in buffer and _TOOL_CLOSE not in buffer:
-            buffer += _TOOL_CLOSE
-
-        call = _parse_tool_call(buffer)
-        if call is None:
-            if len(buffer) > visible:
-                yield {"type": "token", "text": buffer[visible:]}
-            final_assistant_chunks.append(buffer)
+        if not calls:
+            final_assistant_chunks.append(text)
             break
 
-        # Announce + execute
-        yield {"type": "tool_call", "name": call["name"], "args": call["args"]}
-        if cancelled():
-            return
-        try:
-            fn = TOOLS[call["name"]]
-            if read_only and call["name"] not in {
-                "search", "kg_query", "status", "wake_up", "list_sources", "file_summary", "file_chunks",
-            }:
-                result = "Voice mode is read-only. Use the dashboard to make changes."
-            else:
-                # Session ownership wins over model-supplied workspace arguments.
-                arguments = {key: value for key, value in call["args"].items() if key != "workspace"}
-                result = fn(workspace=workspace, **arguments)
-        except TypeError as e:
-            result = f"[tool error] bad args for {call['name']}: {e}"
-        except Exception as e:
-            result = f"[tool error] {call['name']} raised: {e}"
-        result = _trim_tool_result(result)
-        yield {"type": "tool_result", "name": call["name"], "result": result}
-
-        # Feed into the next iteration
-        pre_call = buffer.split(_TOOL_OPEN, 1)[0].strip()
-        if pre_call:
-            final_assistant_chunks.append(pre_call + "\n")
-        messages.append({
-            "role": "assistant",
-            "content": (pre_call + ("\n" if pre_call else "") + call["raw"]).strip(),
-        })
-        messages.append({"role": "user", "content": f"[TOOL RESULT] {result}"})
+        if text.strip():
+            final_assistant_chunks.append(text.strip() + "\n")
+        messages.append({"role": "assistant", "content": text or None, "tool_calls": [
+            {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["args"]}}
+            for call in calls
+        ]})
+        for call in calls:
+            if cancelled():
+                return
+            yield {"type": "tool_call", "name": call["name"], "args": call["args"]}
+            result = _trim_tool_result(_run_tool(call["name"], call["args"], workspace, read_only))
+            yield {"type": "tool_result", "name": call["name"], "result": result}
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
     else:
         yield {
             "type": "error",

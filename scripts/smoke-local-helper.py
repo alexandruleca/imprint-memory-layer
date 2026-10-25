@@ -56,7 +56,7 @@ def main():
             assert set(result) == {'decisions', 'bugs', 'patterns', 'facts', 'summary'}, result
             assert result['decisions'] and result['summary'], result
             print('Local structured summary passed', flush=True)
-            with patch.dict(chat.TOOLS, {'status': lambda **kwargs: '{"total_memories": 7}'}):
+            with patch.dict(chat.TOOLS, {'status': chat.TOOLS['status']._replace(run=lambda **kwargs: '{"total_memories": 7}')}):
                 events = list(chat.stream_reply([], 'Use the status tool to count my memories, then report the count.'))
             assert any(e['type'] == 'tool_call' and e['name'] == 'status' for e in events), events
             assert not any(e['type'] == 'error' for e in events), events

@@ -243,7 +243,10 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 - `load_start`: the local model is being loaded into memory.
 - `token` (`text`): reply text. Tool-call markup is never streamed, so the
   tokens of a reply concatenate to what the user sees.
-- `tool_call` (`name`, `args`), `tool_result` (`name`, `result`).
+- `tool_call` (`name`, `args`), `tool_result` (`name`, `result`). One model
+  turn may call several tools; each call is followed by its result before
+  the next. Calls use each model's native tool protocol
+  ([ADR 0059](adr/0059-chat-speaks-each-models-native-tool-protocol.md)).
 - `assistant_message` (`text`): the complete reply, stored in the session.
 - `error` (`error`), then `done`.
 
