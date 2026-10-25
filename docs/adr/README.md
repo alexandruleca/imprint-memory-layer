@@ -1,15 +1,88 @@
 ---
 title: Architecture decision records
-description: How Imprint records significant decisions and the current decision index.
+description: How to read, write and maintain Imprint's architecture decision records, and the index of every decision.
 ---
 
-## Process
+## How to write and maintain ADRs
 
-Starting 2026-10-23, significant decisions are recorded here in the same change that implements them. Root `AGENTS.md` establishes this working agreement for future contributors and coding agents. Routine corrections can cite an existing ADR.
+Records are useful only while they stay consistent: a reader must be able to trust that every record has the same shape, that its status is current, and that a decision which changed points to what replaced it. These rules apply to every record from 0001 on; `tests/test_adr_records.py` enforces the mechanical parts.
 
-Use the next unused four-digit number and a descriptive filename. Copy [the template](template.md). Status is **Proposed**, **Accepted**, **Superseded** or **Rejected**. Include date, context, decision, alternatives, consequences and validation. A proposal is not authorization to claim the behavior exists. Human review follows the repository's normal pull-request process.
+### When to write one
 
-Preserve historical reasoning. If an accepted decision changes materially, create a new ADR linking to the old one, and mark the old record superseded with a link. Update this index, relevant operational documentation and validation evidence together. Do not invent historical decisions; label retrospective descriptions explicitly.
+Starting 2026-10-23, significant decisions are recorded here in the same change that implements them; root `AGENTS.md` makes this the working agreement for contributors and coding agents. Write a record when a change alters storage or schema, runtime or dependency policy, client configuration or hooks, security boundaries, supported platforms, installer or update behavior, or release architecture. A routine fix cites the existing record instead of adding one. A proposal is not authorization to claim the behavior exists. Human review follows the repository's normal pull-request process.
+
+**One decision per record.** A record answers one question, so it can be cited, challenged and superseded on its own. When a change makes several independent decisions, write several records. Some early records bundle related choices; they stay as they are.
+
+### Files and numbering
+
+- Copy [the template](template.md) to `docs/adr/NNNN-short-title.md`, using the next unused four-digit number.
+- The front matter needs `title: ADR NNNN — Title` and a one-sentence `description`. The website parses it as YAML: quote a title that contains a colon. The body has no `#` heading; the site renders the title.
+- Never renumber or delete a published record. Superseded and rejected records stay, so links and citations keep working.
+- Two branches can take the same number. Whichever merges second renumbers its record before it merges: the filename, the title and every link to it.
+
+### Header
+
+The header is the bullet list right after the front matter, with these fields in this order:
+
+| Field | When | Meaning |
+| --- | --- | --- |
+| Status | always | One word from the vocabulary below. |
+| Date | always | When the decision was made, `YYYY-MM-DD`. Never changed afterwards. |
+| Recorded | retrospective records | When the record was written. |
+| Retrospective | retrospective records | `reconstructed from …`, naming the code, docs and commits used. |
+| Scope | when the acceptance is limited | For example an experimental adapter, a branch-only implementation, or validation recorded separately. |
+| Supersedes / Superseded by | full replacement | Links to the other record. |
+| Amends / Amended by | partial change | Links to the other record, each followed by ` — ` and the part it changes. |
+| Related | optional | Other records and docs in the same area that this record does not change. |
+| Restructured | records normalized after acceptance | The date of the normalization. Sections added then (for the 2026-10-25 restructuring: *Invalidation conditions*) were derived from the record's own text, not written by its original authors. |
+
+Link records as `[ADR NNNN](NNNN-short-title.md)`. When a *Supersedes*, *Superseded by*, *Amends* or *Amended by* field names several records, each goes on its own indented bullet under the field.
+
+### Status vocabulary
+
+| Status | Meaning |
+| --- | --- |
+| **Proposed** | Under consideration. Nothing is implemented on its authority, and documentation must not describe it as current behavior. |
+| **Accepted** | In force as written. |
+| **Amended** | In force, but one or more later records change part of it. Its *Amended by* field names them and what each changes. Read them together; where they differ, the later record wins. |
+| **Superseded** | No longer in force. The record in *Superseded by* replaces it entirely. |
+| **Rejected** | Considered and not adopted. It stays so the same proposal is not reopened without new evidence. |
+
+Qualifiers do not go on the Status line: limits of an acceptance go in *Scope*, and changes by later records in *Amended by* or *Superseded by*.
+
+### Sections
+
+Every record has these sections, in this order. Others, such as *Security review*, may sit between them where they fit.
+
+1. **Context.** The concrete problem or constraint, with its evidence: code, logs, measurements, the request.
+2. **Decision.** What is chosen and how far it reaches.
+3. **Rejected alternatives.** Each option that was actually considered, tried or measured, and why it was discarded, with the evidence where it exists. This section is what stops a settled debate from resurfacing, so it lists only options that really were weighed; it is never padded with options nobody evaluated. When none were recorded, it says so: *No alternative evaluation was recorded.*
+4. **Consequences.** Benefits, costs, compatibility effects, migrations and known gaps.
+5. **Invalidation conditions.** Concrete, observable conditions that would repeal the decision or reopen it: an upstream capability appearing or disappearing, a measurement crossing a stated line, a constraint from the context going away, a requirement the decision excluded becoming necessary. Write each one as the condition and its effect, for example *If Qdrant's embedded client supports several processes reading and writing one storage path, retire the auto-spawned daemon in favor of direct disk access.* "If requirements change" is not a condition. Required for every record in force (Accepted or Amended); a proposal states them before it is accepted.
+6. **Validation.** What was executed, on which platforms, and what remains unverified. Never present an unexecuted check as passing.
+
+### Changing a decision
+
+An accepted record's reasoning is never rewritten. When a decision changes materially, write a new record:
+
+- **It replaces the old decision entirely:** the new record says *Supersedes*, and the old record's status becomes **Superseded** with *Superseded by*.
+- **It changes part of the old decision:** the new record says *Amends* and which part; the old record's status becomes **Amended** with *Amended by* and the same part.
+
+Both links, the old record's status and this index change in the same pull request. On the old record, only header metadata changes; do not append follow-up paragraphs to its body (notes earlier records already carry are kept as history). When an invalidation condition is met, the response is a new record that supersedes or amends the old one, not an edit to the old one's conclusions. Typos and broken links may be fixed in place.
+
+### Retrospective records
+
+A decision made before anyone recorded it can be recorded later, for example when its rationale lived only inside another document:
+
+- *Date* is when the decision was made, as far as the history shows; *Recorded* is today; *Retrospective* names the evidence.
+- Use only what the code, documentation, commits and tests show, and cite it. Never invent tests, measurements, rejected alternatives or motives. Where the history is silent, say so (*No alternative evaluation was recorded.*), and list the open question in the pull request instead of answering it.
+- *Invalidation conditions* look forward, so they may be written at recording time, derived from the recorded context.
+
+### Keeping the rest of the documentation consistent
+
+- Architecture and operational docs (`docs/architecture.md`, subsystem pages, `CLAUDE.md`, `AGENTS.md`) summarize a decision in a sentence or two and link to its record. The rationale — why, the rejected alternatives, the trade-offs — lives only in the record.
+- This index changes with every new record and every status change: the record goes in the decision log, and, while it is in force, under its area in the current decisions.
+- `tests/test_adr_records.py` checks that every record is indexed with its current status and title, that numbers are contiguous and match filenames and titles, that front matter, header fields and statuses follow these rules, that supersede and amend links resolve and are reciprocated, that the required sections are present in order, and that links between records resolve.
 
 ## Index
 
