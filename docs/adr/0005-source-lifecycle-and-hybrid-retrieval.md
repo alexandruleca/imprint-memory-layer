@@ -5,6 +5,7 @@ description: Full-content chunk identities, byte provenance, safe source replace
 
 - Status: Accepted
 - Date: 2026-10-23
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -20,13 +21,19 @@ Check requested IDs against live storage rather than a process-local dedup cache
 
 Default search fuses semantic rank with lexical rank using reciprocal rank fusion (constant 60), exact identifier/path/phrase boosts, and deterministic tie breaking. Each channel reads at most 256 candidates. Semantic-only mode remains available. Apply workspace/project/type/tag/source filters before ranking. Expose match type, semantic score and source provenance; never label similarity as calibrated confidence. The lexical channel is bounded and is not BM25 or a complete global text ranking. A failed embedding model still fails hybrid search; lexical-only degraded service is future work.
 
-## Alternatives
+## Rejected alternatives
 
 Mtime alone is cheaper but insufficient for correctness. Delete-then-store risks data loss. An all-or-nothing generation pointer would give stronger read isolation but requires a larger schema and sync migration. A learned reranker/BM25 can improve quality, but first needs a held-out evaluation set and latency budget.
 
 ## Consequences
 
 Hashing adds filesystem reads. Existing file records without fingerprints are reprocessed on the next ingest/refresh. No watcher is enabled automatically. Bounded candidate selection can miss a lexical hit in a very large corpus; pagination is not a stable snapshot during concurrent writes. Stored provenance supports review but does not verify a live file at retrieval time.
+
+## Invalidation conditions
+
+- If storage gains multi-point transactions, or the deferred generation pointer is adopted, replace upsert-before-prune with an atomic swap.
+- If a held-out evaluation set shows a learned reranker or BM25 improving retrieval within a latency budget, the precondition this record set, revisit default ranking.
+- If corpora grow until the 256-candidate cap measurably drops lexical hits, revisit the cap or add a global text index.
 
 ## Validation
 

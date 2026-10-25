@@ -3,9 +3,12 @@ title: ADR 0015 — Workspace roots and source purge
 description: Approved filesystem scope, confirmed overlap, stable write destinations and previewable source cleanup.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
-- Related: ADR 0005, ADR 0006, ADR 0010
+- Amends: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) — extends its workspace binding policy
+- Amended by: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — the conversation-learning and desktop-export rules; roots still gate filesystem ingestion and refresh
+- Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,7 +24,7 @@ Conversation learning requires recorded cwd evidence inside approved roots; skip
 
 Offer preview-default CLI, dashboard and destructive-annotated MCP source purge. Match physical paths or logical source keys; recursive matching uses directory boundaries. Delete only the selected workspace's vectors and matching source-linked graph facts, including source-key orphan facts. Apply first records an exclusion; refresh skips it, and storage/sync import rejects excluded sources until explicitly restored. Serialize final vector upserts against exclusion updates after inference, then enumerate purge matches, so in-flight inference cannot restore a purged source. API/MCP apply must name the reviewed workspace. Maintenance shares the ingestion lock. Purge works on old-model collections without embedding inference.
 
-## Alternatives
+## Rejected alternatives
 
 Global selection alone permits accidental pollution. Forbidding overlaps prevents intentional shared documents. Silent overlap cannot distinguish sharing from a mistaken target. Substring deletion risks adjacent directories; workspace wipes lose unrelated memories. Allowing refresh to restore purged sources defeats cleanup.
 
@@ -30,6 +33,12 @@ Global selection alone permits accidental pollution. Forbidding overlaps prevent
 New roots/sharing become deliberate actions. Existing collections are preserved; historical provenance is not automatically converted into ownership. Logical source cleanup handles legacy/foreign paths. Inline/URL memories and intentional migrations still use the caller's selected workspace; roots control filesystem ingestion, not authentication.
 
 Purge is not a cross-database transaction. Partial failures remain visible, preserve the exclusion and can be retried. Exclusions are local policy, not exported access rules. Backups, exported bundles, logs and original files remain intact. Old records lacking physical provenance require logical source cleanup. Restoring an exclusion permits future ingestion but does not recover deleted indexed copies.
+
+## Invalidation conditions
+
+- If every write comes to name its workspace explicitly, for example through persistent per-client workspace binding, the first-root binding that guards against accidental ingestion can be revisited.
+- If vector storage and the graph gain a shared transaction, purge can become atomic instead of exclusion-first and retryable.
+- If exclusions need to hold across devices, local-only exclusions are insufficient and sync would have to carry them.
 
 ## Validation
 

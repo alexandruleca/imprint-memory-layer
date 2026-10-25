@@ -3,9 +3,14 @@ title: ADR 0034 — Learn from client stores by conversation ownership
 description: Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
-- Related: [ADR 0015](0015-workspace-roots-and-source-purge.md) (its conversation-learning and desktop-export rules are superseded here), [ADR 0026](0026-windows-installer-wsl-client-bridge.md)
+- Amends: [ADR 0015](0015-workspace-roots-and-source-purge.md) — supersedes its conversation-learning and desktop-export rules
+- Amended by:
+  - [ADR 0037](0037-learn-every-integrated-client-store.md) — more stores (`CLAUDE_CONFIG_DIR`, Codex sessions, registered WSL profiles) and Codex's session and turn working directories as recorded cwds
+  - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) — a Cursor folder name counts as a recorded cwd when exactly one existing directory has it
+- Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md); [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md), which read recorded cwds from Cline manifests and Copilot session events under the unchanged rule
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -29,7 +34,7 @@ One ownership rule, `workspace_policy.transcript_allowed`, decides whether a con
 
 Roots remain the gate for filesystem ingestion and refresh, exactly as in ADR 0015. Learning never adds or claims a root.
 
-## Alternatives
+## Rejected alternatives
 
 - **Keep requiring roots for learning (ADR 0015).** This blocks every new install and makes users approve directories, including Downloads, that are not projects.
 - **A flag that skips the check.** This leaves the wrong rule in place and turns an isolation rule into an opt-out.
@@ -44,6 +49,11 @@ Learning works on a fresh install with the default workspace and no roots. Works
 Stop-hook capture follows the same rule. Sessions in unclaimed directories are captured into the hook's workspace instead of being skipped. On native installs the Stop hook applies the rule to conversation import only. Its extraction and summarization steps were already not gated by roots (the WSL bridge gates all three). That gap predates this decision and is unchanged.
 
 Desktop exports no longer require approving Downloads. Exports keep their per-workspace import tracking, so each workspace imports an export once when it runs the scan.
+
+## Invalidation conditions
+
+- If users want each conversation routed to the workspace that owns its directory within one run, the alternative deferred here, revisit the rule that the learning workspace takes unclaimed conversations.
+- If workspaces become bound per client session, the default to the workspace that runs the learning should follow that binding.
 
 ## Validation
 

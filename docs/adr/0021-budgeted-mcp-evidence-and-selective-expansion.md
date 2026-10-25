@@ -5,7 +5,8 @@ description: Compact search excerpts, explicit context expansion and measured to
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0005, ADR 0006, ADR 0019
+- Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0019](0019-reproducible-benchmark-evidence.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -38,7 +39,7 @@ benchmarks. Rerun the same public tasks and frozen source evidence with actual
 cache/token/cost accounting; preserve the original run. Do not infer a saving,
 answer-quality improvement or absence of regressions merely from smaller output.
 
-## Alternatives
+## Rejected alternatives
 
 Changing embedding models or ranking simultaneously would confound response
 format and retrieval effects. LLM summarization of every result adds latency,
@@ -54,6 +55,11 @@ request it. Excerpts can omit an answer, so selected evidence remains expandable
 and continuation is available. The agent might compensate with more calls; the
 new benchmark must measure that rather than assuming fewer tokens. Exact
 provider cache behavior and long-lived multi-turn sessions remain uncontrolled.
+
+## Invalidation conditions
+
+- If the paired rerun shows the compact defaults increasing total tokens or cost, for example through extra calls, revisit them.
+- If MCP clients expose a tokenizer or token budget for tool results, character budgets can become token budgets.
 
 ## Validation
 

@@ -6,6 +6,7 @@ description: A document without extractable text is skipped with a reason instea
 - Status: Accepted
 - Date: 2026-10-24
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (source lifecycle), [ADR 0015](0015-workspace-roots-and-source-purge.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -30,7 +31,7 @@ Single-file ingestion reports *Nothing to index* and exits 0. Real failures stay
 
 **Shared by every workspace.** Workspace is not an input of the result: the same bytes have no text under the same profile in any workspace. The file is therefore not per workspace (unlike `imprint_graph_{ws}.sqlite3`). The same scanned file ingested into two workspaces is read, or OCRed, once. Wiping or deleting one workspace, and purging a source, leave it. Its entries remain true and hold no workspace data. `imprint wipe --all` removes it with the rest of the data, and uninstall without `--keep-data` removes the data directory.
 
-## Alternatives
+## Rejected alternatives
 
 - **Keep failing.** One unreadable file fails every run forever, which hides real failures.
 - **Skip without remembering.** Every refresh reads the document again, and with OCR enabled it rasterizes and OCRs every page again.
@@ -46,6 +47,12 @@ Single-file ingestion reports *Nothing to index* and exits 0. Real failures stay
 - Installing tesseract or poppler while OCR is enabled retries recorded documents on the next refresh.
 - The PDF extractor still treats an OCR runtime error as "no text". If tesseract crashes on a file while the tools are present, the result is recorded as *no text found, even with OCR*. `--force` retries it.
 - *Cleaned* in the run summary now counts only sources whose chunks were actually deleted.
+
+## Invalidation conditions
+
+- If an extraction outcome comes to depend on an input outside the content hash and the recorded profile, remembered results can skip a document wrongly: add the input to the profile or revisit the store.
+- If the PDF extractor can tell an OCR runtime error from an empty result, crashes must stop being recorded as no text.
+- If results ever need to hold workspace data, the shared file is no longer appropriate.
 
 ## Validation
 

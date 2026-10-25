@@ -3,11 +3,11 @@ title: ADR 0056 — Learn Cline sessions from their manifests
 description: A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads, and cline is a WSL registration target. No hook is wired.
 ---
 
-# 0056 — Learn Cline sessions from their manifests
-
 - Status: Accepted
 - Date: 2026-10-25
-- Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (ownership rule, unchanged), [ADR 0037](0037-learn-every-integrated-client-store.md) (amended: stores), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md), [ADR 0026](0026-windows-installer-wsl-client-bridge.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md)
+- Amends: [ADR 0037](0037-learn-every-integrated-client-store.md) — stores: Cline sessions directories
+- Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (ownership rule, unchanged), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md), [ADR 0026](0026-windows-installer-wsl-client-bridge.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -82,7 +82,7 @@ Supporting changes:
 
 **No hook.** Cline's hook payloads carry no transcript path, so no hook is wired. Setup says that conversations arrive through `imprint learn` or the dashboard's **Learn** action.
 
-## Alternatives
+## Rejected alternatives
 
 - **Parse `<environment_details>` or other workspace paths in message text.** This text is written for the model, many messages lack it, and it can name directories other than the session's. It is a guess, not recorded evidence.
 - **Learn legacy tasks from their `cwd` fields** (`taskHistory` items, `cwdOnTaskInitialization`). These are not reliable, and the maintainer excluded legacy tasks. ADR 0034 is unchanged.
@@ -106,6 +106,12 @@ Supporting changes:
 - **Changed environment.** Disconnect reads the current environment. A registration written under another `CLINE_DIR`, `CLINE_DATA_DIR` or `CLINE_MCP_SETTINGS_PATH` value is not found.
 - **WSL.** The listing and the installer's WSL page show a Cline row for each distribution. Settings shows it without a dashboard change. Remote-SSH hosts are not registered.
 - **Registration targets.** An invalid saved target now fails in the CLI with its message (`target must be …`) instead of in the setup script.
+
+## Invalidation conditions
+
+- If Cline changes its session layout or stops writing manifests with `cwd` and `workspace_root`, evidence and parsing must follow.
+- If Cline's hook payloads gain a transcript path, a hook import of new sessions could be added.
+- If Cline CLI versions before 3.0 no longer need support, Imprint's entry could use the nested `transport` form.
 
 ## Validation
 

@@ -3,11 +3,11 @@ title: ADR 0061 — Local tool-call formats by model family
 description: The local chat parses tool calls in the format of the model's family, detected from the GGUF's own template or chosen with chat.tool_format; a model with no format chats without tools and says so.
 ---
 
-# 0061 — Local tool-call formats by model family
-
 - Status: Accepted
 - Date: 2026-10-25
-- Related: [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) (amended: local parsing), [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md), [ADR 0058](0058-recall-batched-reads-with-optional-local-planning.md) (local completions keep their deadline)
+- Amends: [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) — local tool-call parsing
+- Related: [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md), [ADR 0058](0058-recall-batched-reads-with-optional-local-planning.md) (local completions keep their deadline)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -66,7 +66,7 @@ This replaces string fingerprints with the template's own rendering, and it chec
 - An assistant tool-call turn always has string content, empty when there is no text.
 - Local call ids and replayed-history ids are 9 alphanumerics (`call00000`, `hist00001`).
 
-## Alternatives
+## Rejected alternatives
 
 - **Fingerprint template text** (for example, `"<function=" in template`). This is brittle against escaping and wording. Qwen's Qwen2.5 GGUF template, for instance, writes its instruction as `{{\"name\": …}}`. Rendering a probe call tests the behaviour that matters.
 - **One lenient parser for every shape.** This is what ADR 0059 rejected. It would turn text that is not a call into calls: for example, a Llama reply that is JSON for the user, or the flat JSON Qwen3.5 wrote for the old protocol.
@@ -86,6 +86,11 @@ This replaces string fingerprints with the template's own rendering, and it chec
   - **Qwen's official Qwen2.5-0.5B GGUF.** The embedded template asks for `{{"name": …, "arguments": …}}` in its instructions, while rendering past calls correctly. Detection says `hermes`, but the 0.5B model copied the double braces live. That is not JSON, so the reply is shown as text. Qwen's HF template and its Qwen3 GGUF do not have this quirk.
   - **Llama 3.2's template** tells the model to respond with a function call to every prompt. Live, Llama 3.2 1B called a tool even for "What is 17 times 3?", and it sometimes nested its call in the tool-list shape, which is shown as text. Tool use at 1B is unreliable whatever the parser.
   - **Mistral's templates** require strictly alternating user and assistant turns, and they drop the system prompt once a tool result follows the last user message. A stored conversation with two consecutive user turns (after a failed reply) fails to render, and the failure is reported as a generation error.
+
+## Invalidation conditions
+
+- If llama-cpp-python exposes generation that keeps special tokens, or the private `llm._model.vocab` access breaks on a binding upgrade, revisit the generation primitive.
+- If a model family users need renders tool calls the probe cannot round-trip, such as tools outside the `tools` variable or channel-based replies, add a family or a rendering path through a new record.
 
 ## Validation
 

@@ -5,7 +5,9 @@ description: Separate branch compile/test CI from main release artifacts and pub
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0002, ADR 0012
+- Amends: [ADR 0002](0002-build-and-validate-before-publication.md) — removes automatic dev releases and requires main for every release build, manual dispatch included
+- Related: [ADR 0012](0012-native-package-runtime-and-silent-installs.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -17,13 +19,18 @@ Run compile, unit, dashboard lint/build and browser/runtime tests on branch push
 
 Remove automatic dev releases. Require the main ref before any reusable release build begins, including manual dispatch. Guard stable analysis and container publication as well; image source tags must be ancestors of main. Keep native installer/runtime gates before publication on main.
 
-## Alternatives
+## Rejected alternatives
 
 Packaging every branch gives earlier installer feedback but consumed substantial runner time during this incident. Building only on tags would change the existing automatic versioning/publication process. Main-only packaging preserves that process while making branch validation smaller.
 
 ## Consequences
 
 Installer-specific defects are caught on main before publication. Feature branches receive native compile/test evidence but no downloadable release payloads. Historical dev releases remain available; no new branch prereleases are produced. A manual packaging request on another branch fails the policy check without building artifacts.
+
+## Invalidation conditions
+
+- If native runner capacity stops being the constraint, for example because dedicated runners make packaging cheap, revisit packaging on branches for earlier installer feedback.
+- If releases move to tags instead of main, which was rejected because it changes automatic versioning and publication, the main-ref guard must be redesigned.
 
 ## Validation
 

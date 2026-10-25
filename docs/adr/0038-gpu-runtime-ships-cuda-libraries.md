@@ -3,9 +3,11 @@ title: ADR 0038 — GPU runtime ships its CUDA libraries
 description: The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version.
 ---
 
-- Status: Accepted; the `[cuda,cudnn]` library set, the `nvidia-smi` gate, the Identity check and the profile-specific verdict superseded by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)
+- Status: Amended
 - Date: 2026-10-24
-- Related: ADR 0007, ADR 0032
+- Amended by: [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — the `[cuda,cudnn]` library set, the `nvidia-smi` gate, the Identity check and the profile-specific verdict
+- Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0032](0032-one-onnx-runtime-per-environment.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -31,7 +33,7 @@ Embeddings and the smoke test load the CUDA libraries with `preload_dlls()`. Emb
 
 The CUDA verdict records the GPU runtime it was measured on (a digest of the GPU requirements file) and is compared exactly. A verdict from another GPU lock, or one that predates this field, is retried once. `auto` uses the recorded verdict to stay on CPU; an explicit `gpu` profile smoke-tests on every run. The CUDA 12 repair install and `cudaRuntimeMissing` are removed.
 
-## Alternatives
+## Rejected alternatives
 
 - **Detect the installed CUDA toolkit and pick a matching build.** The toolkit is irrelevant once the libraries come from wheels, and most machines don't have one.
 - **Maintain separate CUDA 12 and CUDA 13 GPU locks.** ONNX Runtime 1.31's PyPI build targets CUDA 13. A CUDA 12 build would need another package index or an older runtime, and a second GPU environment to maintain. CUDA 12 drivers predate R580; updating the driver is the supported path.
@@ -47,6 +49,11 @@ Existing hosts with a pre-0038 "broken" verdict retry CUDA once on the next setu
 Native ONNX Runtime log text no longer reaches setup's log. The smoke test's reason comes from `preload_dlls()` and the session's providers instead.
 
 The llama-cpp-python CUDA build still needs a system toolkit (`nvcc`) and keeps its own verdict.
+
+## Invalidation conditions
+
+- If ONNX Runtime's PyPI GPU build moves off the CUDA major of the locked NVIDIA wheels, or NVIDIA stops publishing `win_amd64` and manylinux wheels for a pinned library, the wheel-based runtime must be revisited.
+- If `onnxruntime.preload_dlls()` is removed or stops finding the wheels' layout, library loading must be revisited.
 
 ## Validation
 

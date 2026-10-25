@@ -3,11 +3,11 @@ title: ADR 0018 — Single sync implementation and end-to-end encryption
 description: Live sync runs in one Python implementation for CLI and dashboard, every session is end-to-end encrypted with SPAKE2 and AES-256-GCM, sessions start from one share code, and joining receives unless the user confirms sending.
 ---
 
-# 0018 — Single sync implementation and end-to-end encryption
-
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0016 (direction policies, workspace selection), ADR 0010 (embedding identity), ADR 0017 (device provenance)
+- Amends: [ADR 0016](0016-sync-direction-and-workspace-sharing.md) — replaces its two implementations and removes its compatibility rules for older clients; its direction policies and workspace selection stand
+- Related: [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) (embedding identity), [ADR 0017](0017-device-provenance-and-local-project-paths.md) (device provenance)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -32,7 +32,7 @@ The protocol was not end-to-end encrypted. The joining side's HELLO carried the 
 
 **No fallback.** Protocol 1 peers are rejected — an older consumer gets status 426 telling it to update; a newer consumer recognises an older provider's reply. A plaintext fallback would let a relay force it. With every peer on protocol 2, ADR 0016's compatibility rules for older clients are removed: a grant must be an object, and a request outside it is answered with 403 and ends the session instead of being drained.
 
-## Alternatives
+## Rejected alternatives
 
 - **Encrypt in both implementations.** Rejected: interop between two hand-written crypto paths is where security bugs live, and the duplication cost would recur on every later change.
 - **Move the protocol to Go.** Rejected: export/import, storage, provenance and the dashboard are Python; Go already shelled out to Python for all data work.
@@ -68,6 +68,12 @@ An independent adversarial review (malicious relay, malicious peer holding the P
 Open:
 
 - The share code is passed on the command line (visible to other local users briefly, and in shell history); it is single-use, so a leaked code from history is worthless once the session ends. Device trust remains keyed by a non-secret fingerprint; it never replaces the PIN, which is why the PIN must stay long.
+
+## Invalidation conditions
+
+- If the pinned `spake2` package becomes unmaintained, or SPAKE2 or its implementation is found weak, revisit the PAKE; a mature Python CPace implementation would then be a candidate.
+- If one side of a sync must run without the Python runtime, for example a Go-only or mobile client, the single Python implementation must be revisited.
+- If share codes must become shorter or reusable, the one-guess-per-session argument no longer holds and authentication must be re-derived.
 
 ## Validation
 

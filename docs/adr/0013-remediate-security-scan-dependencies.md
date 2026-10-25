@@ -5,7 +5,8 @@ description: Upgrade the website, remove vulnerable build dependencies, harden t
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0007, ADR 0008, ADR 0010, ADR 0011
+- Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0008](0008-dashboard-retrieval-and-accessibility.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md), [ADR 0011](0011-nightly-trivy-security-scanning.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -19,13 +20,18 @@ Run the relay container as an unprivileged user and add a health probe against i
 
 Explicitly disable llama.cpp state caching in the shared helper. Keep the unfixed diskcache advisory visible in Trivy rather than suppressing it or claiming an upstream fix. Imprint never creates a disk-backed llama cache; maintainers must revisit this constraint before adding one. The optional dependency remains installed through the binding. No ignore or VEX exception is introduced.
 
-## Alternatives
+## Rejected alternatives
 
 Downgrading the Next lint preset to satisfy an automated audit fix changes framework policy and still avoids the actual dependency issue. Blanket overrides of glob libraries can silently change matching behavior. A private fork of diskcache or the native binding adds a maintenance/distribution burden for an unused code path. Hiding the medium advisory would make future tracking less reliable.
 
 ## Consequences
 
 The website moves to Astro 7's supported integration versions. The small vendored stylesheet must retain its license and be reviewed if upstream component styles change. Dashboard lint dependencies are explicit and no longer pull the vulnerable glob chain. Optional native inference still carries one visible unfixed transitive advisory, with disk caching disabled. The high/critical security gate stays unchanged.
+
+## Invalidation conditions
+
+- If diskcache or llama-cpp-python ship a fix for the pickle-based cache advisory, re-evaluate. Until then, adding any disk-backed llama cache requires revisiting this record first, as it states.
+- If a defect class appears that the removed Next lint preset's framework rules would have caught, restore those rules without the vulnerable glob chain.
 
 ## Validation
 

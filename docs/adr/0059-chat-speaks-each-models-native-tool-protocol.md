@@ -3,11 +3,11 @@ title: ADR 0059 — Chat speaks each model's native tool protocol
 description: Dashboard chat keeps one registry of tool JSON schemas; the local model gets them through its own chat template and answers in its trained markup, and remote providers use API function calling.
 ---
 
-# 0059 — Chat speaks each model's native tool protocol
-
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
+- Amended by: [ADR 0061](0061-local-tool-call-formats.md) — local tool-call parsing by model family
 - Related: [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) (stream withholds tool-call markup, unchanged), [ADR 0043](0043-live-voice-and-echo-companion.md) (voice is read-only and keeps the session workspace, unchanged), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md), [local model selection](../local-model-selection.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -37,7 +37,7 @@ Chat keeps **one registry** (`chat.TOOLS`). Each entry is the function that runs
 - **History.** A stored tool exchange (`role: "tool"`, `tool_name`, `tool_args`) replays as an assistant tool call followed by its tool result, in each backend's encoding.
 - **System prompt.** It keeps only strategy guidance. The schema descriptions replace the prose tool list, and the template or API supplies the calling format.
 
-## Alternatives
+## Rejected alternatives
 
 - **Accept the flat shape as well** (`obj.get("args") or obj.get("arguments") or the remaining keys`). This would fix the reproduced prompt but keep a protocol the model was never trained on. Every new model's drift would need another accepted shape.
 - **Keep the custom prompt and constrain it with a grammar.** It would force well-formed JSON, but the model would still work outside its training distribution. The tool prose would stay in the system prompt, and remote providers would keep a text protocol beside their native one.
@@ -51,6 +51,12 @@ Chat keeps **one registry** (`chat.TOOLS`). Each entry is the function that runs
 - Local tool calls are parsed only in the Qwen3.5/Qwen3-Coder markup that the managed model's template defines. A custom GGUF still renders through its own template, tools included. If its template asks for a different call format (Hermes-style JSON in `<tool_call>`, Llama or Gemma formats), its calls appear as text and do not run. Supporting such a model means a parser for its template family.
 - vLLM must run with `--enable-auto-tool-choice` and a `--tool-call-parser` for its model. Without them it rejects requests that carry tools. This is a property of the server, not something Imprint can switch on.
 - `tool_call`/`tool_result` events keep their shape, so the dashboard and the stored transcripts are unchanged. One reply may now carry several `tool_call`/`tool_result` pairs in sequence.
+
+## Invalidation conditions
+
+- If Imprint runs a llama.cpp server, its built-in chat parsers could replace in-process parsing, rejected because it means a separate process.
+- If the chat tool set comes to equal the MCP tool set, schemas could be derived from FastMCP instead of a chat-specific registry.
+- If a chat provider lacks native function calling, it cannot offer tools under this decision.
 
 ## Validation
 

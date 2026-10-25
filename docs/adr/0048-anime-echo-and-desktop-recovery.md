@@ -3,10 +3,12 @@ title: ADR 0048 — Anime Echo and recoverable desktop controls
 description: A modeled anime hologram, viewport-fitting controls and a draggable desktop launcher with explicit recovery.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
-- Related: [0025](0025-desktop-owned-background-service.md), [0043](0043-live-voice-and-echo-companion.md), [0044](0044-native-desktop-voice-platforms.md)
-- Supersedes: ADR 0043's MediaPipe particle asset; voice/session boundaries are unchanged.
+- Amends: [ADR 0043](0043-live-voice-and-echo-companion.md) — replaces its MediaPipe particle asset; voice/session boundaries are unchanged
+- Amended by: [ADR 0054](0054-echo-looks-declare-their-motion.md) — Echo's look is now a generated core; the adapted anime head is removed
+- Related: [ADR 0025](0025-desktop-owned-background-service.md), [ADR 0044](0044-native-desktop-voice-platforms.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -52,14 +54,14 @@ head area. Long transcripts are visually bounded; download details remain in the
 full Voice page. Dashboard skip navigation, connection banners, overlays and toasts do not mount in companion/launcher
 routes. Transparent pixels stay transparent without an enclosing panel.
 
-## Alternatives
+## Rejected alternatives
 
 - Continue deforming the sparse face template: failed the requested visual quality.
 - Embed an arbitrary fan-made Haruhi model: no verified redistribution provenance.
 - Keep only native header dragging: leaves most of the visible avatar immovable.
 - Hide without a tray/launcher: makes the process difficult to recover.
 
-## Consequences and validation
+## Consequences
 
 The adapted character has a fixed design; custom model import is not implemented.
 Speech energy drives mouth opening, not phoneme alignment. Hardware/software
@@ -67,6 +69,13 @@ rendering limits remain bounded to protect local inference. Software rendering
 uses 2 fps during connecting/thinking; the dashboard holds its last frame while
 the companion is open, avoiding two simultaneous software rasterizers. CPU rendering is a
 compatibility path with lower visual fidelity/performance than WebGL.
+
+## Invalidation conditions
+
+- If the companion window gets a native frame or title bar, dragging the whole head through scoped IPC can be revisited.
+- If desktops commonly refuse to register the recovery shortcut, as the record expects some compositor policies to do, the tray and launcher carry recovery alone and the shortcut can be revisited.
+
+## Validation
 
 Electron fixtures cover scoped drag/recovery, tray sizing, display fitting,
 launcher lifecycle and owned-service retention. Browser scenarios cover actual

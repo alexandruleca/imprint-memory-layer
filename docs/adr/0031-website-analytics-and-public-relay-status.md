@@ -1,13 +1,12 @@
 ---
-title: 0031 — Website analytics events and public relay status
+title: ADR 0031 — Website analytics events and public relay status
 description: GA4 events for visitor actions on the website, a live public-relay status read from /health, and opt-in analytics on the relay's browser page.
 ---
 
-# 0031 — Website analytics events and public relay status
-
 - Status: Accepted
 - Date: 2026-10-24
-- Related: [0018](0018-single-sync-implementation-and-end-to-end-encryption.md), [0013](0013-remediate-security-scan-dependencies.md)
+- Related: [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md), [ADR 0013](0013-remediate-security-scan-dependencies.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,7 +20,7 @@ The public relay (`sync.alexandruleca.com`, also served as `imprint.alexandrulec
 - The relay counts rooms both peers joined (`sessions`) and reports them with its start time (`since`) on `/health`, which now sends `Access-Control-Allow-Origin: *`. The counters live in memory, so the relay stays stateless and a restart resets them. The landing page's Sync section reads `/health` in the browser and refreshes it every 30 seconds while visible. It shows the status, sessions since restart, open rooms and release, and links to the relay in a new tab.
 - `imprint relay --ga4-id G-…` adds Google Analytics to the relay's browser page. The ID must match `^G-[A-Z0-9]+$`, and the snippet is added once, before `</head>`. Views are reported as `/` or `/not-found`, never the address, because a path can hold a share code. Without the flag the page is unchanged and loads no scripts. The ID is runtime configuration, not part of the image, so self-hosted relays never report to this project's property.
 
-## Alternatives
+## Rejected alternatives
 
 - **Annotate every link and button.** That is explicit, but docs pages render Starlight's markup, which can't be annotated, and new links would go untracked by default. Inferring from element type, with an override attribute, covers both.
 - **GA's enhanced measurement only.** It records outbound clicks and downloads of some extensions (`.zip`, `.exe`, `.gz`, `.pkg`, but not `.dmg` or `.msi`). It misses tabs, copies and internal navigation, and can't say which button was used. Events use their own names (`download`, `link_click`) rather than `file_download` and `click`, so they never double-count with it.
@@ -36,6 +35,11 @@ The public relay (`sync.alexandruleca.com`, also served as `imprint.alexandrulec
 - The website's relay status shows "couldn't reach" until a relay with the CORS header is deployed (the next stable release). With paired devices reconnecting every minute, `sessions` grows with automatic sync, not only with new pairings.
 - The public relay's stack has passed `--ga4-id` since 2026-10-24. v0.18.0 ignores unknown flags, so the flag takes effect when a release containing this change is deployed, and the release webhook keeps the service's arguments. Visits to the relay page then appear in the same GA property under the `sync.alexandruleca.com` host.
 - The relay page loads a third-party script only when its operator chooses to.
+
+## Invalidation conditions
+
+- If the relay's `/health` must stop being public, the website's relay status and the wildcard CORS header must be revisited.
+- If the website adopts consent-gated analytics or leaves GA4, the always-on click listener must follow.
 
 ## Validation
 

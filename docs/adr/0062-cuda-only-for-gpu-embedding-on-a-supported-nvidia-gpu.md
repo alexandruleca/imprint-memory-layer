@@ -5,7 +5,12 @@ description: The embedding runtime follows model.device and the machine, not the
 
 - Status: Accepted
 - Date: 2026-10-25
-- Related: amends [ADR 0032](0032-one-onnx-runtime-per-environment.md) (runtime selection), [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md) (which NVIDIA wheels, the driver gate, the CUDA check and its verdict) and [ADR 0045](0045-setting-choices-and-gpu-auto-select.md) (the check now runs on the selected GPU); builds on [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) and [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md)
+- Amends:
+  - [ADR 0032](0032-one-onnx-runtime-per-environment.md) — runtime selection
+  - [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md) — which NVIDIA wheels, the driver gate, the CUDA check and its verdict
+  - [ADR 0045](0045-setting-choices-and-gpu-auto-select.md) — the check now runs on the selected GPU
+- Related: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) and [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md), which this record builds on
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -89,7 +94,7 @@ The `[cuda,cudnn]` extras are no longer used. Their specifiers move with ONNX Ru
 
 **The dashboard provisions through the queue.** When `PUT` or `DELETE /api/config/model.device` (or `model.gpu_device`) leaves the plan different from the installed runtime, the server queues `imprint bootstrap --non-interactive` and returns the job ID as `provisioning`. It also queues one when a bootstrap job is already running, since that job may have read the configuration before the change. Settings shows a toast that links to the queue. The dispatcher calls back into the serving app after each job: `python -m imprint.api` serves from `__main__`, so importing `imprint.api` from the queue would reach a second copy. After a successful bootstrap that replaced the ONNX Runtime the server loaded, the server restarts through its launcher (exit 75, ADR 0050). MCP servers and other processes switch when they next start. The Commands page still offers no runtime-installing command.
 
-## Alternatives
+## Rejected alternatives
 
 - **Keep the profile in charge of the runtime.** Every NVIDIA machine on the default settings downloads 1.3 to 1.6 GB it does not use, and the profile would keep conflating the LLM with embeddings.
 - **Default GPU machines to GPU embedding.** The default model is slower on CUDA, and its CUDA vectors differ from its CPU ones (lowest cosine 0.91 on natural text).
@@ -111,6 +116,13 @@ The `[cuda,cudnn]` extras are no longer used. Their specifiers move with ONNX Ru
 - A queued bootstrap that is cancelled mid-install leaves a venv the next setup repairs.
 - A bootstrap job reinstalls the LLM overlay and the shell alias like any setup run, and its log ends with bootstrap's own hint to run `imprint setup`.
 - The `more than 1 GB` in Settings is deliberately approximate.
+
+## Invalidation conditions
+
+- If the default embedding model runs faster on CUDA than on the CPU, revisit leaving GPU machines on CPU embedding by default.
+- If an ONNX Runtime upgrade makes the CUDA provider load a library this set leaves out, re-run the removal measurements and change the set.
+- If uv stops hard-linking the venv to its cache, or Windows stops allowing a loaded DLL to be deleted while another link remains, swapping builds under a running process fails as ADR 0032 described.
+- If a vendor-neutral GPU path such as DirectML is adopted, left here as a follow-up, GPU embedding is no longer CUDA-only.
 
 ## Validation
 

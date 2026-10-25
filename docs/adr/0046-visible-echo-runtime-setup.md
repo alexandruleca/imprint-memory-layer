@@ -3,9 +3,12 @@ title: ADR 0046 — Visible first-time Echo setup
 description: Explicit dashboard provisioning with real byte progress, persistent status and owned cancellation.
 ---
 
-- Status: Accepted (release toolchain policy superseded by [0047](0047-bundled-private-voice-engine.md))
+- Status: Amended
 - Date: 2026-10-24
-- Related: [0044](0044-native-desktop-voice-platforms.md), [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md)
+- Amends: [ADR 0044](0044-native-desktop-voice-platforms.md) — extends its manual-only provisioning policy with a managed default cache
+- Amended by: [ADR 0047](0047-bundled-private-voice-engine.md) — the release toolchain policy; the download, consent and cancellation policy remains in force
+- Related: [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -62,7 +65,7 @@ API termination. Setup continues across page/window navigation while the API
 remains running. Closing the companion ends voice; it does not cancel a download
 started explicitly by the user.
 
-## Alternatives
+## Rejected alternatives
 
 - Keep the CLI and add a cosmetic spinner: gives no real byte progress or usable
   first-time action.
@@ -73,12 +76,20 @@ started explicitly by the user.
 - Bundle native workers or install toolchains automatically: a separate release
   and system-installer policy change; not required for this optional pilot.
 
-## Consequences and validation
+## Consequences
 
 The initial setup still needs native build tools and can take several minutes.
 There is no partial-file HTTP range resume, compiler progress percentage or
 cross-API voice-session lock. Native platform execution is required for process
 tree cancellation; workflow definitions alone do not establish it.
+
+## Invalidation conditions
+
+- If interrupted large downloads become common, add the HTTP range resume this record left out.
+- If Echo's models become required rather than optional, downloading only on an explicit action must be revisited.
+- If the managed setup child cannot own its process tree on a supported platform, cancellation must be redesigned.
+
+## Validation
 
 Tests cover exact origins, bounded/no-argument mutations, setup/voice exclusion,
 real progress bytes and cached reuse, prerequisite failure before downloads,

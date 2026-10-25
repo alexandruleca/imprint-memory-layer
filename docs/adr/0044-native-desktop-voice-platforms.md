@@ -3,9 +3,15 @@ title: ADR 0044 — Native Windows and macOS voice
 description: Portable model weights, platform-specific private speech workers and native validation gates.
 ---
 
-- Status: Accepted (implementation; native validation recorded separately)
+- Status: Amended
 - Date: 2026-10-24
-- Related: [0043](0043-live-voice-and-echo-companion.md)
+- Scope: implementation; native validation recorded separately
+- Amends: [ADR 0043](0043-live-voice-and-echo-companion.md) — extends the worker to native Windows and macOS and adds the dashboard toggle, transparent treatment and software 3D rendering
+- Amended by:
+  - [ADR 0046](0046-visible-echo-runtime-setup.md) — explicit UI-driven provisioning and a managed default cache; the manual source-build path remains available
+  - [ADR 0047](0047-bundled-private-voice-engine.md) — release archives bundle the native engine and its pinned source archive, so end users need no compiler
+  - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) — its statement that the app includes microphone/JIT entitlements
+- Restructured: 2026-10-25
 
 Follow-up: [ADR 0046](0046-visible-echo-runtime-setup.md) adds explicit UI-driven
 provisioning and a managed default cache. The manual source-build path remains
@@ -80,7 +86,7 @@ receives close/error updates, so off releases microphone/session rather than
 leaving an invisible listener. Showing the companion never opens the microphone
 automatically. Desktop policy and UI are validated separately from speech.
 
-## Alternatives
+## Rejected alternatives
 
 - Launch a WSL speech worker from Windows: introduces a second runtime/OS path
   boundary and does not solve native macOS support.
@@ -90,11 +96,20 @@ automatically. Desktop policy and UI are validated separately from speech.
 - Bundle compiler/model caches into desktop installers: premature without a
   dedicated model provisioning/update/uninstall design.
 
-## Consequences and validation
+## Consequences
 
 Local source builds require CMake and the platform C++ toolchain. The historical
-offline CLI remains Linux-only; live voice uses the new portable build. Native
-build/speech CI and desktop tests must pass before claiming platform validation.
+offline CLI remains Linux-only; live voice uses the new portable build.
+
+## Invalidation conditions
+
+- If native measurements show the portable CPU build too slow for live turns on supported hardware, revisit disabling CUDA, Metal, external BLAS and OpenMP.
+- If asyncio subprocesses work under Windows Selector loops, or every launcher uses the Proactor loop, the Popen worker could be reconsidered.
+- If every validated desktop provides WebGL2, the software 3D fallback can be retired.
+
+## Validation
+
+Native build/speech CI and desktop tests must pass before claiming platform validation.
 OS microphone consent, hardware echo/noise, installer signing and packaged app
 permission prompts remain separate gates. See [live voice](../live-voice.md)
 and [platform validation](../platform-validation.md).

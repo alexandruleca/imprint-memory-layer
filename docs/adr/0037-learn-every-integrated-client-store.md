@@ -3,9 +3,15 @@ title: ADR 0037 — Learn from every integrated client store
 description: Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
-- Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (ownership rule, unchanged), [ADR 0026](0026-windows-installer-wsl-client-bridge.md) (WSL bridge and path translation), [ADR 0003](0003-local-mcp-and-portable-hooks.md)
+- Amends: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — extends the stores its ownership rule is applied to and counts Codex's recorded working directories; the ownership rule itself is unchanged
+- Amended by:
+  - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) — Cursor profiles as stores, and project names for macOS and Windows home directories
+  - [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) — Cline sessions directories as stores
+  - [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) — Copilot homes as stores
+- Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md) (WSL bridge and path translation), [ADR 0003](0003-local-mcp-and-portable-hooks.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -44,7 +50,7 @@ Two identity problems followed from where a transcript was found rather than wha
 
 Learn ends with a "Not learned" line for each problem and exits successfully. Reading a mount table can start a stopped distribution, as WSL discovery already does (ADR 0026).
 
-## Alternatives
+## Rejected alternatives
 
 - **One process with a path-translation parameter on `transcript_allowed`.** This adds a second path-context channel beside the environment the bridge already sets for the same code.
 - **Have the Go CLI pass `\\wsl.localhost` paths.** This is a second translator, and it ignores drive mounts.
@@ -61,6 +67,12 @@ Windows installations with WSL registrations learn those profiles' Claude Code a
 Resolving each distinct cwd once also shortens the WSL bridge's Stop check, which runs the same ownership read on every turn. Reading through `\\wsl.localhost` is still slower than local disk. The modification-time check now runs before the ownership read, so an unchanged conversation costs a `stat` and its first records. An auto-memory folder still reads every transcript beside it on each run (ADR 0034's rule, unchanged). The learner reads a WSL profile as the Windows account through the WSL file provider, so a custom user's profile must be readable that way, as in ADR 0026.
 
 Native Windows and macOS working directories (`C:\…`, `/Users/…`) still get no project name under the existing rule ([ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) later names them as Linux homes are named). `imprint learn` prints one step per path context with per-store counts. `cli_conversations --all` is replaced by `--store`, and the auto-memory import moved from a script embedded in the Go CLI into `cli_conversations`.
+
+## Invalidation conditions
+
+- If Claude Code or Codex change where they store sessions, or stop recording working directories in them, the stores and evidence must follow.
+- If conversation projects are to be named from manifests like file ingestion, a separate decision this record deferred, this naming rule is replaced.
+- If WSL's 9P view of `/proc/mounts` comes to match the table the bridge receives, the mount table could be read without `wsl.exe`.
 
 ## Validation
 

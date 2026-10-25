@@ -3,11 +3,10 @@ title: ADR 0033 — Stored secret settings
 description: Persist the Hugging Face token as a masked secret setting in config.json, resolved per download with HF_TOKEN taking precedence.
 ---
 
-# 0033 — Stored secret settings
-
 - Status: Accepted
 - Date: 2026-10-24
-- Related: ADR 0004 (model materialization), ADR 0024 (local service boundaries)
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md) (model materialization), [ADR 0024](0024-enforce-local-service-boundaries.md) (local service boundaries)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -23,7 +22,7 @@ Secrets are masked at every display boundary through `config_schema.display_valu
 
 `config.hub_token()` resolves the token on each download, not at import. Both Hub paths pass it explicitly. `hf_hub_download(token=...)` gets it as an argument. `build_hf_headers(token=...)` supplies the GGUF request's headers, and httpx drops `Authorization` on redirects off huggingface.co. A token saved in the dashboard therefore reaches the running API server and every process it starts, without restarts or environment propagation. With no token configured, `None` keeps huggingface_hub's own resolution (`HF_TOKEN`, then `hf auth login`).
 
-## Alternatives
+## Rejected alternatives
 
 - **Export the stored value into `os.environ["HF_TOKEN"]` at import.** This reaches third-party downloaders too, but resolution would then report the stored token as `env`. The long-running API server would keep a stale token after a dashboard change. Telling user-provided from exported values needs extra state.
 - **Store it in huggingface_hub's token file** (`hf auth login`, or an Imprint `HF_TOKEN_PATH`). That is a second settings store outside `config.json`. The default location is shared machine-wide with the user's other tools, outlives uninstall and changes their identity.
@@ -36,6 +35,12 @@ Secrets are masked at every display boundary through `config_schema.display_valu
 - `imprint config set huggingface.token ...` exposes the token in shell history and process lists. The docs recommend the dashboard or `HF_TOKEN` instead.
 - Chonkie's internal model2vec fallback downloads with huggingface_hub's implicit credentials only. It runs only when Imprint's own embedding model fails to load. It does not see the stored token.
 - Future credentials can reuse `secret=True` and inherit the masking and dashboard behavior.
+
+## Invalidation conditions
+
+- If Imprint stores more credentials than this token, revisit a separate secrets file or an OS keychain, as the record says.
+- If huggingface_hub stops honoring an explicit token argument or its header builder, per-download resolution must change.
+- If the data directory becomes shared or synchronized, plaintext storage in `config.json` is no longer acceptable.
 
 ## Validation
 

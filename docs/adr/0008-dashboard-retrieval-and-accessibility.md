@@ -3,8 +3,10 @@ title: ADR 0008 — Dashboard retrieval and accessibility
 description: Same-origin API access, explicit search states, provenance and native modal behavior.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) — the native dialog primitive is replaced by the shadcn (Base UI) `Dialog` and `AlertDialog`
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -18,13 +20,18 @@ Use a native HTML dialog primitive for memory and destructive confirmation dialo
 
 Clear existing lint errors through lifecycle/derived-state fixes, then gate lint, production build and Playwright Chromium behavior in CI. Do not suppress effect rules globally.
 
-## Alternatives
+## Rejected alternatives
 
 An unrelated visual redesign would not resolve correctness and interaction defects. A custom focus trap adds maintenance that the native browser primitive already provides. Treating empty results and service errors identically hides actionable problems.
 
 ## Consequences
 
 Native dialog behavior depends on the supported Electron/browser baseline. Search offers project entry rather than a complete project picker. Keyboard, contrast, screen-reader, graph and long-running ingest UX need broader user testing; these changes are not a claim of complete WCAG conformance.
+
+## Invalidation conditions
+
+- If a supported deployment serves the dashboard from a different origin than its API, same-origin relative URLs no longer work without the build-time override.
+- If search gains a calibrated relevance measure, the explanation of semantic scores as ranking signals must change with it.
 
 ## Validation
 

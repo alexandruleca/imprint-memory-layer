@@ -3,11 +3,11 @@ title: ADR 0035 — Prebuilt llama.cpp wheels and first-chat provisioning
 description: Install llama-cpp-python from upstream's hash-pinned prebuilt wheels and let the first local chat install the binding and download the model.
 ---
 
-# 0035 — Prebuilt llama.cpp wheels and first-chat provisioning
-
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
+- Amended by: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — the GPU profile's CUDA rebuild is replaced by upstream's hash-locked Vulkan wheels
 - Related: [ADR 0012](0012-native-package-runtime-and-silent-installs.md), [ADR 0013](0013-remediate-security-scan-dependencies.md), [ADR 0032](0032-one-onnx-runtime-per-environment.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -57,7 +57,7 @@ Two related stream changes support the dashboard's chat:
 
 The Docker image installs the LLM lock at build time. Its runtime user cannot write the image's venv, so a first-chat install could not run there.
 
-## Alternatives
+## Rejected alternatives
 
 - **Install the MSVC Build Tools on demand.** This is several gigabytes, needs elevation, and fails offline or on locked-down machines.
 - **Upstream's PEP 503 or find-links page.** The page carries no hashes, so uv 0.5.11 recorded only the one wheel it downloaded (the riscv64 wheel), and `--require-hashes` installs failed on every other platform.
@@ -75,6 +75,13 @@ The Docker image installs the LLM lock at build time. Its runtime user cannot wr
 - macOS, musl Linux and other platforms still need a toolchain for the binding. If that build fails, first chat shows the build error instead of a generic "not installed".
 - `profile add-llm` no longer repairs a broken base environment as a side effect; `imprint setup` does that.
 - The provisioning job lives in the dashboard process. A CLI `add-llm` that runs concurrently is not coordinated with it beyond uv's own locking. The model download is already serialized by a file lock.
+
+## Invalidation conditions
+
+- If PyPI publishes hashed prebuilt wheels of the binding for these platforms, the direct GitHub URLs can give way to the index.
+- If upstream stops publishing prebuilt wheels or digests for a version Imprint needs, the pin cannot move without compiling; revisit.
+- If the macOS Metal wheel passes integrity checks, Apple Silicon could use it instead of the source build.
+- If the command queue gains a second lane, the dashboard-owned provisioning job, chosen so chat does not wait behind ingest, could move to the queue.
 
 ## Validation
 

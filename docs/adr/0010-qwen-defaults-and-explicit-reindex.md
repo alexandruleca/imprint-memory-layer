@@ -3,9 +3,11 @@ title: ADR 0010 — Qwen defaults and explicit reindex
 description: Adopt local Apache-2.0 model defaults with encoding identity, bounded helper inference and explicit rebuilding.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
-- Related: ADR 0004, ADR 0005, ADR 0007; scoped implementation following proposed ADR 0009
+- Amended by: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — local classification no longer uses a JSON-schema grammar
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md); scoped implementation following proposed [ADR 0009](0009-model-profiles-and-embedding-identity.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,13 +23,19 @@ Provide `--force` for ingest/refresh, including single files and queued commands
 
 Preserve validated logical IDs in precomputed transfers. A native sync round trip exposed that a note's payload position zero could produce a different chunk ID on import; accept the supplied ID only when it matches the content/provenance identity with or without position.
 
-## Alternatives
+## Rejected alternatives
 
 Keeping Gemma and the older Qwen helper avoids a rebuild but misses the accepted model direction. An automatic in-place relabel would leave mixed vectors after interruption. Transactional generation migration and a shared model server provide stronger lifecycle/memory controls but are deferred; existing local-server providers remain available. Large automatic contexts or GPU embedding defaults consume laptop headroom without measured benefit.
 
 ## Consequences
 
 Upgrading an unversioned index now requires explicit rebuilding. Manually stored memories must be preserved/reimported separately from source files. Legacy vector sync/snapshots cannot bypass the model contract. Separate processes or different local settings can still duplicate helper allocations. Custom graph/GGUF contracts and licenses require operator validation. These are selected defaults, not demonstrated benchmark winners; ADR 0009's broader evaluation/transactional-migration proposal remains open.
+
+## Invalidation conditions
+
+- If a held-out retrieval evaluation, as ADR 0009 proposes, shows another embedding model beating Qwen3-Embedding-0.6B on Imprint's mixed corpus within the CPU budget, change the default through a new record and an explicit rebuild.
+- If transactional generation migration is implemented, explicit rebuilding stops being the only path for a model change.
+- If the pinned helper model's license, upstream availability or published hash changes, revisit the helper default.
 
 ## Validation
 

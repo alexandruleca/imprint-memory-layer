@@ -1,13 +1,14 @@
 ---
-title: "0027 — Symmetric uninstall and branch synchronization"
+title: "ADR 0027 — Symmetric uninstall and branch synchronization"
 description: Disconnect managed clients before runtime removal, preserve memories, and fast-forward dev after main changes.
 ---
 
-# 0027 — Symmetric uninstall and branch synchronization
-
-- Status: Accepted; memory retention and the ask-to-quit step superseded by [0028](0028-complete-uninstall.md)
+- Status: Amended
 - Date: 2026-10-23
-- Related: [0006](0006-durable-mcp-and-preserved-client-config.md), [0014](0014-main-only-release-packaging.md), [0025](0025-desktop-owned-background-service.md), [0026](0026-windows-installer-wsl-client-bridge.md)
+- Amends: [ADR 0026](0026-windows-installer-wsl-client-bridge.md) — adds recorded WSL profile cleanup to disable and native uninstall
+- Amended by: [ADR 0028](0028-complete-uninstall.md) — memory retention and the ask-to-quit step
+- Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0014](0014-main-only-release-packaging.md), [ADR 0025](0025-desktop-owned-background-service.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -23,13 +24,18 @@ Windows runs logged cleanup before removing any files or shortcuts and cancels o
 
 Push dev before main and leave both at the same commit. A main-triggered workflow fast-forwards dev to the current main head without force. Divergence fails rather than erasing development commits. Packaging and releases remain main-only.
 
-## Alternatives
+## Rejected alternatives
 
 Keeping best-effort cleanup would leave active hooks pointing to deleted executables. Scanning every WSL user/distro would edit profiles the user never connected and require broader privileges. Silently ignoring unreachable distros would lose the ability to retry. Deleting whole client files or restoring old backups would overwrite unrelated changes. Force-updating dev could lose unmerged work.
 
 ## Consequences
 
 Uninstall may require correcting invalid JSON/TOML, making recorded WSL distributions accessible, or repairing a missing CLI before retrying. Cleanup is idempotent but not a transaction across clients: successful items may already be disconnected when another fails. Recovery backups remain inert. Old custom WSL registrations created before journaling require explicit removal with their original flags. Custom native profiles require the original profile environment; hand-written project configurations and hosted connectors are outside setup's managed file scope. CLI uninstall preserves its release/source tree when keeping data; native app/file deletion belongs to the owning installer. Automatic branch sync depends on repository branch-protection permissions and reports divergence for explicit reconciliation.
+
+## Invalidation conditions
+
+- If a supported client offers an API to unregister servers and hooks, use it instead of editing its files.
+- If the project stops keeping a dev branch, or branch protection no longer lets the workflow fast-forward it, the branch synchronization part lapses.
 
 ## Validation
 

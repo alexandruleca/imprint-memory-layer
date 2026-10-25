@@ -3,11 +3,10 @@ title: ADR 0053 — Connect and disconnect clients without touching the runtime
 description: imprint connect and disconnect register and unregister clients through one client table, so the dashboard's Commands page can rehook and unhook every client and Settings can enroll WSL profiles; enable and disable keep their lifecycle meaning.
 ---
 
-# 0053 — Connect and disconnect clients without touching the runtime
-
 - Status: Accepted
 - Date: 2026-10-25
 - Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md), [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md), [ADR 0032](0032-one-onnx-runtime-per-environment.md), [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -73,7 +72,7 @@ Setup, enable, connect, disable, disconnect and `imprint wsl` all resolve their 
 - `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself.
 - WSL profiles, workspaces, purge, move, sync pairing and updates have their own dashboard flows.
 
-## Alternatives
+## Rejected alternatives
 
 - **Give enable and disable the client-only meaning** (this change's first version). The dashboard would need no new commands. The maintainer rejected it: enable and disable are the commands that turn Imprint on and off, services included.
 - **Run setup, enable or disable from the dashboard as they are.** Setup and enable would install dependencies under the running server; on Windows a failed swap leaves the binding half installed. Disable would stop the dashboard that queued it.
@@ -97,6 +96,11 @@ Setup, enable, connect, disable, disconnect and `imprint wsl` all resolve their 
 - **The page depends on the CLI.** When it cannot run `imprint clients`, for example with a stale `bin/` in a checkout, the Commands page shows the error with a Retry button rather than a partial list. Queued jobs run the same CLI, so they would fail too.
 - **The WSL target order changed.** It now follows the client table: claude-code, cursor, codex.
 - **The setup swap remains.** Setup still reinstalls the LLM binding on every run when there is no GPU offload (ADR 0049); this change does not touch that.
+
+## Invalidation conditions
+
+- If provisioning can run outside the dashboard server, for example through its supervisor (ADR 0050), and setup stops reinstalling a correct llama.cpp build, the dashboard can offer setup and enable.
+- If probing WSL stops starting stopped distributions, Settings could list profiles when it opens.
 
 ## Validation
 

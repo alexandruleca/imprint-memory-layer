@@ -5,7 +5,8 @@ description: Keep shared knowledge portable while separating its origin from dev
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0006, ADR 0010, ADR 0015
+- Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md), [ADR 0015](0015-workspace-roots-and-source-purge.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,13 +22,18 @@ Store workspace-scoped local project mappings in the policy registry. Ingestion 
 
 Expose current device/cwd in the MCP handshake and `device_context`, and include it with historical-path guidance in dashboard chat's system context. Expose provenance/path status in retrieval and dashboard detail. Freshness, pruning and physical-path purge use only locally recorded paths. Source-key cleanup also handles foreign/legacy data.
 
-## Alternatives
+## Rejected alternatives
 
 Per-device collections/filters fragment shared knowledge. Rewriting historical paths changes commands and meaning. Matching absolute strings do not prove local identity. Relabelling imports destroys provenance. Copying root maps incorrectly applies another machine's layout.
 
 ## Consequences
 
 Metadata does not require re-embedding. Reindexing old local files supplies provenance; legacy/older-peer data remains accessible with unknown origin. Device identity and maps are not transferred. Whole-data-directory clones need a distinct identity before use on another device. The fingerprint is descriptive metadata, not cryptographic authentication. MCP cwd comes from its host process, not a guessed editor folder. A mapping/file's existence does not verify its current contents.
+
+## Invalidation conditions
+
+- If device identity is ever used to authorize rather than describe, the descriptive fingerprint must be replaced by a cryptographic identity; the record states it is not authentication.
+- If MCP hosts start reporting the editor's project folder rather than their own process's cwd, current-device context should use it.
 
 ## Validation
 

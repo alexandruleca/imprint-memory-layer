@@ -3,9 +3,11 @@ title: ADR 0016 — Sync direction and workspace sharing
 description: Per-machine send/receive policies negotiated in the sync handshake, per-session workspace selection and non-destructive workspace copies.
 ---
 
-- Status: Accepted; implementation details superseded by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md)
+- Status: Amended
 - Date: 2026-10-23
-- Related: ADR 0006, ADR 0010, ADR 0015, ADR 0018
+- Amended by: [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) — implementation details: one implementation, end-to-end encryption, no compatibility rules for older peers, receive-only joining and one share code (see the note below)
+- Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md), [ADR 0015](0015-workspace-roots-and-source-purge.md)
+- Restructured: 2026-10-25
 
 > The direction policies, grant, plan and workspace selection below stand. ADR 0018 replaced the two implementations with one, encrypted the session end to end, and removed the compatibility rules for older peers: a request outside the grant now gets 403 and ends the session (no draining), `/sync/status` is gone, the dashboard can use any relay, and the resume buffer records its workspace. It also made joining receive-only by default — `--two-way` or `--send-only` to send, after confirming the serving device — so the joining side's `--receive-only` is gone, and replaced the room ID plus `--pin` with one share code.
 
@@ -27,7 +29,7 @@ Users want to curate part of their memory into a separate workspace and share on
 
 **Copy migration.** `imprint migrate … --copy` copies instead of moving; the CLI default stays move because the command is named migrate, and the dashboard defaults to Copy because it is non-destructive. Copied knowledge-graph facts skip rows the target already holds, using sync's `(subject, predicate, object, valid_from)` key, so repeated curation does not duplicate facts. A real migration registers its target workspace, which a CLI-curated workspace needs before it can be served; a dry run changes nothing, including target creation.
 
-## Alternatives
+## Rejected alternatives
 
 - *Let the consumer pick the direction alone.* The serving machine would still import whatever an old or misconfigured client pushed, so the provider must enforce its own policy.
 - *Close the connection on a refused push.* An older consumer would see a broken connection instead of a clear 403, and the provider loses the session.
@@ -42,6 +44,11 @@ Users want to curate part of their memory into a separate workspace and share on
 One-way sharing is possible without exposing or modifying the rest of a user's memory, and a provider can act as a read-only source or a write-only drop box. Pre-change consumers keep working against two-way providers. Against a send-only provider their push receives 403 (an older CLI prints it after "Pushed local → remote"). Against a receive-only provider their pull fails and they stop before pushing, so pushing into a receive-only provider needs an updated joining client. New consumers interoperate with older providers as two-way.
 
 Sync and copy never delete, so memories removed from a curated workspace remain on machines that already received them. Shared workspaces still require matching embedding profiles (ADR 0010). The relay sees plaintext frames, including the PIN and the data. This decision does not add end-to-end encryption; documentation now says so and recommends a self-hosted relay. The dashboard still connects only to the default relay. The resume buffer remains a single file processed into whichever workspace the resuming run selects. Migration writes bypass ADR 0015's purge exclusions, as before this change.
+
+## Invalidation conditions
+
+- If sync becomes store-and-forward, so the serving machine is not online to enforce its own policy, provider enforcement must be redesigned.
+- If sync gains per-record access rules, curating a separate workspace as the unit of sharing, chosen over a filtered export, can be revisited.
 
 ## Validation
 

@@ -3,9 +3,11 @@ title: ADR 0026 — Windows installer registration for WSL clients
 description: Connect selected WSL Claude Code and Codex profiles to one Windows runtime through local stdio.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) — disable and native uninstall clean up recorded WSL profiles; the manual removal path remains available
 - Related: [ADR 0003](0003-local-mcp-and-portable-hooks.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0024](0024-enforce-local-service-boundaries.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -25,13 +27,19 @@ Carry Linux cwd/distribution context alongside the Windows runtime context. Tran
 
 Explicit removal verifies that the profile's MCP entry still points to its bridge, removes its owned hook commands/rule block/launcher, and keeps other configuration and memories. Default-profile removal also removes the corresponding saved installer selection. Deselection in the installer affects future add/repair work; it does not unregister an existing connection. Windows uninstall does not silently modify Linux profiles; remove those connections before uninstalling the runtime.
 
-## Alternatives
+## Rejected alternatives
 
 A second WSL installation with pairing can support interop-disabled systems, but duplicates models, runtime and storage. Editing only MCP configuration omits transcript paths and hooks. A public TCP proxy adds authentication and network complexity to a local integration. Sourcing interactive login scripts to discover custom variables can execute arbitrary user startup commands during installation. Hand-written whole-profile replacements discard unrelated integrations.
 
 ## Consequences
 
 This feature requires WSL Windows-executable interoperability and distribution access for the current Windows account. Linux file access uses the WSL UNC provider and Windows drive mounts use their native drive paths; performance and Windows filename restrictions apply. Different filesystem aliases can require explicit root approval; this is not automatic workspace migration. Configuration presence does not establish that a client has loaded or trusted MCP/hooks. Codex transcript format coverage remains the existing adapter's limitation. Custom profiles/users use the manual flags; the wizard targets default-user detected profiles. Backups can contain private client settings and stay outside release payloads.
+
+## Invalidation conditions
+
+- If WSL interop with Windows executables is disabled or removed in supported setups, the bridge cannot work; a second Linux runtime with pairing, rejected for duplication, becomes the alternative to evaluate.
+- If clients inside WSL can start a Windows-hosted stdio server without a launcher, the `imprint-wsl` launcher can go.
+- If the WSL UNC provider reaches Windows drive mounts reliably, the mount-table translation can be simplified.
 
 ## Validation
 

@@ -5,7 +5,8 @@ description: Remove the embedded-era idle closer that broke slow native installe
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0004, ADR 0007, ADR 0012
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -29,7 +30,7 @@ external callers; its duration argument and legacy `IMPRINT_MCP_IDLE_S` no longe
 control client expiration. Continue closing the HTTP client at interpreter exit.
 Do not stop the shared Qdrant daemon when a client disconnects.
 
-## Alternatives
+## Rejected alternatives
 
 A longer deadline remains unsafe. Reacquiring a client only in single-note
 store misses batch writes, searches and other retained references. Operation
@@ -44,6 +45,11 @@ invalidates a retained client. This changes neither ranking, vectors, embedding
 identity nor MCP response formatting, and requires no reindex. Benchmark evidence
 retains the actual pre-fix runtime revision; no new performance claim is inferred
 from the lifecycle correction.
+
+## Invalidation conditions
+
+- If Qdrant access returns to a mode that holds an exclusive lock, such as embedded mode, an idle release is needed again and must use operation leases, not an inactivity timer.
+- If idle HTTP connections must be closed, for example under a limit on open connections, use operation-scoped clients rather than an inactivity timer.
 
 ## Validation
 

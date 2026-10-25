@@ -5,7 +5,9 @@ description: Dashboard dialogs, menus, popovers and selects use the shadcn (Base
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: ADR 0008 (dialog primitive superseded), ADR 0013, ADR 0025
+- Amends: [ADR 0008](0008-dashboard-retrieval-and-accessibility.md) — replaces its native dialog primitive
+- Related: [ADR 0013](0013-remediate-security-scan-dependencies.md), [ADR 0025](0025-desktop-owned-background-service.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -19,7 +21,7 @@ Build every dashboard overlay and control from the vendored shadcn components: `
 
 Drag handles carry the `app-drag` class. One rule in `globals.css` makes them `no-drag` while a dialog, alert dialog, sheet, popover, menu or select is open. It keys on the shadcn content slots with Base UI's `data-open`, so a closed Select whose list Base UI mounts early does not count. Tooltips take no clicks and leave the handles alone. The per-overlay `no-drag` rules are removed.
 
-## Alternatives
+## Rejected alternatives
 
 - **Keep the native modal and restyle it.** That keeps two overlay systems, and native top-layer dialogs were exactly what the v0.19.0 window could not click.
 - **Keep the carve-out rules and add more of them.** v0.19.0 showed that carve-outs do not reliably subtract from a drag handle underneath.
@@ -29,6 +31,12 @@ Drag handles carry the `app-drag` class. One rule in `globals.css` makes them `n
 ## Consequences
 
 Dialogs, menus, popovers and selects render in Base UI portals with one look and one keyboard model. Some roles changed with the components. Confirmations are `alertdialog`, the workspace switcher is a `menu` with `menuitemradio` workspaces, and selects are comboboxes with listboxes. Browser tests changed only those selectors. The window cannot be dragged while an overlay is open; the user closes the overlay first. The drag rule depends on the shadcn `data-slot` names, so a new overlay component must be added to that list. The overlay set is all the components that exist today.
+
+## Invalidation conditions
+
+- If Electron's drag regions start honoring no-drag boxes drawn over them, the open-overlay rule can give way to per-element carve-outs.
+- If the window gets a native title bar, the drag-handle rule is unnecessary.
+- If shadcn or Base UI rename the `data-slot` or `data-open` attributes the rule keys on, the rule must change with them.
 
 ## Validation
 

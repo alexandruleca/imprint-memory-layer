@@ -5,7 +5,8 @@ description: Opt-in device capabilities, scoped automatic merge and acknowledged
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0016, ADR 0018
+- Related: [ADR 0016](0016-sync-direction-and-workspace-sharing.md), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -47,7 +48,7 @@ local pair records. Existing memories remain. An offline peer is explicitly
 shown as pending, never as already forgotten. A pending tombstone retains only
 the capability needed to deliver revocation, and cannot transfer workspace data.
 
-## Alternatives
+## Rejected alternatives
 
 Silently reusing one-time PINs or trusting fingerprints would widen the original
 authorization and enable impersonation. Relay-wide device listings reveal
@@ -68,6 +69,12 @@ memories and copies cannot be retracted remotely. Local workspace digests still
 scan exported records including vectors; large-corpus incremental checkpoints
 remain future work. The current import cancellation boundary is the current
 batch, not an all-or-nothing rollback.
+
+## Invalidation conditions
+
+- If the relay gains durable storage, offline revocation delivery through a mailbox, rejected while the relay is stateless, becomes possible.
+- If digest scanning of large corpora outgrows the roughly one-minute reconnect cycle, add the incremental checkpoints this record named as future work.
+- If sync must propagate deletions, merge sync is no longer sufficient.
 
 ## Validation
 

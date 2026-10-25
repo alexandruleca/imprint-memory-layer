@@ -5,7 +5,8 @@ description: Hashed Python profiles, checksum-verified downloads, Electron 45 an
 
 - Status: Accepted
 - Date: 2026-10-23
-- Extends: ADR 0004; supersedes its deferred hash-lock, Electron and Host-defense items.
+- Amends: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md) — supersedes its deferred hash-lock, Electron and Host-defense items
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -23,13 +24,19 @@ Serialize Qdrant first startup with a shared cross-process file lock and recheck
 
 Use Python 3.12, a managed venv, hashed requirements, the runtime manifest and a newly built dashboard in the container. Resolve the CLI through `/app/bin` and set PYTHONPATH. Container API may explicitly bind its network namespace (`--container-bind`); publish the host port on loopback. Validate loopback Host as well as Origin, and reject normal CLI public binds. Authenticated remote dashboard mode is not implemented. This is not a filesystem sandbox or protection against local software.
 
-## Alternatives
+## Rejected alternatives
 
 Retaining old Electron leaves known runtime advisories. Raising the OS floor without documentation conceals a compatibility change. Version pins alone cannot verify downloaded bytes. Requiring offline installers immediately needs native Python/wheel/model redistribution and licensing work beyond this remediation.
 
 ## Consequences
 
 Older desktop OS versions lose the declared desktop target. First installation still needs networking. Signed/notarized artifacts require maintainer credentials. Native installer and graphical behavior remain release gates, not inferred from Linux compilation. Container images grow because they include the complete CPU runtime.
+
+## Invalidation conditions
+
+- If an Electron upgrade drops macOS 13, the desktop OS floor moves with it and must be recorded the same way.
+- If uv, Qdrant or Imprint releases gain independent publisher authentication (signatures rather than checksums fetched from the same release), the checked-in manifest should verify it.
+- If offline installation becomes a requirement, the network-dependent first install must be redesigned; the redistribution and licensing work was deferred, not rejected.
 
 ## Validation
 

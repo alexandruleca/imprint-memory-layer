@@ -5,7 +5,10 @@ description: The serving dashboard registers itself, and every launcher starts i
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: [ADR 0023](0023-update-by-installation-type.md) (the update methods' server stop/restart is superseded here), [ADR 0025](0025-desktop-owned-background-service.md) (desktop-owned servers now register themselves)
+- Amends:
+  - [ADR 0023](0023-update-by-installation-type.md) — the update methods' server stop/restart
+  - [ADR 0025](0025-desktop-owned-background-service.md) — desktop-owned servers now register themselves
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -37,7 +40,7 @@ Ownership does not change: a desktop-owned service stays desktop-owned and Quit 
 
 **Windows background programs get a console without a window.** `imprint ui start`'s supervisor and the dashboard's updater are started with `CREATE_NO_WINDOW` instead of `DETACHED_PROCESS`. Console programs they start (Python under `imprint ui serve`; setup and `imprint ui restart` under the updater) inherit that console instead of each opening a window.
 
-## Alternatives
+## Rejected alternatives
 
 - **The desktop app writes the registration for its child.** That makes two writers for one fact and still leaves the app's service without a restart path. The server is the one thing every launcher shares.
 - **Stop the registered server and start a daemon in its place** (the old `imprint ui restart`). If the desktop app also restarted its service, both would race to bind the port, and which one served afterwards would depend on timing. If it did not, the server would change owner after every update, and Quit would leave a daemon behind.
@@ -58,6 +61,11 @@ Ownership does not change: a desktop-owned service stays desktop-owned and Quit 
 - Releases before this one neither register their server nor implement `/api/restart`, and their updater does not run the new restart. After the first update to this release, reopen Imprint (or restart an `imprint ui start` server) once, as ADR 0023's transition required. No fallback to the old stop-and-start is kept.
 - Provisioning on Windows runs while the old server runs, as it already did in practice. If a release changes dependencies, files loaded by running Imprint processes (the dashboard and MCP servers) could still block their replacement. This change does not address that.
 - Other open dashboard pages (another browser tab, the Echo companion) reconnect to the restarted server but keep their old page code until they are reloaded.
+
+## Invalidation conditions
+
+- If a launcher starts the server without supervising it, a restart through `/api/restart` stops the server: that launcher must supervise it, or this design must change.
+- If desktop packaging lets installers replace the running shell, the deferred unpacked Electron install, the premise that the shell survives updates changes.
 
 ## Validation
 

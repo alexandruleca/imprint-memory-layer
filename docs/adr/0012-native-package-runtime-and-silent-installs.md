@@ -5,7 +5,8 @@ description: Restore Intel macOS wheel compatibility and keep Windows silent ins
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0002, ADR 0007
+- Related: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -17,13 +18,19 @@ Retain current ONNX Runtime on other targets and pin 1.23.2, the last published 
 
 Skip custom wizard creation/navigation in silent mode; perform silent provisioning exclusively through the existing [Run] setup helper. Bound Windows installer execution at 15 minutes, terminate its process tree on timeout, and retain installer/bootstrap logs. Bound native package jobs and runtime steps. Reuse the bundled Electron executable's icon through Windows APIs rather than installing ImageMagick just for icon conversion.
 
-## Alternatives
+## Rejected alternatives
 
 Dropping Intel macOS would avoid the older runtime but changes supported hardware unnecessarily. Disabling hash enforcement or dynamically falling back to an arbitrary wheel obscures the actual compatibility contract. Merely increasing Windows timeout would retain the hidden-wizard hang. Publishing despite failed native installation is not accepted.
 
 ## Consequences
 
 Intel macOS uses an older runtime line and requires separate compatibility/security review. Upstream wheel availability must be checked when changing that pin. Silent installs use deterministic CPU/no-LLM defaults; interactive profile pages remain available. Timeouts expose slow or failed provisioning and preserve evidence rather than consuming an unbounded runner.
+
+## Invalidation conditions
+
+- If ONNX Runtime publishes a newer Intel macOS wheel for the managed Python, or the managed Python version changes, revisit the 1.23.2 pin.
+- If Intel macOS stops being a supported desktop target, the platform-marker exception can go.
+- If healthy Windows installs approach the 15-minute bound, raise it; the bound exists to expose hangs, not to fail slow but correct installs.
 
 ## Validation
 

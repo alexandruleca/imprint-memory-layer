@@ -3,9 +3,11 @@ title: ADR 0032 — One ONNX Runtime per environment
 description: Each install profile resolves to base requirements plus exactly one ONNX Runtime build, verified from package records.
 ---
 
-- Status: Accepted; selecting the runtime from the profile superseded by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)
+- Status: Amended
 - Date: 2026-10-24
-- Related: ADR 0004, ADR 0007, ADR 0012
+- Amended by: [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — selecting the runtime from the profile
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -37,7 +39,7 @@ Before installing, `imprint.onnx_runtime` reads every installed provider of the 
 
 The CUDA smoke test declares IR version 8 and requires the session to actually use `CUDAExecutionProvider`. It never swaps packages. After a failed check, `auto` installs the CPU runtime, while an explicit `gpu` profile keeps `onnxruntime-gpu`, which also runs on CPU. Every ONNX Runtime install comes from a hashed lock.
 
-## Alternatives
+## Rejected alternatives
 
 - **Keep the overlay with uninstall-then-install.** This is the defect itself: it is not convergent.
 - **Reinstall the selected build on every run.** Simple and convergent, but every run churns, and on Windows the uninstall fails while Imprint holds the runtime's DLLs open.
@@ -54,6 +56,12 @@ Damaged venvs are repaired by the next bootstrap: installer repair, update or `i
 Hosts that recorded the false CUDA verdict keep it until `imprint setup --retry-gpu` or a driver/GPU/Python change. With an explicit `gpu` profile they still run on CPU.
 
 This change does not make CUDA work where it did not before. The locked `onnxruntime-gpu` 1.31.0 Linux wheel links CUDA 13 (`libcublasLt.so.13`, `libcudart.so.13`). The cu12 wheel retry and `_preload_cuda_libs` target CUDA 12, and the preload only recognises Linux library names. Hosts without a matching system CUDA runtime therefore fail the CUDA check and run embeddings on CPU. The retry wheels also remain unpinned, as ADR 0007 notes.
+
+## Invalidation conditions
+
+- If ONNX Runtime ships its CPU and GPU builds as one distribution, or they stop sharing the `onnxruntime` package directory, the one-provider rule and the RECORD check can go.
+- If `importlib.metadata` reports missing RECORD files on the supported Python, the custom RECORD reader can use it.
+- If the installer handles distributions that overwrite each other's files safely, the explicit uninstall decisions can be revisited.
 
 ## Validation
 

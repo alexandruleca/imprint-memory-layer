@@ -1,13 +1,13 @@
 ---
-title: "0028 — Complete uninstall"
+title: "ADR 0028 — Complete uninstall"
 description: Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
 ---
 
-# 0028 — Complete uninstall
-
 - Status: Accepted
 - Date: 2026-10-23
-- Related: [0025](0025-desktop-owned-background-service.md), [0027](0027-symmetric-uninstall-and-branch-sync.md) (data retention superseded here)
+- Amends: [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) — data retention and the ask-to-quit step
+- Related: [ADR 0025](0025-desktop-owned-background-service.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -45,7 +45,7 @@ Process trees are not followed, so a browser or editor Imprint opened is never s
 
 **Order on Windows.** Cleanup runs in `CurUninstallStepChanged(usUninstall)`, after the confirmation and before any file is removed, and aborts on failure. `InitializeUninstall` only refuses when the CLI it needs is missing.
 
-## Alternatives
+## Rejected alternatives
 
 - **Killing process trees under Imprint processes.** This would end the user's browser, which the desktop shell and the browser fallback launch.
 - **Matching any command line that mentions the install path.** This would close an editor showing an Imprint log.
@@ -60,6 +60,11 @@ Process trees are not followed, so a browser or editor Imprint opened is never s
 - An Imprint process owned by another user or running elevated cannot be stopped. The uninstall then fails with its name and leaves the installation intact.
 - A silent Windows uninstall now deletes data unless `/KEEPDATA` is passed. Scripts that relied on retention must add it.
 - On macOS a script install sharing `~/.local/share/imprint` with the app is not deleted by the app's uninstaller.
+
+## Invalidation conditions
+
+- If Imprint starts processes that run from outside its runtime directories and without `--project-dir`, for example a separately installed model server, the ownership rule misses them and must be extended.
+- If a supported OS stops exposing process executables or arguments to the user, ownership cannot be established and uninstall must find another way to stop processes.
 
 ## Validation
 

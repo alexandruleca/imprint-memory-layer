@@ -3,10 +3,11 @@ title: ADR 0025 — Desktop-owned background service
 description: Show startup progress before Python loads and separate hiding Imprint from quitting its local API.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) — desktop-owned services not registering in `imprint_ui.json`; the original rationale below is preserved
 - Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0024](0024-enforce-local-service-boundaries.md)
-- Desktop-owned services not registering in `imprint_ui.json` is superseded by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md); the original rationale below is preserved.
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -24,13 +25,18 @@ Closing the loaded window hides it and leaves the API running. Reopen from the t
 
 An existing API, including one explicitly started by `imprint ui start`, is reused and left running on Quit. The explicit daemon remains managed by `imprint ui stop/status/log`. Browser-only distributions keep that existing model. Qdrant remains a separate shared daemon for CLI/MCP clients; desktop shutdown never kills a process tree or the shared database. Desktop-owned API processes do not create the CLI daemon's PID file.
 
-## Alternatives
+## Rejected alternatives
 
 Hiding only the CLI window retains delayed startup feedback and unrelated server lifetime. Installing an OS service adds platform-specific install, permission and upgrade behavior for a per-user dashboard. Killing all descendants can interrupt shared Qdrant clients. Stopping the API whenever the dashboard hides contradicts the requested background behavior. A browser heartbeat cannot distinguish a hidden app from a closed or crashed Electron process reliably.
 
 ## Consequences
 
 The shell owns one hidden API without requiring an OS service installation. Existing independently started daemons remain compatible and intentionally outlive the UI. The API can remain active while the dashboard is hidden. Explicit Quit interrupts its active dashboard work; it preserves stored memories and unrelated clients. First-run Python/dependency downloads retain their existing setup UI. A splash can begin only after the OS starts Electron; portable-executable extraction and AppImage startup can still precede it.
+
+## Invalidation conditions
+
+- If the API must run without the desktop app or a logged-in user, the Electron-owned service, chosen over an OS service, must be revisited.
+- If the stdin lifetime pipe stops being a reliable owner signal on a supported platform, the ownership model must be revisited.
 
 ## Validation
 

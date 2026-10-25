@@ -3,9 +3,10 @@ title: ADR 0006 — Durable MCP and preserved client configuration
 description: Honest write acknowledgements, bounded reads, workspace binding and non-destructive adapter edits.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
-- Follow-up: Workspace binding is extended by [ADR 0015](0015-workspace-roots-and-source-purge.md); the original rationale below is retained.
+- Amended by: [ADR 0015](0015-workspace-roots-and-source-purge.md) — workspace binding is extended; the original rationale below is retained
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,13 +22,19 @@ Back up modified JSON/TOML profiles and atomically replace files using unique te
 
 Provide read-only `imprint doctor [--json] [--probe-mcp]`: runtime/dependency/dashboard checks, primary Codex profile registration, Qdrant readiness without spawning it, and an optional timed initialize/list-tools handshake. Missing venv returns remediation. It does not claim every host is connected or inspect every IDE profile.
 
-## Alternatives
+## Rejected alternatives
 
 A durable acknowledged job queue would make asynchronous store safe but requires a discoverable job/status protocol. Silent LLM work is inconsistent with opt-in configuration. Replacing whole config files is simpler but can break other integrations. Host CLI adapters remain preferred where they safely provide the desired registration contract.
 
 ## Consequences
 
 Store can take longer on a cold embedding model, but failure is visible. Configuration backups contain the previous profile and must be treated as private. Atomic writes prevent partial files, not concurrent lost updates. Workspace safety improves for the covered entry points; stress tests and explicit client session binding remain open.
+
+## Invalidation conditions
+
+- If Imprint gains a durable acknowledged job queue with a discoverable status protocol, the alternative deferred here, `store` could acknowledge before persistence without losing work.
+- If a supported client offers a host CLI or API that safely registers servers and hooks, use it instead of editing that client's files, as this record prefers.
+- If concurrent writers to one client profile become common, atomic replacement no longer prevents lost updates, and a cross-process compare-and-swap is needed.
 
 ## Validation
 

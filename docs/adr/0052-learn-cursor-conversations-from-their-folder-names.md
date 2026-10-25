@@ -5,7 +5,11 @@ description: A Cursor folder name counts as a conversation's working directory w
 
 - Status: Accepted
 - Date: 2026-10-25
-- Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (amended: evidence), [ADR 0037](0037-learn-every-integrated-client-store.md) (amended: stores), [ADR 0026](0026-windows-installer-wsl-client-bridge.md)
+- Amends:
+  - [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — evidence: a Cursor folder name counts as a recorded cwd when exactly one existing directory has it
+  - [ADR 0037](0037-learn-every-integrated-client-store.md) — stores: Cursor profiles; and project names for macOS and Windows home directories
+- Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -41,7 +45,7 @@ This amends ADR 0034. Claude Code's folder names are still never evidence, becau
 - **Project names on macOS and Windows.** The naming rule now also recognizes a home directory on macOS (`/Users/<user>`) and on Windows (`<drive>:\Users\<user>`), so `/Users/u/code/personal/imprint` is named `imprint`, as `/home/u/code/personal/imprint` is. Before this, every conversation recorded there, from any client, was stored without a project (ADR 0037). Linux names are unchanged. A conversation already stored without a project keeps that until its transcript changes; learn then replaces it.
 - Conversation text is never rewritten. Cursor's `[REDACTED]` placeholders stay as written.
 
-## Alternatives
+## Rejected alternatives
 
 - **Decode the folder name into a path, or match encoded roots against it.** Hyphens in directory names make decoding guesswork. Prefix matching leaks between workspaces: the encoded root `x-a` also matches `/x/a-b`.
 - **A Cursor-only evidence parameter on `transcript_allowed`.** This is a second evidence channel beside recorded cwds.
@@ -66,6 +70,12 @@ A directory created later under a colliding name makes a folder ambiguous. Its c
 Resolution costs one directory listing per path segment for each candidate, once per folder per run.
 
 Cursor's Stop hook is still not wired, so conversations reach memory through `imprint learn` or the dashboard's **Learn** action only. The comment in `setup_cursor.go` that says Cursor's hook payload omits `transcript_path` is out of date.
+
+## Invalidation conditions
+
+- If Cursor starts recording the working directory in its transcripts, use that record instead of resolving folder names.
+- If Cursor changes its folder-name encoding, for example keeping non-ASCII letters, folder resolution must follow.
+- If Cursor's hooks are wired, new conversations can use the hooks' `workspace_roots`; past conversations still need this rule.
 
 ## Validation
 

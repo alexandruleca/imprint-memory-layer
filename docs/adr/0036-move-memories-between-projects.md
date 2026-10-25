@@ -6,6 +6,7 @@ description: Projects are placements of memories that writers named. Workspace r
 - Status: Accepted
 - Date: 2026-10-24
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (logical IDs), [ADR 0015](0015-workspace-roots-and-source-purge.md) (exclusions enforced at the same write boundary), [ADR 0016](0016-sync-direction-and-workspace-sharing.md), [ADR 0017](0017-device-provenance-and-local-project-paths.md) (provenance, project mappings), [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) (merge sync)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -36,7 +37,7 @@ The owner wants to move memories out of a catch-all project such as `Desktop` in
 
 **Undoing a move.** Move the same sources back. The rule that sent them away now restates the default, so it is dropped, and the workspace is back where it started. To undo a merge, move the sources that came from the merged project back to it. File sources' keys start with that project's name. Moving the whole merged project back moves everything it now holds, including its own memories, and leaves a rule mapping its name to the old project.
 
-## Alternatives
+## Rejected alternatives
 
 - **Relabel stored points only.** Refresh, learning and peers undo it, and the unchanged ID breaks sync's ID check.
 - **Re-key sources to `<target>/<relative path>`.** The key would no longer say where the file lives. Graph facts, exclusions and mappings would need rewriting. Two origins with the same relative path (`README.md`) would collide in the target. Refresh would still derive the old key.
@@ -54,6 +55,11 @@ The owner wants to move memories out of a catch-all project such as `Desktop` in
 - Paired devices keep their own layout until the same move is made there.
 - `imprint migrate` (between workspaces) and snapshot restore copy payloads as stored, without placement. They already bypass purge exclusions (ADR 0016). A project migration copies the graph facts of every migrated memory's source key, not only facts whose source starts with the project's name, so facts about files moved into the project go along.
 - A move appends to the workspace WAL, so dashboard views and the Projects page refresh (`/api/stream`).
+
+## Invalidation conditions
+
+- If sync gains a change-log protocol that may rewrite and delete, which ADR 0016 and ADR 0020 rule out, placement rules could sync so moves propagate.
+- If the logical ID stops hashing the project, moves no longer need new IDs.
 
 ## Validation
 

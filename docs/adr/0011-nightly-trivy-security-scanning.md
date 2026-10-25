@@ -5,7 +5,8 @@ description: Scheduled repository security checks with visible findings, pinned 
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0002, ADR 0007; user request for nightly security scanning
+- Related: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md); user request for nightly security scanning
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -17,13 +18,19 @@ Run a GitHub-hosted repository scan at 01:23 UTC daily and on manual dispatch. S
 
 Publish all-severity JSON/SARIF artifacts and SARIF code-scanning results before applying a high/critical failure gate. Report scanner and publication failures rather than treating them as clean scans. Pin the scanner version/archive checksum and action commits, disable retained checkout credentials and limit write permission to security events. Record operation and triage in [security scanning](../security-scanning.md).
 
-## Alternatives
+## Rejected alternatives
 
 PR-only scans miss new advisories when source is unchanged. A non-failing report is easier to overlook. Filtering unfixed or development findings would hide known risks. Building every image nightly expands resource use and scope; image/artifact scanning can be added separately. A checksum-pinned standalone scanner avoids a separate third-party setup action.
 
 ## Consequences
 
 Existing high/critical findings can make the first run fail. This is expected reporting, not a reason to suppress them. Maintainers must review scanner/action pins and intentional exceptions. GitHub scheduling, database availability and supported analyzer formats limit coverage. Reports are repository artifacts; secrets must not be intentionally stored in source.
+
+## Invalidation conditions
+
+- If GitHub scheduled workflows or the Trivy vulnerability database stop being reliably available, the nightly scan loses its basis: move the scan and keep the gate.
+- If Trivy stops recognizing a lockfile or Dockerfile format the repository uses, coverage shrinks silently: revisit the analyzer mappings or the scanner.
+- If shipped images or installers carry dependencies the repository scan cannot see, add the image and artifact scanning this record left out of scope.
 
 ## Validation
 

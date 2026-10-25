@@ -5,7 +5,8 @@ description: Loopback-only managed Qdrant, dashboard peer validation and explici
 
 - Status: Accepted
 - Date: 2026-10-23
-- Extends: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md).
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md) and [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), which this record extends
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,13 +22,18 @@ Keep `--container-bind --host 0.0.0.0` as an explicit exception to native peer c
 
 Document that separately managed Ollama should bind `127.0.0.1:11434` through `OLLAMA_HOST`; Imprint does not silently change external inference servers during setup.
 
-## Alternatives
+## Rejected alternatives
 
 Relying on CORS, Host headers or a firewall alone leaves accidental public listeners insufficiently defended. Silently normalizing every remote Qdrant host hides configuration mistakes. Removing container mode breaks the supported Docker dashboard. Requiring per-install credentials for all local services would require a separate authentication/bootstrap design; this decision establishes network isolation without claiming protection against local software.
 
 ## Consequences
 
 Existing nonlocal managed-Qdrant configurations fail with an actionable error instead of opening a listener. Deliberate remote databases need BYO mode and independent security. Native clients continue using local HTTP without credentials. Existing independently managed listeners cannot be assumed safe just because a local endpoint responds. A public container port, an untrusted container network or a forwarding proxy can still defeat the container's network boundary. Remote dashboard access remains unsupported. Moving an independently managed Ollama service to loopback requires updating clients that used its LAN address; containers need a separate secured connectivity arrangement.
+
+## Invalidation conditions
+
+- If remote dashboard or database access becomes a supported use, replace this loopback-only boundary with an authentication and bootstrap design.
+- If Docker presents host-loopback publications to the container as loopback peers, the container exception to peer checks can be removed.
 
 ## Validation
 

@@ -5,8 +5,10 @@ description: Native release engines remove the end-user compiler requirement whi
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: [0044](0044-native-desktop-voice-platforms.md), [0046](0046-visible-echo-runtime-setup.md)
-- Supersedes: ADR 0046's release-time prerequisite/build policy; its download, consent and cancellation policy remains in force.
+- Amends:
+  - [ADR 0044](0044-native-desktop-voice-platforms.md) — ships the engine and its pinned source archive in release archives, where ADR 0044 kept source caches as optional developer installs
+  - [ADR 0046](0046-visible-echo-runtime-setup.md) — its release-time prerequisite/build policy; its download, consent and cancellation policy remains in force
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -41,17 +43,26 @@ Source checkouts without an engine bundle retain the developer CMake/compiler
 path and 4 GB space check. The source builder can build/export an engine without
 downloading the speech weights. No user configuration or microphone state changes.
 
-## Alternatives
+## Rejected alternatives
 
 - Ship CMake: still needs a compiler/SDK and increases setup complexity.
 - Install a system toolchain automatically: large download and machine-wide changes.
 - Download an engine from a separate endpoint at first use: adds another artifact
   trust/update mechanism; including it in the existing release is simpler.
 
-## Consequences and validation
+## Consequences
 
 Release artifacts grow by the engine and pinned source archive. Every supported
-engine must be built and executed on its native OS. Native voice CI exercises
+engine must be built and executed on its native OS.
+
+## Invalidation conditions
+
+- If a supported release target cannot build or run the native engine on its own runner, it cannot ship Echo under this decision: change its support explicitly.
+- If the voice engine needs a GPU build, the CPU-only release engines must be revisited.
+
+## Validation
+
+Native voice CI exercises
 real speech and managed setup into a fresh disposable cache with PATH empty,
 seeding only previously verified model weights. This establishes compiler-free
 installation without repeatedly downloading a gigabyte in the GUI smoke.

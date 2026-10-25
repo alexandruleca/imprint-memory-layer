@@ -3,9 +3,14 @@ title: ADR 0043 — Local live voice and the Echo companion
 description: Explicit speech runtime, same-chat reasoning, optional VAD and a floating particle head with private session ownership.
 ---
 
-- Status: Accepted (particle asset superseded by [0048](0048-anime-echo-and-desktop-recovery.md)) (experimental live pilot)
+- Status: Amended
 - Date: 2026-10-24
-- Related: [0042](0042-lfm-audio-cpu-experiment.md), [0024](0024-enforce-local-service-boundaries.md), [0025](0025-desktop-owned-background-service.md)
+- Scope: experimental live pilot
+- Amended by:
+  - [ADR 0044](0044-native-desktop-voice-platforms.md) — native Windows and macOS workers, the dashboard toggle, borderless transparent treatment and software 3D rendering; the Linux-only rationale below records the original pilot scope
+  - [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — the MediaPipe particle asset
+- Related: [ADR 0042](0042-lfm-audio-cpu-experiment.md), [ADR 0024](0024-enforce-local-service-boundaries.md), [ADR 0025](0025-desktop-owned-background-service.md)
+- Restructured: 2026-10-25
 
 Follow-up: [ADR 0044](0044-native-desktop-voice-platforms.md) extends the worker
 to native Windows and macOS and adds the dashboard toggle, borderless transparent
@@ -67,7 +72,7 @@ same-origin clipboard text writes while denying clipboard reads. Add macOS usage
 without claiming native macOS validation. Browser popup fallback has browser window
 limitations.
 
-## Alternatives
+## Rejected alternatives
 
 - Expose the bundled unauthenticated native listener: rejected because browser
   origin and evidence confidentiality must be enforced at every listener.
@@ -89,6 +94,11 @@ already executing may finish after cooperative cancellation; later output/tools
 are blocked. In-process chat provisioning follows the existing safe completion
 policy. Energy VAD can mistake room noise/speaker echo for speech, so acoustic
 tests remain necessary. Optional developer caches are not managed release assets.
+
+## Invalidation conditions
+
+- If acoustic testing shows energy VAD mistaking room noise or speaker echo for speech too often, hands-free needs the trained VAD deferred here.
+- If the upstream audio server gains authentication, origin enforcement and cancellation fit for private evidence, the fail-closed source patch can go.
 
 ## Validation
 

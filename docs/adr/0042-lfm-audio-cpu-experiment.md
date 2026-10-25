@@ -3,9 +3,11 @@ title: ADR 0042 — Small LFM audio experiment on CPU
 description: Evaluate pinned native Q4 speech inference with read-only Imprint memory snapshots before live voice transport.
 ---
 
-- Status: Accepted (experimental offline turns only)
+- Status: Accepted
 - Date: 2026-10-24
-- Related: [ADR 0041](0041-personaplex-startup-memory-prototype.md), [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md)
+- Scope: experimental offline turns only
+- Related: [ADR 0041](0041-personaplex-startup-memory-prototype.md), [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md); [ADR 0043](0043-live-voice-and-echo-companion.md), which implements the separate live pilot
+- Restructured: 2026-10-25
 
 Follow-up: [ADR 0043](0043-live-voice-and-echo-companion.md) implements the separate
 live pilot, its private HTTP worker and same-chat speech route. The offline CLI
@@ -25,7 +27,7 @@ Reuse the bounded read-only MCP snapshot builder with distinct LFM backend/revis
 
 Expose offline synthesis, recognition and speech/text question commands with bounded input/runtime limits, exclusive private response exports and owned-child cancellation. Parse both PCM16 and the runner's float32 WAV. Do not expose the native HTTP server or claim microphone streaming, barge-in, live MCP writes, persistence or avatar support in this step. Future live transport and memory/tool authority require their own implementation and validation.
 
-## Alternatives
+## Rejected alternatives
 
 - Keep PersonaPlex primary: the user selected the smaller model instead; no compatibility claim is made for completing its interrupted setup.
 - Use the modular ASR → existing Qwen chat → TTS architecture: remains the preferred option if retaining the dashboard's conversational model is mandatory, but is not the selected experiment.
@@ -38,6 +40,11 @@ Expose offline synthesis, recognition and speech/text question commands with bou
 The prototype produces real English speech and tests memory-conditioned answers on CPU with a small artifact set. A fresh native process/model load per turn adds overhead and is not a finished real-time assistant. The CLI protocol, exact task prompts and transcript markers are revision-specific. LFM snapshots are rejected by the PersonaPlex validator and vice versa.
 
 Explicit caches and output directories are operator-owned experiments outside product distributions. Main setup/update/uninstall behavior is unchanged; automatic cleanup and supported runtime packaging remain future work. No secrets or real user memories are used as regression fixtures. Exported text/audio should be kept privately. Model license and runtime notices must remain accurate before any distribution work.
+
+## Invalidation conditions
+
+- If Liquid AI changes the bundle's digests or license, re-validate before moving the pin.
+- If the native runner accepts arbitrary system instructions or stops echoing prompts in its logs, the prompt-file and log-discarding workarounds can be revisited.
 
 ## Validation
 

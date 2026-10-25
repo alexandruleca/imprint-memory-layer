@@ -3,10 +3,12 @@ title: ADR 0029 — Paired local browser capture prototype
 description: A workspace-bound Chrome extension capture API, explicit previews, and reuse of the serialized inline ingestion pipeline.
 ---
 
-- Status: Accepted (WIP implementation on `wip/chrome-extension`; not a released integration)
+- Status: Amended
 - Date: 2026-10-23
-- Extends: [ADR 0024](0024-enforce-local-service-boundaries.md) and [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md).
-- Gmail availability and unpacked-only distribution are superseded by [ADR 0030](0030-chrome-extension-release-zip.md); the original rationale below is preserved.
+- Scope: WIP implementation on `wip/chrome-extension`; not a released integration
+- Amended by: [ADR 0030](0030-chrome-extension-release-zip.md) — Gmail availability and unpacked-only distribution; the original rationale below is preserved
+- Related: [ADR 0024](0024-enforce-local-service-boundaries.md) and [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), which this record extends
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -55,7 +57,7 @@ explicitly in settings to avoid relying on mutable `/u/0` account slots. This
 is user-supplied provenance and must match the tab. PDF/editor export adapters
 and mailbox OAuth synchronization remain future work.
 
-## Alternatives
+## Rejected alternatives
 
 Sending URLs alone fails for signed-in applications. Granting extension origins
 general dashboard access exposes unrelated commands. Native messaging can avoid
@@ -75,6 +77,12 @@ before failure. Unchanged source chunks retain existing capture metadata. Gmail
 selectors, browser permissions and account identity need live validation before
 release. No claims of Google Docs, PDFs, real Gmail, Store approval or native
 Windows/macOS Chrome validation follow from synthetic Chromium tests.
+
+## Invalidation conditions
+
+- If Chrome stops allowing extension requests to loopback HTTP, the transport must change; native messaging, deferred here, is the recorded alternative.
+- If capture must run without a click or cover a whole mailbox, this click-to-save design does not apply; automatic capture and Gmail OAuth were left out of scope.
+- If the local API gains authentication for every local client, the separate browser credentials could merge into it.
 
 ## Validation
 

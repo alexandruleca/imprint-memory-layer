@@ -6,6 +6,7 @@ description: Preserve MCP portability while removing shell-dependent automation 
 - Status: Accepted
 - Date: 2026-10-23
 - Related: [integration strategy](../integrations.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -17,13 +18,18 @@ Keep local stdio MCP as the baseline. Prepare the shared backend once per setup 
 
 Invoke a stdlib-only Python hook entry point by absolute path, with quoted interpreter/script/data arguments. Set subprocess environment inside Python, emit structured JSON and avoid interpreting session IDs as filesystem paths. Preserve per-client adapters and their current event coverage; do not claim hook parity merely because MCP registration succeeds.
 
-## Alternatives
+## Rejected alternatives
 
 A plugin per client would duplicate the memory implementation. An unauthenticated public proxy expands the boundary unnecessarily for local desktop use. Inline shell snippets are concise but hard to quote and validate across hosts. Re-running dependency setup for every adapter adds work without improving registration.
 
 ## Consequences
 
 A fresh setup is required to rewrite installed hook commands. Existing session sentinels use the previous naming scheme and are naturally refreshed after search. Hook trust remains a client responsibility. Old ChatGPT versions may lack local MCP support. Host transcript normalization and schema-preserving config edits remain follow-up work. No source watcher or IDE extension is introduced by this decision.
+
+## Invalidation conditions
+
+- If a supported client drops local stdio MCP, the baseline no longer reaches it, and any other transport needs its own boundary decision; an unauthenticated public proxy was rejected.
+- If the hook entry point needs a dependency beyond the Python standard library, it can no longer be invoked by absolute path outside the managed environment, and hook invocation must be revisited.
 
 ## Validation
 

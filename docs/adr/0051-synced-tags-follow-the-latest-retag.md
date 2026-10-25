@@ -5,7 +5,8 @@ description: Each memory carries a tagged_at stamp; sync gives a memory both dev
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: ADR 0017, ADR 0018, ADR 0020
+- Related: [ADR 0017](0017-device-provenance-and-local-project-paths.md), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md), [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -32,7 +33,7 @@ A memory's content and vector stay immutable. Its classification (`tags`, `type`
 
 Only the classification travels. Project placement stays per device, as ADR 0036 decided.
 
-## Alternatives
+## Rejected alternatives
 
 - **Re-upsert every received record.** That would overwrite local project placement and provenance, and turn every sync into a full rewrite.
 - **Wall-clock time of the write only.** A device whose clock runs behind would lose its own later retag to the stamp it had just received. Stamping past the previous value avoids that without a vector clock.
@@ -45,6 +46,11 @@ Only the classification travels. Project placement stays per device, as ADR 0036
 - After upgrading, memories retagged before this change keep whatever tags each device has until one of them retags it again.
 - Concurrent retags of the same memory on two devices settle on the later stamp. Clock skew can only reorder edits that were truly concurrent.
 - A peer on an older release ignores the new fields and keeps skipping known memories, so it does not receive retags.
+
+## Invalidation conditions
+
+- If more mutable fields must converge, or fields that can be edited concurrently, one last-writer stamp may not suffice, and vector clocks, rejected for a single field, need reconsidering.
+- If sync gains a change-log protocol, classification updates could travel through it instead.
 
 ## Validation
 

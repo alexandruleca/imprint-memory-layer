@@ -5,13 +5,14 @@ description: Proposed local model profiles, explicit encoding contracts and safe
 
 - Status: Proposed
 - Date: 2026-10-23
-- Related: ADR 0004, ADR 0005, ADR 0007; [local model analysis](../local-model-selection.md)
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md); [local model analysis](../local-model-selection.md)
+- Restructured: 2026-10-25
 
 ## Context
 
 Imprint mixes code, prose, decisions and transcripts across CPU/GPU desktops. The embedding wrapper assumes generic inputs, first-output selection and mostly mean pooling. It does not apply model-specific query/document prompts or validate the embedding identity of an existing collection. File-hash skipping and content-ID dedup mean a model setting change is not a complete re-embedding operation. Topic prototype caches also lack model identity. The helper pathways can allocate separate chat/tagger models, while the user requests local models with permissive OSS licensing.
 
-## Proposed decision
+## Decision
 
 Evaluate Qwen3-Embedding-0.6B as the primary mixed-retrieval candidate, with Voyage-4-nano as the efficiency challenger, CodeRankEmbed for code-heavy CPU workloads and BGE-M3 as a conservative baseline. Evaluate Qwen3.5-4B as a shared optional helper and 9B for supported 12 GB GPU configurations. Include the current Gemma 4 E4B helper as a baseline; it is Apache-2.0 and should not be confused with the old EmbeddingGemma license. Resolve EmbeddingGemma 2's contradictory licensing/card language and export adapter requirements before selecting it for a permissive profile. No runtime defaults change through this proposed ADR.
 
@@ -21,7 +22,7 @@ Re-embed into a separate collection with a verified inventory, preserved provena
 
 Keep embeddings independent of the optional helper. Prefer one shared local helper process with bounded context, concurrency, structured output, explicit thinking controls and tested tool parsing. Preserve CPU/no-LLM operation. Use runtime and model artifacts whose provenance, licenses and native compatibility are recorded, rather than assuming any GGUF/ONNX file is interchangeable.
 
-## Alternatives
+## Rejected alternatives
 
 A single large model for all workloads consumes unnecessary background resources. Changing only repository name/dimension can silently corrupt search semantics. Automatically loading multimodal encoders for text adds weight/memory overhead. Keeping separate in-process models is simple but can duplicate memory across clients/workers. A dedicated code embedder may win code-only tests but should not replace a mixed-memory index without evidence.
 

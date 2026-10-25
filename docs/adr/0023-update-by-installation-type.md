@@ -3,9 +3,11 @@ title: ADR 0023 — Update by installation type
 description: The dashboard updates Imprint through the CLI, which installs a release the way the installation was set up.
 ---
 
-- Status: Accepted; stopping and restarting the dashboard server superseded by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md)
+- Status: Amended
 - Date: 2026-10-23
-- Related: ADR 0002, ADR 0012, ADR 0014
+- Amended by: [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) — stopping and restarting the dashboard server
+- Related: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md), [ADR 0014](0014-main-only-release-packaging.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -35,7 +37,7 @@ The CLI takes the queue lock, so an update never interrupts a running job.
 
 The API resolves the CLI from its own installation first: `bin/imprint[.exe]`, then a checkout build, then PATH. It caches the version only after a successful call.
 
-## Alternatives
+## Rejected alternatives
 
 - **The bare overlay for every installation.** It breaks on the installer-managed layouts above.
 - **An Electron auto-updater.** It would update the desktop shell but not the CLI, Python package or browser-only installs. Every desktop package wraps the same release tree, so one CLI path covers all of them.
@@ -50,6 +52,11 @@ The API resolves the CLI from its own installation first: `bin/imprint[.exe]`, t
 - On Windows the app window closes during an update and reopens when provisioning ends.
 - On macOS the update needs the administrator prompt.
 - Container users are told to pull a new image.
+
+## Invalidation conditions
+
+- If a new distribution type appears, classification must give it an update method or report that it cannot update itself.
+- If a self-updating desktop shell could also update the CLI, the Python runtime and browser-only installs, the Electron auto-updater rejected here could be reconsidered.
 
 ## Validation
 

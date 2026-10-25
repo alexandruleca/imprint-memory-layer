@@ -5,7 +5,8 @@ description: Each look's glTF node extras declare gaze, spin and pulse; the head
 
 - Status: Accepted
 - Date: 2026-10-25
-- Related: [ADR 0048](0048-anime-echo-and-desktop-recovery.md) (anime hologram and desktop controls)
+- Amends: [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — replaces the adapted anime head with a generated core as Echo's look; the desktop controls are unchanged
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -44,7 +45,7 @@ The model is 178 KB, down from 1.86 MB, and is original Apache-2.0 artwork. The 
 - In the desktop app the preload's `watchCursor` asks the main process for the cursor instead. While a trusted voice page watches, the main process sends `screen.getCursorScreenPoint()` about 30 times per second, translated into that page's CSS pixels by its content bounds and zoom factor, and only when the point changes relative to the page. The watch ends when the page unsubscribes, navigates or is destroyed.
 - The head turns 70% of the way toward the pointer, up to 0.5 rad of yaw and 0.6 of the way up to 0.28 rad of pitch, easing over about 0.35 s. The eyes take the rest within their own limits, easing over 0.06 s. Before the first pointer sample, the head keeps its resting three-quarter turn.
 
-## Alternatives
+## Rejected alternatives
 
 - **A procedural core in the renderer with its own code path.** This would give Echo a second animation system beside the glTF looks and a branch per look in the renderer. Declaring motion as data keeps one renderer.
 - **Moving the iris by offsetting its texture coordinates.** The VRoid irises are not texture windows over the eye white; they are separate geometry bound to the eye bones. Rotating that geometry about the bone is how the source animates them.
@@ -60,6 +61,11 @@ The model is 178 KB, down from 1.86 MB, and is original Apache-2.0 artwork. The 
 - The desktop main process polls the cursor only while a voice page is watching.
 - The Echo preview no longer depicts the earlier head. Look previews are now transparent PNGs, so they suit both the light Voice page and the dark companion.
 - Existing `voice.avatar = echo` settings show the core.
+
+## Invalidation conditions
+
+- If a look needs motion the gaze, spin and pulse extras cannot express, extend the extras rather than branch the renderer per look.
+- If Electron delivers pointer events from outside the window to the renderer, the main-process cursor feed can be retired.
 
 ## Validation
 

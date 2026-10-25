@@ -5,7 +5,8 @@ description: Frozen public evidence, paired measurements and auditable statistic
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: ADR 0005, ADR 0009, ADR 0010
+- Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0009](0009-model-profiles-and-embedding-identity.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -47,7 +48,7 @@ different corpora/models as a controlled version-to-version improvement.
 Benchmark corpora and trial archives belong to source/website evidence and are
 excluded from runtime distribution bundles.
 
-## Alternatives
+## Rejected alternatives
 
 Rerunning the existing personal index would be quicker but would not establish
 equal evidence, stable corpus contents or safe isolation. Replacing the biased
@@ -65,6 +66,12 @@ bills. Fresh-session measurements include stdio model startup and do not measure
 long-lived multi-turn sessions. The orchestration runner currently requires
 POSIX process groups; this does not change Imprint's supported runtime targets.
 Publication must retain corpus, provenance, failures and limitations together.
+
+## Invalidation conditions
+
+- If benchmark claims need to cover arbitrary projects or long-lived multi-turn sessions, this protocol does not support them and must be extended first.
+- If providers stop reporting cache and token classes, the cost accounting loses its basis.
+- If the orchestration's POSIX process-group requirement blocks a platform where results are needed, revisit the runner.
 
 ## Validation
 

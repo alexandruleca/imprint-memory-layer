@@ -5,7 +5,8 @@ description: Every memory and fact write, and every prompt to a background model
 
 - Status: Accepted
 - Date: 2026-10-25
-- Related: ADR 0005, ADR 0015, ADR 0017, ADR 0018, ADR 0033, ADR 0036, ADR 0051, ADR 0058, ADR 0059
+- Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0017](0017-device-provenance-and-local-project-paths.md), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md), [ADR 0033](0033-stored-secret-settings.md), [ADR 0036](0036-move-memories-between-projects.md), [ADR 0051](0051-synced-tags-follow-the-latest-retag.md), [ADR 0058](0058-recall-batched-reads-with-optional-local-planning.md), [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -103,7 +104,7 @@ Two model paths are deliberately not gated:
 
 `imprint sync import` restores a snapshot bundle byte for byte, so it scrubs the restored workspace with `--apply` before reporting completion, and holds the queue lock while it runs. Workspace migration and project moves copy points that are already stored; scrubbing either workspace covers them, and so does the next sync from a device that scrubbed.
 
-## Alternatives
+## Rejected alternatives
 
 - **detect-secrets (Apache-2.0).** A new dependency and lock refresh. Its entropy and keyword plugins are noisy on code, which needs per-repository baselines. It reports lines and values, not spans.
 - **Vendoring all ~220 gitleaks rules.** They are Go RE2 patterns with mid-pattern flags, keyword prefilters, entropy thresholds and allowlists. Porting them faithfully is a maintenance surface of its own, and the generic rules trade precision for recall. The curated set adopts the formats that matter here and credits gitleaks.
@@ -142,6 +143,12 @@ Two model paths are deliberately not gated:
   - A peer on a release older than this one ignores versions and keeps both copies.
 - **Upgrade.** Data stored before the upgrade keeps its secrets until a scrub runs on some device holding it and the result syncs. Sync exports from an unscrubbed device still carry the secrets to peers on older releases.
 - **Platforms.** The model needs ONNX Runtime's `QMoE` and `MatMulNBits` CPU kernels. They were validated with ONNX Runtime 1.31 on Linux x86_64 (CPU build) and on native Windows x64 (the installed runtime's GPU build, CPU provider), where the first-use download, verification and redaction also ran. Intel macOS pins ONNX Runtime 1.23.2 and was not tested.
+
+## Invalidation conditions
+
+- If OpenAI Privacy Filter's recall and precision are measured on real Imprint memories and model loading moves out of short-lived hook processes, revisit making it the default, as the record says.
+- If a write path stores memories or facts without passing through the write functions, as snapshot restore would without its scrub, the guarantee is broken: route it through them.
+- If recall or the dashboard chat start sending text to remote providers that the user did not type, their exemption from redaction must be revisited.
 
 ## Validation
 

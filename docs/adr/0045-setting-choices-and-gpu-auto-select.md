@@ -3,9 +3,11 @@ title: ADR 0045 — Settings declare their choices; the GPU device defaults to a
 description: The config schema carries known values per setting, read from the device where needed, and model.gpu_device=auto picks the first GPU the installed CUDA runtime supports.
 ---
 
-- Status: Accepted; setup's CUDA check on device 0 superseded by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)
+- Status: Amended
 - Date: 2026-10-24
-- Related: ADR 0038
+- Amended by: [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — setup's CUDA check on device 0
+- Related: [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -21,7 +23,7 @@ A `Setting` in `imprint/config_schema.py` can declare `choices`: a tuple of `Cho
 
 `PUT /api/config/{key}` answers 400 for an invalid value and 404 for an unknown key.
 
-## Alternatives
+## Rejected alternatives
 
 - **`nvidia-smi` for enumeration.** Its indices follow PCI bus order. CUDA's default order is fastest first, so the two can disagree and the dashboard would name the wrong card.
 - **Probing each device by creating a cuBLAS handle.** This is exact, but it loads the CUDA libraries and creates a context with VRAM on every card each time settings are listed.
@@ -35,6 +37,11 @@ A `Setting` in `imprint/config_schema.py` can declare `choices`: a tuple of `Cho
 - `MIN_COMPUTE` must gain an entry when the runtime moves to a new CUDA major. Until then, an unknown major marks no device unsupported, which is the old behaviour.
 - Setup's CUDA smoke test still runs on device 0. On a machine where device 0 is unsupported and another device is supported, setup would install the CPU runtime.
 - llama.cpp offload (`*.n_gpu_layers`) is unaffected and still uses llama.cpp's own device selection.
+
+## Invalidation conditions
+
+- If ONNX Runtime and the CUDA driver API stop enumerating devices in the same order, indices would name the wrong card: revisit enumeration.
+- If the CUDA libraries report their supported architectures at run time, the static `MIN_COMPUTE` table can be replaced.
 
 ## Validation
 

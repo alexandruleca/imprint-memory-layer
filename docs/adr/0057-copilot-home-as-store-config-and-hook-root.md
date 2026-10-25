@@ -3,11 +3,11 @@ title: ADR 0057 — The Copilot home is GitHub Copilot's store, configuration an
 description: Copilot's surfaces share COPILOT_HOME; Imprint registers MCP, instructions and hooks there, learns its session events by their recorded context, keys sessions by their whole id, and registers it as a WSL target.
 ---
 
-# 0057 — The Copilot home is GitHub Copilot's store, configuration and hook root
-
 - Status: Accepted
 - Date: 2026-10-25
-- Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (ownership rule, unchanged), [ADR 0037](0037-learn-every-integrated-client-store.md) (amended: stores), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md), [ADR 0026](0026-windows-installer-wsl-client-bridge.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md)
+- Amends: [ADR 0037](0037-learn-every-integrated-client-store.md) — stores: Copilot homes
+- Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (ownership rule, unchanged), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md), [ADR 0026](0026-windows-installer-wsl-client-bridge.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -77,7 +77,7 @@ Under Remote-WSL, the agent host and its hooks run inside the distribution, so i
 - **Learn.** Learn reads `<copilot_home>/session-state` in the distribution's path context.
 - **Removal.** It removes the entry, the block, the hooks file and the launcher.
 
-## Alternatives
+## Rejected alternatives
 
 - **Learn the Local harness store** (`workspaceStorage/*/chatSessions`, `emptyWindowChatSessions`, mapped to folders through `workspace.json`). Its evidence belongs to a storage container rather than a session. Sessions are copied between containers, and one container mixes path contexts (local, WSL, SSH). That fails ADR 0034's recorded-evidence rule and ADR 0037's path contexts. The harness is being retired, and a session handed off to the Copilot harness becomes an `events.jsonl` with its context.
 - **Register in both `mcp-config.json` and VS Code's `mcp.json`.** Duplicate servers are disabled by `chat.mcp.collisionBehavior`, and the migration prompt would return after every setup. Supported VS Code versions read the Copilot home anyway.
@@ -96,6 +96,12 @@ Under Remote-WSL, the agent host and its hooks run inside the distribution, so i
 - **Owned settings.** Imprint owns `tools: ["*"]` on its entry, so a narrowed tool list is reset by setup.
 - **Stop hook.** The Stop hook also runs `cli_extract` and `cli_summarize`, which do not read Copilot events and store nothing for them (ADR 0037 records the same for Codex).
 - **WSL.** The WSL listing, the installer's WSL page and Settings show a GitHub Copilot row.
+
+## Invalidation conditions
+
+- If live testing shows `Stop` payloads without `transcript_path` in VS Code's harness or the CLI, the hook import must locate transcripts another way.
+- If Copilot stops reading the Copilot home for MCP servers, instructions or hooks, registration must follow.
+- If Claude Code and Codex document that they ignore unknown top-level keys in SessionStart output, the separate `copilot-session-start` action could merge into one output with both shapes.
 
 ## Validation
 

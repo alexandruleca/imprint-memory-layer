@@ -3,9 +3,11 @@ title: ADR 0002 — Validate releases before publication
 description: Shared native build pipeline, complete asset publication and architecture-aware staging.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0014](0014-main-only-release-packaging.md) — automatic dev releases are removed, and every release build, manual dispatch included, requires main
 - Related: [platform validation](../platform-validation.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -17,13 +19,18 @@ Use one reusable build workflow for stable/dev channels. Rebuild the dashboard; 
 
 Use `scripts/package-platform.sh` for both packaging targets. Keep staged trees, exclude local state/dependencies and inspect native executable architectures. A missing Electron artifact fails release packaging; local browser-only packaging is allowed and explicitly reported.
 
-## Alternatives
+## Rejected alternatives
 
 Cross-compiling the Go binary alone misses runtime, frontend and installer errors. Publishing archives first creates partial public releases. Copying one desktop executable into multiple architectures does not provide compatibility. Separate stable/dev implementations would continue drifting.
 
 ## Consequences
 
 Release jobs take longer and use multiple hosted runners. Failed native checks block publication. The final GitHub upload is not a database transaction, but native build failures no longer expose a purportedly complete release. No release/tag is published by local validation. macOS/Windows signing and actual GUI first-run/tray testing still require additional work; successful smoke tests do not establish every OS/version combination.
+
+## Invalidation conditions
+
+- If GitHub releases gain an atomic publication that exposes every asset at once or none, the ordering that keeps partial releases private can rely on it; native validation before publication stays.
+- If hosted native runners stop being available for a supported target (Intel or Apple Silicon macOS, Windows, Linux ARM), that target can no longer pass this gate: change its support explicitly rather than skip its checks.
 
 ## Validation
 

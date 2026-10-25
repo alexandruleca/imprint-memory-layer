@@ -5,7 +5,9 @@ description: The macOS desktop app is signed ad hoc as a bundle, so macOS privac
 
 - Status: Accepted
 - Date: 2026-10-25
-- Related: [ADR 0044](0044-native-desktop-voice-platforms.md) (its statement that the app includes microphone/JIT entitlements is superseded here), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (Developer ID signing and notarization still need maintainer credentials)
+- Amends: [ADR 0044](0044-native-desktop-voice-platforms.md) — its statement that the app includes microphone/JIT entitlements
+- Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (Developer ID signing and notarization still need maintainer credentials)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -31,7 +33,7 @@ Hardened runtime is off (`mac.hardenedRuntime: false`), and the project's entitl
 
 Release packaging rejects a darwin tree whose `bin/imprint-ui.app`, or any helper app inside it, is not signed as a bundle. `scripts/validate-release.py` parses each bundle executable's code signature on the Linux packaging runner. Every architecture slice must carry a CodeDirectory whose identifier is the bundle's `CFBundleIdentifier` and whose special slots hold the hashes of the bundle's actual `Info.plist` and `_CodeSignature/CodeResources`.
 
-## Alternatives
+## Rejected alternatives
 
 - **Add `NSMicrophoneUsageDescription` to `Imprint.app`'s Info.plist.** Not the cause: the shell is started through LaunchServices and is its own responsible process. It would leave the shell's own request unsealed.
 - **Keep hardened runtime and add `disable-library-validation`.** This is what electron-builder recommends for ad-hoc signing with hardened runtime. It gives no security benefit without notarization and adds a launch-time failure mode that no CI job executes the packaged app to catch.
@@ -44,6 +46,11 @@ Release packaging rejects a darwin tree whose `bin/imprint-ui.app`, or any helpe
 - An ad-hoc identity is its code hash. Each release is a new identity to TCC, so macOS asks for microphone access again after an update.
 - The package is still not Developer ID signed or notarized. `postinstall` still clears quarantine, and the existing signing/notarization gaps stay open.
 - A release that loses the signature (for example a missing identity setting or an edit to the bundle after signing) now fails packaging on Linux.
+
+## Invalidation conditions
+
+- When maintainer Developer ID credentials are available, sign and notarize with hardened runtime and the JIT and audio-input entitlements; the record names that the correct end state, and it replaces ad-hoc signing.
+- If the user's crash report shows a termination reason other than the inferred TCC rejection, the diagnosis behind this decision must be revisited.
 
 ## Validation
 

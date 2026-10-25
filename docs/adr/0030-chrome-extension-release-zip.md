@@ -5,8 +5,9 @@ description: Publish a minimal manual-install extension ZIP with validated relea
 
 - Status: Accepted
 - Date: 2026-10-23
-- Extends: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0014](0014-main-only-release-packaging.md), [ADR 0029](0029-paired-browser-capture.md).
-- Supersedes ADR 0029's initial availability of Gmail in the extension UI; the pairing and storage architecture remains accepted.
+- Amends: [ADR 0029](0029-paired-browser-capture.md) — supersedes its initial availability of Gmail in the extension UI and its unpacked-only distribution; the pairing and storage architecture remains accepted
+- Related: [ADR 0002](0002-build-and-validate-before-publication.md) and [ADR 0014](0014-main-only-release-packaging.md), which this record extends
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -45,7 +46,7 @@ release → Pages workflow refreshes the download without a separate deployment
 service. The page includes manual install, pairing, update and data-flow guidance
 and reuses the site's layout, colors, type and icons.
 
-## Alternatives
+## Rejected alternatives
 
 A Chrome Web Store release would avoid Developer mode but needs a separate
 publication/review process. A signed CRX does not provide a universally usable
@@ -61,6 +62,12 @@ in the matching release. Older installed backends need an update. Gmail and
 document integrations have no announced delivery date. A small extra release job
 is required before publication. Linux Chromium artifact validation does not
 establish native Windows/macOS Chrome installation or Store approval.
+
+## Invalidation conditions
+
+- If the extension is published to the Chrome Web Store, the ZIP and Developer-mode instructions become a fallback or go.
+- If Chrome restricts Load unpacked for ordinary users, this distribution path stops working.
+- If Gmail or document capture is validated against real pages, lift its gate through a new record.
 
 ## Validation
 

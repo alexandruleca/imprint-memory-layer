@@ -5,7 +5,11 @@ description: The gpu and auto profiles install llama-cpp-python's hash-locked Vu
 
 - Status: Accepted
 - Date: 2026-10-24
-- Related: ADR 0010, ADR 0032, ADR 0035, ADR 0038
+- Amends:
+  - [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) — drops the JSON-schema grammar for local classification
+  - [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) — replaces the GPU profile's nvcc CUDA rebuild with hash-locked Vulkan wheels
+- Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md), [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -52,7 +56,7 @@ The nvcc rebuild is removed, along with its toolkit discovery, compute-capabilit
 
 Local classification no longer constrains its reply with a JSON-schema grammar, which amends ADR 0010 for tagging. llama.cpp checks the grammar on the CPU for every generated token, and on a GPU that cost more than the inference itself. The reply goes through `_parse_llm_classification` and `_validate_classification`, the same path remote providers' replies take, including its fallback when parsing fails. Summaries keep their grammar: their output is longer and nested, and was not measured without it. `local_llm.complete` therefore takes an optional schema.
 
-## Alternatives
+## Rejected alternatives
 
 - **The CUDA 13 wheel.** It is about 1.7× faster than Vulkan on the RTX 4080. But it covers only NVIDIA Turing and newer, and it needs `cublas64_13.dll` from the GPU embedding runtime (loaded first with `onnxruntime.preload_dlls()`). It also aborts when an unsupported GPU is visible, which would need `CUDA_VISIBLE_DEVICES` filtering. It could later become a second GPU build for NVIDIA machines on the GPU embedding runtime.
 - **Keep the nvcc rebuild.** It needs a multi-gigabyte toolkit and a matching compiler, it is unhashed, and it covers NVIDIA only.
@@ -66,6 +70,12 @@ Local classification no longer constrains its reply with a JSON-schema grammar, 
 - Without the grammar, a tagging call takes about 4.1 s on Vulkan instead of 8.0 s (CUDA: 1.7 s instead of 4.7 s). All 13 unconstrained replies in those runs were valid JSON, but nothing now guarantees it. A malformed reply falls back to keyword domains, as a malformed remote reply already did.
 - Upgrading the binding means updating the version in every URL of both overlays and recompiling both locks from scratch.
 - macOS and platforms without a prebuilt wheel still build from source, as before.
+
+## Invalidation conditions
+
+- If NVIDIA machines on the GPU embedding runtime would be better served by the CUDA wheel, about 1.7 times faster than Vulkan and deferred here, add it as a second GPU build.
+- If upstream stops publishing hashed Vulkan wheels for the pinned version, the GPU overlay cannot move without compiling; revisit.
+- If unconstrained local classification replies fail to parse often enough that the keyword fallback becomes common, restore a constraint or change the prompt.
 
 ## Validation
 

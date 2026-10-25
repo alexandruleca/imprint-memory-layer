@@ -3,11 +3,10 @@ title: "ADR 0058 — Recall: batched reads with optional local planning"
 description: One additive recall MCP tool runs several read steps in one call under one budget; an opt-in model on this computer may plan the steps and answer with checked citations.
 ---
 
-# 0058 — Recall: batched reads with optional local planning
-
 - Status: Accepted
 - Date: 2026-10-25
 - Related: [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) (budgeted evidence), [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (hybrid retrieval), [ADR 0024](0024-enforce-local-service-boundaries.md) (local boundaries), [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) and [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (local helper model)
+- Restructured: 2026-10-25
 
 ## Context
 
@@ -53,7 +52,7 @@ Anthropic, OpenAI, Gemini and LAN servers never enable it, and recall then adds 
 - **Answering.** Unless `condense=false`, the model answers from exactly the budgeted evidence the caller would otherwise receive, citing evidence numbers. An answer without a citation, or citing evidence that was not shown, is discarded and the evidence returns with a note. The condensed response holds the plan, the answer, the meta lines of the cited evidence and the keys of the rest.
 - **Time limit.** Planning and answering share `recall.llm_timeout_sec` (default 30). Model work runs in a worker thread. `local_llm.complete` now streams internally and accepts a deadline: it does not start after the deadline, including while it waits for the shared inference lock, and it stops at the next token past it. Prompt processing cannot be interrupted and finishes in the background. The ollama/vllm client gets the remaining time as its HTTP timeout.
 
-## Alternatives
+## Rejected alternatives
 
 - **Code-execution sandbox (Code Mode / code execution with MCP).** This is the most general option, with loops, conditionals and chaining. But it needs a sandbox for arbitrary code inside a local stdio server installed on Windows, macOS and Linux: a V8 isolate or a hardened Python sandbox, resource limits and a typed API surface. That adds a new code-execution attack surface next to users' memories. Imprint's reads are a small set, and typical lookups fan out rather than chain, so a declarative plan covers them without executing code. Clients that support programmatic tool calling can already orchestrate Imprint's tools on their side.
 - **An intent-only tool, gated on the LLM.** A tool that exists only when a model is on hides behavior behind configuration, gives callers no control over which reads run, and on CPU waits tens of seconds before answering (measured below). The plan path works on every installation, and the model only adds to it.
@@ -83,6 +82,12 @@ Measured over eight multi-part lookups (details in [benchmarks](../benchmarks.md
 - `local_llm.complete` streams for every role. Tagging and summaries produce the same text; their tests now mock streamed responses.
 - `vectorstore.get_chunks_by_source` also returns each chunk's id, project and source (additive), so file chunks merge with search hits.
 - The dashboard Settings page shows the new `recall` group; the static export is rebuilt by release CI.
+
+## Invalidation conditions
+
+- If local inference on supported hardware, a GPU or a fast loopback server, meets the default 30-second deadline in measurement, revisit how the model path is offered; if it never does, revisit keeping it.
+- If common lookups need steps that use earlier steps' results, the independent-steps restriction must be revisited.
+- If clients widely orchestrate tools in code on their side, re-measure whether recall still saves round trips.
 
 ## Validation
 
