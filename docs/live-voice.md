@@ -204,7 +204,7 @@ from any dashboard page, following manual close and error events. Off destroys
 the renderer and releases its microphone/session; on never enables the mic
 automatically. **Float Echo** can also open it. The face floats directly over the
 desktop with transparent pixels, no enclosing card, border or panel; individual
-controls have small backdrops for readability. Drag any non-interactive area, including the head; optionally pin it on top.
+controls have small backdrops for readability. Drag it by the head, the header or the grip; the controls never drag it. Optionally pin it on top. Typing a question works before a conversation starts: sending it starts one and delivers the question once Echo is ready.
 Its position and monitor are restored on normal open and kept inside the available display area. Press
 **Ctrl+Alt+Shift+E** on Windows/Linux or **⌘⌥⇧E** on Mac to bring it to the cursor’s
 display and focus it. The tray’s **Float Echo** action also recalls it if the OS
@@ -306,9 +306,12 @@ Proactor event loops. Electron permissions allow
 only audio on the current owned Voice/companion main frame, denying camera and
 other permission requests except the dashboard's existing same-origin clipboard
 text writes; clipboard reads remain denied. macOS checks OS microphone consent,
-asks only when not determined, and honors denied/restricted status. The app has
-usage text and audio-input/JIT entitlements. Interactive TCC consent and
-signed/notarized packaging require separate validation.
+asks only when not determined, and honors denied/restricted status. The app's
+bundle is signed ad hoc, so its Info.plist and microphone usage text are sealed
+to its identity ([ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md));
+an ad-hoc identity changes with each update, so macOS asks again after one.
+Interactive TCC consent and Developer ID signing/notarization require separate
+validation.
 
 ## Validation and remaining gates
 
