@@ -5,11 +5,34 @@ export type VoicePhase = "idle" | "connecting" | "ready" | "listening" | "thinki
 export type VoicePreparation = { stage: "install" | "download" | "load"; downloaded: number; total: number };
 export type VoiceSnapshot = {
   phase: VoicePhase; detail: string; connected: boolean; microphone: boolean;
+  /** Why the last attempt to turn the microphone on failed; empty otherwise. */
+  microphoneError: string;
   mode: VoiceMode; held: boolean; user: string; answer: string; workspace: string;
   preparation: VoicePreparation | null;
 };
 export const initialVoice: VoiceSnapshot = { phase: "idle", detail: "Ready when you are", connected: false,
-  microphone: false, mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null };
+  microphone: false, microphoneError: "", mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null };
+
+/** Turning the microphone on: opening the device, loading the capture worklet, connecting the graph. */
+export type MicrophoneStep = "device" | "worklet" | "graph";
+
+/** Plain words for a failed microphone step, ending with the browser's own error
+ * name and message. Only a refusal says to check permissions. */
+export function microphoneProblem(step: MicrophoneStep, error: unknown, platform?: string) {
+  const name = error instanceof Error ? error.name : "";
+  const message = error instanceof Error ? error.message : String(error);
+  if (step === "device" && (name === "NotAllowedError" || name === "SecurityError")) {
+    if (platform === "darwin") return "Microphone permission denied. Allow Imprint in System Settings → Privacy & Security → Microphone.";
+    if (platform === "win32") return "Microphone permission denied. Allow microphone access for desktop apps in Windows Settings → Privacy & security.";
+    return "Microphone permission denied. Allow microphone access for this page, then try again.";
+  }
+  const plain = step === "worklet" ? "Microphone audio processing failed to load."
+    : step === "graph" ? "Microphone audio processing failed to start."
+    : name === "NotFoundError" || name === "OverconstrainedError" ? "No microphone found. Connect or turn on a microphone, then try again."
+    : name === "NotReadableError" || name === "AbortError" ? "The microphone couldn't start. Another app may be using it; close that app or choose another input in sound settings."
+    : "The microphone couldn't start.";
+  return `${plain} (${[name, message].filter(Boolean).join(": ") || "no details"})`;
+}
 
 // Adaptive energy VAD, with onset hysteresis, endpoint silence and pre-roll.
 // This is intentionally separate from the acoustic model; see live-voice.md.
@@ -145,14 +168,18 @@ export class VoiceClient {
     if (!this.snapshot.connected || this.stream || this.micPending) return;
     const epoch = this.epoch;
     this.micPending = true;
+    let step: MicrophoneStep = "device";
+    this.update({ microphoneError: "" });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1,
         echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       if (this.stopped || epoch !== this.epoch) { stream.getTracks().forEach(track => track.stop()); return; }
       this.stream = stream;
+      step = "worklet";
       const context = this.context!;
       await context.audioWorklet.addModule("/audio/imprint-capture.js");
       if (this.stopped || epoch !== this.epoch) return;
+      step = "graph";
       this.capture = new AudioWorkletNode(context, "imprint-capture");
       this.capture.port.onmessage = event => this.frame(event.data);
       this.source = context.createMediaStreamSource(stream);
@@ -165,14 +192,8 @@ export class VoiceClient {
       this.stream?.getTracks().forEach(track => track.stop()); this.stream = undefined;
       this.capture?.disconnect(); this.capture?.port.close(); this.capture = undefined;
       this.source?.disconnect(); this.source = undefined; this.silent?.disconnect(); this.silent = undefined;
-      const denied = error instanceof DOMException && error.name === "NotAllowedError";
-      const platform = window.electronAPI?.platform;
-      const detail = denied && platform === "darwin"
-        ? "Microphone permission denied. Allow Imprint in System Settings → Privacy & Security → Microphone."
-        : denied && platform === "win32"
-          ? "Microphone permission denied. Allow microphone access for desktop apps in Windows Settings → Privacy & security."
-          : "Microphone unavailable. Check permissions, or type below.";
-      this.update({ microphone: false, detail });
+      const detail = microphoneProblem(step, error, window.electronAPI?.platform);
+      this.update({ microphone: false, detail, microphoneError: detail });
     } finally {
       if (epoch === this.epoch) this.micPending = false;
     }
@@ -297,6 +318,6 @@ export class VoiceClient {
     void this.context?.close().catch(() => {}); this.context = undefined;
     this.micPending = false; this.question = undefined;
     clearInterval(this.timer); this.timer = undefined; this.gate.reset(); this.heldFrames = [];
-    this.update({ connected: false, microphone: false, held: false, preparation: null, phase: "idle", detail: "Microphone off" });
+    this.update({ connected: false, microphone: false, microphoneError: "", held: false, preparation: null, phase: "idle", detail: "Microphone off" });
   }
 }

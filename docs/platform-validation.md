@@ -602,3 +602,50 @@ Pending native runs: a real Inno Setup update between two releases, an
 interactive installer upgrade over a running Imprint, the macOS `.pkg` handover,
 and the packaged desktop app on each platform after `imprint ui restart` and
 `imprint ui stop`.
+
+## Desktop microphone, relaunch and companion fixes (2026-10-25)
+
+**macOS: Enable microphone crashed the app.** The published v0.22.1
+`imprint-darwin-arm64.tar.gz` was inspected without running anything (its
+checksum matches `SHA256SUMS`). `bin/imprint-ui.app` and its four helper apps
+have no `_CodeSignature/CodeResources`. The main executable's x86_64 slice has
+no code signature, and its arm64 slice has only the linker's ad-hoc signature
+(identifier `Electron`, no Info.plist or resources binding, no entitlements, no
+hardened runtime). `NSMicrophoneUsageDescription` is in `Info.plist` but not
+sealed to the code. `imprint ui open` starts the app through `open -a`, so the
+app is its own TCC-responsible process. [ADR 0052](adr/0052-ad-hoc-signed-macos-desktop-bundle.md)
+signs it ad hoc as a bundle, and release validation now rejects this artifact.
+Pending on a Mac: a release built with the change, `codesign --verify --deep
+--strict` of the installed app, the TCC prompt itself, and the user's crash
+report (`Termination Reason` namespace) to confirm the diagnosis.
+
+**Relaunch without arguments.** The desktop app asks the CLI beside it
+(`imprint ui runtime`) when the OS starts it without `imprint ui open`'s
+arguments. Covered by Go and Electron fixture tests. Pending native runs: macOS
+Reopen after a crash and a Dock launch, a pinned Windows taskbar icon and an
+AppImage started directly.
+
+**Floating companion.** Typing before a conversation, drag handles limited to
+the head, header and grip, recovery from a missed release, and pin state from
+the main process are covered by Playwright specs that fail against the previous
+component. `acceptFirstMouse` (macOS only) still needs a native check.
+
+**Windows: "Microphone unavailable. Check permissions".** Read-only evidence
+from the reporting Windows install: the running v0.22.1 dashboard server serves
+`/audio/imprint-capture.js` as `text/javascript`, but its log has no request for
+that file in any desktop session. The `ConsentStore\microphone\NonPackaged` key
+has no entry for `Imprint.exe` (Chrome and Discord have one). So `getUserMedia`
+rejected before any device opened, and not with `NotAllowedError` (a request
+handler refusal, `PERMISSION_DENIED` in Electron). The running shell was an
+earlier build, extracted before the update: the v0.22.1 shell had yielded to it
+through the single-instance lock. Its permission handlers are the same, and a
+fixture confirms that both handlers grant audio to the voice page and the
+companion on win32. The microphone failure now names the failed step
+(device, capture worklet, audio graph) and the browser's error name and message.
+Only a refusal mentions permissions. The exact Windows cause still needs that
+message from the user's machine.
+
+Executed locally on Linux/WSL2: release-validation unit tests (9, plus a run
+against the extracted v0.22.1 bundle), Go `cmd` and `internal` tests, 34
+Electron unit tests, dashboard type-check/lint and the full Playwright suite
+(83 scenarios).

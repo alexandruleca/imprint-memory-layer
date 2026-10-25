@@ -596,6 +596,8 @@
 .voice-compact .voice-primary-controls { gap: 5px; }
 .voice-compact .voice-primary-controls > button:not(.voice-start) { width: 32px; height: 32px; }
 .voice-compact .voice-privacy { margin: 5px 0; font-size: 9px; line-height: 12px; max-height: 24px; overflow: hidden; }
+/* A failure explains itself in full, even in the small window. */
+.voice-compact .voice-privacy[data-alert] { max-height: none; }
 .voice-compact .voice-text { margin: 5px 0; min-height: 32px; padding: 2px 8px; }
 .voice-compact .voice-text input { min-width: 0; user-select: text; }
 .voice-compact .voice-settings { margin-top: 6px; padding: 4px 8px; gap: 4px; font-size: 9px; }

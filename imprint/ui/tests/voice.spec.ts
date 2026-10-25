@@ -206,6 +206,47 @@ test('dashboard Floating Echo switch reflects native close and stops dashboard v
   await expect(toggle).not.toBeChecked();
 });
 
+test('a microphone that fails to open names the failure; only a refusal mentions permission', async ({ page }) => {
+  await prepare(page);
+  await page.addInitScript(() => {
+    window.electronAPI = { isElectron: true, platform: 'win32', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {} };
+    const failures = [['Could not start audio source', 'NotReadableError'], ['Requested device not found', 'NotFoundError'],
+      ['Permission denied', 'NotAllowedError']];
+    navigator.mediaDevices.getUserMedia = async () => { const [message, name] = failures.shift()!; throw new DOMException(message, name); };
+  });
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  const status = page.locator('.voice-privacy');
+  const enable = page.getByRole('button', { name: 'Enable microphone' });
+  await enable.click();
+  await expect(status).toHaveText("The microphone couldn't start. Another app may be using it; close that app or choose another input in sound settings. (NotReadableError: Could not start audio source)");
+  await enable.click();
+  await expect(status).toHaveText('No microphone found. Connect or turn on a microphone, then try again. (NotFoundError: Requested device not found)');
+  await enable.click();
+  await expect(status).toHaveText('Microphone permission denied. Allow microphone access for desktop apps in Windows Settings → Privacy & security.');
+  // A mode change rewrites the caption, not the explanation.
+  await page.getByRole('button', { name: 'Hands-free', exact: true }).click();
+  await expect(status).toContainText('Microphone permission denied');
+});
+
+test('a capture worklet that fails to load is reported as audio processing, in full in the companion', async ({ page }) => {
+  await prepare(page);
+  // Worklet module fetches bypass page routing; reject the way Chromium does when the fetch fails.
+  await page.addInitScript(() => {
+    AudioWorklet.prototype.addModule = async () => { throw new DOMException("Unable to load a worklet's module.", 'AbortError'); };
+  });
+  await page.setViewportSize({ width: 380, height: 610 });
+  await page.goto('/companion/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('button', { name: 'Enable microphone' }).click();
+  const status = page.locator('.voice-privacy');
+  await expect(status).toHaveText("Microphone audio processing failed to load. (AbortError: Unable to load a worklet's module.)");
+  await expect(status).not.toContainText('permission');
+  expect(await status.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+});
+
 test('push-to-talk captures through AudioWorklet and sends a bounded WAV on release', async ({ page }) => {
   const server = await prepare(page);
   await page.goto('/voice/');

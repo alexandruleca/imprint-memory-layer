@@ -11,7 +11,7 @@ const path = require('node:path');
 // by observable doubles; these do not establish native graphical behavior.
 const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'];
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
-  runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''] } = {}) {
+  runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin' } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -86,7 +86,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     app, BrowserWindow: Window, Tray, Menu: { buildFromTemplate: menu => menu },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false, getSize: () => ({ width: 32, height: 32 }), resize: size => { calls.traySize = size; return { isEmpty: () => false }; } }) },
     shell: { openExternal() {}, openPath() {} }, ipcMain,
-    session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
+    session: { defaultSession: { setPermissionRequestHandler(handler) { calls.request = handler; },
+      setPermissionCheckHandler(handler) { calls.check = handler; } } },
   };
   const shortcuts = new Map();
   electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };
@@ -114,7 +115,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     './voice-permissions': require('./voice-permissions') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },
-    process: { argv: ['electron', ...packaged ? [] : ['main.js'], ...runtimeArgs], platform: 'darwin', env: {},
+    process: { argv: ['electron', ...packaged ? [] : ['main.js'], ...runtimeArgs], platform, env: {},
       execPath: '/opt/imprint/bin/imprint-ui.app/Contents/MacOS/Imprint' },
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
     setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
@@ -250,6 +251,31 @@ test('macOS tray icon is two-thirds size; recovery shortcut restores lost Echo a
   assert.ok(echo.getBounds().x >= 0 && echo.getBounds().y >= 0);
   assert.equal(echo.visible, true);
   h.app.quit(); await settle(); assert.equal(h.shortcuts.size, 0);
+});
+
+test('Windows grants the microphone to both voice windows; request and check handlers agree', async () => {
+  // A refusal by the request handler reaches the page as NotAllowedError; a check
+  // that disagrees would hide devices instead. Both must answer alike.
+  const h = harness({ alreadyUp: true, platform: 'win32' }); await settle();
+  const origin = 'http://127.0.0.1:8420';
+  const dashboard = h.windows[1];
+  dashboard.url = `${origin}/voice/`;
+  await h.invoke('voice-set-companion', dashboard, true);
+  const echo = h.windows[2];
+  const request = (window, details) => new Promise(resolve => h.calls.request(window.webContents, 'media', resolve,
+    { securityOrigin: `${origin}/`, requestingUrl: window.url, isMainFrame: true, ...details }));
+  const check = (window, details, requestingOrigin = window.url) => h.calls.check(window.webContents, 'media', requestingOrigin,
+    { securityOrigin: `${origin}/`, requestingUrl: window.url, isMainFrame: true, embeddingOrigin: '', ...details });
+  for (const window of [dashboard, echo]) {
+    assert.equal(await request(window, { mediaTypes: ['audio'] }), true, window.url);
+    assert.equal(check(window, { mediaType: 'audio' }), true, window.url);
+    assert.equal(check(window, { mediaType: 'audio' }, origin), true, window.url);
+    assert.equal(await request(window, { mediaTypes: ['audio', 'video'] }), false);
+    assert.equal(check(window, { mediaType: 'video' }), false);
+  }
+  dashboard.url = `${origin}/chat/`;
+  assert.equal(await request(dashboard, { mediaTypes: ['audio'] }), false);
+  assert.equal(check(dashboard, { mediaType: 'audio' }), false);
 });
 
 test('cancel during startup prevents service spawn or dashboard opening', async () => {
