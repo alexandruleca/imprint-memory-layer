@@ -149,7 +149,8 @@ TOOLS: dict[str, Tool] = {
     "kg_query": Tool(
         _mcp_server.kg_query,
         "Query the temporal knowledge graph for structured facts (subject -> predicate -> object). "
-        "Use for 'what does X use?', 'what was decided about Y?' and other relationship lookups.",
+        "Use for 'what does X use?', 'what was decided about Y?' and other relationship lookups. "
+        "Each fact starts with its id, fact:<id>.",
         {
             "subject": _param("string", "Entity, partial match"),
             "predicate": _param("string", "Relationship, partial match"),
@@ -221,7 +222,7 @@ TOOLS: dict[str, Tool] = {
     "kg_invalidate": Tool(
         _tool_kg_invalidate,
         "Mark a fact as ended, no longer true.",
-        {"fact_id": _param("integer", "The fact's id")},
+        {"fact_id": _param("integer", "The number in the fact's fact:<id> from kg_query or wake_up")},
         required=("fact_id",),
         writes=True,
     ),

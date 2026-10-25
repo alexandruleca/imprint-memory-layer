@@ -9,6 +9,7 @@ from fastmcp import FastMCP
 from . import config
 from . import imprint_graph as kg
 from . import vectorstore as vs
+from .mcp_output import fact_line
 
 # MCP handshake ``instructions`` — injected into the system prompt by every
 # client that honors it (Claude Desktop, Claude Code, Cursor, etc.). This is
@@ -213,8 +214,7 @@ def wake_up(workspace: str = "") -> str:
     # ── Section 5: Active facts ──
     if facts:
         lines.append("\nActive facts:")
-        for f in facts:
-            lines.append(f"  • {f['subject']} {f['predicate']} {f['object']}")
+        lines.extend("  • " + fact_line(f) for f in facts)
 
     if not lines:
         return "Imprint memory is empty. Use 'store' to add memories and 'imprint index' to index projects."
@@ -591,13 +591,7 @@ def kg_query(subject: str = "", predicate: str = "", limit: int = 20, workspace:
     if not facts:
         return "No facts found."
 
-    lines = []
-    for f in facts:
-        ended = " [ENDED]" if f["ended"] else ""
-        origin = f.get('recorded_device') or {}
-        lines.append(f"  {f['subject']} → {f['predicate']} → {f['object']}{ended} [recorded on {origin.get('name') or 'unknown origin'}]")
-
-    return "\n".join(lines)
+    return "\n".join("  " + fact_line(f) for f in facts)
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
@@ -615,7 +609,7 @@ def kg_edit(
     Args:
         op: "add" (default) or "end"
         subject/predicate/object: Required for op=add
-        fact_id: Required for op=end (from kg_query)
+        fact_id: Required for op=end: N from fact:N in kg_query output
         source: Where fact came from (op=add only)
         workspace: Target workspace (optional)
     """
@@ -624,12 +618,12 @@ def kg_edit(
         return err
     if op == "end":
         if kg.invalidate(fact_id, workspace=ws):
-            return f"Ended fact {fact_id}"
-        return f"Not found or already ended: {fact_id}"
+            return f"Ended fact:{fact_id}"
+        return f"Not found or already ended: fact:{fact_id}"
     if not (subject and predicate and object):
         return "op=add requires subject, predicate, object"
     fid = kg.add(subject=subject, predicate=predicate, object=object, source=source, workspace=ws)
-    return f"Fact [{fid}]: {subject} → {predicate} → {object}"
+    return f"Added fact:{fid} {subject} → {predicate} → {object}"
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True})

@@ -37,6 +37,17 @@ def memory_meta(result: dict, label: str) -> list[str]:
     return meta
 
 
+def fact_line(fact: dict) -> str:
+    """One fact, led by its id: fact:<id> is what kg_edit op="end" (and the
+    chat's kg_invalidate) takes. kg_query, wake_up and recall print it."""
+    line = (f"fact:{fact['id']} {str(fact['subject'])[:256]} → {str(fact['predicate'])[:256]}"
+            f" → {str(fact['object'])[:512]}" + (" [ENDED]" if fact.get("ended") else ""))
+    if fact.get("source"):
+        line += f" | source:{str(fact['source'])[:256]}"
+    origin = fact.get("recorded_device") or {}
+    return line + " | recorded on: " + str(origin.get("name") or "unknown origin")[:128]
+
+
 def expand_hint(memory_id: str, start: int, end: int, total: int) -> str:
     return f'[excerpt chars {start}:{end} of {total}; expand with get_memory("{memory_id}")]'
 

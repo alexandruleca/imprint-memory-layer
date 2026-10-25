@@ -41,5 +41,29 @@ class SharedGraphConnectionTests(unittest.TestCase):
                 kg._close_all()
 
 
+
+class FactIdTests(unittest.TestCase):
+    def test_every_fact_line_carries_the_id_that_ends_it(self):
+        from imprint import chat, server
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(config, 'get_data_dir', return_value=Path(directory)), \
+             patch.dict(kg._conns, clear=True), \
+             patch.object(server, '_validate_ws', return_value=('default', None)), \
+             patch.object(server.vs, 'facet_counts', return_value=[]), \
+             patch.object(server.vs, 'recent_ordered', return_value=[]):
+            try:
+                self.assertEqual(server.kg_edit(subject='api', predicate='uses', object='qdrant', source='notes.md'),
+                                 'Added fact:1 api → uses → qdrant')
+                line = 'fact:1 api → uses → qdrant | source:notes.md | recorded on: '
+                self.assertTrue(server.kg_query(subject='api').startswith('  ' + line))
+                self.assertIn('  • ' + line, server.wake_up())
+                # The chat ends a fact by the id kg_query showed.
+                self.assertEqual(chat._run_tool('kg_invalidate', {'fact_id': 1}, 'default', False), 'Ended fact:1')
+                self.assertEqual(server.kg_query(subject='api'), 'No facts found.')
+                self.assertEqual(server.kg_edit(op='end', fact_id=1), 'Not found or already ended: fact:1')
+            finally:
+                kg._close_all()
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -29,7 +29,7 @@ from pydantic import ConfigDict, ValidationError, create_model
 
 from . import server
 from .config_schema import resolve
-from .mcp_output import compact_search, excerpt, expand_hint, memory_meta
+from .mcp_output import compact_search, excerpt, expand_hint, fact_line, memory_meta
 
 MAX_STEPS = 8
 MIN_WIDTH = 300       # every shown excerpt, as compact search gives each result after the first
@@ -179,12 +179,7 @@ def _parts(item: Item, number: int) -> tuple[str, str, str]:
         total = len(content)
         return " | ".join(memory_meta(record, label)), content, expand_hint(record.get("id", ""), total, total, total)
     if item.kind == "fact":
-        meta = (f"[{number}] fact:{record['id']} {str(record['subject'])[:256]} → {str(record['predicate'])[:256]}"
-                f" → {str(record['object'])[:512]}" + (" [ENDED]" if record.get("ended") else ""))
-        if record.get("source"):
-            meta += f" | source:{str(record['source'])[:256]}"
-        origin = record.get("recorded_device") or {}
-        return meta + " | recorded on: " + str(origin.get("name") or "unknown origin")[:128], "", ""
+        return f"[{number}] " + fact_line(record), "", ""
     meta = [f"[{number}] file:{str(record['source'])[:256]}", f"chunks:{record.get('chunk_count', 0)}"]
     if record.get("project"):
         meta.append(f"project:{str(record['project'])[:128]}")

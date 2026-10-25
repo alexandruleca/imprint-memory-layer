@@ -56,8 +56,8 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 
 | Tool | Purpose |
 |------|---------|
-| `kg_query` | Query temporal facts. Partial-matches `subject` and/or `predicate`. |
-| `kg_edit` | Mutate a fact. `op="add"` requires `subject`/`predicate`/`object`. `op="end"` marks a fact as no longer valid (requires `fact_id`). |
+| `kg_query` | Query temporal facts. Partial-matches `subject` and/or `predicate`. Each line starts with the fact's id, `fact:<id>`, followed by `subject → predicate → object`, its source and the device it was recorded on. Session context (`wake_up`) and `recall` print facts the same way. |
+| `kg_edit` | Mutate a fact. `op="add"` requires `subject`/`predicate`/`object` and answers `Added fact:<id> …`. `op="end"` marks a fact as no longer valid; it requires `fact_id`, the number from `fact:<id>`. |
 
 ### Status
 
