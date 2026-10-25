@@ -8,7 +8,7 @@ description: Build the CLI, dashboard, desktop shell and native installers, with
 ```bash
 make build                         # current platform CLI
 make all                           # five Go targets
-make dashboard-build               # fresh Next.js static export (Node 22+)
+make dashboard-build               # Next.js static export into imprint/ui/out (Node 22+; not tracked, CI and releases build it)
 make chrome-extension-zip           # allowlisted manual-install Chrome ZIP + checksum
 make ui-dist-linux ARCH=amd64       # native shell; arm64 is a separate build
 make ui-dist-mac                    # universal macOS app, on macOS

@@ -31,3 +31,6 @@ imprint/ui/playwright-report/
 .wsl-integrations.txt*
 .wsl-registrations.json*
 uninstall-cleanup.log
+
+# Dashboard static export: CI, releases and the container build it from source (make dashboard-build).
+imprint/ui/out/
