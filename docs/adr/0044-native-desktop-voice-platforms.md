@@ -9,7 +9,7 @@ description: Portable model weights, platform-specific private speech workers an
 - Amends: [ADR 0043](0043-live-voice-and-echo-companion.md) — extends the worker to native Windows and macOS and adds the dashboard toggle, transparent treatment and software 3D rendering
 - Amended by:
   - [ADR 0046](0046-visible-echo-runtime-setup.md) — explicit UI-driven provisioning and a managed default cache; the manual source-build path remains available
-  - [ADR 0047](0047-bundled-private-voice-engine.md) — release archives bundle the native engine and its pinned source archive, so end users need no compiler
+  - [ADR 0047](0047-bundled-private-voice-engine.md) — release archives bundle the native engine and its pinned source archive, so end users need no compiler; linked on restructuring, confirmed by the owner on 2026-10-25
   - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) — its statement that the app includes microphone/JIT entitlements
 - Restructured: 2026-10-25
 

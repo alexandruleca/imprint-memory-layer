@@ -5,7 +5,7 @@ description: Each look's glTF node extras declare gaze, spin and pulse; the head
 
 - Status: Accepted
 - Date: 2026-10-25
-- Amends: [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — replaces the adapted anime head with a generated core as Echo's look; the desktop controls are unchanged
+- Amends: [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — replaces the adapted anime head with a generated core as Echo's look; the desktop controls are unchanged; linked on restructuring, confirmed by the owner on 2026-10-25
 - Restructured: 2026-10-25
 
 ## Context

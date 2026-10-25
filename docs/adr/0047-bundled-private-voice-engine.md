@@ -6,7 +6,7 @@ description: Native release engines remove the end-user compiler requirement whi
 - Status: Accepted
 - Date: 2026-10-24
 - Amends:
-  - [ADR 0044](0044-native-desktop-voice-platforms.md) — ships the engine and its pinned source archive in release archives, where ADR 0044 kept source caches as optional developer installs
+  - [ADR 0044](0044-native-desktop-voice-platforms.md) — ships the engine and its pinned source archive in release archives, where ADR 0044 kept source caches as optional developer installs; linked on restructuring, confirmed by the owner on 2026-10-25
   - [ADR 0046](0046-visible-echo-runtime-setup.md) — its release-time prerequisite/build policy; its download, consent and cancellation policy remains in force
 - Restructured: 2026-10-25
 

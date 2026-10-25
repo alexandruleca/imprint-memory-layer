@@ -6,7 +6,7 @@ description: One heavy job runs at a time per data directory; the Go CLI and the
 - Status: Accepted
 - Date: 2026-04-19
 - Recorded: 2026-10-25
-- Retrospective: reconstructed from code, docs and git history: `imprint/queue.py`, `imprint/queue_lock.py`, `internal/queuelock/`, `cmd/queuelock.go`, `docs/queue.md`, the inline rationale this record replaces in `docs/architecture.md`, and commits f99e9fa (the queue and lock) and d080e89 (Python's Windows lock)
+- Retrospective: reconstructed from code, docs and git history: `imprint/queue.py`, `imprint/queue_lock.py`, `internal/queuelock/`, `cmd/queuelock.go`, `docs/queue.md`, the inline rationale this record replaces in `docs/architecture.md`, and commits f99e9fa (the queue and lock) and d080e89 (Python's Windows lock); and the owner's confirmation on 2026-10-25 that the behavior recorded here is intended
 - Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) (queued jobs keep their workspace; Go/Python lock interoperability tests), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (Qdrant's first start has its own lock), [ADR 0015](0015-workspace-roots-and-source-purge.md) (purge shares the lock), [ADR 0023](0023-update-by-installation-type.md) (update takes the lock), [ADR 0029](0029-paired-browser-capture.md) (browser capture jobs), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) (Commands page catalog; jobs get no standard input), [ADR 0063](0063-auto-spawned-local-qdrant-server.md) (concurrent access to the store itself)
 
 ## Context
@@ -40,7 +40,7 @@ No other alternative evaluation was recorded.
 - The lock is advisory. Work that does not take it, such as MCP reads and writes, hook summaries, search and chat, runs alongside a job and shares Qdrant (ADR 0063).
 - A job started in a terminal holds the lock without a queue row; the dashboard shows it as the active job from the lock file and the progress file.
 - The two implementations must keep excluding each other on every platform; an interoperability test guards this.
-- `docs/architecture.md` and `docs/queue.md` described the CLI as exiting nonzero when the lock is held, and `docs/architecture.md` described the dispatcher as waiting on the lock itself. The code has behaved as described here since f99e9fa; those pages are corrected with this record.
+- `docs/architecture.md` and `docs/queue.md` described the CLI as exiting nonzero when the lock is held, and `docs/architecture.md` described the dispatcher as waiting on the lock itself. The code has behaved as described here since f99e9fa, and the owner confirmed on 2026-10-25 that this is the intended behavior: a CLI command that finds the lock held hands its job to the dashboard's queue or waits, exits nonzero only with `IMPRINT_QUEUE_NO_WAIT=1`, and the dispatcher never holds the lock. The docs were wrong, not the code; those pages are corrected with this record.
 
 ## Invalidation conditions
 

@@ -6,7 +6,7 @@ description: A modeled anime hologram, viewport-fitting controls and a draggable
 - Status: Amended
 - Date: 2026-10-24
 - Amends: [ADR 0043](0043-live-voice-and-echo-companion.md) — replaces its MediaPipe particle asset; voice/session boundaries are unchanged
-- Amended by: [ADR 0054](0054-echo-looks-declare-their-motion.md) — Echo's look is now a generated core; the adapted anime head is removed
+- Amended by: [ADR 0054](0054-echo-looks-declare-their-motion.md) — Echo's look is now a generated core; the adapted anime head is removed; linked on restructuring, confirmed by the owner on 2026-10-25
 - Related: [ADR 0025](0025-desktop-owned-background-service.md), [ADR 0044](0044-native-desktop-voice-platforms.md)
 - Restructured: 2026-10-25
 
