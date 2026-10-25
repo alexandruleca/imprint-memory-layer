@@ -8,11 +8,12 @@ Follow [AGENTS.md](AGENTS.md). Keep docs current and add an ADR for significant 
 
 Store durable decisions with their reasons. A successful MCP `store` response means persistence completed; errors are visible. Use explicit workspace/project filters when context must stay isolated.
 
-## MCP Tools (14 total)
+## MCP Tools (17 total)
 
 | Tool | Purpose |
 |------|---------|
 | `search` | Hybrid search with bounded excerpts, semantic-only option and provenance. |
+| `recall` | Several read steps (search/get_memory/neighbors/file_chunks/file_summary/list_sources/kg_query) in one call: concurrent, merged by id, one budget. Without a plan = `search`. Optional local model (`recall.llm`) plans and answers with citations (ADR 0058). |
 | `graph_scope` | Navigate projects/topics/sources/chunks as a graph |
 | `neighbors` | KNN over embeddings for one memory id |
 | `get_memory` | Read one memory by public ID; content bounded to 12,000 characters |
@@ -26,6 +27,8 @@ Store durable decisions with their reasons. A successful MCP `store` response me
 | `file_chunks` | Chunks of a file by index range |
 | `ingest_url` | Fetch + chunk + store a URL |
 | `ingest_content` | Chunk + store an inline blob (text/markdown/csv/json/`code:<lang>`). Dedup + replace by `name`. |
+| `purge_sources` | Preview, then (apply=True) purge a file/directory from one workspace and exclude re-ingestion |
+| `device_context` | Current device, working directory and approved roots |
 
 `wake_up` is internal — `search` auto-loads session context on first call.
 `refresh_urls` is CLI-only (`imprint refresh-urls`).
@@ -50,7 +53,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 
 `imprint config set <key> <value>` — persists to `data/config.json`. Precedence: env var > config.json > default. `imprint config` shows all.
 
-Key settings: `model.name`, `model.dim`, `model.device`, `qdrant.host/port`, `chunker.overlap/size_code/size_prose/hard_max`, `tagger.llm/llm_provider/llm_model`. Env vars `IMPRINT_*` take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` are env-only.
+Key settings: `model.name`, `model.dim`, `model.device`, `qdrant.host/port`, `chunker.overlap/size_code/size_prose/hard_max`, `tagger.llm/llm_provider/llm_model`, `recall.llm/llm_timeout_sec`. Env vars `IMPRINT_*` take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` are env-only.
 
 ## Project Detection
 

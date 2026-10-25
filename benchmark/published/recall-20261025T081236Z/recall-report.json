@@ -1,0 +1,1361 @@
+{
+  "schemaVersion": 1,
+  "tasks": 8,
+  "repeats": 5,
+  "coldModelLoadAndFirstQueryMs": 1276.5588570036925,
+  "localModel": {
+    "file": "Qwen3.5-4B-Q4_K_M.gguf",
+    "loadMs": 6950.852882000618,
+    "device": "cpu",
+    "threads": 4,
+    "timeoutsSeconds": [
+      600,
+      30
+    ]
+  },
+  "totals": {
+    "sequential": {
+      "roundTrips": 21,
+      "argumentTokens": 508,
+      "resultTokens": 18780,
+      "resultChars": 61927,
+      "serverMs": 1661.8555370077956,
+      "goldVisible": 23,
+      "goldTotal": 26,
+      "callerTokens": 19288
+    },
+    "recall_plan": {
+      "roundTrips": 8,
+      "argumentTokens": 845,
+      "resultTokens": 9836,
+      "resultChars": 31915,
+      "serverMs": 1358.737653994467,
+      "goldVisible": 21,
+      "goldTotal": 26,
+      "callerTokens": 10681
+    },
+    "recall_plan_matched": {
+      "roundTrips": 8,
+      "argumentTokens": 918,
+      "resultTokens": 17704,
+      "resultChars": 58895,
+      "serverMs": 1342.2317430231487,
+      "goldVisible": 24,
+      "goldTotal": 26,
+      "callerTokens": 18622
+    },
+    "recall_intent_off": {
+      "roundTrips": 8,
+      "argumentTokens": 292,
+      "resultTokens": 8663,
+      "resultChars": 28445,
+      "serverMs": 1193.2620750012575,
+      "goldVisible": 17,
+      "goldTotal": 26,
+      "callerTokens": 8955
+    },
+    "recall_intent_on_600s": {
+      "roundTrips": 8,
+      "argumentTokens": 292,
+      "resultTokens": 4994,
+      "resultChars": 15949,
+      "serverMs": 838196.8249540078,
+      "goldVisible": 15,
+      "goldTotal": 26,
+      "callerTokens": 5286
+    },
+    "recall_plan_on_600s": {
+      "roundTrips": 8,
+      "argumentTokens": 845,
+      "resultTokens": 4930,
+      "resultChars": 15687,
+      "serverMs": 574389.310508006,
+      "goldVisible": 17,
+      "goldTotal": 26,
+      "callerTokens": 5775
+    },
+    "recall_intent_on_30s": {
+      "roundTrips": 8,
+      "argumentTokens": 292,
+      "resultTokens": 9079,
+      "resultChars": 29958,
+      "serverMs": 248052.46547301067,
+      "goldVisible": 18,
+      "goldTotal": 26,
+      "callerTokens": 9371
+    },
+    "recall_plan_on_30s": {
+      "roundTrips": 8,
+      "argumentTokens": 845,
+      "resultTokens": 9377,
+      "resultChars": 30157,
+      "serverMs": 233362.08714901295,
+      "goldVisible": 21,
+      "goldTotal": 26,
+      "callerTokens": 10222
+    }
+  },
+  "rows": [
+    {
+      "task": "queue-and-reference",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 4,
+      "argumentTokens": 85,
+      "resultTokens": 1816,
+      "resultChars": 6078,
+      "serverMs": 171.89968698949087,
+      "goldVisible": [
+        "docs/queue.md",
+        "imprint/queue_lock.py",
+        "reference/session-notes.md",
+        "reference/worker.py"
+      ]
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 129,
+      "resultTokens": 1165,
+      "resultChars": 3985,
+      "serverMs": 140.54415900318418,
+      "goldVisible": [
+        "docs/queue.md",
+        "imprint/queue.py",
+        "imprint/queue_lock.py",
+        "reference/session-notes.md",
+        "reference/worker.py"
+      ]
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 138,
+      "resultTokens": 1846,
+      "resultChars": 6056,
+      "serverMs": 134.56142900395207,
+      "goldVisible": [
+        "docs/queue.md",
+        "imprint/queue.py",
+        "imprint/queue_lock.py",
+        "reference/session-notes.md",
+        "reference/worker.py"
+      ]
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 37,
+      "resultTokens": 1238,
+      "resultChars": 3862,
+      "serverMs": 158.08294399175793,
+      "goldVisible": [
+        "docs/queue.md",
+        "reference/worker.py"
+      ]
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 2,
+      "argumentTokens": 49,
+      "resultTokens": 2083,
+      "resultChars": 7106,
+      "serverMs": 258.9159129856853,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md",
+        "docs/sync.md"
+      ]
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 92,
+      "resultTokens": 1250,
+      "resultChars": 3988,
+      "serverMs": 206.77275200432632,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md"
+      ]
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 101,
+      "resultTokens": 2107,
+      "resultChars": 7092,
+      "serverMs": 199.81560700398404,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md",
+        "docs/sync.md"
+      ]
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 38,
+      "resultTokens": 1046,
+      "resultChars": 3566,
+      "serverMs": 152.04045399150345,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md"
+      ]
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 2,
+      "argumentTokens": 46,
+      "resultTokens": 2027,
+      "resultChars": 6956,
+      "serverMs": 246.44216999877244,
+      "goldVisible": [
+        "docs/adr/0015-workspace-roots-and-source-purge.md",
+        "docs/workspaces.md"
+      ]
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 91,
+      "resultTokens": 1196,
+      "resultChars": 3993,
+      "serverMs": 205.75249000103213,
+      "goldVisible": [
+        "docs/workspaces.md"
+      ]
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 100,
+      "resultTokens": 2156,
+      "resultChars": 6944,
+      "serverMs": 201.08501400682144,
+      "goldVisible": [
+        "docs/adr/0015-workspace-roots-and-source-purge.md",
+        "docs/workspaces.md"
+      ]
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 40,
+      "resultTokens": 992,
+      "resultChars": 3482,
+      "serverMs": 152.69597301085014,
+      "goldVisible": [
+        "docs/adr/0015-workspace-roots-and-source-purge.md",
+        "docs/workspaces.md"
+      ]
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 3,
+      "argumentTokens": 69,
+      "resultTokens": 2158,
+      "resultChars": 7369,
+      "serverMs": 262.7166990132537,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md",
+        "imprint/device.py"
+      ]
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 114,
+      "resultTokens": 1132,
+      "resultChars": 3993,
+      "serverMs": 208.01079999364447,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md",
+        "imprint/device.py"
+      ]
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 123,
+      "resultTokens": 2080,
+      "resultChars": 7354,
+      "serverMs": 208.46069300023373,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md",
+        "imprint/device.py"
+      ]
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 39,
+      "resultTokens": 1000,
+      "resultChars": 3565,
+      "serverMs": 154.48525999090634,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md"
+      ]
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 3,
+      "argumentTokens": 79,
+      "resultTokens": 3327,
+      "resultChars": 10738,
+      "serverMs": 238.66200100746937,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ]
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 125,
+      "resultTokens": 1334,
+      "resultChars": 3991,
+      "serverMs": 192.2472150035901,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ]
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 135,
+      "resultTokens": 3252,
+      "resultChars": 10720,
+      "serverMs": 191.23661100456957,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ]
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 40,
+      "resultTokens": 1163,
+      "resultChars": 3441,
+      "serverMs": 158.779035002226,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ]
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 2,
+      "argumentTokens": 45,
+      "resultTokens": 2083,
+      "resultChars": 7094,
+      "serverMs": 229.1514029930113,
+      "goldVisible": [
+        "docs/adr/0014-main-only-release-packaging.md",
+        "docs/building.md",
+        "docs/security-scanning.md"
+      ]
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 81,
+      "resultTokens": 1256,
+      "resultChars": 3985,
+      "serverMs": 196.32547699438874,
+      "goldVisible": [
+        "docs/adr/0014-main-only-release-packaging.md",
+        "docs/building.md"
+      ]
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 90,
+      "resultTokens": 2197,
+      "resultChars": 7070,
+      "serverMs": 196.89557800302282,
+      "goldVisible": [
+        "docs/adr/0014-main-only-release-packaging.md",
+        "docs/building.md",
+        "docs/security-scanning.md"
+      ]
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 31,
+      "resultTokens": 1042,
+      "resultChars": 3539,
+      "serverMs": 134.73056300426833,
+      "goldVisible": [
+        "docs/adr/0014-main-only-release-packaging.md",
+        "docs/building.md",
+        "docs/security-scanning.md"
+      ]
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 2,
+      "argumentTokens": 47,
+      "resultTokens": 2467,
+      "resultChars": 7274,
+      "serverMs": 246.84426801104564,
+      "goldVisible": [
+        "docs/chunking.md",
+        "docs/tagging.md",
+        "imprint/chunker.py",
+        "imprint/tagger.py"
+      ]
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 89,
+      "resultTokens": 1365,
+      "resultChars": 3990,
+      "serverMs": 200.5909099971177,
+      "goldVisible": [
+        "docs/chunking.md",
+        "docs/tagging.md",
+        "imprint/chunker.py",
+        "imprint/tagger.py"
+      ]
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 98,
+      "resultTokens": 2434,
+      "resultChars": 7250,
+      "serverMs": 199.0730480029015,
+      "goldVisible": [
+        "docs/chunking.md",
+        "docs/tagging.md",
+        "imprint/chunker.py",
+        "imprint/tagger.py"
+      ]
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 37,
+      "resultTokens": 1065,
+      "resultChars": 3399,
+      "serverMs": 150.30060900608078,
+      "goldVisible": [
+        "docs/tagging.md",
+        "imprint/tagger.py"
+      ]
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "sequential",
+      "repeats": 5,
+      "roundTrips": 3,
+      "argumentTokens": 88,
+      "resultTokens": 2819,
+      "resultChars": 9312,
+      "serverMs": 7.2233960090670735,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ]
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_plan",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 124,
+      "resultTokens": 1138,
+      "resultChars": 3990,
+      "serverMs": 8.493850997183472,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ]
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_plan_matched",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 133,
+      "resultTokens": 1632,
+      "resultChars": 6409,
+      "serverMs": 11.10376299766358,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ]
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_intent_off",
+      "repeats": 5,
+      "roundTrips": 1,
+      "argumentTokens": 30,
+      "resultTokens": 1117,
+      "resultChars": 3591,
+      "serverMs": 132.1472370036645,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ]
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 37,
+      "resultTokens": 485,
+      "resultChars": 1538,
+      "serverMs": 35402.95395499561,
+      "goldVisible": [
+        "docs/queue.md",
+        "reference/session-notes.md"
+      ],
+      "planSeconds": 10.7,
+      "answerSeconds": 24.4,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"How does Imprint keep two ingest jobs from running at once, and how does the re) \u2192 5 results",
+        "2. search(query=\"Imprint ingest jobs concurrency limit\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"reference project queue work mechanism\", project=\"reference\") \u2192 2 results"
+      ],
+      "answer": "Imprint prevents two ingest jobs from running simultaneously by serializing them with a **shared single-slot queue** to avoid Out-Of-Memory (OOM) errors on workstations [1]. The reference project queues its work using a **background thread and an in-memory FIFO Queue** [5]. Unlike Imprint's queue, the reference project's queue lacks a process-shared lock and is not durable [5]."
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 129,
+      "resultTokens": 734,
+      "resultChars": 2431,
+      "serverMs": 25393.918489993666,
+      "goldVisible": [
+        "docs/queue.md",
+        "imprint/queue.py",
+        "imprint/queue_lock.py",
+        "reference/session-notes.md",
+        "reference/worker.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 25.2,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"process-shared queue lock prevents simultaneous ingestion\", project=\"imprint\") \u2192 5 results",
+        "2. search(query=\"background FIFO Thread Queue\", project=\"reference\") \u2192 2 results",
+        "3. kg_query(subject=\"imprint\") \u2192 1 result",
+        "4. kg_query(subject=\"reference\") \u2192 1 result"
+      ],
+      "answer": "Imprint prevents two ingest jobs from running simultaneously by using a shared single-slot queue gated by a process-shared advisory flock on `data/queue.lock` [1][3][5]. This lock serializes heavy commands across both the Go CLI and FastAPI dispatcher [5].\n\nThe reference project queues work differently: it uses a background thread and an in-memory FIFO Queue without any process-shared lock or durability [2][4][6]. Consequently, the reference implementation lacks the cross-process synchronization mechanisms found in Imprint [3]."
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 38,
+      "resultTokens": 538,
+      "resultChars": 1804,
+      "serverMs": 37060.910400003195,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md"
+      ],
+      "planSeconds": 11.1,
+      "answerSeconds": 25.6,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"Why must an embedding model change create a new index, and can peer sync import) \u2192 5 results",
+        "2. search(query=\"embedding model change new index\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"peer sync import vectors different embedding model\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": "An embedding model change requires a new index because existing vectors cannot be converted between different models, and workspace migration only copies vectors without conversion [1][2]. Peer sync cannot import vectors made by a different embedding model because the system preserves vector IDs and does not support cross-model conversion [1][2].\n\nThe evidence does not explicitly state whether peer sync can import vectors from a different model, but it confirms that model changes necessitate rebuilding in a fresh workspace or using an explicitly backed-up/wiped collection [2]."
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 92,
+      "resultTokens": 621,
+      "resultChars": 1975,
+      "serverMs": 26620.774445997085,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 26.4,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"model change must create a new index instead of reusing vectors\") \u2192 5 results",
+        "2. search(query=\"peer sync precomputed vectors embedding profile must match\") \u2192 5 results"
+      ],
+      "answer": "An embedding model change requires a new index because existing vectors may have incorrect pooling, prompts, or stale caches, and simply changing model names leaves these artifacts invalid [3]. The code enforces this by raising an error if the vector profile identity mismatches the new configuration, mandating a reindex on the source [2]. Peer sync cannot import vectors made by a different embedding model because the system requires rebuilding in a fresh workspace or wiping the collection to bypass old vector IDs and ensure consistency [5]."
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 40,
+      "resultTokens": 663,
+      "resultChars": 2114,
+      "serverMs": 36954.75412199448,
+      "goldVisible": [
+        "docs/workspaces.md"
+      ],
+      "planSeconds": 11.2,
+      "answerSeconds": 25.4,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"How does queued ingest stay in its original workspace after a dashboard switch,) \u2192 5 results",
+        "2. search(query=\"queued ingest workspace retention\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"purge preview file deletion behavior\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": "Queued ingest stays in its original workspace because new jobs capture the `IMPRINT_WORKSPACE` at submission, preventing later dashboard switches from redirecting them [2][5].\n\nPurge preview avoids deleting original files by first obtaining user confirmation before applying changes [3]. The purge operation only removes indexed chunks and source-linked graph facts from the target workspace, leaving original files and other workspaces intact [4]."
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 91,
+      "resultTokens": 666,
+      "resultChars": 2186,
+      "serverMs": 27643.201113998657,
+      "goldVisible": [
+        "docs/workspaces.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 27.4,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"queued ingest keeps its original workspace after a dashboard switch\") \u2192 5 results",
+        "2. search(query=\"preview directory cleanup without deleting the original files\") \u2192 5 results"
+      ],
+      "answer": "Queued ingest stays in its original workspace because new submissions store the workspace in the job body as `_workspace`, and the dispatcher pins `IMPRINT_WORKSPACE` in the child process, preventing dashboard switches from redirecting already queued jobs [5]. Additionally, CLI ingestion captures the workspace before waiting or queuing [1].\n\nA purge preview avoids deleting original files because purge only removes indexed chunks and source-linked graph facts from the target workspace, leaving original files and other workspaces intact [2]. The `apply` operation further ensures original files and backup files remain untouched [4]."
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 39,
+      "resultTokens": 613,
+      "resultChars": 2081,
+      "serverMs": 44541.546904001734,
+      "goldVisible": [
+        "docs/devices.md"
+      ],
+      "planSeconds": 17.3,
+      "answerSeconds": 26.8,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"How does Imprint remember which device recorded a memory, and how is a foreign ) \u2192 5 results",
+        "2. search(query=\"device recorded memory Imprint\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"foreign Windows project path mapped Linux checkout\", project=\"imprint\") \u2192 5 results",
+        "4. search(query=\"Windows path Linux checkout mapping Imprint\", project=\"reference\") \u2192 2 results",
+        "5. kg_query(subject=\"Imprint\", predicate=\"maps\") \u2192 no results"
+      ],
+      "answer": "Imprint remembers the recording device by storing a stable device ID, hostname, OS, and recorded time in new memories, while old legacy records show \"Unknown origin\" [2]. Foreign Windows project paths are mapped into a Linux checkout by treating them as references rather than local files; they are not re-fetched or treated as local files, preserving provenance without requiring re-embedding [2][4]. The system ensures imported URLs are not re-fetched and refreshes only follow paths the device originally recorded [1]."
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 114,
+      "resultTokens": 585,
+      "resultChars": 1988,
+      "serverMs": 35848.30384601082,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md",
+        "imprint/device.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 35.6,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"remember where a memory was recorded without filtering retrieval by device\") \u2192 5 results",
+        "2. search(query=\"map a foreign Windows project path into a verified Linux checkout\") \u2192 5 results",
+        "3. file_summary(source=\"imprint/device.py\") \u2192 1 result"
+      ],
+      "answer": "Imprint remembers the recording device via **device metadata** stored in memories, which describes the origin without filtering retrieval [1]. For mapping foreign Windows paths to Linux checkouts, Imprint uses a **workspace-scoped local project mapping** stored in the policy registry [5]. The system resolves relative paths under this mapped root and the current process working directory while rejecting traversal escapes [5]. Original paths are kept as references, and retrieval includes context like the current device and original path status [4]."
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 40,
+      "resultTokens": 618,
+      "resultChars": 2004,
+      "serverMs": 57144.139884010656,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ],
+      "planSeconds": 14.4,
+      "answerSeconds": 42.3,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"Why does Imprint run Qdrant as an HTTP daemon instead of embedded storage, and ) \u2192 5 results",
+        "2. search(query=\"Imprint Qdrant HTTP daemon embedded storage\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"Imprint startup race condition avoidance\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": "Imprint runs Qdrant as an HTTP daemon because embedded mode pins a filesystem lock and rejects second clients, which conflicts with concurrent tools like Claude Code and `imprint ingest` [3]. This allows unlimited concurrent readers and internal write serialization [4].\n\nStartup avoids race conditions by using `subprocess.Popen` with `start_new_session=True` to spawn a separate process after downloading the binary [1]. The `qdrant_runner.py` script manages this lifecycle, ensuring the daemon starts independently before other components connect via HTTP [4]."
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 125,
+      "resultTokens": 711,
+      "resultChars": 2215,
+      "serverMs": 176132.42821399763,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 175.7,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"Qdrant HTTP daemon instead of embedded storage\") \u2192 5 results",
+        "2. search(query=\"Qdrant startup concurrent process race lock\") \u2192 5 results",
+        "3. file_chunks(source=\"imprint/qdrant_runner.py\", end=1) \u2192 2 results"
+      ],
+      "answer": "Imprint runs Qdrant as an HTTP daemon to support unlimited concurrent connections, requiring a resident process and binary download [2]. It avoids embedded storage by spawning a separate process via `subprocess.Popen` with `start_new_session=True`, ensuring the daemon survives the parent process termination [1]. Startup avoids race conditions by serializing initialization across CLI, API, and MCP processes using a lock file (`qdrant-start.lock`) [4]. The system waits for the `/readyz` endpoint to return a 200 status (timeout: 30s) before proceeding, confirming the daemon is alive [3]."
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 31,
+      "resultTokens": 573,
+      "resultChars": 1742,
+      "serverMs": 511943.0723760015,
+      "goldVisible": [
+        "docs/building.md",
+        "docs/security-scanning.md"
+      ],
+      "planSeconds": 172.2,
+      "answerSeconds": 335.5,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"Which ref may build release artifacts, and how do nightly Trivy findings fail C) \u2192 5 results",
+        "2. search(query=\"release artifacts build\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"nightly Trivy CI failure\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": "The **Build release artifacts** manual workflow on main builds release artifacts but does not publish them [2]. Nightly Trivy findings fail CI because the workflow enforces a failure threshold using `--exit-code 1` when HIGH or CRITICAL severity findings are present [5]. The scan runs daily at 01:23 UTC on the default branch [3]."
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 81,
+      "resultTokens": 567,
+      "resultChars": 1690,
+      "serverMs": 202202.25568499882,
+      "goldVisible": [
+        "docs/building.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 197.1,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"which ref is allowed to build release artifacts\") \u2192 5 results",
+        "2. search(query=\"nightly Trivy high critical findings fail CI\") \u2192 5 results"
+      ],
+      "answer": "The \"Build release artifacts\" manual workflow on main may build release artifacts [3]. Nightly Trivy findings fail CI because existing high/critical findings can make the first run fail [2]. The ADR confirms that scheduled repository security checks are intended to have visible findings that trigger failures [4]."
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 37,
+      "resultTokens": 724,
+      "resultChars": 2113,
+      "serverMs": 66281.85709299578,
+      "goldVisible": [
+        "docs/chunking.md",
+        "docs/tagging.md",
+        "imprint/tagger.py"
+      ],
+      "planSeconds": 20.9,
+      "answerSeconds": 44.0,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"How are code and prose split into chunks, and what are the tag sources from det) \u2192 5 results",
+        "2. search(query=\"code prose chunk split\") \u2192 5 results",
+        "3. search(query=\"deterministic metadata tags\") \u2192 5 results",
+        "4. search(query=\"LLM tags source\") \u2192 5 results",
+        "5. search(query=\"code prose chunking strategy\") \u2192 5 results"
+      ],
+      "answer": "Code chunks use Chonkie's tree-sitter CodeChunker, while prose uses SemanticChunker with sliding overlap [3]. Code splits at logic changes; prose uses `IMPRINT_CHUNK_SIZE_PROSE` (6000 chars) [2].\n\nTag sources follow five layers: 1) deterministic metadata (lang/layer/kind) from file paths [4]; 2) keyword dictionaries [4]; 3) zero-shot classification [4]; 4) LLM refinement [1]; 5) optional topic shifts [2]."
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 89,
+      "resultTokens": 571,
+      "resultChars": 1728,
+      "serverMs": 55452.03906200186,
+      "goldVisible": [
+        "docs/chunking.md",
+        "docs/tagging.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 55.0,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"code and prose split into overlapping chunks tree-sitter semantic\") \u2192 5 results",
+        "2. search(query=\"tag sources deterministic keyword zero-shot LLM\") \u2192 5 results"
+      ],
+      "answer": "Code and prose are split using Imprint's Chonkie (tree-sitter) for code and SemanticChunker for prose. Sizes target 4000 chars for code and 6000 for prose, with an 8000 char hard max and 400 char overlap [3].\n\nTag sources include deterministic metadata (file extension, language, path, layer, kind), keyword regex matching for domains, zero-shot cosine similarity against label prototypes, and optional LLM tagging which replaces the previous three methods [2][4]."
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_intent_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 30,
+      "resultTokens": 780,
+      "resultChars": 2553,
+      "serverMs": 48867.590220004786,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ],
+      "planSeconds": 19.4,
+      "answerSeconds": 28.3,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"Show the full evidence for how encrypted sync rejects tampered or replayed fram) \u2192 5 results",
+        "2. search(query=\"encrypted sync rejects tampered frames\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"encrypted sync rejects replayed frames\", project=\"imprint\") \u2192 5 results",
+        "4. search(query=\"encrypted sync tampered frames evidence\", project=\"imprint\") \u2192 5 results",
+        "5. search(query=\"encrypted sync replayed frames evidence\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": "The provided evidence does not explain how encrypted sync rejects tampered or replayed frames.\n\nEvidence [1] and [4] discuss display formatting and share code generation but omit integrity verification mechanisms. Evidence [2] and [3] confirm that Protocol 2 uses end-to-end encryption with SPAKE2 and AES-256-GCM, which inherently prevents tampering and replay attacks through authentication tags. However, the specific logic for rejecting these corrupted frames is not detailed in the excerpts.\n\nTherefore, the evidence does not answer the question."
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_plan_on_600s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 124,
+      "resultTokens": 475,
+      "resultChars": 1474,
+      "serverMs": 25096.389651007485,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 25.1,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. get_memory(memory_id=\"dbb724dc658cf9d0\") \u2192 1 result",
+        "2. get_memory(memory_id=\"bffdba275efc7250\") \u2192 1 result",
+        "3. get_memory(memory_id=\"0d1f4558a5383030\") \u2192 1 result"
+      ],
+      "answer": "Evidence [1] states that ES-256-GCM uses the frame count as a nonce, ensuring that altered, dropped, replayed, or reordered frames fail to open and stop the session. It further notes that nothing from a failed stream is stored. Evidence [3] confirms this by listing \"altered, dropped, replayed and injected frames\" as specific test cases run against the protocol to validate integrity. Together, these items demonstrate the rejection mechanism."
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 37,
+      "resultTokens": 1218,
+      "resultChars": 3990,
+      "serverMs": 30003.322860007756,
+      "goldVisible": [
+        "docs/queue.md",
+        "reference/session-notes.md",
+        "reference/worker.py"
+      ],
+      "planSeconds": 11.2,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"How does Imprint keep two ingest jobs from running at once, and how does the re) \u2192 5 results",
+        "2. search(query=\"Imprint ingest jobs concurrency limit\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"reference project queue work mechanism\", project=\"reference\") \u2192 2 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "queue-and-reference",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 129,
+      "resultTokens": 698,
+      "resultChars": 2230,
+      "serverMs": 23332.76888600085,
+      "goldVisible": [
+        "docs/queue.md",
+        "imprint/queue.py",
+        "imprint/queue_lock.py",
+        "reference/session-notes.md",
+        "reference/worker.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": 23.1,
+      "answered": true,
+      "notes": [],
+      "planLines": [
+        "1. search(query=\"process-shared queue lock prevents simultaneous ingestion\", project=\"imprint\") \u2192 5 results",
+        "2. search(query=\"background FIFO Thread Queue\", project=\"reference\") \u2192 2 results",
+        "3. kg_query(subject=\"imprint\") \u2192 1 result",
+        "4. kg_query(subject=\"reference\") \u2192 1 result"
+      ],
+      "answer": "Imprint prevents two ingest jobs from running simultaneously by using a shared single-slot queue gated by a process-shared advisory flock on `data/queue.lock` [1][3][5]. The reference project queues work differently; it employs a background thread and an in-memory FIFO Queue without any process-shared lock or durability [2][4][6]."
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 38,
+      "resultTokens": 1204,
+      "resultChars": 3993,
+      "serverMs": 30006.34353599162,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md"
+      ],
+      "planSeconds": 11.4,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"Why must an embedding model change create a new index, and can peer sync import) \u2192 5 results",
+        "2. search(query=\"embedding model change new index\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"peer sync import vectors different embedding model\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "model-change-and-sync",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 92,
+      "resultTokens": 1252,
+      "resultChars": 3986,
+      "serverMs": 30004.164896992734,
+      "goldVisible": [
+        "docs/adr/0010-qwen-defaults-and-explicit-reindex.md",
+        "docs/embeddings.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"model change must create a new index instead of reusing vectors\") \u2192 5 results",
+        "2. search(query=\"peer sync precomputed vectors embedding profile must match\") \u2192 5 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 40,
+      "resultTokens": 1014,
+      "resultChars": 3565,
+      "serverMs": 30632.66597900656,
+      "goldVisible": [
+        "docs/adr/0015-workspace-roots-and-source-purge.md",
+        "docs/workspaces.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model could not plan (timed out after 30 s); ran the question as one search."
+      ],
+      "planLines": [],
+      "answer": ""
+    },
+    {
+      "task": "workspace-pin-and-purge",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 91,
+      "resultTokens": 1200,
+      "resultChars": 3991,
+      "serverMs": 30003.74098001339,
+      "goldVisible": [
+        "docs/workspaces.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"queued ingest keeps its original workspace after a dashboard switch\") \u2192 5 results",
+        "2. search(query=\"preview directory cleanup without deleting the original files\") \u2192 5 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 39,
+      "resultTokens": 1022,
+      "resultChars": 3648,
+      "serverMs": 30552.026653997018,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model could not plan (timed out after 30 s); ran the question as one search."
+      ],
+      "planLines": [],
+      "answer": ""
+    },
+    {
+      "task": "device-origin-and-paths",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 114,
+      "resultTokens": 1135,
+      "resultChars": 3993,
+      "serverMs": 30002.367054999922,
+      "goldVisible": [
+        "docs/adr/0017-device-provenance-and-local-project-paths.md",
+        "docs/devices.md",
+        "imprint/device.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"remember where a memory was recorded without filtering retrieval by device\") \u2192 5 results",
+        "2. search(query=\"map a foreign Windows project path into a verified Linux checkout\") \u2192 5 results",
+        "3. file_summary(source=\"imprint/device.py\") \u2192 1 result"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 40,
+      "resultTokens": 1331,
+      "resultChars": 3984,
+      "serverMs": 30008.006465999642,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ],
+      "planSeconds": 18.6,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"Why does Imprint run Qdrant as an HTTP daemon instead of embedded storage, and ) \u2192 5 results",
+        "2. search(query=\"Imprint Qdrant HTTP daemon embedded storage\", project=\"imprint\") \u2192 5 results",
+        "3. search(query=\"Imprint startup race condition process\", project=\"imprint\") \u2192 5 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "qdrant-daemon-and-startup",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 125,
+      "resultTokens": 1327,
+      "resultChars": 3991,
+      "serverMs": 30006.139504010207,
+      "goldVisible": [
+        "docs/architecture.md",
+        "imprint/qdrant_runner.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"Qdrant HTTP daemon instead of embedded storage\") \u2192 5 results",
+        "2. search(query=\"Qdrant startup concurrent process race lock\") \u2192 5 results",
+        "3. file_chunks(source=\"imprint/qdrant_runner.py\", end=1) \u2192 2 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 31,
+      "resultTokens": 1064,
+      "resultChars": 3622,
+      "serverMs": 32103.056746011134,
+      "goldVisible": [
+        "docs/adr/0014-main-only-release-packaging.md",
+        "docs/building.md",
+        "docs/security-scanning.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model could not plan (timed out after 30 s); ran the question as one search."
+      ],
+      "planLines": [],
+      "answer": ""
+    },
+    {
+      "task": "releases-and-scans",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 81,
+      "resultTokens": 1262,
+      "resultChars": 3988,
+      "serverMs": 30004.55550100014,
+      "goldVisible": [
+        "docs/adr/0014-main-only-release-packaging.md",
+        "docs/building.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"which ref is allowed to build release artifacts\") \u2192 5 results",
+        "2. search(query=\"nightly Trivy high critical findings fail CI\") \u2192 5 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 37,
+      "resultTokens": 1087,
+      "resultChars": 3482,
+      "serverMs": 32990.74975200347,
+      "goldVisible": [
+        "docs/tagging.md",
+        "imprint/tagger.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model could not plan (timed out after 30 s); ran the question as one search."
+      ],
+      "planLines": [],
+      "answer": ""
+    },
+    {
+      "task": "chunking-and-tagging",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 89,
+      "resultTokens": 1360,
+      "resultChars": 3988,
+      "serverMs": 30005.70818199776,
+      "goldVisible": [
+        "docs/chunking.md",
+        "docs/tagging.md",
+        "imprint/chunker.py",
+        "imprint/tagger.py"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. search(query=\"code and prose split into overlapping chunks tree-sitter semantic\") \u2192 5 results",
+        "2. search(query=\"tag sources deterministic keyword zero-shot LLM\") \u2192 5 results"
+      ],
+      "answer": ""
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_intent_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 30,
+      "resultTokens": 1139,
+      "resultChars": 3674,
+      "serverMs": 31756.293479993474,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model could not plan (timed out after 30 s); ran the question as one search."
+      ],
+      "planLines": [],
+      "answer": ""
+    },
+    {
+      "task": "expand-known-ids",
+      "mode": "recall_plan_on_30s",
+      "repeats": 1,
+      "roundTrips": 1,
+      "argumentTokens": 124,
+      "resultTokens": 1143,
+      "resultChars": 3990,
+      "serverMs": 30002.642143997946,
+      "goldVisible": [
+        "docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md",
+        "docs/sync.md"
+      ],
+      "planSeconds": null,
+      "answerSeconds": null,
+      "answered": false,
+      "notes": [
+        "Local model did not answer (timed out after 30 s); the evidence follows."
+      ],
+      "planLines": [
+        "1. get_memory(memory_id=\"dbb724dc658cf9d0\") \u2192 1 result",
+        "2. get_memory(memory_id=\"bffdba275efc7250\") \u2192 1 result",
+        "3. get_memory(memory_id=\"0d1f4558a5383030\") \u2192 1 result"
+      ],
+      "answer": ""
+    }
+  ],
+  "tokenUnit": "Qwen3-Embedding tokenizer count of tool-call arguments and results, a proxy for caller tokens.",
+  "limitations": [
+    "Server-side time only; each extra round trip also costs a caller model turn.",
+    "Gold-source visibility is a coverage diagnostic, not answer correctness.",
+    "Local-model modes run once per task on this CPU; answers are recorded for review."
+  ],
+  "datasetSha256": "79df075b578a975bd9e411ee03908cc37c37ee1f54c987d98505b1d34e7fdd6b"
+}

@@ -1104,6 +1104,42 @@ def file_chunks(
     return "\n".join(lines)
 
 
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
+def recall(
+    question: Annotated[str, Field(min_length=1, max_length=4000)],
+    plan: list[dict] | None = None,
+    max_chars: int = 4000,
+    condense: bool = True,
+    workspace: str = "",
+) -> str:
+    """One call for a lookup that needs several reads (several searches,
+    facts, files or known ids): runs them together and returns one
+    deduplicated evidence list with search's ids and provenance. Use the
+    individual tools for a single read.
+
+    Args:
+        question: What you want to know; also picks the excerpt windows
+        plan: Optional steps, run concurrently, at most 8:
+              [{"tool": "search", "args": {"query": "..."}}, {"tool": "kg_query", "args": {"subject": "..."}}].
+              Tools: search, get_memory, neighbors, file_chunks, file_summary, list_sources,
+              kg_query, with their own arguments except workspace and output sizes.
+        max_chars: Response character budget for all steps, 1200–12000 (default 4000); not tokens
+        condense: When a local model is enabled, answer from the evidence with citations (default true)
+        workspace: Target workspace (optional)
+
+    Without a plan, recall searches the question like search. If the user
+    enabled a local model (recall.llm), it adds steps and condenses the
+    evidence into a cited answer; on timeout or error the evidence returns.
+    """
+    ws, err = _validate_ws(workspace)
+    if err:
+        return err
+    if not question.strip() or len(question) > 4000 or not 1200 <= max_chars <= 12000:
+        return "Error: question must be 1–4000 characters; max_chars must be 1200–12000"
+    from .recall import run
+    return run(question, plan, max_chars, condense, ws)
+
+
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:
     """Extract the first meaningful line, skipping headers/frontmatter/code markers."""
     for line in text.split("\n"):

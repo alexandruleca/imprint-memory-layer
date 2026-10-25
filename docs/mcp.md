@@ -1,10 +1,10 @@
 ---
 title: MCP Tools & Automatic Updates
-description: The 16 MCP tools Imprint exposes to coding agents — search, graph navigation, source cleanup, inline content ingestion, and more.
+description: The 17 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, and more.
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **16 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
+The imprint MCP server exposes **17 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
@@ -23,6 +23,25 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 | `list_sources` | List indexed source files with chunk counts. Filters: `project`, `lang`, `layer`. |
 | `file_summary` | Chunk count, tags, mtime, first-chunk preview for one source. Run before `file_chunks` to know the index range. |
 | `file_chunks` | Retrieve chunks of a file by 0-based index range (`start`/`end`), at most 20 chunks and a 12,000-character content budget per call. Continuation guidance is included. Use for "show me the full content of this file". |
+
+### Recall: several reads in one call
+
+`recall(question, plan=None, max_chars=4000, condense=True, workspace="")` answers a lookup that needs several reads in one round trip. A `plan` lists up to 8 steps, `{"tool": name, "args": {...}}`, over the read tools `search`, `get_memory`, `neighbors`, `file_chunks`, `file_summary`, `list_sources` and `kg_query`. Each step takes that tool's own arguments, except `workspace` (recall's applies to every step) and output sizes (search `detail`/`max_chars`, get_memory `start`/`max_chars`), which recall's single budget replaces. `graph_scope`, `status` and `device_context` are reads too, but they return navigation and diagnostics rather than evidence, so plans do not include them.
+
+```json
+{"question": "How does Imprint serialize ingest, and how does the reference project queue work?",
+ "plan": [{"tool": "search", "args": {"query": "process-shared queue lock", "project": "imprint"}},
+          {"tool": "search", "args": {"query": "background FIFO Thread Queue", "project": "reference"}},
+          {"tool": "kg_query", "args": {"subject": "reference"}}]}
+```
+
+- An invalid plan (unknown tool, unknown or mistyped argument, more than 8 steps) returns an error and runs nothing. A step that fails while running (for example `file_chunks` with `end < start`) reports its error in the plan summary; the other steps still return.
+- Steps are independent and run concurrently. They read through the same functions as the individual tools, so filters, clamps and workspace scope match exactly. A step cannot refer to another step's results; a second recall can expand what the first returned.
+- Results merge by key: memory id (search hits, file chunks, neighbors and `get_memory` reads share ids), `fact:<id>` and `file:<source>`. A repeated memory keeps its first position and gains the longer content. Every step's best result comes before any step's second, so one broad step cannot crowd out the others.
+- The response starts with one line per step and its outcome, then numbered evidence blocks in search's format: id, similarity when known, project, type, source, hash, recording device and path status, and a query-relevant excerpt with a `get_memory` expansion hint. `max_chars` (1,200–12,000, default 4,000, characters rather than tokens) bounds the whole response. Excerpts share the widest common width of at least 300 characters; results that do not fit are counted in a final line.
+- Without a plan and without the local model below, recall returns exactly what `search(question, max_chars=...)` returns.
+
+**Optional local model.** With `recall.llm` on and the tagger's provider running on this computer (`local` llama.cpp, or `ollama`/`vllm` at a loopback URL), recall without a plan asks the model for extra steps, constrained to the read tools by a JSON grammar, and always keeps the plain search of the question as step 1. The model may set only the arguments it can take from the question or the listed projects (search `query`/`project`, ids, file paths and ranges, fact subject/predicate); tag filters and limits stay with callers. Then, unless `condense=false`, the model answers from the same budgeted evidence the caller would have received, citing evidence numbers. The response shows the plan, the answer, the meta lines of the cited evidence and the keys of the rest. An answer without citations, or citing evidence that was not shown, is discarded. Planning and answering share `recall.llm_timeout_sec` (default 30 s). On a timeout, model error or unusable plan or answer, recall returns the deterministic result (the search, or the evidence) with a one-line note. Remote providers never receive recall questions or evidence. See [configuration](configuration.md#recall) and [ADR 0058](adr/0058-recall-batched-reads-with-optional-local-planning.md).
 
 ### Writes
 
@@ -52,6 +71,7 @@ Every tool accepts an optional `workspace` argument — omit it to target the ac
 
 - `wake_up` — internal, called only by the first `search(detail="full")` per workspace. Compact search avoids its unrelated context.
 - `refresh_urls` — admin task; exposed only via CLI as `imprint refresh-urls`.
+- Writes inside a recall plan — `store`, `delete`, `kg_edit` and ingestion stay separate tools.
 
 Search filters map to payload tags — see [tagging.md](./tagging.md) for the full tag schema.
 

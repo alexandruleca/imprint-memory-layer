@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import resource
 import statistics
 import sys
@@ -103,12 +104,126 @@ def evaluate(state, dataset, repeats, seed):
             'peakRssMiB': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 if sys.platform != 'darwin' else 1024**2)}
 
 
+# sequential first: recall_plan_matched gets the characters it returned.
+RECALL_MODES = ('sequential', 'recall_plan', 'recall_plan_matched', 'recall_intent_off')
+
+
+def recall_lookups(tasks, repeats, model=None, timeouts=()):
+    """Caller-visible size and server time of multi-part lookups: the plan's
+    steps as separate tool calls, against one recall (ADR 0058).
+
+    Tokens use the index's Qwen3 tokenizer as a proxy; the caller's own
+    tokenizer differs. Times are server-side only: every extra round trip
+    also costs the caller a model turn, which is not measured here."""
+    from tokenizers import Tokenizer
+    from imprint import embeddings, server
+    tokenizer = Tokenizer.from_file(str(sorted(Path(os.environ['IMPRINT_DATA_DIR']).glob('models/embeddings/*/tokenizer.json'))[0]))
+
+    def tokens(text):
+        return len(tokenizer.encode(text, add_special_tokens=False).ids)
+
+    started = time.perf_counter()
+    embeddings.embed_query('benchmark warmup')
+    cold = (time.perf_counter() - started) * 1000
+
+    def resolve(value):
+        # "@top:<query>:<rank>" stands for an id the caller already holds
+        # from an earlier search.
+        if isinstance(value, str) and value.startswith('@top:'):
+            query, rank = value[5:].rsplit(':', 1)
+            return server.search_rows(query, workspace='benchmark')[int(rank)]['id']
+        return value
+
+    for task in tasks:
+        task['plan'] = [{'tool': step['tool'], 'args': {k: resolve(v) for k, v in step['args'].items()}}
+                        for step in task['plan']]
+
+    def calls(task, mode):
+        question, plan = task['question'], task['plan']
+        if mode == 'sequential':
+            return [(step['tool'], step['args'], lambda step=step: getattr(server, step['tool'])(**step['args']))
+                    for step in plan]
+        if mode in ('recall_plan', 'recall_plan_on'):
+            return [('recall', {'question': question, 'plan': plan}, lambda: server.recall(question, plan=plan))]
+        if mode == 'recall_plan_matched':
+            budget = max(1200, min(12000, task['sequentialChars']))
+            return [('recall', {'question': question, 'plan': plan, 'max_chars': budget},
+                     lambda: server.recall(question, plan=plan, max_chars=budget))]
+        return [('recall', {'question': question}, lambda: server.recall(question))]
+
+    def measure(task, mode):
+        outputs, durations = [], []
+        for name, arguments, call in calls(task, mode):
+            start = time.perf_counter()
+            outputs.append(call())
+            durations.append((time.perf_counter() - start) * 1000)
+        text = '\n'.join(outputs)
+        argument_tokens = sum(tokens(json.dumps({'name': name, 'arguments': arguments}))
+                              for name, arguments, _ in calls(task, mode))
+        return {'roundTrips': len(outputs), 'argumentTokens': argument_tokens, 'resultTokens': sum(map(tokens, outputs)),
+                'resultChars': sum(map(len, outputs)), 'serverMs': sum(durations),
+                'goldVisible': sorted(g for g in task['gold'] if g in text)}, text
+
+    rows = []
+    for task in tasks:
+        for mode in RECALL_MODES:
+            runs = [measure(task, mode) for _ in range(repeats)]
+            row = dict(runs[0][0])
+            row['serverMs'] = statistics.median(run[0]['serverMs'] for run in runs)
+            rows.append({'task': task['id'], 'mode': mode, 'repeats': repeats, **row})
+            task.setdefault('sequentialChars', row['resultChars'])
+    if model:
+        os.environ.update({'IMPRINT_RECALL_LLM': '1', 'IMPRINT_LLM_TAGGER_PROVIDER': 'local',
+                           'IMPRINT_TAGGER_MODEL_PATH': str(model), 'IMPRINT_TAGGER_N_GPU_LAYERS': '0'})
+        from imprint import recall, tagger
+        start = time.perf_counter()
+        llm, error = tagger._load_tagger_model()
+        if error:
+            raise RuntimeError(error)
+        load_ms = (time.perf_counter() - start) * 1000
+        for timeout in timeouts:
+            os.environ['IMPRINT_RECALL_LLM_TIMEOUT'] = str(timeout)
+            for task in tasks:
+                for mode in ('recall_intent_on', 'recall_plan_on'):
+                    row, text = measure(task, mode)
+                    plan_s = re.search(r'Plan \(local model, ([\d.]+) s\)', text)
+                    answer_s = re.search(r'Answer \(local model, ([\d.]+) s\)', text)
+                    rows.append({'task': task['id'], 'mode': f'{mode}_{timeout}s', 'repeats': 1, **row,
+                                 'planSeconds': float(plan_s.group(1)) if plan_s else None,
+                                 'answerSeconds': float(answer_s.group(1)) if answer_s else None,
+                                 'answered': bool(answer_s),
+                                 'notes': [line for line in text.splitlines() if line.startswith('Local model')],
+                                 'planLines': [line for line in text.splitlines() if re.match(r'\d+\. \w+\(', line)],
+                                 'answer': (text.split(answer_s.group(0) + ':\n', 1)[1].split('\nCited evidence', 1)[0]
+                                            if answer_s else '')})
+    modes = list(dict.fromkeys(row['mode'] for row in rows))
+    totals = {mode: {key: sum(row[key] for row in rows if row['mode'] == mode)
+                     for key in ('roundTrips', 'argumentTokens', 'resultTokens', 'resultChars', 'serverMs')}
+              | {'goldVisible': sum(len(row['goldVisible']) for row in rows if row['mode'] == mode),
+                 'goldTotal': sum(len(task['gold']) for task in tasks)}
+              for mode in modes}
+    for total in totals.values():
+        total['callerTokens'] = total['argumentTokens'] + total['resultTokens']
+    return {'schemaVersion': 1, 'tasks': len(tasks), 'repeats': repeats,
+            'coldModelLoadAndFirstQueryMs': cold,
+            'localModel': {'file': Path(model).name, 'loadMs': load_ms, 'device': 'cpu', 'threads': 4,
+                           'timeoutsSeconds': list(timeouts)} if model else None,
+            'totals': totals, 'rows': rows,
+            'tokenUnit': 'Qwen3-Embedding tokenizer count of tool-call arguments and results, a proxy for caller tokens.',
+            'limitations': ['Server-side time only; each extra round trip also costs a caller model turn.',
+                            'Gold-source visibility is a coverage diagnostic, not answer correctness.',
+                            'Local-model modes run once per task on this CPU; answers are recorded for review.']}
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=['prepare', 'retrieval', 'stop'])
+    parser.add_argument('operation', choices=['prepare', 'retrieval', 'recall', 'stop'])
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--out', type=Path)
     parser.add_argument('--queries', type=Path, default=Path(__file__).with_name('retrieval.json'))
+    parser.add_argument('--lookups', type=Path, default=Path(__file__).with_name('recall.json'))
+    parser.add_argument('--local-model', type=Path, help='GGUF for the recall local-model modes (CPU)')
+    parser.add_argument('--llm-timeouts', default='30', help='comma-separated recall.llm_timeout_sec values')
     parser.add_argument('--runs', type=int, default=5)
     parser.add_argument('--seed', type=int, default=1729)
     args = parser.parse_args()
@@ -118,8 +233,14 @@ def main():
         from imprint import qdrant_runner
         qdrant_runner.stop()
         return
-    result = prepare(state) if args.operation == 'prepare' else evaluate(state, json.loads(args.queries.read_text()), args.runs, args.seed)
-    if args.operation == 'retrieval':
+    if args.operation == 'recall':
+        result = recall_lookups(json.loads(args.lookups.read_text()), args.runs, args.local_model,
+                                [int(value) for value in args.llm_timeouts.split(',') if value])
+        result['datasetSha256'] = digest(args.lookups.read_bytes())
+    elif args.operation == 'prepare':
+        result = prepare(state)
+    else:
+        result = evaluate(state, json.loads(args.queries.read_text()), args.runs, args.seed)
         result['datasetSha256'] = digest(args.queries.read_bytes())
     args.out.write_text(json.dumps(result, indent=2) + '\n')
 

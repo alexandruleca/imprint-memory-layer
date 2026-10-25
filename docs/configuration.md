@@ -41,7 +41,7 @@ imprint config reset model.device
 imprint config reset --all
 ```
 
-`imprint config` groups settings visually by prefix (`model.*`, `huggingface.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
+`imprint config` groups settings visually by prefix (`model.*`, `huggingface.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`, `recall.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
 
 The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs this device reports), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
 
@@ -139,10 +139,30 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `summarizer.base_url` | — | API base URL override |
 | `summarizer.min_messages` | `5` | Skip sessions with fewer messages |
 | `summarizer.max_input_tokens` | `5000` | Truncate transcript before summarizing |
+| **Recall (MCP tool)** | | |
+| `recall.llm` | `false` | Let the local model plan recall reads and answer from the evidence |
+| `recall.llm_timeout_sec` | `30` | Seconds one recall waits for the local model (planning and answering together) |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
 Each setting also has an env var, `IMPRINT_*` except `HF_TOKEN` (shown via `imprint config get <key>`). Env vars still work and take priority over config.json.
+
+## Recall
+
+The `recall` MCP tool ([MCP tools](mcp.md#recall-several-reads-in-one-call)) works without any model. `recall.llm` lets a model plan its reads and condense the evidence into a cited answer, but only a model on this computer:
+
+- `tagger.llm_provider=local`: the GGUF configured under `tagger.local.*`, loaded by llama.cpp inside each MCP server process on its first recall. Recall does not download it; until the file exists (LLM tagging or the dashboard chat downloads the default one), recall notes that the model is missing and runs without it.
+- `tagger.llm_provider=ollama` or `vllm`, when `tagger.llm_base_url` (or the provider's default `localhost` URL) points to a loopback address. A server elsewhere on the network does not count.
+- Any other provider (`anthropic`, `openai`, `gemini`) leaves recall without a model, with a one-line note. Recall questions and evidence are never sent to a remote API.
+
+`recall.llm` is independent of `tagger.llm`: recall can use the model while ingest tagging stays off. Both use the same provider settings.
+
+`recall.llm_timeout_sec` bounds the time one recall waits for the model, planning and answering together. At the limit recall returns what it returns without the model (the search, or the evidence of the steps that ran) and notes why. llama.cpp stops generating at its next token, but a prompt it is already reading finishes in the background first. On a CPU the default usually lets the model plan but not answer (measured: 1 of 16 answers within 30 s, about 25–45 s per answer with more time); see [benchmarks](benchmarks.md#recall-lookups). Some clients (Codex, for one) default to a 60 s MCP tool timeout, so keep the limit below the client's. Each Claude Code or Codex session runs its own MCP server, so with the `local` provider every session that recalls holds its own copy of the model in memory (about 3 GB for the default Qwen3.5-4B); ollama or vllm share one.
+
+```bash
+imprint config set recall.llm true
+imprint config set recall.llm_timeout_sec 60   # e.g. CPU-only machines
+```
 
 ## Local service boundaries
 

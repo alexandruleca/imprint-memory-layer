@@ -183,6 +183,13 @@ SETTINGS: list[Setting] = [
     Setting("summarizer.min_messages",  "IMPRINT_SUMMARIZER_MIN_MSGS",      5,                  int,  "Skip sessions with fewer messages"),
     Setting("summarizer.max_input_tokens","IMPRINT_SUMMARIZER_MAX_IN",      5000,               int,  "Estimated transcript token budget before summarizing (local also checks actual context)"),
 
+    # ── Recall (MCP tool: batched reads, optional local model) ─
+    # The model is the tagger's provider when it runs on this computer:
+    # local (llama.cpp) or ollama/vllm at a loopback URL. Remote providers
+    # never see recall questions or evidence.
+    Setting("recall.llm",             "IMPRINT_RECALL_LLM",         False, bool, "Let the local model plan recall reads and answer from the evidence (tagger provider local, or ollama/vllm on loopback)"),
+    Setting("recall.llm_timeout_sec", "IMPRINT_RECALL_LLM_TIMEOUT", 30,    int,  "Seconds one recall waits for the local model before returning the evidence without it"),
+
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),
 ]

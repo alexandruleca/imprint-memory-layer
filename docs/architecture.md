@@ -21,7 +21,7 @@ graph LR
     end
 
     subgraph "Python (imprint/)"
-        MCP[FastMCP Server<br/><small>16 tools</small>]
+        MCP[FastMCP Server<br/><small>17 tools</small>]
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
         EMB[embeddings.py<br/><small>ONNX Runtime, GPU/CPU</small>]
@@ -66,6 +66,7 @@ graph LR
     TAG --zero-shot--> EMB
     TAG --zero-shot--> PROTO
     TAG -.LLM opt-in.-> LLM_API[LLM API<br/><small>anthropic/openai/<br/>ollama/vllm/gemini</small>]
+    MCP -.recall.llm, local only.-> LOCAL_LLM[Local model<br/><small>llama.cpp, or loopback<br/>ollama/vllm</small>]
     INGEST --> PRJ
     SERVER --> QR
 
@@ -78,6 +79,7 @@ graph LR
     style TAG fill:#0d1117,stroke:#34d399,color:#fff
     style QR fill:#0d1117,stroke:#ff6b6b,color:#fff
     style LLM_API fill:#0d1117,stroke:#fbbf24,color:#fff,stroke-dasharray: 5 5
+    style LOCAL_LLM fill:#0d1117,stroke:#fbbf24,color:#fff,stroke-dasharray: 5 5
 ```
 
 | Component | Technology | Purpose |
@@ -88,7 +90,7 @@ graph LR
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
-| MCP server | FastMCP (Python) | 12 tools — `search`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks` for reads, `store`/`delete`/`ingest_url` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. |
+| MCP server | FastMCP (Python) | 17 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync; sees only ciphertext |
 | Peer sync | `imprint/sync_ws.py` + `imprint/sync_crypto.py` | The one sync implementation, used by `imprint sync` (`imprint/cli_sync.py`) and the dashboard. End-to-end encrypted: SPAKE2 from the PIN in the one-time share code, then AES-256-GCM per direction. Joining receives only unless the user opts in and confirms the receiving device. See [sync](sync.md). |
@@ -117,6 +119,12 @@ sequenceDiagram
     Q-->>K: top-K matching chunks + structured tags
     K-->>C: ranked results with metadata
     C-->>U: answers from memory (no file reads needed)
+
+    Note over C,K: A question needing several reads
+    C->>K: recall(question, plan=[search, search, kg_query])
+    K->>Q: steps run concurrently (same reads as the tools)
+    K-->>C: one budgeted evidence list, merged by memory id
+    Note over K: optional: recall.llm local model plans steps<br/>and answers with cited evidence numbers
 
     Note over C,K: Claude learns something
     C->>K: store("CORS wildcard is by design because...")

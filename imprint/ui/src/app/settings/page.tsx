@@ -26,6 +26,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   voice: { title: "Voice", desc: "The native live voice runtime.", icon: Mic },
   chat: { title: "Chat", desc: "The dashboard chat assistant.", icon: MessageSquare },
   summarizer: { title: "Session summaries", desc: "LLM summaries written when a session ends.", icon: ScrollText },
+  recall: { title: "Recall", desc: "The MCP recall tool's optional local model.", icon: Search },
   collection: { title: "Storage", desc: "Collection naming.", icon: Layers },
 };
 const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };

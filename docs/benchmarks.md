@@ -168,3 +168,40 @@ python scripts/benchmark_comparison.py benchmark/published/BEFORE benchmark/publ
 ```
 
 Both token/cost and retrieval aggregates were recalculated independently from the sanitized published rows and matched the raw-run report exactly. All 51 frozen source hashes and 180 raw usage ledgers were audited. Private CLI event streams and machine-specific paths remain outside the publication bundle.
+
+## Recall lookups
+
+`benchmark/runtime.py recall` measures [recall](mcp.md#recall-several-reads-in-one-call) ([ADR 0058](adr/0058-recall-batched-reads-with-optional-local-planning.md)). It runs eight multi-part lookups from `benchmark/recall.json` against the frozen public index. Each lookup has a question, a plan of 2–4 read steps and gold sources declared beforehand. Every lookup runs in each of these modes:
+
+- **sequential**: the plan's steps as separate tool calls with their default output sizes;
+- **recall_plan**: one recall with the plan at the default 4,000 characters;
+- **recall_plan_matched**: one recall with the plan, given exactly the characters the sequential calls returned (capped at 12,000);
+- **recall_intent_off**: recall with the question only and no model, which is `search`;
+- **local-model modes**: with Qwen3.5-4B on CPU, once with a 600 s timeout to see natural latency and once with the 30 s default.
+
+Caller tokens count tool-call arguments plus results with the index's Qwen3 tokenizer, a proxy. Server time excludes the caller model turn each extra round trip costs. "Gold visible" counts declared gold sources named in the response: for condensed answers, only cited evidence names its source. This is coverage, not correctness.
+
+Results on 2026-10-25, eight lookups, i9-13900HX under WSL2, CPU only. Evidence: `benchmark/published/recall-20261025T081236Z/`.
+
+| Mode | Round trips | Caller tokens | Gold visible | Server time |
+| --- | ---: | ---: | ---: | ---: |
+| sequential | 21 | 19,288 | 23/26 | 1.66 s |
+| recall_plan (4,000 chars) | 8 | 10,681 (−45%) | 21/26 | 1.36 s |
+| recall_plan_matched | 8 | 18,622 (−3%) | 24/26 | 1.34 s |
+| recall_intent_off (= search) | 8 | 8,955 | 17/26 | 1.19 s |
+| local model, intent only, 600 s | 8 | 5,286 | 15/26 | median 46.7 s per lookup |
+| local model, plan + answer, 600 s | 8 | 5,775 | 17/26 | median 31.7 s per lookup |
+| local model, intent only, 30 s | 8 | 9,371 | 18/26 | 30.0–33.0 s, 0/8 answered |
+| local model, plan + answer, 30 s | 8 | 10,222 | 21/26 | 23.3–30.0 s, 1/8 answered |
+
+What this shows:
+
+- **Round trips.** One recall replaces 2–4 calls: 21 calls become 8.
+- **Tokens and coverage.** At the default budget, the token saving comes mostly from the shared 4,000-character budget, and it shows two fewer gold sources. At matched size, recall uses 3% fewer tokens and shows one more gold source than the separate calls: results merged by id, with each step's best result first.
+- **Server time.** Concurrent steps cut server time by about 18%. An earlier run of the deterministic modes under heavier host load measured 19.1 s against 13.0 s, with the same token counts except for the defect below.
+- **Local model on CPU, given time.** It planned in 10.7–20.9 s and answered in 24–44 s. One lookup took 512 s and two answers took about three minutes while other work loaded the host.
+- **Local model on CPU, at the 30 s default.** It almost never answers: planning usually fits and the answer does not. A timed-out request keeps processing its prompt in the background, which delays the next recall's planning. Recall then returns the deterministic result after about 30 s, plus about a second for the fallback search.
+- **Answer quality.** Most of the 16 answers matched their cited evidence and attributed projects correctly. At least two misstated it: Qdrant startup races credited to `start_new_session` instead of the start lock, and an invented fifth tagging layer.
+- **Verdict.** On this CPU the local-model path is too slow for interactive use at the default timeout. It needs a GPU or a faster server, which was not measured.
+
+The first full run exposed a defect that the published run excludes: concurrent `kg_query` steps sharing the graph's SQLite connection returned no facts or raised "bad parameter or other API misuse". The graph connection is now held by one thread at a time.

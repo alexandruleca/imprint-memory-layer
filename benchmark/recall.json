@@ -1,0 +1,79 @@
+[
+  {
+    "id": "queue-and-reference",
+    "question": "How does Imprint keep two ingest jobs from running at once, and how does the reference project queue its work?",
+    "plan": [
+      {"tool": "search", "args": {"query": "process-shared queue lock prevents simultaneous ingestion", "project": "imprint"}},
+      {"tool": "search", "args": {"query": "background FIFO Thread Queue", "project": "reference"}},
+      {"tool": "kg_query", "args": {"subject": "imprint"}},
+      {"tool": "kg_query", "args": {"subject": "reference"}}
+    ],
+    "gold": ["docs/queue.md", "imprint/queue_lock.py", "imprint/queue.py", "reference/worker.py", "reference/session-notes.md"]
+  },
+  {
+    "id": "model-change-and-sync",
+    "question": "Why must an embedding model change create a new index, and can peer sync import vectors made by a different embedding model?",
+    "plan": [
+      {"tool": "search", "args": {"query": "model change must create a new index instead of reusing vectors"}},
+      {"tool": "search", "args": {"query": "peer sync precomputed vectors embedding profile must match"}}
+    ],
+    "gold": ["docs/adr/0010-qwen-defaults-and-explicit-reindex.md", "docs/embeddings.md", "docs/sync.md"]
+  },
+  {
+    "id": "workspace-pin-and-purge",
+    "question": "How does queued ingest stay in its original workspace after a dashboard switch, and how does a purge preview avoid deleting the original files?",
+    "plan": [
+      {"tool": "search", "args": {"query": "queued ingest keeps its original workspace after a dashboard switch"}},
+      {"tool": "search", "args": {"query": "preview directory cleanup without deleting the original files"}}
+    ],
+    "gold": ["docs/workspaces.md", "docs/adr/0015-workspace-roots-and-source-purge.md"]
+  },
+  {
+    "id": "device-origin-and-paths",
+    "question": "How does Imprint remember which device recorded a memory, and how is a foreign Windows project path mapped into a Linux checkout?",
+    "plan": [
+      {"tool": "search", "args": {"query": "remember where a memory was recorded without filtering retrieval by device"}},
+      {"tool": "search", "args": {"query": "map a foreign Windows project path into a verified Linux checkout"}},
+      {"tool": "file_summary", "args": {"source": "imprint/device.py"}}
+    ],
+    "gold": ["docs/devices.md", "docs/adr/0017-device-provenance-and-local-project-paths.md", "imprint/device.py"]
+  },
+  {
+    "id": "qdrant-daemon-and-startup",
+    "question": "Why does Imprint run Qdrant as an HTTP daemon instead of embedded storage, and how does startup avoid races between processes?",
+    "plan": [
+      {"tool": "search", "args": {"query": "Qdrant HTTP daemon instead of embedded storage"}},
+      {"tool": "search", "args": {"query": "Qdrant startup concurrent process race lock"}},
+      {"tool": "file_chunks", "args": {"source": "imprint/qdrant_runner.py", "start": 0, "end": 1}}
+    ],
+    "gold": ["imprint/qdrant_runner.py", "docs/architecture.md"]
+  },
+  {
+    "id": "releases-and-scans",
+    "question": "Which ref may build release artifacts, and how do nightly Trivy findings fail CI?",
+    "plan": [
+      {"tool": "search", "args": {"query": "which ref is allowed to build release artifacts"}},
+      {"tool": "search", "args": {"query": "nightly Trivy high critical findings fail CI"}}
+    ],
+    "gold": ["docs/adr/0014-main-only-release-packaging.md", "docs/building.md", "docs/security-scanning.md", "docs/adr/0013-remediate-security-scan-dependencies.md"]
+  },
+  {
+    "id": "chunking-and-tagging",
+    "question": "How are code and prose split into chunks, and what are the tag sources from deterministic metadata to LLM tags?",
+    "plan": [
+      {"tool": "search", "args": {"query": "code and prose split into overlapping chunks tree-sitter semantic"}},
+      {"tool": "search", "args": {"query": "tag sources deterministic keyword zero-shot LLM"}}
+    ],
+    "gold": ["docs/chunking.md", "imprint/chunker.py", "docs/tagging.md", "imprint/tagger.py"]
+  },
+  {
+    "id": "expand-known-ids",
+    "question": "Show the full evidence for how encrypted sync rejects tampered or replayed frames.",
+    "plan": [
+      {"tool": "get_memory", "args": {"memory_id": "@top:How does encrypted sync reject tampered or replayed frames?:0"}},
+      {"tool": "get_memory", "args": {"memory_id": "@top:How does encrypted sync reject tampered or replayed frames?:1"}},
+      {"tool": "get_memory", "args": {"memory_id": "@top:How does encrypted sync reject tampered or replayed frames?:2"}}
+    ],
+    "gold": ["docs/adr/0018-single-sync-implementation-and-end-to-end-encryption.md", "docs/sync.md", "imprint/sync_crypto.py"]
+  }
+]
