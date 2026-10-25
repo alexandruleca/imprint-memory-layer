@@ -104,7 +104,7 @@ Once installed, use the built-in updater — no curl, no sudo. `data/` (workspac
 
 ```bash
 imprint update              # latest stable, asks for confirmation
-imprint update --dev        # latest prerelease
+imprint update --dev        # latest dev build (a dev prerelease, or stable once it is newer)
 imprint update --version v0.3.1
 imprint update --check      # show current + latest release and exit
 imprint update -y           # skip confirmation (CI / scripts)
@@ -238,7 +238,7 @@ Terms used across the docs.
 | **Relay server** | Stateless WebSocket forwarder (`imprint relay`) that brokers peer sync between two machines. Sessions are end-to-end encrypted with the one-time share code (SPAKE2 + AES-256-GCM), so the relay sees only room IDs, IP addresses and the sizes and timing of ciphertext — never the code's PIN, devices or memories. Synced records carry content, metadata and precomputed vectors, so both sides need the same embedding profile — see [docs/sync.md](docs/sync.md#end-to-end-encryption). |
 | **WAL** | Write-ahead log — append-only `wal.jsonl` per workspace, used for replay / recovery of memory operations. |
 | **Zero-shot tagging** | Classifying chunks by cosine similarity against pre-embedded label prototypes — no per-chunk LLM call. |
-| **Dev / stable channel** | Two release tracks. Dev = prerelease on every `dev` push (`vX.Y.Z-dev.N`). Stable = conventional-commit release on `main` merges (`vX.Y.Z`). |
+| **Dev / stable channel** | Two release tracks from one pipeline. Dev = prerelease of the next stable version on each releasable `dev` push (`vX.Y.Z-dev.N`); `--dev` installs the highest version, prerelease or stable. Stable = conventional-commit release on `main` merges (`vX.Y.Z`). See [ADR 0066](docs/adr/0066-dev-prereleases-from-the-dev-branch.md). |
 
 ## Benchmarks
 

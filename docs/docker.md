@@ -12,8 +12,9 @@ Two images are published to GHCR on every release:
 | `ghcr.io/alexandruleca/imprint-relay` | Stateless WebSocket forwarder for peer sync on :8430 | You want to self-host the sync relay behind your own domain |
 
 Both are multi-arch (`linux/amd64`, `linux/arm64`). Same tag scheme: `latest`,
-pinned `vX.Y.Z`, floating `vX.Y`, plus `dev` / `vX.Y.Z-dev.N` for the
-prerelease channel.
+pinned `vX.Y.Z` and floating `vX.Y`. Images are published after stable releases
+only; dev prereleases publish none ([ADR 0066](adr/0066-dev-prereleases-from-the-dev-branch.md)).
+The `dev` and `vX.Y.Z-dev.N` tags that remain come from earlier dev releases.
 
 ## Quick start — full Imprint runtime
 
@@ -97,7 +98,7 @@ Pin a specific channel by editing the `image:` lines:
 services:
   imprint:
     image: ghcr.io/alexandruleca/imprint:v0.3.0   # pinned stable
-    # image: ghcr.io/alexandruleca/imprint:dev     # latest dev prerelease
+    # image: ghcr.io/alexandruleca/imprint:v0.3    # latest v0.3.x
 ```
 
 ### What ships inside the image
@@ -165,8 +166,6 @@ Available tags on both images:
 | `latest` | stable (most recent `vX.Y.Z`) | `ghcr.io/alexandruleca/imprint:latest` |
 | `vX.Y.Z` | pinned stable | `ghcr.io/alexandruleca/imprint:v0.3.0` |
 | `vX.Y` | floating stable minor | `ghcr.io/alexandruleca/imprint:v0.3` |
-| `dev` | most recent prerelease | `ghcr.io/alexandruleca/imprint:dev` |
-| `vX.Y.Z-dev.N` | pinned prerelease | `ghcr.io/alexandruleca/imprint:v0.3.0-dev.4` |
 
 ## Dashboard access boundary
 

@@ -199,12 +199,14 @@ imprint learn --desktop --path ~/Archive   # extra folder(s) in addition to Down
 
 ## Install a specific version or channel
 
-The default installer resolves `/releases/latest`, which GitHub maps to the most recent **stable** (non-prerelease) build. Two release channels are published:
+The default installer resolves `/releases/latest`, which GitHub maps to the most recent **stable** (non-prerelease) build. Two release channels are published ([ADR 0066](adr/0066-dev-prereleases-from-the-dev-branch.md)):
 
 | Channel | Tag pattern | Produced by |
 |---|---|---|
 | **stable** | `vX.Y.Z` | conventional-commit release on every merge to `main` |
-| **dev** | `vX.Y.Z-dev.N` | prerelease on every push to `dev` (N = build number) |
+| **dev** | `vX.Y.Z-dev.N` | prerelease of the next stable version on each push to `dev` that has a `feat`, `fix`, `perf` or breaking change; `N` counts the builds of that version |
+
+Dev builds go through the same packaging and native checks as stable releases. A dev build ranks below the stable release it leads to: `v0.25.0-dev.3` comes after `v0.24.1` and before `v0.25.0`. The dev channel installs the highest version published, prerelease or stable. Once `dev` has been released as stable, that stable release is also the dev channel's latest build, because no prerelease is built for a commit that `main` holds.
 
 Pin a specific release or switch channels via env var or CLI flag.
 
@@ -216,7 +218,7 @@ IMPRINT_VERSION=v0.2.0 curl -fsSL https://raw.githubusercontent.com/alexandrulec
 # Pin via CLI arg
 curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash -s -- --version v0.2.0
 
-# Latest dev prerelease
+# Latest dev build
 IMPRINT_CHANNEL=dev curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash
 curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash -s -- --dev
 ```
@@ -226,7 +228,7 @@ curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/
 # Pin to a specific tag
 $env:IMPRINT_VERSION = "v0.2.0"; irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex
 
-# Latest dev prerelease
+# Latest dev build
 $env:IMPRINT_CHANNEL = "dev"; irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex
 
 # Or download and pass args directly
@@ -239,13 +241,13 @@ Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > defau
 
 ## Updating an existing install
 
-When a newer release exists, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reloads the dashboard once the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open.
+When a newer stable release exists, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reloads the dashboard once the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open. It never offers prereleases: an installation running a dev build is offered the stable release that follows it, and `imprint update --dev` moves it to newer dev builds.
 
 From a terminal:
 
 ```bash
 imprint update                 # latest stable (asks for confirmation)
-imprint update --dev           # latest prerelease
+imprint update --dev           # latest dev build (a dev prerelease, or stable once it is newer)
 imprint update --version v0.3.1
 imprint update --check         # prints current + latest and exits
 imprint update --check --json  # the same, as JSON

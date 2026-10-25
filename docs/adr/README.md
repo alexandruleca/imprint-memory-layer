@@ -102,16 +102,17 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Runtime, installers and release
 
-- [ADR 0002](0002-build-and-validate-before-publication.md) **Validate releases before publication.** Build all release artifacts and run native checks before publication. Amended by [ADR 0014](0014-main-only-release-packaging.md) (no dev releases; release builds require main).
+- [ADR 0002](0002-build-and-validate-before-publication.md) **Validate releases before publication.** Build all release artifacts and run native checks before publication. Amended by [ADR 0014](0014-main-only-release-packaging.md) (which branches build and publish releases).
 - [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md) **Runtime dependencies and local boundaries.** Resolve base dependencies and enforce explicit local browser/process boundaries. Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (deferred hash locks, Electron upgrade and Host defense).
 - [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) **Verified runtime and desktop baseline.** Hashed dependencies/downloads, Electron 45, macOS 13 and container parity.
 - [ADR 0012](0012-native-package-runtime-and-silent-installs.md) **Native package runtime and silent installs.** Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke.
-- [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main.
+- [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main. Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev prereleases).
 - [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
-- [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention).
+- [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention) and [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases).
 - [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
 - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle.
+- [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version.
 
 ## Open proposals
 
@@ -138,7 +139,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0011](0011-nightly-trivy-security-scanning.md) | 2026-10-23 | Accepted | Nightly Trivy security scanning |
 | [0012](0012-native-package-runtime-and-silent-installs.md) | 2026-10-23 | Accepted | Native package runtime and silent installs |
 | [0013](0013-remediate-security-scan-dependencies.md) | 2026-10-23 | Accepted | Remediate security scan dependencies |
-| [0014](0014-main-only-release-packaging.md) | 2026-10-23 | Accepted | Main-only release packaging |
+| [0014](0014-main-only-release-packaging.md) | 2026-10-23 | Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Main-only release packaging |
 | [0015](0015-workspace-roots-and-source-purge.md) | 2026-10-23 | Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Workspace roots and source purge |
 | [0016](0016-sync-direction-and-workspace-sharing.md) | 2026-10-23 | Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Sync direction and workspace sharing |
 | [0017](0017-device-provenance-and-local-project-paths.md) | 2026-10-23 | Accepted | Device provenance and local project paths |
@@ -151,7 +152,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0024](0024-enforce-local-service-boundaries.md) | 2026-10-23 | Accepted | Enforce local service boundaries |
 | [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) | Windows installer registration for WSL clients |
-| [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md) | Symmetric uninstall and branch synchronization |
+| [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Symmetric uninstall and branch synchronization |
 | [0028](0028-complete-uninstall.md) | 2026-10-23 | Accepted | Complete uninstall |
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
 | [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Accepted | Chrome preview ZIP and release downloads |
@@ -190,6 +191,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
 | [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Accepted | Serialize heavy commands with a single-slot queue and a shared lock file |
 | [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
+| [0066](0066-dev-prereleases-from-the-dev-branch.md) | 2026-10-25 | Accepted | Dev prereleases from the dev branch |
 
 ## How to write and maintain ADRs
 

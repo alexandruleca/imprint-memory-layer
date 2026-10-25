@@ -3,9 +3,10 @@ title: ADR 0014 — Main-only release packaging
 description: Separate branch compile/test CI from main release artifacts and publication.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
 - Amends: [ADR 0002](0002-build-and-validate-before-publication.md) — removes automatic dev releases and requires main for every release build, manual dispatch included
+- Amended by: [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) — dev pushes publish prereleases through the same pipeline again; release builds require main or dev
 - Related: [ADR 0012](0012-native-package-runtime-and-silent-installs.md)
 - Restructured: 2026-10-25
 

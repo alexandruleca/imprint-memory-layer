@@ -6,7 +6,9 @@ description: Disconnect managed clients before runtime removal, preserve memorie
 - Status: Amended
 - Date: 2026-10-23
 - Amends: [ADR 0026](0026-windows-installer-wsl-client-bridge.md) — adds recorded WSL profile cleanup to disable and native uninstall
-- Amended by: [ADR 0028](0028-complete-uninstall.md) — memory retention and the ask-to-quit step
+- Amended by:
+  - [ADR 0028](0028-complete-uninstall.md) — memory retention and the ask-to-quit step
+  - [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) — releases are no longer main-only: dev publishes prereleases
 - Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0014](0014-main-only-release-packaging.md), [ADR 0025](0025-desktop-owned-background-service.md)
 - Restructured: 2026-10-25
 
