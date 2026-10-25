@@ -199,8 +199,9 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
         print(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
         return 0
 
-    enable_llm = resolve("tagger.llm")[0]
-    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
+    from imprint.tag_backlog import deferring
+    pending = deferring()  # LLM tagging runs in the background (ADR 0067)
+    enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records: list[dict] = []
     now = time.time()
@@ -224,15 +225,14 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
             neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
             tags = tagger.build_payload_tags(
                 chunk_text, rel_path=rel,
-                llm=None, zero_shot=enable_zero_shot,
+                llm=False, zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx, project_hint=project,
             )
-            llm_type = tags.pop("_llm_type", "")
-            mem_type = llm_type or "conversation"
+            tags.pop("_llm_type", None)
             records.append({
                 "content": chunk_text,
                 "project": project,
-                "type": mem_type,
+                "type": "conversation",
                 "tags": tags,
                 "source": source_key,
                 "source_path": source_path,
@@ -240,6 +240,7 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
                 "doc_metadata": meta,
                 "chunk_index": chunk_idx,
                 "source_mtime": now,
+                "tag_pending": pending,
             })
 
     if not records:

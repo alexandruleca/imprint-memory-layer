@@ -72,6 +72,10 @@ func acquireNative(path string, body []byte) (*Handle, error) {
 }
 
 func releaseNative(h *Handle) {
+	// Clear the holder metadata first, so nobody reads it as still held.
+	var newPos int64
+	_, _, _ = procSetFilePointerEx.Call(uintptr(h.fd), 0, uintptr(unsafe.Pointer(&newPos)), 0)
+	_, _, _ = procSetEndOfFile.Call(uintptr(h.fd))
 	var overlapped syscall.Overlapped
 	_, _, _ = procUnlockFileEx.Call(
 		uintptr(h.fd),
@@ -80,4 +84,37 @@ func releaseNative(h *Handle) {
 		uintptr(unsafe.Pointer(&overlapped)),
 	)
 	_ = syscall.CloseHandle(h.fd)
+}
+
+const (
+	processTerminate               = 0x0001
+	processQueryLimitedInformation = 0x1000
+	stillActive                    = 259
+	// Exit code of a preempted holder: Python's os.kill(pid, SIGTERM) on
+	// Windows terminates with the signal number, and the dispatcher reads
+	// 15 as "stopped to make way" (ADR 0067).
+	preemptedExitCode = 15
+)
+
+func processAlive(pid int) bool {
+	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
+	if err != nil {
+		return err == syscall.ERROR_ACCESS_DENIED
+	}
+	defer syscall.CloseHandle(h)
+	var code uint32
+	if err := syscall.GetExitCodeProcess(h, &code); err != nil {
+		return false
+	}
+	return code == stillActive
+}
+
+// stopProcess terminates the process; Windows has no gentler signal for it.
+func stopProcess(pid int, _ bool) {
+	h, err := syscall.OpenProcess(processTerminate, false, uint32(pid))
+	if err != nil {
+		return
+	}
+	defer syscall.CloseHandle(h)
+	_ = syscall.TerminateProcess(h, preemptedExitCode)
 }

@@ -44,7 +44,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change.
 - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) **Learn Cursor conversations from their folder names.** A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target.
 - [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) **Learn Cline sessions from their manifests.** A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads, and `cline` is a WSL registration target.
-- [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite.
+- [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite. Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (background tagging and preemptible holders).
+- [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) **Background LLM tagging that yields to every other job.** Storing paths mark memories instead of running the LLM tagger; a background job tags them newest first when nothing else waits, steps aside between memories and holds the lock as a holder any other taker may stop.
 
 ### Embeddings, local models and chat
 
@@ -189,9 +190,10 @@ Every record in number order. *Date* is when the decision was made.
 | [0061](0061-local-tool-call-formats.md) | 2026-10-25 | Accepted | Local tool-call formats by model family |
 | [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Accepted | CUDA only for GPU embedding on a supported NVIDIA GPU |
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
-| [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Accepted | Serialize heavy commands with a single-slot queue and a shared lock file |
+| [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) | Serialize heavy commands with a single-slot queue and a shared lock file |
 | [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
 | [0066](0066-dev-prereleases-from-the-dev-branch.md) | 2026-10-25 | Accepted | Dev prereleases from the dev branch |
+| [0067](0067-background-llm-tagging-that-yields-to-every-job.md) | 2026-10-25 | Accepted | Background LLM tagging that yields to every other job |
 
 ## How to write and maintain ADRs
 

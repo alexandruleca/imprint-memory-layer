@@ -153,6 +153,8 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
         ("tags.domain", qm.PayloadSchemaType.KEYWORD),
         ("tags.topics", qm.PayloadSchemaType.KEYWORD),
         ("timestamp", qm.PayloadSchemaType.FLOAT),
+        # The background tagging backlog (ADR 0067): counted and scanned by it.
+        ("tag_pending", qm.PayloadSchemaType.BOOL),
     ]:
         try:
             client.create_payload_index(
@@ -357,7 +359,8 @@ def set_classifications(client, collection: str, updates: list[tuple[str, dict, 
 
     ``tagged_at`` moves past both now and the stamp it replaces, so this
     classification supersedes the previous one in every synced copy whatever
-    the devices' clocks say (ADR 0051).
+    the devices' clocks say (ADR 0051). The memory leaves the tagging backlog
+    in the same write (ADR 0067).
     """
     if not updates:
         return
@@ -369,7 +372,8 @@ def set_classifications(client, collection: str, updates: list[tuple[str, dict, 
             previous[str(point.id)] = float((point.payload or {}).get("tagged_at") or 0)
     now = time.time()
     for point_id, tags, kind in updates:
-        payload: dict = {"tags": _normalize_tags(tags), "tagged_at": max(now, previous.get(str(point_id), 0.0) + 0.001)}
+        payload: dict = {"tags": _normalize_tags(tags), "tagged_at": max(now, previous.get(str(point_id), 0.0) + 0.001),
+                         "tag_pending": False}
         if kind:
             payload["type"] = kind
             payload["llm_tagged"] = True
@@ -377,9 +381,11 @@ def set_classifications(client, collection: str, updates: list[tuple[str, dict, 
 
 
 def _classification(record: dict) -> dict:
-    """The synced classification of a received record (ADR 0051)."""
+    """The synced classification of a received record (ADR 0051). A memory
+    another device classified leaves this device's tagging backlog (ADR 0067)."""
     return {"tags": _normalize_tags(record.get("tags")), "type": record.get("type", ""),
-            "llm_tagged": bool(record.get("llm_tagged", False)), "tagged_at": float(record["tagged_at"])}
+            "llm_tagged": bool(record.get("llm_tagged", False)), "tagged_at": float(record["tagged_at"]),
+            "tag_pending": False}
 
 
 # ── store / store_batch ─────────────────────────────────────────
@@ -398,8 +404,12 @@ def store(
     last_modified: str = "",
     source_path: str = "",
     workspace: str | None = None,
+    tag_pending: bool = False,
 ) -> str:
     """Store a single memory. Returns the 16-hex logical id.
+
+    ``tag_pending`` puts the memory on the background LLM tagging backlog
+    (ADR 0067); storing paths that defer LLM tagging set it.
 
     New optional fields for document/URL ingestion:
         source_type: "file" | "url" | "ocr" | "" (legacy)
@@ -441,6 +451,7 @@ def store(
         "chunk_index": chunk_index,
         "source_mtime": source_mtime,
         "timestamp": time.time(),
+        **({"tag_pending": True} if tag_pending else {}),
     }
     from . import device
     payload = device.prepare(payload)
@@ -588,6 +599,7 @@ def _store_redacted(records: list[dict], workspace: str | None, *, force: bool =
             "source_path": r.get("source_path", ""),
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
+            **({"tag_pending": True} if r.get("tag_pending") else {}),
             **device.provenance(r),
         }
         points.append(

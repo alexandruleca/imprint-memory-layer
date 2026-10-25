@@ -134,7 +134,8 @@ through the same single-slot queue the dashboard uses.
 | GET | `/api/wsl` | WSL distributions and, per WSL target, the client's default-user profile and whether it is enrolled (`imprint wsl list --json`). Probing can start stopped distributions. On a runtime that is not Windows: `{"supported": false, "platform"}` without probing. 502 when the CLI fails. |
 | GET | `/api/commands` | The Commands page catalog (`imprint/commands.py`): each command's label, group, fields and confirmation, plus `clients` from `imprint clients --json`. 502 when the CLI cannot list them. |
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
-| GET | `/api/queue` | Active + queued + recent jobs. |
+| GET | `/api/queue` | Active + queued + recent jobs, and `background`: background LLM tagging's state, the memories waiting for it and its running or latest run ([queue](queue.md#http-api)). |
+| POST | `/api/queue/background/resume` | Start background tagging again after a cancel or a failure. |
 | GET | `/api/jobs/{id}` | Job status + exit code. |
 | GET | `/api/jobs/{id}/stream` | SSE stream of live stdout/stderr. |
 | POST | `/api/jobs/{id}/cancel` | SIGTERM the job (SIGKILL after 3 s). |
@@ -144,7 +145,8 @@ through the same single-slot queue the dashboard uses.
 `status`, `doctor`, `config`) plus the dashboard dialogs' `wipe`, `migrate`,
 `workspace` and `wsl` (Settings → WSL profiles: `action` `setup` or `remove`,
 `distribution`, `target`). `connect` and `disconnect` take `target` (a client name or
-`all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`; `scrub` takes `apply`. Commands that
+`all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`; `scrub` takes `apply`; `retag` takes
+`project`, `all`, `dry_run` and `pending` (only the memories waiting for background tagging). Commands that
 install into or stop the running dashboard (`setup`, `enable`, `profile`,
 `disable`, `ui`, `server`, `uninstall`) are refused with 404; see
 [queue](queue.md#allowed-commands).

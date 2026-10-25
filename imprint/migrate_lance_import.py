@@ -66,7 +66,10 @@ def main():
             # old string tag (e.g. "conversation", "auto") is kept as a domain
             # hint by feeding it through _normalize_tags if no better signal.
             rel_path = source.split("/", 1)[1] if "/" in source else source
-            new_tags = tagger.build_payload_tags(content, rel_path=rel_path)
+            # Imported rows keep their types; no storing path runs the LLM
+            # inline (ADR 0067), and imprint retag classifies them on request.
+            new_tags = tagger.build_payload_tags(content, rel_path=rel_path, llm=False)
+            new_tags.pop("_llm_type", None)
             legacy = (row.get("tags") or "").strip()
             if legacy and not any(legacy == d for d in new_tags["domain"]):
                 new_tags["domain"] = new_tags["domain"] + [legacy]

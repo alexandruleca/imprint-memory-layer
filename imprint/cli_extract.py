@@ -186,20 +186,23 @@ def main():
 
     # Sort by signal count (most signals = strongest decisions), take top N
     candidates.sort(key=lambda x: -x[0])
+    # The LLM classifies these later, in the background (ADR 0067).
+    from imprint.tag_backlog import deferring
+    pending = deferring()
     stored = 0
     for _, text in candidates[:MAX_MESSAGES]:
-        tags = tagger.build_payload_tags(text)
-        llm_type = tags.pop("_llm_type", "")
-        mem_type = llm_type or classify_type(text)
+        tags = tagger.build_payload_tags(text, llm=False)
+        tags.pop("_llm_type", None)
         tags["lang"] = "conversation"
         tags["layer"] = "session"
         tags["kind"] = "auto-extract"
         vs.store(
             content=text,
             project=project,
-            type=mem_type,
+            type=classify_type(text),
             source="auto-extract",
             tags=tags,
+            tag_pending=pending,
         )
         stored += 1
 

@@ -671,6 +671,9 @@ def _attach_progress(job: dict | None) -> dict | None:
     progress = read_progress()
     if progress is None:
         return job
+    # The background job's progress belongs to its own row only.
+    if (progress.get("command") == job_queue.BACKGROUND) != (job.get("command") == job_queue.BACKGROUND):
+        return job
     return _merge_progress(job, progress)
 
 
@@ -692,6 +695,11 @@ def _active_from_any_source() -> dict | None:
     from .progress import read_progress
     holder = queue_lock.read_holder()
     progress = read_progress()
+    # Background tagging is reported apart (`background` in /api/queue).
+    if holder is not None and holder.get("preemptible"):
+        holder = None
+    if progress is not None and progress.get("command") == job_queue.BACKGROUND:
+        progress = None
     if holder is None and progress is None:
         return None
 
@@ -747,7 +755,25 @@ def api_jobs():
 def api_queue(recent_limit: int = 20):
     data = job_queue.list_queue(recent_limit=recent_limit)
     data["active"] = _active_from_any_source()
+    data["background"] = _background_state()
     return data
+
+
+def _background_state() -> dict:
+    """Background tagging (ADR 0067): its state, the memories waiting for
+    LLM tagging and its running or latest run, with live progress."""
+    state = job_queue.background_state()
+    if state["job"] and state["job"]["status"] == "running":
+        state["job"] = _attach_progress(state["job"])
+    return state
+
+
+@app.post("/api/queue/background/resume")
+def api_background_resume():
+    """Start background tagging again after a cancel or a failure, as soon
+    as no other job runs or waits."""
+    job_queue.backlog_changed()
+    return _background_state()
 
 
 @app.get("/api/jobs/{job_id}")
@@ -883,6 +909,7 @@ async def api_config_set(key: str, request: Request):
         return JSONResponse({"error": str(e)}, status_code=404)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    _tagging_settings_changed(key)
     return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val), "provisioning": _provision_runtime(key)}
 
 
@@ -894,7 +921,15 @@ def api_config_reset(key: str):
         removed = reset_value(key)
     except KeyError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
+    _tagging_settings_changed(key)
     return {"ok": True, "removed": removed, "provisioning": _provision_runtime(key)}
+
+
+def _tagging_settings_changed(key: str) -> None:
+    """Turning LLM tagging on, or fixing its provider, lets background
+    tagging start or retry at once (ADR 0067)."""
+    if key.startswith("tagger."):
+        job_queue.backlog_changed()
 
 
 def _provision_runtime(key: str) -> str | None:

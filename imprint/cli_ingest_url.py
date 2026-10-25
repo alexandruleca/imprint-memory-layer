@@ -146,8 +146,9 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False,
     source_key = url
 
     from imprint.config_schema import resolve
-    enable_llm = resolve("tagger.llm")[0]
-    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
+    from imprint.tag_backlog import deferring
+    pending = deferring()  # LLM tagging runs in the background (ADR 0067)
+    enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records = []
     now = time.time()
@@ -168,15 +169,14 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False,
             neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
             tags = tagger.build_payload_tags(
                 chunk_text, rel_path=url,
-                llm=None, zero_shot=enable_zero_shot,
+                llm=False, zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx, project_hint=project, workspace=workspace,
             )
-            llm_type = tags.pop("_llm_type", "")
-            mem_type = llm_type or "architecture"
+            tags.pop("_llm_type", None)
             records.append({
                 "content": chunk_text,
                 "project": project,
-                "type": mem_type,
+                "type": "architecture",
                 "tags": tags,
                 "source": source_key,
                 "source_type": "url",
@@ -186,6 +186,7 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False,
                 "doc_metadata": doc_meta,
                 "chunk_index": len(records),
                 "source_mtime": now,
+                "tag_pending": pending,
             })
 
     if not records:
@@ -272,39 +273,19 @@ def main():
             if new_links:
                 known = vs.get_url_sources()
 
-    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
-    from imprint.config_schema import resolve
-    _enable_llm = resolve("tagger.llm")[0]
-
-    llm_tagged = 0
-    if _enable_llm and total_stored > 0:
-        from .cli_index import _llm_tag_recent, print_bar as _idx_print_bar
-        print()
-        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
-        try:
-            llm_tagged = _llm_tag_recent(
-                ingest_start_ts=t_start,
-                total_hint=total_stored,
-                print_bar=_idx_print_bar,
-                command="ingest-url",
-                projects=[],
-            )
-        finally:
-            clear_progress()
-    else:
-        clear_progress()
+    clear_progress()
 
     elapsed = time.time() - t_start
     print()
     print(f"  {C_GREEN}═══ URL Ingest Complete ═══{C_RESET}")
     print(f"  Stored:   {total_stored} chunks")
-    if llm_tagged:
-        print(f"  Tagged:   {llm_tagged} (LLM)")
     print(f"  Skipped:  {total_skipped} url(s)")
     print(f"  Errors:   {total_errors}")
     if total_discovered:
         print(f"  Followed: {total_discovered} discovered url(s)")
     print(f"  Time:     {elapsed:.1f}s")
+    from imprint.tag_backlog import report
+    report(total_stored)
     print()
 
 

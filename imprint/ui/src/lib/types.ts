@@ -201,7 +201,9 @@ export interface IngestionJob {
   eta_seconds: number | null;
 }
 
-export type QueueJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+/** `yielded`: a background tagging run that stepped aside for another job
+ * and starts again when the queue is idle (ADR 0067). */
+export type QueueJobStatus = "queued" | "running" | "done" | "failed" | "cancelled" | "yielded";
 
 export interface QueueJob {
   id: string;
@@ -227,10 +229,27 @@ export interface QueueJob {
   eta_seconds?: number | null;
 }
 
+/** Background LLM tagging (ADR 0067): `off` while tagger.llm is off; `running`;
+ * `yielded` after stepping aside for another job; `waiting` to start when the
+ * queue is idle; `paused` after a cancel, until more memories wait; `failed`,
+ * retried at `resume_at`; `idle` with nothing to tag. */
+export type BackgroundTaggingState = "off" | "running" | "yielded" | "waiting" | "paused" | "failed" | "idle";
+
+export interface BackgroundTagging {
+  enabled: boolean;
+  /** Memories waiting for LLM tagging, across workspaces; null when unknown. */
+  pending: number | null;
+  state: BackgroundTaggingState;
+  /** The running or latest run. */
+  job: QueueJob | null;
+  resume_at: number | null;
+}
+
 export interface QueueResponse {
   active: QueueJob | null;
   queued: QueueJob[];
   recent: QueueJob[];
+  background?: BackgroundTagging;
 }
 
 // ── Graph (Obsidian-style) ─────────────────────────────────────

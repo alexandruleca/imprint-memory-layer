@@ -489,8 +489,10 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
     print()
     write_progress("ingest", 0, 1, 0, 0, time.time(), [project])
 
-    enable_llm = resolve("tagger.llm")[0]
-    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
+    # LLM tagging is left to the background backlog (ADR 0067).
+    from imprint.tag_backlog import deferring, report
+    pending = deferring()
+    enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     ext = os.path.splitext(rel)[1].lower()
     is_doc = extractors.is_doc_extension(ext)
@@ -531,22 +533,21 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
                 neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
                 tags = tagger.build_payload_tags(
                     chunk_text, rel_path=rel,
-                    llm=enable_llm, zero_shot=enable_zero_shot,
+                    llm=False, zero_shot=enable_zero_shot,
                     neighbor_context=neighbor_ctx, project_hint=project,
                 )
-                llm_type = tags.pop("_llm_type", "")
-                mem_type = llm_type or "architecture"
+                tags.pop("_llm_type", None)
                 records.append({
                     "content": chunk_text,
                     "project": project,
-                    "type": mem_type,
+                    "type": "architecture",
                     "tags": tags,
                     "source": source_key,
                     "source_type": "file",
                     "doc_metadata": doc_meta,
                     "chunk_index": len(records),
                     "source_mtime": mtime,
-                    "llm_tagged": bool(llm_type),
+                    "tag_pending": pending,
                 })
     else:
         max_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
@@ -571,22 +572,21 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
             neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
             tags = tagger.build_payload_tags(
                 chunk_text, rel_path=rel,
-                llm=enable_llm, zero_shot=enable_zero_shot,
+                llm=False, zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx, project_hint=project,
             )
-            llm_type = tags.pop("_llm_type", "")
-            mem_type = llm_type or "architecture"
+            tags.pop("_llm_type", None)
             records.append({
                 "content": chunk_text,
                 "project": project,
-                "type": mem_type,
+                "type": "architecture",
                 "tags": tags,
                 "source": source_key,
                 "source_type": "file",
                 "doc_metadata": {},
                 "chunk_index": chunk_idx,
                 "source_mtime": mtime,
-                "llm_tagged": bool(llm_type),
+                "tag_pending": pending,
             })
 
     if not records:
@@ -612,99 +612,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
     print(f"  Stored:   {inserted} chunks")
     print(f"  Project:  {project}")
     print(f"  Time:     {elapsed:.1f}s")
+    report(inserted)
     print()
-
-
-def _llm_tag_recent(
-    ingest_start_ts: float,
-    total_hint: int = 0,
-    print_bar=None,
-    command: str = "ingest",
-    projects: list[str] | None = None,
-) -> int:
-    """Phase 2: LLM-tag chunks that were just ingested (by timestamp).
-
-    Scrolls chunks with timestamp >= ingest_start_ts, runs LLM classification,
-    and updates tags + type in-place. Returns count of tagged chunks.
-    """
-    from qdrant_client import models as qm
-
-    client, coll = vs._ensure_collection()
-    scroll_filter = qm.Filter(must=[
-        qm.FieldCondition(
-            key="timestamp",
-            range=qm.Range(gte=ingest_start_ts),
-        ),
-    ])
-
-    tagged = 0
-    offset = None
-    t0 = time.time()
-    batch_updates: list[tuple[str, dict, str]] = []
-    SCROLL_BATCH = 100
-    FLUSH_SIZE = 20
-
-    projects = projects or []
-    write_progress(command, 0, total_hint, 0, 0, t0, projects, phase="llm_tagging")
-
-    while True:
-        points, offset = client.scroll(
-            collection_name=coll,
-            limit=SCROLL_BATCH,
-            offset=offset,
-            scroll_filter=scroll_filter,
-            with_payload=["content", "source", "tags"],
-            with_vectors=False,
-        )
-
-        for pt in points:
-            content = pt.payload.get("content", "")
-            source = pt.payload.get("source", "")
-            existing_tags = pt.payload.get("tags") or {}
-            proj_hint = source.split("/", 1)[0] if "/" in source else ""
-
-            new_tags = tagger.build_payload_tags(
-                content,
-                rel_path=source,
-                llm=True,
-                zero_shot=False,
-                project_hint=proj_hint,
-            )
-            new_type = new_tags.pop("_llm_type", "")
-            # Preserve deterministic fields set at ingest (e.g. conversations
-            # set lang=conversation/layer=session/kind=qa). rel_path-based
-            # derivation returns blanks for non-file sources and would wipe them.
-            for k in ("lang", "layer", "kind"):
-                if existing_tags.get(k) and not new_tags.get(k):
-                    new_tags[k] = existing_tags[k]
-            batch_updates.append((pt.id, new_tags, new_type))
-
-            if len(batch_updates) >= FLUSH_SIZE:
-                vs.set_classifications(client, coll, batch_updates)
-                tagged += len(batch_updates)
-                batch_updates = []
-
-                if print_bar and total_hint:
-                    elapsed = time.time() - t0
-                    print_bar(tagged, total_hint, elapsed)
-                write_progress(command, tagged, total_hint, tagged, 0, t0, projects, phase="llm_tagging")
-
-        if offset is None:
-            break
-
-    # Flush remaining
-    vs.set_classifications(client, coll, batch_updates)
-    tagged += len(batch_updates)
-    # Payload-only updates change no point count: log them so readers of the
-    # data fingerprint (dashboard caches) see the new types and tags.
-    vs._wal_log("llm_tag", count=tagged)
-
-    if print_bar and total_hint:
-        print_bar(tagged, total_hint, time.time() - t0)
-        print()
-    write_progress(command, tagged, total_hint or tagged, tagged, 0, t0, projects, phase="llm_tagging")
-
-    return tagged
 
 
 def main(command: str = "ingest"):
@@ -801,12 +710,12 @@ def _main(command: str = "ingest"):
     # Override via --batch-size N; higher = faster but more peak memory.
     BATCH_SIZE = batch_size
 
-    # Zero-shot on by default; LLM opt-in replaces zero-shot.
-    # Resolved through config (env > config.json > default).
-    # LLM tagging is deferred to phase 2 (after all embeddings) to avoid
-    # GPU contention between embedding model and LLM tagger.
+    # Zero-shot on by default, resolved through config (env > config.json >
+    # default). LLM tagging is not run here: with tagger.llm on, each memory
+    # is marked for the background tagging backlog instead (ADR 0067).
     from imprint.config_schema import resolve
-    enable_llm = resolve("tagger.llm")[0]
+    from imprint.tag_backlog import deferring, report
+    pending = deferring()
     enable_zero_shot = resolve("tagger.zero_shot")[0]
     max_file_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
     failures = []
@@ -822,23 +731,23 @@ def _main(command: str = "ingest"):
             tags = tagger.build_payload_tags(
                 chunk_text,
                 rel_path=rel,
-                llm=None,
+                llm=False,
                 zero_shot=enable_zero_shot,
                 neighbor_context=neighbor_ctx,
                 project_hint=project,
             )
-            llm_type = tags.pop("_llm_type", "")
-            mem_type = llm_type or "architecture"
+            tags.pop("_llm_type", None)
             records.append({
                 "content": chunk_text,
                 "project": project,
-                "type": mem_type,
+                "type": "architecture",
                 "tags": tags,
                 "source": source_key,
                 "source_type": source_type,
                 "doc_metadata": doc_meta,
                 "chunk_index": chunk_idx,
                 "source_mtime": mtime,
+                "tag_pending": pending,
             })
         return records
 
@@ -1018,19 +927,6 @@ def _main(command: str = "ingest"):
         print_bar(grand_total, grand_total, time.time() - t_start)
         print()
 
-    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
-    llm_tagged = 0
-    if enable_llm and stored > 0 and not cancelled:
-        print()
-        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
-        llm_tagged = _llm_tag_recent(
-            ingest_start_ts=t_start,
-            total_hint=stored,
-            print_bar=print_bar,
-            command=command,
-            projects=_progress_projects,
-        )
-
     # ── Summary ────────────────────────────────────────────────
     elapsed = time.time() - t_start
     print()
@@ -1052,13 +948,12 @@ def _main(command: str = "ingest"):
             print(f"    {rel}: {reason}{'; kept the chunks of its earlier version' if kept else ''}")
     if failures:
         print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
-    if llm_tagged:
-        print(f"  Tagged:   {llm_tagged} (LLM)")
     if cleaned:
         print(f"  Cleaned:  {cleaned} stale sources")
     if gpu_retries:
         print(f"  {C_DIM}GPU batch reductions: {gpu_retries} (memory pressure){C_RESET}")
     print(f"  Time:     {elapsed:.1f}s")
+    report(stored)
     if cancelled:
         print(f"  {C_DIM}Re-run to index remaining files (duplicates are skipped automatically){C_RESET}")
     else:

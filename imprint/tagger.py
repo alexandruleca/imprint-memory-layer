@@ -602,6 +602,25 @@ def _call_llm_raw_text(full_input: str) -> str:
     return _extract_openai_content(resp)
 
 
+def llm_unavailable() -> str | None:
+    """Why the configured LLM tagger cannot classify, or None.
+
+    Checks what is known without a classification call: the local model
+    loads (downloading the default GGUF the first time, as tagging always
+    has), and a provider that needs an API key has one. Without them every
+    classification would fall back to an empty "finding", so the background
+    tagging job refuses to start instead (ADR 0067). A provider that fails
+    on a call still falls back per call.
+    """
+    provider = _get_llm_provider()
+    if provider == "local":
+        return _load_tagger_model()[1]
+    key_env = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["openai"]).get("key_env")
+    if key_env and not os.environ.get(key_env):
+        return f"{key_env} is not set for tagger.llm_provider {provider}"
+    return None
+
+
 def _parse_llm_classification(text: str) -> dict:
     """Parse structured JSON from LLM response.  Multi-strategy fallback.
 

@@ -72,6 +72,7 @@ import type {
   ChatStatus,
   ChatEvent,
   IngestionJob,
+  BackgroundTagging,
   QueueJob,
   QueueResponse,
   GraphScopeData,
@@ -495,6 +496,11 @@ export async function cancelJob(
 
 export async function getQueue(recentLimit = 20): Promise<QueueResponse> {
   return fetchAPI(`/api/queue?recent_limit=${recentLimit}`);
+}
+
+/** Start background tagging again after a cancel or a failure. */
+export async function resumeBackgroundTagging(): Promise<BackgroundTagging> {
+  return fetchAPI("/api/queue/background/resume", { method: "POST", body: JSON.stringify({}) });
 }
 
 export async function getJobDetail(jobId: string): Promise<QueueJob> {

@@ -6,6 +6,9 @@ persisted to ``data/queue.sqlite3`` so the queue survives API restarts,
 and a shared ``data/queue.lock`` file blocks direct CLI invocations while
 a job is active.
 
+When nothing waits, the dispatcher runs the background tagging job, which
+drains the LLM tagging backlog and steps aside for every other job (ADR 0067).
+
 Cancel sends SIGTERM to the subprocess's process group, then SIGKILL 3s
 later if still alive. Because the child is spawned with
 ``start_new_session=True`` the whole process group — including any
@@ -33,8 +36,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterable
 
-from . import queue_lock
+from . import queue_lock, tag_backlog
 from .processes import is_alive
+
+# The background tagging job's command (ADR 0067). The dispatcher starts it
+# itself; no client can submit it.
+BACKGROUND = tag_backlog.COMMAND
 
 # SIGKILL doesn't exist on Windows; fall back to SIGTERM for the force-kill
 # escalation path (os.kill(pid, SIGTERM) terminates unconditionally on Windows).
@@ -183,8 +190,6 @@ class RootNotApproved(ValueError):
 
 def enqueue(command: str, body: dict | None) -> str:
     _init_db()
-    job_id = uuid.uuid4().hex
-    from . import config
     # Capture the workspace now, rather than when this job eventually runs.
     from .workspace_policy import unapproved_root, workspace_name
     workspace = workspace_name((body or {}).get('workspace'))
@@ -194,16 +199,29 @@ def enqueue(command: str, body: dict | None) -> str:
         refused = unapproved_root(body["dir"], workspace)
         if refused:
             raise RootNotApproved(**refused)
-    body_json = json.dumps({**(body or {}), "_workspace": workspace})
-    now = time.time()
     with _db_lock, _connect() as conn:
-        conn.execute(
-            "INSERT INTO jobs (id, command, body_json, status, created_at) "
-            "VALUES (?, ?, ?, 'queued', ?)",
-            (job_id, command, body_json, now),
-        )
+        job_id = _insert_job(conn, command, {**(body or {}), "_workspace": workspace})
     _notify_dispatcher()
     return job_id
+
+
+def _insert_job(conn, command: str, body: dict) -> str:
+    job_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO jobs (id, command, body_json, status, created_at) "
+        "VALUES (?, ?, ?, 'queued', ?)",
+        (job_id, command, json.dumps(body), time.time()),
+    )
+    return job_id
+
+
+def foreground_waiting() -> bool:
+    """Whether a job other than background tagging waits to run; the
+    background job checks between memories and steps aside (ADR 0067)."""
+    _init_db()
+    with _db_lock, _connect() as conn:
+        return conn.execute("SELECT 1 FROM jobs WHERE status='queued' AND command!=? LIMIT 1",
+                            (BACKGROUND,)).fetchone() is not None
 
 
 def get_job(job_id: str) -> dict | None:
@@ -213,26 +231,43 @@ def get_job(job_id: str) -> dict | None:
 
 
 def active_job() -> dict | None:
+    """The running job, other than background tagging."""
     with _db_lock, _connect() as conn:
         row = conn.execute(
-            "SELECT * FROM jobs WHERE status='running' ORDER BY started_at LIMIT 1"
+            "SELECT * FROM jobs WHERE status='running' AND command!=? ORDER BY started_at LIMIT 1",
+            (BACKGROUND,),
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def background_job() -> dict | None:
+    """The running background tagging run, else the latest one."""
+    _init_db()
+    with _db_lock, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE command=? ORDER BY status='running' DESC, created_at DESC LIMIT 1",
+            (BACKGROUND,),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
 
 def list_queue(recent_limit: int = 20) -> dict:
+    """The running, waiting and finished jobs. Background tagging runs are
+    reported apart (``background_job``, ``background_state``)."""
     _init_db()
     with _db_lock, _connect() as conn:
         active = conn.execute(
-            "SELECT * FROM jobs WHERE status='running' ORDER BY started_at LIMIT 1"
+            "SELECT * FROM jobs WHERE status='running' AND command!=? ORDER BY started_at LIMIT 1",
+            (BACKGROUND,),
         ).fetchone()
         queued = conn.execute(
-            "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at"
+            "SELECT * FROM jobs WHERE status='queued' AND command!=? ORDER BY created_at",
+            (BACKGROUND,),
         ).fetchall()
         recent = conn.execute(
-            "SELECT * FROM jobs WHERE status IN ('done','failed','cancelled') "
+            "SELECT * FROM jobs WHERE status IN ('done','failed','cancelled') AND command!=? "
             "ORDER BY ended_at DESC LIMIT ?",
-            (recent_limit,),
+            (BACKGROUND, recent_limit),
         ).fetchall()
     return {
         "active": _row_to_dict(active) if active else None,
@@ -325,19 +360,38 @@ def _schedule_sigkill(pgid: int | None, pid: int | None, delay: float = 3.0) -> 
 # ── Startup recovery ───────────────────────────────────────────
 
 def recover_on_startup() -> None:
-    """Mark orphaned ``running`` rows as failed and clear stale lock files."""
+    """Mark orphaned ``running`` rows as failed and clear stale lock files.
+
+    A background tagging run the previous server left behind is stopped and
+    recorded as yielded: it would otherwise hold the queue until its backlog
+    was empty. This server starts it again when the queue is idle. It is
+    stopped the way any lock taker stops it, through the lock, which only a
+    live holder can hold; the PID in its row may belong to another process
+    by now (after a reboot, for one).
+    """
     _init_db()
     now = time.time()
     with _db_lock, _connect() as conn:
-        rows = conn.execute("SELECT id, pid FROM jobs WHERE status='running'").fetchall()
+        rows = conn.execute("SELECT id, pid, command FROM jobs WHERE status='running'").fetchall()
+    if any(row["command"] == BACKGROUND for row in rows):
+        queue_lock.release(queue_lock.acquire("recover", "", block=False))
+    with _db_lock, _connect() as conn:
         for row in rows:
             pid = row["pid"]
             alive = is_alive(pid)
-            if not alive:
+            if row["command"] == BACKGROUND:
+                conn.execute(
+                    "UPDATE jobs SET status='yielded', error=?, ended_at=? WHERE id=?",
+                    ("api_restart", now, row["id"]),
+                )
+            elif not alive:
                 conn.execute(
                     "UPDATE jobs SET status='failed', error=?, ended_at=? WHERE id=?",
                     ("api_restart", now, row["id"]),
                 )
+        # A run inserted but never started; the dispatcher inserts its own.
+        conn.execute("UPDATE jobs SET status='cancelled', error=?, ended_at=? WHERE status='queued' AND command=?",
+                     ("api_restart", now, BACKGROUND))
     queue_lock.clear_stale()
 
 
@@ -386,26 +440,44 @@ def _reap_dead_running() -> None:
 
 
 async def dispatcher_loop(after_job=None) -> None:
-    """Run forever: pick up queued jobs one at a time and execute them.
+    """Run forever: pick up queued jobs one at a time and execute them, and
+    background tagging when none waits.
     ``after_job(command, status)`` runs in the server once each job ends."""
     global _dispatcher_wake, _dispatcher_loop
     _dispatcher_loop = asyncio.get_running_loop()
     _dispatcher_wake = asyncio.Event()
+    terminal_job = False
 
     while True:
         job = _next_queued()
-        if job is None:
-            _dispatcher_wake.clear()
-            try:
-                await asyncio.wait_for(_dispatcher_wake.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                pass
+        if job is not None:
+            await _run_logged(job, after_job)
+            _background["due"] = 0.0  # it may have stored memories to tag
             continue
 
+        # A job started in a terminal may have stored memories as well.
+        holder = queue_lock.read_holder()
+        if holder is not None and not holder.get("preemptible"):
+            terminal_job = True
+        elif terminal_job:
+            terminal_job = False
+            _background["due"] = 0.0
+
+        if await _run_background_if_due(after_job):
+            continue
+
+        _dispatcher_wake.clear()
         try:
-            await _run_job(job, after_job)
-        except Exception as e:
-            _finalize(job["id"], status="failed", exit_code=None, error=f"dispatcher: {e}")
+            await asyncio.wait_for(_dispatcher_wake.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pass
+
+
+async def _run_logged(job: dict, after_job) -> None:
+    try:
+        await _run_job(job, after_job)
+    except Exception as e:
+        _finalize(job["id"], status="failed", exit_code=None, error=f"dispatcher: {e}")
 
 
 def _next_queued() -> dict | None:
@@ -420,16 +492,156 @@ def _next_queued() -> dict | None:
     # Also skip while a CLI-launched job holds the queue lock. If we picked
     # a queued row now we'd flip it to 'running' immediately while its
     # subprocess actually waits behind the CLI — the UI would show the row
-    # as active when it's really still queued.
+    # as active when it's really still queued. A preemptible holder (a
+    # background tagging run left by an earlier server) does not count: the
+    # job's own lock acquisition stops it.
     holder = queue_lock.read_holder()
-    if holder is not None:
+    if holder is not None and not holder.get("preemptible"):
         return None
 
     with _db_lock, _connect() as conn:
         row = conn.execute(
-            "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1"
+            "SELECT * FROM jobs WHERE status='queued' AND command!=? ORDER BY created_at LIMIT 1",
+            (BACKGROUND,),
         ).fetchone()
     return _row_to_dict(row) if row else None
+
+
+# ── Background tagging (ADR 0067) ──────────────────────────────
+
+# When the dispatcher next looks at the backlog, and what holds it back:
+# after a cancel, the backlog size it was cancelled at (it resumes once that
+# changes); after a failure, a time.
+_background: dict[str, Any] = {"due": 0.0, "hold_count": None, "hold_until": 0.0}
+BACKLOG_POLL_SECONDS = 30.0
+FAILURE_PAUSE_SECONDS = 1800.0
+_KEEP_BACKGROUND_RUNS = 20
+
+
+def backlog_changed() -> None:
+    """Something that decides whether background tagging runs changed: the
+    tagging settings, or the person asked it to resume. Look again now."""
+    _background.update(due=0.0, hold_count=None, hold_until=0.0)
+    _notify_dispatcher()
+
+
+def _pending_total() -> int | None:
+    try:
+        return sum(tag_backlog.pending_by_workspace().values())
+    except Exception:
+        return None
+
+
+def _held(pending: int) -> bool:
+    if time.time() < _background["hold_until"]:
+        return True
+    return _background["hold_count"] is not None and pending == _background["hold_count"]
+
+
+def _startable_backlog() -> int | None:
+    """The backlog size when background tagging should start now, else None:
+    LLM tagging is on, no job runs or waits, no other process holds the lock,
+    nothing holds it back, and memories wait."""
+    try:
+        if not tag_backlog.deferring():
+            return None
+    except Exception:
+        return None
+    _init_db()
+    with _db_lock, _connect() as conn:
+        if conn.execute("SELECT 1 FROM jobs WHERE status='running' OR (status='queued' AND command!=?) LIMIT 1",
+                        (BACKGROUND,)).fetchone():
+            return None
+    if queue_lock.read_holder() is not None:
+        return None
+    pending = _pending_total()
+    if not pending or _held(pending):
+        return None
+    _background["hold_count"] = None
+    return pending
+
+
+async def _run_background_if_due(after_job) -> bool:
+    """Run background tagging to its end when it is due and startable.
+    Returns whether it ran."""
+    now = time.time()
+    if now < _background["due"]:
+        return False
+    _background["due"] = now + BACKLOG_POLL_SECONDS
+    loop = asyncio.get_running_loop()
+    if await loop.run_in_executor(None, _startable_backlog) is None:
+        return False
+    with _db_lock, _connect() as conn:
+        job_id = _insert_job(conn, BACKGROUND, {})
+    _prune_background()
+    job = get_job(job_id)
+    await _run_logged(job, after_job)
+    # Not again before the next poll: after a yield, the queued job it yielded
+    # to runs next and makes it due when it ends, and a process that stopped
+    # it to take the lock is still waiting for that lock; starting again at
+    # once would race that process for it.
+    _background["due"] = time.time() + BACKLOG_POLL_SECONDS
+    status = (get_job(job_id) or {}).get("status")
+    if status == "cancelled":
+        _background["hold_count"] = await loop.run_in_executor(None, _pending_total)
+    elif status == "failed":
+        _background["hold_until"] = time.time() + FAILURE_PAUSE_SECONDS
+    return True
+
+
+def _background_status(exit_code: int | None, cancelled_by_user: bool) -> str:
+    """How a background tagging run ended. It yields by exiting with
+    ``tag_backlog.YIELDED`` when a job is queued, or is stopped by another
+    lock taker: SIGTERM on Unix, exit code 15 on Windows (ADR 0067)."""
+    if cancelled_by_user:
+        return "cancelled"
+    if exit_code == 0:
+        return "done"
+    if exit_code in (tag_backlog.YIELDED, -signal.SIGTERM, 128 + signal.SIGTERM, 15):
+        return "yielded"
+    return "failed"
+
+
+def _prune_background(keep: int = _KEEP_BACKGROUND_RUNS) -> None:
+    """Keep the latest background runs and their logs; it starts often."""
+    with _db_lock, _connect() as conn:
+        old = [row["id"] for row in conn.execute(
+            "SELECT id FROM jobs WHERE command=? AND status NOT IN ('queued','running') "
+            "ORDER BY created_at DESC LIMIT -1 OFFSET ?", (BACKGROUND, keep))]
+        conn.executemany("DELETE FROM jobs WHERE id=?", [(job_id,) for job_id in old])
+    for job_id in old:
+        with contextlib.suppress(OSError):
+            (_logs_dir() / f"{job_id}.log").unlink()
+
+
+_pending_cache: dict[str, Any] = {"at": 0.0, "value": None}
+
+
+def background_state() -> dict:
+    """What the Queue page shows of background tagging: whether LLM tagging
+    is on, how many memories wait across workspaces, and its state."""
+    enabled = bool(tag_backlog.deferring())
+    now = time.time()
+    if now - _pending_cache["at"] > 2.0:
+        _pending_cache.update(at=now, value=_pending_total())
+    pending = _pending_cache["value"]
+    job = background_job()
+    resume_at = None
+    if not enabled:
+        state = "off"
+    elif job and job["status"] == "running":
+        state = "running"
+    elif not pending:
+        state = "idle"
+    elif now < _background["hold_until"]:
+        state, resume_at = "failed", _background["hold_until"]
+    elif _background["hold_count"] is not None and pending == _background["hold_count"]:
+        state = "paused"
+    elif job and job["status"] == "yielded":
+        state = "yielded"
+    else:
+        state = "waiting"
+    return {"enabled": enabled, "pending": pending, "state": state, "job": job, "resume_at": resume_at}
 
 
 async def _run_job(job: dict, after_job=None) -> None:
@@ -452,7 +664,7 @@ async def _run_job(job: dict, after_job=None) -> None:
                 (time.time(), job_id),
             )
 
-        argv = (_build_argv(command, body, job_id=job_id) if command == 'browser-capture'
+        argv = (_build_argv(command, body, job_id=job_id) if command in ('browser-capture', BACKGROUND)
                 else _build_argv(command, body))
         log_path = _logs_dir() / f"{job_id}.log"
 
@@ -507,7 +719,9 @@ async def _run_job(job: dict, after_job=None) -> None:
             err_row = conn.execute("SELECT error FROM jobs WHERE id=?", (job_id,)).fetchone()
             was_cancel_flag = bool(err_row and err_row["error"] and "cancelled" in err_row["error"])
 
-        if was_cancel_flag or exit_code in (-signal.SIGTERM, -_SIGKILL, 130, 143, 137):
+        if command == BACKGROUND:
+            status = _background_status(exit_code, was_cancel_flag)
+        elif was_cancel_flag or exit_code in (-signal.SIGTERM, -_SIGKILL, 130, 143, 137):
             status = "cancelled"
         elif exit_code == 0:
             status = "done"
@@ -582,7 +796,7 @@ async def tail_output(job_id: str) -> AsyncIterator[str]:
         if done:
             # One final flush of anything written after the done flag set.
             job = get_job(job_id)
-            if job and job.get("status") in ("done", "failed", "cancelled"):
+            if job and job.get("status") in ("done", "failed", "cancelled", "yielded"):
                 return
 
 
@@ -611,10 +825,11 @@ def find_imprint_binary(root: Path = INSTALL_ROOT) -> str:
 
 
 def _build_argv(command: str, body: dict, *, job_id: str | None = None) -> list[str]:
-    if command == 'browser-capture':
+    if command in ('browser-capture', BACKGROUND):
         if not job_id or not re.fullmatch(r'[a-f0-9]{32}', job_id):
-            raise ValueError('Browser worker requires a queue job ID')
-        return [sys.executable, '-m', 'imprint.browser_worker', job_id]
+            raise ValueError(f'{command} requires a queue job ID')
+        module = 'imprint.browser_worker' if command == 'browser-capture' else 'imprint.tag_backlog'
+        return [sys.executable, '-m', module, job_id]
     imprint_bin = find_imprint_binary()
     argv = [imprint_bin, command]
     argv.extend(build_command_args(command, body))
@@ -676,6 +891,8 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.append("--dry-run")
         if body.get("all"):
             args.append("--all")
+        if body.get("pending"):
+            args.append("--pending")
     elif command == "config":
         action = body.get("action", "")
         if action:

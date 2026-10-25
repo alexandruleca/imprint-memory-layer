@@ -30,6 +30,22 @@ func acquireNative(path string, body []byte) (*Handle, error) {
 }
 
 func releaseNative(h *Handle) {
+	// Clear the holder metadata first, so nobody reads it as still held.
+	_ = syscall.Ftruncate(h.fd, 0)
 	_ = syscall.Flock(h.fd, syscall.LOCK_UN)
 	_ = syscall.Close(h.fd)
+}
+
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+// stopProcess sends SIGTERM, or SIGKILL when force is set.
+func stopProcess(pid int, force bool) {
+	sig := syscall.SIGTERM
+	if force {
+		sig = syscall.SIGKILL
+	}
+	_ = syscall.Kill(pid, sig)
 }

@@ -26,6 +26,9 @@ import (
 //     user's terminal isn't tied to a waiting job.
 //  4. Otherwise fall back to wait-poll in the foreground.
 //
+// The dashboard's background tagging job never counts as busy: TryAcquire
+// stops it and takes the lock (ADR 0067).
+//
 // Callers must defer Release() on the returned handle.
 func acquireOrEnqueue(dataDir, command string, enqueueArgs []string) *queuelock.Handle {
 	h, err := queuelock.TryAcquire(dataDir, command)

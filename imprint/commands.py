@@ -65,6 +65,8 @@ CATALOG: tuple[dict, ...] = (
          {'key': 'all', 'label': 'Include tagged chunks', 'kind': 'switch',
           'hint': 'Also retag chunks the LLM tagger already handled'},
          {'key': 'dry_run', 'label': 'Dry run', 'kind': 'switch', 'hint': 'Tag without writing the results'},
+         {'key': 'pending', 'label': 'Only memories waiting for tagging', 'kind': 'switch',
+          'hint': 'Tag now, newest first, what learn and ingest left for background tagging'},
      ]},
     {'name': 'scrub', 'label': 'Scrub secrets', 'group': 'Maintain',
      'description': 'Find secrets stored in memories and facts; replace them with placeholders when applied',

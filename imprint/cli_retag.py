@@ -6,10 +6,13 @@ in-place via Qdrant ``set_payload``.
 
 By default skips chunks already marked ``llm_tagged: True`` — re-running
 retag is idempotent.  Use ``--all`` to force re-tagging of everything.
+``--pending`` tags only the background tagging backlog, newest first: the
+memories learn and ingest left for the dashboard's background job (ADR 0067).
 
 Usage:
     python -m imprint.cli_retag [--project NAME] [--workspace NAME]
                                 [--batch-size N] [--dry-run] [--all]
+    python -m imprint.cli_retag --pending [--project NAME] [--workspace NAME]
 """
 
 from __future__ import annotations
@@ -20,8 +23,7 @@ import time
 
 from qdrant_client import models as qm
 
-from . import tagger, vectorstore
-from .config_schema import resolve
+from . import tag_backlog, tagger, vectorstore
 from .progress import write_progress, clear_progress
 from ._cli_signals import install as _install_signals
 
@@ -98,26 +100,9 @@ def retag(
 
         for pt in points:
             scanned += 1
-            content = pt.payload.get("content", "")
-            source = pt.payload.get("source", "")
-            existing_tags = pt.payload.get("tags") or {}
-
-            # Re-derive tags with LLM enabled (unified classification)
-            proj_hint = source.split("/", 1)[0] if "/" in source else ""
-            new_tags = tagger.build_payload_tags(
-                content,
-                rel_path=source,
-                llm=True,
-                project_hint=proj_hint,
-            )
-            new_type = new_tags.pop("_llm_type", "")
-            # Preserve deterministic fields set at ingest time when the
-            # re-derivation returns blanks — e.g. file sources that no
-            # longer exist, or any scheme not handled by derive_deterministic.
-            for k in ("lang", "layer", "kind"):
-                if existing_tags.get(k) and not new_tags.get(k):
-                    new_tags[k] = existing_tags[k]
-
+            # Re-derive tags with LLM enabled (unified classification),
+            # keeping deterministic fields the re-derivation leaves blank.
+            new_tags, new_type = tag_backlog.classify(pt.payload or {}, workspace)
             batch_updates.append((pt.id, new_tags, new_type))
 
             if len(batch_updates) >= batch_size:
@@ -167,6 +152,30 @@ def retag(
     return updated, scanned
 
 
+def retag_pending(project: str = "", workspace: str | None = None) -> int:
+    """Tag the background tagging backlog in the foreground, newest first.
+    Returns how many memories were tagged."""
+    total = tag_backlog.pending_count(workspace, project)
+    t0 = time.time()
+    progress_projects = [project] if project else []
+    write_progress("retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging")
+
+    def tagged_one(n: int) -> None:
+        elapsed = time.time() - t0
+        print(f"\r  Tagged {n} / {total}  ({n / elapsed if elapsed > 0 else 0:.1f}/s)",
+              end="", file=sys.stderr, flush=True)
+        write_progress("retag", n, max(total, n), n, 0, t0, progress_projects, phase="llm_tagging")
+
+    try:
+        tagged, _ = tag_backlog.drain(workspace, project=project, on_tagged=tagged_one)
+    finally:
+        clear_progress()
+    print(file=sys.stderr)
+    print(f"  Done: {tagged} memories waiting for LLM tagging tagged ({time.time() - t0:.1f}s)",
+          file=sys.stderr)
+    return tagged
+
+
 def _flush_updates(
     client, coll: str, updates: list[tuple[str, dict, str]]
 ) -> None:
@@ -191,11 +200,21 @@ def main():
         "--all", dest="all_tagged", action="store_true",
         help="Re-tag everything, even chunks already marked llm_tagged",
     )
+    parser.add_argument(
+        "--pending", action="store_true",
+        help="Tag only the memories waiting for background LLM tagging, newest first",
+    )
     args = parser.parse_args()
+    if args.pending and (args.all_tagged or args.dry_run):
+        parser.error("--pending tags the background tagging backlog; it cannot be combined with --all or --dry-run")
 
     provider = tagger._get_llm_provider()
-    mode = "all chunks" if args.all_tagged else "untagged chunks only"
+    mode = ("memories waiting for LLM tagging" if args.pending
+            else "all chunks" if args.all_tagged else "untagged chunks only")
     print(f"\n  Retag using provider: {provider} ({mode})", file=sys.stderr)
+    if args.pending:
+        retag_pending(project=args.project, workspace=args.workspace)
+        return
 
     retag(
         project=args.project,

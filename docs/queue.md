@@ -1,16 +1,18 @@
 ---
 title: Command Queue
-description: How Imprint serializes long-running CLI jobs (ingest, retag, wipe, sync) through a single-slot FIFO queue with advisory file locking, SIGTERM-safe cancellation, and SSE streaming.
+description: How Imprint serializes long-running CLI jobs (ingest, retag, wipe, sync) through a single-slot FIFO queue with advisory file locking, background LLM tagging that steps aside, SIGTERM-safe cancellation, and SSE streaming.
 ---
-Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant, and — when LLM tagging is on — hold a per-batch HTTP connection to the tagger provider. Running two in parallel on a workstation is the fastest way to OOM the box. Imprint serializes them with a shared single-slot queue.
+Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant, and — for retag and background tagging — run the LLM tagger. Running two in parallel on a workstation is the fastest way to OOM the box. Imprint serializes them with a shared single-slot queue. When nothing waits, the slot runs background LLM tagging, which steps aside for every other job.
 
 ## Semantics
 
 - **One job at a time, system-wide.** A single advisory flock on `data/queue.lock` gates every heavy command, regardless of which side started it.
 - **UI queues; the CLI hands over or waits.** `POST /api/commands/{cmd}` from the dashboard writes a row to `data/queue.sqlite3` and returns a `job_id` immediately; the FastAPI dispatcher picks it up in FIFO order. Direct CLI invocations (`imprint ingest`, `imprint refresh`, `imprint learn`, `imprint retag`, `imprint scrub`, `imprint ingest-url`, `imprint refresh-urls`) try the lock non-blocking. If it is held they print the current holder, then enqueue themselves through the dashboard's API when the dashboard runs, or wait for the lock otherwise. `IMPRINT_QUEUE_NO_WAIT=1` makes them exit nonzero instead. Why the queue exists: [ADR 0064](adr/0064-single-slot-command-queue-and-shared-lock.md).
 - **Unapproved roots are refused before queueing.** For `ingest` and `refresh`, `POST /api/commands/{cmd}` checks the body's `dir` against the workspace's roots with `workspace_policy.unapproved_root`, which mirrors `ensure_ingest_paths` including the first-root binding. Instead of queueing a job that would fail when it runs, it returns 409 `{error, code: "root_not_approved", workspace, root, overlaps}`; the dashboard asks to approve that root and resubmits (ADR 0015, ADR 0039).
+- **Background tagging runs last and steps aside.** With `tagger.llm` on, learn, ingest, refresh, ingest-url, the Stop hook and inline content store memories without running the LLM and mark them `tag_pending`. When no job runs or waits and no other process holds the lock, the dispatcher starts the background tagging job (`tag-backlog`, `python -m imprint.tag_backlog <job_id>`). It tags every workspace's marked memories, newest first, one memory per write, and exits between memories when a job is queued (exit code 75, recorded as `yielded`). The dispatcher looks again when a job ends, when a terminal job releases the lock, when a `tagger.*` setting changes, on `POST /api/queue/background/resume` and every 30 s. After a cancel it waits until more memories are marked; after a failure (for example no usable tagger), 30 minutes. It keeps the latest 20 runs. Why: [ADR 0067](adr/0067-background-llm-tagging-that-yields-to-every-job.md); tagging details in [tagging](tagging.md#llm-tagging-runs-in-the-background).
+- **Any other lock taker stops background tagging.** The background job holds the lock as a *preemptible* holder. A Go or Python process that wants the lock and finds a live preemptible holder stops it (SIGTERM, SIGKILL 3 s later; `TerminateProcess` with exit code 15 on Windows) and takes the lock within a few seconds, instead of refusing (update, dashboard and MCP purge, move), waiting (CLI purge, move, sync import) or failing (`IMPRINT_QUEUE_NO_WAIT=1`). The stopped run loses at most the memory it was classifying and is recorded as `yielded`.
 - **Cancel = kill the process group.** Subprocesses are spawned with `start_new_session=True`, so `killpg(pgid, SIGTERM)` takes down the Python process, its httpx worker threads (in-flight LLM tagger calls die with it), any `llama-cpp` inference thread, and any descendant helpers. If the group is still alive 3 s later, the dispatcher escalates to `SIGKILL`.
-- **Persistent history.** The SQLite queue survives API restarts. `recover_on_startup()` marks rows stuck in `running` whose PID is dead as `failed` (`error='api_restart'`) and clears stale lock files.
+- **Persistent history.** The SQLite queue survives API restarts. `recover_on_startup()` marks rows stuck in `running` whose PID is dead as `failed` (`error='api_restart'`) and clears stale lock files. A background tagging run left by the previous server is stopped and recorded as `yielded`.
 
 ## Storage
 
@@ -28,7 +30,7 @@ CREATE TABLE jobs (
     id          TEXT PRIMARY KEY,   -- uuid4 hex
     command     TEXT NOT NULL,      -- ingest | refresh | retag | ingest-url | ...
     body_json   TEXT NOT NULL,      -- request body the UI/CLI submitted
-    status      TEXT NOT NULL,      -- queued | running | done | failed | cancelled
+    status      TEXT NOT NULL,      -- queued | running | done | failed | cancelled | yielded (tag-backlog only)
     pid         INTEGER,
     pgid        INTEGER,
     exit_code   INTEGER,
@@ -47,7 +49,9 @@ CREATE INDEX idx_jobs_created ON jobs(created_at DESC);
 {"pid": 12345, "job_id": "<uuid>", "command": "ingest", "started_at": 1.713e9}
 ```
 
-Both sides parse the same shape: Python via [`imprint/queue_lock.py`](../imprint/queue_lock.py), Go via [`internal/queuelock/lock.go`](../internal/queuelock/lock.go).
+The background tagging job adds `"preemptible": true`. A holder clears the body before it unlocks, so a process that keeps running after a release (the dashboard after a purge) is not named as the holder.
+
+Both sides parse the same shape: Python via [`imprint/queue_lock.py`](../imprint/queue_lock.py), Go via [`internal/queuelock/lock.go`](../internal/queuelock/lock.go). On Windows, where locks are mandatory for reads, Python locks one byte at offset 2^30, past the body, so other processes can read who holds the lock; Go locks the whole file, so the two still exclude each other.
 
 ## HTTP API
 
@@ -56,7 +60,8 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 | Method | Path | Body | Response |
 |---|---|---|---|
 | `POST` | `/api/commands/{command}` | `{...flags}` | `{job_id, position}` — position is `0` if it started immediately, otherwise its 1-based slot |
-| `GET` | `/api/queue?recent_limit=20` | — | `{active, queued[], recent[]}`; `active` is enriched with live progress fields (phase, processed, total, percent, eta_seconds) |
+| `GET` | `/api/queue?recent_limit=20` | — | `{active, queued[], recent[], background}`; `active` is enriched with live progress fields (phase, processed, total, percent, eta_seconds). Background tagging runs appear only in `background`: `{enabled, pending, state, job, resume_at}`, where `state` is `off`, `running`, `yielded`, `waiting`, `paused` (after a cancel), `failed` (retried at `resume_at`) or `idle`, `pending` counts marked memories across workspaces and `job` is the running or latest run |
+| `POST` | `/api/queue/background/resume` | — | The `background` object; starts background tagging again after a cancel or failure as soon as the queue is idle |
 | `GET` | `/api/jobs` | — | Back-compat — `{jobs: [active]}` (empty array when nothing is running) |
 | `GET` | `/api/jobs/{id}` | — | Full row, with progress when running |
 | `GET` | `/api/jobs/{id}/stream` | — | SSE — replays the stored log then tails new lines; emits a final `{type:"done", exit_code, status}` |
@@ -70,7 +75,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 | Group | Commands |
 |---|---|
 | Index | `learn` (`desktop`), `ingest`, `refresh`, `ingest-url`, `refresh-urls` |
-| Maintain | `retag`, `scrub` (`apply`; a dry run without it, [secret redaction](redaction.md)), `sync` (export) |
+| Maintain | `retag` (`project`, `all`, `dry_run`, `pending`: only the memories waiting for background tagging), `scrub` (`apply`; a dry run without it, [secret redaction](redaction.md)), `sync` (export) |
 | Clients | `connect` (Connect clients), `disconnect` (Disconnect clients, confirmed first), both with `target`: a client or `all` |
 | Inspect | `status`, `doctor` (`probe_mcp`), `config` |
 
@@ -87,7 +92,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 
 ## UI
 
-- **`/queue`** — active job card (with live progress bar + cancel), queued list (cancel removes the row), recent history (exit code, duration, expandable log viewer).
+- **`/queue`** — active job card (with live progress bar + cancel), queued list (cancel removes the row), background tagging (state, memories waiting, progress, the current or latest run with its log, cancel, and **Resume now** after a cancel or failure), recent history (exit code, duration, expandable log viewer). Background runs raise no job toasts.
 - **Dashboard sidebar** — [`IngestionProgress`](../imprint/ui/src/components/ingestion-progress.tsx) now shows the active card plus a compact queued list with per-row cancel X.
 - **`QuickIngest` / `CommandsPage`** — the Commands page loads its commands from `GET /api/commands` and reloads them when a job finishes, so client connection states stay current. Both continue to use `streamCommand()` from [`lib/api.ts`](../imprint/ui/src/lib/api.ts). The helper now enqueues first, then SSE-tails `/api/jobs/{id}/stream`. `AbortController.abort()` cancels the job server-side (not just the fetch).
 
@@ -98,7 +103,8 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 3. **Cancel running (cascade kill):** start ingest with `IMPRINT_LLM_TAGS=1` + anthropic provider; hit cancel in UI mid-LLM-call. Within ~3 s `ps -ef` should show no python/httpx processes from that job. The row ends as `cancelled`, the lock file is released, the next queued job starts.
 4. **Cancel queued:** enqueue A, B, C. Cancel B while A runs. B's status flips to `cancelled` immediately without ever starting; C runs after A.
 5. **Restart recovery:** start a job; `pkill -f imprint.api`; restart. `/api/queue` shows the old running row as `failed` with `error='api_restart'`, the lock file is gone, new jobs enqueue normally.
-6. **Process-group cascade:** during `ingest-url` with the local `llama-cpp` tagger, cancel. `ps --forest` should show the subtree (llama.cpp threads, httpx workers, extractor helpers) gone in one shot, not staggered.
+6. **Process-group cascade:** during `retag` with the local `llama-cpp` tagger, cancel. `ps --forest` should show the subtree (llama.cpp threads, httpx workers, extractor helpers) gone in one shot, not staggered.
+7. **Background tagging steps aside:** with `tagger.llm` on, run `imprint learn`; it finishes after embedding and prints how many memories wait. The Queue page shows background tagging running. Queue a URL ingest: tagging yields within one classification, the ingest runs, tagging resumes. Purge a file from the dashboard (or run `imprint update`) while tagging runs: it takes the lock within seconds, and tagging resumes after it.
 
 ## Workspace and lock integrity
 

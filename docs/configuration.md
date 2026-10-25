@@ -93,7 +93,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chunker.semantic_threshold` | `0.5` | Topic-shift threshold for SemanticChunker (lower = sharper splits) |
 | **Tagger** | | |
 | `tagger.zero_shot` | `true` | Enable zero-shot topic tagging |
-| `tagger.llm` | `false` | Enable LLM topic tagging (replaces zero-shot during ingest/refresh) |
+| `tagger.llm` | `false` | Enable LLM tagging: memories stored by learn/ingest/refresh are classified by the dashboard's background tagging job ([tagging](tagging.md#llm-tagging-runs-in-the-background)) |
 | `tagger.llm_provider` | `local` | LLM provider: anthropic / openai / ollama / vllm / gemini / local |
 | `tagger.llm_model` | — | Server model override (default per provider); local uses GGUF settings |
 | `tagger.llm_base_url` | — | LLM tagger API base URL override |

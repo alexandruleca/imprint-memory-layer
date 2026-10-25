@@ -40,7 +40,7 @@
 - **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime on the CPU, no network calls, no per-token cost. GPU embedding on an NVIDIA card is opt-in (`model.device`), and only then does Imprint download the CUDA libraries. A GPU of any vendor speeds up the local LLM through llama.cpp's Vulkan or Metal build.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
-- **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
+- **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. A local LLM call per chunk if you want it, run in the background so `learn` and `ingest` finish once memories are searchable.
 - **Imprint graph**: SQLite on disk for temporal facts.
 - **Secret redaction**: API keys, tokens, private keys and assigned passwords become `[REDACTED:<kind>:<length>]` before anything is stored, embedded, synced or sent to a tagging or summary model. A scrub on one device reaches every synced device. OpenAI Privacy Filter can be added as an opt-in local model. See [secret redaction](docs/redaction.md).
 
@@ -159,11 +159,13 @@ imprint refresh <dir>      # re-index only changed files (SHA256-based)
 imprint refresh-urls       # re-check stored URLs via ETag/Last-Modified and re-index changed
 imprint retag [--project] [--all]
                            # re-run the tagger on existing memories (--all re-tags already-tagged chunks)
+imprint retag --pending    # tag now what learn/ingest left for background LLM tagging
 imprint scrub [--workspace <name>] [--apply]
                            # count secrets stored before redaction existed; --apply redacts and re-embeds them
 # Heavy jobs (ingest/refresh/retag/scrub/ingest-url/refresh-urls) serialize via a
-# shared queue lock. If another job is already running the CLI exits with an
-# error — cancel it from /queue in the UI or kill the PID it reports.
+# shared queue lock. If another job is already running, the CLI hands its job to
+# the dashboard's queue or waits; with
+# IMPRINT_QUEUE_NO_WAIT=1 it exits nonzero. Background LLM tagging steps aside.
 imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
                            # move memories between workspaces (preserves vectors);
                            # --copy keeps the source, e.g. to curate a workspace to share
@@ -232,7 +234,7 @@ Terms used across the docs.
 | **Topics** | Free-form tags from zero-shot cosine similarity or (opt-in) LLM classification — more granular than `domain`. |
 | **Ingestion** | Scanning a directory, detecting projects, chunking files, embedding chunks, tagging, and upserting into Qdrant. |
 | **Refresh** | Incremental re-ingest — compares byte hashes, reuses unchanged sources and removes recorded deleted files inside selected roots. |
-| **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. UI at `/queue` lists active + queued + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
+| **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. Background LLM tagging runs only when nothing else waits. UI at `/queue` lists active + queued + background tagging + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
 | **Auto-extract** | Stop hook that parses conversation transcripts after each Claude response and stores Q+A exchanges + decision-like statements. |
 | **PreCompact hook** | Synchronous hook that fires before Claude's context window compresses — instructs Claude to save important context via MCP tools first. |
 | **Relay server** | Stateless WebSocket forwarder (`imprint relay`) that brokers peer sync between two machines. Sessions are end-to-end encrypted with the one-time share code (SPAKE2 + AES-256-GCM), so the relay sees only room IDs, IP addresses and the sizes and timing of ciphertext — never the code's PIN, devices or memories. Synced records carry content, metadata and precomputed vectors, so both sides need the same embedding profile — see [docs/sync.md](docs/sync.md#end-to-end-encryption). |

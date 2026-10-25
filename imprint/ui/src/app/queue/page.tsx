@@ -7,14 +7,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
 import { CancelButton } from "@/components/ingestion-progress";
-import { getQueue, tailJobStream } from "@/lib/api";
+import { getQueue, resumeBackgroundTagging, tailJobStream } from "@/lib/api";
 import { useFollowOutput } from "@/lib/use-follow-output";
 import {
   CheckCircle2,
@@ -22,10 +24,15 @@ import {
   Ban,
   Clock,
   PlayCircle,
+  PauseCircle,
   ChevronRight,
   ChevronDown,
+  RotateCw,
+  Sparkles,
 } from "lucide-react";
 import type {
+  BackgroundTagging,
+  BackgroundTaggingState,
   QueueJob,
   QueueJobStatus,
   QueueResponse,
@@ -83,7 +90,112 @@ function StatusIcon({ status }: { status: QueueJobStatus }) {
       return <XCircle className="w-3.5 h-3.5 text-red-500" />;
     case "cancelled":
       return <Ban className="w-3.5 h-3.5 text-muted-foreground" />;
+    case "yielded":
+      return <PauseCircle className="w-3.5 h-3.5 text-muted-foreground" />;
   }
+}
+
+const memories = (n: number) => `${n.toLocaleString()} ${n === 1 ? "memory" : "memories"}`;
+
+const STATE_LABEL: Record<BackgroundTaggingState, string> = {
+  off: "Off",
+  running: "Running",
+  yielded: "Yielded",
+  waiting: "Waiting",
+  paused: "Paused",
+  failed: "Failed",
+  idle: "Idle",
+};
+
+function describe(bg: BackgroundTagging): string {
+  const waiting = bg.pending != null ? memories(bg.pending) : "Memories";
+  switch (bg.state) {
+    case "off":
+      return bg.pending
+        ? `${waiting} wait for LLM tagging. Turn on LLM tagging (tagger.llm) in Settings to tag them here.`
+        : "LLM tagging (tagger.llm) is off. Memories keep their keyword and zero-shot tags.";
+    case "running":
+      return `Tagging, newest first: ${waiting} to go. Every other job runs first; this one steps aside between memories.`;
+    case "yielded":
+      return `Stepped aside for another job. ${waiting} wait; tagging resumes when the queue is idle.`;
+    case "waiting":
+      return `${waiting} wait for LLM tagging. It starts when no other job runs or waits.`;
+    case "paused":
+      return `Cancelled with ${waiting.toLowerCase()} waiting. It resumes when more memories wait.`;
+    case "failed":
+      return `The last run failed; see its log. ${waiting} wait${bg.resume_at ? `; it retries at ${formatTime(bg.resume_at)}` : ""}.`;
+    case "idle":
+      return "Every memory stored with LLM tagging on has its LLM tags.";
+  }
+}
+
+/** Background LLM tagging (ADR 0067): learn and ingest leave LLM tags to it,
+ * and it gives way to every other job. */
+function BackgroundCard({
+  bg,
+  expandedId,
+  onToggleLog,
+}: {
+  bg: BackgroundTagging;
+  expandedId: string | null;
+  onToggleLog: (id: string) => void;
+}) {
+  const [resuming, setResuming] = useState(false);
+  const job = bg.job;
+  const running = bg.state === "running" && job;
+
+  async function resume() {
+    setResuming(true);
+    try {
+      await resumeBackgroundTagging();
+    } catch (e) {
+      toast.error("Could not resume background tagging", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setResuming(false);
+    }
+  }
+
+  return (
+    <Card role="region" aria-labelledby="background-tagging-title">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex flex-wrap items-center gap-2">
+          <Sparkles className="w-4 h-4 text-muted-foreground" aria-hidden />
+          <span id="background-tagging-title">Background tagging</span>
+          <Badge variant={bg.state === "failed" ? "destructive" : "secondary"} className="text-[10px]">
+            {STATE_LABEL[bg.state]}
+          </Badge>
+          {bg.pending != null && bg.pending > 0 && (
+            <span className="ml-auto whitespace-nowrap text-xs font-normal tabular-nums text-muted-foreground">
+              {memories(bg.pending)} waiting
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="flex-1 text-xs text-muted-foreground">{describe(bg)}</p>
+          {(bg.state === "paused" || bg.state === "failed") && (
+            <Button variant="outline" size="sm" onClick={resume} disabled={resuming}>
+              {resuming ? <Spinner /> : <RotateCw />}
+              Resume now
+            </Button>
+          )}
+        </div>
+        {running && job.percent !== undefined && (
+          <Progress value={Math.min(job.percent, 100)} aria-label="Background tagging progress"
+            className="[&_[data-slot=progress-track]]:h-2" />
+        )}
+        {job && (
+          <JobRow
+            job={job}
+            expandedId={expandedId}
+            onToggleLog={onToggleLog}
+            cancellable={!!running}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function QueuePage() {
@@ -137,7 +249,8 @@ export default function QueuePage() {
     );
   }
 
-  const { active, queued, recent } = data;
+  const { active, queued, recent, background } = data;
+  const toggleLog = (id: string) => setOpenLog(openLog === id ? null : id);
 
   return (
     <div className="p-8 space-y-6 max-w-5xl">
@@ -145,9 +258,10 @@ export default function QueuePage() {
         <div>
           <h2 className="text-2xl font-bold">Queue</h2>
           <p className="text-sm text-muted-foreground">
-            One ingest/refresh/retag runs at a time. Cancel sends SIGTERM →
-            SIGKILL (3s) to the whole process group, so any in-flight LLM
-            tagger call dies with it.
+            One ingest/refresh/retag runs at a time; background tagging runs
+            only when nothing else waits. Cancel sends SIGTERM → SIGKILL (3s)
+            to the whole process group, so any in-flight LLM tagger call dies
+            with it.
           </p>
         </div>
       </div>
@@ -199,6 +313,10 @@ export default function QueuePage() {
           )}
         </CardContent>
       </Card>
+
+      {background && (
+        <BackgroundCard bg={background} expandedId={openLog} onToggleLog={toggleLog} />
+      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -272,7 +390,7 @@ function JobRow({
           <Badge
             variant="secondary"
             className={`text-[10px] shrink-0 ${
-              job.exit_code === 0 ? "" : "text-red-600"
+              job.status === "failed" ? "text-red-600" : ""
             }`}
           >
             exit {job.exit_code}

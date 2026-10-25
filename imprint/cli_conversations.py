@@ -262,22 +262,21 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0) -> tuple[i
         except OSError:
             pass
 
+    # The LLM classifies these later, in the background (ADR 0067); the
+    # regex classifier and keyword tags describe them until then.
+    from .tag_backlog import deferring
+    pending = deferring()
     records: list[dict] = []
     for ex in exchanges:
         if not ex["text"] or len(ex["text"]) < MIN_EXCHANGE_LEN:
             skipped += 1
             continue
 
-        # llm=None → auto-enable when a local LLM tagger is available;
-        # falls back to deterministic + regex classify when off.
-        tags = tagger.build_payload_tags(ex["text"], llm=None)
-        llm_type = tags.pop("_llm_type", "")
-        if llm_type:
-            mem_type = llm_type
-        else:
-            mem_type, confidence = classify(ex["text"])
-            if confidence < 0.2:
-                mem_type = "finding"
+        tags = tagger.build_payload_tags(ex["text"], llm=False)
+        tags.pop("_llm_type", None)
+        mem_type, confidence = classify(ex["text"])
+        if confidence < 0.2:
+            mem_type = "finding"
         tags["lang"] = "conversation"
         tags["layer"] = "session"
         tags["kind"] = "qa"
@@ -296,6 +295,7 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0) -> tuple[i
                 "chunk_index": ci,
                 "source_mtime": source_mtime,
                 "tags": tags,
+                "tag_pending": pending,
             })
 
     # Flush in small sub-batches so a transcript with hundreds of exchanges
@@ -414,46 +414,9 @@ def learn(stores: list[tuple[str, str]]) -> int:
     bar = "█" * bar_width
     print(f"\r  {bar}{stats}{' ' * 10}")
 
-    # ── Phase 2: LLM tagging (sequenced after all embeddings) ──
-    llm_tagged = 0
-    from imprint.config_schema import resolve as _resolve
-    _enable_llm = _resolve("tagger.llm")[0]
-    if not _enable_llm and tagger._get_llm_provider() == "local":
-        _, _llm_source = _resolve("tagger.llm")
-        if _llm_source == "default":
-            _enable_llm = True
-
-    if _enable_llm and total_stored > 0:
-        from .cli_index import _llm_tag_recent
-        print()
-        print(f"  {C_CYAN}═══ LLM Tagging ═══{C_RESET}")
-
-        def _convo_print_bar(done, total, elapsed, current_file=""):
-            pct = done / total if total else 1
-            eta = elapsed / pct * (1 - pct) if pct < 1 else 0
-            stats = f" {int(pct*100):3d}% {done}/{total} eta {int(eta)}s"
-            bar_width = max(10, cols - len(stats) - 3)
-            filled = int(bar_width * pct)
-            bar = "█" * filled + "░" * (bar_width - filled)
-            print(f"\r  {bar}{stats}", end="", flush=True)
-
-        from .progress import clear_progress
-        try:
-            llm_tagged = _llm_tag_recent(
-                ingest_start_ts=t_start,
-                total_hint=total_stored,
-                print_bar=_convo_print_bar,
-                command="learn",
-                projects=[],
-            )
-        finally:
-            clear_progress()
-
     print()
     print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")
     print(f"  Stored:   {total_stored} exchanges")
-    if llm_tagged:
-        print(f"  Tagged:   {llm_tagged} (LLM)")
     if memory_files:
         print(f"  Memory:   {memory_files} auto-memory files")
     if pre_skipped:
@@ -462,6 +425,8 @@ def learn(stores: list[tuple[str, str]]) -> int:
         print(f"  Re-indexed:{reindexed} modified transcripts")
     print(f"  Skipped:  {total_skipped}")
     print(f"  Time:     {elapsed:.1f}s")
+    from .tag_backlog import report
+    report(total_stored)
     for label in unreadable:
         print(f"  {C_YELLOW}Not learned: {label} could not be read{C_RESET}")
     print()

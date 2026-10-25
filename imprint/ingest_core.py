@@ -66,8 +66,9 @@ def store_inline_content(
     if not chunks:
         return 0, "error: no chunks produced"
 
-    enable_llm = resolve("tagger.llm")[0]
-    enable_zero_shot = resolve("tagger.zero_shot")[0] and not enable_llm
+    from .tag_backlog import deferring
+    pending = deferring()  # LLM tagging runs in the background (ADR 0067)
+    enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records: list[dict] = []
     now = time.time()
@@ -79,23 +80,23 @@ def store_inline_content(
         tags = tagger.build_payload_tags(
             chunk_text,
             rel_path=path_for_chunk,
-            llm=None,
+            llm=False,
             zero_shot=enable_zero_shot,
             neighbor_context=neighbor_ctx,
             project_hint=project,
             workspace=workspace,
         )
-        llm_type = tags.pop("_llm_type", "")
-        mem_type = llm_type or "architecture"
+        tags.pop("_llm_type", None)
         records.append({
             "content": chunk_text,
             "project": project,
-            "type": mem_type,
+            "type": "architecture",
             "tags": tags,
             "source": source_key,
             "source_type": source_type,
             "chunk_index": len(records),
             "source_mtime": now,
+            "tag_pending": pending,
             **extras,
         })
 

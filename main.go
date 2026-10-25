@@ -164,6 +164,7 @@ Usage:
   imprint ui restart         Restart the running UI server with the installed code
   imprint ui log             Print the UI log file path (for tail -f)
   imprint retag [--project] [--all]  Re-tag existing memories (--all re-runs even already-tagged chunks)
+  imprint retag --pending    Tag now what learn and ingest left for background LLM tagging
   imprint scrub [--workspace NAME] [--apply]
                              Count secrets stored in memories and facts (--apply redacts them and re-embeds)
   imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
