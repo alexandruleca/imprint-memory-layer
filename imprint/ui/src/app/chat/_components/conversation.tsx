@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check, CircleAlert, Copy, RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { Check, CircleAlert, Copy, Info, RotateCcw } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -63,6 +64,15 @@ function Reply({ turn, last, onRetry }: { turn: AssistantTurn; last: boolean; on
   return (
     <article aria-label="Imprint's reply" className="group/reply space-y-3 text-sm">
       {turn.setup && <SetupProgress setup={turn.setup} />}
+      {turn.notice && (
+        <Alert role="status">
+          <Info />
+          <AlertTitle>Chatting without tools</AlertTitle>
+          <AlertDescription>
+            {turn.notice} <Link href="/settings/#settings-chat" className="underline underline-offset-2">Open chat settings</Link>
+          </AlertDescription>
+        </Alert>
+      )}
       {turn.steps.map((step, i) =>
         step.kind === "text"
           ? <Markdown key={i} text={step.text} className="leading-relaxed break-words" />

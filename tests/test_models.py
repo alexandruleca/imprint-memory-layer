@@ -132,48 +132,55 @@ class LocalHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'context exceeded'):
             local_llm.fit_messages(llm, [{'role': 'user', 'content': 'x' * 100}], 20)
 
+    def test_generation_decodes_special_tokens_and_split_characters_until_end_of_generation(self):
+        from test_chat_stream import LocalModel, llama_binding
+        llm = LocalModel(['[TOOL_CALLS]', b'\xe2\x86', b'\x92 ok'], ['a', 'b', 'c'])
+        question = [{'role': 'user', 'content': 'x'}]
+        with llama_binding():
+            self.assertEqual(''.join(local_llm.generate(llm, question, 50, 0.3)), '[TOOL_CALLS]→ ok')
+            self.assertEqual(''.join(local_llm.generate(llm, question, 2, 0.3)), 'ab')
+        self.assertEqual((llm.requests[0]['temp'], llm.requests[0]['grammar']), (0.3, None))
+
     def test_a_schema_constrains_the_reply_and_none_leaves_it_free(self):
-        llm = MagicMock()
-        llm.create_chat_completion.side_effect = lambda **kw: _stream('{"type":', '"finding"}')
+        from test_chat_stream import LocalModel, llama_binding
+        llm = LocalModel(['{"type":', '"finding"}'], ['{"type":', '"finding"}'])
         schema = {'type': 'object'}
-        with patch.object(local_llm, 'fit_messages', side_effect=lambda llm, messages, limit: messages):
+        with llama_binding():
             self.assertIn('finding', local_llm.complete(llm, 'summarize', schema=schema))
-            self.assertEqual(llm.create_chat_completion.call_args.kwargs['response_format'], {'type': 'json_object', 'schema': schema})
+            self.assertEqual(llm.requests[-1]['grammar'], ('grammar', schema))
             self.assertIn('finding', local_llm.complete(llm, 'classify'))
-            self.assertNotIn('response_format', llm.create_chat_completion.call_args.kwargs)
+            self.assertIsNone(llm.requests[-1]['grammar'])
 
     def test_a_deadline_stops_waiting_and_generating(self):
-        llm = MagicMock()
-        clock = iter([0.0, 1.0, 2.0, 3.0])
+        from test_chat_stream import LocalModel, llama_binding
         closed = []
 
-        def stream(**kw):
-            try:
-                yield from _stream('a', 'b', 'c')
-            finally:
-                closed.append(True)
-        llm.create_chat_completion.side_effect = stream
-        with patch.object(local_llm, 'fit_messages', side_effect=lambda llm, messages, limit: messages):
+        class Model(LocalModel):
+            def generate(self, tokens, **sampling):
+                try:
+                    yield from super().generate(tokens, **sampling)
+                finally:
+                    closed.append(True)
+        llm = Model(['a', 'b', 'c'], ['a', 'b', 'c'])
+        clock = iter([0.0, 1.0, 2.0, 3.0])
+        with llama_binding():
             with patch.object(local_llm.time, 'monotonic', return_value=5.0):
                 with self.assertRaises(TimeoutError):
                     local_llm.complete(llm, 'late', deadline=4.0)
-                llm.create_chat_completion.assert_not_called()
+                self.assertEqual(llm.requests, [])
             with patch.object(local_llm.time, 'monotonic', side_effect=lambda: next(clock)):
                 with self.assertRaises(TimeoutError):
                     local_llm.complete(llm, 'slow', deadline=2.5)
             self.assertEqual(closed, [True])
-            self.assertEqual(llm.create_chat_completion.call_args.kwargs['stream'], True)
             self.assertEqual(local_llm.complete(llm, 'unbounded'), 'abc')
 
     def test_local_classification_is_unconstrained_and_validated(self):
-        llm = MagicMock()
-        llm.create_chat_completion.side_effect = lambda **kw: _stream(
-            'Here it is:\n```json\n{"type": "Decision", "domains": ["auth"], "topics": ["Token Refresh"]}\n```')
+        from test_chat_stream import LocalModel, llama_binding
+        llm = LocalModel(['Here it is:\n```json\n{"type": "Decision", "domains": ["auth"], "topics": ["Token Refresh"]}\n```'])
         with patch.object(tagger, '_get_llm_provider', return_value='local'), \
-             patch.object(tagger, '_load_tagger_model', return_value=(llm, None)), \
-             patch.object(local_llm, 'fit_messages', side_effect=lambda llm, messages, limit: messages):
+             patch.object(tagger, '_load_tagger_model', return_value=(llm, None)), llama_binding():
             result = tagger.derive_llm_classify('We decided to refresh tokens in the auth middleware.')
-        self.assertNotIn('response_format', llm.create_chat_completion.call_args.kwargs)
+        self.assertIsNone(llm.requests[-1]['grammar'])
         self.assertEqual((result['type'], result['domains']), ('decision', ['auth']))
 
     def test_context_pruning_preserves_request_during_tool_loop(self):
@@ -182,7 +189,7 @@ class LocalHelperTests(unittest.TestCase):
         llm._imprint_formatter.side_effect = lambda messages, tools: types.SimpleNamespace(
             prompt=''.join(m['content'] or '' for m in messages) + tools)
         llm.tokenize.side_effect = lambda text, **kw: list(text)
-        call = lambda name: {'role': 'assistant', 'content': None, 'tool_calls': [{'id': name, 'type': 'function',
+        call = lambda name: {'role': 'assistant', 'content': '', 'tool_calls': [{'id': name, 'type': 'function',
                              'function': {'name': 'search', 'arguments': {'query': name}}}]}
         messages = [{'role': 'system', 'content': 'system'}, {'role': 'user', 'content': 'current request'},
                     call('old'), {'role': 'tool', 'tool_call_id': 'old', 'content': 'x' * 40},
@@ -223,11 +230,3 @@ class LocalHelperTests(unittest.TestCase):
         self.assertIn('/checkout-B', prompt)
         self.assertIn('Original paths in historical text', prompt)
         self.assertEqual(events[-1], {'type': 'done'})
-
-
-def _stream(*parts):
-    """A streamed chat completion, as llama.cpp yields it."""
-    yield {'choices': [{'delta': {'role': 'assistant'}}]}
-    for part in parts:
-        yield {'choices': [{'delta': {'content': part}}]}
-    yield {'choices': [{'delta': {}, 'finish_reason': 'stop'}]}

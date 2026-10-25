@@ -89,6 +89,17 @@ These services are called via their official SDKs with user-supplied API keys. T
 - **Google Gemini API** — https://ai.google.dev/gemini-api/terms
 - **Ollama / vLLM** — self-hosted, user's own deployment
 
+## Test Fixtures
+
+`tests/fixtures/chat_templates/` holds published chat templates, verbatim, to test tool-call format detection and rendering. Like the rest of `tests/`, they are included in release archives; the runtime never reads them. `sources.json` beside them records each one's repository, revision, file and SHA-256.
+
+| Templates | License |
+|---|---|
+| Qwen3.5-4B (Qwen and Unsloth's GGUF), Qwen3-Coder-30B-A3B-Instruct, Qwen2.5-0.5B-Instruct, Qwen3-0.6B | Apache 2.0 |
+| Mistral-7B-Instruct-v0.3, Mistral-Nemo-Instruct-2407 | Apache 2.0 |
+| Phi-4-mini-instruct | MIT |
+| Llama 3.2 1B Instruct, Llama 3.1 8B Instruct (read from bartowski's GGUFs; Meta's repositories are gated) | Llama 3.2 / Llama 3.1 Community License |
+
 ## Attribution Obligations Summary
 
 The dashboard vendors the static `shadcn@4.22.1` stylesheet at `imprint/ui/src/styles/shadcn.css` without its generator/runtime dependency tree. Its upstream MIT license is retained alongside it in `shadcn-LICENSE.txt`. The stylesheet's CSS body is copied from the pinned npm package; update it deliberately with the attribution intact.

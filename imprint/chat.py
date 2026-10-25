@@ -19,7 +19,6 @@ from __future__ import annotations
 import importlib
 import json
 import os
-import re
 import subprocess
 import threading
 import time
@@ -29,6 +28,7 @@ from typing import Any, Callable, Generator, NamedTuple
 from . import config
 from . import config_schema
 from . import server as _mcp_server
+from . import tool_formats
 
 
 # ── Optional deps ────────────────────────────────────────────
@@ -250,8 +250,36 @@ def _tool_schemas(read_only: bool) -> list[dict]:
     }} for name, tool in TOOLS.items() if not (read_only and tool.writes)]
 
 
+_JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,), "integer": (int,), "number": (int, float), "boolean": (bool,), "array": (list,), "object": (dict,),
+}
+
+
+def _typed(value: Any, schema: dict) -> Any:
+    """An argument typed by its parameter's schema. A string given for a
+    non-string parameter is read as JSON: the Qwen XML format writes every
+    value as text, and small models write numbers as strings."""
+    if isinstance(value, str) and schema["type"] != "string":
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _typed_args(name: str, args: dict) -> dict:
+    """A call's arguments typed by its tool's schema; others stay as written."""
+    params = TOOLS[name].params if name in TOOLS else {}
+    return {key: _typed(value, params[key]) if key in params else value for key, value in args.items()}
+
+
+def _is(value: Any, kind: str) -> bool:
+    return isinstance(value, _JSON_TYPES[kind]) and (kind in ("boolean", "string") or not isinstance(value, bool))
+
+
 def _run_tool(name: str, args: dict, workspace: str, read_only: bool) -> str:
-    """Run one call. Every failure becomes the result the model reads."""
+    """Run one call, its arguments typed (_typed_args). Every failure becomes
+    the result the model reads."""
     tool = TOOLS.get(name)
     if tool is None:
         return f"[tool error] unknown tool: {name}"
@@ -261,9 +289,11 @@ def _run_tool(name: str, args: dict, workspace: str, read_only: bool) -> str:
     args = {key: value for key, value in args.items() if key != "workspace"}
     unknown = sorted(set(args) - set(tool.params))
     missing = [key for key in tool.required if key not in args]
-    if unknown or missing:
+    wrong = [f"{key} must be {tool.params[key]['type']}" for key, value in args.items()
+             if key in tool.params and not _is(value, tool.params[key]["type"])]
+    if unknown or missing or wrong:
         problems = ([f"missing required {', '.join(missing)}"] if missing else []) + \
-                   ([f"unknown {', '.join(unknown)}"] if unknown else [])
+                   ([f"unknown {', '.join(unknown)}"] if unknown else []) + wrong
         return f"[tool error] bad args for {name}: {'; '.join(problems)}"
     try:
         return tool.run(workspace=workspace, **args)
@@ -271,7 +301,10 @@ def _run_tool(name: str, args: dict, workspace: str, read_only: bool) -> str:
         return f"[tool error] {name} raised: {e}"
 
 
-SYSTEM_PROMPT = """You are Imprint, a local AI memory assistant. You help users explore, query, and manage their Imprint knowledge base — a semantic index of code, decisions, patterns, conversations, and structured facts. Everything runs locally and offline.
+SYSTEM_PROMPT = """You are Imprint, a local AI memory assistant. You help users explore, query, and manage their Imprint knowledge base — a semantic index of code, decisions, patterns, conversations, and structured facts. Everything runs locally and offline."""
+
+# Guidance for using the tools; sent only when tools are offered.
+TOOL_STRATEGY = """
 
 # Strategy guide
 
@@ -536,80 +569,48 @@ def status() -> dict:
 
 # ── Local protocol: the model's own chat template ───────────
 # The GGUF's template renders the tool schemas, assistant tool_calls and
-# tool-role results itself. Qwen3.5 answers a call in this markup:
-#   <tool_call>
-#   <function=search>
-#   <parameter=query>
-#   alex
-#   </parameter>
-#   </function>
-#   </tool_call>
+# tool-role results itself. The reply's call grammar depends on the model
+# family; tool_formats parses each family's shape (ADR 0061).
 
-_TOOL_OPEN = "<tool_call>"
-_CALL_RE = re.compile(r"<tool_call>\s*<function=([^>\n]+)>(.*?)</function>\s*</tool_call>", re.DOTALL)
-_PARAM_RE = re.compile(r"<parameter=([^>\n]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
-
-
-def _partial_open_tag(text: str) -> int:
-    """Length of a trailing "<tool_c…" that may still become a tool call."""
-    for n in range(min(len(_TOOL_OPEN) - 1, len(text)), 0, -1):
-        if _TOOL_OPEN.startswith(text[-n:]):
-            return n
-    return 0
-
-
-def _parameter_value(raw: str, schema: dict | None) -> Any:
-    """Parameter values are text. String parameters are taken verbatim; the
-    schema's other types (integer, boolean, ...) are read as JSON. A value
-    that does not parse stays text, for the tool to reject."""
-    if schema is None or schema.get("type") == "string":
-        return raw
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return raw
+def _local_format(llm: Any) -> tuple[tool_formats.Format | None, str | None]:
+    """The tool-call format chat.tool_format selects for the loaded model, and
+    a notice when auto finds none, so chat runs without tools."""
+    choice = str(_cfg("chat.tool_format"))
+    if choice == "none":
+        return None, None
+    if choice != "auto":
+        if choice not in tool_formats.FORMATS:
+            raise ValueError(f"unknown chat.tool_format: {choice}")
+        return tool_formats.FORMATS[choice], None
+    formatter = llm._imprint_formatter
+    fmt = tool_formats.detect(lambda messages, tools: formatter(messages=messages, tools=tools).prompt,
+                              formatter.eos_token)
+    if fmt is None:
+        return None, ("This model's chat template writes tool calls in no format Imprint recognizes, so this chat "
+                      "runs without memory tools. If the model can call tools, choose its format in Settings, "
+                      "Chat, Tool-call format (chat.tool_format).")
+    return fmt, None
 
 
-def _parse_tool_calls(text: str) -> list[dict]:
-    """The tool calls written in the template's native markup."""
-    calls = []
-    for n, match in enumerate(_CALL_RE.finditer(text)):
-        name = match.group(1).strip()
-        params = TOOLS[name].params if name in TOOLS else {}
-        args = {key.strip(): _parameter_value(value, params.get(key.strip()))
-                for key, value in _PARAM_RE.findall(match.group(2))}
-        calls.append({"id": f"call_{n}", "name": name, "args": args})
-    return calls
-
-
-def _local_turn(llm: Any, messages: list[dict], tools: list[dict], max_tokens: int,
-                temperature: float) -> Generator[str, None, list[dict]]:
+def _local_turn(llm: Any, messages: list[dict], tools: list[dict] | None, fmt: tool_formats.Format | None,
+                max_tokens: int, temperature: float) -> Generator[str, None, list[dict]]:
     """One assistant turn of the local model. Yields reply text and returns
     the tool calls. Tool-call markup is never yielded: the stream holds text
-    back from the open tag on, and a trailing partial tag until it resolves."""
-    from .local_llm import INFERENCE_LOCK, fit_messages
+    back from a call marker on, and a trailing partial marker until it resolves."""
+    from .local_llm import INFERENCE_LOCK, generate
+    buffer, shown = "", 0
     with INFERENCE_LOCK:
-        messages = fit_messages(llm, messages, max_tokens, tools)
-        stream = llm.create_chat_completion(
-            messages=messages, tools=tools, stream=True,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        buffer, shown = "", 0
-        for chunk in stream:
-            choices = chunk.get("choices") or []
-            if not choices:
-                continue
-            buffer += (choices[0].get("delta") or {}).get("content") or ""
-            end = buffer.find(_TOOL_OPEN)
-            if end < 0:
-                end = len(buffer) - _partial_open_tag(buffer)
+        for piece in generate(llm, messages, max_tokens, temperature, tools=tools):
+            buffer += piece
+            end = tool_formats.shown(fmt, buffer) if fmt else len(buffer)
             if end > shown:
                 yield buffer[shown:end]
                 shown = end
-    calls = _parse_tool_calls(buffer[shown:])
+    calls = fmt.parse(buffer[shown:]) if fmt else []
     if not calls and len(buffer) > shown:
         yield buffer[shown:]  # held back, but not a tool call
-    return calls
+    # Mistral's templates require call ids of 9 alphanumerics.
+    return [{"id": f"call{n:05d}", **call} for n, call in enumerate(calls)]
 
 
 def _trim_tool_result(result: str, max_chars: int = 4000) -> str:
@@ -696,9 +697,9 @@ def _history(prior_messages: list[dict]) -> list[dict]:
         role = m.get("role")
         content = m.get("content", "")
         if role == "tool":
-            call = {"id": f"history_{n}", "type": "function", "function": {
+            call = {"id": f"hist{n:05d}", "type": "function", "function": {
                 "name": m.get("tool_name") or "tool", "arguments": m.get("tool_args") or {}}}
-            messages.append({"role": "assistant", "content": None, "tool_calls": [call]})
+            messages.append({"role": "assistant", "content": "", "tool_calls": [call]})
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
         elif role in ("user", "assistant"):
             messages.append({"role": role, "content": content})
@@ -720,6 +721,7 @@ def stream_reply(
       {"type": "download_start", "file", "repo", "path"} / {"type": "download_progress", "downloaded", "total"}
       {"type": "download_complete", "path": str}
       {"type": "load_start"}                         # loading the local model into memory
+      {"type": "notice", "text": str}                # first reply only: the local model runs without tools
       {"type": "token", "text": str}
       {"type": "tool_call", "name": str, "args": dict}
       {"type": "tool_result", "name": str, "result": str}
@@ -767,10 +769,19 @@ def stream_reply(
             yield {"type": "done"}
             return
 
+    # Remote providers call tools natively. A local model calls them in its
+    # template's format; without one it chats without tools (ADR 0061).
+    fmt = None
+    if not remote:
+        fmt, notice = _local_format(llm)
+        if notice and not prior_messages:
+            yield {"type": "notice", "text": notice}
+    tools = _tool_schemas(read_only) if remote or fmt else None
+
     # Build message list
     from .device import current
     device_context = json.dumps({'current_device': current(), 'working_directory': os.getcwd()})
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT +
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT + (TOOL_STRATEGY if tools else "") +
         '\n\n# Device and path context\n' + device_context +
         '\nShared memories and conversations remain useful on every device. '
         'Original paths in historical text and tool results are provenance, not local file instructions. '
@@ -783,7 +794,6 @@ def stream_reply(
         )
     messages += _history(prior_messages)
     messages.append({"role": "user", "content": user_message})
-    tools = _tool_schemas(read_only)
 
     max_iters = int(_cfg("chat.max_tool_iters"))
     max_tokens = int(_cfg("chat.max_tokens"))
@@ -797,7 +807,7 @@ def stream_reply(
         if remote:
             turn = _remote_turn(messages, tools, max_tokens, temperature)
         else:
-            turn = _local_turn(llm, messages, tools, max_tokens, temperature)
+            turn = _local_turn(llm, messages, tools, fmt, max_tokens, temperature)
         text = ""
         try:
             while True:
@@ -818,10 +828,13 @@ def stream_reply(
         if not calls:
             final_assistant_chunks.append(text)
             break
+        calls = [{**call, "args": _typed_args(call["name"], call["args"])} for call in calls]
 
         if text.strip():
             final_assistant_chunks.append(text.strip() + "\n")
-        messages.append({"role": "assistant", "content": text or None, "tool_calls": [
+        # Content stays a string, empty without text: some chat templates
+        # (Qwen3's GGUF) fail on a null or missing content.
+        messages.append({"role": "assistant", "content": text, "tool_calls": [
             {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["args"]}}
             for call in calls
         ]})

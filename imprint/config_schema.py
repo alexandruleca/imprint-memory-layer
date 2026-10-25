@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from . import tool_formats
 from .model_profiles import EMBEDDING_REPO, HELPER_REPO, HELPER_FILE
 
 
@@ -75,6 +76,9 @@ def _gpu_devices() -> tuple[Choice, ...]:
 
 AUTO = (Choice("auto", "Auto"),)
 PROVIDER_DEFAULT = (Choice("", "Provider default"),)
+TOOL_FORMATS = (Choice("auto", "Auto", "Detected from the model's chat template"),
+                *(Choice(f.name, f.label, f.detail) for f in tool_formats.FORMATS.values()),
+                Choice("none", "None", "Chat without tools"))
 PROVIDERS = (Choice("local", "Local", "Bundled llama.cpp model"), Choice("anthropic", "Anthropic"),
              Choice("openai", "OpenAI"), Choice("gemini", "Gemini"), Choice("ollama", "Ollama"),
              Choice("vllm", "vLLM"))
@@ -173,6 +177,8 @@ SETTINGS: list[Setting] = [
     Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
     Setting("chat.max_tool_iters", "IMPRINT_CHAT_MAX_TOOL_ITERS", 6,                                int,   "Max tool-call iterations per chat turn"),
+    Setting("chat.tool_format",    "IMPRINT_CHAT_TOOL_FORMAT",    "auto",                           str,   "Tool-call format of the local model's chat template (local provider)",
+            choices=TOOL_FORMATS),
 
     # ── Session summarizer (opt-in, local-first) ─────────────
     Setting("summarizer.enabled",       "IMPRINT_SUMMARIZER_ENABLED",       False,              bool, "Enable LLM-based session summarizer (runs on Stop hook)"),

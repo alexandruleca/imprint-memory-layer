@@ -16,6 +16,8 @@ export type AssistantTurn = {
   role: "assistant";
   steps: Step[];
   setup?: Setup;
+  /** Why this reply runs differently, e.g. a local model without tools. */
+  notice?: string;
   error?: string;
   stopped?: boolean;
   streaming: boolean;
@@ -72,6 +74,8 @@ export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
       return { ...turn, setup: { ...setup, download: { ...setup.download, done: true } } };
     case "load_start":
       return { ...turn, setup: { ...setup, load: { done: false } } };
+    case "notice":
+      return { ...turn, notice: ev.text, setup: loaded(turn.setup) };
     case "token": {
       const steps = [...turn.steps];
       const last = steps[steps.length - 1];

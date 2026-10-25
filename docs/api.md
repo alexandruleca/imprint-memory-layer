@@ -241,6 +241,10 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 - `download_start` (`file`, `repo`, `path`), `download_progress`
   (`downloaded`, `total` bytes), `download_complete`: the model download.
 - `load_start`: the local model is being loaded into memory.
+- `notice` (`text`): on a conversation's first reply, the local model has no
+  tool-call format (`chat.tool_format` is `auto` and its template matches none),
+  so the reply runs without tools
+  ([ADR 0061](adr/0061-local-tool-call-formats.md)).
 - `token` (`text`): reply text. Tool-call markup is never streamed, so the
   tokens of a reply concatenate to what the user sees.
 - `tool_call` (`name`, `args`), `tool_result` (`name`, `result`). One model

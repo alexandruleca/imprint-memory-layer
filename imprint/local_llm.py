@@ -1,6 +1,8 @@
 """Shared optional GGUF runtime. Importing this module never loads a model."""
 from __future__ import annotations
 
+import codecs
+import json
 import threading
 import tempfile
 import time
@@ -129,24 +131,42 @@ def _before(deadline: float | None) -> None:
         raise TimeoutError("local model time limit reached")
 
 
+def generate(llm, messages: list[dict], max_tokens: int, temperature: float, *,
+             tools: list[dict] | None = None, schema: dict | None = None,
+             deadline: float | None = None):
+    """Stream one assistant turn as text; the caller holds INFERENCE_LOCK.
+
+    The model's chat template renders the messages and tools, and generation
+    ends at an end-of-generation token. Special tokens are decoded as text,
+    because tool-call grammars such as Mistral's [TOOL_CALLS] are written with
+    them. A schema constrains the output with a grammar. A ``time.monotonic()``
+    deadline raises TimeoutError instead of starting after it, or of
+    generating past it. Prompt processing itself is not interruptible."""
+    from llama_cpp import LlamaGrammar, llama_vocab_is_eog
+    _before(deadline)
+    messages = fit_messages(llm, messages, max_tokens, tools)
+    prompt = llm._imprint_formatter(messages=messages, tools=tools).prompt
+    grammar = LlamaGrammar.from_json_schema(json.dumps(schema), verbose=False) if schema else None
+    text = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    tokens = llm.generate(llm.tokenize(prompt.encode(), add_bos=False, special=True),
+                          temp=temperature, top_k=40, top_p=0.95, min_p=0.05, repeat_penalty=1.1,
+                          grammar=grammar)
+    try:
+        for count, token in enumerate(tokens):
+            if count == max_tokens or llama_vocab_is_eog(llm._model.vocab, token):
+                return
+            _before(deadline)
+            piece = text.decode(llm.detokenize([token], special=True))
+            if piece:
+                yield piece
+    finally:
+        tokens.close()
+
+
 def complete(llm, full_input: str, max_tokens: int = 512, schema: dict | None = None,
              deadline: float | None = None) -> str:
     """One bounded chat turn. A schema constrains the output with a grammar;
-    without one the caller validates the text. A ``time.monotonic()`` deadline
-    raises TimeoutError instead of starting after it, or of generating past it.
-    Prompt processing itself is not interruptible."""
+    without one the caller validates the text. The deadline is generate's."""
     with INFERENCE_LOCK:
-        _before(deadline)
-        messages = fit_messages(llm, [{"role": "user", "content": full_input}], max_tokens)
-        constraint = {"response_format": {"type": "json_object", "schema": schema}} if schema else {}
-        stream = llm.create_chat_completion(
-            messages=messages, max_tokens=max_tokens, temperature=0.1, stream=True, **constraint,
-        )
-        parts = []
-        try:
-            for chunk in stream:
-                _before(deadline)
-                parts.append(chunk["choices"][0]["delta"].get("content") or "")
-        finally:
-            stream.close()
-        return "".join(parts)
+        return "".join(generate(llm, [{"role": "user", "content": full_input}], max_tokens, 0.1,
+                                schema=schema, deadline=deadline))

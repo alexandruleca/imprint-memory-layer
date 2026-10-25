@@ -120,6 +120,30 @@ test('without chats the page is a new chat whose first message sets up local cha
   await expect(page.getByRole('button', { name: 'Copy reply' })).toBeVisible();
 });
 
+test('a local model without a tool-call format says the chat runs without tools', async ({ page }) => {
+  const notice = "This model's chat template writes tool calls in no format Imprint recognizes, so this chat runs "
+    + 'without memory tools. If the model can call tools, choose its format in Settings, Chat, Tool-call format (chat.tool_format).';
+  await mockChat(page, {
+    sessions: [{ id: 'chat1', title: 'Plain model', created_at: now, updated_at: now }],
+    replies: [sse(
+      { type: 'load_start' },
+      { type: 'notice', text: notice },
+      { type: 'token', text: 'Hello.' },
+      { type: 'assistant_message', text: 'Hello.' },
+      { type: 'done' },
+    )],
+  });
+  await page.goto('/chat/');
+  await expect(page.getByRole('heading', { name: 'Plain model' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Message' }).fill('hi');
+  await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+  const status = page.getByRole('status').filter({ hasText: 'Chatting without tools' });
+  await expect(status).toContainText('chat.tool_format');
+  await expect(status.getByRole('link', { name: 'Open chat settings' })).toHaveAttribute('href', '/settings/#settings-chat');
+  await expect(page.getByText('Hello.')).toBeVisible();
+  await expect(page.getByText('Loading the local model…')).toHaveCount(0);
+});
+
 test('shows install output and download progress while setup runs', async ({ page }) => {
   await mockChat(page, {
     status: { ...LOCAL, installed: false, model_ready: false },
