@@ -91,7 +91,7 @@ These services are called via their official SDKs with user-supplied API keys. T
 
 ## Test Fixtures
 
-`tests/fixtures/chat_templates/` holds published chat templates, verbatim, to test tool-call format detection and rendering. Like the rest of `tests/`, they are included in release archives; the runtime never reads them. `sources.json` beside them records each one's repository, revision, file and SHA-256.
+`tests/fixtures/chat_templates/` holds published chat templates, verbatim, to test tool-call format detection and rendering. Like the rest of `tests/`, they stay in the source repository and are excluded from release archives (`.releaseignore`); the runtime never reads them. `sources.json` beside them records each one's repository, revision, file and SHA-256.
 
 | Templates | License |
 |---|---|

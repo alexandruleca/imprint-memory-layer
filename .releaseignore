@@ -30,7 +30,8 @@ site/
 # Installer sources (built on platform-specific runners, not needed inside archives)
 installers/
 
-# Test artifacts + benchmark results
+# Tests, their fixtures (including third-party chat templates) + benchmark results
+/tests/
 benchmark/
 /requirements/personaplex-test.txt
 /requirements/personaplex-test.lock.txt
