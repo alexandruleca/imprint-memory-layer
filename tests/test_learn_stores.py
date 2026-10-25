@@ -536,10 +536,11 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual(list(transcripts.cwds(subagent)), [])
 
     def test_cline_projects_come_from_the_recorded_cwd(self):
-        store = self.root / 'sessions'
-        windows = cline_session(store, CLINE_FIRST, 'C:\\Users\\u\\code\\personal\\shop', 'Which project?')
+        windows = cline_session(self.root / 'windows-sessions', CLINE_FIRST,
+                                'C:\\Users\\u\\code\\personal\\shop', 'Which project?')
         self.assertEqual(learner.identify(str(windows)), (f'conversation/{CLINE_FIRST}', 'shop'))
         # A session without a folder open runs in Cline's chat workspace: no project.
+        store = self.root / 'sessions'
         chat = self.root / 'home' / 'u' / '.cline' / 'data' / 'workspaces' / 'chat'
         chat.mkdir(parents=True)
         session = cline_session(store, CLINE_SECOND, str(chat), 'What is a good name for a cat?')

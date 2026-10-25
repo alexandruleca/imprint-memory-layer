@@ -54,6 +54,11 @@ jobs:
         run: python -m pip install --require-hashes -r requirements/personaplex-test.lock.txt
       - run: python -m pip check
       - run: python -m unittest discover -s tests -v
+      # The dashboard static export is not tracked; the smoke serves it.
+      - name: Dashboard static export
+        run: |
+          npm ci --prefix imprint/ui
+          npm run build --prefix imprint/ui
       - name: MCP, dashboard and native Qdrant smoke
         env:
           PYTHONPATH: .
