@@ -42,7 +42,7 @@
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
 - **Imprint graph**: SQLite on disk for temporal facts.
-- **Secret redaction**: API keys, tokens, private keys and assigned passwords become `[REDACTED:<kind>]` before anything is stored, embedded or synced. OpenAI Privacy Filter can be added as an opt-in local model. See [secret redaction](docs/redaction.md).
+- **Secret redaction**: API keys, tokens, private keys and assigned passwords become `[REDACTED:<kind>:<length>]` before anything is stored, embedded, synced or sent to a tagging or summary model. A scrub on one device reaches every synced device. OpenAI Privacy Filter can be added as an opt-in local model. See [secret redaction](docs/redaction.md).
 
 The ingestion flow: scan dir → detect project → chunk files → tag (lang/layer/kind/domain/topics) → redact secrets → embed chunks → upsert into Qdrant. A Stop hook auto-extracts decisions from Claude transcripts; a PreCompact hook saves context before window compression. Search goes straight to the local vector DB — no round-trip to any provider.
 

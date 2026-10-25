@@ -44,6 +44,8 @@ Four tag sources, layered from cheap to rich:
 
 When LLM tagging is enabled it replaces zero-shot — no point running both. See [tagger.py](../imprint/tagger.py) for implementation.
 
+Every provider, local or remote, receives the classification prompt with its secrets redacted, so tags and types are derived from redacted text ([secret redaction](redaction.md#text-sent-to-models)).
+
 ## LLM Tagger Providers
 
 Set `IMPRINT_LLM_TAGS=1` and pick a provider:

@@ -96,7 +96,7 @@ graph LR
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
-| Redaction | `redaction.py` + opt-in `privacy_filter.py` | Every memory and fact write replaces credentials with `[REDACTED:<kind>]` before IDs and embeddings are computed: deterministic rules always, OpenAI Privacy Filter's secret and account-number spans when `redact.privacy_filter` is on. Sync imports are redacted on arrival; `imprint scrub` cleans stored data. See [secret redaction](redaction.md) and [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md). |
+| Redaction | `redaction.py` + opt-in `privacy_filter.py` | Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` before IDs and embeddings are computed or a model sees the text: deterministic rules always, OpenAI Privacy Filter's secret and account-number spans when `redact.privacy_filter` is on. Sync imports are redacted on arrival, and each write keeps the most redacted version of a memory, so one `imprint scrub` reaches every synced device. See [secret redaction](redaction.md) and [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md). |
 | MCP server | FastMCP (Python) | 17 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `scrub`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync; sees only ciphertext |
@@ -135,7 +135,7 @@ sequenceDiagram
 
     Note over C,K: Claude learns something
     C->>K: store("CORS wildcard is by design because...")
-    K->>K: redact secrets → [REDACTED:kind]
+    K->>K: redact secrets → [REDACTED:kind:length]
     K->>E: embed redacted content → vector
     K->>Q: upsert point (vector + payload)
 

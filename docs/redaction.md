@@ -1,9 +1,9 @@
 ---
 title: Secret redaction
-description: How Imprint replaces credentials with placeholders before memories and facts are stored or synced, the opt-in Privacy Filter model, and imprint scrub for data stored earlier.
+description: How Imprint replaces credentials with placeholders before memories and facts are stored or synced and before text is sent to background models, the opt-in Privacy Filter model, and imprint scrub, whose result reaches every synced device.
 ---
 
-Imprint replaces credentials in memory text with placeholders before the text is stored, embedded or synced. A secret becomes `[REDACTED:<kind>]`, for example `export OPENAI_API_KEY=[REDACTED:openai-key]`. Neither the value nor a hash of it is kept. [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md) records the design and its trade-offs.
+Imprint replaces credentials with placeholders before text is stored, embedded or synced, and before it is sent to a model for tagging or session summaries. A secret becomes `[REDACTED:<kind>:<length>]`, for example `export OPENAI_API_KEY=[REDACTED:openai-key:164]`. The length is that of the text it replaced. Neither the value nor a hash of it is kept. [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md) records the design and its trade-offs.
 
 ## Where it applies
 
@@ -15,6 +15,17 @@ Every write passes through one redaction step before the memory's ID and embeddi
 - sync imports, live or from a snapshot bundle, whatever the sending device did.
 
 A synced record that redaction changes is stored under the ID of its redacted content, and its vector is computed again from the redacted text; the sender's vector encoded the secret. Records redaction leaves unchanged keep the sender's ID and vector.
+
+The same step keeps one version of each memory: the most redacted one (see [Scrubs reach every device](#scrubs-reach-every-device)).
+
+## Text sent to models
+
+The opt-in LLM tagger (`tagger.llm`) and the session summarizer (`summarizer.enabled`) redact their whole prompt before it reaches any provider: Anthropic, OpenAI, Gemini, Ollama, vLLM or the local model. With Privacy Filter on, it runs on the prompt too. Tags, types and summaries are therefore derived from redacted text, and no secret fragment can come back as a stored tag.
+
+Two paths send text unchanged:
+
+- **Recall's local planning.** Its evidence is already-redacted memory, and its model runs on this computer.
+- **The dashboard chat.** What you type goes to the provider you chose, as you wrote it. Memories it reads are redacted, and memories it stores pass the write step.
 
 Whole secret files (`.env*`, SSH keys, `.key`/`.p12`/`.pfx`) are still skipped by ingest, as before.
 
@@ -52,7 +63,7 @@ The setting is also on the dashboard's Settings page, under Redaction. It adds [
 - It runs on CPU with ONNX Runtime and `model.threads` threads. On an i9-13900HX with 4 threads it takes about 2 s for a 1,000-character chunk and 5.5–6 s for a 4,000-character one, and adds about 1.4 GB of memory. Long-running processes, such as the MCP server and the dashboard, keep the model loaded after their first write. Ingest and learn become noticeably slower. Each new process verifies and loads the model once, which takes a few seconds; the Stop hook pays that on every run.
 - If it is enabled and cannot download, verify, load or run, the write fails with an error naming the setting, and nothing is stored. Imprint never stores text less redacted than you chose. Fix the download, or turn the setting off: `imprint config set redact.privacy_filter false`.
 - The model reads context, so it catches credentials the rules cannot name. It can also mark a hash or an identifier as a secret: in Imprint's tests it marked a UUID and a SHA-256 digest that the rules leave alone. On ordinary code it rarely marks anything.
-- Use the same setting on every device that shares a workspace (see below).
+- Devices that share a workspace may differ: a device with it on wins (see below).
 
 ## Data stored before: `imprint scrub`
 
@@ -68,19 +79,28 @@ A scrubbed memory moves to the ID of its redacted content and keeps its project,
 
 `imprint sync import <bundle>` scrubs the restored workspace automatically, because a snapshot bundle is a raw copy of storage that may predate redaction. It holds the queue lock while it restores and scrubs.
 
-Run `imprint scrub --apply` on every device after upgrading. Sync does not carry deletions, so scrubbing one device cannot retire the old copies on its peers.
+## Scrubs reach every device
 
-## Devices that redact differently
+Scrub once, on any device. Two memories at the same place (project, source and chunk position) are versions of one memory when one is the other redacted further. Each placeholder records the length of the text it replaced, which is what makes the comparison exact. Every write keeps the most redacted version:
 
-Devices with the same release and settings produce the same redacted text, so they compute the same memory IDs and sync deduplicates as usual.
+- **A device that receives a further-redacted version** stores it and deletes the version it held. It does not need to scrub.
+- **A device that receives, or writes again, a less redacted version of a memory it already holds more redacted** keeps what it has and stores nothing.
 
-When one device redacts more, because it has Privacy Filter on or a newer release with more rules:
+So after device A scrubs:
 
-- **The stricter device** stores only its own redaction. An unredacted copy from a peer is redacted on arrival and stored under its redacted ID. Later deliveries of that copy are recognised as the same memory and skipped.
-- **The less strict device** receives the stricter copy as an additional memory and keeps its own until it adopts the setting and scrubs.
+1. Device B receives A's redacted memories at its next sync and drops its own copies.
+2. Device C, which has not synced with A, cannot bring the old copies back: B keeps the redacted versions when C sends them.
+3. C receives the redacted versions from B and drops its old copies too.
+
+Facts behave the same way: a fact's versions share their creation time.
+
+The same holds when devices redact differently, with Privacy Filter on one of them or a newer release with more rules. The device that redacts more wins on every device its memories reach, including when a looser device re-indexes the same file. Devices with the same release and settings produce the same text and IDs, and sync deduplicates as usual.
+
+In a workspace synced both ways, one scrub is enough. A memory that only one device ever held can be cleaned only by that device. A device on an older release, before versions existed, keeps both copies.
 
 ## Limitations
 
-- Redaction happens where text is stored. The opt-in LLM tagger and session summarizer read the original text before that, and send it to the provider they are configured to use.
+- Each placeholder shows how many characters the secret had. Nothing that could confirm a guess of the secret is stored.
 - Source keys and URLs are not redacted; refresh needs them to re-fetch.
+- Recall prompts and dashboard chat messages are sent as written (see [Text sent to models](#text-sent-to-models)).
 - A password that is not assigned to a credential-named key, or a token in a format the rules do not know, passes the rules. Privacy Filter narrows that gap, but it is a redaction aid, not a guarantee.

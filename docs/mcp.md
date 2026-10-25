@@ -47,7 +47,7 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 
 | Tool | Purpose |
 |------|---------|
-| `store` | Persist a decision/pattern/finding/bug/architecture/milestone/preference before returning `Stored [id]`. Credentials are replaced with `[REDACTED:<kind>]` first ([secret redaction](redaction.md)). Storage failures propagate. Deterministic tags only; supplied comma-separated domain tags are preserved. Blank type uses the local classifier. No forced LLM call. Content: 1–20,000 characters. |
+| `store` | Persist a decision/pattern/finding/bug/architecture/milestone/preference before returning `Stored [id]`. Credentials are replaced with `[REDACTED:<kind>:<length>]` first ([secret redaction](redaction.md)). Storage failures propagate. Deterministic tags only; supplied comma-separated domain tags are preserved. Blank type uses the local classifier. No forced LLM call. Content: 1–20,000 characters. |
 | `delete` | Remove a memory by id (as returned from `search`/`store`). |
 | `ingest_url` | Fetch an http(s) URL, extract content, chunk + embed + store. Skips unchanged pages (HEAD check against stored ETag/Last-Modified). |
 | `ingest_content` | Chunk + embed + store an inline blob — text, markdown, CSV, JSON, or code (`format="code:python"` etc.). Dedup + replace keyed by `name`: re-sending the same `name` overwrites prior chunks. Valid inline text of 10–99 characters is kept as a single chunk rather than dropped by the file chunker's minimum. Designed for API uploads and external services pushing data into memory. |
