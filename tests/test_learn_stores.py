@@ -378,6 +378,10 @@ class LearnStoresTests(unittest.TestCase):
                          'brightspaces-node-office-client')
         self.assertEqual(learner.derive_project('/home/u/code/personal'), 'personal')
         self.assertEqual(learner.derive_project('/home/u'), '')
+        # macOS and Windows homes name projects as a Linux home does.
+        self.assertEqual(learner.derive_project('/Users/u/code/personal/imprint-memory-layer'), 'imprint-memory-layer')
+        self.assertEqual(learner.derive_project('C:\\Users\\u\\code\\personal\\imprint'), 'imprint')
+        self.assertEqual(learner.derive_project('/Volumes/data/code/imprint'), '')
 
 
 if __name__ == '__main__':

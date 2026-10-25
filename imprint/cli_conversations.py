@@ -42,6 +42,10 @@ C_YELLOW = "\033[1;33m"
 # Minimum useful exchange length — drop sub-100-char noise.
 MIN_EXCHANGE_LEN = 100
 
+# A user's home as it begins a folder name: Linux /home/<user>, macOS
+# /Users/<user>, Windows <drive>:\Users\<user>.
+_HOME_FOLDER = re.compile(r"-home-|-Users-|[A-Za-z]--Users-")
+
 CLIENTS = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor"}
 
 
@@ -135,10 +139,12 @@ def derive_project(cwd: str) -> str:
     -home-user-code-imprint gives imprint. Using the recorded cwd instead of
     the path a transcript was found at gives a conversation one name however
     its store is reached (natively or through \\\\wsl.localhost), and gives
-    Codex sessions the same names as Claude Code sessions.
+    Codex and Cursor sessions the same names as Claude Code sessions. A home
+    on macOS (/Users/user/code/imprint) or Windows (C:\\Users\\user\\code\\imprint)
+    names projects as a Linux home does.
     """
     folder = re.sub(r"[^A-Za-z0-9]", "-", cwd)
-    if not folder.startswith("-home-") or "code-" not in folder:
+    if not _HOME_FOLDER.match(folder) or "code-" not in folder:
         return ""
     remainder = folder[folder.index("code-") + 5:]
     # Skip known group prefixes (org dirs, language dirs, etc.) up to the

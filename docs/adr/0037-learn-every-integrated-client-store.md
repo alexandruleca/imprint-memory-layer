@@ -60,7 +60,7 @@ Windows installations with WSL registrations learn those profiles' Claude Code a
 
 Resolving each distinct cwd once also shortens the WSL bridge's Stop check, which runs the same ownership read on every turn. Reading through `\\wsl.localhost` is still slower than local disk. The modification-time check now runs before the ownership read, so an unchanged conversation costs a `stat` and its first records. An auto-memory folder still reads every transcript beside it on each run (ADR 0034's rule, unchanged). The learner reads a WSL profile as the Windows account through the WSL file provider, so a custom user's profile must be readable that way, as in ADR 0026.
 
-Native Windows and macOS working directories (`C:\…`, `/Users/…`) still get no project name under the existing rule. `imprint learn` prints one step per path context with per-store counts. `cli_conversations --all` is replaced by `--store`, and the auto-memory import moved from a script embedded in the Go CLI into `cli_conversations`.
+Native Windows and macOS working directories (`C:\…`, `/Users/…`) still get no project name under the existing rule ([ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) later names them as Linux homes are named). `imprint learn` prints one step per path context with per-store counts. `cli_conversations --all` is replaced by `--store`, and the auto-memory import moved from a script embedded in the Go CLI into `cli_conversations`.
 
 ## Validation
 

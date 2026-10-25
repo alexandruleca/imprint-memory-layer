@@ -38,6 +38,7 @@ This amends ADR 0034. Claude Code's folder names are still never evidence, becau
 - A user message's text is the content of its `<user_query>` blocks. A message with none, such as a bare timestamp, contributes no text.
 - The source key is `conversation/<first eight characters of the id>`, the rule for Claude Code's random session ids.
 - The project name comes from the resolved directory, so it matches a Claude Code or Codex session in that directory.
+- **Project names on macOS and Windows.** The naming rule now also recognizes a home directory on macOS (`/Users/<user>`) and on Windows (`<drive>:\Users\<user>`), so `/Users/u/code/personal/imprint` is named `imprint`, as `/home/u/code/personal/imprint` is. Before this, every conversation recorded there, from any client, was stored without a project (ADR 0037). Linux names are unchanged. A conversation already stored without a project keeps that until its transcript changes; learn then replaces it.
 - Conversation text is never rewritten. Cursor's `[REDACTED]` placeholders stay as written.
 
 ## Alternatives
