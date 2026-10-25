@@ -1,11 +1,25 @@
 import atexit
+import contextlib
 import json
 import sqlite3
+import threading
 import time
 
 from . import config
 
 _conns: dict[str, sqlite3.Connection] = {}
+# Each workspace shares one connection across threads (MCP tool calls,
+# recall's concurrent steps). A sqlite3 connection must not run statements
+# from two threads at once: they share prepared statements, and concurrent
+# queries came back empty or raised "bad parameter or other API misuse".
+_lock = threading.RLock()
+
+
+@contextlib.contextmanager
+def _connection(workspace: str | None = None):
+    """The workspace's connection, held by one thread at a time."""
+    with _lock:
+        yield _get_conn(workspace)
 
 
 def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
@@ -48,12 +62,13 @@ def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
 
 
 def _close_all() -> None:
-    for conn in _conns.values():
-        try:
-            conn.close()
-        except Exception:
-            pass
-    _conns.clear()
+    with _lock:
+        for conn in _conns.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _conns.clear()
 
 
 atexit.register(_close_all)
@@ -72,8 +87,7 @@ def add(
     workspace = workspace_name(workspace)
     from .device import current, _identity
     origin = current() if recorded_device is None else _identity(recorded_device)
-    conn = _get_conn(workspace)
-    with write_guard([{'source': source}], workspace):
+    with write_guard([{'source': source}], workspace), _connection(workspace) as conn:
         cur = conn.execute(
             "INSERT INTO facts (subject, predicate, object, valid_from, source, recorded_device) VALUES (?, ?, ?, ?, ?, ?)",
             (subject, predicate, object, time.time(), source, json.dumps(origin)),
@@ -90,7 +104,6 @@ def query(
     workspace: str | None = None,
 ) -> list[dict]:
     """Query facts. Filters by subject and/or predicate."""
-    conn = _get_conn(workspace)
     conditions = []
     params = []
 
@@ -104,10 +117,11 @@ def query(
         conditions.append("ended IS NULL")
 
     where = " WHERE " + " AND ".join(conditions) if conditions else ""
-    rows = conn.execute(
-        f"SELECT * FROM facts{where} ORDER BY valid_from DESC LIMIT ?",
-        params + [limit],
-    ).fetchall()
+    with _connection(workspace) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM facts{where} ORDER BY valid_from DESC LIMIT ?",
+            params + [limit],
+        ).fetchall()
 
     return [
         {
@@ -126,12 +140,12 @@ def query(
 
 def invalidate(fact_id: int, workspace: str | None = None) -> bool:
     """Mark a fact as ended (no longer valid)."""
-    conn = _get_conn(workspace)
-    cur = conn.execute(
-        "UPDATE facts SET ended = ? WHERE id = ? AND ended IS NULL",
-        (time.time(), fact_id),
-    )
-    conn.commit()
+    with _connection(workspace) as conn:
+        cur = conn.execute(
+            "UPDATE facts SET ended = ? WHERE id = ? AND ended IS NULL",
+            (time.time(), fact_id),
+        )
+        conn.commit()
     return cur.rowcount > 0
 
 
@@ -140,9 +154,8 @@ def import_fact(record: dict, workspace: str | None = None) -> bool:
     from .workspace_policy import workspace_name, write_guard
     from .device import _identity
     ws = workspace_name(workspace)
-    conn = _get_conn(ws)
     values = (record.get('subject', ''), record.get('predicate', ''), record.get('object', ''), record.get('valid_from', 0))
-    with write_guard([{'source': record.get('source', '')}], ws), conn:
+    with write_guard([{'source': record.get('source', '')}], ws), _connection(ws) as conn, conn:
         if conn.execute('SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?', values).fetchone():
             return False
         conn.execute('INSERT INTO facts (subject, predicate, object, valid_from, ended, source, recorded_device) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -157,7 +170,7 @@ def recent(limit: int = 5, workspace: str | None = None) -> list[dict]:
 
 def count(active_only: bool = True, workspace: str | None = None) -> int:
     """Return the total number of facts (active only by default)."""
-    conn = _get_conn(workspace)
     where = " WHERE ended IS NULL" if active_only else ""
-    row = conn.execute(f"SELECT COUNT(*) FROM facts{where}").fetchone()
+    with _connection(workspace) as conn:
+        row = conn.execute(f"SELECT COUNT(*) FROM facts{where}").fetchone()
     return row[0]

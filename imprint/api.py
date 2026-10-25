@@ -903,12 +903,7 @@ def _reset_after_wipe():
     # Reset vectorstore client (Qdrant was restarted, old connection is stale)
     vs._client = None
     # Reset knowledge graph connections (stale after DB files deleted)
-    for conn in kg._conns.values():
-        try:
-            conn.close()
-        except Exception:
-            pass
-    kg._conns.clear()
+    kg._close_all()
     # The wiped store restarts its WAL and point count, so forget cached views
     reset_cache()
 

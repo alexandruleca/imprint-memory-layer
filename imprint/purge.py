@@ -38,20 +38,20 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
             if offset is None:
                 break
     from . import imprint_graph as kg
-    conn, fact_ids = None, []
-    if config.graph_db_path(ws).exists():
-        conn = kg._get_conn(ws)
+    graph, fact_ids = config.graph_db_path(ws).exists(), []
+    if graph:
         matched_sources = {source for _, source in sources if source}
-        for fact_id, source in conn.execute('SELECT id, source FROM facts'):
-            if source and (source in matched_sources or
-                           (kind == 'source' and policy.matches(source, target, recursive, kind)) or
-                           (kind == 'path' and Path(source).is_absolute() and policy.matches(source, target, recursive, kind))):
-                fact_ids.append(fact_id)
+        with kg._connection(ws) as conn:
+            for fact_id, source in conn.execute('SELECT id, source FROM facts'):
+                if source and (source in matched_sources or
+                               (kind == 'source' and policy.matches(source, target, recursive, kind)) or
+                               (kind == 'path' and Path(source).is_absolute() and policy.matches(source, target, recursive, kind))):
+                    fact_ids.append(fact_id)
     if apply:
         # Keep this exclusion even if deletion fails, so retry/refresh cannot
         # silently reintroduce the unwanted source. Failure still propagates.
-        if conn is not None:
-            with conn:
+        if graph:
+            with kg._connection(ws) as conn, conn:
                 conn.executemany('DELETE FROM facts WHERE id=?', [(fact_id,) for fact_id in fact_ids])
         # Clear graph facts before their vector provenance disappears, so a
         # partial failure can be retried using the same physical-path target.

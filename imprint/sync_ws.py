@@ -547,8 +547,8 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
     fact_total = 0
     if kg is not None:
         try:
-            conn = kg._get_conn(workspace)
-            fact_total = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+            with kg._connection(workspace) as conn:
+                fact_total = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
         except Exception:
             fact_total = 0
 
@@ -598,10 +598,10 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
 
     # Stream facts
     if fact_total > 0 and kg is not None:
-        conn = kg._get_conn(workspace)
-        rows = conn.execute(
-            "SELECT subject, predicate, object, valid_from, ended, source, recorded_device FROM facts"
-        ).fetchall()
+        with kg._connection(workspace) as conn:
+            rows = conn.execute(
+                "SELECT subject, predicate, object, valid_from, ended, source, recorded_device FROM facts"
+            ).fetchall()
         records = [
             {
                 "subject": r["subject"],
