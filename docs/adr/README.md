@@ -3,6 +3,192 @@ title: Architecture decision records
 description: How to read, write and maintain Imprint's architecture decision records, and the index of every decision.
 ---
 
+## How to read this
+
+Each record captures one significant decision: the problem, what was chosen, what was rejected and why, the consequences, what would reopen it, and how it was validated. An accepted record is not rewritten; a later change is a new record that links back to it.
+
+- **To learn how Imprint works now,** read [Current decisions](#current-decisions): only the records in force, grouped by area, each with its decision in one line.
+- **Amended** records are in force, but later records changed part of them. Read a record together with the ones named after it; where they differ, the later record wins. **Superseded** records are history: follow *Superseded by* to the record in force.
+- [Open proposals](#open-proposals) are under consideration and do not describe current behavior. The [decision log](#decision-log) lists every record in number order with its status.
+- **To challenge a decision** in an issue or pull request, cite its number, for example ADR 0063. Check its *Rejected alternatives* first, then say which of its *Invalidation conditions* holds, or which one is missing.
+- **To add or change a record,** follow [How to write and maintain ADRs](#how-to-write-and-maintain-adrs).
+
+Records 0001 to 0062 were brought to this structure on 2026-10-25 (*Restructured* in their headers); their *Invalidation conditions* were derived then from each record's own text. A record marked *Retrospective* was written after its decision, from the code and history it cites.
+
+## Current decisions
+
+The records in force, by area. An amended record is listed with the records that changed it; read them together.
+
+### Process and evidence
+
+- [ADR 0001](0001-record-significant-decisions.md) **Record significant decisions.** Repository documentation and ADRs are the durable engineering record.
+- [ADR 0019](0019-reproducible-benchmark-evidence.md) **Reproducible benchmark evidence.** Frozen public corpora, paired trials, visible failures and auditable JSON statistics for benchmark claims.
+- [ADR 0031](0031-website-analytics-and-public-relay-status.md) **Website analytics events and public relay status.** GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page.
+
+### Storage and retrieval
+
+- [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) **Source lifecycle and hybrid retrieval.** Content provenance, safe source replacement and bounded hybrid ranking.
+- [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) **Budgeted MCP evidence and selective expansion.** Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance.
+- [ADR 0022](0022-http-client-lifetime-during-model-work.md) **Retain HTTP clients during model work.** Keep HTTP Qdrant clients alive through cold model work; retire the embedded-lock idle timer.
+- [ADR 0036](0036-move-memories-between-projects.md) **Move memories between projects.** Projects place memories their writers named; workspace rules applied at every write keep moves through refresh, learning and sync, without changing source keys.
+- [ADR 0058](0058-recall-batched-reads-with-optional-local-planning.md) **Recall: batched reads with optional local planning.** One additive read-only `recall` tool runs several read steps concurrently under one budget; without a plan it is `search`; an opt-in local model may add steps and answer with checked citations.
+- [ADR 0063](0063-auto-spawned-local-qdrant-server.md) **Run Qdrant as an auto-spawned local server.** Every Imprint process reaches one Qdrant server on loopback that the first process to need it starts; embedded mode admits one process at a time.
+
+### Workspaces, ingestion and learning
+
+- [ADR 0015](0015-workspace-roots-and-source-purge.md) **Workspace roots and source purge.** Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (learning rules).
+- [ADR 0029](0029-paired-browser-capture.md) **Paired local browser capture prototype.** Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. Amended by [ADR 0030](0030-chrome-extension-release-zip.md) (Gmail availability and distribution).
+- [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) **Learn from client stores by conversation ownership.** Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. Amended by [ADR 0037](0037-learn-every-integrated-client-store.md) (stores and Codex working directories) and [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor folder names).
+- [ADR 0037](0037-learn-every-integrated-client-store.md) **Learn from every integrated client store.** Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use. Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor stores), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) (Cline stores) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) (Copilot stores).
+- [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change.
+- [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) **Learn Cursor conversations from their folder names.** A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target.
+- [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) **Learn Cline sessions from their manifests.** A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads, and `cline` is a WSL registration target.
+- [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite.
+
+### Embeddings, local models and chat
+
+- [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) **Qwen defaults and explicit reindex.** Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (classification grammar).
+- [ADR 0032](0032-one-onnx-runtime-per-environment.md) **One ONNX Runtime per environment.** Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (runtime selection).
+- [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) **Prebuilt llama.cpp wheels and first-chat provisioning.** `llama-cpp-python` installs from upstream's hash-pinned prebuilt wheels where they exist; the first local chat installs the binding and downloads the model, with progress in the chat. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (GPU build).
+- [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md) **GPU runtime ships its CUDA libraries.** The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (library set, driver gate and CUDA check).
+- [ADR 0045](0045-setting-choices-and-gpu-auto-select.md) **Settings declare their choices; the GPU device defaults to auto.** Settings declare their choices; the GPU device defaults to the first one the CUDA runtime supports. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (setup's device-0 check).
+- [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) **llama.cpp GPU offload through upstream's Vulkan wheels.** The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed.
+- [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) **Chat speaks each model's native tool protocol.** Chat keeps one registry of tool JSON schemas; local models get them through their chat template and remote providers through API function calling, with no text protocol of Imprint's own. Amended by [ADR 0061](0061-local-tool-call-formats.md) (local parsing).
+- [ADR 0061](0061-local-tool-call-formats.md) **Local tool-call formats by model family.** Local chat parses tool calls in the model family's format (Qwen XML, Hermes JSON, Llama 3, Mistral), detected by rendering a probe call through the template or chosen with `chat.tool_format`; other models chat without tools and say so.
+- [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) **CUDA only for GPU embedding on a supported NVIDIA GPU.** The embedding runtime follows `model.device` and the machine: the CUDA build, with only the libraries its provider loads, installs only for GPU embedding on a supported NVIDIA GPU; switching builds removes what the old one used.
+
+### Sync and device provenance
+
+- [ADR 0016](0016-sync-direction-and-workspace-sharing.md) **Sync direction and workspace sharing.** Per-machine sync direction policies, per-session workspace selection and copy migration for sharing curated workspaces. Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) (implementation details).
+- [ADR 0017](0017-device-provenance-and-local-project-paths.md) **Device provenance and local project paths.** Portable memory origin, current-device context and approved local project-path mappings.
+- [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) **Single sync implementation and end-to-end encryption.** One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback.
+- [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) **Explicit pairing and automatic workspace sync.** Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation.
+- [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) **Synced tags follow the latest retag.** Each memory carries a `tagged_at` stamp; sync gives a memory both devices hold the classification that was set last.
+
+### Security and privacy
+
+- [ADR 0011](0011-nightly-trivy-security-scanning.md) **Nightly Trivy security scanning.** Nightly Trivy repository scans, retained reports and a high/critical failure gate.
+- [ADR 0013](0013-remediate-security-scan-dependencies.md) **Remediate security scan dependencies.** Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching.
+- [ADR 0024](0024-enforce-local-service-boundaries.md) **Enforce local service boundaries.** Loopback-only managed Qdrant, dashboard peer validation, legacy graph browser checks and explicit container isolation.
+- [ADR 0033](0033-stored-secret-settings.md) **Stored secret settings.** Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence.
+- [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) **Redact secrets before memories are stored.** Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` first; the most redacted version of a memory wins on every synced device; OpenAI Privacy Filter is opt-in.
+
+### MCP clients and hooks
+
+- [ADR 0003](0003-local-mcp-and-portable-hooks.md) **Local MCP and portable hooks.** Local stdio MCP, shared runtime preparation and portable hook commands.
+- [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) **Durable MCP and preserved client configuration.** Durable writes, workspace binding, diagnostics and preserved profiles. Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md) (workspace binding).
+- [ADR 0026](0026-windows-installer-wsl-client-bridge.md) **Windows installer registration for WSL clients.** Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) (WSL cleanup on disable and uninstall).
+- [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) **Connect and disconnect clients without touching the runtime.** One client table drives every client command; `imprint connect` and `disconnect` only register and unregister clients, so the dashboard can run them, and Settings enrolls WSL profiles.
+- [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) **The Copilot home is GitHub Copilot's store, configuration and hook root.** GitHub Copilot's surfaces share `COPILOT_HOME`: Imprint registers MCP, instructions and SessionStart/Stop hooks there, learns its session events by their recorded context, and `copilot` is a WSL registration target.
+
+### Dashboard and desktop
+
+- [ADR 0008](0008-dashboard-retrieval-and-accessibility.md) **Dashboard retrieval and accessibility.** Same-origin dashboard, usable search states and accessible modal behavior. Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) (dialog primitive).
+- [ADR 0025](0025-desktop-owned-background-service.md) **Desktop-owned background service.** Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (service registration).
+- [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) **shadcn overlays and desktop drag handles.** Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open.
+- [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) **Registered dashboard server and supervised restart.** The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads.
+
+### Voice and Echo
+
+- [ADR 0041](0041-personaplex-startup-memory-prototype.md) **PersonaPlex startup memory prototype.** Prepare a bounded read-only MCP memory snapshot and inject it into a pinned, isolated PersonaPlex runtime (experimental adapter).
+- [ADR 0042](0042-lfm-audio-cpu-experiment.md) **Small LFM audio experiment on CPU.** Small, verified native LFM2.5-Audio Q4 inference on Linux x64 CPU with read-only MCP snapshots (experimental offline turns).
+- [ADR 0043](0043-live-voice-and-echo-companion.md) **Local live voice and the Echo companion.** Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo companion (experimental live pilot). Amended by [ADR 0044](0044-native-desktop-voice-platforms.md) (native platforms) and [ADR 0048](0048-anime-echo-and-desktop-recovery.md) (avatar asset).
+- [ADR 0044](0044-native-desktop-voice-platforms.md) **Native Windows and macOS voice.** Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. Amended by [ADR 0046](0046-visible-echo-runtime-setup.md) (UI-driven setup), [ADR 0047](0047-bundled-private-voice-engine.md) (bundled engine) and [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) (entitlements).
+- [ADR 0046](0046-visible-echo-runtime-setup.md) **Visible first-time Echo setup.** Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. Amended by [ADR 0047](0047-bundled-private-voice-engine.md) (release toolchain policy).
+- [ADR 0047](0047-bundled-private-voice-engine.md) **Bundle the private voice engine.** Native release engines remove the end-user compiler requirement while preserving explicit verified model downloads.
+- [ADR 0048](0048-anime-echo-and-desktop-recovery.md) **Anime Echo and recoverable desktop controls.** Whole-head drag, a recovery shortcut and a floating launcher after Close/minimize for the Echo companion and dashboard. Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md) (Echo's look).
+- [ADR 0054](0054-echo-looks-declare-their-motion.md) **Echo's looks declare their motion and follow the pointer.** Looks declare gaze, spin and pulse as glTF node extras; the heads' eyes turn at their eye bones; Echo is a generated core that follows the pointer across the screen.
+
+### Runtime, installers and release
+
+- [ADR 0002](0002-build-and-validate-before-publication.md) **Validate releases before publication.** Build all release artifacts and run native checks before publication. Amended by [ADR 0014](0014-main-only-release-packaging.md) (no dev releases; release builds require main).
+- [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md) **Runtime dependencies and local boundaries.** Resolve base dependencies and enforce explicit local browser/process boundaries. Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (deferred hash locks, Electron upgrade and Host defense).
+- [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) **Verified runtime and desktop baseline.** Hashed dependencies/downloads, Electron 45, macOS 13 and container parity.
+- [ADR 0012](0012-native-package-runtime-and-silent-installs.md) **Native package runtime and silent installs.** Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke.
+- [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main.
+- [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
+- [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention).
+- [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
+- [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
+- [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle.
+
+## Open proposals
+
+Under consideration; not current behavior.
+
+- [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+
+## Decision log
+
+Every record in number order. *Date* is when the decision was made.
+
+| ADR | Date | Status | Title |
+| --- | --- | --- | --- |
+| [0001](0001-record-significant-decisions.md) | 2026-10-23 | Accepted | Record significant decisions |
+| [0002](0002-build-and-validate-before-publication.md) | 2026-10-23 | Amended by [ADR 0014](0014-main-only-release-packaging.md) | Validate releases before publication |
+| [0003](0003-local-mcp-and-portable-hooks.md) | 2026-10-23 | Accepted | Local MCP and portable hooks |
+| [0004](0004-runtime-dependencies-and-local-boundaries.md) | 2026-10-23 | Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) | Runtime dependencies and local boundaries |
+| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | 2026-10-23 | Accepted | Source lifecycle and hybrid retrieval |
+| [0006](0006-durable-mcp-and-preserved-client-config.md) | 2026-10-23 | Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md) | Durable MCP and preserved client configuration |
+| [0007](0007-verified-runtime-and-desktop-baseline.md) | 2026-10-23 | Accepted | Verified runtime and desktop baseline |
+| [0008](0008-dashboard-retrieval-and-accessibility.md) | 2026-10-23 | Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Dashboard retrieval and accessibility |
+| [0009](0009-model-profiles-and-embedding-identity.md) | 2026-10-23 | Proposed | Model profiles and embedding identity |
+| [0010](0010-qwen-defaults-and-explicit-reindex.md) | 2026-10-23 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Qwen defaults and explicit reindex |
+| [0011](0011-nightly-trivy-security-scanning.md) | 2026-10-23 | Accepted | Nightly Trivy security scanning |
+| [0012](0012-native-package-runtime-and-silent-installs.md) | 2026-10-23 | Accepted | Native package runtime and silent installs |
+| [0013](0013-remediate-security-scan-dependencies.md) | 2026-10-23 | Accepted | Remediate security scan dependencies |
+| [0014](0014-main-only-release-packaging.md) | 2026-10-23 | Accepted | Main-only release packaging |
+| [0015](0015-workspace-roots-and-source-purge.md) | 2026-10-23 | Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Workspace roots and source purge |
+| [0016](0016-sync-direction-and-workspace-sharing.md) | 2026-10-23 | Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Sync direction and workspace sharing |
+| [0017](0017-device-provenance-and-local-project-paths.md) | 2026-10-23 | Accepted | Device provenance and local project paths |
+| [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | 2026-10-23 | Accepted | Single sync implementation and end-to-end encryption |
+| [0019](0019-reproducible-benchmark-evidence.md) | 2026-10-23 | Accepted | Reproducible benchmark evidence |
+| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | 2026-10-23 | Accepted | Explicit pairing and automatic workspace sync |
+| [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | 2026-10-23 | Accepted | Budgeted MCP evidence and selective expansion |
+| [0022](0022-http-client-lifetime-during-model-work.md) | 2026-10-23 | Accepted | Retain HTTP clients during model work |
+| [0023](0023-update-by-installation-type.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Update by installation type |
+| [0024](0024-enforce-local-service-boundaries.md) | 2026-10-23 | Accepted | Enforce local service boundaries |
+| [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
+| [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) | Windows installer registration for WSL clients |
+| [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md) | Symmetric uninstall and branch synchronization |
+| [0028](0028-complete-uninstall.md) | 2026-10-23 | Accepted | Complete uninstall |
+| [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
+| [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Accepted | Chrome preview ZIP and release downloads |
+| [0031](0031-website-analytics-and-public-relay-status.md) | 2026-10-24 | Accepted | Website analytics events and public relay status |
+| [0032](0032-one-onnx-runtime-per-environment.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | One ONNX Runtime per environment |
+| [0033](0033-stored-secret-settings.md) | 2026-10-24 | Accepted | Stored secret settings |
+| [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | 2026-10-24 | Amended by [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) | Learn from client stores by conversation ownership |
+| [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) | 2026-10-24 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Prebuilt llama.cpp wheels and first-chat provisioning |
+| [0036](0036-move-memories-between-projects.md) | 2026-10-24 | Accepted | Move memories between projects |
+| [0037](0037-learn-every-integrated-client-store.md) | 2026-10-24 | Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md), [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) | Learn from every integrated client store |
+| [0038](0038-gpu-runtime-ships-cuda-libraries.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | GPU runtime ships its CUDA libraries |
+| [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | 2026-10-24 | Accepted | shadcn overlays and desktop drag handles |
+| [0040](0040-documents-with-nothing-to-index.md) | 2026-10-24 | Accepted | Documents with nothing to index |
+| [0041](0041-personaplex-startup-memory-prototype.md) | 2026-10-24 | Accepted | PersonaPlex startup memory prototype |
+| [0042](0042-lfm-audio-cpu-experiment.md) | 2026-10-24 | Accepted | Small LFM audio experiment on CPU |
+| [0043](0043-live-voice-and-echo-companion.md) | 2026-10-24 | Amended by [ADR 0044](0044-native-desktop-voice-platforms.md), [ADR 0048](0048-anime-echo-and-desktop-recovery.md) | Local live voice and the Echo companion |
+| [0044](0044-native-desktop-voice-platforms.md) | 2026-10-24 | Amended by [ADR 0046](0046-visible-echo-runtime-setup.md), [ADR 0047](0047-bundled-private-voice-engine.md), [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) | Native Windows and macOS voice |
+| [0045](0045-setting-choices-and-gpu-auto-select.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | Settings declare their choices; the GPU device defaults to auto |
+| [0046](0046-visible-echo-runtime-setup.md) | 2026-10-24 | Amended by [ADR 0047](0047-bundled-private-voice-engine.md) | Visible first-time Echo setup |
+| [0047](0047-bundled-private-voice-engine.md) | 2026-10-24 | Accepted | Bundle the private voice engine |
+| [0048](0048-anime-echo-and-desktop-recovery.md) | 2026-10-24 | Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md) | Anime Echo and recoverable desktop controls |
+| [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | 2026-10-24 | Accepted | llama.cpp GPU offload through upstream's Vulkan wheels |
+| [0050](0050-registered-dashboard-server-and-supervised-restart.md) | 2026-10-24 | Accepted | Registered dashboard server and supervised restart |
+| [0051](0051-synced-tags-follow-the-latest-retag.md) | 2026-10-24 | Accepted | Synced tags follow the latest retag |
+| [0052](0052-learn-cursor-conversations-from-their-folder-names.md) | 2026-10-25 | Accepted | Learn Cursor conversations from their folder names |
+| [0053](0053-connect-clients-without-touching-the-runtime.md) | 2026-10-25 | Accepted | Connect and disconnect clients without touching the runtime |
+| [0054](0054-echo-looks-declare-their-motion.md) | 2026-10-25 | Accepted | Echo's looks declare their motion and follow the pointer |
+| [0055](0055-ad-hoc-signed-macos-desktop-bundle.md) | 2026-10-25 | Accepted | Ad-hoc signed macOS desktop bundle |
+| [0056](0056-learn-cline-sessions-from-their-manifests.md) | 2026-10-25 | Accepted | Learn Cline sessions from their manifests |
+| [0057](0057-copilot-home-as-store-config-and-hook-root.md) | 2026-10-25 | Accepted | The Copilot home is GitHub Copilot's store, configuration and hook root |
+| [0058](0058-recall-batched-reads-with-optional-local-planning.md) | 2026-10-25 | Accepted | Recall: batched reads with optional local planning |
+| [0059](0059-chat-speaks-each-models-native-tool-protocol.md) | 2026-10-25 | Amended by [ADR 0061](0061-local-tool-call-formats.md) | Chat speaks each model's native tool protocol |
+| [0060](0060-redact-secrets-before-memories-are-stored.md) | 2026-10-25 | Accepted | Redact secrets before memories are stored |
+| [0061](0061-local-tool-call-formats.md) | 2026-10-25 | Accepted | Local tool-call formats by model family |
+| [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Accepted | CUDA only for GPU embedding on a supported NVIDIA GPU |
+| [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
+| [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Accepted | Serialize heavy commands with a single-slot queue and a shared lock file |
+
 ## How to write and maintain ADRs
 
 Records are useful only while they stay consistent: a reader must be able to trust that every record has the same shape, that its status is current, and that a decision which changed points to what replaced it. These rules apply to every record from 0001 on; `tests/test_adr_records.py` enforces the mechanical parts.
@@ -83,70 +269,3 @@ A decision made before anyone recorded it can be recorded later, for example whe
 - Architecture and operational docs (`docs/architecture.md`, subsystem pages, `CLAUDE.md`, `AGENTS.md`) summarize a decision in a sentence or two and link to its record. The rationale — why, the rejected alternatives, the trade-offs — lives only in the record.
 - This index changes with every new record and every status change: the record goes in the decision log, and, while it is in force, under its area in the current decisions.
 - `tests/test_adr_records.py` checks that every record is indexed with its current status and title, that numbers are contiguous and match filenames and titles, that front matter, header fields and statuses follow these rules, that supersede and amend links resolve and are reciprocated, that the required sections are present in order, and that links between records resolve.
-
-## Index
-
-| ADR | Status | Decision |
-| --- | --- | --- |
-| [0001](0001-record-significant-decisions.md) | Accepted | Repository documentation and ADRs are the durable engineering record. |
-| [0002](0002-build-and-validate-before-publication.md) | Accepted | Build all release artifacts and run native checks before publication. |
-| [0003](0003-local-mcp-and-portable-hooks.md) | Accepted | Local stdio MCP, shared runtime preparation and portable hook commands. |
-| [0004](0004-runtime-dependencies-and-local-boundaries.md) | Accepted | Resolve base dependencies and enforce explicit local browser/process boundaries. |
-| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | Accepted | Content provenance, safe source replacement and bounded hybrid ranking. |
-| [0006](0006-durable-mcp-and-preserved-client-config.md) | Accepted | Durable writes, workspace binding, diagnostics and preserved profiles. |
-| [0007](0007-verified-runtime-and-desktop-baseline.md) | Accepted | Hashed dependencies/downloads, Electron 45, macOS 13 and container parity. |
-| [0008](0008-dashboard-retrieval-and-accessibility.md) | Accepted (dialog primitive superseded by [0039](0039-shadcn-overlays-and-desktop-drag-handles.md)) | Same-origin dashboard, usable search states and accessible modal behavior. |
-| [0009](0009-model-profiles-and-embedding-identity.md) | Proposed | Evaluate local model profiles with explicit embedding identity and safe re-embedding. |
-| [0010](0010-qwen-defaults-and-explicit-reindex.md) | Accepted | Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. |
-| [0011](0011-nightly-trivy-security-scanning.md) | Accepted | Nightly Trivy repository scans, retained reports and a high/critical failure gate. |
-| [0012](0012-native-package-runtime-and-silent-installs.md) | Accepted | Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke. |
-| [0013](0013-remediate-security-scan-dependencies.md) | Accepted | Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching. |
-| [0014](0014-main-only-release-packaging.md) | Accepted | Compile/test branches; package and publish release artifacts only from main. |
-| [0015](0015-workspace-roots-and-source-purge.md) | Accepted; learning rules superseded by [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. |
-| [0016](0016-sync-direction-and-workspace-sharing.md) | Accepted (details superseded by 0018) | Per-machine sync direction policies, per-session workspace selection and copy migration for sharing curated workspaces. |
-| [0017](0017-device-provenance-and-local-project-paths.md) | Accepted | Portable memory origin, current-device context and approved local project-path mappings. |
-| [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Accepted | One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback. |
-| [0019](0019-reproducible-benchmark-evidence.md) | Accepted | Frozen public corpora, paired trials, visible failures and auditable JSON statistics for benchmark claims. |
-| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | Accepted | Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. |
-| [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | Accepted | Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance. |
-| [0022](0022-http-client-lifetime-during-model-work.md) | Accepted | Keep HTTP Qdrant clients alive through cold model work; retire the embedded-lock idle timer. |
-| [0023](0023-update-by-installation-type.md) | Accepted; dashboard server stop/restart superseded by [0050](0050-registered-dashboard-server-and-supervised-restart.md) | The dashboard updates through the CLI, which installs a release the way the installation was set up. |
-| [0024](0024-enforce-local-service-boundaries.md) | Accepted | Loopback-only managed Qdrant, dashboard peer validation, legacy graph browser checks and explicit container isolation. |
-| [0025](0025-desktop-owned-background-service.md) | Accepted; unregistered desktop service superseded by [0050](0050-registered-dashboard-server-and-supervised-restart.md) | Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. |
-| [0026](0026-windows-installer-wsl-client-bridge.md) | Accepted | Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. |
-| [0027](0027-symmetric-uninstall-and-branch-sync.md) | Accepted (data retention superseded by 0028) | Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. |
-| [0028](0028-complete-uninstall.md) | Accepted | Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. |
-| [0029](0029-paired-browser-capture.md) | Accepted (WIP branch) | Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. |
-| [0030](0030-chrome-extension-release-zip.md) | Accepted | Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations. |
-| [0031](0031-website-analytics-and-public-relay-status.md) | Accepted | GA4 events for website actions, a live public-relay status from a CORS-readable `/health`, and opt-in analytics on the relay page. |
-| [0032](0032-one-onnx-runtime-per-environment.md) | Accepted (runtime selection superseded by [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)) | Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. |
-| [0033](0033-stored-secret-settings.md) | Accepted | Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence. |
-| [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Accepted | Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. |
-| [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) | Accepted | `llama-cpp-python` installs from upstream's hash-pinned prebuilt wheels where they exist; the first local chat installs the binding and downloads the model, with progress in the chat. |
-| [0036](0036-move-memories-between-projects.md) | Accepted | Projects place memories their writers named; workspace rules applied at every write keep moves through refresh, learning and sync, without changing source keys. |
-| [0037](0037-learn-every-integrated-client-store.md) | Accepted | Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use. |
-| [0038](0038-gpu-runtime-ships-cuda-libraries.md) | Accepted (library set, gate and CUDA check superseded by [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)) | The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version. |
-| [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Accepted | Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open. |
-| [0040](0040-documents-with-nothing-to-index.md) | Accepted | A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. |
-| [0041](0041-personaplex-startup-memory-prototype.md) | Accepted (experimental adapter) | Prepare a bounded read-only MCP memory snapshot and inject it into a pinned, isolated PersonaPlex runtime; real speech/platform validation remains separate. |
-| [0042](0042-lfm-audio-cpu-experiment.md) | Accepted (experimental offline turns) | Evaluate small, verified native LFM2.5-Audio Q4 inference on Linux x64 CPU with read-only MCP snapshots; live transport/platform support remains separate. |
-| [0043](0043-live-voice-and-echo-companion.md) | Accepted (experimental live pilot) | Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo particle head. |
-| [0044](0044-native-desktop-voice-platforms.md) | Accepted (native validation tracked separately) | Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. |
-| [0045](0045-setting-choices-and-gpu-auto-select.md) | Accepted (setup's check on device 0 superseded by [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)) | Settings declare their choices; the GPU device defaults to the first one the CUDA runtime supports. |
-| [0046](0046-visible-echo-runtime-setup.md) | Accepted | Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. |
-| [0047](0047-bundled-private-voice-engine.md) | Accepted | Native release engines remove the end-user compiler requirement while preserving explicit verified model downloads. |
-| [0048](0048-anime-echo-and-desktop-recovery.md) | Accepted | Modeled anime hologram, whole-head drag, recovery shortcut and a floating launcher after Close/minimize. |
-| [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Accepted | The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed. |
-| [0050](0050-registered-dashboard-server-and-supervised-restart.md) | Accepted | The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. |
-| [0051](0051-synced-tags-follow-the-latest-retag.md) | Accepted | Each memory carries a tagged_at stamp; sync gives a memory both devices hold the classification that was set last. |
-| [0052](0052-learn-cursor-conversations-from-their-folder-names.md) | Accepted | A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target. |
-| [0053](0053-connect-clients-without-touching-the-runtime.md) | Accepted | One client table drives setup, enable, disable, `imprint wsl` and the new `imprint connect`, `disconnect` and `clients`; connect and disconnect only register and unregister clients, so the dashboard's Commands page can rehook and unhook them; Settings enrolls WSL profiles through `imprint wsl list --json` and the queue. |
-| [0054](0054-echo-looks-declare-their-motion.md) | Accepted | Looks declare gaze, spin and pulse as glTF node extras; the heads' eyes turn at the source eye bones; Echo is a generated core that follows the pointer across the screen. |
-| [0055](0055-ad-hoc-signed-macos-desktop-bundle.md) | Accepted | The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. |
-| [0056](0056-learn-cline-sessions-from-their-manifests.md) | Accepted | A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads (its data directory's MCP settings and global rules directory), and cline is a WSL registration target; no hook is wired. |
-| [0057](0057-copilot-home-as-store-config-and-hook-root.md) | Accepted | GitHub Copilot's surfaces share COPILOT_HOME: Imprint registers MCP, always-on instructions and SessionStart/Stop hooks there instead of VS Code's mcp.json, learns its session events by their recorded context with whole-id keys, and copilot is a WSL registration target. |
-| [0058](0058-recall-batched-reads-with-optional-local-planning.md) | Accepted | One additive `recall` MCP tool runs several read steps concurrently under one budget; without a plan it is `search`; an opt-in model on this computer (`recall.llm`) may add steps and answer with checked citations, falling back to the deterministic result on timeout or error. |
-| [0059](0059-chat-speaks-each-models-native-tool-protocol.md) | Accepted | Chat keeps one registry of tool JSON schemas; the local model gets them through its own chat template and answers in its trained markup, remote providers use API function calling, and no text protocol of our own remains. |
-| [0060](0060-redact-secrets-before-memories-are-stored.md) | Accepted | Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` before IDs, embeddings or model calls, sync imports included. Each write keeps the most redacted version of a memory, so one `imprint scrub` reaches every synced device without storing any hash of a secret. Deterministic rules always run; OpenAI Privacy Filter is opt-in and fails writes rather than weaken them. |
-| [0061](0061-local-tool-call-formats.md) | Accepted | Local chat parses tool calls in the format of the model's family (Qwen XML, Hermes JSON, Llama 3, Mistral), detected by rendering a probe call through the GGUF's template or chosen with chat.tool_format; a model with no format chats without tools and says so; generation decodes special tokens. |
-| [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | Accepted | The embedding runtime follows `model.device` and the machine: the CUDA build, with only the NVIDIA libraries its provider loads, is installed only for GPU embedding on an NVIDIA GPU this CUDA build supports; switching builds removes what the old one used, and Settings provisions through a queued bootstrap and a supervised restart. |
