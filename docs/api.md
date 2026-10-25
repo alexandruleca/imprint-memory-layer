@@ -42,7 +42,7 @@ curl -s http://localhost:8420/api/version
 # 2. Search the corpus
 curl -s "http://localhost:8420/api/search?q=chunking+system&limit=5"
 
-# 3. Enqueue an ingest job — returns {job_id, position}
+# 3. Enqueue an ingest job — returns {job_id, position, merged}
 curl -s -X POST http://localhost:8420/api/commands/ingest \
   -H "Content-Type: application/json" \
   -d '{"args": ["/workspace"], "project": "my-project"}'
@@ -126,8 +126,11 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 ### CLI commands (async jobs)
 
 Every queue-safe imprint CLI command is reachable here. The endpoint enqueues
-a background job, returns `{job_id, position}` immediately, and the job runs
-through the same single-slot queue the dashboard uses.
+a background job, returns `{job_id, position, merged}` immediately, and the job runs
+through the same single-slot queue the dashboard uses. `merged` is true when
+an identical job (same command, workspace and normalized arguments) was
+already waiting: `job_id` is that job and nothing new is queued
+([ADR 0068](adr/0068-merge-identical-waiting-jobs.md)).
 
 | Method | Path | Purpose |
 |---|---|---|

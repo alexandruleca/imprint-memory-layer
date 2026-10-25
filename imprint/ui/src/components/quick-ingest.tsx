@@ -109,7 +109,7 @@ const ACTIONS: Action[] = [
 type Status =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "enqueued"; jobId: string; position: number }
+  | { kind: "enqueued"; jobId: string; position: number; merged: boolean }
   | { kind: "error"; message: string };
 
 export function QuickIngest() {
@@ -152,8 +152,8 @@ export function QuickIngest() {
 
     setStatus({ kind: "submitting" });
     try {
-      const { job_id, position } = await enqueueCommand(action.command, body);
-      setStatus({ kind: "enqueued", jobId: job_id, position });
+      const { job_id, position, merged } = await enqueueCommand(action.command, body);
+      setStatus({ kind: "enqueued", jobId: job_id, position, merged: !!merged });
     } catch (e) {
       setStatus({
         kind: "error",
@@ -270,7 +270,13 @@ export function QuickIngest() {
                 <CheckCircle2 className="text-emerald-700" aria-hidden />
                 <AlertDescription className="flex items-center gap-2 text-xs text-foreground">
                   <span className="flex-1">
-                    {status.position > 0 ? (
+                    {status.merged ? (
+                      <>
+                        Already queued
+                        {status.position > 0 && <> at position <strong>{status.position}</strong></>}: an
+                        identical job was waiting, so it runs once.
+                      </>
+                    ) : status.position > 0 ? (
                       <>
                         Queued at position <strong>{status.position}</strong> — will
                         start when the current job finishes.

@@ -77,7 +77,7 @@ func Ingest(args []string) {
 		output.Fail("Usage: imprint ingest <path> [--batch-size N] [--force]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
 	}
 
-	lock := acquireOrEnqueue(dataDir, "ingest", originalArgs)
+	lock := acquireOrEnqueue(dataDir, "ingest", queueArgs(originalArgs, true, nil, []string{"--batch-size"}))
 	defer lock.Release()
 
 	envVars := []string{

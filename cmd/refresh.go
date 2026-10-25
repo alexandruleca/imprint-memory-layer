@@ -46,7 +46,7 @@ Examples:
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
-	lock := acquireOrEnqueue(dataDir, "refresh", originalArgs)
+	lock := acquireOrEnqueue(dataDir, "refresh", queueArgs(originalArgs, true, nil, []string{"--batch-size"}))
 	defer lock.Release()
 
 	envVars := []string{

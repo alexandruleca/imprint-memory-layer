@@ -129,6 +129,9 @@ export default function CommandsPage() {
     controller.current = streamCommand(command.name, body(command), (ev) => {
       if (ev.type === "output") {
         setOutput((prev) => prev + (ev.text as string));
+      } else if (ev.type === "merged") {
+        // An identical job was already waiting (ADR 0068); this follows it.
+        setOutput((prev) => `${prev}An identical job was already waiting; following it instead of queueing another.\n`);
       } else if (ev.type === "done") {
         setRun({ state: "done", code: ev.exit_code as number });
         // A finished job can change what the catalog reports, such as which clients are connected.

@@ -1019,7 +1019,9 @@ def api_wsl():
 async def api_run_command(command: str, request: Request):
     """Enqueue a CLI command.
 
-    Returns ``{job_id, position}`` immediately. Clients should open
+    Returns ``{job_id, position, merged}`` immediately. ``merged`` is true
+    when an identical job was already waiting: its ID is returned and no
+    second job is queued (ADR 0068). Clients should open
     ``GET /api/jobs/{job_id}/stream`` for live output and call
     ``POST /api/jobs/{job_id}/cancel`` to abort. An ingest or refresh whose
     ``dir`` lies outside the workspace's roots is refused with 409 and
@@ -1036,13 +1038,14 @@ async def api_run_command(command: str, request: Request):
         return JSONResponse({"error": f"unknown command '{command}'"}, status_code=404)
 
     try:
-        job_id = job_queue.enqueue(command, body)
+        submitted = job_queue.submit(command, body)
     except job_queue.RootNotApproved as error:
         # The dashboard asks to approve the root, then submits the job again.
         return JSONResponse({'error': str(error), 'code': 'root_not_approved', 'workspace': error.workspace,
                              'root': error.root, 'overlaps': error.overlaps}, status_code=409)
     except ValueError as error:
         return JSONResponse({'error': str(error)}, status_code=400)
+    job_id = submitted["job_id"]
     snapshot = job_queue.list_queue(recent_limit=0)
     position = 0
     if snapshot["active"] and snapshot["active"]["id"] != job_id:
@@ -1050,7 +1053,7 @@ async def api_run_command(command: str, request: Request):
             (i for i, j in enumerate(snapshot["queued"]) if j["id"] == job_id),
             len(snapshot["queued"]),
         )
-    return {"job_id": job_id, "position": position}
+    return {"job_id": job_id, "position": position, "merged": submitted["merged"]}
 
 
 # ── Sync ───────────────────────────────────────────────────────

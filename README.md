@@ -164,7 +164,7 @@ imprint scrub [--workspace <name>] [--apply]
                            # count secrets stored before redaction existed; --apply redacts and re-embeds them
 # Heavy jobs (ingest/refresh/retag/scrub/ingest-url/refresh-urls) serialize via a
 # shared queue lock. If another job is already running, the CLI hands its job to
-# the dashboard's queue or waits; with
+# the dashboard's queue (an identical waiting job absorbs it) or waits; with
 # IMPRINT_QUEUE_NO_WAIT=1 it exits nonzero. Background LLM tagging steps aside.
 imprint migrate --from WS1 --to WS2 --project NAME | --topic TAG | --source KEY [--copy] [--dry-run]
                            # move memories between workspaces (preserves vectors);
@@ -234,7 +234,7 @@ Terms used across the docs.
 | **Topics** | Free-form tags from zero-shot cosine similarity or (opt-in) LLM classification — more granular than `domain`. |
 | **Ingestion** | Scanning a directory, detecting projects, chunking files, embedding chunks, tagging, and upserting into Qdrant. |
 | **Refresh** | Incremental re-ingest — compares byte hashes, reuses unchanged sources and removes recorded deleted files inside selected roots. |
-| **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. Background LLM tagging runs only when nothing else waits. UI at `/queue` lists active + queued + background tagging + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
+| **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. Identical waiting jobs merge, and background LLM tagging runs only when nothing else waits. UI at `/queue` lists active + queued + background tagging + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
 | **Auto-extract** | Stop hook that parses conversation transcripts after each Claude response and stores Q+A exchanges + decision-like statements. |
 | **PreCompact hook** | Synchronous hook that fires before Claude's context window compresses — instructs Claude to save important context via MCP tools first. |
 | **Relay server** | Stateless WebSocket forwarder (`imprint relay`) that brokers peer sync between two machines. Sessions are end-to-end encrypted with the one-time share code (SPAKE2 + AES-256-GCM), so the relay sees only room IDs, IP addresses and the sizes and timing of ciphertext — never the code's PIN, devices or memories. Synced records carry content, metadata and precomputed vectors, so both sides need the same embedding profile — see [docs/sync.md](docs/sync.md#end-to-end-encryption). |

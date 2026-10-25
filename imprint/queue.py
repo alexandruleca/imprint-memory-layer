@@ -6,8 +6,10 @@ persisted to ``data/queue.sqlite3`` so the queue survives API restarts,
 and a shared ``data/queue.lock`` file blocks direct CLI invocations while
 a job is active.
 
-When nothing waits, the dispatcher runs the background tagging job, which
-drains the LLM tagging backlog and steps aside for every other job (ADR 0067).
+Submitting a job identical to one still waiting returns that job instead of
+queueing another (ADR 0068). When nothing waits, the dispatcher runs the
+background tagging job, which drains the LLM tagging backlog and steps
+aside for every other job (ADR 0067).
 
 Cancel sends SIGTERM to the subprocess's process group, then SIGKILL 3s
 later if still alive. Because the child is spawned with
@@ -189,6 +191,20 @@ class RootNotApproved(ValueError):
 
 
 def enqueue(command: str, body: dict | None) -> str:
+    """Queue a job and return its ID, which is an identical waiting job's
+    when there is one (see ``submit``)."""
+    return submit(command, body)["job_id"]
+
+
+def submit(command: str, body: dict | None) -> dict:
+    """Queue a job, or merge it into an identical job that is still waiting.
+
+    Returns ``{"job_id", "merged"}``. Identical means the same command, the
+    same workspace and the same arguments once normalized (``dedupe_key``).
+    Only waiting jobs absorb a submission: one identical to the running job
+    queues a single follow-up, because the running job may have read its
+    inputs before whatever prompted the new request (ADR 0068).
+    """
     _init_db()
     # Capture the workspace now, rather than when this job eventually runs.
     from .workspace_policy import unapproved_root, workspace_name
@@ -199,10 +215,21 @@ def enqueue(command: str, body: dict | None) -> str:
         refused = unapproved_root(body["dir"], workspace)
         if refused:
             raise RootNotApproved(**refused)
+    body = {**(body or {}), "_workspace": workspace}
+    key = dedupe_key(command, body)
     with _db_lock, _connect() as conn:
-        job_id = _insert_job(conn, command, {**(body or {}), "_workspace": workspace})
+        if key is not None:
+            for row in conn.execute("SELECT id, body_json FROM jobs WHERE status='queued' AND command=? "
+                                    "ORDER BY created_at", (command,)).fetchall():
+                waiting = _row_to_dict(row)["body"]
+                if dedupe_key(command, waiting) == key:
+                    # The Queue page shows how many requests the job answers.
+                    waiting["_merged"] = int(waiting.get("_merged") or 0) + 1
+                    conn.execute("UPDATE jobs SET body_json=? WHERE id=?", (json.dumps(waiting), row["id"]))
+                    return {"job_id": row["id"], "merged": True}
+        job_id = _insert_job(conn, command, body)
     _notify_dispatcher()
-    return job_id
+    return {"job_id": job_id, "merged": False}
 
 
 def _insert_job(conn, command: str, body: dict) -> str:
@@ -213,6 +240,69 @@ def _insert_job(conn, command: str, body: dict) -> str:
         (job_id, command, json.dumps(body), time.time()),
     )
     return job_id
+
+
+# Options that take a value, as the CLI parses them; other options are switches.
+_VALUE_FLAGS = frozenset({
+    "--batch-size", "--project", "--workspace", "--follow-depth", "--from-file", "--from", "--to",
+    "--topic", "--source", "--distribution", "--target", "--interval", "--path",
+})
+_REPEATABLE_FLAGS = frozenset({"--path"})
+_PATH_FLAGS = frozenset({"--path", "--from-file"})
+# Commands whose first positional argument is a filesystem path.
+_PATH_COMMANDS = frozenset({"ingest", "refresh"})
+
+
+def _canonical_path(value: str) -> str:
+    """An absolute path in one spelling: no trailing separator, no ``.`` or
+    ``..`` segments, and the platform's case rules. Symlinks are not resolved
+    (two names can index under different project roots), and a relative path
+    is left as given: it has no meaning without the submitter's directory."""
+    if not os.path.isabs(value):
+        return value
+    return os.path.normcase(os.path.normpath(value))
+
+
+def dedupe_key(command: str, body: dict) -> str | None:
+    """What makes two submissions the same job, or None when a job is never
+    merged (a browser capture's body is its content, not arguments).
+
+    The key is the command, the workspace and the CLI arguments the job would
+    run with (``build_command_args``), whether the body named them as
+    dashboard fields or passed the CLI's own arguments: positional arguments
+    in order, option order ignored, a repeated value option's last value
+    kept as the CLI keeps it (``--path`` accumulates), and paths canonical.
+    """
+    if command == "browser-capture":
+        return None
+    try:
+        args = build_command_args(command, body)
+    except (TypeError, ValueError):
+        return None
+    positional: list[str] = []
+    options: dict[str, str] = {}
+    repeated: set[tuple[str, str]] = set()
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token.startswith("--"):
+            name, has_value, value = token.partition("=")
+            if not has_value and name in _VALUE_FLAGS and i + 1 < len(args):
+                i += 1
+                value = args[i]
+            if name in _PATH_FLAGS:
+                value = _canonical_path(value)
+            if name in _REPEATABLE_FLAGS:
+                repeated.add((name, value))
+            else:
+                options[name] = value
+        elif command in _PATH_COMMANDS and not positional:
+            positional.append(_canonical_path(token))
+        else:
+            positional.append(token)
+        i += 1
+    return json.dumps([command, body.get("_workspace", ""), positional, sorted(options.items()),
+                       sorted(repeated)])
 
 
 def foreground_waiting() -> bool:

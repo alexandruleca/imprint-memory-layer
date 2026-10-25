@@ -7,7 +7,9 @@ description: One heavy job runs at a time per data directory; the Go CLI and the
 - Date: 2026-04-19
 - Recorded: 2026-10-25
 - Retrospective: reconstructed from code, docs and git history: `imprint/queue.py`, `imprint/queue_lock.py`, `internal/queuelock/`, `cmd/queuelock.go`, `docs/queue.md`, the inline rationale this record replaces in `docs/architecture.md`, and commits f99e9fa (the queue and lock) and d080e89 (Python's Windows lock); and the owner's confirmation on 2026-10-25 that the behavior recorded here is intended
-- Amended by: [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) — a preemptible background job runs when nothing waits, the lock names preemptible holders and is released with its metadata cleared, and Python's Windows lock byte moves past the metadata
+- Amended by:
+  - [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) — a preemptible background job runs when nothing waits, the lock names preemptible holders and is released with its metadata cleared, and Python's Windows lock byte moves past the metadata
+  - [ADR 0068](0068-merge-identical-waiting-jobs.md) — a submission identical to a waiting job joins it instead of being queued
 - Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) (queued jobs keep their workspace; Go/Python lock interoperability tests), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (Qdrant's first start has its own lock), [ADR 0015](0015-workspace-roots-and-source-purge.md) (purge shares the lock), [ADR 0023](0023-update-by-installation-type.md) (update takes the lock), [ADR 0029](0029-paired-browser-capture.md) (browser capture jobs), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) (Commands page catalog; jobs get no standard input), [ADR 0063](0063-auto-spawned-local-qdrant-server.md) (concurrent access to the store itself)
 
 ## Context

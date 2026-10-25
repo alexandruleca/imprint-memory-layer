@@ -466,13 +466,17 @@ export async function getWslProfiles() {
   return fetchAPI<WslListing>("/api/wsl");
 }
 
+/** What queueing a command returns. `merged`: an identical job was already
+ * waiting, and this is its ID; nothing new was queued (ADR 0068). */
+export type QueuedJob = { job_id: string; position: number; merged?: boolean };
+
 /** Queue a CLI command. An ingest or refresh outside the workspace's roots
  * asks the user to approve the root first and is then submitted again; it
  * fails with the server's refusal when the user declines. */
 export async function enqueueCommand(
   command: string,
   body: Record<string, unknown>,
-): Promise<{ job_id: string; position: number }> {
+): Promise<QueuedJob> {
   try {
     return await fetchAPI(`/api/commands/${command}`, {
       method: "POST",
@@ -549,6 +553,8 @@ export function tailJobStream(
 /** Legacy helper — enqueues a command, streams its output, and returns an
  *  AbortController whose abort() **cancels the job** (SIGTERM→SIGKILL the
  *  whole process group, so any in-flight LLM tagger call dies with it).
+ *  When the submission joined an identical waiting job, a `merged` event
+ *  comes first; cancelling then cancels that shared job.
  */
 export function streamCommand(
   command: string,
@@ -560,12 +566,13 @@ export function streamCommand(
   let tail: AbortController | null = null;
 
   enqueueCommand(command, body)
-    .then(({ job_id }) => {
+    .then(({ job_id, position, merged }) => {
       jobId = job_id;
       if (ctrl.signal.aborted) {
         cancelJob(job_id).catch(() => {});
         return;
       }
+      if (merged) onEvent({ type: "merged", job_id, position });
       tail = tailJobStream(job_id, onEvent);
     })
     .catch((err) => {

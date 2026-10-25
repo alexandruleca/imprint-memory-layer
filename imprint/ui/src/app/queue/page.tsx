@@ -62,6 +62,7 @@ function jobDuration(j: QueueJob): number | null {
 function summarizeBody(body: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(body ?? {})) {
+    if (k === "_merged") continue; // shown as a badge
     if (v === undefined || v === null || v === "" || v === false) continue;
     if (v === true) parts.push(`--${k}`);
     else parts.push(`${k}=${String(v)}`);
@@ -359,6 +360,7 @@ function JobRow({
   const dur = jobDuration(job);
   const durStr = dur !== null ? formatDuration(dur) : null;
   const expanded = expandedId === job.id;
+  const merged = Number(job.body?._merged ?? 0);
 
   return (
     <div className="rounded-md border border-border bg-card/40">
@@ -373,6 +375,13 @@ function JobRow({
         <Badge variant="outline" className="text-[10px] uppercase shrink-0">
           {job.command}
         </Badge>
+        {merged > 0 && (
+          <Hint label="Identical requests joined this job; it runs once for all of them">
+            <Badge variant="secondary" className="text-[10px] shrink-0">
+              {merged + 1} requests
+            </Badge>
+          </Hint>
+        )}
         <span className="text-xs text-muted-foreground truncate flex-1">
           {summarizeBody(job.body)}
         </span>

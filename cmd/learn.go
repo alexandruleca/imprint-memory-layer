@@ -32,7 +32,7 @@ func Learn(args []string) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
 
-	lock := acquireOrEnqueue(dataDir, "learn", args)
+	lock := acquireOrEnqueue(dataDir, "learn", queueArgs(args, false, []string{"--path"}, []string{"--interval"}))
 	defer lock.Release()
 
 	// Learn reads the clients' own stores, so it needs no approved root. Each

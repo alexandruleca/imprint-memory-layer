@@ -6,7 +6,7 @@ description: Storing paths mark memories for LLM tagging instead of running the 
 - Status: Accepted
 - Date: 2026-10-25
 - Amends: [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) — a preemptible background job runs when nothing waits, the lock names preemptible holders and is released with its metadata cleared, and Python's Windows lock byte moves past the metadata
-- Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) (provider selection never enables LLM tagging), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (the tagging measurement), [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) (`tagged_at`), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (redacted tagger prompts), [queue](../queue.md), [tagging](../tagging.md)
+- Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) (provider selection never enables LLM tagging), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (the tagging measurement), [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) (`tagged_at`), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (redacted tagger prompts), [ADR 0068](0068-merge-identical-waiting-jobs.md) (merged submissions), [queue](../queue.md), [tagging](../tagging.md)
 
 ## Context
 

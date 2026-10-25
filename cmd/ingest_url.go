@@ -27,7 +27,7 @@ func IngestURL(args []string) {
 		os.Exit(1)
 	}
 
-	lock := acquireOrEnqueue(dataDir, "ingest-url", args)
+	lock := acquireOrEnqueue(dataDir, "ingest-url", queueArgs(args, false, []string{"--from-file"}, []string{"--project", "--follow-depth"}))
 	defer lock.Release()
 
 	envVars := []string{
