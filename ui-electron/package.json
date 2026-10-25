@@ -68,8 +68,8 @@
       ],
       "icon": "../site/public/logo.svg",
       "category": "public.app-category.developer-tools",
-      "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist",
+      "identity": "-",
+      "hardenedRuntime": false,
       "extendInfo": { "NSMicrophoneUsageDescription": "Imprint uses your microphone for conversations with your local voice companion when you enable it." }
     },
     "linux": {

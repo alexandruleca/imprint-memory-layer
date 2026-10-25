@@ -48,10 +48,19 @@ the historical Linux CLI on other operating systems. Windows builds need CMake
 and Visual Studio C++ Build Tools; Macs need CMake and Xcode Command Line Tools.
 The `Native voice` workflow runs real speech/transport/lifetime checks and native
 Electron transparency/dashboard-toggle checks with disposable data and profiles.
-macOS interactive TCC consent, signing/notarization and acoustic validation remain
-separate from automated fake-mic/typed tests. Entitlement and microphone usage text
-are included in the desktop build configuration. Developer caches are not bundled
-into installers. See [ADR 0044](adr/0044-native-desktop-voice-platforms.md).
+macOS interactive TCC consent, Developer ID signing/notarization and acoustic
+validation remain separate from automated fake-mic/typed tests. The fake-media
+switches skip TCC entirely. Developer caches are not bundled into installers. See
+[ADR 0044](adr/0044-native-desktop-voice-platforms.md).
+
+electron-builder signs the macOS desktop app ad hoc as a bundle (`mac.identity: "-"`,
+no hardened runtime), sealing its `Info.plist` with the microphone usage text.
+macOS privacy consent reads that text through the signature. An unsigned bundle,
+like the one v0.22.1 shipped, crashes on **Enable microphone**. `make package` runs
+`scripts/validate-release.py`, which rejects a darwin tree whose `imprint-ui.app`
+or helper apps are not signed that way. The check runs on Linux, so it does not
+replace `codesign --verify` on a Mac. See
+[ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md).
 
 Intel macOS uses ONNX Runtime 1.23.2 through platform markers because newer releases no longer publish its CPython 3.12 wheel. Other CPU targets retain the current runtime. Windows silent installation skips interactive wizard pages and has a 15-minute CI deadline with process-tree cleanup and retained installer/bootstrap logs. Native package jobs and runtime checks have explicit timeouts; see [ADR 0012](adr/0012-native-package-runtime-and-silent-installs.md).
 

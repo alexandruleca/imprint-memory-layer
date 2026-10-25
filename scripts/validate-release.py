@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Fail packaging on missing runtime files, wrong native architecture or dev state."""
+"""Fail packaging on missing runtime files, wrong native architecture, an unsigned
+macOS desktop bundle or dev state."""
 from __future__ import annotations
 
+import hashlib
 import os
+import plistlib
 import struct
 import sys
 from pathlib import Path
@@ -31,6 +34,82 @@ def architectures(path: Path) -> set[str]:
         stride = 32 if header[3] == 0xbf else 20
         return {cpu.get(struct.unpack_from('>I', header, 8 + i * stride)[0], 'unknown') for i in range(count)}
     raise ValueError(f'Unrecognized executable: {path}')
+
+
+_MACHO_CPU = {0x01000007: 'amd64', 0x0100000C: 'arm64'}
+# CodeDirectory hash types: SHA-1, SHA-256, SHA-256 truncated to 20 bytes, SHA-384.
+_CD_DIGESTS = {1: ('sha1', 20), 2: ('sha256', 32), 3: ('sha256', 20), 4: ('sha384', 48)}
+_INFO_SLOT, _RESOURCES_SLOT = 1, 3
+
+
+def code_directories(path: Path) -> dict[str, list[tuple[str, int, dict[int, bytes]]]]:
+    """Map each Mach-O architecture to its CodeDirectories, as (identifier, hash
+    type, special-slot hashes); an unsigned slice maps to an empty list."""
+    data = path.read_bytes()
+    slices = []
+    if data[:4] in (b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf'):
+        wide = data[3] == 0xbf
+        for i in range(struct.unpack_from('>I', data, 4)[0]):
+            if wide:
+                cpu, _, offset, size = struct.unpack_from('>IIQQ', data, 8 + i * 32)
+            else:
+                cpu, _, offset, size = struct.unpack_from('>IIII', data, 8 + i * 20)
+            slices.append((_MACHO_CPU.get(cpu, hex(cpu)), data[offset:offset + size]))
+    elif data[:4] == b'\xcf\xfa\xed\xfe':
+        slices.append((_MACHO_CPU.get(struct.unpack_from('<I', data, 4)[0], 'unknown'), data))
+    else:
+        raise ValueError(f'Not a 64-bit Mach-O executable: {path}')
+    result = {}
+    for arch, image in slices:
+        directories = []
+        commands, offset = struct.unpack_from('<I', image, 16)[0], 32
+        for _ in range(commands):
+            command, size = struct.unpack_from('<II', image, offset)
+            if command == 0x1D:  # LC_CODE_SIGNATURE
+                start, length = struct.unpack_from('<II', image, offset + 8)
+                blob = image[start:start + length]
+                for index in range(struct.unpack_from('>I', blob, 8)[0]):
+                    slot, at = struct.unpack_from('>II', blob, 12 + index * 8)
+                    if slot != 0 and not 0x1000 <= slot < 0x1005:  # primary or alternate CodeDirectory
+                        continue
+                    hash_offset, ident_offset, specials = struct.unpack_from('>III', blob, at + 16)
+                    hash_size, hash_type = blob[at + 36], blob[at + 37]
+                    identifier = blob[at + ident_offset:blob.index(b'\0', at + ident_offset)].decode()
+                    hashes = {n: blob[at + hash_offset - n * hash_size:at + hash_offset - (n - 1) * hash_size]
+                              for n in range(1, specials + 1)}
+                    directories.append((identifier, hash_type, hashes))
+            offset += size
+        result[arch] = directories
+    return result
+
+
+def require_signed_bundle(bundle: Path, arch: str) -> None:
+    """A bundle signature seals Info.plist and resources under the bundle's
+    identity. macOS privacy consent (TCC) reads the usage descriptions through
+    it; a binary with only the linker's ad-hoc signature has neither (ADR 0055)."""
+    contents = bundle / 'Contents'
+    info_bytes = (contents / 'Info.plist').read_bytes()
+    info = plistlib.loads(info_bytes)
+    resources = contents / '_CodeSignature' / 'CodeResources'
+    if not resources.is_file():
+        raise ValueError(f'Unsigned macOS bundle (no sealed resources): {bundle}')
+    executable = contents / 'MacOS' / info['CFBundleExecutable']
+    signatures = code_directories(executable)
+    if arch not in signatures:
+        raise ValueError(f'Wrong architecture for darwin/{arch}: {executable}')
+    for slice_arch, directories in signatures.items():
+        if not directories:
+            raise ValueError(f'Unsigned {slice_arch} code in macOS bundle: {executable}')
+        for identifier, hash_type, hashes in directories:
+            if identifier != info['CFBundleIdentifier']:
+                raise ValueError(f'{executable} is signed as {identifier!r}, not as its bundle {info["CFBundleIdentifier"]!r}')
+            algorithm, size = _CD_DIGESTS.get(hash_type, (None, 0))
+            if algorithm is None:
+                raise ValueError(f'Unknown code signature hash type {hash_type}: {executable}')
+            for slot, sealed in ((_INFO_SLOT, info_bytes), (_RESOURCES_SLOT, resources.read_bytes())):
+                if hashes.get(slot) != hashlib.new(algorithm, sealed).digest()[:size]:
+                    name = 'Info.plist' if slot == _INFO_SLOT else 'CodeResources'
+                    raise ValueError(f'{slice_arch} signature of {executable} does not seal its {name}')
 
 
 def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
@@ -76,6 +155,10 @@ def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
     if os_name == 'linux' and (root / 'bin/imprint-ui').exists():
         if architectures(root / 'bin/imprint-ui') != {arch}:
             raise ValueError('Electron AppImage architecture does not match release')
+    app = root / 'bin/imprint-ui.app'
+    if os_name == 'darwin' and app.exists():
+        for bundle in (app, *sorted((app / 'Contents/Frameworks').glob('*.app'))):
+            require_signed_bundle(bundle, arch)
     forbidden = {'.git', '.venv', 'node_modules', '.next', '__pycache__', '.uv-cache'}
     for directory, dirs, files in os.walk(root):
         bad = forbidden.intersection(dirs)

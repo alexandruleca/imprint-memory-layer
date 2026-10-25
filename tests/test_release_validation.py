@@ -1,4 +1,6 @@
+import hashlib
 import importlib.util
+import plistlib
 import struct
 import tempfile
 import unittest
@@ -14,6 +16,51 @@ def executable(machine):
     header[:6] = b'\x7fELF\x02\x01'
     struct.pack_into('<H', header, 18, machine)
     return header
+
+
+def macho(cpu, identifier=None, specials=()):
+    """A 64-bit Mach-O slice; with an identifier it carries a SHA-256
+    CodeDirectory whose special slots hold `specials` (slot 1 first)."""
+    if identifier is None:
+        return struct.pack('<IIIIIIII', 0xfeedfacf, cpu, 0, 2, 0, 0, 0, 0)
+    ident = identifier.encode() + b'\0'
+    hashes = b''.join(reversed(specials))  # slot n first, slot 1 last
+    hash_offset = 44 + len(ident) + len(hashes)
+    directory = struct.pack('>IIIIIIIIIBBBBI', 0xfade0c02, hash_offset, 0x20001, 0, hash_offset, 44,
+                            len(specials), 0, 0, 32, 2, 0, 12, 0) + ident + hashes
+    blob = struct.pack('>IIIII', 0xfade0cc0, 20 + len(directory), 1, 0, 20) + directory
+    header = struct.pack('<IIIIIIII', 0xfeedfacf, cpu, 0, 2, 1, 16, 0, 0)
+    return header + struct.pack('<IIII', 0x1D, 16, 48, len(blob)) + blob
+
+
+def fat(*slices):
+    data = bytearray(struct.pack('>II', 0xcafebabe, len(slices)))
+    offset = 8 + 20 * len(slices)
+    for cpu, image in slices:
+        data += struct.pack('>IIIII', cpu, 0, offset, len(image), 0)
+        offset += len(image)
+    return bytes(data) + b''.join(image for _, image in slices)
+
+
+AMD64, ARM64 = 0x01000007, 0x0100000C
+
+
+def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False):
+    """An Electron-style .app whose executable is signed (or not) as a bundle."""
+    contents = path / 'Contents'
+    (contents / 'MacOS').mkdir(parents=True)
+    info = plistlib.dumps({'CFBundleExecutable': 'Imprint', 'CFBundleIdentifier': identifier})
+    (contents / 'Info.plist').write_bytes(info)
+    if not signed:  # What electron-builder ships when it skips signing: a linker signature only.
+        (contents / 'MacOS/Imprint').write_bytes(fat((AMD64, macho(AMD64)), (ARM64, macho(ARM64, 'Electron'))))
+        return
+    resources = contents / '_CodeSignature/CodeResources'
+    resources.parent.mkdir()
+    resources.write_bytes(plistlib.dumps({'files': {}}))
+    sealed_plist = hashlib.sha256(info + (b' ' if stale_plist else b'')).digest()
+    specials = (sealed_plist, b'\0' * 32, hashlib.sha256(resources.read_bytes()).digest())
+    name = signer or identifier
+    (contents / 'MacOS/Imprint').write_bytes(fat((AMD64, macho(AMD64, name, specials)), (ARM64, macho(ARM64, name, specials))))
 
 
 class ReleaseValidationTests(unittest.TestCase):
@@ -72,6 +119,38 @@ class ReleaseValidationTests(unittest.TestCase):
             (root / 'imprint/node_modules').mkdir()
             with self.assertRaisesRegex(ValueError, 'Development state'):
                 VALIDATOR.validate(root, 'linux/amd64')
+
+    def test_macos_desktop_bundle_must_be_signed_as_a_bundle(self):
+        # v0.22.1 shipped the linker-only state: macOS privacy consent could
+        # not read the sealed microphone usage text and the app crashed.
+        cases = {
+            'signed': ({}, None),
+            'linker signature only': ({'signed': False}, 'Unsigned macOS bundle'),
+            'signed under the binary name': ({'signer': 'Electron'}, "signed as 'Electron'"),
+            'Info.plist edited after signing': ({'stale_plist': True}, 'does not seal its Info.plist'),
+        }
+        for name, (options, error) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.tree(root)
+                app = root / 'bin/imprint-ui.app'
+                bundle(app, 'tech.brightspaces.imprint', **options)
+                bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'tech.brightspaces.imprint.helper')
+                if error is None:
+                    VALIDATOR.validate(root, 'darwin/amd64')
+                else:
+                    with self.assertRaisesRegex(ValueError, error):
+                        VALIDATOR.validate(root, 'darwin/amd64')
+
+    def test_unsigned_macos_helper_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.tree(root)
+            app = root / 'bin/imprint-ui.app'
+            bundle(app, 'tech.brightspaces.imprint')
+            bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'tech.brightspaces.imprint.helper', signed=False)
+            with self.assertRaisesRegex(ValueError, 'Unsigned macOS bundle.*Imprint Helper'):
+                VALIDATOR.validate(root, 'darwin/amd64')
 
     def test_wsl_bridge_and_private_selections(self):
         with tempfile.TemporaryDirectory() as directory:

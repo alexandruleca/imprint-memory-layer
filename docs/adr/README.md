@@ -68,3 +68,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0051](0051-synced-tags-follow-the-latest-retag.md) | Accepted | Each memory carries a tagged_at stamp; sync gives a memory both devices hold the classification that was set last. |
 | [0052](0052-learn-cursor-conversations-from-their-folder-names.md) | Accepted | A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target. |
 | [0054](0054-echo-looks-declare-their-motion.md) | Accepted | Looks declare gaze, spin and pulse as glTF node extras; the heads' eyes turn at the source eye bones; Echo is a generated core that follows the pointer across the screen. |
+| [0055](0055-ad-hoc-signed-macos-desktop-bundle.md) | Accepted | The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. |
