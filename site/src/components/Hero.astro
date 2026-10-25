@@ -1,6 +1,7 @@
 ---
 import releases from '../data/releases.json';
 import Icon from './Icon.astro';
+import { hosts } from '../hosts';
 
 
 const latestTag = releases.latestStable?.tag ?? '';
@@ -19,10 +20,10 @@ const oneLiners = [
 ];
 
 const proof = [
+  { value: 'Local', label: 'on your machine' },
   { value: 'Encrypted', label: 'workspace sync' },
-  { value: 'Cross-device', label: 'project knowledge' },
-  { value: '7', label: 'agent hosts' },
-  { value: 'Local', label: 'memory and retrieval' },
+  { value: 'Synced', label: 'across devices' },
+  { value: String(hosts.length), label: 'agent hosts' },
 ];
 ---
 
@@ -87,9 +88,9 @@ const proof = [
         </div>
       </div>
 
-      <ul class="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4 max-w-xl">
+      <ul class="mt-10 grid grid-cols-2 sm:flex sm:flex-wrap gap-x-10 gap-y-4">
         {proof.map((p) => (
-          <li class="flex flex-col">
+          <li class="flex flex-col whitespace-nowrap">
             <span class="text-xl font-semibold tracking-tight text-[color:var(--color-text)]">{p.value}</span>
             <span class="text-xs text-[color:var(--color-text-dim)]">{p.label}</span>
           </li>
