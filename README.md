@@ -37,7 +37,7 @@
 
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
-- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime on the CPU (CUDA optional), no network calls, no per-token cost. A GPU speeds up the local LLM through llama.cpp's Vulkan or Metal build.
+- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime on the CPU, no network calls, no per-token cost. GPU embedding on an NVIDIA card is opt-in (`model.device`), and only then does Imprint download the CUDA libraries. A GPU of any vendor speeds up the local LLM through llama.cpp's Vulkan or Metal build.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
@@ -112,7 +112,7 @@ imprint update -y           # skip confirmation (CI / scripts)
 
 Re-running `install.sh` also works and now prompts before overwriting an existing install. For non-interactive upgrades pass `--yes` or set `IMPRINT_ASSUME_YES=1`.
 
-**If the CUDA check fails once** the failure is remembered in `data/gpu_state.json`, so future `imprint setup` runs keep the CPU embedding runtime instead of reinstalling the GPU one. After you update the driver, force a retry with:
+**GPU embedding** (`model.device=gpu` or `auto`) installs ONNX Runtime's CUDA build on the next `imprint setup`, or right away from the dashboard's Settings, but only on a machine with an NVIDIA GPU that CUDA 13 supports; everywhere else embeddings stay on the CPU and nothing CUDA is downloaded. **If the CUDA check fails once** the failure is remembered in `data/gpu_state.json`, so future `imprint setup` runs keep the CPU embedding runtime instead of downloading the GPU one again. After you update the driver, force a retry with:
 
 ```bash
 imprint setup --retry-gpu
@@ -139,7 +139,7 @@ To rehook or unhook clients without touching the runtime or its services, use `i
 ```bash
 imprint setup [target]     # install deps, register MCP, configure the chosen host tool
                            #   target: claude-code (default) | cursor | codex | copilot | cline | all
-                           # add --retry-gpu to forget a sticky ONNX Runtime CUDA failure and retry it
+                           # add --retry-gpu to forget a recorded CUDA failure and try GPU embedding again
 imprint update [--version v0.3.1] [--dev] [-y] [--check]
                            # install the latest release the way this install was set up; preserves data/ and .venv/
 imprint uninstall [-y] [--keep-data]

@@ -78,7 +78,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 
 - `connect` registers the installed runtime with clients and installs and starts nothing.
 - `disconnect` only unregisters clients, and the dashboard and Qdrant keep running.
-- `setup`, `enable`, `bootstrap` and `profile` install dependencies into the venv the server has loaded; on Windows its DLLs cannot be replaced while it runs. Not offered.
+- `setup`, `enable`, `bootstrap` and `profile` install dependencies into the venv the server has loaded. Not offered. When a change in Settings needs another embedding runtime (`model.device`, `model.gpu_device`), the server queues `imprint bootstrap --non-interactive` itself; once that job has replaced the ONNX Runtime the server loaded, the server restarts through its launcher ([ADR 0050](adr/0050-registered-dashboard-server-and-supervised-restart.md), [ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)). Replacing loaded libraries works because uv hard-links the venv's files to its cache; Windows refuses only to delete a loaded library's last link, so those cache files are freed by a later setup.
 - `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself. Not offered.
 - `wsl setup` and `remove` run from Settings → WSL profiles, where a distribution is chosen. They register the installed Windows runtime in a WSL profile and install nothing.
 - Workspaces, purge, move, sync pairing and updates have their own dashboard flows.

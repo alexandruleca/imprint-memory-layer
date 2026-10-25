@@ -281,6 +281,23 @@ See [ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md).
 
 Not run: Linux aarch64 GPU hosts, and pre-R580 drivers on real hardware.
 
+## CUDA only for GPU embedding (2026-10-25)
+
+See [ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md). Machine: RTX 4080 Laptop (CUDA 0, compute 8.9) and GTX 1060 (CUDA 1, compute 6.1), driver 581.80, Windows 11 25H2, plus WSL2 Ubuntu. Every Windows run used scratch trees and venvs under `%TEMP%`, with an isolated `USERPROFILE`; the installed runtime was only read.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Libraries the CUDA provider needs (native Windows) | Passed | Without cuFFT, cuRAND and nvJitLink, Qwen3-Embedding-0.6B int8 and BGE-M3 fp16 ran on `CUDAExecutionProvider` (batches 1 and 4, up to 1,240 tokens; BGE-M3 0.24 s for 4 on CUDA against 14.7 s on CPU). Without cuDNN the session started and the first attention node failed. |
+| Libraries the CUDA provider needs (Linux, WSL2) | Passed | The same with cuRAND kept: `libonnxruntime_providers_cuda.so` links `libcurand.so.10`, and without it the provider falls back to CPU. |
+| New CUDA check (native Windows) | Passed | `python -m imprint.gpu_runtime check` passed on the trimmed set; without cuDNN it failed on the Conv node, where the old Identity check would have passed. |
+| Replacing a loaded runtime (native Windows) | Passed | uv uninstalled and reinstalled ONNX Runtime, and installed the GPU build over the CPU one, while another process had it loaded; that process kept working. Deleting a loaded DLL's last link (in uv's cache) fails with "Access is denied"; `uv cache clean` drops the entry first, and `uv cache prune` freed the files after the process exited. |
+| Migration with the real CLI (native Windows) | Passed | A venv from ADR 0038's lock with `model.device=cpu` (venv 2,108 MB, cache 2,178 MB, shared links) moved to the CPU build in 40 s while a process held ONNX Runtime: venv 306 MB, cache 381 MB, 1,773 MB freed at once, 25 MB more at the next setup. Download: one 15 MB wheel. |
+| Enabling GPU embedding (native Windows) | Passed | `imprint config set model.device gpu` named the GPU and the download. `imprint bootstrap` installed 7 packages (venv 1,753 MB, NVIDIA 1,239 MB) and passed the check. |
+| Dashboard provisioning (native Windows, `imprint ui start`) | Passed | `DELETE` then `PUT` of `model.device` queued bootstrap jobs (10 s and 68 s); the server restarted with a new pid after each, and Settings then showed the GPU without the download note. |
+| Migration and dashboard flow (Linux, WSL2) | Passed | 2.8 GB of venv and cache down to 485 MB; GPU and back through queued jobs with restarts; unusable configurations (`CUDA_VISIBLE_DEVICES=`, `model.gpu_device=1`) kept the CPU build with the reason in setup, `config set` and `doctor`. |
+
+Not run: Windows 10, Linux arm64 GPU hosts, drivers older than R580, a real installer update from a release with the old runtime, and machines with only AMD or Intel GPUs.
+
 ## Learn from WSL and Codex stores (2026-10-24)
 
 See [ADR 0037](adr/0037-learn-every-integrated-client-store.md). These checks ran on a native Windows installation with Claude Code and Codex registered for WSL Ubuntu. Before the change, its queued learn job printed "No Claude Code projects found" and "No transcripts found". None of the checks wrote to the installation or its data: ownership checks used a copy of the workspace policy in `%TEMP%`.

@@ -212,8 +212,11 @@ available.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/config` | All resolved config values + their source. |
+| GET | `/api/config` | All resolved config values + their source, and each setting's choices; `model.device`'s say what each value does on this device. |
 | PUT | `/api/config/{key}` | Set a config key. Body: `{"value": ...}`. |
+| DELETE | `/api/config/{key}` | Remove the `config.json` override. |
+
+Both writes answer with `provisioning`: the ID of a queued `imprint bootstrap` job when the change (to `model.device` or `model.gpu_device`) needs another ONNX Runtime build on this device, else `null`. The server restarts itself once that job has replaced the runtime it loaded ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)).
 
 ```bash
 # Turn on LLM tagging

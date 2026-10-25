@@ -33,7 +33,9 @@ uv pip compile requirements/llm.txt -c requirements/base.lock.txt --universal --
 uv pip compile requirements/llm-gpu.txt -c requirements/base.lock.txt --universal --python-version 3.12 --generate-hashes -o requirements/llm-gpu.lock.txt
 ```
 
-Every pin in `gpu.lock.txt` needs `win_amd64` and manylinux (x86_64, aarch64) wheels. Some NVIDIA patch releases ship Linux only; exclude them in `gpu.txt` ([ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md)).
+Every pin in `gpu.lock.txt` needs `win_amd64` and manylinux (x86_64, aarch64) wheels. Some NVIDIA patch releases ship Linux only; exclude them in `gpu.txt` ([ADR 0038](adr/0038-gpu-runtime-ships-cuda-libraries.md)). `GPU_PLATFORMS` in `imprint/gpu_runtime.py` lists the same platforms: setup installs the GPU runtime nowhere else.
+
+`gpu.txt` lists the NVIDIA wheels ONNX Runtime's CUDA execution provider loads for Imprint's embedding models instead of `onnxruntime-gpu[cuda,cudnn]`: the CUDA runtime, cuDNN (which brings cuBLAS and NVRTC), and cuRAND on Linux only, where `libonnxruntime_providers_cuda.so` links it. The extras' cuFFT and nvJitLink serve only the DFT and STFT operators ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)). When an ONNX Runtime upgrade moves to another CUDA major, update these specifiers from its `[cuda,cudnn]` metadata, `MIN_COMPUTE` in `imprint/cuda_devices.py`, and check the provider's imports again (`objdump -p onnxruntime_providers_cuda.dll`, `readelf -d libonnxruntime_providers_cuda.so`) before trimming or adding a library.
 
 The base interpreter is managed Python 3.12. Base/GPU/LLM profile locks enforce hashes; local source-build paths (macOS and other platforms without a prebuilt llama.cpp wheel) still require separate reproducibility work. uv and Qdrant archives are verified against `requirements/runtime-manifest.json`; unknown versions require a manifest update or an explicitly managed binary. Release install/update verifies `SHA256SUMS`. Model downloads are separate. An installer with bundled uv still needs a network for first-run downloads; it is not an offline distribution.
 

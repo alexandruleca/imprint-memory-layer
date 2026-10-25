@@ -3,7 +3,7 @@ title: ADR 0038 — GPU runtime ships its CUDA libraries
 description: The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version.
 ---
 
-- Status: Accepted
+- Status: Accepted; the `[cuda,cudnn]` library set, the `nvidia-smi` gate, the Identity check and the profile-specific verdict superseded by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)
 - Date: 2026-10-24
 - Related: ADR 0007, ADR 0032
 

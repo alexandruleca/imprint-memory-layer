@@ -52,13 +52,30 @@ Snapshot imports and precomputed sync require matching embedding identity. Legac
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| `model.device` | `cpu` | The default int8 model ran faster on CPU than through CUDA (RTX 4080 Laptop: 1.4 s against 2.4 s per 4,000-character exchange). `gpu` and `auto` are explicit choices for fp16 models such as BGE-M3 and need the GPU runtime profile. |
+| `model.device` | `cpu` | The default int8 model ran faster on CPU than through CUDA (RTX 4080 Laptop: 1.4 s against 2.4 s per 4,000-character exchange). `gpu` and `auto` are explicit choices for fp16 models such as BGE-M3; see [GPU embeddings](#gpu-embeddings). |
 | `model.batch_size` | `0` | Auto uses 1 on CPU/auto and 4 on explicit GPU; raise after measuring memory. |
 | `model.seq_length` | `2048` | Truncates model input; long documents are chunked beforehand. |
 | `model.threads` | `4` | CPU inference threads. |
 | `model.gpu_mem_mb` | `2048` | ORT CUDA arena limit, not a cap on total process or GPU use. |
-| `model.gpu_device` | `auto` | CUDA device index. `auto` skips GPUs older than the CUDA runtime supports (CUDA 13 needs compute capability 7.5+) and embeds on CPU when none is left. The dashboard lists the detected GPUs. |
+| `model.gpu_device` | `auto` | CUDA device index. `auto` skips GPUs older than the CUDA runtime supports (CUDA 13 needs compute capability 7.5+) and embeds on CPU when none is left. The dashboard lists the detected GPUs. Setup installs the CUDA runtime only when the selected GPU is supported. |
 
 Length-bucketed batches reduce padding. ONNX memory arenas/pattern caching are disabled, and intermediate buffers are collected between batches. CUDA errors trigger batch halving, then CPU fallback for a single item. Auto batching stays conservative even when `model.device=auto` discovers CUDA. Model downloads and runtime overhead still require memory and disk beyond the artifact size.
+
+## GPU embeddings
+
+Embeddings run on an NVIDIA GPU through ONNX Runtime's CUDA build. Imprint installs that build, with the NVIDIA libraries its CUDA provider loads (CUDA runtime, cuBLAS with NVRTC, cuDNN, and cuRAND on Linux; about 1.1 GB on Windows and 1.4 GB on Linux), only when `model.device` is `gpu` or `auto` and this machine can use it ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)):
+
+- Windows x64, Linux x64 or Linux arm64; macOS has no CUDA.
+- An NVIDIA driver that supports CUDA 13 (R580 or newer).
+- A GPU of compute capability 7.5 or newer (Turing and later): the one `model.gpu_device` names, or for `auto` the first such GPU.
+- No CUDA failure recorded for this machine and build ([installation](installation.md#embedding-runtime-and-cuda-failures)).
+
+Anywhere else, including machines with only AMD or Intel GPUs, embeddings stay on the CPU and nothing CUDA is downloaded. The local LLM still uses those GPUs through llama.cpp's Vulkan build ([local models](local-models.md)).
+
+`gpu` and `auto` install the same runtime. At run time `auto` uses CUDA whenever the CUDA build is installed and a supported GPU is present, and auto batching keeps 1 item per batch; `gpu` batches 4, and for BGE-M3 `model.file=auto` picks its fp16 export. Where GPU embedding cannot work, Settings marks `gpu` unavailable with the reason, `auto` says it embeds on the CPU here, `imprint config set model.device gpu` prints the reason, and `imprint doctor` and `imprint setup` report it.
+
+**Turning it on.** In the dashboard, choose GPU (or Auto) under Settings → Embeddings → Device. The server queues `imprint bootstrap`, which downloads and installs the CUDA build in its own process, checks CUDA on the GPU, and then restarts the dashboard into it. Follow it on the Queue page. From the command line, `imprint config set model.device gpu` says what it will install, and `imprint setup` installs it. Choosing CPU again removes the CUDA libraries and frees their disk space. MCP servers and other running Imprint processes switch when they next start.
+
+Changing the device does not change the embedding fingerprint, so an existing index keeps working; for a model whose file depends on the device (BGE-M3 with `model.file=auto`), pin `model.file` first. CUDA and CPU vectors of the same text are close but not equal: on 4,000-character passages of this page, the lowest cosine between them was 0.91 for the default int8 model and 0.97 for BGE-M3 fp16 (RTX 4080 Laptop, ONNX Runtime 1.31). An index mixing both ranks less consistently; reindex with `--force` after switching when that matters.
 
 See [local model analysis](local-model-selection.md), [helper setup](local-models.md), [configuration](configuration.md) and accepted [ADR 0010](adr/0010-qwen-defaults-and-explicit-reindex.md). Overall retrieval quality and native GPU/macOS/Windows model inference still require separate evaluation.

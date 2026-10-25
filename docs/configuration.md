@@ -67,12 +67,12 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `model.name` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | HuggingFace embedding model repo |
 | `model.revision` | `auto` | Pinned default export revision; custom repos use main unless pinned |
 | `model.file` | `auto` | ONNX model file (auto = pick by device) |
-| `model.device` | `cpu` | Compute device: auto / cpu / gpu |
+| `model.device` | `cpu` | Compute device: auto / cpu / gpu. `gpu` and `auto` embed on an NVIDIA GPU through CUDA when this machine can; setup then installs the CUDA runtime (more than 1 GB), and the dashboard queues that installation when you change it in Settings. Settings marks `gpu` unavailable, with the reason, where it cannot help ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)) |
 | `model.dim` | `1024` | Embedding vector dimension |
 | `model.seq_length` | `2048` | Token cap per embed call |
 | `model.threads` | `4` | CPU intra-op threads for ONNX |
 | `model.gpu_mem_mb` | `2048` | VRAM cap for ORT CUDA arena (MB) |
-| `model.gpu_device` | `auto` | CUDA device index; `auto` picks the first GPU the installed CUDA runtime supports ([ADR 0045](adr/0045-setting-choices-and-gpu-auto-select.md)) |
+| `model.gpu_device` | `auto` | CUDA device index; `auto` picks the first GPU the CUDA runtime supports ([ADR 0045](adr/0045-setting-choices-and-gpu-auto-select.md)). Setup installs the CUDA runtime only for a GPU it supports |
 | `model.batch_size` | `0` | Embedding batch size (0 = auto: 4 explicit GPU, 1 CPU/auto) |
 | `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last |
 | `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |

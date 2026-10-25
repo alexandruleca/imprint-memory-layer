@@ -3,7 +3,7 @@ title: ADR 0045 — Settings declare their choices; the GPU device defaults to a
 description: The config schema carries known values per setting, read from the device where needed, and model.gpu_device=auto picks the first GPU the installed CUDA runtime supports.
 ---
 
-- Status: Accepted
+- Status: Accepted; setup's CUDA check on device 0 superseded by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)
 - Date: 2026-10-24
 - Related: ADR 0038
 

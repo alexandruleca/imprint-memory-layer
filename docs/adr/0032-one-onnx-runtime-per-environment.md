@@ -3,7 +3,7 @@ title: ADR 0032 — One ONNX Runtime per environment
 description: Each install profile resolves to base requirements plus exactly one ONNX Runtime build, verified from package records.
 ---
 
-- Status: Accepted
+- Status: Accepted; selecting the runtime from the profile superseded by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)
 - Date: 2026-10-24
 - Related: ADR 0004, ADR 0007, ADR 0012
 
