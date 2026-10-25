@@ -205,13 +205,15 @@ See [queue.md](queue.md) for endpoint reference, SQLite schema, and verification
 imprint status            # is the system enabled? server pid? memory count?
 imprint enable            # idempotent re-wire of MCP + hooks + server
 imprint disable           # stops daemon, removes MCP registration, strips hooks
+imprint connect [client]  # register clients only: installs and starts nothing
+imprint disconnect [client]  # unregister clients only: stops nothing
 imprint server start      # explicit server boot (auto on first MCP/CLI call)
 imprint server stop       # SIGTERM the daemon
 imprint server status     # JSON: pid, host, port, log path
 imprint server log        # path to qdrant.log for tailing
 ```
 
-**`disable` / `enable` are kill switches.** Disable stops the Qdrant daemon, removes the MCP server registration from Claude Code, and strips the imprint hooks from `~/.claude/settings.json`. Your venv and data directory are kept intact, so re-enabling is instant — no re-ingest needed. `imprint status` shows the current state.
+**`disable` / `enable` are kill switches.** Disable stops the Qdrant daemon, removes the MCP server registration from Claude Code, and strips the imprint hooks from `~/.claude/settings.json`. Your venv and data directory are kept intact, so re-enabling is instant — no re-ingest needed. `imprint status` shows the current state. `connect` and `disconnect` are the client half alone: they register or unregister one client or all of them, without provisioning, starting or stopping anything, so the dashboard can run them from its Commands page while it runs from that runtime; `imprint clients` lists which are connected ([ADR 0053](adr/0053-connect-clients-without-touching-the-runtime.md)).
 
 Example status output:
 

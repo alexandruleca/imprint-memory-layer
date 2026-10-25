@@ -131,6 +131,8 @@ imprint setup --retry-gpu
 
 `imprint disable` is symmetric — it tears down the MCP entry from every config file above that still exists (the venv and data are always preserved so re-enabling is fast).
 
+To rehook or unhook clients without touching the runtime or its services, use `imprint connect [client]` and `imprint disconnect [client]` (default: all clients); `imprint clients` shows which are connected. The dashboard's **Commands** page offers them as Connect clients and Disconnect clients.
+
 ## Commands
 
 ```bash
@@ -143,8 +145,11 @@ imprint uninstall [-y] [--keep-data]
                            # disconnect clients, stop Imprint, remove runtime + memories (--keep-data keeps them)
 imprint status             # is everything wired? show enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
-                           #   target: claude-code | cursor | codex | copilot | cline | all
+                           #   target: claude-code | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all
 imprint disable            # disconnect managed clients, strip hooks/rules, stop services (data preserved)
+imprint clients [--json]   # clients Imprint connects to, and whether each is connected
+imprint connect [client]   # register the installed runtime with clients (MCP + hooks + rules); installs and starts nothing
+imprint disconnect [client]  # unregister clients, incl. their recorded WSL profiles; stops nothing
 imprint ingest <path>      # index project source files (directory or single file)
 imprint learn              # index Claude Code, Codex + Cursor conversations (incl. WSL profiles) + memory files
 imprint learn --desktop    # also ingest Claude Desktop / ChatGPT Desktop export zips from Downloads

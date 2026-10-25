@@ -19,7 +19,7 @@ import (
 // (mcp__imprint__search sentinel). Stop/sessionEnd is skipped because
 // Cursor's payload omits transcript_path — the summarizer has nothing
 // to read.
-func SetupCursor() {
+func SetupCursor(backend func() backendPaths) {
 	cursorDir := platform.CursorConfigDir()
 	if !platform.DirExists(cursorDir) {
 		output.Warn("Cursor config dir not found: " + cursorDir + " — install Cursor first (https://cursor.sh). Skipping.")
@@ -28,7 +28,7 @@ func SetupCursor() {
 	output.Success("Cursor config dir found: " + cursorDir)
 	setupHostsRan++
 
-	bp := setupBackend()
+	bp := backend()
 
 	// Step: register MCP server globally in ~/.cursor/mcp.json.
 	mcpPath := platform.CursorMCPPath()

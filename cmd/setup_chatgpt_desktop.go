@@ -12,7 +12,7 @@ import (
 // SetupChatGPTDesktop registers current native desktop versions through
 // their shared Codex profile. WSL detection alone cannot make Linux
 // interpreter paths usable in the Windows-side profile.
-func SetupChatGPTDesktop() {
+func SetupChatGPTDesktop(backend func() backendPaths) {
 	marker := platform.ChatGPTDesktopInstallMarker()
 	if marker == "" {
 		output.Skip("ChatGPT Desktop: unsupported platform for detection.")
@@ -34,7 +34,7 @@ func SetupChatGPTDesktop() {
 		output.Fail("Could not create the shared MCP profile: " + err.Error())
 		return
 	}
-	SetupCodex()
+	SetupCodex(backend)
 	output.Info("Restart ChatGPT desktop and check Settings → MCP servers for imprint.")
 	output.Info("For versions without local MCP support, upgrade the app. See docs/integrations.md for compatibility details.")
 	output.Info("Optional usage guidance for Custom Instructions:")

@@ -35,28 +35,8 @@ type wslProfile struct {
 	CursorHome     string `json:"cursor_home,omitempty"`
 }
 
-// wslTargets are the clients a WSL profile can be registered for. Claude Code
-// and Codex run inside WSL and get the bridge launcher, MCP entry, rules and
-// hooks. Cursor's agent runs from the Windows app over Remote-WSL, which
-// Imprint's Windows Cursor setup already wires; its WSL profile only receives
-// the conversations it records, so registering it writes nothing and lets
-// learn read them (ADR 0052).
-var wslTargets = []string{"claude-code", "codex", "cursor"}
-
-const wslTargetChoices = "claude-code, codex or cursor"
-
-// wslClientDir is a registered target's profile directory.
-func wslClientDir(p wslProfile, target string) (string, error) {
-	switch target {
-	case "claude-code":
-		return p.ClaudeHome, nil
-	case "codex":
-		return p.CodexHome, nil
-	case "cursor":
-		return p.CursorHome, nil
-	}
-	return "", fmt.Errorf("target must be " + wslTargetChoices)
-}
+// The clients a WSL profile can be registered for, and where each keeps its
+// profile, are the clients table's wslHome entries (wslTargets, wslClientDir).
 
 var runWSL = func(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -241,7 +221,7 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 		return fmt.Errorf("%s profile not detected in %s", target, p.Distribution)
 	}
 	if target == "cursor" {
-		return nil // learn reads the store; nothing is written to it (wslTargets)
+		return nil // learn reads the store; nothing is written to it (client.wslHome)
 	}
 	launcher := path.Join(dir, "imprint-wsl")
 	if previous, err := os.ReadFile(local(launcher)); err == nil && !strings.Contains(string(previous), "# Imprint managed Windows runtime bridge") {
@@ -318,7 +298,7 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 		return fmt.Errorf("client profile was not found")
 	}
 	if target == "cursor" {
-		return nil // its registration wrote nothing (wslTargets)
+		return nil // its registration wrote nothing (client.wslHome)
 	}
 	registry, rules, hooksFile := "", "AGENTS.md", "hooks.json"
 	if target == "claude-code" {
@@ -399,7 +379,7 @@ func WSL(args []string) {
 	flags := flag.NewFlagSet("wsl", flag.ContinueOnError)
 	distro := flags.String("distribution", "", "WSL distribution")
 	user := flags.String("user", "", "WSL Linux user (default: distro default)")
-	target := flags.String("target", "", wslTargetChoices)
+	target := flags.String("target", "", wslTargetChoices())
 	home := flags.String("home", "", "Explicit Linux home (disposable profiles or nondefault configuration)")
 	claude := flags.String("claude-home", "", "Explicit CLAUDE_CONFIG_DIR")
 	codex := flags.String("codex-home", "", "Explicit CODEX_HOME")
@@ -478,8 +458,8 @@ func WSL(args []string) {
 			output.Fail("Windows runtime missing; run imprint bootstrap first")
 		}
 		// Journal before mutation so even partial setup is removable.
-		if !slices.Contains(wslTargets, *target) {
-			output.Fail("target must be " + wslTargetChoices)
+		if !slices.Contains(wslTargets(), *target) {
+			output.Fail("target must be " + wslTargetChoices())
 		}
 		if err := saveWSLRegistration(project, wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}, false); err != nil {
 			output.Fail(err.Error())

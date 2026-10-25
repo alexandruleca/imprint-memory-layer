@@ -62,9 +62,10 @@ func saveWSLRegistration(project string, record wslRegistration, remove bool) er
 	return configfile.Write(wslRegistrationFile(project), append(encoded, '\n'))
 }
 
-// Uses recorded concrete profiles, including custom users/homes. No implicit
+// Removes the registrations of the targets' clients (wslTargets) from the
+// recorded concrete profiles, including custom users/homes. No implicit
 // discovery of unrelated Linux clients occurs during disable or uninstall.
-func cleanupWSLRegistrations(project string) error {
+func cleanupWSLRegistrations(project string, targets []string) error {
 	records, err := readWSLRegistrations(project)
 	if err != nil {
 		return err
@@ -75,14 +76,19 @@ func cleanupWSLRegistrations(project string) error {
 		return err
 	}
 	var failures []error
+	var keptSelections []string
 	for _, line := range strings.Split(strings.TrimPrefix(string(selections), "\ufeff"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		fields := strings.Split(line, "|")
-		if len(fields) != 2 || !validDistro(fields[0]) || !slices.Contains(wslTargets, fields[1]) {
+		if len(fields) != 2 || !validDistro(fields[0]) || !slices.Contains(wslTargets(), fields[1]) {
 			return fmt.Errorf("invalid saved WSL selection %q", line)
+		}
+		if !slices.Contains(targets, fields[1]) {
+			keptSelections = append(keptSelections, line)
+			continue
 		}
 		found := false
 		for _, r := range records {
@@ -104,6 +110,9 @@ func cleanupWSLRegistrations(project string) error {
 		dir, err := wslClientDir(r.Profile, r.Target)
 		if err != nil || !validDistro(r.Profile.Distribution) || !validLinuxPath(r.Profile.Home) || !validLinuxPath(dir) {
 			failures = append(failures, fmt.Errorf("invalid saved WSL profile"))
+			continue
+		}
+		if !slices.Contains(targets, r.Target) {
 			continue
 		}
 		local, err := wslProfileMapper(r.Profile, r.User)
@@ -130,7 +139,11 @@ func cleanupWSLRegistrations(project string) error {
 	}
 	// Disable must also stop repair/update from re-registering disconnected clients.
 	if len(selections) > 0 {
-		return configfile.Write(filepath.Join(project, ".wsl-integrations.txt"), nil)
+		var kept []byte
+		if len(keptSelections) > 0 {
+			kept = []byte(strings.Join(keptSelections, "\n") + "\n")
+		}
+		return configfile.Write(filepath.Join(project, ".wsl-integrations.txt"), kept)
 	}
 	return nil
 }

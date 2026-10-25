@@ -51,8 +51,8 @@ func main() {
 			}
 		}
 		fmt.Fprintf(os.Stderr, "\n→ imprint setup target: %s\n\n", target)
-		if !cmd.DispatchSetup(target) {
-			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: claude-code | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all)\n", target)
+		if !cmd.Setup(target) {
+			fmt.Fprintf(os.Stderr, "unknown setup target %q (expected: %s)\n", target, cmd.ClientTargets())
 			os.Exit(1)
 		}
 	case "bootstrap":
@@ -87,6 +87,12 @@ func main() {
 		cmd.Enable(os.Args[2:])
 	case "disable":
 		cmd.Disable(os.Args[2:])
+	case "connect":
+		cmd.Connect(os.Args[2:])
+	case "disconnect":
+		cmd.Disconnect(os.Args[2:])
+	case "clients":
+		cmd.Clients(os.Args[2:])
 	case "uninstall":
 		cmd.Uninstall(os.Args[2:])
 	case "status":
@@ -125,8 +131,8 @@ Usage:
   imprint wsl remove --distribution NAME --target claude-code|codex
                              Remove that bridge while preserving memories and other clients
   imprint setup [target] [--profile cpu|gpu|auto] [--with-llm|--no-llm] [--retry-gpu] [--non-interactive]
-                             Install deps, register MCP server, configure host AI tool
-                               target: claude-code (default) | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all
+                             Install deps, then connect AI clients (MCP server, hooks, instructions)
+                               target (default all): %[1]s
   imprint bootstrap [--profile cpu|gpu|auto] [--with-llm] [--non-interactive]
                              Provision venv + selected dependencies only (no MCP registration).
                              Intended for installer scripts; end users should run 'imprint setup'.
@@ -167,7 +173,12 @@ Usage:
                              Diagnose runtime, registration and MCP health without changing setup
   imprint status             Show enabled/disabled state, server pid, hook count, memory stats
   imprint disable            Disconnect managed clients and stop services (data preserved)
-  imprint enable [target]    Re-wire MCP + hooks + start server (target: claude-code | cursor | codex | copilot | cline | all)
+  imprint enable [target]    Re-wire MCP + hooks + start server (target: %[1]s)
+  imprint clients [--json]   List the AI clients Imprint connects to and whether each is connected
+  imprint connect [client]   Register the installed runtime with clients (MCP server, hooks, instructions);
+                               installs and starts nothing (client: %[1]s)
+  imprint disconnect [client]
+                             Remove Imprint from clients, including their recorded WSL profiles; stops nothing
   imprint uninstall [-y] [--keep-data]
                              Disconnect clients, stop Imprint processes, remove runtime and memories (--keep-data keeps memories)
   imprint workspace          List workspaces and show active
@@ -195,5 +206,5 @@ Examples:
   imprint ingest ~/code
   imprint sync serve --relay sync.example.com
   imprint sync sync.example.com/7f3a9c21-Ab3xY9Kq
-`)
+`, cmd.ClientTargets())
 }

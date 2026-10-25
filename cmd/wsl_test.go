@@ -212,7 +212,7 @@ func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	runWSL = func(args ...string) (string, error) { return local(args[len(args)-1]), nil }
-	if err := cleanupWSLRegistrations(project); err != nil {
+	if err := cleanupWSLRegistrations(project, wslTargets()); err != nil {
 		t.Fatal(err)
 	}
 	if records, _ := readWSLRegistrations(project); len(records) != 0 {

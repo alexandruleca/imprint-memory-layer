@@ -17,7 +17,7 @@ import (
 // and SessionStart/Stop hooks. Hosts must trust hooks before they run.
 // The adapter covers this subset; newer host events/transcript revisions
 // require client-version fixtures. See docs/integrations.md.
-func SetupCodex() {
+func SetupCodex(backend func() backendPaths) {
 	codexPath := platform.CodexConfigPath()
 	codexDir := filepath.Dir(codexPath)
 	if !platform.DirExists(codexDir) {
@@ -27,7 +27,7 @@ func SetupCodex() {
 	output.Success("Codex config dir found: " + codexDir)
 	setupHostsRan++
 
-	bp := setupBackend()
+	bp := backend()
 
 	// Step 1: MCP server registration.
 	output.Info("Checking Codex MCP registration...")

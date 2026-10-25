@@ -126,7 +126,7 @@ func TestCleanupWSLJournalRetriesAndPreservesForeignBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	runWSL = func(...string) (string, error) { return "", errors.New("distribution unavailable") }
-	if err := cleanupWSLRegistrations(project); err == nil {
+	if err := cleanupWSLRegistrations(project, []string{"codex"}); err == nil {
 		t.Fatal("unavailable distro reported success")
 	}
 	records, _ := readWSLRegistrations(project)
@@ -134,7 +134,7 @@ func TestCleanupWSLJournalRetriesAndPreservesForeignBridge(t *testing.T) {
 		t.Fatal("retry journal lost")
 	}
 	runWSL = func(args ...string) (string, error) { return local(args[len(args)-1]), nil }
-	if err := cleanupWSLRegistrations(project); err != nil {
+	if err := cleanupWSLRegistrations(project, []string{"codex"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(local("/fixture/.codex/imprint-wsl")); !os.IsNotExist(err) {
@@ -150,7 +150,7 @@ func TestCleanupWSLJournalRetriesAndPreservesForeignBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	saveWSLRegistration(project, record, false)
-	if err := cleanupWSLRegistrations(project); err != nil {
+	if err := cleanupWSLRegistrations(project, []string{"codex"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(local("/fixture/.codex/imprint-wsl")); err != nil {
@@ -225,7 +225,7 @@ func TestCleanupMigratesLegacySelectionBesideCustomProfile(t *testing.T) {
 		}
 		return filepath.Join(root, "profiles", filepath.FromSlash(strings.TrimPrefix(args[len(args)-1], "/"))), nil
 	}
-	if err := cleanupWSLRegistrations(project); err != nil {
+	if err := cleanupWSLRegistrations(project, []string{"codex"}); err != nil {
 		t.Fatal(err)
 	}
 	if !probed {

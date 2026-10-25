@@ -14,7 +14,7 @@ func Disable(args []string) {
 		output.Fail("Usage: imprint disable")
 	}
 	project := platform.FindProjectDir()
-	if err := cleanupIntegrations(project); err != nil {
+	if err := disconnectClients(clients, project); err != nil {
 		output.Fail("Cleanup incomplete; runtime preserved for retry: " + err.Error())
 	}
 	uiStop(nil)
@@ -41,8 +41,8 @@ func Enable(args []string) {
 	fmt.Printf("  Target: %s\n", target)
 	fmt.Println()
 
-	if !DispatchSetup(target) {
-		output.Fail("unknown target: " + target + " (expected: claude-code | claude-desktop | chatgpt-desktop | cursor | codex | copilot | cline | openclaw | all)")
+	if !Setup(target) {
+		output.Fail("unknown target: " + target + " (expected: " + ClientTargets() + ")")
 	}
 
 	// Pre-warm the Qdrant server so the next MCP call doesn't pay the

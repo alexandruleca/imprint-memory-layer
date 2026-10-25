@@ -25,33 +25,126 @@ type clientCleanup struct {
 	permission         bool
 }
 
-func nativeCleanupTargets() []clientCleanup {
+// The registrations of each client in the clients table: the files its
+// setup handler writes, which disable cleans up and `imprint clients` reads.
+
+func claudeCodeRegistrations() []clientCleanup {
 	home := platform.HomeDir()
 	claudeDir := filepath.Join(home, ".claude")
-	claudeRegistry := filepath.Join(home, ".claude.json")
-	targets := []clientCleanup{
-		{registry: claudeRegistry, keys: []string{"mcpServers"}, hooks: filepath.Join(claudeDir, "settings.json"), rules: filepath.Join(claudeDir, "CLAUDE.md"), permission: true},
-		{registry: platform.CursorMCPPath(), keys: []string{"mcpServers"}, hooks: platform.CursorHooksPath(), rules: filepath.Join(platform.CursorRulesDir(), "imprint.mdc"), rule: instructions.CursorRule},
-		{registry: platform.CodexConfigPath(), keys: []string{"mcp_servers"}, toml: true, hooks: platform.CodexHooksPath(), rules: platform.CodexAgentsPath()},
-		{registry: platform.ClineCLISettingsPath(), keys: []string{"mcpServers"}, rules: platform.ClineRulesPath(), rule: instructions.ClineRule},
-		{registry: platform.OpenClawMCPPath(), keys: []string{"mcp", "servers"}},
-	}
+	registrations := []clientCleanup{{registry: filepath.Join(home, ".claude.json"), keys: []string{"mcpServers"}, hooks: filepath.Join(claudeDir, "settings.json"), rules: filepath.Join(claudeDir, "CLAUDE.md"), permission: true}}
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		targets = append(targets, clientCleanup{registry: filepath.Join(dir, ".claude.json"), keys: []string{"mcpServers"}, hooks: filepath.Join(dir, "settings.json"), rules: filepath.Join(dir, "CLAUDE.md"), permission: true})
+		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, ".claude.json"), keys: []string{"mcpServers"}, hooks: filepath.Join(dir, "settings.json"), rules: filepath.Join(dir, "CLAUDE.md"), permission: true})
 	}
+	return registrations
+}
+
+func claudeDesktopRegistrations() []clientCleanup {
+	var registrations []clientCleanup
+	for _, file := range platform.ClaudeDesktopConfigPaths() {
+		registrations = append(registrations, clientCleanup{registry: file, keys: []string{"mcpServers"}})
+	}
+	return registrations
+}
+
+// chatGPTDesktopRegistrations: ChatGPT Desktop registers through the Codex
+// profile it shares, so disconnecting it disconnects Codex too. From WSL its
+// setup registers nothing (SetupChatGPTDesktop).
+func chatGPTDesktopRegistrations() []clientCleanup {
+	if platform.IsWSL() {
+		return nil
+	}
+	return codexRegistrations()
+}
+
+func cursorRegistrations() []clientCleanup {
+	return []clientCleanup{{registry: platform.CursorMCPPath(), keys: []string{"mcpServers"}, hooks: platform.CursorHooksPath(), rules: filepath.Join(platform.CursorRulesDir(), "imprint.mdc"), rule: instructions.CursorRule}}
+}
+
+func codexRegistrations() []clientCleanup {
+	registrations := []clientCleanup{{registry: platform.CodexConfigPath(), keys: []string{"mcp_servers"}, toml: true, hooks: platform.CodexHooksPath(), rules: platform.CodexAgentsPath()}}
+	home := platform.HomeDir()
 	if platform.CodexHome() != filepath.Join(home, ".codex") {
 		dir := filepath.Join(home, ".codex")
-		targets = append(targets, clientCleanup{registry: filepath.Join(dir, "config.toml"), keys: []string{"mcp_servers"}, toml: true, hooks: filepath.Join(dir, "hooks.json"), rules: filepath.Join(dir, "AGENTS.md")})
+		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "config.toml"), keys: []string{"mcp_servers"}, toml: true, hooks: filepath.Join(dir, "hooks.json"), rules: filepath.Join(dir, "AGENTS.md")})
 	}
-	for _, file := range platform.ClaudeDesktopConfigPaths() {
-		targets = append(targets, clientCleanup{registry: file, keys: []string{"mcpServers"}})
-	}
+	return registrations
+}
+
+func copilotRegistrations() []clientCleanup {
+	var registrations []clientCleanup
 	for _, dir := range platform.VSCodeUserDirs() {
-		targets = append(targets,
-			clientCleanup{registry: filepath.Join(dir, "mcp.json"), keys: []string{"servers"}, rules: filepath.Join(dir, "prompts", "imprint.instructions.md")},
-			clientCleanup{registry: filepath.Join(dir, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), keys: []string{"mcpServers"}})
+		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "mcp.json"), keys: []string{"servers"}, rules: filepath.Join(dir, "prompts", "imprint.instructions.md")})
 	}
-	return targets
+	return registrations
+}
+
+func clineRegistrations() []clientCleanup {
+	registrations := []clientCleanup{{registry: platform.ClineCLISettingsPath(), keys: []string{"mcpServers"}, rules: platform.ClineRulesPath(), rule: instructions.ClineRule}}
+	for _, dir := range platform.VSCodeUserDirs() {
+		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), keys: []string{"mcpServers"}})
+	}
+	return registrations
+}
+
+func openClawRegistrations() []clientCleanup {
+	return []clientCleanup{{registry: platform.OpenClawMCPPath(), keys: []string{"mcp", "servers"}}}
+}
+
+// registrationsOf joins the selected clients' registrations; clients that
+// share a registry (ChatGPT Desktop and Codex) list it once.
+func registrationsOf(selected []client) []clientCleanup {
+	seen := map[string]bool{}
+	var registrations []clientCleanup
+	for _, c := range selected {
+		for _, r := range c.registrations() {
+			if !seen[r.registry] {
+				seen[r.registry] = true
+				registrations = append(registrations, r)
+			}
+		}
+	}
+	return registrations
+}
+
+// registeredEntry returns the "imprint" server entry in c's registry, or nil
+// when the registry or the entry does not exist.
+func registeredEntry(c clientCleanup) (any, error) {
+	content, err := os.ReadFile(c.registry)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]any
+	if c.toml {
+		err = toml.Unmarshal(content, &doc)
+	} else {
+		doc, err = jsonutil.ReadJSON(c.registry)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", c.registry, err)
+	}
+	node := doc
+	for _, key := range c.keys {
+		node, _ = node[key].(map[string]any)
+	}
+	return node["imprint"], nil
+}
+
+// isConnected reports whether this runtime is registered in any of the
+// client's registries.
+func isConnected(c client, project string) (bool, error) {
+	var failures []error
+	for _, r := range c.registrations() {
+		entry, err := registeredEntry(r)
+		if err != nil {
+			failures = append(failures, err)
+		} else if entry != nil && belongsToRuntime(entry, project) {
+			return true, nil
+		}
+	}
+	return false, errors.Join(failures...)
 }
 
 // belongsToRuntime handles native stdio entries and WSL desktop wrappers.
@@ -85,39 +178,24 @@ func belongsToRuntime(value any, project string) bool {
 
 func cleanupClient(c clientCleanup, project string) error {
 	if c.registry != "" {
-		content, err := os.ReadFile(c.registry)
-		if err != nil && !os.IsNotExist(err) {
+		entry, err := registeredEntry(c)
+		if err != nil {
 			return err
 		}
-		if err == nil {
-			var doc map[string]any
+		if entry != nil {
+			if !belongsToRuntime(entry, project) {
+				output.Skip("Preserving another runtime's registration and rules in " + c.registry)
+				return nil
+			}
 			if c.toml {
-				err = toml.Unmarshal(content, &doc)
+				_, err = tomlutil.RemoveMCPServer(c.registry, "imprint")
 			} else {
-				doc, err = jsonutil.ReadJSON(c.registry)
+				_, err = jsonutil.RemoveMCPServerNested(c.registry, c.keys, "imprint")
 			}
 			if err != nil {
-				return fmt.Errorf("%s: %w", c.registry, err)
+				return err
 			}
-			node := doc
-			for _, key := range c.keys {
-				node, _ = node[key].(map[string]any)
-			}
-			if entry, exists := node["imprint"]; exists {
-				if !belongsToRuntime(entry, project) {
-					output.Skip("Preserving another runtime's registration and rules in " + c.registry)
-					return nil
-				}
-				if c.toml {
-					_, err = tomlutil.RemoveMCPServer(c.registry, "imprint")
-				} else {
-					_, err = jsonutil.RemoveMCPServerNested(c.registry, c.keys, "imprint")
-				}
-				if err != nil {
-					return err
-				}
-				output.Success("Removed Imprint from " + c.registry)
-			}
+			output.Success("Removed Imprint from " + c.registry)
 		}
 	}
 	if c.hooks != "" {
@@ -182,13 +260,19 @@ func removePermission(file, permission string) error {
 	return jsonutil.WriteJSON(file, doc)
 }
 
-func cleanupIntegrations(project string) error {
+// disconnectClients removes this runtime from the selected clients: their
+// local registrations and the WSL profiles recorded for them.
+func disconnectClients(selected []client, project string) error {
 	var failures []error
+	names := make([]string, 0, len(selected))
+	for _, c := range selected {
+		names = append(names, c.name)
+	}
 	// Remove WSL first: unavailable distributions must keep a retryable runtime.
-	if err := cleanupWSLRegistrations(project); err != nil {
+	if err := cleanupWSLRegistrations(project, names); err != nil {
 		failures = append(failures, err)
 	}
-	if err := cleanupNativeClients(nativeCleanupTargets(), project); err != nil {
+	if err := cleanupNativeClients(registrationsOf(selected), project); err != nil {
 		failures = append(failures, err)
 	}
 	return errors.Join(failures...)

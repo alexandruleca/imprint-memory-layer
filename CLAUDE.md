@@ -44,7 +44,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 - **Command queue**: Single-slot FIFO in [`imprint/queue.py`](imprint/queue.py) backed by `data/queue.sqlite3`; a shared advisory flock on `data/queue.lock` (see [`queue_lock.py`](imprint/queue_lock.py) and Go-side [`internal/queuelock`](internal/queuelock/lock.go)) blocks concurrent ingest/refresh/retag/ingest-url starts across the CLI and the API. FastAPI dispatcher spawns subprocesses with `start_new_session=True`; cancel fires SIGTERM to the process group and escalates to SIGKILL after 3s, taking down the LLM tagger's httpx calls and llama-cpp threads alongside the parent. CLI callers exit nonzero with the current holder's PID when the lock is busy. Details: [docs/queue.md](docs/queue.md).
 - **Workspaces**: isolated — own collection (`memories_{name}`), DB (`imprint_graph_{name}.sqlite3`), WAL. Config in `data/workspace.json`.
 - **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph*.sqlite3` + `data/workspace.json` (gitignored)
-- **Lifecycle**: `imprint enable` / `disable` / `status`
+- **Lifecycle**: `imprint enable` / `disable` / `status`; `imprint connect` / `disconnect` only register and unregister clients (one client table in `cmd/dispatch.go`, ADR 0053)
 
 ## Configuration
 
@@ -63,6 +63,9 @@ imprint setup              # install deps, register MCP, configure Claude Code
 imprint status             # enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
 imprint disable            # stop server, unregister MCP, strip hooks
+imprint clients [--json]   # clients Imprint connects to, and whether each is connected
+imprint connect [client]   # register the installed runtime with clients; installs and starts nothing
+imprint disconnect [client]  # unregister clients (incl. their recorded WSL profiles); stops nothing
 imprint ingest <dir>       # index project source files
 imprint learn              # index Claude Code, Codex + Cursor conversations (incl. WSL profiles) + memory files
 imprint learn --desktop    # also index Claude Desktop / ChatGPT Desktop export zips

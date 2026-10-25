@@ -15,7 +15,7 @@ import (
 // VSCode extension (config lives under VSCode's globalStorage for
 // saoudrizwan.claude-dev) and the Cline CLI (~/.cline/data/settings). Each
 // is handled independently — if neither is detected, we warn and return.
-func SetupCline() {
+func SetupCline(backend func() backendPaths) {
 	extPath := platform.ClineExtSettingsPath()
 	cliPath := platform.ClineCLISettingsPath()
 
@@ -34,7 +34,7 @@ func SetupCline() {
 	}
 	setupHostsRan++
 
-	bp := setupBackend()
+	bp := backend()
 	spec := map[string]any{
 		"command": bp.VenvPython,
 		"args":    []any{"-m", "imprint"},

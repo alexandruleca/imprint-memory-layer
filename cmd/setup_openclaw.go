@@ -13,7 +13,7 @@ import (
 // (`mcpServers`) or Copilot (`servers`). No hook system is exposed, so this
 // target only registers the MCP entry and leaves enforcement to the rule text
 // injected by the MCP server itself on SessionStart.
-func SetupOpenClaw() {
+func SetupOpenClaw(backend func() backendPaths) {
 	openclawDir := platform.OpenClawConfigDir()
 	if !platform.DirExists(openclawDir) {
 		output.Warn("OpenClaw config dir not found: " + openclawDir + " — install OpenClaw first (https://docs.openclaw.ai/cli). Skipping.")
@@ -22,7 +22,7 @@ func SetupOpenClaw() {
 	output.Success("OpenClaw config dir found: " + openclawDir)
 	setupHostsRan++
 
-	bp := setupBackend()
+	bp := backend()
 
 	mcpPath := platform.OpenClawMCPPath()
 	output.Info("Checking OpenClaw MCP registration...")

@@ -31,7 +31,7 @@ import (
 //
 // which launches the same Linux venv Imprint that the CLI uses. No
 // cross-filesystem Python install required.
-func SetupClaudeDesktop() {
+func SetupClaudeDesktop(backend func() backendPaths) {
 	if marker := platform.ClaudeDesktopInstallMarker(); marker == "" {
 		output.Skip("Claude Desktop: unsupported platform (or WSL without a resolvable Windows profile).")
 		return
@@ -46,7 +46,7 @@ func SetupClaudeDesktop() {
 	}
 
 	setupHostsRan++
-	bp := setupBackend()
+	bp := backend()
 
 	spec := buildClaudeDesktopSpec(bp)
 	if spec == nil {

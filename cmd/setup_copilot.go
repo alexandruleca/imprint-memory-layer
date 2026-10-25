@@ -15,7 +15,7 @@ import (
 // user-global mcp.json. Uses the `servers` root key (distinct from Cursor
 // and Cline, which use `mcpServers`). Copilot has no hook system — the
 // agent decides when to call tools.
-func SetupCopilot() {
+func SetupCopilot(backend func() backendPaths) {
 	userDir := platform.VSCodeUserDir()
 	if userDir == "" {
 		output.Warn("VSCode user directory not found (no Code or Code - Insiders install detected) — install VSCode with GitHub Copilot first. Skipping.")
@@ -24,7 +24,7 @@ func SetupCopilot() {
 	output.Success("VSCode user directory found: " + userDir)
 	setupHostsRan++
 
-	bp := setupBackend()
+	bp := backend()
 
 	mcpPath := platform.CopilotMCPPath()
 	output.Info("Checking Copilot MCP registration...")

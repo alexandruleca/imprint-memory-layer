@@ -622,11 +622,23 @@ func setupBackend() backendPaths {
 	return *preparedBackend
 }
 
+// installedBackend is the runtime setup provisioned, as it is: connect
+// registers it with clients without installing or replacing anything, so it
+// is safe while Imprint runs from that runtime (the dashboard, MCP servers).
+func installedBackend() backendPaths {
+	projectDir := platform.FindProjectDir()
+	bp := backendPaths{ProjectDir: projectDir, VenvPython: platform.VenvPython(projectDir), DataDir: platform.DataDir(projectDir)}
+	if !platform.FileExists(bp.VenvPython) {
+		output.Fail("Imprint's runtime is not installed (" + bp.VenvPython + " is missing). Run imprint setup first.")
+	}
+	return bp
+}
+
 // SetupClaudeCode wires the Imprint MCP server into Claude Code: registers
 // the server, adds permissions, installs hooks (SessionStart reminder +
 // PreToolUse block on Read/Grep until search is called), and writes the
 // managed Imprint section into ~/.claude/CLAUDE.md.
-func SetupClaudeCode() {
+func SetupClaudeCode(backend func() backendPaths) {
 	output.Info("Checking for Claude Code CLI...")
 	if claudePath, ok := runner.Exists("claude"); ok {
 		output.Success("Claude Code CLI found: " + claudePath)
@@ -636,7 +648,7 @@ func SetupClaudeCode() {
 	}
 	setupHostsRan++
 
-	bp := setupBackend()
+	bp := backend()
 
 	output.Info("Checking MCP server registration...")
 	if mcpOut, err := runner.RunCapture("claude", "mcp", "list"); err == nil && strings.Contains(mcpOut, "imprint") {
