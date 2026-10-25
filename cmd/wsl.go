@@ -33,6 +33,7 @@ type wslProfile struct {
 	ClaudeRegistry string `json:"claude_registry,omitempty"`
 	CodexHome      string `json:"codex_home,omitempty"`
 	CursorHome     string `json:"cursor_home,omitempty"`
+	ClineHome      string `json:"cline_home,omitempty"`
 }
 
 // The clients a WSL profile can be registered for, and where each keeps its
@@ -97,6 +98,8 @@ registry=$home/.claude.json
 if [ -n "${2:-${CLAUDE_CONFIG_DIR:-}}" ]; then registry=$claude/.claude.json; fi
 printf '%s\n' "$registry"
 if [ -d "$home/.cursor" ]; then printf '%s\n' "$home/.cursor"; else printf '\n'; fi
+cline=${CLINE_DIR:-$home/.cline}
+if [ -d "$cline" ]; then printf '%s\n' "$cline"; else printf '\n'; fi
 `
 
 func probeWSL(distro, user, home, claude, codex string) (wslProfile, error) {
@@ -108,11 +111,11 @@ func probeWSL(distro, user, home, claude, codex string) (wslProfile, error) {
 		return wslProfile{}, err
 	}
 	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
-	if len(lines) < 5 || !validLinuxPath(lines[0]) {
+	if len(lines) < 6 || !validLinuxPath(lines[0]) {
 		return wslProfile{}, fmt.Errorf("invalid WSL profile response")
 	}
-	p := wslProfile{Distribution: distro, Home: lines[0], ClaudeHome: lines[1], CodexHome: lines[2], ClaudeRegistry: lines[3], CursorHome: lines[4]}
-	for _, dir := range []string{p.ClaudeHome, p.CodexHome, p.ClaudeRegistry, p.CursorHome} {
+	p := wslProfile{Distribution: distro, Home: lines[0], ClaudeHome: lines[1], CodexHome: lines[2], ClaudeRegistry: lines[3], CursorHome: lines[4], ClineHome: lines[5]}
+	for _, dir := range []string{p.ClaudeHome, p.CodexHome, p.ClaudeRegistry, p.CursorHome, p.ClineHome} {
 		if dir != "" && !validLinuxPath(dir) {
 			return wslProfile{}, fmt.Errorf("invalid WSL client path")
 		}
@@ -292,7 +295,7 @@ func wslLauncher(p wslProfile, bp backendPaths) string {
 func wslProfileMapper(p wslProfile, user string) (func(string) string, error) {
 	type root struct{ linux, windows string }
 	roots := []root{}
-	for _, value := range []string{p.ClaudeHome, p.CodexHome, p.Home} {
+	for _, value := range []string{p.ClaudeHome, p.CodexHome, p.ClineHome, p.Home} {
 		if value == "" {
 			continue
 		}
@@ -321,6 +324,55 @@ func wslProfileMapper(p wslProfile, user string) (func(string) string, error) {
 	}, nil
 }
 
+// wslHook is a lifecycle hook the bridge launcher answers.
+type wslHook struct {
+	event, matcher, action string
+	timeout                int
+	async                  bool
+}
+
+// wslLayout is what imprint wsl setup writes into a target's WSL profile and
+// imprint wsl remove takes out again. A layout without a registry writes
+// nothing: Cursor's registration only lets learn read its store.
+type wslLayout struct {
+	registry, rootKey string // MCP server registry and its server table
+	toml              bool
+	spec              map[string]any
+	rules             string // instructions file
+	rule              string // Imprint's text: the whole file when ownRules, else a managed block
+	ownRules          bool
+	hooks             string // Claude-style hooks file; "" for a client without hooks
+	hookSet           []wslHook
+	permission        bool // Claude Code's permission for Imprint's tools
+}
+
+func wslLayoutOf(p wslProfile, target, dir string) wslLayout {
+	launcher := path.Join(dir, "imprint-wsl")
+	stdio := map[string]any{"command": launcher, "args": []any{"mcp"}, "env": map[string]any{}}
+	lifecycle := []wslHook{{"SessionStart", "startup|resume", "session-start", 10, false}, {"Stop", "", "stop", 120, true}}
+	switch target {
+	case "claude-code":
+		// Claude's user-scoped MCP registry is beside its config directory by
+		// default; CLAUDE_CONFIG_DIR moves the registry into that directory.
+		return wslLayout{registry: wslClaudeRegistry(p), rootKey: "mcpServers", spec: stdio,
+			rules: path.Join(dir, "CLAUDE.md"), rule: instructions.ClaudeCodeCLAUDE,
+			hooks: path.Join(dir, "settings.json"), permission: true, hookSet: append(lifecycle,
+				wslHook{"PreCompact", "", "pre-compact", 90, false},
+				wslHook{"PostToolUse", "mcp__imprint__search", "post-search", 10, true},
+				wslHook{"PreToolUse", "Read|Grep|Glob", "pre-read", 10, false})}
+	case "codex":
+		return wslLayout{registry: path.Join(dir, "config.toml"), rootKey: "mcp_servers", toml: true, spec: stdio,
+			rules: path.Join(dir, "AGENTS.md"), rule: instructions.CodexRule, hooks: path.Join(dir, "hooks.json"), hookSet: lifecycle}
+	case "cline":
+		// Cline's data and rules under its directory; its hooks receive no
+		// transcript, so it gets none (ADR 0056).
+		return wslLayout{registry: path.Join(dir, "data", "settings", "cline_mcp_settings.json"), rootKey: "mcpServers",
+			spec:  clineServer(launcher, []any{"mcp"}, map[string]any{}),
+			rules: path.Join(dir, "rules", "imprint.md"), rule: instructions.ClineRule, ownRules: true}
+	}
+	return wslLayout{}
+}
+
 // applyWSLProfile takes a filesystem mapper so fixtures never use real homes.
 func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(string) string, makeExecutable func(string) error) error {
 	dir, err := wslClientDir(p, target)
@@ -330,8 +382,9 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 	if dir == "" {
 		return fmt.Errorf("%s profile not detected in %s", target, p.Distribution)
 	}
-	if target == "cursor" {
-		return nil // learn reads the store; nothing is written to it (client.wslHome)
+	layout := wslLayoutOf(p, target, dir)
+	if layout.registry == "" {
+		return nil
 	}
 	launcher := path.Join(dir, "imprint-wsl")
 	if previous, err := os.ReadFile(local(launcher)); err == nil && !strings.Contains(string(previous), "# Imprint managed Windows runtime bridge") {
@@ -345,54 +398,36 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 	if err := makeExecutable(launcher); err != nil {
 		return err
 	}
-	spec := map[string]any{"command": launcher, "args": []any{"mcp"}, "env": map[string]any{}}
-	var rules, hooksFile, rule string
-	if target == "codex" {
-		if _, err := tomlutil.EnsureMCPServer(local(path.Join(dir, "config.toml")), "imprint", spec); err != nil {
-			return err
-		}
-		rules = path.Join(dir, "AGENTS.md")
-		hooksFile = path.Join(dir, "hooks.json")
-		rule = instructions.CodexRule
+	if layout.toml {
+		_, err = tomlutil.EnsureMCPServer(local(layout.registry), "imprint", layout.spec)
 	} else {
-		// Claude's user-scoped MCP registry is beside its config directory by
-		// default; CLAUDE_CONFIG_DIR moves the registry into that directory.
-		registry := wslClaudeRegistry(p)
-		if _, err := jsonutil.EnsureMCPServer(local(registry), "imprint", spec); err != nil {
-			return err
-		}
-		rules = path.Join(dir, "CLAUDE.md")
-		hooksFile = path.Join(dir, "settings.json")
-		rule = instructions.ClaudeCodeCLAUDE
-		if _, err := jsonutil.EnsurePermission(local(hooksFile), "mcp__imprint__*"); err != nil {
+		_, err = jsonutil.EnsureMCPServerAtKey(local(layout.registry), layout.rootKey, "imprint", layout.spec)
+	}
+	if err != nil {
+		return err
+	}
+	if layout.permission {
+		if _, err := jsonutil.EnsurePermission(local(layout.hooks), "mcp__imprint__*"); err != nil {
 			return err
 		}
 	}
-	existing, err := os.ReadFile(local(rules))
-	if err != nil && !os.IsNotExist(err) {
-		return err
+	if layout.ownRules {
+		if err := configfile.Write(local(layout.rules), []byte(layout.rule)); err != nil {
+			return err
+		}
+	} else {
+		existing, err := os.ReadFile(local(layout.rules))
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		managed := instructions.MarkerStart + "\n" + layout.rule + instructions.MarkerEnd + "\n"
+		if err := configfile.Write(local(layout.rules), []byte(instructions.MergeManaged(string(existing), managed))); err != nil {
+			return err
+		}
 	}
-	managed := instructions.MarkerStart + "\n" + rule + instructions.MarkerEnd + "\n"
-	if err := configfile.Write(local(rules), []byte(instructions.MergeManaged(string(existing), managed))); err != nil {
-		return err
-	}
-	type hookSpec struct {
-		event, matcher, action string
-		timeout                int
-		async                  bool
-	}
-	entries := []hookSpec{
-		{"SessionStart", "startup|resume", "session-start", 10, false}, {"Stop", "", "stop", 120, true},
-	}
-	if target == "claude-code" {
-		entries = append(entries,
-			hookSpec{"PreCompact", "", "pre-compact", 90, false},
-			hookSpec{"PostToolUse", "mcp__imprint__search", "post-search", 10, true},
-			hookSpec{"PreToolUse", "Read|Grep|Glob", "pre-read", 10, false})
-	}
-	for _, h := range entries {
+	for _, h := range layout.hookSet {
 		command := shellQuote(launcher) + " hook " + h.action
-		if err := jsonutil.SetOwnedHookWithMatcher(local(hooksFile), h.event, h.matcher, command, h.timeout, h.async); err != nil {
+		if err := jsonutil.SetOwnedHookWithMatcher(local(layout.hooks), h.event, h.matcher, command, h.timeout, h.async); err != nil {
 			return err
 		}
 	}
@@ -407,13 +442,9 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	if dir == "" {
 		return fmt.Errorf("client profile was not found")
 	}
-	if target == "cursor" {
-		return nil // its registration wrote nothing (client.wslHome)
-	}
-	registry, rules, hooksFile := "", "AGENTS.md", "hooks.json"
-	if target == "claude-code" {
-		rules, hooksFile = "CLAUDE.md", "settings.json"
-		registry = wslClaudeRegistry(p)
+	layout := wslLayoutOf(p, target, dir)
+	if layout.registry == "" {
+		return nil
 	}
 	launcher := path.Join(dir, "imprint-wsl")
 	previous, err := os.ReadFile(local(launcher))
@@ -424,9 +455,8 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 		return fmt.Errorf("unrecognized launcher; refusing removal")
 	}
 	var data map[string]any
-	if target == "codex" {
-		registry = path.Join(dir, "config.toml")
-		content, readErr := os.ReadFile(local(registry))
+	if layout.toml {
+		content, readErr := os.ReadFile(local(layout.registry))
 		if readErr != nil && !os.IsNotExist(readErr) {
 			return readErr
 		}
@@ -434,42 +464,46 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 			return err
 		}
 	} else {
-		data, err = jsonutil.ReadJSON(local(registry))
+		data, err = jsonutil.ReadJSON(local(layout.registry))
 		if err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
-	rootKey := "mcp_servers"
-	if target == "claude-code" {
-		rootKey = "mcpServers"
-	}
-	if servers, ok := data[rootKey].(map[string]any); ok {
+	if servers, ok := data[layout.rootKey].(map[string]any); ok {
 		if entry, ok := servers["imprint"].(map[string]any); ok && entry["command"] != launcher {
 			return fmt.Errorf("imprint now points to another runtime; refusing to remove it")
 		}
 	}
-	if target == "codex" {
-		_, err = tomlutil.RemoveMCPServer(local(registry), "imprint")
+	if layout.toml {
+		_, err = tomlutil.RemoveMCPServer(local(layout.registry), "imprint")
 	} else {
-		_, err = jsonutil.RemoveMCPServer(local(registry), "mcpServers", "imprint")
+		_, err = jsonutil.RemoveMCPServer(local(layout.registry), layout.rootKey, "imprint")
 	}
 	if err != nil {
 		return err
 	}
-	if _, err := jsonutil.RemoveHooksMatching(local(path.Join(dir, hooksFile)), []string{shellQuote(launcher) + " hook "}); err != nil && !os.IsNotExist(err) {
-		return err
+	if layout.hooks != "" {
+		if _, err := jsonutil.RemoveHooksMatching(local(layout.hooks), []string{shellQuote(launcher) + " hook "}); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
-	if content, err := os.ReadFile(local(path.Join(dir, rules))); err == nil {
-		if strings.Contains(string(content), instructions.MarkerStart) {
-			if err := configfile.Write(local(path.Join(dir, rules)), []byte(instructions.MergeManaged(string(content), ""))); err != nil {
+	if content, err := os.ReadFile(local(layout.rules)); err == nil {
+		if layout.ownRules {
+			if string(content) == layout.rule {
+				if err := os.Remove(local(layout.rules)); err != nil {
+					return err
+				}
+			}
+		} else if strings.Contains(string(content), instructions.MarkerStart) {
+			if err := configfile.Write(local(layout.rules), []byte(instructions.MergeManaged(string(content), ""))); err != nil {
 				return err
 			}
 		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if target == "claude-code" {
-		if err := removePermission(local(path.Join(dir, hooksFile)), "mcp__imprint__*"); err != nil {
+	if layout.permission {
+		if err := removePermission(local(layout.hooks), "mcp__imprint__*"); err != nil {
 			return err
 		}
 	}
@@ -477,6 +511,16 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 		return err
 	}
 	return nil
+}
+
+// wslClineSessions is where Cline keeps sessions in a WSL profile: the
+// default place under its directory, since the profile's environment
+// overrides are not read (ADR 0026).
+func wslClineSessions(p wslProfile) string {
+	if p.ClineHome == "" {
+		return ""
+	}
+	return path.Join(p.ClineHome, "data", "sessions")
 }
 
 func WSL(args []string) {
@@ -530,6 +574,9 @@ func WSL(args []string) {
 			printWSLListing(listing)
 		}
 	case "setup", "remove":
+		if !slices.Contains(wslTargets(), *target) {
+			output.Fail("target must be " + wslTargetChoices())
+		}
 		p, err := probeWSL(*distro, *user, *home, *claude, *codex)
 		if err != nil {
 			output.Fail(err.Error())
@@ -574,9 +621,6 @@ func WSL(args []string) {
 			output.Fail("Windows runtime missing; run imprint bootstrap first")
 		}
 		// Journal before mutation so even partial setup is removable.
-		if !slices.Contains(wslTargets(), *target) {
-			output.Fail("target must be " + wslTargetChoices())
-		}
 		if err := saveWSLRegistration(project, wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}, false); err != nil {
 			output.Fail(err.Error())
 		}
@@ -594,7 +638,11 @@ func WSL(args []string) {
 			output.Success(fmt.Sprintf("Registered Cursor's conversations in WSL %s for imprint learn. Its MCP server and hooks come from Imprint's Windows Cursor setup.", p.Distribution))
 			return
 		}
-		output.Success(fmt.Sprintf("Registered Imprint for %s in WSL %s. Restart the client and review/trust its hooks.", *target, p.Distribution))
+		next := "Restart the client and review/trust its hooks."
+		if dir, _ := wslClientDir(p, *target); wslLayoutOf(p, *target, dir).hooks == "" {
+			next = "Restart the client."
+		}
+		output.Success(fmt.Sprintf("Registered Imprint for %s in WSL %s. %s", *target, p.Distribution, next))
 	default:
 		output.Fail("Unknown WSL command: " + args[0])
 	}

@@ -1,9 +1,11 @@
-"""Coding-client transcripts: Claude Code sessions, Codex rollouts and Cursor
-agent conversations.
+"""Coding-client transcripts: Claude Code sessions, Codex rollouts, Cursor
+agent conversations and Cline sessions.
 
-Each client appends one JSON record per line. Learning reads three things from
-them: user/assistant text, the working directories the client recorded and the
-session identity. Transcript content is never rewritten.
+Claude Code, Codex and Cursor append one JSON record per line. Cline writes a
+session's messages as one JSON document beside the session's manifest.
+Learning reads three things from them: user/assistant text, the working
+directories the client recorded and the session identity. Transcript content
+is never rewritten.
 
 Stdlib only: ``workspace_policy`` reads recorded cwds through it, including
 for the WSL bridge's Stop check.
@@ -28,11 +30,38 @@ _TEXT_BLOCKS = ('text', 'input_text', 'output_text')
 # (a timestamp, attached image and document lists).
 _CURSOR_QUERY = re.compile(r'<user_query>\s*(.*?)\s*</user_query>', re.DOTALL)
 _FOLDER_SEPARATORS = re.compile('[^A-Za-z0-9]+')
+# Cline keeps a session in sessions/<id>/: <id>.json is its manifest and
+# <id>.messages.json its messages. Its subagents' and teammates' messages files
+# in the folder have other names.
+_CLINE_MESSAGES = '.messages.json'
+# Cline wraps what the user typed in <user_input mode="..."> or, for a slash
+# command, <user_command slash="...">, and prepends a <mode_notice> after a
+# mode switch (formatUserInputBlock, formatUserCommandBlock).
+_CLINE_COMMAND = re.compile(r'<user_command\b[^>]*?\bslash="([^"]+)"[^>]*>(.*?)</user_command>', re.DOTALL)
+_CLINE_INPUT = re.compile(r'<user_input\b[^>]*>(.*?)</user_input>', re.DOTALL)
+_CLINE_NOTICE = re.compile(r'<mode_notice>.*?</mode_notice>', re.DOTALL)
+# Prompts Cline's runtime sends as the user, which its transcripts hide: hook
+# output, task resumption and the plan-to-act continuation.
+_CLINE_SYNTHETIC = ('<hook_context', '[TASK RESUMPTION]')
+_CLINE_ACT_CONTINUATION = 'The user approved switching to act mode. Continue with the approved plan now.'
 
 
 def records(path):
-    """Each JSON object in a transcript; lines that are not one are skipped."""
+    """Each JSON object in a transcript; lines that are not one are skipped.
+
+    A Cline messages file is one JSON document: its records are the
+    document's "messages".
+    """
     with open(path, encoding='utf-8') as transcript:
+        if str(path).endswith(_CLINE_MESSAGES):
+            try:
+                document = json.load(transcript)
+            except ValueError:
+                return
+            messages = document.get('messages') if isinstance(document, dict) else None
+            if isinstance(messages, list):
+                yield from (record for record in messages if isinstance(record, dict))
+            return
         for line in transcript:
             try:
                 record = json.loads(line)
@@ -63,18 +92,27 @@ def message(record):
     """``(role, text)`` for a user or assistant message record, else None.
 
     Only text blocks count: tool calls, tool output and reasoning are not
-    conversation text. A Cursor user message's text is what the user typed.
+    conversation text. A Cursor or Cline user message's text is what the user
+    typed.
     """
-    cursor = False
+    typed = None
     if record.get('type') == 'response_item':  # Codex
         item = record.get('payload')
         if not isinstance(item, dict) or item.get('type') != 'message':
             return None
         role, content = item.get('role'), item.get('content')
-    else:  # Claude Code names the role in "type", Cursor in "role"
-        cursor = 'role' in record
-        role, body = record.get('role' if cursor else 'type'), record.get('message')
+    elif 'role' not in record:  # Claude Code names the role in "type"
+        role, body = record.get('type'), record.get('message')
         content = body.get('content') if isinstance(body, dict) else None
+    elif 'message' in record:  # Cursor
+        role, body = record.get('role'), record.get('message')
+        content = body.get('content') if isinstance(body, dict) else None
+        typed = _cursor_query
+    else:  # Cline
+        if _cline_hidden(record):
+            return None
+        role, content = record.get('role'), record.get('content')
+        typed = _cline_input
     if role not in ('user', 'assistant'):
         return None
     if isinstance(content, str):
@@ -85,9 +123,89 @@ def message(record):
                             and isinstance(block.get('text'), str))
     else:
         return None
-    if cursor and role == 'user':
-        text = '\n\n'.join(_CURSOR_QUERY.findall(text))
+    if typed and role == 'user':
+        text = typed(text)
     return role, text
+
+
+def _cursor_query(text):
+    """What a Cursor user typed: the content of its <user_query> blocks."""
+    return '\n\n'.join(_CURSOR_QUERY.findall(text))
+
+
+def _cline_hidden(record):
+    """Whether Cline's transcripts hide a message: runtime context for the
+    model (hook output, compaction summaries) and display-only errors."""
+    metadata = record.get('metadata')
+    if not isinstance(metadata, dict):
+        return False
+    role = metadata.get('displayRole')
+    return metadata.get('displayOnly') is True or (
+        isinstance(role, str) and role.strip().lower() in ('system', 'status', 'error'))
+
+
+def _cline_input(text):
+    """What a Cline user typed, as Cline's transcripts show it: the content of
+    its <user_input> wrapper, or a slash command as "/name content", without
+    <mode_notice> elements. Sessions written before the wrappers hold the
+    typed text as it is. Prompts the runtime sent as the user contribute
+    nothing.
+    """
+    text = _CLINE_NOTICE.sub('', text)
+    command = _CLINE_COMMAND.search(text)
+    if command:
+        content = command.group(2).strip()
+        text = f'/{command.group(1)} {content}' if content else f'/{command.group(1)}'
+    else:
+        typed = _CLINE_INPUT.findall(text)
+        text = '\n\n'.join(typed) if typed else text
+    text = text.strip()
+    if text.startswith(_CLINE_SYNTHETIC) or text == _CLINE_ACT_CONTINUATION:
+        return ''
+    return text
+
+
+def cline_manifest(path):
+    """The manifest of the Cline session whose messages file ``path`` is, or
+    None: for another messages file in its folder, or a manifest that is
+    missing or not a JSON object."""
+    path = Path(path)
+    if path.name != path.parent.name + _CLINE_MESSAGES:
+        return None
+    try:
+        with open(path.parent / f'{path.parent.name}.json', encoding='utf-8') as file:
+            manifest = json.load(file)
+    except (OSError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def cline_imported(path):
+    """Whether a Cline session was imported from another client's store,
+    which owns the conversation: Cline marks the import's origin when it
+    creates the session and records its source when the import finishes."""
+    metadata = (cline_manifest(path) or {}).get('metadata')
+    if not isinstance(metadata, dict):
+        return False
+    origin = metadata.get('sessionHistoryOrigin')
+    return 'importedFrom' in metadata or (isinstance(origin, dict) and origin.get('mode') == 'import')
+
+
+def session(path):
+    """A transcript's session id where the client states it in full, else None.
+
+    Codex states it in its session_meta record, which comes no later than its
+    first cwd. Cline names a session's folder and messages file after it.
+    Claude Code and Cursor ids are random UUIDs their file names carry.
+    """
+    path = Path(path)
+    if path.name.endswith(_CLINE_MESSAGES):
+        return path.parent.name if path.name == path.parent.name + _CLINE_MESSAGES else None
+    for record in records(path):
+        found = codex_session(record)
+        if found or recorded_cwd(record):
+            return found
+    return None
 
 
 def cwds(path):
@@ -97,9 +215,17 @@ def cwds(path):
     it files a conversation at ``projects/<folder>/agent-transcripts/<id>/``,
     where ``<folder>`` is its directory's path as a folder name. That name is
     the conversation's working directory when it stands for exactly one
-    existing directory (ADR 0052).
+    existing directory (ADR 0052). Cline states a session's working directory
+    and workspace root in the session's manifest, beside its messages; a
+    session without a readable manifest records none (ADR 0056).
     """
     path = Path(path)
+    if path.name.endswith(_CLINE_MESSAGES):
+        manifest = cline_manifest(path) or {}
+        for key in ('cwd', 'workspace_root'):
+            if manifest.get(key):
+                yield manifest[key]
+        return
     if path.parent.parent.name == 'agent-transcripts':
         directory = folder_directory(path.parent.parent.parent.name)
         if directory:

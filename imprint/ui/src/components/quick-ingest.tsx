@@ -100,7 +100,7 @@ const ACTIONS: Action[] = [
     id: "learn",
     command: "learn",
     label: "Learn",
-    desc: "Index Claude Code and Codex conversations (including WSL profiles) and memory files",
+    desc: "Index coding-assistant conversations (including WSL profiles) and memory files",
     icon: GraduationCap,
     fields: [],
   },

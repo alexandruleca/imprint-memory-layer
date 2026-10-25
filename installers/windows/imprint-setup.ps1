@@ -138,9 +138,8 @@ if (Test-Path $WslSelections) {
     foreach ($selection in Get-Content $WslSelections -Encoding UTF8) {
         if ([string]::IsNullOrWhiteSpace($selection)) { continue }
         $parts = $selection.Split('|')
-        if ($parts.Count -ne 2 -or $parts[1] -notin @('claude-code', 'codex', 'cursor')) {
-            Fail-Exit 'Invalid saved WSL integration selection'
-        }
+        # imprint wsl setup checks the target against its client table.
+        if ($parts.Count -ne 2) { Fail-Exit 'Invalid saved WSL integration selection' }
         Log-Line "Registering $($parts[1]) in WSL $($parts[0])..."
         $wslExit = Invoke-Imprint -Arguments @('wsl', 'setup', '--distribution', $parts[0], '--target', $parts[1])
         if ($wslExit -ne 0) { Fail-Exit "WSL registration failed (exit=$wslExit). Check that the selected distribution and client profile still exist." }

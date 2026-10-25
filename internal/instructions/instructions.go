@@ -39,10 +39,11 @@ alwaysApply: true
 
 ` + ImprintBase
 
-// ClineRule is a plain-markdown rule file written under ~/.clinerules/.
-// Cline reads every .md file in that dir as an always-on rule, so no
-// frontmatter is needed — just a header to keep it distinguishable in
-// Cline's UI when multiple rule files are installed.
+// ClineRule is a plain-markdown rule file written into Cline's global rules
+// directory (<CLINE_DIR, default ~/.cline>/rules). Cline reads every file
+// there as an always-on rule, so no frontmatter is needed — just a header to
+// keep it distinguishable in Cline's UI when multiple rule files are
+// installed.
 const ClineRule = "# Imprint Memory\n\n" + ImprintBase
 
 // CodexRule is merged into ~/.codex/AGENTS.md via managed markers so

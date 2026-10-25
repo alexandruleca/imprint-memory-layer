@@ -36,20 +36,29 @@ func TestClientTargetsResolveNamesAliasesAndAll(t *testing.T) {
 }
 
 func TestWSLTargetsAreTheClientsWithAWSLHome(t *testing.T) {
-	if got := wslTargets(); !slices.Equal(got, []string{"claude-code", "cursor", "codex"}) {
+	if got := wslTargets(); !slices.Equal(got, []string{"claude-code", "cursor", "codex", "cline"}) {
 		t.Fatalf("wsl targets %v", got)
 	}
-	if got := wslTargetChoices(); got != "claude-code, cursor or codex" {
+	if got := wslTargetChoices(); got != "claude-code, cursor, codex or cline" {
 		t.Fatalf("choices %q", got)
 	}
-	p := wslProfile{ClaudeHome: "/h/.claude", CodexHome: "/h/.codex", CursorHome: "/h/.cursor"}
-	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome} {
+	p := wslProfile{ClaudeHome: "/h/.claude", CodexHome: "/h/.codex", CursorHome: "/h/.cursor", ClineHome: "/h/.cline"}
+	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome, "cline": p.ClineHome} {
 		if dir, err := wslClientDir(p, target); err != nil || dir != want {
 			t.Fatalf("%s: %q, %v", target, dir, err)
 		}
 	}
-	if _, err := wslClientDir(p, "copilot"); err == nil || !strings.Contains(err.Error(), "claude-code, cursor or codex") {
-		t.Fatalf("copilot accepted: %v", err)
+	// Learn reads each target's store; Cline's sessions are in its data directory.
+	for target, want := range map[string]string{"claude-code": p.ClaudeHome, "codex": p.CodexHome, "cursor": p.CursorHome, "cline": "/h/.cline/data/sessions"} {
+		if dir, err := wslStoreDir(p, target); err != nil || dir != want {
+			t.Fatalf("%s store: %q, %v", target, dir, err)
+		}
+	}
+	if dir, err := wslStoreDir(wslProfile{Home: "/h"}, "cline"); err != nil || dir != "" {
+		t.Fatalf("a profile without Cline has a Cline store: %q, %v", dir, err)
+	}
+	if _, err := wslClientDir(p, "vim"); err == nil || !strings.Contains(err.Error(), "claude-code, cursor, codex or cline") {
+		t.Fatalf("vim accepted: %v", err)
 	}
 }
 

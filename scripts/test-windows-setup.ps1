@@ -41,7 +41,7 @@ func main() {
         Copy-Item $helper "$dest/imprint-setup.ps1"
         $env:IMPRINT_SETUP_TEST_FAIL = "$fail"
         $env:IMPRINT_SETUP_TEST_ARGS = Join-Path $dest 'calls.jsonl'
-        "Ubuntu Test|claude-code`nUbuntu Test|codex" | Set-Content "$dest/.wsl-integrations.txt" -Encoding utf8
+        "Ubuntu Test|claude-code`nUbuntu Test|codex`nUbuntu Test|cline" | Set-Content "$dest/.wsl-integrations.txt" -Encoding utf8
         # Poll the log the way the wizard does (LoadStringsFromLockedFile:
         # read access, read/write sharing); appends must never collide with it.
         $ready = Join-Path $dest 'poller.ready'
@@ -84,8 +84,9 @@ func main() {
         if ($fail -eq 0) {
             $calls = @(Get-Content $env:IMPRINT_SETUP_TEST_ARGS | ForEach-Object { ,(ConvertFrom-Json $_) })
             $wslCalls = @($calls | Where-Object { $_[0] -eq 'wsl' })
-            if ($wslCalls.Count -ne 2) { throw 'Saved WSL selections were not replayed' }
-            if ($wslCalls[0][3] -cne 'Ubuntu Test' -or $wslCalls[1][5] -cne 'codex') {
+            if ($wslCalls.Count -ne 3) { throw 'Saved WSL selections were not replayed' }
+            # The CLI's client table, not this script, decides which targets exist.
+            if ($wslCalls[0][3] -cne 'Ubuntu Test' -or $wslCalls[1][5] -cne 'codex' -or $wslCalls[2][5] -cne 'cline') {
                 throw 'Saved WSL distribution/target arguments were not preserved'
             }
             if (($calls[-1] -join ' ') -cne 'ui restart') { throw 'Setup did not end by restarting the dashboard' }

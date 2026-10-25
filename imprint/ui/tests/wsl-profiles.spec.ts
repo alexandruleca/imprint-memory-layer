@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Mirrors GET /api/wsl (`imprint wsl list --json` on a Windows runtime) and
-// the queued `wsl` commands. "Cline" stands for a target the CLI's client
-// table could add later: the section shows whatever targets it reports.
+// the queued `wsl` commands. The page's code names no target: the section
+// shows whatever targets the CLI's client table reports.
 const listing = (enrolledCursor: boolean) => ({
   supported: true,
   targets: [

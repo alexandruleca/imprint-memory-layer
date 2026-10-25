@@ -53,7 +53,7 @@ begin
   end;
   if GWslKeys.Count = 0 then
     GWslPage.SubCaptionLabel.Caption :=
-      'No Claude Code, Codex or Cursor profiles detected in WSL. You can connect one later with "imprint wsl setup".';
+      'No client profiles detected in WSL. You can connect one later with "imprint wsl setup".';
 end;
 
 function SaveWSLSelections(): Boolean;

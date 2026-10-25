@@ -277,7 +277,7 @@ func CodexHome() string {
 
 // VSCodeUserDir returns the first existing VSCode user-profile directory:
 // `Code/User` first, falling back to `Code - Insiders/User`. Empty string if
-// neither is present. Used to resolve Copilot and Cline-extension paths.
+// neither is present. Used to resolve Copilot paths.
 func VSCodeUserDir() string {
 	for _, dir := range VSCodeUserDirs() {
 		if DirExists(dir) {
@@ -327,20 +327,33 @@ func CopilotMCPPath() string {
 	return filepath.Join(d, "mcp.json")
 }
 
-// ClineExtSettingsPath returns the Cline VSCode-extension MCP settings file
-// (under globalStorage for saoudrizwan.claude-dev). Empty if no VSCode install.
-func ClineExtSettingsPath() string {
-	d := VSCodeUserDir()
-	if d == "" {
-		return ""
+// Cline's directories, resolved as Cline 4 (every surface: the VS Code
+// extension and its forks, the CLI, JetBrains and the desktop app) resolves
+// them: an environment override, else its place under the one before. Cline
+// trims each value and treats an empty one as unset.
+func clineEnv(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
 	}
-	return filepath.Join(d, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json")
+	return fallback
 }
 
-// ClineCLISettingsPath returns the Cline standalone-CLI MCP settings file
-// (~/.cline/data/settings/cline_mcp_settings.json).
-func ClineCLISettingsPath() string {
-	return filepath.Join(HomeDir(), ".cline", "data", "settings", "cline_mcp_settings.json")
+// ClineDir is CLINE_DIR, else ~/.cline: Cline's rules, hooks and data root.
+func ClineDir() string { return clineEnv("CLINE_DIR", filepath.Join(HomeDir(), ".cline")) }
+
+// ClineDataDir is CLINE_DATA_DIR, else <ClineDir>/data.
+func ClineDataDir() string { return clineEnv("CLINE_DATA_DIR", filepath.Join(ClineDir(), "data")) }
+
+// ClineSessionsDir is CLINE_SESSION_DATA_DIR, else <ClineDataDir>/sessions:
+// one folder per session, which imprint learn reads.
+func ClineSessionsDir() string {
+	return clineEnv("CLINE_SESSION_DATA_DIR", filepath.Join(ClineDataDir(), "sessions"))
+}
+
+// ClineMCPSettingsPath is CLINE_MCP_SETTINGS_PATH, else
+// <ClineDataDir>/settings/cline_mcp_settings.json.
+func ClineMCPSettingsPath() string {
+	return clineEnv("CLINE_MCP_SETTINGS_PATH", filepath.Join(ClineDataDir(), "settings", "cline_mcp_settings.json"))
 }
 
 // CursorHooksPath returns the user-global Cursor hooks config (~/.cursor/hooks.json).
@@ -610,10 +623,10 @@ func OpenClawMCPPath() string {
 	return filepath.Join(OpenClawConfigDir(), "openclaw.json")
 }
 
-// ClineRulesPath returns the user-global Cline rules file (~/.clinerules/imprint.md).
-// Cline reads every file under ~/.clinerules/ as an always-on rule.
+// ClineRulesPath is Imprint's global Cline rule, <ClineDir>/rules/imprint.md.
+// Cline reads every file in its global rules directories as an always-on rule.
 func ClineRulesPath() string {
-	return filepath.Join(HomeDir(), ".clinerules", "imprint.md")
+	return filepath.Join(ClineDir(), "rules", "imprint.md")
 }
 
 // CopilotInstructionsPath returns the user-global Copilot custom-instructions

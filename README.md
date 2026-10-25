@@ -127,7 +127,7 @@ imprint setup --retry-gpu
 | `cursor`      | Cursor IDE (MCP + always-on rule)                  | `~/.cursor/mcp.json` + `~/.cursor/rules/imprint.mdc`                                   | Text-only (rule)    |
 | `codex`       | OpenAI Codex CLI                                   | `~/.codex/config.toml` (`[mcp_servers.imprint]`)                                       | Text-only           |
 | `copilot`     | GitHub Copilot (VSCode agent mode), user-global    | `<VSCode user>/mcp.json` (`servers.imprint`)                                           | Text-only           |
-| `cline`       | Cline — VSCode extension + standalone CLI          | `<VSCode user>/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` and/or `~/.cline/data/settings/cline_mcp_settings.json` | Text-only |
+| `cline`       | Cline 4 — VS Code extension and forks, CLI, JetBrains, desktop | `~/.cline/data/settings/cline_mcp_settings.json` + `~/.cline/rules/imprint.md` (honors `CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH`) | Text-only (rule) |
 
 `imprint disable` is symmetric — it tears down the MCP entry from every config file above that still exists (the venv and data are always preserved so re-enabling is fast).
 
@@ -151,7 +151,7 @@ imprint clients [--json]   # clients Imprint connects to, and whether each is co
 imprint connect [client]   # register the installed runtime with clients (MCP + hooks + rules); installs and starts nothing
 imprint disconnect [client]  # unregister clients, incl. their recorded WSL profiles; stops nothing
 imprint ingest <path>      # index project source files (directory or single file)
-imprint learn              # index Claude Code, Codex + Cursor conversations (incl. WSL profiles) + memory files
+imprint learn              # index Claude Code, Codex, Cursor + Cline conversations (incl. WSL profiles) + memory files
 imprint learn --desktop    # also ingest Claude Desktop / ChatGPT Desktop export zips from Downloads
 imprint ingest-url <url>   # fetch URL(s), extract content, and index (html/pdf/etc)
 imprint refresh <dir>      # re-index only changed files (SHA256-based)

@@ -1,4 +1,4 @@
-"""Learning reads Claude Code, Codex and Cursor stores, local and WSL (ADR 0034, ADR 0037, ADR 0052)."""
+"""Learning reads Claude Code, Codex, Cursor and Cline stores, local and WSL (ADR 0034, ADR 0037, ADR 0052, ADR 0056)."""
 import contextlib
 import io
 import json
@@ -17,6 +17,9 @@ CODEX_FIRST = '01a16711-fc04-77f0-a8b1-8d347fb54da9'
 CODEX_SECOND = '01a16711-0b3e-7c2d-9e8f-102938475610'
 CURSOR_SESSION = '5df5e6b6-b3fb-41f0-ade6-257fea91e2b9'
 MOUNTS = 'C:\\134\t/mnt/c'
+# Cline ids are <epoch ms>_<5 base36>: sessions started in the same millisecond share a prefix.
+CLINE_FIRST = '1784094124598_rruoq'
+CLINE_SECOND = '1784094124598_k2v7d'
 
 
 def claude_session(cwd, question):
@@ -64,6 +67,51 @@ def cursor_conversation(question):
 def cursor_transcript(store, directory, session, question):
     folder = store / 'projects' / transcripts.folder_name(str(directory)) / 'agent-transcripts' / session
     return write(folder / f'{session}.jsonl', cursor_conversation(question))
+
+
+def cline_messages(session, question):
+    def text(value):
+        return {'type': 'text', 'text': value}
+    return {'version': 1, 'updated_at': '2026-10-25T08:00:00.000Z', 'agent': 'lead', 'sessionId': session,
+            'origin': {'source': 'vscode', 'mode': 'user'}, 'messages': [
+        {'id': 'm1', 'role': 'user', 'ts': 1, 'content': [
+            text('<mode_notice>The user switched from plan mode to act mode before sending this message.</mode_notice>'
+                 f'<user_input mode="act">{question}</user_input>'),
+            {'type': 'file', 'path': '/attached/notes.md', 'content': 'attached file body'}]},
+        {'id': 'm2', 'role': 'assistant', 'content': [
+            {'type': 'thinking', 'thinking': 'private thinking'}, text(ANSWER),
+            {'type': 'tool_use', 'id': 't1', 'name': 'read_file', 'input': {'path': '/tool/input/path'}}],
+         'modelInfo': {'id': 'model', 'provider': 'cline'}},
+        {'id': 'm3', 'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': 't1', 'content': 'tool output'}]},
+        # Hook output for the model, flagged as Cline flags it and unflagged.
+        {'id': 'm4', 'role': 'user', 'content': '<hook_context source="PostToolUse" tool_name="read_file">hook output text</hook_context>',
+         'metadata': {'displayRole': 'system'}},
+        {'id': 'm5', 'role': 'user', 'content': [text('<hook_context source="TaskStart">unflagged hook output</hook_context>')]},
+        {'id': 'm6', 'role': 'assistant', 'content': [text('After the hook. ' + ANSWER)]},
+        {'id': 'm7', 'role': 'user', 'content': [text('<user_input mode="act">The user approved switching to act mode. '
+                                                      'Continue with the approved plan now.</user_input>')]},
+        {'id': 'm8', 'role': 'assistant', 'content': [{'type': 'redacted_thinking', 'data': 'opaque'}, text('Continuing. ' + ANSWER)]},
+        {'id': 'm9', 'role': 'user', 'content': [text('<user_command slash="deep-planning">plan the cache rewrite</user_command>')]},
+        {'id': 'm10', 'role': 'assistant', 'content': [text('Plan: ' + ANSWER)]},
+        {'id': 'm11', 'role': 'assistant', 'content': [text('Provider error: the request was rate limited for a while.')],
+         'metadata': {'displayOnly': True, 'displayRole': 'error'}},
+    ]}
+
+
+def cline_session(store, session, cwd, question, workspace_root=None, manifest=True, **metadata):
+    """A Cline session folder; the manifest's messages_path points somewhere else, which learning never reads."""
+    folder = store / session
+    folder.mkdir(parents=True, exist_ok=True)
+    messages = folder / f'{session}.messages.json'
+    messages.write_text(json.dumps(cline_messages(session, question)), encoding='utf-8')
+    if manifest:
+        (folder / f'{session}.json').write_text(json.dumps({
+            'version': 1, 'session_id': session, 'source': 'vscode', 'pid': 1, 'started_at': '2026-10-25T08:00:00.000Z',
+            'status': 'completed', 'interactive': True, 'provider': 'cline', 'model': 'model', 'cwd': cwd,
+            'workspace_root': workspace_root or cwd, 'enable_tools': True, 'enable_spawn': True, 'enable_teams': False,
+            'metadata': {'title': question, 'sessionHistoryOrigin': {'mode': 'user'}, **metadata},
+            'messages_path': f'/elsewhere/{session}.messages.json'}), encoding='utf-8')
+    return messages
 
 
 def write(path, records):
@@ -373,6 +421,113 @@ class LearnStoresTests(unittest.TestCase):
             self.assertEqual(learner.main(), 0)
         self.assertIn('Stored 1', output.getvalue())
         self.assertEqual([record['source'] for record in self.stored()], [f'conversation/{CODEX_FIRST}'])
+
+    def test_learns_a_cline_store_from_session_manifests(self):
+        project = self.root / 'app'
+        project.mkdir()
+        store = self.root / 'cline' / 'data' / 'sessions'
+        first = cline_session(store, CLINE_FIRST, str(project), 'How should the cache be keyed?')
+        cline_session(store, CLINE_SECOND, str(project), 'Where are sessions written?')
+        # A subagent's and a teammate's messages beside the session's own.
+        for name in ('agent_k3x9q', 'agent_k3x9q__task_2'):
+            (first.parent / f'{name}.messages.json').write_text(
+                json.dumps(cline_messages(name, 'Subagent prompt text')), encoding='utf-8')
+        # Imported from another client's store, which owns them.
+        cline_session(store, '1784094200000_imp01', str(project), 'Imported finished', importedFrom={'tool': 'claude-code'})
+        cline_session(store, '1784094200001_imp02', str(project), 'Imported in progress',
+                      sessionHistoryOrigin={'mode': 'import', 'trigger': 'codex'})
+        # Without a manifest a session records no working directory.
+        cline_session(store, '1784094300000_nomf0', str(project), 'Is this one learned?', manifest=False)
+
+        result, output = self.learn(('cline', str(store)))
+
+        self.assertEqual(result, 0, output)
+        self.assertIn(f'Cline {store}: 3 conversations', output)
+        self.assertIn('1 not this workspace', output)
+        stored = self.stored()
+        self.assertEqual({record['source'] for record in stored},
+                         {f'conversation/{CLINE_FIRST}', f'conversation/{CLINE_SECOND}'})
+        content = '\n'.join(record['content'] for record in stored)
+        self.assertIn('Q: How should the cache be keyed?\n\nA: Keep the cache', content)
+        self.assertIn('After the hook.', content)
+        self.assertIn('Continuing.', content)
+        self.assertIn('Q: /deep-planning plan the cache rewrite\n\nA: Plan:', content)
+        for hidden in ('Subagent prompt', 'Imported', 'Is this one learned', 'mode_notice', 'switched from plan',
+                       'user_input', 'attached file body', 'private thinking', 'opaque', 'tool output',
+                       '/tool/input/path', 'hook output', 'approved switching', 'Provider error'):
+            self.assertNotIn(hidden, content)
+
+    def test_cline_user_text_is_what_the_user_typed(self):
+        def typed(text):
+            return transcripts.message({'role': 'user', 'content': [{'type': 'text', 'text': text}]})[1]
+
+        self.assertEqual(typed('<user_input mode="plan">Explain the cache</user_input>\n<file_content path="a">x</file_content>'),
+                         'Explain the cache')
+        # Sessions written before the wrappers hold the typed text as it is.
+        self.assertEqual(typed('can you make the filter icon smaller?'), 'can you make the filter icon smaller?')
+        self.assertEqual(typed('<user_command slash="newtask"></user_command>'), '/newtask')
+        self.assertEqual(typed('<user_input mode="act">[TASK RESUMPTION] This task was interrupted.</user_input>'), '')
+        self.assertIsNone(transcripts.message({'role': 'user', 'content': 'compacted summary', 'metadata': {'displayRole': 'Status'}}))
+
+    def test_cline_session_manifests_are_ownership_evidence(self):
+        unclaimed, claimed = self.root / 'unclaimed', self.root / 'claimed'
+        unclaimed.mkdir()
+        claimed.mkdir()
+        policy.add_root(str(claimed), 'beta')
+        store = self.root / 'sessions'
+        mine = cline_session(store, CLINE_FIRST, str(unclaimed), 'Whose conversation is this?')
+        # The workspace root counts as well as the cwd.
+        theirs = cline_session(store, CLINE_SECOND, str(unclaimed / 'sub'), 'Whose conversation is this?',
+                               workspace_root=str(claimed))
+        nowhere = cline_session(store, '1784094300000_nomf0', str(unclaimed), 'Whose?', manifest=False)
+        self.assertEqual(list(transcripts.cwds(theirs)), [str(unclaimed / 'sub'), str(claimed)])
+        self.assertTrue(policy.transcript_allowed(str(mine), 'alpha'))
+        self.assertFalse(policy.transcript_allowed(str(theirs), 'alpha'))
+        self.assertTrue(policy.transcript_allowed(str(theirs), 'beta'))
+        self.assertFalse(policy.transcript_allowed(str(nowhere), 'alpha'))
+        self.assertFalse(policy.transcript_allowed(str(nowhere), 'beta'))
+        # A subagent's messages are not the session's: they record nothing.
+        subagent = mine.parent / 'agent_k3x9q.messages.json'
+        subagent.write_text(json.dumps(cline_messages('agent_k3x9q', 'Subagent')), encoding='utf-8')
+        self.assertEqual(list(transcripts.cwds(subagent)), [])
+
+    def test_cline_projects_come_from_the_recorded_cwd(self):
+        store = self.root / 'sessions'
+        windows = cline_session(store, CLINE_FIRST, 'C:\\Users\\u\\code\\personal\\shop', 'Which project?')
+        self.assertEqual(learner.identify(str(windows)), (f'conversation/{CLINE_FIRST}', 'shop'))
+        # A session without a folder open runs in Cline's chat workspace: no project.
+        chat = self.root / 'home' / 'u' / '.cline' / 'data' / 'workspaces' / 'chat'
+        chat.mkdir(parents=True)
+        session = cline_session(store, CLINE_SECOND, str(chat), 'What is a good name for a cat?')
+        self.assertEqual(learner.identify(str(session)), (f'conversation/{CLINE_SECOND}', ''))
+        self.assertEqual(learner.derive_project('/home/u/.cline/data/workspaces/chat'), '')
+        result, output = self.learn(('cline', str(store)))
+        self.assertEqual(result, 0, output)
+        self.assertEqual({(record['source'], record['project']) for record in self.stored()},
+                         {(f'conversation/{CLINE_SECOND}', '')})
+
+    def test_a_wsl_cline_store_resolves_like_the_bridge(self):
+        wsl = self.root / 'wsl-namespace'
+
+        def native(value):
+            if value.startswith(str(self.root)):
+                return value
+            windows = wsl_paths.linux_to_windows(value, 'Ubuntu', MOUNTS)
+            prefix = '\\\\wsl.localhost\\Ubuntu\\'
+            self.assertTrue(windows.startswith(prefix), windows)
+            return str(wsl.joinpath(*windows[len(prefix):].split('\\')))
+
+        (wsl / 'home' / 'test' / 'code' / 'personal' / 'app').mkdir(parents=True)
+        cline_session(wsl / 'home' / 'test' / '.cline' / 'data' / 'sessions', CLINE_FIRST,
+                      '/home/test/code/personal/app', 'How should the cache be keyed?')
+
+        with patch.object(wsl_paths, 'native_path', side_effect=native), \
+                patch.object(policy, 'native_path', side_effect=native):
+            result, output = self.learn(('cline', '/home/test/.cline/data/sessions'))
+
+        self.assertEqual(result, 0, output)
+        self.assertEqual({(record['source'], record['project']) for record in self.stored()},
+                         {(f'conversation/{CLINE_FIRST}', 'app')})
 
     def test_project_names_follow_claude_folder_naming_of_the_recorded_cwd(self):
         self.assertEqual(learner.derive_project('/home/u/code/personal/imprint-memory-layer'), 'imprint-memory-layer')

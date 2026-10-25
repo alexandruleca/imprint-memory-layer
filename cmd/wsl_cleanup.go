@@ -38,8 +38,14 @@ func readWSLRegistrations(project string) ([]wslRegistration, error) {
 	}
 	return records, nil
 }
+
+// sameWSLRegistration compares the registered client's own directory, so a
+// record stays the same registration when the probe later reports another
+// client's profile in that home.
 func sameWSLRegistration(a, b wslRegistration) bool {
-	return a.Profile.Distribution == b.Profile.Distribution && a.Target == b.Target && a.Profile.Home == b.Profile.Home && a.Profile.ClaudeHome == b.Profile.ClaudeHome && a.Profile.CodexHome == b.Profile.CodexHome && a.Profile.CursorHome == b.Profile.CursorHome && a.User == b.User
+	aDir, _ := wslClientDir(a.Profile, a.Target)
+	bDir, _ := wslClientDir(b.Profile, b.Target)
+	return a.Profile.Distribution == b.Profile.Distribution && a.Target == b.Target && a.Profile.Home == b.Profile.Home && aDir == bDir && a.User == b.User
 }
 func saveWSLRegistration(project string, record wslRegistration, remove bool) error {
 	records, err := readWSLRegistrations(project)

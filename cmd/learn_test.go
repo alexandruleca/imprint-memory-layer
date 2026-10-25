@@ -18,12 +18,18 @@ func TestLearnStoresCoverLocalProfilesAndRegisteredWSLProfiles(t *testing.T) {
 	t.Setenv("CODEX_HOME", codex)
 	t.Setenv("HOME", project)
 	t.Setenv("USERPROFILE", project)
+	// Cline's sessions follow its data directory override.
+	t.Setenv("CLINE_DIR", "")
+	t.Setenv("CLINE_DATA_DIR", filepath.Join(project, "cline data"))
+	t.Setenv("CLINE_SESSION_DATA_DIR", "")
 	profile := wslProfile{Distribution: "Ubuntu", Home: "/home/test", ClaudeHome: "/home/test/.config/claude",
-		ClaudeRegistry: "/home/test/.config/claude/.claude.json", CodexHome: "/home/test/codex", CursorHome: "/home/test/.cursor"}
+		ClaudeRegistry: "/home/test/.config/claude/.claude.json", CodexHome: "/home/test/codex", CursorHome: "/home/test/.cursor",
+		ClineHome: "/home/test/.cline"}
 	records := []wslRegistration{
 		{Profile: profile, Target: "claude-code"},
 		{Profile: profile, Target: "codex"},
 		{Profile: profile, Target: "cursor"},
+		{Profile: profile, Target: "cline"},
 		{Profile: profile, Target: "codex"}, // the same store reachable twice
 		{Profile: wslProfile{Distribution: "Debian", Home: "/home/other", ClaudeHome: "/home/other/.claude"}, User: "other", Target: "claude-code"},
 		{Profile: wslProfile{Distribution: "Stopped", Home: "/home/test", CodexHome: "/home/test/.codex"}, Target: "codex"},
@@ -49,9 +55,11 @@ func TestLearnStoresCoverLocalProfilesAndRegisteredWSLProfiles(t *testing.T) {
 
 	groups, problems := learnStores(project)
 	want := []conversationStores{
-		{label: "this computer", stores: [][2]string{{"claude-code", claude}, {"codex", codex}, {"cursor", filepath.Join(project, ".cursor")}}},
+		{label: "this computer", stores: [][2]string{{"claude-code", claude}, {"cursor", filepath.Join(project, ".cursor")}, {"codex", codex},
+			{"cline", filepath.Join(project, "cline data", "sessions")}}},
 		{label: "WSL Ubuntu", distribution: "Ubuntu", mounts: "C:\\134\t/mnt/c\n",
-			stores: [][2]string{{"claude-code", "/home/test/.config/claude"}, {"codex", "/home/test/codex"}, {"cursor", "/home/test/.cursor"}}},
+			stores: [][2]string{{"claude-code", "/home/test/.config/claude"}, {"codex", "/home/test/codex"}, {"cursor", "/home/test/.cursor"},
+				{"cline", "/home/test/.cline/data/sessions"}}},
 		{label: "WSL Debian (other)", distribution: "Debian", user: "other", mounts: "C:\\134\t/mnt/c\n",
 			stores: [][2]string{{"claude-code", "/home/other/.claude"}}},
 	}

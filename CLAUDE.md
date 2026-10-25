@@ -67,7 +67,7 @@ imprint clients [--json]   # clients Imprint connects to, and whether each is co
 imprint connect [client]   # register the installed runtime with clients; installs and starts nothing
 imprint disconnect [client]  # unregister clients (incl. their recorded WSL profiles); stops nothing
 imprint ingest <dir>       # index project source files
-imprint learn              # index Claude Code, Codex + Cursor conversations (incl. WSL profiles) + memory files
+imprint learn              # index Claude Code, Codex, Cursor + Cline conversations (incl. WSL profiles) + memory files
 imprint learn --desktop    # also index Claude Desktop / ChatGPT Desktop export zips
 imprint refresh <dir>      # re-index changed files only
 imprint refresh-urls       # re-fetch stored URLs by ETag/Last-Modified

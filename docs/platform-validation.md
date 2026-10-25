@@ -310,6 +310,23 @@ See [ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md). 
 
 Not run: registering Cursor in the installation (`imprint wsl setup --target cursor` writes its journal), the installer wizard with a Cursor selection, and a complete `imprint learn` that stores Cursor conversations.
 
+## Cline setup and learn (2026-10-25)
+
+See [ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md). No Cline is installed on this machine and no Cline sessions exist, so sessions are fixtures built from the Cline SDK's schemas (cline/cline@40c5d99). Every check used a temporary installation directory in `%TEMP%`, a disposable WSL home in `/tmp` and the installed Windows interpreter read-only; nothing was written to the installation, its data or a real client profile.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Go Cline, WSL, learn, cleanup and client tests (cross-compiled Windows test binary) | Passed | Includes setup in a disposable home with `CLINE_DIR`, `CLINE_DATA_DIR` and `CLINE_MCP_SETTINGS_PATH`, disconnect of old and new registrations, and the Cline WSL layout. The jsonutil tests passed too. |
+| Profile probe (cross-compiled CLI, `wsl list --json`) | Passed | The real Ubuntu profile listed the new `cline` target with no profile, since `~/.cline` does not exist, beside its Claude Code, Cursor and Codex profiles. |
+| `imprint wsl setup --target cline` into a disposable home (`--home /tmp/…`, `--python` the installed interpreter) | Passed | Wrote `<home>/.cline/imprint-wsl` (mode 700), the `imprint` entry beside an existing server in `data/settings/cline_mcp_settings.json` with a backup, and `rules/imprint.md` beside a user rule. The launcher's probe ran the Windows interpreter from WSL. The journal recorded `cline_home`. |
+| `imprint wsl remove --target cline` | Passed | Removed the entry, the rule and the launcher; kept the other server and the user rule; emptied the journal. |
+| Unknown target | Passed | `imprint wsl setup --target vim` failed with `target must be claude-code, cursor, codex or cline` before probing. |
+| WSL Cline store through the installed Windows interpreter | Passed | With the Ubuntu path context, the sessions directory resolved to `\\wsl.localhost\Ubuntu\tmp\…\.cline\data\sessions`. The session was found, keyed by its full id, named `imprint-memory-layer` from the manifest's Linux cwd, owned by the default workspace, and parsed into the two typed questions. |
+| Windows PowerShell 5.1 setup regression (WSL interop) | Passed | Saved selections including `cline` were replayed to the CLI. |
+| Installer wizard pages (portable Inno Setup compiler) | Passed | |
+
+Not run: a real Cline on any surface loading the settings and rule, real Cline sessions, the installer wizard with a Cline selection, a complete `imprint learn` storing Cline sessions, and macOS.
+
 ## PersonaPlex startup memory prototype (2026-10-24)
 
 See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the [prototype guide](personaplex-prototype.md). This validates an experimental adapter, not a supported voice/avatar product.

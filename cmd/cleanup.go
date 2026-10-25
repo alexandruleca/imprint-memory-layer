@@ -78,8 +78,15 @@ func copilotRegistrations() []clientCleanup {
 	return registrations
 }
 
+// clineRegistrations: Cline's MCP settings and Imprint's global rule, plus
+// what setup wrote before ADR 0056. That is a rule in ~/.clinerules, which
+// Cline reads only as a workspace's rules, and an entry in the VS Code
+// extension's storage, which Cline 4 imports once and no longer reads.
 func clineRegistrations() []clientCleanup {
-	registrations := []clientCleanup{{registry: platform.ClineCLISettingsPath(), keys: []string{"mcpServers"}, rules: platform.ClineRulesPath(), rule: instructions.ClineRule}}
+	registrations := []clientCleanup{
+		{registry: platform.ClineMCPSettingsPath(), keys: []string{"mcpServers"}, rules: platform.ClineRulesPath(), rule: instructions.ClineRule},
+		{rules: filepath.Join(platform.HomeDir(), ".clinerules", "imprint.md"), rule: instructions.ClineRule},
+	}
 	for _, dir := range platform.VSCodeUserDirs() {
 		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), keys: []string{"mcpServers"}})
 	}
@@ -93,12 +100,12 @@ func openClawRegistrations() []clientCleanup {
 // registrationsOf joins the selected clients' registrations; clients that
 // share a registry (ChatGPT Desktop and Codex) list it once.
 func registrationsOf(selected []client) []clientCleanup {
-	seen := map[string]bool{}
+	seen := map[[2]string]bool{}
 	var registrations []clientCleanup
 	for _, c := range selected {
 		for _, r := range c.registrations() {
-			if !seen[r.registry] {
-				seen[r.registry] = true
+			if key := [2]string{r.registry, r.rules}; !seen[key] {
+				seen[key] = true
 				registrations = append(registrations, r)
 			}
 		}
@@ -279,11 +286,17 @@ func disconnectClients(selected []client, project string) error {
 }
 
 func cleanupNativeClients(clients []clientCleanup, project string) error {
-	// Cline extension and CLI share one global rule file. A foreign entry in
-	// either client protects that shared rule even if the other is absent.
+	// Every Cline registry shares Imprint's Cline rule files. A foreign entry
+	// in any of them protects those rules even if the others are absent.
+	clineRegistries := map[string]bool{}
+	for _, c := range clineRegistrations() {
+		if c.registry != "" {
+			clineRegistries[c.registry] = true
+		}
+	}
 	protectClineRule := false
 	for _, c := range clients {
-		if filepath.Base(c.registry) != "cline_mcp_settings.json" {
+		if !clineRegistries[c.registry] {
 			continue
 		}
 		doc, err := jsonutil.ReadJSON(c.registry)

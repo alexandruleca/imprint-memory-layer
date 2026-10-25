@@ -368,7 +368,7 @@ func EnsureMCPServerAtKey(path, rootKey, name string, spec map[string]any) (bool
 			return false, fmt.Errorf("creating directory %s: %w", dir, err)
 		}
 		data := map[string]any{
-			rootKey: map[string]any{name: spec},
+			rootKey: map[string]any{name: mergeOwnedSpec(nil, spec)},
 		}
 		return true, WriteJSON(path, data)
 	}
@@ -384,13 +384,12 @@ func EnsureMCPServerAtKey(path, rootKey, name string, spec map[string]any) (bool
 		data[rootKey] = servers
 	}
 
-	if existing, ok := servers[name].(map[string]any); ok {
-		spec = mergeOwnedSpec(existing, spec)
-		if jsonEqual(existing, spec) {
-			return false, nil
-		}
+	existing, _ := servers[name].(map[string]any)
+	merged := mergeOwnedSpec(existing, spec)
+	if existing != nil && jsonEqual(existing, merged) {
+		return false, nil
 	}
-	servers[name] = spec
+	servers[name] = merged
 	return true, WriteJSON(path, data)
 }
 
@@ -432,7 +431,7 @@ func EnsureMCPServerNested(path string, keyPath []string, name string, spec map[
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return false, fmt.Errorf("creating directory %s: %w", dir, err)
 		}
-		leaf := map[string]any{name: spec}
+		leaf := map[string]any{name: mergeOwnedSpec(nil, spec)}
 		for i := len(keyPath) - 1; i >= 0; i-- {
 			leaf = map[string]any{keyPath[i]: leaf}
 		}
@@ -454,13 +453,12 @@ func EnsureMCPServerNested(path string, keyPath []string, name string, spec map[
 		cur = next
 	}
 
-	if existing, ok := cur[name].(map[string]any); ok {
-		spec = mergeOwnedSpec(existing, spec)
-		if jsonEqual(existing, spec) {
-			return false, nil
-		}
+	existing, _ := cur[name].(map[string]any)
+	merged := mergeOwnedSpec(existing, spec)
+	if existing != nil && jsonEqual(existing, merged) {
+		return false, nil
 	}
-	cur[name] = spec
+	cur[name] = merged
 	return true, WriteJSON(path, data)
 }
 
@@ -574,16 +572,21 @@ func EnsureHook(settingsPath, event, command string, timeout int, async bool) (b
 }
 
 // mergeOwnedSpec changes only keys supplied by the adapter; custom options and
-// user environment variables survive a runtime relocation or setup repair.
+// user environment variables survive a runtime relocation or setup repair. A
+// nil value names a key the adapter's entry must not have, such as a launch
+// definition in another shape that the client would read first.
 func mergeOwnedSpec(existing, desired map[string]any) map[string]any {
 	result := make(map[string]any, len(existing)+len(desired))
 	for key, value := range existing {
 		result[key] = value
 	}
 	for key, value := range desired {
-		left, leftOK := result[key].(map[string]any)
-		right, rightOK := value.(map[string]any)
-		if leftOK && rightOK {
+		if value == nil {
+			delete(result, key)
+			continue
+		}
+		if right, ok := value.(map[string]any); ok {
+			left, _ := result[key].(map[string]any)
 			result[key] = mergeOwnedSpec(left, right)
 		} else {
 			result[key] = value

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hunter/imprint/internal/output"
+	"github.com/hunter/imprint/internal/platform"
 )
 
 // client is one AI tool Imprint connects to. The clients table is the one
@@ -22,26 +23,42 @@ type client struct {
 	// registrations are the files connect writes; disconnect cleans them up.
 	registrations func() []clientCleanup
 	// wslHome is the client's directory in a WSL profile, for the clients a
-	// WSL profile can be registered for (imprint wsl setup). Claude Code and
-	// Codex run inside WSL and get the bridge launcher, MCP entry, rules and
-	// hooks. Cursor's agent runs from the Windows app over Remote-WSL, which
-	// Imprint's Windows Cursor setup already wires; its WSL profile only holds
-	// the conversations it records, so registering it writes nothing and lets
-	// learn read them (ADR 0052).
+	// WSL profile can be registered for (imprint wsl setup). Claude Code,
+	// Codex and Cline run inside WSL (Cline's VS Code extension runs in the
+	// remote host under Remote-WSL) and get the bridge launcher, MCP entry,
+	// rules and, where the client has them, hooks. Cursor's agent runs from
+	// the Windows app over Remote-WSL, which Imprint's Windows Cursor setup
+	// already wires; its WSL profile only holds the conversations it records,
+	// so registering it writes nothing and lets learn read them (ADR 0052).
 	wslHome func(wslProfile) string
+	// store is the directory where imprint learn reads the client's
+	// conversations on this computer (imprint.cli_conversations --store
+	// <name> <dir>), and wslStore that directory in a WSL profile registered
+	// for the client. Both are nil for clients whose conversations are not
+	// learned.
+	store    func() string
+	wslStore func(wslProfile) string
 }
 
 var clients = []client{
 	{name: "claude-code", label: "Claude Code", aliases: []string{"claude"}, connect: SetupClaudeCode, registrations: claudeCodeRegistrations,
-		wslHome: func(p wslProfile) string { return p.ClaudeHome }},
+		wslHome: func(p wslProfile) string { return p.ClaudeHome },
+		store:   platform.ClaudeConfigDir, wslStore: func(p wslProfile) string { return p.ClaudeHome }},
 	{name: "claude-desktop", label: "Claude Desktop", connect: SetupClaudeDesktop, registrations: claudeDesktopRegistrations},
 	{name: "chatgpt-desktop", label: "ChatGPT Desktop", aliases: []string{"chatgpt"}, connect: SetupChatGPTDesktop, registrations: chatGPTDesktopRegistrations},
 	{name: "cursor", label: "Cursor", connect: SetupCursor, registrations: cursorRegistrations,
-		wslHome: func(p wslProfile) string { return p.CursorHome }},
+		wslHome: func(p wslProfile) string { return p.CursorHome },
+		store:   platform.CursorConfigDir, wslStore: func(p wslProfile) string { return p.CursorHome }},
 	{name: "codex", label: "Codex", connect: SetupCodex, registrations: codexRegistrations,
-		wslHome: func(p wslProfile) string { return p.CodexHome }},
+		wslHome: func(p wslProfile) string { return p.CodexHome },
+		store:   platform.CodexHome, wslStore: func(p wslProfile) string { return p.CodexHome }},
 	{name: "copilot", label: "GitHub Copilot", connect: SetupCopilot, registrations: copilotRegistrations},
-	{name: "cline", label: "Cline", connect: SetupCline, registrations: clineRegistrations},
+	// Cline keeps sessions in its data directory. Its environment overrides
+	// count on this computer; a WSL profile's are not read (ADR 0026), so
+	// there they are in the default place under the probed Cline directory.
+	{name: "cline", label: "Cline", connect: SetupCline, registrations: clineRegistrations,
+		wslHome: func(p wslProfile) string { return p.ClineHome },
+		store:   platform.ClineSessionsDir, wslStore: wslClineSessions},
 	{name: "openclaw", label: "OpenClaw", aliases: []string{"clawdbot", "moltbot"}, connect: SetupOpenClaw, registrations: openClawRegistrations},
 }
 
@@ -95,6 +112,16 @@ func wslClientDir(p wslProfile, target string) (string, error) {
 	for _, c := range clients {
 		if c.name == target && c.wslHome != nil {
 			return c.wslHome(p), nil
+		}
+	}
+	return "", fmt.Errorf("target must be %s", wslTargetChoices())
+}
+
+// wslStoreDir is where learn reads a registered target's conversations.
+func wslStoreDir(p wslProfile, target string) (string, error) {
+	for _, c := range clients {
+		if c.name == target && c.wslHome != nil && c.wslStore != nil {
+			return c.wslStore(p), nil
 		}
 	}
 	return "", fmt.Errorf("target must be %s", wslTargetChoices())

@@ -45,7 +45,7 @@ imprint config reset --all
 
 The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs this device reports), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
 
-Settings also holds **Workspaces** and, for a Windows installation, **WSL profiles**: enroll or remove the Claude Code, Codex or Cursor profile (whichever clients the CLI supports there) of each WSL distribution's default user. See [installation](installation.md#claude-code-codex-and-cursor-inside-wsl).
+Settings also holds **Workspaces** and, for a Windows installation, **WSL profiles**: enroll or remove the client profiles (whichever clients the CLI supports there) of each WSL distribution's default user. See [installation](installation.md#clients-inside-wsl).
 
 ## Hugging Face token
 

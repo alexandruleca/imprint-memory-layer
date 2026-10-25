@@ -192,18 +192,76 @@ func TestUninstallOnlyRemovesOwnedAliasesAndSymlinks(t *testing.T) {
 	}
 }
 
+// clineHome points Cline's environment at a disposable home.
+func clineHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	for _, name := range []string{"CLINE_DIR", "CLINE_DATA_DIR", "CLINE_SESSION_DATA_DIR", "CLINE_MCP_SETTINGS_PATH"} {
+		t.Setenv(name, "")
+	}
+	return home
+}
+
 func TestCleanupPreservesSharedClineRuleForAnotherRuntime(t *testing.T) {
-	root := t.TempDir()
-	cli := clientCleanup{registry: filepath.Join(root, "cli", "cline_mcp_settings.json"), keys: []string{"mcpServers"}, rules: filepath.Join(root, "imprint.md"), rule: instructions.ClineRule}
-	ext := clientCleanup{registry: filepath.Join(root, "ext", "cline_mcp_settings.json"), keys: []string{"mcpServers"}}
-	writeCleanupFixture(t, cli.rules, instructions.ClineRule)
-	writeCleanupFixture(t, ext.registry, `{"mcpServers":{"imprint":{"command":"/other/runtime/python"}}}`)
-	if err := cleanupNativeClients([]clientCleanup{cli, ext}, "/this/runtime"); err != nil {
+	clineHome(t)
+	registrations := clineRegistrations()
+	current, legacy := registrations[0], registrations[len(registrations)-1]
+	writeCleanupFixture(t, current.rules, instructions.ClineRule)
+	writeCleanupFixture(t, legacy.registry, `{"mcpServers":{"imprint":{"command":"/other/runtime/python"}}}`)
+	if err := cleanupNativeClients(registrations, "/this/runtime"); err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(cli.rules)
+	content, err := os.ReadFile(current.rules)
 	if err != nil || string(content) != instructions.ClineRule {
 		t.Fatal("foreign client's shared Cline rule removed")
+	}
+}
+
+// Disconnecting Cline removes Imprint from its MCP settings and rules, and
+// what setup wrote before ADR 0056: the ~/.clinerules rule when it is the
+// generated one, and the VS Code extension storage entries.
+func TestCleanupRemovesClineRegistrationsOldAndNew(t *testing.T) {
+	home := clineHome(t)
+	project := filepath.Join(home, "runtime")
+	t.Setenv("CLINE_MCP_SETTINGS_PATH", filepath.Join(home, "custom", "mcp.json"))
+	owned := `{"mcpServers":{"imprint":{"command":"` + filepath.ToSlash(filepath.Join(project, "python")) + `"},"other":{"command":"keep-other"}}}`
+	writeCleanupFixture(t, filepath.Join(home, "custom", "mcp.json"), owned)
+	writeCleanupFixture(t, filepath.Join(home, ".cline", "rules", "imprint.md"), instructions.ClineRule)
+	writeCleanupFixture(t, filepath.Join(home, ".clinerules", "imprint.md"), instructions.ClineRule)
+	storage := ""
+	for _, r := range clineRegistrations() {
+		if strings.Contains(r.registry, "saoudrizwan.claude-dev") {
+			storage = r.registry
+			break
+		}
+	}
+	writeCleanupFixture(t, storage, owned)
+	selected, _ := selectClients("cline")
+	if err := disconnectClients(selected, project); err != nil {
+		t.Fatal(err)
+	}
+	for _, registry := range []string{filepath.Join(home, "custom", "mcp.json"), storage} {
+		content, _ := os.ReadFile(registry)
+		if strings.Contains(string(content), `"imprint"`) || !strings.Contains(string(content), "keep-other") {
+			t.Fatalf("%s: %s", registry, content)
+		}
+	}
+	for _, rule := range []string{filepath.Join(home, ".cline", "rules", "imprint.md"), filepath.Join(home, ".clinerules", "imprint.md")} {
+		if _, err := os.Stat(rule); !os.IsNotExist(err) {
+			t.Fatalf("generated rule %s remains", rule)
+		}
+	}
+
+	// An edited rule in the old place is the user's now.
+	writeCleanupFixture(t, filepath.Join(home, ".clinerules", "imprint.md"), instructions.ClineRule+"\nMy addition.\n")
+	if err := disconnectClients(selected, project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".clinerules", "imprint.md")); err != nil {
+		t.Fatal("an edited rule was removed")
 	}
 }
 
@@ -221,7 +279,7 @@ func TestCleanupMigratesLegacySelectionBesideCustomProfile(t *testing.T) {
 	runWSL = func(args ...string) (string, error) {
 		if strings.Contains(strings.Join(args, " "), "imprint-probe") {
 			probed = true
-			return "/default\n\n/default/.codex\n/default/.claude.json\n", nil
+			return "/default\n\n/default/.codex\n/default/.claude.json\n\n\n", nil
 		}
 		return filepath.Join(root, "profiles", filepath.FromSlash(strings.TrimPrefix(args[len(args)-1], "/"))), nil
 	}

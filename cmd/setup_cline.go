@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hunter/imprint/internal/configfile"
 	"github.com/hunter/imprint/internal/instructions"
 	"github.com/hunter/imprint/internal/jsonutil"
 	"github.com/hunter/imprint/internal/output"
@@ -11,87 +12,41 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
-// SetupCline wires Imprint into Cline. Two variants are supported: the
-// VSCode extension (config lives under VSCode's globalStorage for
-// saoudrizwan.claude-dev) and the Cline CLI (~/.cline/data/settings). Each
-// is handled independently — if neither is detected, we warn and return.
+// SetupCline registers Imprint with Cline. Since Cline 4 every surface (the
+// VS Code extension and its forks, the CLI, JetBrains and the desktop app)
+// reads one MCP settings file in Cline's data directory and the rules in its
+// global rules directories, so one registration serves them all (ADR 0056).
+// Cline keeps its own conversations, which imprint learn reads; its hooks
+// receive no transcript, so none are wired.
 func SetupCline(backend func() backendPaths) {
-	extPath := platform.ClineExtSettingsPath()
-	cliPath := platform.ClineCLISettingsPath()
-
-	extDir := ""
-	if extPath != "" {
-		extDir = filepath.Dir(extPath)
-	}
-	cliDir := filepath.Dir(cliPath)
-
-	extPresent := extPath != "" && platform.DirExists(filepath.Dir(extDir)) // parent of `settings` = extension storage dir
-	cliPresent := platform.DirExists(filepath.Dir(cliDir))                  // parent of `settings` = data dir
-
-	if !extPresent && !cliPresent {
-		output.Warn("Cline not detected — neither VSCode extension (saoudrizwan.claude-dev) nor Cline CLI (~/.cline) is installed. Skipping.")
+	if !clineInstalled() {
+		output.Warn("Cline not detected (no " + platform.ClineDir() + " and no Cline extension storage in VS Code). Skipping.")
 		return
 	}
 	setupHostsRan++
 
 	bp := backend()
-	spec := map[string]any{
-		"command": bp.VenvPython,
-		"args":    []any{"-m", "imprint"},
-		"env": map[string]any{
-			"PYTHONPATH":       bp.ProjectDir,
-			"IMPRINT_DATA_DIR": bp.DataDir,
-		},
-	}
-
-	wroteExt := false
-	if extPresent {
-		output.Info("Checking Cline (VSCode extension) MCP registration...")
-		added, err := jsonutil.EnsureMCPServer(extPath, "imprint", spec)
-		if err != nil {
-			output.Fail("Could not update " + extPath + ": " + err.Error())
-		} else if added {
-			output.Success("Registered imprint MCP server in " + extPath)
-			wroteExt = true
-		} else {
-			output.Skip("imprint MCP server already registered in " + extPath)
-			wroteExt = true
-		}
+	settings, rule := platform.ClineMCPSettingsPath(), platform.ClineRulesPath()
+	output.Info("Checking Cline MCP registration...")
+	added, err := jsonutil.EnsureMCPServer(settings, "imprint", clineServer(bp.VenvPython, []any{"-m", "imprint"}, map[string]any{
+		"PYTHONPATH":       bp.ProjectDir,
+		"IMPRINT_DATA_DIR": bp.DataDir,
+	}))
+	if err != nil {
+		output.Fail("Could not update " + settings + ": " + err.Error())
+	} else if added {
+		output.Success("Registered imprint MCP server in " + settings)
 	} else {
-		output.Skip("Cline VSCode extension not detected")
+		output.Skip("imprint MCP server already registered in " + settings)
 	}
 
-	wroteCLI := false
-	if cliPresent {
-		output.Info("Checking Cline (CLI) MCP registration...")
-		added, err := jsonutil.EnsureMCPServer(cliPath, "imprint", spec)
-		if err != nil {
-			output.Fail("Could not update " + cliPath + ": " + err.Error())
-		} else if added {
-			output.Success("Registered imprint MCP server in " + cliPath)
-			wroteCLI = true
-		} else {
-			output.Skip("imprint MCP server already registered in " + cliPath)
-			wroteCLI = true
-		}
-	} else {
-		output.Skip("Cline CLI not detected")
-	}
-
-	// Step: write the always-on rule. Cline reads every file under
-	// ~/.clinerules/ as a permanent instruction, so this is the text-only
-	// equivalent of the Claude Code CLAUDE.md.
-	rulePath := platform.ClineRulesPath()
 	output.Info("Checking Cline rule...")
-	if err := os.MkdirAll(filepath.Dir(rulePath), 0755); err != nil {
-		output.Fail("Could not create " + filepath.Dir(rulePath) + ": " + err.Error())
-	}
-	if existing, err := os.ReadFile(rulePath); err == nil && string(existing) == instructions.ClineRule {
-		output.Skip("Cline rule already up to date at " + rulePath)
-	} else if err := os.WriteFile(rulePath, []byte(instructions.ClineRule), 0644); err != nil {
-		output.Fail("Could not write " + rulePath + ": " + err.Error())
+	if existing, err := os.ReadFile(rule); err == nil && string(existing) == instructions.ClineRule {
+		output.Skip("Cline rule already up to date at " + rule)
+	} else if err := configfile.Write(rule, []byte(instructions.ClineRule)); err != nil {
+		output.Fail("Could not write " + rule + ": " + err.Error())
 	} else {
-		output.Success("Wrote Cline rule to " + rulePath)
+		output.Success("Wrote Cline rule to " + rule)
 	}
 
 	output.Header("═══ Imprint → Cline setup complete ═══")
@@ -100,20 +55,33 @@ func SetupCline(backend func() backendPaths) {
 		output.Info("Python:     " + venvPythonVer + " (" + bp.VenvPython + ")")
 	}
 	output.Info("Data:       " + bp.DataDir)
-	if wroteExt {
-		output.Info("Extension:  " + extPath)
-	}
-	if wroteCLI {
-		output.Info("CLI:        " + cliPath)
-	}
-	output.Info("Rule:       " + rulePath)
-	output.Warn("Cline has no hook system — enforcement is text-only via the rule file above. Session summarizer cannot auto-run.")
+	output.Info("MCP config: " + settings)
+	output.Info("Rule:       " + rule)
+	output.Info("Cline's hooks receive no transcript, so no hook is wired: conversations arrive through 'imprint learn' or the dashboard's Learn action.")
 	output.Info("Next steps:")
-	if wroteExt {
-		output.Info("  - Reload VSCode to pick up the extension's new MCP server")
-	}
-	if wroteCLI {
-		output.Info("  - Restart any running cline session to pick up the new MCP server")
-	}
+	output.Info("  - Reload the Cline extension, or restart a running cline session, to pick up the new MCP server")
 	output.Info("  - Use 'imprint ingest <dir>' to index your project directories")
+}
+
+// clineInstalled: Cline's directory exists once any Cline 4 surface has run;
+// the VS Code extension's storage exists once VS Code has loaded it.
+func clineInstalled() bool {
+	if platform.DirExists(platform.ClineDir()) || platform.DirExists(platform.ClineDataDir()) {
+		return true
+	}
+	for _, dir := range platform.VSCodeUserDirs() {
+		if platform.DirExists(filepath.Join(dir, "globalStorage", "saoudrizwan.claude-dev")) {
+			return true
+		}
+	}
+	return false
+}
+
+// clineServer is Imprint's entry in a Cline MCP settings file, in the flat
+// stdio form every Cline version reads. Cline reads a nested "transport"
+// before the flat fields, and `cline mcp add` writes one, so Imprint's entry
+// must have none: the nil removes it and keeps the entry's other settings
+// (disabled, timeout).
+func clineServer(command string, args []any, env map[string]any) map[string]any {
+	return map[string]any{"command": command, "args": args, "env": env, "transport": nil}
 }
