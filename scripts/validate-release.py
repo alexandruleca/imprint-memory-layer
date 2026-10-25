@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fail packaging on missing runtime files, wrong native architecture, an unsigned
-macOS desktop bundle or dev state."""
+macOS desktop bundle, a desktop app without its microphone usage text or dev state."""
 from __future__ import annotations
 
 import hashlib
@@ -159,6 +159,11 @@ def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
     if os_name == 'darwin' and app.exists():
         for bundle in (app, *sorted((app / 'Contents/Frameworks').glob('*.app'))):
             require_signed_bundle(bundle, arch)
+        # The app asks macOS for the microphone itself (ADR 0069); without this
+        # text, privacy consent terminates it instead of asking (ADR 0055).
+        purpose = plistlib.loads((app / 'Contents/Info.plist').read_bytes()).get('NSMicrophoneUsageDescription')
+        if not isinstance(purpose, str) or not purpose.strip():
+            raise ValueError(f'macOS desktop app has no microphone usage description: {app}')
     forbidden = {'.git', '.venv', 'node_modules', '.next', '__pycache__', '.uv-cache'}
     for directory, dirs, files in os.walk(root):
         bad = forbidden.intersection(dirs)

@@ -109,9 +109,27 @@ try {
   await popup.getByRole('group', { name: "Echo's look" }).getByRole('button', { name: /^Kai:/ }).click();
   for (let i = 0; i < 50 && look !== 'kai'; i++) await pause(100);
   assert.equal(look, 'kai', 'the look picker saved the choice');
+  // The actual checkbox, by its label as a person clicks it (ADR 0069).
+  const checkbox = popup.getByRole('checkbox', { name: 'Use microphone for conversations' });
+  await popup.getByText('Use microphone for conversations', { exact: true }).click(); assert.equal(await checkbox.isChecked(), true);
+  await checkbox.click(); assert.equal(await checkbox.isChecked(), false);
   if (output) { await fs.mkdir(output, { recursive: true }); await popup.screenshot({ path: path.join(output, 'settings.png'), omitBackground: true }); }
   await popup.keyboard.press('Escape');
   await popup.getByRole('dialog', { name: 'Companion settings' }).waitFor({ state: 'detached' });
+  // Real macOS consent is a person answering an OS dialog; elsewhere the
+  // production handlers grant the synthetic device to the companion.
+  const microphone = process.platform !== 'darwin';
+  if (microphone) {
+    await popup.getByRole('button', { name: 'Start conversation' }).click();
+    await popup.getByRole('button', { name: 'Enable microphone' }).click();
+    await popup.getByRole('button', { name: 'Hold to talk', exact: true }).waitFor();
+    await popup.getByRole('button', { name: 'Companion settings' }).click();
+    await popup.getByRole('button', { name: 'Stop conversation and microphone' }).click();
+    await popup.keyboard.press('Escape');
+    // Remembered: the next conversation arms the microphone without another click.
+    await popup.getByRole('button', { name: 'Start conversation' }).click();
+    await popup.getByRole('button', { name: 'Hold to talk', exact: true }).waitFor();
+  }
 
   const bounds = () => app.evaluate(({ BrowserWindow }) => {
     const windows = BrowserWindow.getAllWindows();
@@ -146,7 +164,8 @@ try {
   await popup.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2 - 20, { steps: 4 }); await popup.mouse.up();
   after = await settledBounds(); assert.notDeepEqual(after.head, before.head); assert.deepEqual(relative(after), relative(before));
   if (output) await popup.screenshot({ path: path.join(output, 'companion.png'), omitBackground: true });
-  console.log(JSON.stringify({ platform: process.platform, actualNativeSelect: true, lookPicker: true, groupedDragFromBothWindows: true,
+  console.log(JSON.stringify({ platform: process.platform, actualNativeSelect: true, lookPicker: true, checkbox: true,
+    rememberedSyntheticMicrophone: microphone, groupedDragFromBothWindows: true,
     limits: ['fixture API', 'synthetic devices', 'no physical voice quality or interactive macOS TCC validation'] }));
 } finally {
   await app?.close(); for (const socket of sockets) socket.destroy();

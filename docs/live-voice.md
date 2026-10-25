@@ -142,8 +142,9 @@ npm run build
 
 Restart Imprint's API/desktop shell, open **Voice**, and click **Start conversation**.
 For a disposable development session, set `IMPRINT_VOICE_RUNTIME_DIR` on the API
-process instead of changing saved configuration. Start only loads the local model
-and enables typed questions. **Enable microphone** is a separate explicit action.
+process instead of changing saved configuration. The first conversation starts
+with typed questions; **Enable microphone** turns the microphone on and remembers
+that choice for later conversations, as described below.
 When testing, use a temporary `IMPRINT_DATA_DIR`; never run setup or fixture
 retrieval against real user profiles.
 
@@ -159,6 +160,47 @@ remains operator-owned. Delete only its dedicated directory when no longer
 needed. Windows ARM, Linux ARM and GPU inference are not enabled by this pilot.
 The earlier offline CLI remains Linux-only; the live installer never downloads
 or executes that historical Linux CLI archive.
+
+## Microphone permissions and recovery
+
+Echo opens the microphone only when you ask for it: **Enable microphone**, or
+**Start conversation** after you have chosen to use the microphone. In the desktop
+app each of these first asks the operating system, then opens the device. Opening
+Echo, recalling it, setup and typing never start capture.
+
+The first successful **Enable microphone** is remembered on this device (in the
+browser or desktop profile, not in settings, memories or sync), together with
+push-to-talk or hands-free and the reasoning model. Later conversations turn the
+microphone on once they are ready, in the remembered mode; push-to-talk stays
+silent until you hold it. Clear **Use microphone for conversations** in
+**Companion settings** to turn capture off at once and go back to typing; the
+conversation stays open. The remembered choice is only your intent: the
+operating system can still refuse, and is asked every time. Stop, or clearing
+the choice while the system is still asking, means the microphone does not open
+when the answer arrives.
+
+- **macOS:** the first microphone action shows the system prompt. If access was
+  denied, use **Open microphone settings**, allow Imprint under **Privacy &
+  Security → Microphone**, then **Quit** and reopen Imprint; closing the
+  dashboard only hides it. macOS asks again after each update, because each
+  release has a new ad-hoc signature ([ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md)).
+  A restriction set by a device policy needs your administrator.
+- **Windows:** Imprint reads the desktop microphone privacy setting; Windows has
+  no per-app prompt for desktop apps. **Open microphone settings** opens
+  **Privacy & security → Microphone**; turn on **Microphone access** and **Let
+  desktop apps access your microphone**, then try again.
+- **Linux:** there is no system consent to ask, so the microphone itself decides.
+  If it is refused, check your desktop's microphone privacy settings and audio
+  input; there is no common settings link.
+- **Browser dashboard:** allow the microphone in the browser's site settings. Use
+  the local dashboard address or HTTPS; other pages cannot capture audio.
+
+A missing microphone, a device another app holds and audio processing that fails
+to load each get their own message, with the browser's error name, and only a
+refusal mentions permission. The message stays in Voice and the floating
+companion until the next attempt, and typing keeps working.
+[ADR 0069](adr/0069-echo-opens-the-microphone-only-on-the-users-intent.md)
+records these choices.
 
 ## Talk and interrupt
 
@@ -329,8 +371,12 @@ Python cleanup cannot run. Hidden Windows startup works with either Selector or
 Proactor event loops. Electron permissions allow
 only audio on the current owned Voice/companion main frame, denying camera and
 other permission requests except the dashboard's existing same-origin clipboard
-text writes; clipboard reads remain denied. macOS checks OS microphone consent,
-asks only when not determined, and honors denied/restricted status. The app's
+text writes; clipboard reads remain denied. **Enable microphone** asks the main
+process for OS consent first, over IPC that only those same Voice and companion
+main frames may use; the main process checks the sender again after the user
+answers. macOS asks only when consent is not determined and honors denied or
+restricted status; Windows reports its desktop privacy setting. The only other
+desktop IPC opens the fixed macOS or Windows microphone settings page. The app's
 bundle is signed ad hoc, so its Info.plist and microphone usage text are sealed
 to its identity ([ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md));
 an ad-hoc identity changes with each update, so macOS asks again after one.

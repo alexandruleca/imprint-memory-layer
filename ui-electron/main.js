@@ -7,7 +7,8 @@ const http = require('node:http');
 const { execFile } = require('node:child_process');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
-const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
+const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
+  requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
 const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage, dockCompanion, clampFloatingGroup } = require('./companion');
 const { desktopRuntime } = require('./runtime');
 
@@ -362,6 +363,18 @@ function trustedDashboardSender(event) {
     && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
     && sameOrigin(event.sender.getURL(), UI_ORIGIN);
 }
+// Enable microphone asks the OS first (ADR 0069). Consent can take as long as the
+// user leaves the dialog open, so the sender is checked again afterwards.
+ipcMain.handle('voice-microphone-access', async event => {
+  if (!trustedVoiceSender(event)) return { status: 'denied' };
+  const result = await requestMicrophoneAccess(process.platform, systemPreferences);
+  return trustedVoiceSender(event) ? result : { status: 'denied' };
+});
+ipcMain.handle('voice-microphone-settings', async event => {
+  const url = microphoneSettingsURL(process.platform);
+  if (!trustedVoiceSender(event) || !url) return false;
+  try { await shell.openExternal(url); return true; } catch { return false; }
+});
 function companionState() {
   return { open: !!companionWin, pinned: companionPinned, shortcut: SHORTCUT, shortcutAvailable };
 }

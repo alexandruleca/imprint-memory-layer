@@ -20,10 +20,26 @@ function clipboardWritePermission(contents, permission, details, origin, windows
       && (!details?.requestingUrl || new URL(details.requestingUrl).origin === origin);
   } catch { return false; }
 }
-async function macMicrophoneConsent(preferences) {
-  const status = preferences.getMediaAccessStatus('microphone');
-  if (status === 'granted') return true;
-  if (status !== 'not-determined') return false;
-  return preferences.askForMediaAccess('microphone');
+// The OS consent check behind Enable microphone (ADR 0069). macOS asks only
+// while consent is undetermined; Windows reports its desktop privacy setting;
+// Linux has no OS consent API, so capture itself decides there. A failed query
+// is an error, never an invented grant.
+async function requestMicrophoneAccess(platform, preferences) {
+  if (!['darwin', 'win32'].includes(platform)) return { status: 'unmanaged' };
+  try {
+    const status = preferences.getMediaAccessStatus('microphone');
+    if (platform === 'darwin' && status === 'not-determined') {
+      return { status: await preferences.askForMediaAccess('microphone') ? 'granted' : 'denied' };
+    }
+    return { status };
+  } catch { return { status: 'error' }; }
 }
-module.exports = { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent };
+async function macMicrophoneConsent(preferences) {
+  return (await requestMicrophoneAccess('darwin', preferences)).status === 'granted';
+}
+function microphoneSettingsURL(platform) {
+  return platform === 'darwin' ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+    : platform === 'win32' ? 'ms-settings:privacy-microphone' : null;
+}
+module.exports = { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
+  requestMicrophoneAccess, microphoneSettingsURL };

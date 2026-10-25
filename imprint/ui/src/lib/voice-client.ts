@@ -7,29 +7,60 @@ export type VoiceSnapshot = {
   phase: VoicePhase; detail: string; connected: boolean; microphone: boolean;
   /** Why the last attempt to turn the microphone on failed; empty otherwise. */
   microphoneError: string;
+  /** That failure was a refusal the OS microphone settings can lift (desktop macOS and Windows). */
+  microphoneSettings: boolean;
   mode: VoiceMode; held: boolean; user: string; answer: string; workspace: string;
   preparation: VoicePreparation | null;
 };
 export const initialVoice: VoiceSnapshot = { phase: "idle", detail: "Ready when you are", connected: false,
-  microphone: false, microphoneError: "", mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null };
+  microphone: false, microphoneError: "", microphoneSettings: false, mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null };
 
-/** Turning the microphone on: opening the device, loading the capture worklet, connecting the graph. */
-export type MicrophoneStep = "device" | "worklet" | "graph";
+/** Turning the microphone on: asking the OS (desktop app), opening the device,
+ * loading the capture worklet, connecting the graph. */
+export type MicrophoneStep = "permission" | "device" | "worklet" | "graph";
+
+/** The desktop app's OS consent check said no, or could not say (ADR 0069). */
+export class MicrophoneAccessError extends Error {
+  constructor(readonly status: string) { super(`The system reports microphone access as ${status}`); this.name = "MicrophoneAccessError"; }
+}
+
+/** Whether the OS answer lets capture go ahead. macOS has already asked if it
+ * could, so only a grant does; Windows proceeds unless it reports a refusal;
+ * Linux has no OS consent ("unmanaged") and capture decides. */
+export function microphoneAccessAllows(status: string, platform?: string) {
+  return platform === "darwin" ? status === "granted" : !["denied", "restricted", "error"].includes(status);
+}
+
+function refused(step: MicrophoneStep, error: unknown) {
+  if (step === "permission") return error instanceof MicrophoneAccessError && error.status === "denied";
+  return step === "device" && error instanceof Error && (error.name === "NotAllowedError" || error.name === "SecurityError");
+}
+
+/** The failure is a refusal that the OS microphone settings can lift. */
+export function microphoneSettingsHelp(step: MicrophoneStep, error: unknown, platform?: string) {
+  return refused(step, error) && (platform === "darwin" || platform === "win32");
+}
 
 /** Plain words for a failed microphone step, ending with the browser's own error
  * name and message. Only a refusal says to check permissions. */
 export function microphoneProblem(step: MicrophoneStep, error: unknown, platform?: string) {
   const name = error instanceof Error ? error.name : "";
   const message = error instanceof Error ? error.message : String(error);
-  if (step === "device" && (name === "NotAllowedError" || name === "SecurityError")) {
-    if (platform === "darwin") return "Microphone permission denied. Allow Imprint in System Settings → Privacy & Security → Microphone.";
-    if (platform === "win32") return "Microphone permission denied. Allow microphone access for desktop apps in Windows Settings → Privacy & security.";
-    return "Microphone permission denied. Allow microphone access for this page, then try again.";
+  if (refused(step, error)) {
+    if (platform === "darwin") return "Microphone permission denied. Allow Imprint in System Settings → Privacy & Security → Microphone, then quit and reopen Imprint.";
+    if (platform === "win32") return "Microphone permission denied. In Windows Settings → Privacy & security → Microphone, turn on Microphone access and Let desktop apps access your microphone, then try again.";
+    if (platform === "linux") return "Microphone permission denied. Check your desktop's microphone privacy settings and audio input, then try again.";
+    return "Microphone permission denied. Allow microphone access for this page in your browser's site settings, then try again.";
+  }
+  if (step === "permission") {
+    if (error instanceof MicrophoneAccessError && error.status === "restricted") return "Microphone access is restricted by a system policy. Ask your device administrator; you can still type.";
+    return `Imprint couldn't check microphone permission. Quit and reopen Imprint, then try again. (${message})`;
   }
   const plain = step === "worklet" ? "Microphone audio processing failed to load."
     : step === "graph" ? "Microphone audio processing failed to start."
     : name === "NotFoundError" || name === "OverconstrainedError" ? "No microphone found. Connect or turn on a microphone, then try again."
     : name === "NotReadableError" || name === "AbortError" ? "The microphone couldn't start. Another app may be using it; close that app or choose another input in sound settings."
+    : name === "NotSupportedError" ? "This page can't use a microphone. Open Imprint on this computer (127.0.0.1) or over HTTPS."
     : "The microphone couldn't start.";
   return `${plain} (${[name, message].filter(Boolean).join(": ") || "no details"})`;
 }
@@ -122,7 +153,11 @@ export class VoiceClient {
   private epoch = 0;
   private doneAcknowledged = 0;
   private micPending = false;
+  /** Bumped by Stop and by turning the microphone off, so a pending consent or capture is dropped. */
+  private micAttempt = 0;
   private question?: string;
+  /** The user's remembered choice: arm the microphone whenever a conversation is ready (ADR 0069). */
+  armMicrophone = false;
   constructor(private changed: (value: VoiceSnapshot) => void) {}
   private update(values: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...values };
@@ -164,21 +199,30 @@ export class VoiceClient {
     }
   }
 
+  /** Resolves true once capture runs. The desktop app asks the OS first; the
+   * answer can arrive after Stop or a change of mind, which then wins. */
   async enableMicrophone() {
-    if (!this.snapshot.connected || this.stream || this.micPending) return;
-    const epoch = this.epoch;
+    if (!this.snapshot.connected || this.stream || this.micPending) return false;
+    const epoch = this.epoch, attempt = ++this.micAttempt;
+    const current = () => !this.stopped && epoch === this.epoch && attempt === this.micAttempt;
+    const platform = window.electronAPI?.platform;
     this.micPending = true;
-    let step: MicrophoneStep = "device";
-    this.update({ microphoneError: "" });
+    let step: MicrophoneStep = "permission";
+    this.update({ microphoneError: "", microphoneSettings: false });
     try {
+      const access = await window.electronAPI?.requestMicrophoneAccess?.();
+      if (!current()) return false;
+      if (access && !microphoneAccessAllows(access.status, platform)) throw new MicrophoneAccessError(access.status);
+      step = "device";
+      if (!navigator.mediaDevices?.getUserMedia) throw new DOMException("Microphone capture needs a secure page.", "NotSupportedError");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1,
         echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      if (this.stopped || epoch !== this.epoch) { stream.getTracks().forEach(track => track.stop()); return; }
+      if (!current()) { stream.getTracks().forEach(track => track.stop()); return false; }
       this.stream = stream;
       step = "worklet";
       const context = this.context!;
       await context.audioWorklet.addModule("/audio/imprint-capture.js");
-      if (this.stopped || epoch !== this.epoch) return;
+      if (!current()) return false;
       step = "graph";
       this.capture = new AudioWorkletNode(context, "imprint-capture");
       this.capture.port.onmessage = event => this.frame(event.data);
@@ -187,16 +231,32 @@ export class VoiceClient {
       this.source.connect(this.capture).connect(this.silent).connect(context.destination);
       stream.getAudioTracks().forEach(track => { track.enabled = this.snapshot.mode === "handsfree"; });
       this.update({ microphone: true, detail: this.snapshot.mode === "ptt" ? "Hold to talk" : "Listening for your voice" });
+      return true;
     } catch (error) {
-      if (this.stopped || epoch !== this.epoch) return;
-      this.stream?.getTracks().forEach(track => track.stop()); this.stream = undefined;
-      this.capture?.disconnect(); this.capture?.port.close(); this.capture = undefined;
-      this.source?.disconnect(); this.source = undefined; this.silent?.disconnect(); this.silent = undefined;
-      const detail = microphoneProblem(step, error, window.electronAPI?.platform);
-      this.update({ microphone: false, detail, microphoneError: detail });
+      if (!current()) return false;
+      this.releaseMicrophone();
+      const detail = microphoneProblem(step, error, platform);
+      this.update({ microphone: false, detail, microphoneError: detail, microphoneSettings: microphoneSettingsHelp(step, error, platform) });
+      return false;
     } finally {
-      if (epoch === this.epoch) this.micPending = false;
+      if (attempt === this.micAttempt) this.micPending = false;
     }
+  }
+  private releaseMicrophone() {
+    this.stream?.getTracks().forEach(track => track.stop()); this.stream = undefined;
+    this.capture?.disconnect(); this.capture?.port.close(); this.capture = undefined;
+    this.source?.disconnect(); this.source = undefined; this.silent?.disconnect(); this.silent = undefined;
+  }
+  /** The remembered choice changed: turning it off releases capture and drops a
+   * pending consent, but keeps the conversation for typing. */
+  setMicrophonePreference(enabled: boolean) {
+    this.armMicrophone = enabled;
+    if (enabled) { if (this.snapshot.connected) void this.enableMicrophone(); return; }
+    ++this.micAttempt; this.micPending = false;
+    this.release(false); this.gate.reset(); this.heldFrames = [];
+    this.releaseMicrophone();
+    this.update({ microphone: false, held: false, microphoneError: "", microphoneSettings: false,
+      ...this.snapshot.connected ? { detail: "Microphone off" } : {} });
   }
 
   setMode(mode: VoiceMode) {
@@ -258,6 +318,7 @@ export class VoiceClient {
       this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace });
       const question = this.question; this.question = undefined;
       if (question) this.submit({ text: question });
+      if (this.armMicrophone) void this.enableMicrophone();
       return;
     }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
@@ -308,16 +369,14 @@ export class VoiceClient {
     }
   }
   stop() {
-    this.stopped = true; ++this.epoch;
+    this.stopped = true; ++this.epoch; ++this.micAttempt;
     this.interrupt();
     this.socket?.close(); this.socket = undefined;
-    this.stream?.getTracks().forEach(track => track.stop()); this.stream = undefined;
-    this.capture?.disconnect(); this.capture?.port.close(); this.capture = undefined;
-    this.source?.disconnect(); this.source = undefined; this.silent?.disconnect(); this.silent = undefined;
+    this.releaseMicrophone();
     this.analyser?.disconnect(); this.analyser = undefined; this.meter = undefined;
     void this.context?.close().catch(() => {}); this.context = undefined;
     this.micPending = false; this.question = undefined;
     clearInterval(this.timer); this.timer = undefined; this.gate.reset(); this.heldFrames = [];
-    this.update({ connected: false, microphone: false, microphoneError: "", held: false, preparation: null, phase: "idle", detail: "Microphone off" });
+    this.update({ connected: false, microphone: false, microphoneError: "", microphoneSettings: false, held: false, preparation: null, phase: "idle", detail: "Microphone off" });
   }
 }

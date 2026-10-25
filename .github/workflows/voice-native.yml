@@ -114,9 +114,11 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a node ui-electron/smoke-microphone.mjs
             xvfb-run -a node ui-electron/smoke-companion-controls.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
             xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           else
+            node ui-electron/smoke-microphone.mjs
             node ui-electron/smoke-companion-controls.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
             python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           fi

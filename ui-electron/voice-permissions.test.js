@@ -1,7 +1,8 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
+const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
+  requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
 test('microphone permission is audio-only, main-frame-only, current app voice surface only', () => {
   const origin = 'http://127.0.0.1:8420';
   const contents = { getURL: () => `${origin}/voice/` };
@@ -39,4 +40,28 @@ test('macOS asks only for undetermined microphone consent and honors denied/rest
     assert.equal(granted, ['granted', 'not-determined'].includes(status));
   }
   assert.deepEqual(asked, ['microphone']);
+});
+test('explicit OS consent preserves denied/restricted/unknown states and only macOS prompts', async () => {
+  for (const platform of ['darwin', 'win32']) {
+    for (const status of ['granted', 'denied', 'restricted', 'unknown', 'not-determined']) {
+      let prompts = 0;
+      const result = await requestMicrophoneAccess(platform, {
+        getMediaAccessStatus: type => { assert.equal(type, 'microphone'); return status; },
+        askForMediaAccess: async () => { prompts++; return false; },
+      });
+      const shouldPrompt = platform === 'darwin' && status === 'not-determined';
+      assert.deepEqual(result, { status: shouldPrompt ? 'denied' : status });
+      assert.equal(prompts, Number(shouldPrompt));
+    }
+  }
+  assert.deepEqual(await requestMicrophoneAccess('darwin', {
+    getMediaAccessStatus: () => 'not-determined', askForMediaAccess: async () => true,
+  }), { status: 'granted' });
+  assert.deepEqual(await requestMicrophoneAccess('linux'), { status: 'unmanaged' });
+  assert.deepEqual(await requestMicrophoneAccess('win32', {
+    getMediaAccessStatus: () => { throw Error('unavailable'); },
+  }), { status: 'error' });
+  assert.equal(microphoneSettingsURL('linux'), null);
+  assert.equal(microphoneSettingsURL('win32'), 'ms-settings:privacy-microphone');
+  assert.equal(microphoneSettingsURL('darwin'), 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
 });

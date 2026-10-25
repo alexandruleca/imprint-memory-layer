@@ -11,6 +11,7 @@ description: Portable model weights, platform-specific private speech workers an
   - [ADR 0046](0046-visible-echo-runtime-setup.md) — explicit UI-driven provisioning and a managed default cache; the manual source-build path remains available
   - [ADR 0047](0047-bundled-private-voice-engine.md) — release archives bundle the native engine and its pinned source archive, so end users need no compiler; linked on restructuring, confirmed by the owner on 2026-10-25
   - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) — its statement that the app includes microphone/JIT entitlements
+  - [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) — its macOS-only consent check inside Electron's permission request: an explicit consent check now precedes capture on macOS and Windows
 - Restructured: 2026-10-25
 
 Follow-up: [ADR 0046](0046-visible-echo-runtime-setup.md) adds explicit UI-driven

@@ -11,7 +11,8 @@ const path = require('node:path');
 // by observable doubles; these do not establish native graphical behavior.
 const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'];
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
-  runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin' } = {}) {
+  runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
+  mediaStatus = 'granted', consent = async () => true } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -85,7 +86,9 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   const electron = {
     app, BrowserWindow: Window, Tray, Menu: { buildFromTemplate: menu => menu },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false, getSize: () => ({ width: 32, height: 32 }), resize: size => { calls.traySize = size; return { isEmpty: () => false }; } }) },
-    shell: { openExternal() {}, openPath() {} }, ipcMain,
+    shell: { openExternal(url) { calls.push(['open-external', url]); }, openPath() {} }, ipcMain,
+    systemPreferences: { getMediaAccessStatus() { calls.push('media-status'); return mediaStatus; },
+      askForMediaAccess() { calls.push('media-consent'); return consent(); } },
     session: { defaultSession: { setPermissionRequestHandler(handler) { calls.request = handler; },
       setPermissionCheckHandler(handler) { calls.check = handler; } } },
   };
@@ -120,7 +123,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
     setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
   });
-  return { app, windows, services, calls, ipcMain, shortcuts, intervals, tick: () => intervals.forEach(tick => tick()),
+  return { app, windows, services, calls, ipcMain, shortcuts, intervals, handlers, tick: () => intervals.forEach(tick => tick()),
     invoke: (name, window, ...args) => handlers[name]({ sender: window.webContents }, ...args),
     emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
@@ -473,4 +476,52 @@ test('group drag completion uses intended positions when native bounds notificat
   assert.equal(head.getBounds().x - launcher.getBounds().x, initialHead.x - initialIcon.x);
   assert.equal(head.getBounds().y - launcher.getBounds().y, initialHead.y - initialIcon.y);
   assert.equal(head.getBounds().x, initialHead.x + 40);
+});
+
+test('microphone consent and settings IPC refuse other pages and subframes and recheck the sender after consent', async () => {
+  let answer;
+  const h = harness({ mediaStatus: 'not-determined', consent: () => new Promise(resolve => { answer = resolve; }) });
+  await settle();
+  const dashboard = h.windows[1];
+  assert.equal((await h.invoke('voice-microphone-access', dashboard)).status, 'denied');
+  assert.equal(await h.invoke('voice-microphone-settings', dashboard), false);
+  assert.equal(h.calls.includes('media-status'), false);
+  dashboard.url = 'http://127.0.0.1:8420/voice/';
+  dashboard.webContents.mainFrame = {};
+  assert.equal((await h.handlers['voice-microphone-access']({ sender: dashboard.webContents, senderFrame: {} })).status, 'denied');
+  const pending = h.invoke('voice-microphone-access', dashboard);
+  assert.equal(h.calls.filter(call => call === 'media-consent').length, 1);
+  dashboard.url = 'http://127.0.0.1:8420/chat/'; // navigated away while the OS dialog was open
+  answer(true);
+  assert.equal((await pending).status, 'denied');
+  dashboard.url = 'http://127.0.0.1:8420/voice/';
+  assert.equal(await h.invoke('voice-microphone-settings', dashboard), true);
+  assert.deepEqual(h.calls.find(call => call[0] === 'open-external'),
+    ['open-external', 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone']);
+});
+
+test('Windows reports its desktop privacy setting; Linux has no OS consent and no settings link', async () => {
+  const windows = harness({ alreadyUp: true, platform: 'win32', mediaStatus: 'denied' }); await settle();
+  windows.windows[1].url = 'http://127.0.0.1:8420/voice/';
+  assert.deepEqual(await windows.invoke('voice-microphone-access', windows.windows[1]), { status: 'denied' });
+  assert.equal(windows.calls.includes('media-consent'), false);
+  assert.equal(await windows.invoke('voice-microphone-settings', windows.windows[1]), true);
+  const linux = harness({ alreadyUp: true, platform: 'linux' }); await settle();
+  linux.windows[1].url = 'http://127.0.0.1:8420/voice/';
+  assert.deepEqual(await linux.invoke('voice-microphone-access', linux.windows[1]), { status: 'unmanaged' });
+  assert.equal(await linux.invoke('voice-microphone-settings', linux.windows[1]), false);
+});
+
+test('the session permission request asks macOS consent and refuses a page that navigated away meanwhile', async () => {
+  let answer;
+  const h = harness({ mediaStatus: 'not-determined', consent: () => new Promise(resolve => { answer = resolve; }) });
+  await settle();
+  const dashboard = h.windows[1];
+  dashboard.url = 'http://127.0.0.1:8420/voice/';
+  const details = { isMainFrame: true, mediaTypes: ['audio'], requestingUrl: dashboard.url };
+  const result = new Promise(done => h.calls.request(dashboard.webContents, 'media', done, details));
+  dashboard.url = 'http://127.0.0.1:8420/chat/';
+  answer(true);
+  assert.equal(await result, false);
+  assert.equal(h.calls.check(dashboard.webContents, 'media', 'https://foreign.test', { mediaType: 'audio' }), false);
 });

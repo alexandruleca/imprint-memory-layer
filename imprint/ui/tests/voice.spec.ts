@@ -259,7 +259,7 @@ test('a microphone that fails to open names the failure; only a refusal mentions
   await enable.click();
   await expect(status).toHaveText('No microphone found. Connect or turn on a microphone, then try again. (NotFoundError: Requested device not found)');
   await enable.click();
-  await expect(status).toHaveText('Microphone permission denied. Allow microphone access for desktop apps in Windows Settings → Privacy & security.');
+  await expect(status).toHaveText('Microphone permission denied. In Windows Settings → Privacy & security → Microphone, turn on Microphone access and Let desktop apps access your microphone, then try again.');
   // A mode change rewrites the caption, not the explanation.
   await page.getByRole('button', { name: 'Hands-free', exact: true }).click();
   await expect(status).toContainText('Microphone permission denied');
@@ -391,4 +391,149 @@ test("Echo's look is picked from previews, saved, and loads its own model", asyn
   await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
   await expect(looks.getByRole('button', { name: /^Kai:/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('link', { name: 'Download 3D model' })).toHaveAttribute('href', '/models/imprint-kai.glb');
+});
+
+// The desktop bridge's OS consent check (ADR 0069), as each platform answers it.
+for (const platform of ['darwin', 'win32', 'linux']) {
+  test(`${platform}: an OS refusal stays visible with its own recovery, and a retry captures`, async ({ page }) => {
+    await prepare(page);
+    await page.addInitScript(platform => {
+      let attempts = 0;
+      Object.assign(window, { microphoneChecks: 0, microphoneSettingsOpened: 0 });
+      window.electronAPI = { isElectron: true, platform, close() {}, quit() {}, minimize() {}, maximize() {},
+        openCompanion() {}, closeCompanion() {}, pinCompanion() {},
+        requestMicrophoneAccess: async () => {
+          (window as unknown as { microphoneChecks: number }).microphoneChecks++;
+          return { status: ++attempts === 1 ? 'denied' : platform === 'linux' ? 'unmanaged' : 'granted' };
+        },
+        openMicrophoneSettings: async () => { (window as unknown as { microphoneSettingsOpened: number }).microphoneSettingsOpened++; return true; } };
+    }, platform);
+    await page.goto('/voice/');
+    await page.getByRole('button', { name: 'Start conversation' }).click();
+    await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { microphoneChecks: number }).microphoneChecks)).toBe(0);
+    await page.getByRole('button', { name: 'Enable microphone' }).click();
+    const status = page.locator('.voice-privacy');
+    await expect(status).toContainText('Microphone permission denied');
+    if (platform === 'darwin') await expect(status).toContainText('then quit and reopen Imprint');
+    if (platform === 'win32') await expect(status).toContainText('Let desktop apps access your microphone');
+    if (platform === 'linux') await expect(status).toContainText('audio input');
+    await page.getByRole('button', { name: 'Hands-free', exact: true }).click();
+    await expect(status).toContainText('Microphone permission denied');
+    if (platform !== 'linux') {
+      await page.getByRole('button', { name: 'Open microphone settings' }).click();
+      expect(await page.evaluate(() => (window as unknown as { microphoneSettingsOpened: number }).microphoneSettingsOpened)).toBe(1);
+    } else await expect(page.getByRole('button', { name: 'Open microphone settings' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Enable microphone' }).click();
+    await expect(page.getByRole('button', { name: 'Listening · interrupt' })).toBeVisible();
+    await expect(status).toContainText('Mic on');
+    await expect(page.getByRole('button', { name: 'Open microphone settings' })).toHaveCount(0);
+  });
+}
+
+test('a system policy restriction or a failed consent check is not reported as a refusal', async ({ page }) => {
+  await prepare(page);
+  await page.addInitScript(() => {
+    const answers = ['restricted', 'error', 'unknown'];
+    window.electronAPI = { isElectron: true, platform: 'darwin', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {}, openMicrophoneSettings: async () => true,
+      requestMicrophoneAccess: async () => ({ status: answers.shift()! }) };
+  });
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  const status = page.locator('.voice-privacy'), enable = page.getByRole('button', { name: 'Enable microphone' });
+  await enable.click();
+  await expect(status).toHaveText('Microphone access is restricted by a system policy. Ask your device administrator; you can still type.');
+  await enable.click();
+  await expect(status).toHaveText("Imprint couldn't check microphone permission. Quit and reopen Imprint, then try again. (The system reports microphone access as error)");
+  await enable.click(); // macOS has already asked; anything but a grant cannot proceed
+  await expect(status).toContainText('as unknown');
+  await expect(page.getByRole('button', { name: 'Open microphone settings' })).toHaveCount(0);
+});
+
+test('a missing microphone stays visible in the companion without suggesting permission settings', async ({ page }) => {
+  await prepare(page);
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Requested device not found', 'NotFoundError'); };
+  });
+  await page.setViewportSize({ width: 380, height: 610 });
+  await page.goto('/companion/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('button', { name: 'Enable microphone' }).click();
+  await expect(page.locator('.voice-privacy')).toContainText('No microphone found');
+  await expect(page.getByRole('button', { name: 'Open microphone settings' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  await expect(page.getByRole('textbox', { name: 'Type a question' })).toBeEnabled();
+});
+
+test('stopping while OS consent is pending never opens a microphone after consent resolves', async ({ page }) => {
+  await prepare(page);
+  await page.addInitScript(() => {
+    Object.assign(window, { resolveConsent: null, captureCalls: 0 });
+    window.electronAPI = { isElectron: true, platform: 'darwin', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() {}, pinCompanion() {},
+      requestMicrophoneAccess: () => new Promise(resolve => Object.assign(window, { resolveConsent: resolve })) };
+    navigator.mediaDevices.getUserMedia = async () => { (window as unknown as { captureCalls: number }).captureCalls++; throw Error('unexpected capture'); };
+  });
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('button', { name: 'Enable microphone' }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { resolveConsent: unknown }).resolveConsent)).toBe('function');
+  await page.getByRole('button', { name: 'Stop conversation and microphone' }).click();
+  await page.evaluate(() => (window as unknown as { resolveConsent: (value: object) => void }).resolveConsent({ status: 'granted' }));
+  await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { captureCalls: number }).captureCalls)).toBe(0);
+});
+
+test('an enabled microphone and the talk mode are remembered; clearing the choice stops automatic capture', async ({ page }) => {
+  await prepare(page);
+  await page.goto('/voice/');
+  // Nothing remembered yet: a new conversation is typed until the user enables the microphone.
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('button', { name: 'Enable microphone' }).click();
+  await expect(page.getByRole('button', { name: 'Hold to talk', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Hands-free', exact: true }).click();
+  await page.goto('/companion/');
+  // Opening the companion alone never captures.
+  await expect(page.getByRole('status').filter({ hasText: 'Microphone off' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hands-free', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await expect(page.getByRole('button', { name: 'Listening · interrupt' })).toBeVisible();
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  const remember = page.getByRole('checkbox', { name: 'Use microphone for conversations' });
+  await expect(remember).toBeChecked();
+  await page.getByText('Use microphone for conversations', { exact: true }).click();
+  await expect(remember).not.toBeChecked();
+  // Turning it off releases capture now and keeps the conversation for typing.
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Type a question' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Stop conversation and microphone' }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+});
+
+test('checking the remembered microphone in the companion never drags it; clearing it during consent drops the capture', async ({ page }) => {
+  await prepare(page);
+  const bridge = await companionBridge(page);
+  await page.addInitScript(() => {
+    Object.assign(window, { captureCalls: 0, resolveConsent: null });
+    window.electronAPI!.requestMicrophoneAccess = () => new Promise(resolve => Object.assign(window, { resolveConsent: resolve }));
+    navigator.mediaDevices.getUserMedia = async () => { (window as unknown as { captureCalls: number }).captureCalls++; throw Error('unexpected capture'); };
+  });
+  await page.setViewportSize({ width: 380, height: 610 });
+  await page.goto('/companion/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  const checkbox = page.getByRole('checkbox', { name: 'Use microphone for conversations' });
+  await page.getByText('Use microphone for conversations', { exact: true }).click();
+  await expect(checkbox).toBeChecked();
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { resolveConsent: unknown }).resolveConsent)).toBe('function');
+  await checkbox.click();
+  await page.evaluate(() => (window as unknown as { resolveConsent: (value: object) => void }).resolveConsent({ status: 'granted' }));
+  await expect(checkbox).not.toBeChecked();
+  await expect(page.getByRole('textbox', { name: 'Type a question' })).toBeEnabled();
+  expect(await page.evaluate(() => (window as unknown as { captureCalls: number }).captureCalls)).toBe(0);
+  expect(await bridge.calls()).not.toContain('drag-start');
 });

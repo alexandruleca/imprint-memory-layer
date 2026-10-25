@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowUpRight, Download, Mic, MicOff, Pin, Settings2, Square, X, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { VoiceClient, initialVoice, type VoiceSnapshot } from "@/lib/voice-client";
+import { VoiceClient, initialVoice, type VoiceMode, type VoiceSnapshot } from "@/lib/voice-client";
+import { readVoicePreferences, saveVoicePreferences } from "@/lib/voice-preferences";
 import { API_BASE } from "@/lib/api-base";
 import { useVoiceSetup } from "@/lib/voice-setup";
 import { VoiceSetup, VoiceChatSetup } from "@/components/voice-setup";
@@ -26,6 +28,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [desktop, setDesktop] = useState(false);
   const [shortcutAvailable, setShortcutAvailable] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [rememberMicrophone, setRememberMicrophone] = useState(false);
   // Echo's look (the voice.avatar setting); null until it is known, so the
   // default never flashes before a different choice loads.
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -43,8 +46,14 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   }
   useEffect(() => {
     client.current = new VoiceClient(setVoice);
-    // Read host capabilities only after hydration.
-    const timer = setTimeout(() => setDesktop(!!window.electronAPI?.openCompanion), 0);
+    const preferences = readVoicePreferences();
+    client.current.setMode(preferences.mode);
+    client.current.armMicrophone = preferences.microphoneEnabled;
+    // Read browser storage and host capabilities only after hydration.
+    const timer = setTimeout(() => {
+      setDesktop(!!window.electronAPI?.openCompanion);
+      setEngine(preferences.engine); setRememberMicrophone(preferences.microphoneEnabled);
+    }, 0);
     // The main process owns the window, so pinning shows the state it reports.
     function companion(state: { pinned: boolean; shortcutAvailable?: boolean } | null) {
       if (state) { setPinned(state.pinned); setShortcutAvailable(state.shortcutAvailable !== false); }
@@ -78,6 +87,14 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const picker = looks.length > 1 && avatar
     ? (compactPicker: boolean) => <AvatarPicker choices={looks} value={avatar} onChange={look => void chooseLook(look)} compact={compactPicker}/>
     : null;
+  function chooseMode(value: VoiceMode) { client.current?.setMode(value); saveVoicePreferences({ mode: value }); }
+  function chooseEngine(value: "chat" | "lfm") { setEngine(value); saveVoicePreferences({ engine: value }); }
+  /** The remembered microphone choice (ADR 0069): later conversations arm the
+   * microphone when they are ready; clearing it turns capture off now. */
+  function remember(value: boolean) {
+    setRememberMicrophone(value); saveVoicePreferences({ microphoneEnabled: value });
+    client.current?.setMicrophonePreference(value);
+  }
   // The full page shows these under its controls; the companion keeps them in its settings panel.
   const textForm = <form className="voice-text" onSubmit={event => { event.preventDefault(); if (text.trim()) { client.current?.ask(text, engine); setText(""); input.current?.focus(); } }}>
     <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} onChange={event => setText(event.target.value)}/>
@@ -116,9 +133,11 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
             <PopoverTitle>Companion settings</PopoverTitle>
             {compact && picker && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
             <div className="voice-settings">
-              <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} disabled={active} onChange={event => setEngine(event.target.value as "chat" | "lfm")}>
+              <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} disabled={active} onChange={event => chooseEngine(event.target.value as "chat" | "lfm")}>
                 <option value="chat" disabled={runtime?.chat_provider !== "local"}>Same local model as Chat</option><option value="lfm">Small voice model · LFM 1.5B</option>
               </select></label>
+              <label className="voice-check"><Checkbox aria-label="Use microphone for conversations" checked={rememberMicrophone} onCheckedChange={remember}/>Use microphone for conversations</label>
+              <small>Remembered on this device. Starting a conversation turns the microphone on, after the system allows it; push-to-talk stays silent until you hold it.</small>
               {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
             </div>
             {compact && ready && textForm}{compact && ready && transcript}
@@ -145,14 +164,14 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     <div className="voice-control-area">
       {!ready ? compact && <VoiceSetup setup={setup} compact/> : <>
       <div className="voice-modes" role="group" aria-label="Microphone mode">
-        <Button variant="ghost" aria-pressed={voice.mode === "ptt"} onClick={() => client.current?.setMode("ptt")}>Push to talk</Button>
-        <Button variant="ghost" aria-pressed={voice.mode === "handsfree"} onClick={() => client.current?.setMode("handsfree")}>Hands-free</Button>
+        <Button variant="ghost" aria-pressed={voice.mode === "ptt"} onClick={() => chooseMode("ptt")}>Push to talk</Button>
+        <Button variant="ghost" aria-pressed={voice.mode === "handsfree"} onClick={() => chooseMode("handsfree")}>Hands-free</Button>
       </div>
       <div className="voice-primary-controls">
         {!active ? <Button className="voice-start" disabled={!ready} onClick={() => void client.current?.start(engine)}><AudioLines size={18}/> Start conversation</Button>
           : voice.phase === "connecting" ? <Button className="voice-start" onClick={() => client.current?.stop()}>Connecting… · Cancel</Button>
           : <>
-            {!voice.microphone ? <Button className="voice-start" onClick={() => void client.current?.enableMicrophone()}><Mic size={18}/> Enable microphone</Button>
+            {!voice.microphone ? <Button className="voice-start" onClick={() => void client.current?.enableMicrophone().then(on => { if (on) remember(true); })}><Mic size={18}/> Enable microphone</Button>
               : voice.mode === "ptt" ? <Button className={`voice-start voice-hold ${voice.held ? "held" : ""}`} aria-label="Hold to talk" aria-pressed={voice.held}
                 onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); client.current?.hold(); }}
                 onPointerUp={() => client.current?.release()} onPointerCancel={() => client.current?.release(false)}
@@ -167,6 +186,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </div>
       {compact && <VoiceChatSetup preparation={voice.preparation} compact/>}
       <p className="voice-privacy" role="status" data-alert={voice.phase === "error" || !!voice.microphoneError || undefined}>{voice.phase === "error" ? voice.detail : voice.microphoneError || (voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally")}</p>
+      {voice.microphoneSettings && desktop && <Button variant="outline" className="voice-settings-link" onClick={() => void window.electronAPI?.openMicrophoneSettings?.()}>Open microphone settings</Button>}
       {!compact && textForm}{!compact && transcript}
       {!compact && picker && <div className="voice-look"><span>Echo&apos;s look</span>{picker(true)}</div>}
       </>}

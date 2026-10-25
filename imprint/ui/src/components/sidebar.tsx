@@ -28,6 +28,8 @@ declare global {
     electronAPI?: {
       isElectron: boolean;
       platform: string;
+      requestMicrophoneAccess?: () => Promise<{ status: string }>;
+      openMicrophoneSettings?: () => Promise<boolean>;
       close: () => void;
       quit: () => void;
       minimize: () => void;

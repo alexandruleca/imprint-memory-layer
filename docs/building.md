@@ -51,8 +51,16 @@ and Visual Studio C++ Build Tools; Macs need CMake and Xcode Command Line Tools.
 The `Native voice` workflow runs real speech/transport/lifetime checks and native
 Electron transparency/dashboard-toggle checks with disposable data and profiles.
 macOS interactive TCC consent, Developer ID signing/notarization and acoustic
-validation remain separate from automated fake-mic/typed tests. The fake-media
-switches skip TCC entirely. Developer caches are not bundled into installers. See
+validation remain separate from automated fake-mic/typed tests. The smokes use
+synthetic devices (`--use-fake-device-for-media-stream`) but never the fake
+permission prompt, so the production permission handlers and OS consent check
+run; on macOS they skip capture, because TCC is a person answering a dialog.
+`node ui-electron/smoke-microphone.mjs` checks those handlers in real Electron
+with a disposable profile: Voice and companion main frames capture audio, while
+other pages, subframes, camera and mixed audio/video are refused, and the consent
+IPC answers only voice pages
+([ADR 0069](adr/0069-echo-opens-the-microphone-only-on-the-users-intent.md)).
+Developer caches are not bundled into installers. See
 [ADR 0044](adr/0044-native-desktop-voice-platforms.md).
 `node ui-electron/smoke-companion-controls.mjs [dashboard-out] [screenshot-dir]`
 runs real Electron against the built dashboard and a disposable fixture API, with
@@ -60,14 +68,17 @@ no voice model download: it opens Companion settings, picks the reasoning model
 in the native select with the keyboard, picks a look, then hides the dashboard
 and drags the docked launcher and head, checking they move together
 ([ADR 0070](adr/0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)).
-The native voice workflow runs it on every target before the real-model smoke.
+Except on macOS, it also enables the synthetic microphone, stops, and checks that
+the next conversation turns it on again without another click.
+The native voice workflow runs both smokes on every target before the real-model smoke.
 
 electron-builder signs the macOS desktop app ad hoc as a bundle (`mac.identity: "-"`,
 no hardened runtime), sealing its `Info.plist` with the microphone usage text.
 macOS privacy consent reads that text through the signature. An unsigned bundle,
 like the one v0.22.1 shipped, crashes on **Enable microphone**. `make package` runs
 `scripts/validate-release.py`, which rejects a darwin tree whose `imprint-ui.app`
-or helper apps are not signed that way. The check runs on Linux, so it does not
+or helper apps are not signed that way, or whose app declares no
+`NSMicrophoneUsageDescription`. The check runs on Linux, so it does not
 replace `codesign --verify` on a Mac. See
 [ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md).
 

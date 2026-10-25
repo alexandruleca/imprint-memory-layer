@@ -10,7 +10,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, '../src/lib/voice-client.ts'), 'utf8');
 const exportsObject = {};
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, {
-  exports: exportsObject, require: () => ({ API_BASE: '' }), Float32Array, Uint8Array, ArrayBuffer, DataView, btoa,
+  // This realm's Error, so errors made here pass the controller's instanceof checks.
+  exports: exportsObject, require: () => ({ API_BASE: '' }), Float32Array, Uint8Array, ArrayBuffer, DataView, btoa, Error,
 });
 const { VoiceGate, encodeWav } = exportsObject;
 const frame = (volume = 0) => Float32Array.from({ length: 960 }, (_, i) => Math.sin(i * .15) * volume);
@@ -47,4 +48,38 @@ test('microphone WAV is mono PCM16 at 24 kHz and clamps input samples', () => {
   assert.equal(data.readUInt32LE(40), 4800);
   assert.equal(data.readInt16LE(44), 32767);
   assert.throws(() => encodeWav([new Float32Array(48000 * 31)], 48000), /30 seconds/);
+});
+
+test('voice preferences keep only supported choices and recover from broken browser storage', () => {
+  const source = fs.readFileSync(path.join(here, '../src/lib/voice-preferences.ts'), 'utf8');
+  const preferences = {};
+  let stored = '{"engine":"lfm","mode":"handsfree","microphoneEnabled":true,"unrelated":"ignored"}';
+  vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, {
+    exports: preferences, localStorage: { getItem: () => stored, setItem: (_key, value) => { stored = value; } },
+  });
+  const read = () => ({ ...preferences.readVoicePreferences() });
+  assert.deepEqual(read(), { engine: 'lfm', mode: 'handsfree', microphoneEnabled: true });
+  preferences.saveVoicePreferences({ mode: 'ptt' });
+  assert.deepEqual(JSON.parse(stored), { engine: 'lfm', mode: 'ptt', microphoneEnabled: true });
+  stored = '{broken';
+  assert.deepEqual(read(), { engine: 'chat', mode: 'ptt', microphoneEnabled: false });
+  stored = '{"engine":"remote","mode":"always","microphoneEnabled":"true"}';
+  assert.deepEqual(read(), { engine: 'chat', mode: 'ptt', microphoneEnabled: false });
+});
+
+test('a microphone the OS refused names its recovery; restricted and unknown answers are not refusals', () => {
+  const { microphoneProblem, microphoneAccessAllows, microphoneSettingsHelp, MicrophoneAccessError } = exportsObject;
+  assert.equal(microphoneAccessAllows('granted', 'darwin'), true);
+  assert.equal(microphoneAccessAllows('unknown', 'darwin'), false);
+  assert.equal(microphoneAccessAllows('unknown', 'win32'), true);
+  assert.equal(microphoneAccessAllows('not-determined', 'win32'), true);
+  assert.equal(microphoneAccessAllows('unmanaged', 'linux'), true);
+  for (const status of ['denied', 'restricted', 'error']) assert.equal(microphoneAccessAllows(status, 'win32'), false);
+  const denied = new MicrophoneAccessError('denied');
+  assert.match(microphoneProblem('permission', denied, 'darwin'), /quit and reopen Imprint/);
+  assert.equal(microphoneSettingsHelp('permission', denied, 'win32'), true);
+  assert.equal(microphoneSettingsHelp('permission', denied, 'linux'), false);
+  assert.match(microphoneProblem('permission', new MicrophoneAccessError('restricted'), 'win32'), /system policy/);
+  assert.equal(microphoneSettingsHelp('permission', new MicrophoneAccessError('restricted'), 'win32'), false);
+  assert.match(microphoneProblem('device', Object.assign(new Error('x'), { name: 'NotSupportedError' })), /127\.0\.0\.1/);
 });

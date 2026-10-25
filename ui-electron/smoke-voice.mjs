@@ -22,7 +22,8 @@ try {
   app = await electron.launch({ executablePath: require('electron'),
     args: [path.join(root, 'main.js'), `--imprint-url=${url}`, `--user-data-dir=${profile}`,
       ...process.platform === 'linux' ? ['--no-sandbox'] : [], '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader',
-      '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'], env: environment });
+      // Synthetic devices only: the production permission handlers and OS consent check still run.
+      '--use-fake-device-for-media-stream'], env: environment });
   const actualProfile = await app.evaluate(({ app }) => app.getPath('userData'));
   if (!actualProfile.startsWith(profile)) throw Error('Native smoke requires a disposable profile');
   // Hosted desktops need not have a physical playback endpoint. A silent sink

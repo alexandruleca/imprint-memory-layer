@@ -1,4 +1,5 @@
 import hashlib
+import json
 import importlib.util
 import plistlib
 import struct
@@ -45,11 +46,17 @@ def fat(*slices):
 AMD64, ARM64 = 0x01000007, 0x0100000C
 
 
-def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False):
+MICROPHONE = 'Imprint uses your microphone for conversations with your local voice companion when you enable it.'
+
+
+def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False, microphone=MICROPHONE):
     """An Electron-style .app whose executable is signed (or not) as a bundle."""
     contents = path / 'Contents'
     (contents / 'MacOS').mkdir(parents=True)
-    info = plistlib.dumps({'CFBundleExecutable': 'Imprint', 'CFBundleIdentifier': identifier})
+    keys = {'CFBundleExecutable': 'Imprint', 'CFBundleIdentifier': identifier}
+    if microphone is not None:
+        keys['NSMicrophoneUsageDescription'] = microphone
+    info = plistlib.dumps(keys)
     (contents / 'Info.plist').write_bytes(info)
     if not signed:  # What electron-builder ships when it skips signing: a linker signature only.
         (contents / 'MacOS/Imprint').write_bytes(fat((AMD64, macho(AMD64)), (ARM64, macho(ARM64, 'Electron'))))
@@ -128,6 +135,8 @@ class ReleaseValidationTests(unittest.TestCase):
             'linker signature only': ({'signed': False}, 'Unsigned macOS bundle'),
             'signed under the binary name': ({'signer': 'Electron'}, "signed as 'Electron'"),
             'Info.plist edited after signing': ({'stale_plist': True}, 'does not seal its Info.plist'),
+            'no microphone usage text': ({'microphone': None}, 'no microphone usage description'),
+            'empty microphone usage text': ({'microphone': '  '}, 'no microphone usage description'),
         }
         for name, (options, error) in cases.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
@@ -141,6 +150,11 @@ class ReleaseValidationTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, error):
                         VALIDATOR.validate(root, 'darwin/amd64')
+
+    def test_desktop_build_declares_the_microphone_usage_text(self):
+        # electron-builder writes extendInfo into the app's Info.plist before signing it.
+        build = json.loads((Path(__file__).resolve().parents[1] / 'ui-electron/package.json').read_text())['build']['mac']
+        self.assertTrue(build['extendInfo']['NSMicrophoneUsageDescription'].strip())
 
     def test_unsigned_macos_helper_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

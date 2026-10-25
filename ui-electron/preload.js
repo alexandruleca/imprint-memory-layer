@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
   platform:   process.platform,
+  requestMicrophoneAccess: () => ipcRenderer.invoke('voice-microphone-access'),
+  openMicrophoneSettings: () => ipcRenderer.invoke('voice-microphone-settings'),
   close:      () => ipcRenderer.send('win-close'),
   quit:       () => ipcRenderer.send('app-quit'),
   minimize:   () => ipcRenderer.send('win-minimize'),

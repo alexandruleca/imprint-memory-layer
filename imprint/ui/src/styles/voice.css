@@ -696,3 +696,8 @@
 .voice-options .voice-pin[aria-pressed=true] { color: var(--echo-glow); background: var(--echo-selected); box-shadow: inset 0 0 0 1px var(--echo-glow); }
 .voice-control-area > .voice-look { margin: 18px auto 0; }
 .voice-compact .voice-stage { touch-action: none; }
+.voice-options .voice-settings .voice-check { justify-content: flex-start; flex-wrap: nowrap; gap: 9px; color: var(--echo-ink); cursor: pointer; }
+.voice-options [data-slot=checkbox] { border-color: var(--echo-line-strong); background: transparent; }
+.voice-options [data-slot=checkbox][data-checked] { border-color: var(--echo-cta); background: var(--echo-cta); color: var(--echo-cta-ink); }
+.voice-settings-link { display: flex; margin: 0 auto 14px; font-size: 11px; }
+.voice-compact .voice-settings-link { height: 28px; margin: 0 auto 6px; font-size: 10px; background: var(--echo-panel); border-color: var(--echo-line-strong); color: var(--echo-ink); }
