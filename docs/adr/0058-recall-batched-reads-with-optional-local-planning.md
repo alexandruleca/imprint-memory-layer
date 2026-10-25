@@ -1,5 +1,5 @@
 ---
-title: ADR 0058 — Recall: batched reads with optional local planning
+title: "ADR 0058 — Recall: batched reads with optional local planning"
 description: One additive recall MCP tool runs several read steps in one call under one budget; an opt-in model on this computer may plan the steps and answer with checked citations.
 ---
 
