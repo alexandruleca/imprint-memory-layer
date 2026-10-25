@@ -90,7 +90,7 @@ graph LR
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe ([ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md)) |
+| Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe ([ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md)); replaced LanceDB ([ADR 0065](adr/0065-qdrant-over-lancedb-as-the-vector-store.md)) |
 | Server runner | `qdrant_runner.py` | Downloads + spawns + supervises the local Qdrant daemon |
 | Embeddings | Qwen3-Embedding-0.6B via ONNX Runtime | 1024-dim, 2048 runtime ctx, pinned q8 ONNX, CPU default. See [embeddings](embeddings.md) for rebuilding. |
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |

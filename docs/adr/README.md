@@ -33,6 +33,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0036](0036-move-memories-between-projects.md) **Move memories between projects.** Projects place memories their writers named; workspace rules applied at every write keep moves through refresh, learning and sync, without changing source keys.
 - [ADR 0058](0058-recall-batched-reads-with-optional-local-planning.md) **Recall: batched reads with optional local planning.** One additive read-only `recall` tool runs several read steps concurrently under one budget; without a plan it is `search`; an opt-in local model may add steps and answer with checked citations.
 - [ADR 0063](0063-auto-spawned-local-qdrant-server.md) **Run Qdrant as an auto-spawned local server.** Every Imprint process reaches one Qdrant server on loopback that the first process to need it starts; embedded mode admits one process at a time.
+- [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md) **Qdrant over LanceDB as the vector store.** Memories live in Qdrant, reached through its server API so the auto-spawned local server and a separately run one serve the same code; it replaced LanceDB, which as the owner recalls could not run as a remote server.
 
 ### Workspaces, ingestion and learning
 
@@ -188,6 +189,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Accepted | CUDA only for GPU embedding on a supported NVIDIA GPU |
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
 | [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Accepted | Serialize heavy commands with a single-slot queue and a shared lock file |
+| [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
 
 ## How to write and maintain ADRs
 

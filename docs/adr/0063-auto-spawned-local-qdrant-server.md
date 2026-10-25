@@ -7,7 +7,7 @@ description: Every Imprint process reaches one Qdrant server on loopback that th
 - Date: 2026-04-13
 - Recorded: 2026-10-25
 - Retrospective: reconstructed from code, docs and git history: `imprint/qdrant_runner.py`, the inline rationale this record replaces in `docs/architecture.md`, and commit b4d504d, which introduced Qdrant
-- Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (verified binary download, serialized first start), [ADR 0022](0022-http-client-lifetime-during-model-work.md) (removed the idle closer left from embedded mode), [ADR 0024](0024-enforce-local-service-boundaries.md) (loopback-only managed server), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) (heavy jobs are serialized separately)
+- Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (verified binary download, serialized first start), [ADR 0022](0022-http-client-lifetime-during-model-work.md) (removed the idle closer left from embedded mode), [ADR 0024](0024-enforce-local-service-boundaries.md) (loopback-only managed server), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) (heavy jobs are serialized separately), [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md) (why Qdrant rather than LanceDB)
 
 ## Context
 
@@ -26,7 +26,7 @@ Commit b4d504d (authored 2026-04-13, "replaced db with qdrant") replaced the ear
 - `server.py` started an idle watcher with the comment "Release the embedded Qdrant lock after 30s of no MCP activity so `knowledge ingest` (a separate process) can grab it. Without this, the MCP server pins the lock for the lifetime of Claude Code."
 - The client it shipped already connected over HTTP to a server started by the new `qdrant_runner.py`, whose docstring says it "Replaces embedded mode (single-writer, lock collisions) with a long-running local server on 127.0.0.1:6333."
 
-The commit records no reason for choosing Qdrant over LanceDB, and this record does not cover that choice. The repository's earliest history was rewritten on 2026-04-14: commit dates differ from author dates, and the first commit's README already describes later features. This record therefore takes its date from b4d504d's author date and uses only that commit's code as evidence.
+The repository's earliest history was rewritten on 2026-04-14: commit dates differ from author dates, and the first commit's README already describes later features. This record therefore takes its date from b4d504d's author date and uses only that commit's code as evidence. Why Qdrant replaced LanceDB is recorded in [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md).
 
 ## Decision
 
