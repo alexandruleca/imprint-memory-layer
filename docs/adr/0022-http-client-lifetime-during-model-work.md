@@ -5,7 +5,7 @@ description: Remove the embedded-era idle closer that broke slow native installe
 
 - Status: Accepted
 - Date: 2026-10-23
-- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md)
+- Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md); [ADR 0063](0063-auto-spawned-local-qdrant-server.md) (why Qdrant runs as a server)
 - Restructured: 2026-10-25
 
 ## Context

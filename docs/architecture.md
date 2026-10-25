@@ -90,7 +90,7 @@ graph LR
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe |
+| Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe ([ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md)) |
 | Server runner | `qdrant_runner.py` | Downloads + spawns + supervises the local Qdrant daemon |
 | Embeddings | Qwen3-Embedding-0.6B via ONNX Runtime | 1024-dim, 2048 runtime ctx, pinned q8 ONNX, CPU default. See [embeddings](embeddings.md) for rebuilding. |
 | Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
@@ -101,7 +101,7 @@ graph LR
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `scrub`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync; sees only ciphertext |
 | Peer sync | `imprint/sync_ws.py` + `imprint/sync_crypto.py` | The one sync implementation, used by `imprint sync` (`imprint/cli_sync.py`) and the dashboard. End-to-end encrypted: SPAKE2 from the PIN in the one-time share code, then AES-256-GCM per direction. Joining receives only unless the user opts in and confirms the receiving device. See [sync](sync.md). |
-| Command queue | `imprint/queue.py` + `imprint/queue_lock.py` + `internal/queuelock` | Single-slot FIFO (SQLite at `data/queue.sqlite3`, advisory flock at `data/queue.lock`). Serializes heavy jobs across the Go CLI and the FastAPI dispatcher; cancel sends SIGTERM → SIGKILL (3s) to the subprocess process group. See [queue.md](queue.md). |
+| Command queue | `imprint/queue.py` + `imprint/queue_lock.py` + `internal/queuelock` | Single-slot FIFO (SQLite at `data/queue.sqlite3`, advisory flock at `data/queue.lock`). Serializes heavy jobs across the Go CLI and the FastAPI dispatcher; cancel sends SIGTERM → SIGKILL (3s) to the subprocess process group. See [queue.md](queue.md) and [ADR 0064](adr/0064-single-slot-command-queue-and-shared-lock.md). |
 
 ## Data Flow
 
@@ -146,7 +146,7 @@ sequenceDiagram
 
 ## Concurrency: Auto-Spawned Local Server
 
-Embedded Qdrant (the `path=...` mode) is single-writer — only one process can hold the on-disk lock. That breaks the moment your MCP server, your hooks, and an `imprint ingest` all try to write at once. Imprint sidesteps the limitation by **auto-spawning a local Qdrant server** on `127.0.0.1:6333`.
+Every Imprint process — MCP servers, hooks, CLI commands and the dashboard — uses one **auto-spawned local Qdrant server** on `127.0.0.1:6333`, started by the first process that needs it. Embedded mode would admit one process at a time; the reasoning, rejected alternatives and the conditions for revisiting it are in [ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md).
 
 ```mermaid
 sequenceDiagram
@@ -198,17 +198,15 @@ sequenceDiagram
 | `IMPRINT_QDRANT_BIN` | (auto) | Override binary path (e.g. system-installed qdrant) |
 | `IMPRINT_QDRANT_NO_SPAWN` | `0` | Set `1` to disable auto-spawn — connect to your own managed server |
 
-**Why server mode and not embedded?** Embedded mode pins a filesystem lock and rejects any second client — this conflicts with Claude Code (always-on MCP) running alongside `imprint ingest`, hooks writing decisions, and tools like `imprint ui` reading the collection. Server mode supports unlimited concurrent connections at the cost of a single ~50 MB binary in your data dir and a ~50 MB resident process. Worth it.
-
 **Bring your own server**: set `IMPRINT_QDRANT_NO_SPAWN=1` and point `IMPRINT_QDRANT_HOST` at a separately managed Qdrant. For local Docker, publish `docker run -p 127.0.0.1:6333:6333 qdrant/qdrant`. Remote server isolation, authentication and TLS are the operator's responsibility; changing the client host does not secure that server.
 
-## Concurrency: Command Queue (OOM guard)
+## Concurrency: Command Queue
 
-Ingest / refresh / retag / ingest-url each load the embedding model, scan Qdrant, and — when LLM tagging is enabled — hold a per-batch HTTP connection to the tagger provider. Two of them running in parallel on the same box easily exhaust RAM or VRAM, so they are serialized by a shared advisory lock.
+Heavy commands — those that index or rewrite memories, such as ingest, refresh, learn, retag, scrub, ingest-url, refresh-urls, move, purge and sync import — run one at a time per data directory, whichever side starts them, because two of them can exhaust RAM or VRAM ([ADR 0064](adr/0064-single-slot-command-queue-and-shared-lock.md)).
 
-- **Lock file**: `data/queue.lock` guarded by `fcntl.flock(LOCK_EX|LOCK_NB)`. The Go CLI (`internal/queuelock`) and the Python dispatcher (`imprint/queue_lock.py`) agree on the path and the JSON body (`{pid, job_id, command, started_at}`), so whichever process acquires it first blocks the other.
-- **CLI semantics**: Direct invocations of `imprint ingest|refresh|retag|ingest-url|refresh-urls` try the lock non-blocking. If held, they exit nonzero and print the current holder's PID, command, and start time — the user cancels from the UI or `kill`s the PID.
-- **UI semantics**: `POST /api/commands/{cmd}` enqueues into `data/queue.sqlite3`; the FastAPI startup task (`queue.dispatcher_loop`) pops one queued row at a time, waits blocking on the lock, then `Popen`s the subprocess with `start_new_session=True` so the child owns its own process group.
+- **Lock file**: `data/queue.lock`, an exclusive advisory lock that the Go CLI (`internal/queuelock`) and Python (`imprint/queue_lock.py`) take the same way: `flock` on Unix, `LockFileEx` and `msvcrt.locking` on Windows. The holder writes `{pid, job_id, command, started_at}` into it, so the other side can name it.
+- **CLI semantics**: A command that finds the lock held prints the holder. `ingest`, `refresh`, `learn`, `retag`, `scrub`, `ingest-url` and `refresh-urls` then enqueue themselves through the dashboard's API when the dashboard runs and exit 0; otherwise the command waits for the lock. `IMPRINT_QUEUE_NO_WAIT=1` makes it exit nonzero instead.
+- **UI semantics**: `POST /api/commands/{cmd}` enqueues into `data/queue.sqlite3`; the FastAPI startup task (`queue.dispatcher_loop`) starts the oldest queued row when no job runs and no other process holds the lock, and `Popen`s the CLI with `start_new_session=True`, so the child owns its own process group, and `IMPRINT_QUEUE_FOREGROUND=1`, so it takes the lock instead of queueing itself again.
 - **Cancel**: `POST /api/jobs/{id}/cancel` either marks a queued row `cancelled` (dispatcher skips it) or, for a running job, fires `killpg(pgid, SIGTERM)` followed 3 s later by `SIGKILL` if the group is still alive. Because the child runs in its own session, the escalation reaps the Python subprocess, its httpx worker threads (so the in-flight LLM tagger call drops), any `llama-cpp` inference thread, and any descendant `git ls-files` helpers — all together.
 - **Restart recovery**: `queue.recover_on_startup()` marks rows in `status='running'` whose PID is dead as `failed` (`error='api_restart'`) and clears stale lock files, so the dispatcher resumes cleanly after an API crash.
 - **Progress integration**: `imprint/progress.py` keeps its single-slot `ingest_progress.json`; `/api/queue` joins it with the active DB row so the UI still sees phase/processed/total/ETA while gaining queue/position/history.
