@@ -33,6 +33,23 @@ def _onnx_runtime_check() -> tuple[str, bool, str, str]:
     return 'runtime:onnxruntime', True, detail, action
 
 
+def _embedding_device_check() -> tuple[str, bool, str, str]:
+    """``model.device``, what this machine makes of it, and whether the
+    installed runtime matches (ADR 0062)."""
+    from . import gpu_runtime
+    plan = gpu_runtime.plan()
+    detail = f'Embeddings run on the {plan.runtime.upper()}: {plan.reason}'
+    if plan.requested != 'cpu':
+        detail += f' (model.device {plan.requested})'
+    change = gpu_runtime.pending(plan)
+    if change:
+        return 'runtime:embedding-device', False, detail, f'Run imprint setup; it installs {change}.'
+    if plan.requested == 'gpu' and plan.runtime == 'cpu':
+        return ('runtime:embedding-device', False, detail,
+                'Embeddings cannot use the GPU here: set model.device to cpu or auto, or fix the cause and run imprint setup.')
+    return 'runtime:embedding-device', True, detail, ''
+
+
 def report(project_dir: Path, probe_mcp: bool = False) -> dict:
     checks = []
     def check(name, ok, detail, action=''):
@@ -44,6 +61,7 @@ def report(project_dir: Path, probe_mcp: bool = False) -> dict:
         except importlib.metadata.PackageNotFoundError:
             check('dependency:' + package, False, 'Missing', 'Run imprint bootstrap --profile cpu --non-interactive.')
     check(*_onnx_runtime_check())
+    check(*_embedding_device_check())
     check('dashboard', (project_dir / 'imprint/ui/out/index.html').is_file(), str(project_dir / 'imprint/ui/out'), 'Reinstall a complete release or run make dashboard-build in a checkout.')
     codex = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'config.toml'
     if codex.exists():

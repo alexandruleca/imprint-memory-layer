@@ -28,7 +28,7 @@ func Bootstrap(args []string) {
 	llm := fs.Bool("with-llm", false, "install llama-cpp-python (local tagger + chat)")
 	noLLM := fs.Bool("no-llm", false, "explicitly skip llama-cpp-python (overrides persisted profile)")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; fail fast if a choice is required")
-	retryGpu := fs.Bool("retry-gpu", false, "clear sticky GPU failure cache before running")
+	retryGpu := fs.Bool("retry-gpu", false, "forget a recorded CUDA failure, so GPU embeddings are tried again")
 	fs.Parse(args)
 
 	if *profile != "" {

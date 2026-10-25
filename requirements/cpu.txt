@@ -1,5 +1,5 @@
-# ONNX Runtime CPU build, installed on top of base.txt for profile=cpu and
-# whenever the GPU build is not used. onnxruntime and onnxruntime-gpu install
+# ONNX Runtime CPU build, installed on top of base.txt whenever embeddings
+# do not run on CUDA (ADR 0062). onnxruntime and onnxruntime-gpu install
 # the same `onnxruntime` package directory, so setup installs exactly one.
 #
 # ONNX Runtime 1.24+ no longer publishes Intel macOS wheels. Keep the last

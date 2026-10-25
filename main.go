@@ -23,8 +23,8 @@ func main() {
 		// `imprint setup all`          → run every handler; each self-skips
 		//                                  if its host tool isn't installed.
 		// Flags:
-		//   --retry-gpu           clear sticky GPU failure cache
-		//   --profile <cpu|gpu|auto>   force install profile (persists)
+		//   --retry-gpu           forget a recorded CUDA failure (GPU embeddings)
+		//   --profile <cpu|gpu|auto>   local LLM build: cpu, or GPU when available (persists)
 		//   --with-llm            install llama-cpp-python local tagger
 		//   --no-llm              skip llama-cpp-python
 		//   --non-interactive     never prompt; fail fast on ambiguity
@@ -133,13 +133,14 @@ Usage:
   imprint wsl remove --distribution NAME --target %[2]s
                              Remove that bridge while preserving memories and other clients
   imprint setup [target] [--profile cpu|gpu|auto] [--with-llm|--no-llm] [--retry-gpu] [--non-interactive]
-                             Install deps, then connect AI clients (MCP server, hooks, instructions)
+                             Install deps, then connect AI clients (MCP server, hooks, instructions).
+                             The embedding runtime follows model.device; --profile picks the local LLM's build
                                target (default all): %[1]s
   imprint bootstrap [--profile cpu|gpu|auto] [--with-llm] [--non-interactive]
                              Provision venv + selected dependencies only (no MCP registration).
                              Intended for installer scripts; end users should run 'imprint setup'.
-  imprint profile            Show active install profile (cpu|gpu + with-llm flag)
-  imprint profile set <cpu|gpu|auto>   Swap profile; reinstalls deps via uv
+  imprint profile            Show active install profile (local LLM build + with-llm flag)
+  imprint profile set <cpu|gpu|auto>   Swap profile (cpu: CPU LLM; gpu/auto: GPU LLM when found); reinstalls deps via uv
   imprint profile add-llm    Install llama-cpp-python into active profile
   imprint profile drop-llm   Uninstall llama-cpp-python
   imprint ingest <path>      Index project source files (directory or single file)

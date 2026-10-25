@@ -38,11 +38,11 @@ begin
   ProfilePage := CreateInputOptionPage(
     wpSelectDir,
     'Install profile',
-    'Pick the accelerator Imprint should target.',
-    'Imprint runs embeddings + optional local LLM inference. Choose GPU if you have a CUDA-capable NVIDIA card; CPU otherwise. You can switch later with "imprint profile set gpu/cpu".',
+    'Pick where the optional local LLM runs.',
+    'GPU runs the local LLM (tagging, chat) on an NVIDIA, AMD or Intel GPU through Vulkan when one is found, and on the CPU otherwise. Embeddings run on the CPU; GPU embedding on an NVIDIA card is a setting (model.device) you can turn on later. You can switch with "imprint profile set gpu/cpu".',
     True, False);
-  ProfilePage.Add('CPU (recommended for laptops without a discrete NVIDIA GPU)');
-  ProfilePage.Add('GPU (NVIDIA CUDA - embeddings + LLM run on the GPU)');
+  ProfilePage.Add('CPU (local LLM on the processor)');
+  ProfilePage.Add('GPU (local LLM on the GPU when one is found)');
   if HasNvidiaGpu() then
     GpuDefault := 1
   else

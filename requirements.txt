@@ -2,8 +2,8 @@
 # installers can pick what the user actually wants:
 #
 #   requirements/base.txt   — always installed (fastmcp, qdrant, extractors, FastAPI)
-#   requirements/cpu.txt    — onnxruntime CPU build (profile=cpu, or no usable GPU)
-#   requirements/gpu.txt    — onnxruntime-gpu build (profile=gpu, or auto with an NVIDIA GPU)
+#   requirements/cpu.txt    — onnxruntime CPU build (embeddings on the CPU)
+#   requirements/gpu.txt    — onnxruntime-gpu build + CUDA libraries (model.device gpu/auto on a supported NVIDIA GPU)
 #   requirements/llm.txt    — llama-cpp-python local tagger + chat (--with-llm only)
 #   requirements/llm-gpu.txt — its GPU build (Vulkan/Metal), used instead of llm.txt when llama.cpp finds a GPU
 #

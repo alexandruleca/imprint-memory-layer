@@ -1,12 +1,25 @@
 # ONNX Runtime GPU build, installed on top of base.txt instead of cpu.txt when
-# the GPU build is used. onnxruntime and onnxruntime-gpu install the same
-# `onnxruntime` package directory, so setup installs exactly one.
+# embeddings run on an NVIDIA GPU that this CUDA build supports (ADR 0062).
+# onnxruntime and onnxruntime-gpu install the same `onnxruntime` package
+# directory, so setup installs exactly one.
 #
-# The [cuda,cudnn] extras bring the CUDA runtime, cuBLAS, cuFFT, cuRAND, NVRTC
-# and cuDNN as NVIDIA wheels, so the only system requirement is an NVIDIA
-# driver that supports the CUDA major of nvidia-cuda-runtime in gpu.lock.txt;
-# setup checks it (ADR 0038). onnx builds the model for setup's CUDA smoke test.
-onnxruntime-gpu[cuda,cudnn]>=1.20.0
+# The NVIDIA wheels are the libraries ONNX Runtime's CUDA execution provider
+# loads to run Imprint's embedding models, so the only system requirement is
+# an NVIDIA driver that supports their CUDA major (ADR 0038):
+#   - the CUDA runtime;
+#   - cuDNN, which attention and convolution kernels need, and through it
+#     cuBLAS, with the NVRTC that cuBLAS requires;
+#   - cuRAND on Linux, which libonnxruntime_providers_cuda.so links. The
+#     Windows provider does not import it.
+# onnxruntime-gpu's [cuda] extra also brings cuFFT (with nvJitLink), which
+# only the DFT and STFT operators use; no text embedding model has them.
+# The specifiers follow onnxruntime-gpu's [cuda,cudnn] extras: move them with
+# its CUDA major (docs/building.md). onnx builds the model of setup's CUDA
+# check.
+onnxruntime-gpu>=1.20.0
+nvidia-cuda-runtime~=13.0
+nvidia-cudnn-cu13~=9.0
+nvidia-curand~=10.0 ; sys_platform == "linux"
 onnx>=1.17.0
 # Every pin needs win_amd64 and manylinux (x86_64, aarch64) wheels; some NVIDIA
 # patch releases ship Linux only.

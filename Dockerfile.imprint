@@ -52,8 +52,8 @@ WORKDIR /app
 # llama.cpp binding for the `local` chat provider and tagger. The binding
 # installs from upstream's prebuilt Linux wheel (ADR 0035), and the image's
 # venv is not writable by the runtime user, so it can't be added on first
-# chat the way native installs do. onnxruntime-gpu (gpu.txt) is opt-in on
-# bare-metal NVIDIA hosts, not container workloads.
+# chat the way native installs do. onnxruntime-gpu (gpu.txt) is for GPU
+# embedding on bare-metal NVIDIA hosts (ADR 0062), not container workloads.
 COPY requirements/ /app/requirements/
 RUN python -m venv /app/.venv \
     && /app/.venv/bin/pip install --no-cache-dir --require-hashes -r /app/requirements/base.lock.txt -r /app/requirements/cpu.lock.txt -r /app/requirements/llm.lock.txt

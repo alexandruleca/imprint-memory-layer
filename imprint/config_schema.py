@@ -63,7 +63,7 @@ def _gpu_devices() -> tuple[Choice, ...]:
     from . import cuda_devices
     major = cuda_devices.runtime_major()
     minimum = cuda_devices.minimum_compute(major)
-    options = [Choice("auto", "Auto", "First GPU the installed CUDA runtime supports")]
+    options = [Choice("auto", "Auto", "First GPU the CUDA runtime supports")]
     for device in cuda_devices.devices():
         compute = "%d.%d" % device.compute
         unavailable = ""
@@ -72,6 +72,24 @@ def _gpu_devices() -> tuple[Choice, ...]:
         options.append(Choice(str(device.index), f"{device.index}: {device.name}",
                               f"{device.memory_mb / 1024:.0f} GB, compute {compute}", unavailable))
     return tuple(options)
+
+
+def _embedding_devices() -> tuple[Choice, ...]:
+    """What each ``model.device`` value does on this device (ADR 0062): the
+    GPU needs Imprint's CUDA runtime, which only an NVIDIA GPU it supports
+    can use."""
+    from . import gpu_runtime
+    plan = gpu_runtime.plan("gpu")
+    if plan.runtime == "cpu":
+        here = "CPU here: " + plan.reason
+    elif gpu_runtime.installed() == "gpu":
+        here = plan.reason
+    else:
+        here = f"{plan.reason}; installs the CUDA runtime, {gpu_runtime.DOWNLOAD}"
+    unavailable = plan.reason[:1].upper() + plan.reason[1:] if plan.runtime == "cpu" else ""
+    return (Choice("auto", "Auto", here),
+            Choice("cpu", "CPU", "The default model runs faster on the CPU"),
+            Choice("gpu", "GPU", "" if unavailable else here, unavailable))
 
 
 AUTO = (Choice("auto", "Auto"),)
@@ -90,9 +108,8 @@ SETTINGS: list[Setting] = [
     Setting("model.name",       "IMPRINT_MODEL_NAME",       EMBEDDING_REPO,  str,   "HuggingFace embedding model repo"),
     Setting("model.revision",   "IMPRINT_MODEL_REVISION",   "auto",           str,   "HF revision (auto = pinned default export, main for custom repos)", choices=AUTO, custom=True),
     Setting("model.file",       "IMPRINT_MODEL_FILE",       "auto",           str,   "ONNX model file (auto = pick by model/device)", choices=AUTO, custom=True),
-    Setting("model.device",     "IMPRINT_DEVICE",           "cpu",            str,   "Compute device: auto / cpu / gpu",
-            choices=(Choice("auto", "Auto", "GPU when the CUDA runtime is installed, else CPU"),
-                     Choice("cpu", "CPU"), Choice("gpu", "GPU", "CUDA, falling back to CPU"))),
+    Setting("model.device",     "IMPRINT_DEVICE",           "cpu",            str,   "Compute device: auto / cpu / gpu (NVIDIA GPUs, through CUDA)",
+            choices=_embedding_devices),
     Setting("model.dim",        "IMPRINT_EMBEDDING_DIM",    1024,             int,   "Embedding vector dimension (known model defaults inferred unless overridden)"),
     Setting("model.seq_length", "IMPRINT_MAX_SEQ_LENGTH",   2048,             int,   "Token cap per embed call"),
     Setting("model.threads",    "IMPRINT_ONNX_THREADS",     4,                int,   "CPU intra-op threads for ONNX"),
@@ -478,6 +495,22 @@ def cli_set(key: str, value: str) -> None:
         print(str(e), file=sys.stderr)
         sys.exit(1)
     print(f"{C_GREEN}[+]{C_RESET} {key} = {display_value(SETTINGS_BY_KEY[key], val)}")
+    _print_effect(key, val)
+
+
+def _print_effect(key: str, value: Any) -> None:
+    """What the value means on this device, and how to apply a change of
+    runtime (ADR 0062)."""
+    choice = next((c for c in SETTINGS_BY_KEY[key].options() if c.value == value), None)
+    if choice is not None and choice.unavailable:
+        print(f"  {C_YELLOW}{choice.unavailable}{C_RESET}")
+    elif choice is not None and choice.detail:
+        print(f"  {choice.detail}")
+    from . import gpu_runtime
+    if key in gpu_runtime.SETTINGS:
+        change = gpu_runtime.pending()
+        if change:
+            print(f"  Run imprint setup to install {change}; servers use it once they restart.")
 
 
 def cli_reset(key: str) -> None:
@@ -491,6 +524,7 @@ def cli_reset(key: str) -> None:
     if removed:
         s = SETTINGS_BY_KEY[key]
         print(f"{C_GREEN}[+]{C_RESET} {key} reset to default ({s.default})")
+        _print_effect(key, resolve(key)[0])
     else:
         print(f"{C_DIM}[-]{C_RESET} {key} was already at default")
 

@@ -12,8 +12,10 @@ import (
 	"github.com/hunter/imprint/internal/runner"
 )
 
-// Profile manages the install profile post-setup. Users can swap between
-// CPU and GPU, add or drop the local LLM tagger, or print the current
+// Profile manages the install profile post-setup. The profile selects the
+// local LLM's build: cpu, or the GPU build when llama.cpp finds a GPU (gpu
+// and auto); the embedding runtime follows model.device (ADR 0062). Users
+// can swap it, add or drop the local LLM tagger, or print the current
 // state. Each mutation re-runs `setupBackend()` with the new flags so the
 // venv actually reflects the persisted choice.
 //
@@ -101,7 +103,7 @@ func printProfile() {
 	if err := json.Unmarshal(data, &st); err != nil {
 		output.Fail("profile.json is corrupt: " + err.Error())
 	}
-	fmt.Printf("Profile: %s\n", st.Profile)
+	fmt.Printf("Profile: %s (local LLM build; embeddings follow model.device)\n", st.Profile)
 	fmt.Printf("Local LLM tagger: %v\n", st.WithLLM)
 	fmt.Printf("State file: %s\n", p)
 	fmt.Printf("Venv:  %s\n", filepath.Dir(filepath.Dir(platform.VenvPython(projectDir))))
