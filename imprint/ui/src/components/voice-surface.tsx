@@ -43,7 +43,12 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     client.current = new VoiceClient(setVoice);
     // Read host capabilities only after hydration.
     const timer = setTimeout(() => setDesktop(!!window.electronAPI?.openCompanion), 0);
-    void window.electronAPI?.getCompanionState?.().then(state => { if (state) { setPinned(state.pinned); setShortcutAvailable(state.shortcutAvailable !== false); } });
+    // The main process owns the window, so pinning shows the state it reports.
+    function companion(state: { pinned: boolean; shortcutAvailable?: boolean } | null) {
+      if (state) { setPinned(state.pinned); setShortcutAvailable(state.shortcutAvailable !== false); }
+    }
+    const unsubscribe = window.electronAPI?.onCompanionState?.(companion);
+    void window.electronAPI?.getCompanionState?.().then(companion);
     const controller = new AbortController();
     void fetch(`${API_BASE}/api/voice/status`, { signal: controller.signal }).then(r => r.ok ? r.json() : null).then(setRuntime).catch(() => {});
     void getConfig().then(config => {
@@ -57,7 +62,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("blur", blur);
     window.addEventListener("imprint:stop-dashboard-voice", transfer);
-    return () => { clearTimeout(timer); controller.abort(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
+    return () => { clearTimeout(timer); controller.abort(); unsubscribe?.(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
   }, [compact]);
   const energy = () => client.current?.level || 0;
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
@@ -78,18 +83,24 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   }
   return <section className={`voice-surface ${compact ? "voice-compact" : ""} ${!ready || voice.preparation ? "voice-needs-setup" : ""}`} data-phase={voice.phase}
     onPointerDown={event => {
+      // The head, header and grip move the window; the controls never do.
       if (!compact || !desktop || event.button !== 0 || !(event.target instanceof Element)
-          || event.target.closest("button,input,select,textarea,a,summary,[role=slider],[role=switch]")) return;
+          || event.target.closest(".voice-control-area,.voice-window-actions")) return;
       drag.current = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId);
       window.electronAPI?.beginCompanionDrag?.({ x: event.screenX, y: event.screenY }); event.preventDefault();
     }}
-    onPointerMove={event => { if (drag.current === event.pointerId) window.electronAPI?.moveCompanionDrag?.({ x: event.screenX, y: event.screenY }); }}
+    onPointerMove={event => {
+      if (drag.current !== event.pointerId) return;
+      // A release the window never saw must not leave it following the cursor.
+      if (!(event.buttons & 1)) { endDrag(event); return; }
+      window.electronAPI?.moveCompanionDrag?.({ x: event.screenX, y: event.screenY });
+    }}
     onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={() => endDrag()}>
-    <header className={`voice-header ${compact ? "app-drag" : ""}`}>
+    <header className="voice-header">
       <div className="voice-wordmark"><AudioLines size={17} aria-hidden="true"/><span>IMPRINT <b>/ ECHO</b></span></div>
-      <div className="voice-window-actions app-no-drag">
+      <div className="voice-window-actions">
         {compact ? <>
-          {desktop && <Button variant="ghost" size="icon-sm" aria-label={pinned ? "Unpin companion" : "Keep companion on top"} aria-pressed={pinned} onClick={() => { window.electronAPI?.pinCompanion(!pinned); setPinned(!pinned); }}><Pin size={14}/></Button>}
+          {desktop && <Button variant="ghost" size="icon-sm" aria-label={pinned ? "Unpin companion" : "Keep companion on top"} aria-pressed={pinned} title={pinned ? "On top · click to unpin" : "Keep on top"} className="voice-pin" onClick={() => window.electronAPI?.pinCompanion(!pinned)}><Pin size={14} fill={pinned ? "currentColor" : "none"}/></Button>}
           <Button variant="ghost" size="icon-sm" aria-label="Close companion" onClick={() => { client.current?.stop(); if (window.electronAPI?.closeCompanion) window.electronAPI.closeCompanion(); else window.close(); }}><X size={16}/></Button>
         </> : <Button variant="ghost" onClick={popout} className="voice-popout"><ArrowUpRight size={15}/> Float Echo</Button>}
       </div>
@@ -128,9 +139,9 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </div>
       {compact && <VoiceChatSetup preparation={voice.preparation} compact/>}
       <p className="voice-privacy" role="status">{voice.phase === "error" || (!voice.microphone && voice.connected && voice.detail.includes("permission")) ? voice.detail : voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally"}</p>
-      <form className="voice-text" onSubmit={event => { event.preventDefault(); if (voice.connected && text.trim()) { client.current?.text(text); setText(""); input.current?.focus(); } }}>
-        <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} disabled={!voice.connected} onChange={event => setText(event.target.value)}/>
-        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Send question" disabled={!voice.connected || !text.trim()}><ArrowUpRight size={17}/></Button>
+      <form className="voice-text" onSubmit={event => { event.preventDefault(); if (text.trim()) { client.current?.ask(text, engine); setText(""); input.current?.focus(); } }}>
+        <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} onChange={event => setText(event.target.value)}/>
+        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Send question" disabled={!text.trim()}><ArrowUpRight size={17}/></Button>
       </form>
       {(voice.user || voice.answer) && <div className="voice-transcript"><p className="voice-user">{voice.user}</p><p>{voice.answer || "…"}</p></div>}
       <div className="voice-settings">
@@ -143,6 +154,6 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </>}
     </div>
     {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href={`/models/imprint-${avatar || "echo"}.glb`} download><Download size={13}/> Download 3D model</a></footer>}
-    {compact && desktop && <div className="voice-grip"><GripHorizontal size={14}/><span>Drag anywhere · {shortcutAvailable ? `${shortcut} to recall` : "Recall from Imprint tray menu"}</span></div>}
+    {compact && desktop && <div className="voice-grip"><GripHorizontal size={14}/><span>Drag Echo to move · {shortcutAvailable ? `${shortcut} to recall` : "Recall from Imprint tray menu"}</span></div>}
   </section>;
 }

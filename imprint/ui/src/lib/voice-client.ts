@@ -99,6 +99,7 @@ export class VoiceClient {
   private epoch = 0;
   private doneAcknowledged = 0;
   private micPending = false;
+  private question?: string;
   constructor(private changed: (value: VoiceSnapshot) => void) {}
   private update(values: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...values };
@@ -206,7 +207,14 @@ export class VoiceClient {
     if (result.began) { this.interrupt(); this.update({ phase: "listening", detail: "Listening…" }); }
     if (result.complete) this.submit({ audio: encodeWav(result.complete, this.context!.sampleRate) });
   }
-  text(text: string) { if (text.trim()) this.submit({ text: text.trim().slice(0, 2000) }); }
+  /** Typing needs no open conversation: one starts, and the question is sent once it is ready. */
+  ask(text: string, engine: "chat" | "lfm") {
+    const question = text.trim().slice(0, 2000);
+    if (!question) return;
+    if (this.snapshot.connected) { this.submit({ text: question }); return; }
+    if (this.snapshot.phase !== "connecting") void this.start(engine);
+    this.question = question;
+  }
   private submit(content: { audio?: string; text?: string }) {
     if (!this.snapshot.connected) return;
     this.interrupt(); this.accepted = ++this.id; this.complete = 0;
@@ -225,7 +233,12 @@ export class VoiceClient {
   }
   private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string; stage?: string; downloaded?: number; total?: number }) {
     if (event.type === "connecting") { this.update({ detail: "Loading local voice…" }); return; }
-    if (event.type === "ready") { this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace }); return; }
+    if (event.type === "ready") {
+      this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace });
+      const question = this.question; this.question = undefined;
+      if (question) this.submit({ text: question });
+      return;
+    }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
     if (!event.id || event.id !== this.accepted) return;
     if (event.type === "user") this.update({ user: event.text || "" });
@@ -282,7 +295,7 @@ export class VoiceClient {
     this.source?.disconnect(); this.source = undefined; this.silent?.disconnect(); this.silent = undefined;
     this.analyser?.disconnect(); this.analyser = undefined; this.meter = undefined;
     void this.context?.close().catch(() => {}); this.context = undefined;
-    this.micPending = false;
+    this.micPending = false; this.question = undefined;
     clearInterval(this.timer); this.timer = undefined; this.gate.reset(); this.heldFrames = [];
     this.update({ connected: false, microphone: false, held: false, preparation: null, phase: "idle", detail: "Microphone off" });
   }

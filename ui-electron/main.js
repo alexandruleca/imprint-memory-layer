@@ -344,9 +344,11 @@ async function openCompanion(recover = false) {
   }
   const saved = savedCompanionBounds();
   const bounds = fitBounds(saved, companionArea(recover ? null : saved), recover);
+  // acceptFirstMouse (macOS): a click on the floating window acts at once
+  // instead of only activating it, so pin and the controls answer the first click.
   const window = new BrowserWindow({ ...windowOptions, ...bounds, title: 'Imprint · Echo',
     minWidth: 280, minHeight: 360, transparent: true, backgroundColor: '#00000000',
-    resizable: false, hasShadow: false, alwaysOnTop: false });
+    resizable: false, hasShadow: false, alwaysOnTop: false, acceptFirstMouse: true });
   companionWin = window;
   notifyCompanion();
   window.on('close', () => saveCompanionBounds(window));

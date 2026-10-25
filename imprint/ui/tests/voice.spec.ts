@@ -79,7 +79,7 @@ test('interrupt flushes playback and ignores stale response chunks; stop release
   await expect(page.locator('.voice-transcript')).not.toContainText('STALE');
   await page.getByRole('button', { name: 'Stop conversation and microphone' }).click();
   await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
-  await expect(input).toBeDisabled();
+  await expect(input).toBeEnabled(); // Typing again starts a new conversation.
 });
 
 test('compact companion hides dashboard chrome and exposes hands-free controls', async ({ page }) => {
@@ -95,6 +95,85 @@ test('compact companion hides dashboard chrome and exposes hands-free controls',
   await expect(page.locator('.voice-compact')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(page.locator('.voice-compact')).toHaveCSS('background-image', 'none');
   await expect(page.locator('.voice-compact')).toHaveCSS('border-top-width', '0px');
+});
+
+// The desktop bridge as the floating companion sees it; the main process owns pinning.
+async function companionBridge(page: Page) {
+  await page.addInitScript(() => {
+    const calls: unknown[][] = [];
+    let state = { open: true, pinned: false, shortcutAvailable: true };
+    const listeners = new Set<(value: typeof state) => void>();
+    const publish = (next: Partial<typeof state>) => { state = { ...state, ...next }; listeners.forEach(listener => listener(state)); };
+    Object.assign(window, { companionCalls: calls, publishCompanion: publish });
+    window.electronAPI = { isElectron: true, platform: 'darwin', close() {}, quit() {}, minimize() {}, maximize() {},
+      openCompanion() {}, closeCompanion() { calls.push(['close']); },
+      pinCompanion(pinned) { calls.push(['pin', pinned]); publish({ pinned }); },
+      beginCompanionDrag(point) { calls.push(['drag-start', point.x, point.y]); },
+      moveCompanionDrag(point) { calls.push(['drag-move', point.x, point.y]); },
+      endCompanionDrag() { calls.push(['drag-end']); },
+      getCompanionState: async () => state,
+      onCompanionState: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
+  });
+  return { calls: () => page.evaluate(() => (window as unknown as { companionCalls: unknown[][] }).companionCalls.map(call => call[0])) };
+}
+
+test('companion: a typed question starts the conversation; controls never drag the window', async ({ page }) => {
+  const server = await prepare(page);
+  const bridge = await companionBridge(page);
+  await page.setViewportSize({ width: 380, height: 610 });
+  await page.goto('/companion/');
+  await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
+  const question = page.getByRole('textbox', { name: 'Type a question' });
+  await question.click();
+  await page.keyboard.type('What did I decide about caching?');
+  await expect(question).toHaveValue('What did I decide about caching?');
+  await page.locator('.voice-text').click({ position: { x: 4, y: 16 } }); // the box's padding beside the field
+  await page.locator('.voice-privacy').click();
+  await page.getByText('Voice reasoning').click();
+  expect(await bridge.calls()).not.toContain('drag-start');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect.poll(() => server.controls.find(control => control.type === 'turn')?.text).toBe('What did I decide about caching?');
+  await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+});
+
+test('companion: the head drags the window, and a release it missed ends the drag', async ({ page }) => {
+  await prepare(page);
+  const bridge = await companionBridge(page);
+  await page.setViewportSize({ width: 380, height: 610 });
+  await page.goto('/companion/');
+  const head = page.locator('.voice-stage');
+  await expect(page.locator('.echo-canvas')).toHaveAttribute('data-loaded', 'true');
+  const box = (await head.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20);
+  await page.mouse.up();
+  expect(await bridge.calls()).toEqual(['drag-start', 'drag-move', 'drag-end']);
+  // The OS can swallow a release, for example when the window moves under it.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await head.dispatchEvent('pointermove', { pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 0, screenX: 5, screenY: 5 });
+  await page.mouse.move(box.x + 10, box.y + 10);
+  const calls = await bridge.calls();
+  expect(calls.slice(3)).toEqual(['drag-start', 'drag-end']);
+  await page.mouse.up();
+});
+
+test('companion: pin shows the on-top state the main process reports', async ({ page }) => {
+  await prepare(page);
+  const bridge = await companionBridge(page);
+  await page.goto('/companion/');
+  const pin = page.getByRole('button', { name: 'Keep companion on top' });
+  const unpinnedColor = await pin.evaluate(element => getComputedStyle(element).color);
+  await pin.click();
+  const unpin = page.getByRole('button', { name: 'Unpin companion' });
+  await expect(unpin).toHaveAttribute('aria-pressed', 'true');
+  expect(await unpin.evaluate(element => getComputedStyle(element).color)).not.toBe(unpinnedColor);
+  expect(await bridge.calls()).toEqual(['pin']);
+  // Unpinned elsewhere (the main process is the owner): the button follows.
+  await page.evaluate(() => (window as unknown as { publishCompanion: (state: { pinned: boolean }) => void }).publishCompanion({ pinned: false }));
+  await expect(page.getByRole('button', { name: 'Keep companion on top' })).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('dashboard Floating Echo switch reflects native close and stops dashboard voice when showing', async ({ page }) => {

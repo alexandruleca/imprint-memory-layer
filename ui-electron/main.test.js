@@ -300,6 +300,7 @@ test('Echo has a separate transparent sandboxed window, scoped IPC, pin and dest
   assert.equal(echo.url, 'http://127.0.0.1:8420/companion/');
   assert.equal(echo.options.transparent, true);
   assert.equal(echo.options.alwaysOnTop, false);
+  assert.equal(echo.options.acceptFirstMouse, true); // macOS: the first click on Echo reaches its controls.
   assert.equal(echo.options.webPreferences.sandbox, true);
   assert.equal(echo.options.webPreferences.nodeIntegration, false);
   h.emit('voice-pin-companion', dashboard, true);
