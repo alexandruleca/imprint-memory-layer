@@ -1,6 +1,7 @@
 """Qdrant-backed vector store.
 
-Embedded mode: `QdrantClient(path=...)` uses on-disk local storage, no server.
+Talks over HTTP to the local Qdrant server that qdrant_runner auto-spawns, so
+the MCP server, hooks and ingest share one store (ADR 0063).
 
 Collection schema:
   - vector: named "dense", f32[EMBEDDING_DIM], cosine distance
@@ -798,7 +799,7 @@ def _maybe_compact(just_inserted: int) -> None:
     if _inserts_since_compact < _COMPACT_EVERY:
         return
     _inserts_since_compact = 0
-    # Nothing to do for embedded qdrant; kept to preserve call-site parity.
+    # The Qdrant server compacts on its own; kept to preserve call-site parity.
 
 
 # ── search ─────────────────────────────────────────────────────
