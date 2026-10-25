@@ -438,6 +438,26 @@ export async function getCommandCatalog() {
   return fetchAPI<CommandCatalog>("/api/commands");
 }
 
+/** One distribution's default-user profile: each WSL target's directory
+ * there ("" when the client has none) and whether it is enrolled. */
+export type WslDistribution = {
+  distribution: string;
+  home?: string;
+  /** The probe failed, for example because the distribution cannot start. */
+  error?: string;
+  clients: { name: string; profile: string; enrolled: boolean }[];
+};
+
+/** GET /api/wsl: `imprint wsl list --json` on a Windows runtime. */
+export type WslListing =
+  | { supported: false; platform: string }
+  | { supported: true; targets: { name: string; label: string }[]; distributions: WslDistribution[]; error?: string };
+
+/** Probes every WSL distribution, which can start stopped ones. */
+export async function getWslProfiles() {
+  return fetchAPI<WslListing>("/api/wsl");
+}
+
 /** Queue a CLI command. An ingest or refresh outside the workspace's roots
  * asks the user to approve the root first and is then submitted again; it
  * fails with the server's refusal when the user declines. */

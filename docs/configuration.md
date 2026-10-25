@@ -45,6 +45,8 @@ imprint config reset --all
 
 The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs this device reports), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
 
+Settings also holds **Workspaces** and, for a Windows installation, **WSL profiles**: enroll or remove the Claude Code, Codex or Cursor profile (whichever clients the CLI supports there) of each WSL distribution's default user. See [installation](installation.md#claude-code-codex-and-cursor-inside-wsl).
+
 ## Hugging Face token
 
 Imprint downloads the embedding model and the optional local helper GGUF from the Hugging Face Hub. Without a token those downloads are anonymous: they work for the default public models but are rate-limited, and huggingface_hub warns about unauthenticated requests. Gated or private repositories need a token. Create a read token at <https://huggingface.co/settings/tokens>, then store it in one of these ways:

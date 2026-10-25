@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  Bot, Boxes, Cpu, Database, FileInput, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors, Tags,
-  type LucideIcon,
+  Bot, Boxes, Cpu, Database, FileInput, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
+  SquareTerminal, Tags, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -12,6 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { getConfig, resetConfigValue, setConfigValue } from "@/lib/api";
 import { SettingsSkeleton } from "@/components/loaders";
 import { WorkspaceManager } from "@/components/workspace-manager";
+import { WslProfiles } from "@/components/wsl-profiles";
 import { SettingRow, settingTitle } from "./_components/setting-row";
 import type { ConfigSetting } from "@/lib/types";
 
@@ -87,6 +88,7 @@ export default function SettingsPage() {
     else groups.push([name, [s]]);
   }
   const showWorkspaces = !q || "workspaces roots sources".includes(q);
+  const showWsl = !q || "wsl linux distributions profiles enroll".includes(q);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
@@ -108,6 +110,7 @@ export default function SettingsPage() {
       <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)]">
         <nav aria-label="Settings sections" className="sticky top-6 hidden space-y-0.5 self-start lg:block">
           {showWorkspaces && <NavLink href="#workspaces" icon={Boxes} label="Workspaces" />}
+          {showWsl && <NavLink href="#wsl" icon={SquareTerminal} label="WSL profiles" />}
           {groups.map(([name, items]) => (
             <NavLink
               key={name}
@@ -124,6 +127,13 @@ export default function SettingsPage() {
             <Card id="workspaces" className="scroll-mt-6">
               <SectionHeader icon={Boxes} title="Workspaces" desc="Isolated memory stores, their roots and sources." />
               <CardContent><WorkspaceManager /></CardContent>
+            </Card>
+          )}
+
+          {showWsl && (
+            <Card id="wsl" className="scroll-mt-6">
+              <SectionHeader icon={SquareTerminal} title="WSL profiles" desc="AI clients inside WSL distributions that use this installation." />
+              <CardContent><WslProfiles /></CardContent>
             </Card>
           )}
 
@@ -152,7 +162,7 @@ export default function SettingsPage() {
             );
           })}
 
-          {q && !groups.length && !showWorkspaces && (
+          {q && !groups.length && !showWorkspaces && !showWsl && (
             <Empty className="border border-dashed border-border">
               <EmptyHeader>
                 <EmptyTitle>No matching settings</EmptyTitle>

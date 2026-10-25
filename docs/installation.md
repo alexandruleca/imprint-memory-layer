@@ -69,7 +69,9 @@ The Windows installer offers **Connect clients in WSL** after copying its files.
 
 Repair and silent updates reuse saved WSL choices. A fresh silent install does not change WSL profiles. Selected registration failures appear in the setup log and fail setup. Unchecking a profile stops future add/repair work for that choice; use the removal command to disconnect an existing profile.
 
-You can connect clients later from PowerShell:
+You can enroll or remove profiles later in the dashboard: **Settings → WSL profiles** lists each distribution's default-user profile for every client a WSL profile can be registered for, with whether it was found and whether this installation enrolled it. **Enroll** and **Remove** (asked first) run `imprint wsl setup` / `imprint wsl remove` through the job queue and show its log. The list comes from `imprint wsl list --json`, which reads the CLI's client table, so a client added there appears without a dashboard change. Checking runs every distribution, which starts stopped ones, so the section checks only when you ask. Enrolling registers the installed Windows runtime and installs nothing ([ADR 0053](adr/0053-connect-clients-without-touching-the-runtime.md)). Profiles enrolled this way are not installer selections: Repair does not replay them, and they keep working because the installation path does not change. Other Linux users and custom homes remain CLI-only.
+
+Or from PowerShell (`imprint wsl list` prints the same listing as a table; `--json` for scripts):
 
 ```powershell
 $ImprintBin = Join-Path $env:LOCALAPPDATA 'Programs\Imprint\bin\imprint.exe'

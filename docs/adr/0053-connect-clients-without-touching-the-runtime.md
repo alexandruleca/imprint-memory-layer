@@ -1,6 +1,6 @@
 ---
 title: ADR 0053 — Connect and disconnect clients without touching the runtime
-description: imprint connect and disconnect register and unregister clients through one client table, so the dashboard's Commands page can rehook and unhook every client; enable and disable keep their lifecycle meaning.
+description: imprint connect and disconnect register and unregister clients through one client table, so the dashboard's Commands page can rehook and unhook every client and Settings can enroll WSL profiles; enable and disable keep their lifecycle meaning.
 ---
 
 # 0053 — Connect and disconnect clients without touching the runtime
@@ -21,6 +21,8 @@ The maintainer asked for the dashboard's Commands page to offer every command, e
 - **`imprint disable`** disconnects every client. It then stops the registered dashboard server, which is the one running the job, and stops Qdrant, the store the dashboard reads.
 - **The target lists were copied by hand.** The `setup` error, the usage text and enable's error each had their own copy, and enable's usage text was missing claude-desktop, chatgpt-desktop and openclaw. The Cursor WSL registration (ADR 0052) added its own list of WSL targets.
 - **Queued jobs inherited the server's standard input.** Nothing guaranteed that a prompt would fail instead of waiting.
+
+The maintainer also asked for a place in Settings to enroll WSL profiles, so that a client that shows up inside a distribution later can be connected without the installer or PowerShell. WSL profiles could only be enrolled in the installer's WSL page or with `imprint wsl setup`. `imprint wsl list` printed raw probe results, without saying which profiles were enrolled.
 
 A first version of this change gave enable and disable the client-only meaning. The maintainer kept them as lifecycle commands instead: enable provisions, connects and starts; disable disconnects every client and stops the services. The client-only meaning gets its own commands.
 
@@ -53,14 +55,23 @@ Setup, enable, connect, disable, disconnect and `imprint wsl` all resolve their 
   - **Diagnose**, which runs `doctor`.
   - The desktop-export switch for learn.
 
+**Settings enrolls WSL profiles.**
+
+- `imprint wsl list` reports, for each distribution's default user and each client with a `wslHome`, the client's directory there and whether this installation enrolled it. Enrollment comes from the registration journal plus the installer's saved selections. A probe failure is reported per distribution. The command prints a table by default and the listing as JSON with `--json`. The installer's `--installer-file` rows come from the same listing.
+- `GET /api/wsl` serves `imprint wsl list --json` on a Windows runtime. On any other runtime it answers `supported: false` without running the CLI.
+- Probing runs every distribution and can start stopped ones (ADR 0026), so the section probes only when the user asks, and says so.
+- **Enroll** and **Remove** queue `imprint wsl setup` and `imprint wsl remove` for one distribution and client, as a `wsl` command the Settings dialog queues. Remove asks first. The section shows the job's log and checks again when the job ends.
+- The section shows the targets the listing reports, so a client added to the table appears there without a dashboard change.
+- Custom users and homes stay CLI-only.
+- `wsl setup` uses the installed runtime as it is. It checks that the venv's interpreter exists and writes the WSL profile and the registration journal. Its probe runs `wsl_bridge.py probe` with that interpreter, which prints JSON and changes nothing. So, unlike setup, running it from the dashboard does not touch the runtime the dashboard runs from.
+
 **Queued jobs have no standard input.** The dispatcher gives each job the null device, so a prompt reads end-of-file instead of waiting.
 
 **Commands the page does not offer, and why:**
 
 - `setup`, `enable`, `bootstrap` and `profile` install into the runtime the dashboard runs from.
 - `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself.
-- `wsl` needs a Windows profile choice.
-- Workspaces, purge, move, sync pairing and updates have their own dashboard flows.
+- WSL profiles, workspaces, purge, move, sync pairing and updates have their own dashboard flows.
 
 ## Alternatives
 
@@ -70,6 +81,9 @@ Setup, enable, connect, disable, disconnect and `imprint wsl` all resolve their 
 - **Provision from the dashboard by restarting through its supervisor** (ADR 0050). This could later give the dashboard a real setup. It needs provisioning outside the server process, and the ADR 0049 swap to stop reinstalling a build that is already right. Rehooking needs neither.
 - **Keep the target lists in TypeScript, in the API or in `cmd/wsl.go`.** They drift, as enable's usage text already had.
 - **Report clients through `imprint status --json`.** Status starts Python for Qdrant statistics on every call, and it checks only Claude Code.
+- **Probe WSL whenever Settings opens.** Every Settings visit would start each stopped distribution.
+- **Extend `imprint clients --json` with WSL profiles.** Every catalog request would then probe WSL and start distributions.
+- **Keep a WSL target list in `cmd/wsl.go`.** It already duplicated client names, and the installer rows had a third copy.
 - **Leave WSL registrations alone when disconnecting one client.** "Disconnect Claude Code" would then leave a WSL Claude Code wired to this runtime, and Cursor's WSL conversations still learned.
 
 ## Consequences
@@ -77,7 +91,9 @@ Setup, enable, connect, disable, disconnect and `imprint wsl` all resolve their 
 - **The dashboard can rehook and unhook safely.** Connect and disconnect run from the dashboard without restarting it or changing its runtime. An end-to-end run through the real dispatcher installed nothing and stopped nothing.
 - **Users have two ways to connect clients.** Enable provisions, connects and starts services. Connect only registers. The same holds for disable and disconnect.
 - **ChatGPT Desktop shares Codex's registry.** Disconnecting either one disconnects both, except from WSL, where ChatGPT Desktop registers nothing.
-- **Connect does not restore WSL registrations.** It writes local profiles only, so a WSL registration that disconnect removed comes back only with `imprint wsl setup`. The dashboard does not offer WSL registrations yet.
+- **Connect does not restore WSL registrations.** It writes local profiles only, so a WSL registration that disconnect removed comes back with Settings → WSL profiles or `imprint wsl setup`.
+- **Repair does not replay dashboard enrollments.** A profile enrolled in Settings is not an installer selection, so Repair does not replay it. The registration keeps working because the installation path does not change.
+- **`imprint wsl list` prints a table by default.** Scripts that read its default JSON must pass `--json` and read the new shape. Nothing in the repository read it.
 - **The page depends on the CLI.** When it cannot run `imprint clients`, for example with a stale `bin/` in a checkout, the Commands page shows the error with a Retry button rather than a partial list. Queued jobs run the same CLI, so they would fail too.
 - **The WSL target order changed.** It now follows the client table: claude-code, cursor, codex.
 - **The setup swap remains.** Setup still reinstalls the LLM binding on every run when there is no GPU offload (ADR 0049); this change does not touch that.
@@ -90,6 +106,7 @@ All of the following ran on Linux/WSL2.
 
 - the client table resolves names, aliases and all, and the usage text names every client;
 - the WSL targets, their choices and `wslClientDir` come from `wslHome`;
+- the WSL listing names every target with its label, reports each distribution's profiles and its probe failures, takes enrollment from the journal (default user only) and the installer's selections, skips utility distributions, and reports discovery that is unavailable;
 - `connectClients` runs only the target's handlers, with the runtime it is given;
 - a registry two clients share is listed once;
 - in a disposable home, connecting Cursor registers only Cursor, and disconnecting Cursor removes its registration, hooks and rule while Codex stays connected;
@@ -103,6 +120,8 @@ All of the following ran on Linux/WSL2.
 - only disconnect asks first;
 - the allow-list is the catalog plus the workspace flows, and setup, enable, disable, bootstrap, profile, ui, server, uninstall, update and wsl return 404;
 - `GET /api/commands` serves the catalog with the CLI's clients, and a failing CLI returns 502 with its output;
+- `GET /api/wsl` serves `imprint wsl list --json` on a Windows runtime, answers without probing elsewhere, and reports a failing CLI with 502;
+- the `wsl` command reaches the CLI as `wsl setup|remove --distribution D --target T`;
 - a queued job that reads stdin gets end-of-file while the server's own stdin stays open (the test times out without the fix).
 
 **Browser.** `tests/commands.spec.ts` covers:
@@ -113,6 +132,14 @@ All of the following ran on Linux/WSL2.
 - switch and fixed arguments;
 - a catalog that fails to load, then loads on Retry.
 
+`tests/wsl-profiles.spec.ts` covers the WSL section:
+
+- loading Settings does not probe;
+- checking lists every reported target, including one no code names, and a distribution that cannot be read;
+- enrolling queues `wsl setup` and shows the new state after the job;
+- removing asks first, and cancelling queues nothing;
+- a runtime that is not Windows explains where profiles are enrolled.
+
 The root-approval and log-follow specs now serve the catalog and pass.
 
 **End to end.** The real CLI built from this tree ran under the real queue dispatcher, in a disposable home and runtime layout. `connect cursor` registered Cursor without running uv or pip, `imprint clients` reported it connected, and `disconnect cursor` removed it.
@@ -122,4 +149,4 @@ The root-approval and log-follow specs now serve the catalog and pass.
 - Windows and macOS native runners;
 - the packaged desktop app;
 - real clients loading the changed configuration;
-- WSL registration removal against a real distribution.
+- WSL listing, enrollment and removal against a real distribution, through the dashboard or the CLI (the existing WSL fixtures cover the file changes).

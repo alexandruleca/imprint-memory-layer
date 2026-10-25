@@ -65,7 +65,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 
 ### Allowed commands
 
-[`imprint/commands.py`](../imprint/commands.py) holds the catalog the Commands page renders: each command's label, description, group, fields (`path`, `text`, `switch`, `project`, `client`) and, for a command that removes something, the confirmation the page asks first. `POST /api/commands/{command}` accepts the catalog's commands plus `wipe`, `migrate` and `workspace`, which the workspace dialogs queue. [`queue.build_command_args`](../imprint/queue.py) maps each field to the CLI's arguments; a test checks that every catalog field reaches them. A `client` field offers the clients `imprint clients --json` reports, from the CLI's client table, with whether each is connected.
+[`imprint/commands.py`](../imprint/commands.py) holds the catalog the Commands page renders: each command's label, description, group, fields (`path`, `text`, `switch`, `project`, `client`) and, for a command that removes something, the confirmation the page asks first. `POST /api/commands/{command}` accepts the catalog's commands plus `wipe`, `migrate` and `workspace`, which the workspace dialogs queue, and `wsl` (`setup` or `remove` of one distribution's client profile), which Settings → WSL profiles queues. [`queue.build_command_args`](../imprint/queue.py) maps each field to the CLI's arguments; a test checks that every catalog field reaches them. A `client` field offers the clients `imprint clients --json` reports, from the CLI's client table, with whether each is connected.
 
 | Group | Commands |
 |---|---|
@@ -80,7 +80,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 - `disconnect` only unregisters clients, and the dashboard and Qdrant keep running.
 - `setup`, `enable`, `bootstrap` and `profile` install dependencies into the venv the server has loaded; on Windows its DLLs cannot be replaced while it runs. Not offered.
 - `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself. Not offered.
-- `wsl` bridges need a Windows profile choice and are not offered yet.
+- `wsl setup` and `remove` run from Settings → WSL profiles, where a distribution is chosen. They register the installed Windows runtime in a WSL profile and install nothing.
 - Workspaces, purge, move, sync pairing and updates have their own dashboard flows.
 
 **Non-interactive.** Jobs have no terminal: the dispatcher gives each one the null device as standard input, so a prompt reads end-of-file instead of waiting. Commands that would ask (wipe) are sent with their confirmation flag by the dialog that asked the user.

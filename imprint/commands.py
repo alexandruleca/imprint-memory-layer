@@ -4,7 +4,7 @@
 its fields, and for a command that removes something, what to confirm
 first. The page renders it as served by ``GET /api/commands``, and
 ``POST /api/commands/{command}`` accepts exactly these commands plus the ones
-the dashboard's workspace flows queue. ``queue.build_command_args`` turns a
+the dashboard's own dialogs queue (``DIALOG_FLOWS``). ``queue.build_command_args`` turns a
 submitted body into the CLI's arguments; every field key here is one of its
 inputs.
 
@@ -16,14 +16,16 @@ Left out on purpose (docs/queue.md): ``setup``, ``enable`` and ``profile``
 install into the runtime the dashboard runs from, and ``disable``, ``ui``,
 ``server`` and ``uninstall`` stop or remove the dashboard itself; the page
 connects and disconnects clients with ``connect`` and ``disconnect`` instead.
-``wsl`` bridges need a Windows profile choice, and workspaces, purge, move,
-sync pairing and updates have their own dashboard flows.
+WSL profiles (Settings, ``wsl_profiles``), workspaces, purge, move, sync
+pairing and updates have their own dashboard flows.
 """
 
 from __future__ import annotations
 
 import json
+import platform
 import subprocess
+import sys
 
 CATALOG: tuple[dict, ...] = (
     {'name': 'learn', 'label': 'Learn conversations', 'group': 'Index',
@@ -86,11 +88,12 @@ CATALOG: tuple[dict, ...] = (
      'description': 'Every setting with its value and source', 'fields': []},
 )
 
-# Queued by the dashboard's workspace flows (Manage workspaces), which ask
-# their own questions, rather than offered on the Commands page.
-WORKSPACE_FLOWS = frozenset({'wipe', 'migrate', 'workspace'})
+# Queued by the dashboard's own dialogs, which ask their own questions,
+# rather than offered on the Commands page: Manage workspaces (wipe, migrate,
+# workspace) and Settings' WSL profiles (wsl setup and remove).
+DIALOG_FLOWS = frozenset({'wipe', 'migrate', 'workspace', 'wsl'})
 
-ALLOWED = frozenset(command['name'] for command in CATALOG) | WORKSPACE_FLOWS
+ALLOWED = frozenset(command['name'] for command in CATALOG) | DIALOG_FLOWS
 
 
 def clients() -> list[dict]:
@@ -107,3 +110,21 @@ def clients() -> list[dict]:
 def catalog() -> dict:
     """What GET /api/commands serves: the catalog and its clients."""
     return {'commands': CATALOG, 'clients': clients()}
+
+
+def wsl_profiles() -> dict:
+    """What GET /api/wsl serves: ``imprint wsl list --json`` on a Windows
+    runtime, which probes every distribution and so can start stopped ones.
+
+    WSL profiles connect to a Windows installation (ADR 0026); any other
+    runtime answers ``supported: false`` without running the CLI.
+    """
+    if sys.platform != 'win32':
+        return {'supported': False, 'platform': platform.system()}
+    from .queue import find_imprint_binary
+    result = subprocess.run([find_imprint_binary(), 'wsl', 'list', '--json'], capture_output=True,
+                            text=True, encoding='utf-8', errors='replace', timeout=300)
+    if result.returncode != 0:
+        detail = (result.stdout + result.stderr).strip()[-500:]
+        raise RuntimeError(f'imprint wsl list failed (exit {result.returncode}): {detail}')
+    return {'supported': True, **json.loads(result.stdout)}

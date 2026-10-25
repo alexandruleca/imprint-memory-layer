@@ -926,6 +926,20 @@ def api_commands():
         return JSONResponse({"error": f"Could not list clients: {error}"}, status_code=502)
 
 
+@app.get("/api/wsl")
+def api_wsl():
+    """WSL distributions, their client profiles and which are enrolled.
+
+    Probing can start a stopped distribution, so the dashboard asks only when
+    its WSL section is opened or refreshed. Enroll and remove are queued
+    ``wsl`` commands.
+    """
+    try:
+        return commands.wsl_profiles()
+    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as error:
+        return JSONResponse({"error": f"Could not list WSL profiles: {error}"}, status_code=502)
+
+
 @app.post("/api/commands/{command}")
 async def api_run_command(command: str, request: Request):
     """Enqueue a CLI command.

@@ -131,6 +131,7 @@ through the same single-slot queue the dashboard uses.
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/api/wsl` | WSL distributions and, per WSL target, the client's default-user profile and whether it is enrolled (`imprint wsl list --json`). Probing can start stopped distributions. On a runtime that is not Windows: `{"supported": false, "platform"}` without probing. 502 when the CLI fails. |
 | GET | `/api/commands` | The Commands page catalog (`imprint/commands.py`): each command's label, group, fields and confirmation, plus `clients` from `imprint clients --json`. 502 when the CLI cannot list them. |
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
 | GET | `/api/queue` | Active + queued + recent jobs. |
@@ -140,8 +141,9 @@ through the same single-slot queue the dashboard uses.
 
 **Allowlisted commands:** the catalog's (`learn`, `ingest`, `refresh`,
 `ingest-url`, `refresh-urls`, `retag`, `sync`, `connect`, `disconnect`,
-`status`, `doctor`, `config`) plus the workspace dialogs' `wipe`, `migrate`
-and `workspace`. `connect` and `disconnect` take `target` (a client name or
+`status`, `doctor`, `config`) plus the dashboard dialogs' `wipe`, `migrate`,
+`workspace` and `wsl` (Settings → WSL profiles: `action` `setup` or `remove`,
+`distribution`, `target`). `connect` and `disconnect` take `target` (a client name or
 `all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`. Commands that
 install into or stop the running dashboard (`setup`, `enable`, `profile`,
 `disable`, `ui`, `server`, `uninstall`) are refused with 404; see
