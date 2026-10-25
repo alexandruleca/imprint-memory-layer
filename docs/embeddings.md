@@ -52,7 +52,7 @@ Snapshot imports and precomputed sync require matching embedding identity. Legac
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| `model.device` | `cpu` | `auto` and `gpu` remain explicit choices; CUDA requires the GPU runtime profile. |
+| `model.device` | `cpu` | The default int8 model ran faster on CPU than through CUDA (RTX 4080 Laptop: 1.4 s against 2.4 s per 4,000-character exchange). `gpu` and `auto` are explicit choices for fp16 models such as BGE-M3 and need the GPU runtime profile. |
 | `model.batch_size` | `0` | Auto uses 1 on CPU/auto and 4 on explicit GPU; raise after measuring memory. |
 | `model.seq_length` | `2048` | Truncates model input; long documents are chunked beforehand. |
 | `model.threads` | `4` | CPU inference threads. |

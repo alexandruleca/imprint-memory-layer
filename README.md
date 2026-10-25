@@ -37,7 +37,7 @@
 
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
-- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime (GPU or CPU), no network calls, no per-token cost.
+- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime on the CPU (CUDA optional), no network calls, no per-token cost. A GPU speeds up the local LLM through llama.cpp's Vulkan or Metal build.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
 - **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. Local LLM call per chunk if you want it.
