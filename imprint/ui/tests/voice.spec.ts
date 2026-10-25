@@ -206,7 +206,7 @@ test("Echo's look is picked from previews, saved, and loads its own model", asyn
   await prepare(page);
   const state = { value: 'echo', puts: [] as unknown[] };
   const choices = [
-    { value: 'echo', label: 'Echo', detail: 'Brown bob, warm hairband with ribbon bows', unavailable: '' },
+    { value: 'echo', label: 'Echo', detail: 'Holographic core, rings that turn and pulse as it speaks', unavailable: '' },
     { value: 'iris', label: 'Iris', detail: 'Indigo straight cut, pale lavender eyes', unavailable: '' },
     { value: 'kai', label: 'Kai', detail: 'Spiky orange hair, a determined frown', unavailable: '' },
   ];

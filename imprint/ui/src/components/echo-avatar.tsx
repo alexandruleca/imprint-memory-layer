@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { VoicePhase } from "@/lib/voice-client";
 
+// The head's resting turn and gaze limits, in radians. Eyes take their own
+// limits from the model (see below); the head turns for the rest.
+const REST_YAW = -.26, HEAD_YAW = .5, HEAD_PITCH = .28;
+// How far behind the screen, in CSS pixels, the head is taken to be.
+const GAZE_DEPTH = 900;
+const clamp = (value: number, limit: number) => Math.max(-limit, Math.min(limit, value));
+
 /** ``model`` names a bundled look: /models/imprint-<model>.glb. */
 export default function EchoAvatar({ phase, energy, model, compact = false }: {
   phase: VoicePhase; energy: () => number; model: string; compact?: boolean;
@@ -60,12 +67,20 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
       if (!compact) void window.electronAPI?.getCompanionState?.().then(state => { if (state) companionShowing = state.open; });
       const hologramTime = { value: 0 };
       const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-      const pointer = new THREE.Vector2();
-      function move(event: PointerEvent) {
-        const rect = container.getBoundingClientRect();
-        pointer.set(((event.clientX - rect.left) / rect.width - .5) * .22, ((event.clientY - rect.top) / rect.height - .5) * .1);
-      }
-      container.addEventListener("pointermove", move);
+      // Echo looks at the pointer anywhere in the window, or anywhere on screen
+      // in the desktop app. The eyes turn first, the head after them, more slowly.
+      const target = { x: 0, y: 0, seen: false };
+      const look = (x: number, y: number) => { target.x = x; target.y = y; target.seen = true; };
+      const pointer = (event: PointerEvent) => look(event.clientX, event.clientY);
+      const unwatchCursor = window.electronAPI?.watchCursor?.(point => look(point.x, point.y));
+      if (!unwatchCursor) window.addEventListener("pointermove", pointer);
+      const gaze = { headYaw: REST_YAW, headPitch: 0, eyeYaw: 0, eyePitch: 0 };
+      // A look animates through its node extras: "gaze" nodes aim at the pointer
+      // within [yaw, pitch] limits, "spin" nodes turn (radians per second about
+      // x, y, z), faster while Echo is busy, and "pulse" nodes grow with its voice.
+      const eyes: import("three").Object3D[] = [], spinners: import("three").Object3D[] = [], pulses: import("three").Object3D[] = [];
+      let reach = [0, 0];
+      let lastFrame = 0;
       const draw = (now: number) => {
         frame = requestAnimationFrame(draw);
         const phase = current.current.phase;
@@ -74,13 +89,36 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
         if (document.hidden || (hasDrawn && companionShowing && !compact) || now - previous < 1000 / effectiveRate) return;
         previous = now;
         const t = now / 1000;
+        const step = lastFrame ? Math.min(.25, t - lastFrame) : 0;
+        lastFrame = t;
         hologramTime.value = t;
         const active = current.current.phase;
         const level = current.current.energy();
         jaw += (Math.min(1, level * 1.8) - jaw) * .4;
         const blink = reduced.matches ? 0 : Math.max(0, 1 - Math.abs((t % 5.3) - 5.12) / .13);
-        group.rotation.y = reduced.matches ? -.26 : -.26 + Math.sin(t * .26) * .10 + pointer.x;
-        group.rotation.x = reduced.matches ? .01 : Math.sin(t * .35) * .025 + pointer.y;
+        if (target.seen && !reduced.matches) {
+          // The pointer as seen from the head, at a nominal depth behind the screen.
+          const rect = container.getBoundingClientRect();
+          const yaw = Math.atan2(target.x - (rect.left + rect.width / 2), GAZE_DEPTH);
+          const pitch = Math.atan2(target.y - (rect.top + rect.height * .42), GAZE_DEPTH);
+          const ease = (from: number, to: number, seconds: number) => from + (to - from) * (1 - Math.exp(-step / seconds));
+          gaze.headYaw = ease(gaze.headYaw, clamp(yaw * .7, HEAD_YAW), .35);
+          gaze.headPitch = ease(gaze.headPitch, clamp(pitch * .6, HEAD_PITCH), .35);
+          gaze.eyeYaw = ease(gaze.eyeYaw, clamp(yaw - gaze.headYaw, reach[0]), .06);
+          gaze.eyePitch = ease(gaze.eyePitch, clamp(pitch - gaze.headPitch, reach[1]), .06);
+        }
+        group.rotation.y = reduced.matches ? REST_YAW : gaze.headYaw + Math.sin(t * .26) * .05;
+        group.rotation.x = reduced.matches ? .01 : gaze.headPitch + Math.sin(t * .35) * .02;
+        for (const eye of eyes) {
+          const [yawLimit, pitchLimit] = eye.userData.gaze as number[];
+          eye.rotation.set(clamp(gaze.eyePitch, pitchLimit), clamp(gaze.eyeYaw, yawLimit), 0);
+        }
+        const activity = reduced.matches ? 0 : busy ? 2.4 : active === "speaking" ? 1.5 : 1;
+        for (const node of spinners) {
+          const [x, y, z] = node.userData.spin as number[];
+          node.rotation.set(node.rotation.x + x * step * activity, node.rotation.y + y * step * activity, node.rotation.z + z * step * activity);
+        }
+        for (const node of pulses) node.scale.setScalar(1 + jaw * (node.userData.pulse as number));
         group.position.y = reduced.matches ? 0 : Math.sin(t * .75) * .035;
         group.traverse(object => {
           if (object instanceof THREE.Points || object instanceof THREE.Line || object instanceof THREE.Mesh) {
@@ -119,7 +157,7 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
         images.forEach(image => image.close());
       }
       function dispose() {
-        cancelAnimationFrame(frame); unsubscribe?.(); resize.disconnect(); container.removeEventListener("pointermove", move);
+        cancelAnimationFrame(frame); unsubscribe?.(); unwatchCursor?.(); window.removeEventListener("pointermove", pointer); resize.disconnect();
         disposeModel(scene); renderer.dispose(); renderer.domElement.remove();
       }
       release = dispose;
@@ -158,6 +196,12 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
             }
           }
         }
+        loaded.scene.traverse(node => {
+          if (node.userData.gaze) eyes.push(node);
+          if (node.userData.spin) spinners.push(node);
+          if (node.userData.pulse) pulses.push(node);
+        });
+        reach = [0, 1].map(axis => Math.max(0, ...eyes.map(eye => (eye.userData.gaze as number[])[axis])));
         group.add(loaded.scene);
         frame = requestAnimationFrame(draw);
       } catch (error) { dispose(); throw error; }

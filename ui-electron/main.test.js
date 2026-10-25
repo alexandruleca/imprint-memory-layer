@@ -35,6 +35,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       this.webContents.send = () => {};
       this.webContents.setWindowOpenHandler = () => {};
       this.webContents.getURL = () => this.url || '';
+      this.webContents.getZoomFactor = () => 1;
       this.visible = false;
       this.destroyed = false;
       windows.push(this);
@@ -52,6 +53,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     showInactive() { this.visible = true; }
     isVisible() { return this.visible; }
     getBounds() { return this.bounds || { x: this.options.x || 0, y: this.options.y || 0, width: this.options.width, height: this.options.height }; }
+    getContentBounds() { return this.getBounds(); }
     setBounds(bounds) { this.bounds = bounds; }
     setPosition(x, y) { this.bounds = { ...this.getBounds(), x, y }; }
     setAlwaysOnTop(pinned) { this.pinned = pinned; }
@@ -98,6 +100,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       return req;
     },
   };
+  const intervals = new Set();
   const modules = { electron, 'node:path': path, 'node:http': http,
     'node:fs': { readFileSync: () => { if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
     './companion': require('./companion'),
@@ -107,8 +110,9 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     require: name => { assert.ok(name in modules, name); return modules[name]; },
     process: { argv: ['electron', ...packaged ? [] : ['main.js'], '--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'], platform: 'darwin' },
     __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
+    setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
   });
-  return { app, windows, services, calls, ipcMain, shortcuts,
+  return { app, windows, services, calls, ipcMain, shortcuts, intervals, tick: () => intervals.forEach(tick => tick()),
     invoke: (name, window, ...args) => handlers[name]({ sender: window.webContents }, ...args),
     emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
@@ -306,6 +310,25 @@ test('display fitting restores an offscreen avatar and handles a small work area
   assert.deepEqual(fitLauncher({ x: 9999, y: 9999 }, area), { x: -56, y: 564, width: 56, height: 56 });
   const image = { isEmpty: () => false };
   assert.equal(trayImage(image, 'win32'), image); assert.equal(trayImage(image, 'linux'), image);
+});
+
+test('a watching voice page gets the cursor in its own coordinates until it stops or reloads', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  await h.invoke('voice-set-companion', h.windows[1], true);
+  const echo = h.windows[2], sent = [];
+  echo.webContents.send = (name, value) => { if (name === 'voice-cursor') sent.push(value); };
+  echo.setBounds({ x: 1500, y: 300, width: 400, height: 640 });
+  h.emit('voice-cursor-watch', h.windows[1], true);
+  assert.equal(h.intervals.size, 0, 'the dashboard root is not a voice page');
+  h.emit('voice-cursor-watch', echo, true); h.emit('voice-cursor-watch', echo, true);
+  h.tick(); h.tick();
+  assert.deepEqual(sent, [{ x: -700, y: 100 }]);
+  echo.webContents.getZoomFactor = () => 2; echo.setPosition(0, 0);
+  h.tick(); assert.deepEqual(sent.at(-1), { x: 400, y: 200 });
+  h.emit('voice-cursor-watch', echo, false); assert.equal(h.intervals.size, 1);
+  h.emit('voice-cursor-watch', echo, false); assert.equal(h.intervals.size, 0);
+  h.emit('voice-cursor-watch', echo, true); echo.webContents.emit('did-navigate');
+  assert.equal(h.intervals.size, 0);
 });
 
 test('normal open restores the saved monitor; recall moves Echo to the cursor display', async () => {

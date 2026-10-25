@@ -27,6 +27,11 @@ function dragBounds(bounds, start, current) {
   return { ...bounds, x: Math.round(bounds.x + current.x - start.x), y: Math.round(bounds.y + current.y - start.y) };
 }
 
+// A screen point in a window's page coordinates (CSS pixels).
+function clientPoint(cursor, content, zoom) {
+  return { x: (cursor.x - content.x) / zoom, y: (cursor.y - content.y) / zoom };
+}
+
 function trayImage(image, platform) {
   if (image.isEmpty() || platform !== 'darwin') return image;
   const size = image.getSize();
@@ -34,4 +39,4 @@ function trayImage(image, platform) {
     height: Math.max(1, Math.round(size.height * 2 / 3)), quality: 'best' });
 }
 
-module.exports = { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, trayImage };
+module.exports = { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage };

@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('voice-companion-state', listener);
     return () => ipcRenderer.removeListener('voice-companion-state', listener);
   },
+  watchCursor: callback => {
+    const listener = (_event, point) => callback(point);
+    ipcRenderer.on('voice-cursor', listener);
+    ipcRenderer.send('voice-cursor-watch', true);
+    return () => { ipcRenderer.removeListener('voice-cursor', listener); ipcRenderer.send('voice-cursor-watch', false); };
+  },
   startupState: () => ipcRenderer.invoke('startup-state'),
   retryStartup: () => ipcRenderer.send('startup-retry'),
   openStartupLog: () => ipcRenderer.send('startup-log'),

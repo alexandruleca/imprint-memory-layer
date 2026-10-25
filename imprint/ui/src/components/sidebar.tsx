@@ -47,6 +47,7 @@ declare global {
       getCompanionState?: () => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       onCompanionState?: (callback: (state: { open: boolean; pinned: boolean }) => void) => () => void;
+      watchCursor?: (callback: (point: { x: number; y: number }) => void) => () => void;
     };
   }
 }

@@ -66,3 +66,4 @@ Preserve historical reasoning. If an accepted decision changes materially, creat
 | [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Accepted | The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed. |
 | [0050](0050-registered-dashboard-server-and-supervised-restart.md) | Accepted | The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. |
 | [0051](0051-synced-tags-follow-the-latest-retag.md) | Accepted | Each memory carries a tagged_at stamp; sync gives a memory both devices hold the classification that was set last. |
+| [0054](0054-echo-looks-declare-their-motion.md) | Accepted | Looks declare gaze, spin and pulse as glTF node extras; the heads' eyes turn at the source eye bones; Echo is a generated core that follows the pointer across the screen. |

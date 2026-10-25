@@ -1,53 +1,39 @@
-// Rebuild the bundled anime heads. No network or model download occurs at runtime.
-// Every source is a CC0 VRoid beta sample, explicitly confirmed by pixiv's
-// original release page; the build refuses any other license.
+// Rebuild Echo's bundled looks. No network or model download occurs at runtime.
+// Echo's own look, a holographic core, is generated here. The anime heads adapt
+// CC0 VRoid beta samples, explicitly confirmed by pixiv's original release
+// page; the build refuses any other license.
 //   node scripts/build-echo-avatar.mjs [echo|iris|kai] [local.vrm]
-// Without an avatar id it rebuilds all of them from the pinned mirror. The
-// optional local file makes rebuilding independent of the mirror.
+// Without an id it rebuilds every look, fetching head sources from the pinned
+// mirror. The optional local file makes rebuilding a head independent of it.
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import zlib from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const revision = "e16eb187100149a315ad92c3c9968f1d5baa6c7d";
-const SKIN = [0.87, 0.96, 1, 1],
-  LINES = [0.14, 0.12, 0.2, 1];
-// Each avatar is a head cut from one sample and given its own palette.
-// Shared mesh names (Echo_Face, Echo_Hair) are the roles the renderer animates.
+const SKIN = [0.87, 0.96, 1, 1];
+// Each head is cut from one sample and given its own palette. Shared node
+// names (Echo_Face, Echo_Hair, Echo_EyeL/R) are the roles the renderer animates.
+// Every look declares its motion in node extras (see coreLook).
 const AVATARS = {
   echo: {
-    file: "Sendagaya_Shino.vrm",
-    sha256: "1e177c1a7b14f783a9c48395831db8616260d3bddd4154cb2784b779adca49b5",
-    title: "Sendagaya Shino",
     node: "Imprint_Echo",
-    version: 4,
-    artwork: "Echo anime hologram",
-    generator: "Imprint Echo anime-head pipeline v3",
-    // Head center (m) in the source; hair below hairBelow is folded up by
-    // hairFold, here into a shoulder-free bob.
-    center: 1.5,
-    hairBelow: 1.4,
-    hairFold: 0.17,
-    hairTuck: 0,
-    colors: [[/_Hair_00_HAIR_01$/, [0.23, 0.16, 0.13, 1]], [/_Face(Eyeline|Eyelash|Brow)_/, LINES]],
-    // The source's crossed hair clip; Echo wears ribbons instead.
-    drop: /_Hair_00_HAIR_02$/,
-    dropHair: [],
-    iris: null,
-    recolor: [],
-    expression: null,
-    accessories: echoAccessories,
+    version: 5,
+    artwork: "Echo holographic core",
+    generator: "Imprint Echo core generator v1",
+    look: coreLook,
   },
   iris: {
     file: "Victoria_Rubin.vrm",
     sha256: "b1372131bdbf233f46320146d565f342a7e4f6f4b8f2aefb301f1a283ec07e1e",
     title: "Victoria Rubin",
     node: "Imprint_Iris",
-    version: 2,
+    version: 3,
     artwork: "Iris anime hologram",
-    generator: "Imprint Echo anime-head pipeline v3",
+    generator: "Imprint Echo anime-head pipeline v4",
     // Straight-cut bangs stay as modeled; the locks fold just below the jaw.
     center: 1.57,
     hairBelow: 1.44,
@@ -62,16 +48,15 @@ const AVATARS = {
     // Deep indigo hair, bangs included, keeping each strand's sheen.
     recolor: [[/_Hair_00_HAIR_0[12]$/, [0.012, 0.016, 0.06], [0.15, 0.19, 0.46]]],
     expression: null,
-    accessories: () => {},
   },
   kai: {
     file: "HairSample_Male.vrm",
     sha256: "7aeca142dabbc26ba0f5b9c998c8f3cb6df341287d67788427ac837223785a3f",
     title: "HairSample_Male",
     node: "Imprint_Kai",
-    version: 1,
+    version: 2,
     artwork: "Kai anime hologram",
-    generator: "Imprint Echo anime-head pipeline v3",
+    generator: "Imprint Echo anime-head pipeline v4",
     // The spiky short cut stays as modeled.
     center: 1.63,
     hairBelow: null,
@@ -90,51 +75,38 @@ const AVATARS = {
     // A set, determined frown: the source's angry expression on the brows and
     // eyes only (fading in above the mouth), so the mouth stays at rest.
     expression: { preset: "angry", weight: 0.55, above: 1.565, fade: 0.02 },
-    accessories: () => {},
   },
 };
 const wanted = process.argv[2] ? [process.argv[2]] : Object.keys(AVATARS);
 for (const id of wanted) {
   const avatar = AVATARS[id];
   if (!avatar) throw Error(`Unknown avatar ${id}; expected ${Object.keys(AVATARS).join(", ")}`);
-  const url = `https://raw.githubusercontent.com/madjin/vrm-samples/${revision}/vroid/beta/${avatar.file}`;
-  const data = process.argv[3]
-    ? await fs.readFile(process.argv[3])
-    : Buffer.from(await (await fetch(url)).arrayBuffer());
-  await build(id, avatar, data);
+  let glb;
+  if (avatar.look) glb = core(avatar);
+  else {
+    const url = `https://raw.githubusercontent.com/madjin/vrm-samples/${revision}/vroid/beta/${avatar.file}`;
+    const data = process.argv[3]
+      ? await fs.readFile(process.argv[3])
+      : Buffer.from(await (await fetch(url)).arrayBuffer());
+    glb = head(avatar, data);
+  }
+  const dest = path.resolve(here, `../public/models/imprint-${id}.glb`);
+  await fs.writeFile(dest, glb);
+  console.log(`${dest}: ${glb.length} bytes, ${avatar.artwork}`);
 }
 
-async function build(id, avatar, data) {
-if (crypto.createHash("sha256").update(data).digest("hex") !== avatar.sha256)
-  throw Error("Source model checksum mismatch");
-const jsonLength = data.readUInt32LE(12),
-  source = JSON.parse(data.subarray(20, 20 + jsonLength));
-const binary = data.subarray(28 + jsonLength);
-if (source.extensions.VRM.meta.licenseName !== "CC0")
-  throw Error("Expected a CC0 beta model");
+// One glTF document under a named root node, written as a binary GLB.
+function gltf(avatar, copyright, extras) {
 const result = {
-  asset: { version: "2.0", generator: avatar.generator, copyright: `pixiv ${avatar.title}: CC0-1.0; Imprint adaptations: Apache-2.0` },
+  asset: { version: "2.0", generator: avatar.generator, copyright },
   extensionsUsed: ["KHR_materials_unlit"],
   scene: 0,
   scenes: [{ nodes: [0] }],
-  nodes: [
-    {
-      name: avatar.node,
-      children: [],
-      extras: {
-        version: avatar.version,
-        artwork: avatar.artwork,
-        source: `${avatar.title} / pixiv / CC0`,
-        license: "CC0-1.0 source; Apache-2.0 adaptations",
-        morphs: "jawOpen, blink",
-      },
-    },
-  ],
+  nodes: [{ name: avatar.node, children: [], extras: { version: avatar.version, artwork: avatar.artwork, ...extras } }],
   meshes: [],
   materials: [],
   textures: [],
   images: [],
-  samplers: source.samplers,
   accessors: [],
   bufferViews: [],
   buffers: [],
@@ -178,6 +150,40 @@ function accessor(values, size = 3, type = 5126) {
   result.accessors.push(a);
   return result.accessors.length - 1;
 }
+function glb() {
+  result.buffers = [{ byteLength: offset }];
+  const body = Buffer.concat(chunks);
+  const json = Buffer.from(JSON.stringify(result));
+  const padded = Buffer.alloc((json.length + 3) & ~3, 32);
+  json.copy(padded);
+  const header = Buffer.alloc(20);
+  header.write("glTF");
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(28 + padded.length + body.length, 8);
+  header.writeUInt32LE(padded.length, 12);
+  header.write("JSON", 16);
+  const bh = Buffer.alloc(8);
+  bh.writeUInt32LE(body.length);
+  bh.write("BIN\0", 4);
+  return Buffer.concat([header, padded, bh, body]);
+}
+return { result, view, accessor, glb };
+}
+
+function head(avatar, data) {
+if (crypto.createHash("sha256").update(data).digest("hex") !== avatar.sha256)
+  throw Error("Source model checksum mismatch");
+const jsonLength = data.readUInt32LE(12),
+  source = JSON.parse(data.subarray(20, 20 + jsonLength));
+const binary = data.subarray(28 + jsonLength);
+if (source.extensions.VRM.meta.licenseName !== "CC0")
+  throw Error("Expected a CC0 beta model");
+const { result, view, accessor, glb } = gltf(avatar, `pixiv ${avatar.title}: CC0-1.0; Imprint adaptations: Apache-2.0`, {
+  source: `${avatar.title} / pixiv / CC0`,
+  license: "CC0-1.0 source; Apache-2.0 adaptations",
+  morphs: "jawOpen, blink",
+});
+result.samplers = source.samplers;
 const sizes = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
 function read(id) {
   const a = source.accessors[id],
@@ -254,21 +260,23 @@ function material(id) {
   materialMap.set(id, i);
   return i;
 }
-const transformed = new Map();
+const transformed = new Map(),
+  stored = new Map();
+// Source attribute values in the output's space, read once per accessor.
+function values(id, kind, hair = false) {
+  const key = `${id}:${kind}:${hair}`;
+  if (!transformed.has(key)) {
+    const raw = read(id);
+    transformed.set(key, kind === "uv" ? raw
+      : kind === "normal" ? raw.map((v, i) => (i % 3 === 1 ? v : -v))
+        : position(raw, hair, kind === "delta"));
+  }
+  return transformed.get(key);
+}
 function attribute(id, kind, hair = false) {
   const key = `${id}:${kind}:${hair}`;
-  if (transformed.has(key)) return transformed.get(key);
-  const values = read(id);
-  const out = accessor(
-    kind === "uv"
-      ? values
-      : kind === "normal"
-        ? values.map((v, i) => (i % 3 === 1 ? v : -v))
-        : position(values, hair, kind === "delta"),
-    kind === "uv" ? 2 : 3,
-  );
-  transformed.set(key, out);
-  return out;
+  if (!stored.has(key)) stored.set(key, accessor(values(id, kind, hair), kind === "uv" ? 2 : 3));
+  return stored.get(key);
 }
 const scale = 7.8;
 // VRM 0.x faces -Z. Bake its bind pose into ordinary glTF, keeping only the head.
@@ -295,27 +303,97 @@ function bake(base, delta) {
     return v + baked.weight * mask * delta[i];
   });
 }
+// A face primitive's positions, with any resting expression baked in.
+const bakedKey = (p) => `${p.attributes.POSITION}:${p.targets[baked.target].POSITION}:baked`;
+function facePositions(p) {
+  if (!baked) return values(p.attributes.POSITION, "position");
+  if (!transformed.has(bakedKey(p)))
+    transformed.set(bakedKey(p), position(bake(read(p.attributes.POSITION), read(p.targets[baked.target].POSITION))));
+  return transformed.get(bakedKey(p));
+}
+function facePosition(p) {
+  if (!baked) return attribute(p.attributes.POSITION, "position");
+  if (!stored.has(bakedKey(p))) stored.set(bakedKey(p), accessor(facePositions(p)));
+  return stored.get(bakedKey(p));
+}
+// The eyes turn as the source turns them: triangles bound to the humanoid
+// leftEye/rightEye bones become their own nodes, pivoting where those bones
+// sit (VRM 0.x bind poses carry translations only), for the renderer to aim.
+const bones = Object.fromEntries(source.extensions.VRM.humanoid.humanBones.map((b) => [b.bone, b.node]));
+const parents = new Map();
+source.nodes.forEach((n, i) => (n.children || []).forEach((child) => parents.set(child, i)));
+function bindPosition(node) {
+  const at = [0, 0, 0];
+  for (let n = node; n !== undefined; n = parents.get(n))
+    (source.nodes[n].translation || [0, 0, 0]).forEach((v, k) => (at[k] += v));
+  return at;
+}
+const faceSkin = source.skins[source.nodes.find((n) => n.mesh === 0).skin];
+const eyes = [["Echo_EyeL", bones.leftEye], ["Echo_EyeR", bones.rightEye]].map(([name, node]) =>
+  ({ name, joint: faceSkin.joints.indexOf(node), pivot: position(bindPosition(node)), primitives: [] }));
+// The look-at range the source declares (degrees at full deflection) bounds the eyes.
+const lookAt = source.extensions.VRM.firstPerson;
+const gaze = [lookAt.lookAtHorizontalOuter.yRange, lookAt.lookAtVerticalUp.yRange].map((degrees) => (degrees * Math.PI) / 180);
+const faceTargets = (p) => morphs.map((index) => p.targets[index].POSITION);
+function boundJoint(p) {
+  const joints = read(p.attributes.JOINTS_0),
+    weights = read(p.attributes.WEIGHTS_0);
+  return (v) => {
+    let best = 0;
+    for (let k = 1; k < 4; k++) if (weights[v * 4 + k] > weights[v * 4 + best]) best = k;
+    return joints[v * 4 + best];
+  };
+}
+// An eye's own vertices, relative to its pivot, with the face's morph targets.
+function eyePrimitive(p, eye, triangles) {
+  const order = new Map();
+  for (const v of triangles) if (!order.has(v)) order.set(v, order.size);
+  const pick = (all, size, shift) =>
+    [...order.keys()].flatMap((v) => all.slice(v * size, v * size + size).map((x, k) => x - (shift ? eye.pivot[k] : 0)));
+  return {
+    attributes: {
+      POSITION: accessor(pick(facePositions(p), 3, true)),
+      NORMAL: accessor(pick(values(p.attributes.NORMAL, "normal"), 3, false)),
+      TEXCOORD_0: accessor(pick(values(p.attributes.TEXCOORD_0, "uv"), 2, false), 2),
+    },
+    indices: accessor(triangles.map((v) => order.get(v)), 1, 5125),
+    material: material(p.material),
+    targets: faceTargets(p).map((id) => ({ POSITION: accessor(pick(values(id, "delta"), 3, false)) })),
+  };
+}
+const faceMorphs = { weights: [0, 0], extras: { targetNames: ["jawOpen", "blink"] } };
 for (const mi of [0, 2]) {
   const s = source.meshes[mi],
     primitives = [];
   for (const [index, p] of s.primitives.entries()) {
     if (avatar.drop?.test(source.materials[p.material].name)) continue;
     if (mi === 2 && avatar.dropHair.includes(index)) continue;
+    let indices = read(p.indices);
+    if (mi === 0) {
+      const joint = boundJoint(p),
+        rest = [];
+      for (let t = 0; t < indices.length; t += 3) {
+        const triangle = indices.slice(t, t + 3),
+          eye = eyes.find((e) => triangle.every((v) => joint(v) === e.joint));
+        (eye ? eye.triangles ??= [] : rest).push(...triangle);
+      }
+      for (const eye of eyes) if (eye.triangles) eye.primitives.push(eyePrimitive(p, eye, eye.triangles));
+      eyes.forEach((eye) => delete eye.triangles);
+      if (!rest.length) continue;
+      indices = rest;
+    }
     const attributes = {
-      POSITION: mi === 0 && baked ? accessor(position(bake(read(p.attributes.POSITION), read(p.targets[baked.target].POSITION))))
-        : attribute(p.attributes.POSITION, "position", mi === 2),
+      POSITION: mi === 0 ? facePosition(p) : attribute(p.attributes.POSITION, "position", true),
       NORMAL: attribute(p.attributes.NORMAL, "normal"),
       TEXCOORD_0: attribute(p.attributes.TEXCOORD_0, "uv"),
     };
     const targets =
       mi === 0
-        ? morphs.map((index) => ({
-            POSITION: attribute(p.targets[index].POSITION, "delta"),
-          }))
+        ? faceTargets(p).map((id) => ({ POSITION: attribute(id, "delta") }))
         : undefined;
     primitives.push({
       attributes,
-      indices: accessor(read(p.indices), 1, 5125),
+      indices: accessor(indices, 1, 5125),
       material: material(p.material),
       ...(targets ? { targets } : {}),
     });
@@ -324,63 +402,92 @@ for (const mi of [0, 2]) {
     result.meshes.push({
       name: mi === 0 ? "Echo_Face" : "Echo_Hair",
       primitives,
-      ...(mi === 0
-        ? { weights: [0, 0], extras: { targetNames: ["jawOpen", "blink"] } }
-        : {}),
+      ...(mi === 0 ? faceMorphs : {}),
     }) - 1;
   result.nodes[0].children.push(result.nodes.length);
   result.nodes.push({ name: mi === 0 ? "Echo_Face" : "Echo_Hair", mesh });
 }
-function addGeometry(name, g, color) {
-  const mesh = result.meshes.length;
-  const mat =
-    result.materials.push({
+for (const eye of eyes) {
+  if (!eye.primitives.length) continue;
+  const mesh = result.meshes.push({ name: eye.name, primitives: eye.primitives, ...faceMorphs }) - 1;
+  result.nodes[0].children.push(result.nodes.length);
+  result.nodes.push({ name: eye.name, mesh, translation: eye.pivot, extras: { gaze } });
+}
+return glb();
+}
+
+// Echo's own look: a holographic core in the screen plane. Its motion is data
+// on the nodes, for the renderer: "spin" turns a node (radians per second about
+// x, y, z), "pulse" grows it with Echo's voice and "gaze" aims it at the pointer
+// within yaw and pitch limits (radians).
+function coreLook(add) {
+  const DEG = Math.PI / 180,
+    color = (hex, alpha) => [...new THREE.Color(hex).toArray(), alpha];
+  const line = color("#0b79ad", 0.9),
+    arc = color("#1ea6e3", 0.88),
+    glow = color("#6fd3ff", 0.92);
+  const ring = (radius, width, from, to) =>
+    new THREE.RingGeometry(radius - width / 2, radius + width / 2, Math.max(4, Math.round(((to - from) / 360) * 160)), 1, from * DEG, (to - from) * DEG);
+  const arcs = (radius, width, spans) => mergeGeometries(spans.map(([from, to]) => ring(radius, width, from, to)));
+  const ticks = mergeGeometries(
+    Array.from({ length: 120 }, (_, i) => {
+      const length = i % 10 ? 0.04 : 0.09,
+        tick = new THREE.PlaneGeometry(0.008, length);
+      tick.translate(0, 1.3 - length / 2, 0);
+      return tick.rotateZ(i * 3 * DEG);
+    }),
+  );
+  add("Echo_Ticks", ticks, line, { spin: [0, 0, 0.04] });
+  add("Echo_RingOuter", arcs(1.17, 0.03, [[8, 64], [80, 150], [166, 250], [262, 300], [312, 352]]), arc, { spin: [0, 0, -0.12] });
+  add("Echo_Circle", ring(1.05, 0.008, 0, 360), line);
+  add("Echo_RingDash", arcs(0.93, 0.06, Array.from({ length: 36 }, (_, i) => [i * 10, i * 10 + 6])), arc, { spin: [0, 0, 0.25] });
+  add("Echo_RingInner", arcs(0.78, 0.018, [[0, 100], [120, 220], [240, 340]]), glow, { spin: [0, 0, -0.4], pulse: 0.06 });
+  // Two orbits, tilted back and then turned apart about the view axis: open
+  // arcs that each carry a bead, giving depth as Echo turns.
+  for (const [name, tilt, speed] of [["Echo_OrbitA", [64, 0, 28], 0.7], ["Echo_OrbitB", [64, 0, -38], -0.5]]) {
+    const bead = new THREE.SphereGeometry(0.03, 12, 8).translate(0.6, 0, 0);
+    add(name, mergeGeometries([new THREE.TorusGeometry(0.6, 0.006, 6, 96, 300 * DEG), bead]), arc,
+      { spin: [0, 0, speed] }, new THREE.Quaternion().setFromEuler(new THREE.Euler(...tilt.map((d) => d * DEG), "ZXY")).toArray());
+  }
+  add("Echo_Core", new THREE.IcosahedronGeometry(0.34, 3), color("#1490d0", 0.35), { pulse: 0.14 });
+  add("Echo_Shell", new THREE.IcosahedronGeometry(0.42, 1), color("#7fd8ff", 0.14), { spin: [0.05, 0.11, 0] });
+  // The lens rests on the core's face; its node pivots at the core's center.
+  const lens = mergeGeometries([new THREE.CircleGeometry(0.1, 32), ring(0.14, 0.02, 0, 360)]).translate(0, 0, 0.36);
+  add("Echo_Eye", lens, glow, { gaze: [0.5, 0.4] });
+}
+
+function core(avatar) {
+  const { result, accessor, glb } = gltf(avatar, "Imprint: Apache-2.0", { license: "Apache-2.0" });
+  // A mesh node; with a tilt (a quaternion) it hangs under a tilted parent, so
+  // its own spin turns it within the tilted plane.
+  avatar.look((name, geometry, color, extras = {}, tilt = null) => {
+    const material = result.materials.push({
       name,
-      pbrMetallicRoughness: {
-        baseColorFactor: color,
-        metallicFactor: 0,
-        roughnessFactor: 1,
-      },
+      pbrMetallicRoughness: { baseColorFactor: color, metallicFactor: 0, roughnessFactor: 1 },
+      alphaMode: "BLEND",
+      doubleSided: true,
       extensions: { KHR_materials_unlit: {} },
     }) - 1;
-  result.meshes.push({
-    name,
-    primitives: [
-      {
+    const mesh = result.meshes.push({
+      name,
+      primitives: [{
         attributes: {
-          POSITION: accessor(Array.from(g.attributes.position.array)),
-          NORMAL: accessor(Array.from(g.attributes.normal.array)),
+          POSITION: accessor(Array.from(geometry.attributes.position.array)),
+          NORMAL: accessor(Array.from(geometry.attributes.normal.array)),
         },
-        ...(g.index
-          ? { indices: accessor(Array.from(g.index.array), 1, 5125) }
-          : {}),
-        material: mat,
-      },
-    ],
+        ...(geometry.index ? { indices: accessor(Array.from(geometry.index.array), 1, 5125) } : {}),
+        material,
+      }],
+    }) - 1;
+    let parent = result.nodes[0];
+    if (tilt) {
+      parent.children.push(result.nodes.length);
+      parent = result.nodes[result.nodes.push({ name: `${name}Tilt`, rotation: tilt, children: [] }) - 1];
+    }
+    parent.children.push(result.nodes.length);
+    result.nodes.push({ name, mesh, ...(Object.keys(extras).length ? { extras } : {}) });
   });
-  result.nodes[0].children.push(result.nodes.length);
-  result.nodes.push({ name, mesh });
-}
-avatar.accessories(addGeometry);
-result.buffers = [{ byteLength: offset }];
-const body = Buffer.concat(chunks);
-const json = Buffer.from(JSON.stringify(result));
-const padded = Buffer.alloc((json.length + 3) & ~3, 32);
-json.copy(padded);
-const head = Buffer.alloc(20);
-head.write("glTF");
-head.writeUInt32LE(2, 4);
-head.writeUInt32LE(28 + padded.length + body.length, 8);
-head.writeUInt32LE(padded.length, 12);
-head.write("JSON", 16);
-const bh = Buffer.alloc(8);
-bh.writeUInt32LE(body.length);
-bh.write("BIN\0", 4);
-const dest = path.resolve(here, `../public/models/imprint-${id}.glb`);
-await fs.writeFile(dest, Buffer.concat([head, padded, bh, body]));
-console.log(
-  `${dest}: ${body.length} bytes, modeled anime face with jaw/blink morphs`,
-);
+  return glb();
 }
 
 // A pale, pupil-less iris sheet: lavender that deepens toward a thin ring,
@@ -500,50 +607,4 @@ function crc32(bytes) {
     for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
   }
   return ~crc >>> 0;
-}
-
-// A warm hairband hugging the hair, tied off with a ribbon bow above each ear.
-function echoAccessories(addGeometry) {
-  const rx = 0.97,
-    ry = 0.99,
-    lift = 0.16,
-    depth = -0.06,
-    end = 0.5; // the band stops at the bows, above the ears
-  const curve = new THREE.CatmullRomCurve3(
-    Array.from({ length: 31 }, (_, i) => {
-      const a = end + ((Math.PI - 2 * end) * i) / 30;
-      return new THREE.Vector3(-rx * Math.cos(a), lift + ry * Math.sin(a), depth);
-    }),
-  );
-  const band = [1, 0.8, 0.22, 1];
-  addGeometry("Echo_Headband", new THREE.TubeGeometry(curve, 72, 0.03, 8, false), band);
-  for (const [side, name] of [[-1, "Right"], [1, "Left"]]) {
-    const a = side < 0 ? end : Math.PI - end,
-      out = side < 0 ? -1 : 1,
-      at = new THREE.Vector3(-rx * Math.cos(a) + out * 0.05, lift + ry * Math.sin(a), depth);
-    const place = (g) => {
-      g.rotateZ(out * 0.4);
-      g.translate(at.x, at.y, at.z);
-      return g;
-    };
-    // Two soft fabric wings swept forward and back, a knot, two tails.
-    for (const [z, sweep] of [[1, 0.42], [-1, -0.36]]) {
-      const wing = new THREE.SphereGeometry(1, 20, 14);
-      wing.scale(0.03, 0.085, 0.17);
-      wing.translate(0, 0, 0.14);
-      wing.rotateX(-sweep);
-      if (z < 0) wing.rotateY(Math.PI);
-      addGeometry(`Echo_Ribbon${name}Wing${z > 0 ? "Front" : "Back"}`, place(wing), band);
-    }
-    const knot = new THREE.SphereGeometry(0.055, 16, 12);
-    knot.scale(0.8, 1, 1.1);
-    addGeometry(`Echo_Ribbon${name}Knot`, place(knot), band);
-    for (const [z, swing] of [[0.04, 0.45], [-0.05, -0.35]]) {
-      const tail = new THREE.BoxGeometry(0.016, 0.24, 0.07);
-      tail.translate(0, -0.13, 0);
-      tail.rotateX(swing);
-      tail.translate(0, -0.02, z);
-      addGeometry(`Echo_Ribbon${name}Tail${z > 0 ? "Front" : "Back"}`, place(tail), band);
-    }
-  }
 }

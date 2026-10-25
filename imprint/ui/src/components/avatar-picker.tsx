@@ -13,7 +13,7 @@ export function AvatarPicker({ choices, value, onChange, compact = false }: {
     {choices.map((choice) => {
       const id = String(choice.value);
       return <ToggleGroupItem key={id} value={id} className="echo-avatar-option" aria-label={`${choice.label}: ${choice.detail}`}>
-        <img src={`/models/imprint-${id}.jpg`} alt="" width={compact ? 52 : 84} height={compact ? 52 : 84}/>
+        <img src={`/models/imprint-${id}.png`} alt="" width={compact ? 52 : 84} height={compact ? 52 : 84}/>
         <span><b>{choice.label}</b>{!compact && <small>{choice.detail}</small>}</span>
       </ToggleGroupItem>;
     })}

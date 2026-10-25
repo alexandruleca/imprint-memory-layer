@@ -219,8 +219,9 @@ Echo has three looks. Choose one during first-time setup, under **Echo's look**
 on the Voice page or as `voice.avatar` in Settings, and change it anytime; the
 companion uses it the next time it opens.
 
-- **Echo** ([glTF head](../imprint/ui/public/models/imprint-echo.glb)): a head-only adaptation of pixiv’s CC0 beta
-  **Sendagaya Shino** model, with shortened rear hair, the source hair clip removed and a warm hairband with modeled ribbon bows.
+- **Echo** ([glTF model](../imprint/ui/public/models/imprint-echo.glb)), the default: an original holographic core.
+  Segmented rings turn at their own speeds, faster while Echo thinks; the core swells as it speaks; and a lens on the
+  core's face follows the pointer.
 - **Iris** ([glTF head](../imprint/ui/public/models/imprint-iris.glb)): a head-only adaptation of the CC0 beta
   **Victoria Rubin** model, with straight-cut bangs, indigo locks folded at the jaw, its ribbon and side tail removed,
   and a generated pale lavender iris without pupils.
@@ -228,17 +229,23 @@ companion uses it the next time it opens.
   **HairSample_Male** model, with its spiky hair and eyes recolored orange and warm brown and its angry
   expression partly applied to the brows and eyes.
 
-The renderer uses a locally bundled Three.js module. Every head keeps modeled eyes/eyelids/lips and
+Echo looks at the pointer anywhere in the window, and anywhere on screen in the desktop app. Its eyes
+turn first and its head follows more slowly. Each look declares this motion in its glTF node extras:
+`gaze` nodes aim at the pointer within yaw and pitch limits, `spin` nodes turn, and `pulse` nodes grow
+with Echo's voice. The heads' eyes turn where the source models' eye bones turn them, within the
+look-at range those models declare.
+
+The renderer uses a locally bundled Three.js module. Both heads keep modeled eyes/eyelids/lips and
 `jawOpen`/`blink` expressions, and get a cool holographic surface and fine connected wire
-contours on the skin and every hair layer. They replace the earlier procedural particle template. The user’s Haruhi, Hinata and Ichigo
+contours on the skin and every hair layer. The user’s Hinata and Ichigo
 references guide the anime direction; these are credited sample adaptations, not original sculpts
 or licensed character models. Source checksums, the publisher’s CC0
 release and attribution accompany the models. Rebuild with
 `node imprint/ui/scripts/build-echo-avatar.mjs [echo|iris|kai] [path/to/pinned-source.vrm]`;
-without arguments it rebuilds all three.
+without arguments it rebuilds all three. Echo's core is generated and needs no source.
 The authoring command may fetch the pinned source; the app loads only local files.
 No camera, face tracking, external avatar service or NVIDIA Audio2Face is needed.
-[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls.
+[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls; [ADR 0054](adr/0054-echo-looks-declare-their-motion.md) the looks' motion and pointer follow.
 
 Closing or minimizing the dashboard hides it to the tray and leaves a small
 transparent floating Imprint icon. Drag it anywhere, click it to restore the

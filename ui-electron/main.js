@@ -7,7 +7,7 @@ const http = require('node:http');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
 const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent } = require('./voice-permissions');
-const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, trayImage } = require('./companion');
+const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage } = require('./companion');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -402,6 +402,41 @@ ipcMain.on('voice-pin-companion', (event, pinned) => {
   if (typeof pinned === 'boolean' && companionWin?.webContents === event.sender && trustedVoiceSender(event)) {
     companionWin.setAlwaysOnTop(pinned); notifyCompanion();
   }
+});
+// Echo looks toward the pointer anywhere on screen. While a voice page watches,
+// the cursor is sent in that page's coordinates whenever it moves relative to it.
+const cursorWatchers = new Map();
+let cursorTimer = null;
+function sendCursor() {
+  const cursor = screen.getCursorScreenPoint();
+  for (const [contents, watch] of cursorWatchers) {
+    const window = BrowserWindow.fromWebContents(contents);
+    if (!window || window.isDestroyed() || !window.isVisible()) continue;
+    const at = clientPoint(cursor, window.getContentBounds(), contents.getZoomFactor());
+    if (watch.last?.x === at.x && watch.last?.y === at.y) continue;
+    watch.last = at;
+    contents.send('voice-cursor', at);
+  }
+}
+function unwatchCursor(contents) {
+  const watch = cursorWatchers.get(contents);
+  if (!watch) return;
+  contents.removeListener('destroyed', watch.end);
+  contents.removeListener('did-navigate', watch.end);
+  cursorWatchers.delete(contents);
+  if (!cursorWatchers.size) { clearInterval(cursorTimer); cursorTimer = null; }
+}
+ipcMain.on('voice-cursor-watch', (event, watching) => {
+  if (typeof watching !== 'boolean' || !trustedVoiceSender(event)) return;
+  const contents = event.sender, watch = cursorWatchers.get(contents);
+  if (!watching) { if (watch && --watch.count === 0) unwatchCursor(contents); return; }
+  if (watch) { watch.count++; return; }
+  // A page that reloads or closes stops watching without saying so.
+  const end = () => unwatchCursor(contents);
+  cursorWatchers.set(contents, { count: 1, last: null, end });
+  contents.once('destroyed', end);
+  contents.once('did-navigate', end);
+  cursorTimer ??= setInterval(sendCursor, 33);
 });
 ipcMain.on('app-quit', event => { if (appWindow(event)) app.quit(); });
 ipcMain.on('win-minimize', event => {
