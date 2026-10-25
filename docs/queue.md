@@ -61,16 +61,35 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 | `GET` | `/api/jobs/{id}` | — | Full row, with progress when running |
 | `GET` | `/api/jobs/{id}/stream` | — | SSE — replays the stored log then tails new lines; emits a final `{type:"done", exit_code, status}` |
 | `POST` | `/api/jobs/{id}/cancel` | — | `{ok, was_running}`. Queued → marked `cancelled`; running → SIGTERM → SIGKILL (3 s) |
+| `GET` | `/api/commands` | — | `{commands, clients}`: the Commands page catalog and the CLI's clients (see below); 502 when `imprint clients` fails |
 
 ### Allowed commands
 
-`ingest`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `wipe`, `migrate`, `sync`, `config`, `workspace`, `status` — same set the CLI accepts via `imprint <command>`.
+[`imprint/commands.py`](../imprint/commands.py) holds the catalog the Commands page renders: each command's label, description, group, fields (`path`, `text`, `switch`, `project`, `client`) and, for a command that removes something, the confirmation the page asks first. `POST /api/commands/{command}` accepts the catalog's commands plus `wipe`, `migrate` and `workspace`, which the workspace dialogs queue. [`queue.build_command_args`](../imprint/queue.py) maps each field to the CLI's arguments; a test checks that every catalog field reaches them. A `client` field offers the clients `imprint clients --json` reports, from the CLI's client table, with whether each is connected.
+
+| Group | Commands |
+|---|---|
+| Index | `learn` (`desktop`), `ingest`, `refresh`, `ingest-url`, `refresh-urls` |
+| Maintain | `retag`, `sync` (export) |
+| Clients | `connect` (Connect clients), `disconnect` (Disconnect clients, confirmed first), both with `target`: a client or `all` |
+| Inspect | `status`, `doctor` (`probe_mcp`), `config` |
+
+**Safe to run from the dashboard.** A job runs under the dashboard server, from the runtime it serves, so the catalog leaves out commands that would change either one ([ADR 0053](adr/0053-connect-clients-without-touching-the-runtime.md)):
+
+- `connect` registers the installed runtime with clients and installs and starts nothing.
+- `disconnect` only unregisters clients, and the dashboard and Qdrant keep running.
+- `setup`, `enable`, `bootstrap` and `profile` install dependencies into the venv the server has loaded; on Windows its DLLs cannot be replaced while it runs. Not offered.
+- `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself. Not offered.
+- `wsl` bridges need a Windows profile choice and are not offered yet.
+- Workspaces, purge, move, sync pairing and updates have their own dashboard flows.
+
+**Non-interactive.** Jobs have no terminal: the dispatcher gives each one the null device as standard input, so a prompt reads end-of-file instead of waiting. Commands that would ask (wipe) are sent with their confirmation flag by the dialog that asked the user.
 
 ## UI
 
 - **`/queue`** — active job card (with live progress bar + cancel), queued list (cancel removes the row), recent history (exit code, duration, expandable log viewer).
 - **Dashboard sidebar** — [`IngestionProgress`](../imprint/ui/src/components/ingestion-progress.tsx) now shows the active card plus a compact queued list with per-row cancel X.
-- **`QuickIngest` / `CommandsPage`** — continue to use `streamCommand()` from [`lib/api.ts`](../imprint/ui/src/lib/api.ts). The helper now enqueues first, then SSE-tails `/api/jobs/{id}/stream`. `AbortController.abort()` cancels the job server-side (not just the fetch).
+- **`QuickIngest` / `CommandsPage`** — the Commands page loads its commands from `GET /api/commands` and reloads them when a job finishes, so client connection states stay current. Both continue to use `streamCommand()` from [`lib/api.ts`](../imprint/ui/src/lib/api.ts). The helper now enqueues first, then SSE-tails `/api/jobs/{id}/stream`. `AbortController.abort()` cancels the job server-side (not just the fetch).
 
 ## Verification
 

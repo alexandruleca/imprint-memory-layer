@@ -37,6 +37,7 @@ from . import vectorstore as vs
 from . import imprint_graph as kg
 from . import chat as chat_mod
 from . import chat_store
+from . import commands
 from . import queue as job_queue
 from . import updates
 from .http_security import local_origin, local_host, loopback_address
@@ -912,11 +913,17 @@ def _reset_after_wipe():
     reset_cache()
 
 
-# Allowed commands — just run the `imprint` binary directly.
-_ALLOWED_COMMANDS = {
-    "status", "ingest", "ingest-url", "refresh", "refresh-urls", "retag",
-    "learn", "config", "wipe", "sync", "migrate", "workspace",
-}
+@app.get("/api/commands")
+def api_commands():
+    """The Commands page's catalog and the clients its client fields offer.
+
+    The clients come from ``imprint clients --json``; when the CLI cannot
+    run, no queued command could either, so the failure is the answer.
+    """
+    try:
+        return commands.catalog()
+    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as error:
+        return JSONResponse({"error": f"Could not list clients: {error}"}, status_code=502)
 
 
 @app.post("/api/commands/{command}")
@@ -936,7 +943,7 @@ async def api_run_command(command: str, request: Request):
         except Exception:
             pass
 
-    if command not in _ALLOWED_COMMANDS:
+    if command not in commands.ALLOWED:
         return JSONResponse({"error": f"unknown command '{command}'"}, status_code=404)
 
     try:

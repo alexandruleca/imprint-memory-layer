@@ -131,15 +131,21 @@ through the same single-slot queue the dashboard uses.
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/api/commands` | The Commands page catalog (`imprint/commands.py`): each command's label, group, fields and confirmation, plus `clients` from `imprint clients --json`. 502 when the CLI cannot list them. |
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
 | GET | `/api/queue` | Active + queued + recent jobs. |
 | GET | `/api/jobs/{id}` | Job status + exit code. |
 | GET | `/api/jobs/{id}/stream` | SSE stream of live stdout/stderr. |
 | POST | `/api/jobs/{id}/cancel` | SIGTERM the job (SIGKILL after 3 s). |
 
-**Allowlisted commands:** `status`, `ingest`, `ingest-url`, `refresh`,
-`refresh-urls`, `retag`, `learn`, `config`, `wipe`, `sync`, `migrate`,
-`workspace`.
+**Allowlisted commands:** the catalog's (`learn`, `ingest`, `refresh`,
+`ingest-url`, `refresh-urls`, `retag`, `sync`, `connect`, `disconnect`,
+`status`, `doctor`, `config`) plus the workspace dialogs' `wipe`, `migrate`
+and `workspace`. `connect` and `disconnect` take `target` (a client name or
+`all`); `doctor` takes `probe_mcp`; `learn` takes `desktop`. Commands that
+install into or stop the running dashboard (`setup`, `enable`, `profile`,
+`disable`, `ui`, `server`, `uninstall`) are refused with 404; see
+[queue](queue.md#allowed-commands).
 
 `migrate` takes `from`, `to`, one of `project` / `topic` / `source`, and the
 booleans `copy` (keep the source's memories; `--copy`) and `dry_run`.

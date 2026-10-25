@@ -467,8 +467,11 @@ async def _run_job(job: dict) -> None:
         # locale (cp1252 on Windows) failed on the first "═" of a header.
         env["PYTHONUTF8"] = "1"
 
+        # A job has no terminal: a prompt reads end-of-file instead of
+        # waiting for an answer nobody can give.
         proc = subprocess.Popen(
             argv,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             encoding="utf-8",
@@ -652,6 +655,15 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.append("--no-follow")
         if body.get("follow_depth") is not None:
             args.extend(["--follow-depth", str(int(body["follow_depth"]))])
+    elif command == "learn":
+        if body.get("desktop"):
+            args.append("--desktop")
+    elif command in ("connect", "disconnect"):
+        if body.get("target"):
+            args.append(body["target"])
+    elif command == "doctor":
+        if body.get("probe_mcp"):
+            args.append("--probe-mcp")
     elif command == "retag":
         if body.get("project"):
             args.extend(["--project", body["project"]])
