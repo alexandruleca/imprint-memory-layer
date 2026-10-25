@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import tempfile
+import time
 from pathlib import Path
 
 from . import model_profiles as profiles
@@ -120,13 +121,29 @@ def fit_messages(llm, messages: list[dict], max_tokens: int) -> list[dict]:
             raise ValueError("Local helper context exceeded; shorten the input or increase the configured context")
 
 
-def complete(llm, full_input: str, max_tokens: int = 512, schema: dict | None = None) -> str:
+def _before(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("local model time limit reached")
+
+
+def complete(llm, full_input: str, max_tokens: int = 512, schema: dict | None = None,
+             deadline: float | None = None) -> str:
     """One bounded chat turn. A schema constrains the output with a grammar;
-    without one the caller validates the text."""
+    without one the caller validates the text. A ``time.monotonic()`` deadline
+    raises TimeoutError instead of starting after it, or of generating past it.
+    Prompt processing itself is not interruptible."""
     with INFERENCE_LOCK:
+        _before(deadline)
         messages = fit_messages(llm, [{"role": "user", "content": full_input}], max_tokens)
         constraint = {"response_format": {"type": "json_object", "schema": schema}} if schema else {}
-        response = llm.create_chat_completion(
-            messages=messages, max_tokens=max_tokens, temperature=0.1, **constraint,
+        stream = llm.create_chat_completion(
+            messages=messages, max_tokens=max_tokens, temperature=0.1, stream=True, **constraint,
         )
-        return response["choices"][0]["message"].get("content") or ""
+        parts = []
+        try:
+            for chunk in stream:
+                _before(deadline)
+                parts.append(chunk["choices"][0]["delta"].get("content") or "")
+        finally:
+            stream.close()
+        return "".join(parts)
