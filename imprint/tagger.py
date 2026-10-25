@@ -1,29 +1,28 @@
 """Metadata tag derivation for chunks.
 
-Five layered sources, ordered from cheap+reliable to rich+expensive:
+Four layered sources, ordered from cheap+reliable to rich+expensive:
 
   1. derive_deterministic(rel_path) → {lang, layer, kind} from file metadata.
   2. derive_keywords(content)       → domain:[...] via hand-rolled keyword dict.
   3. derive_zero_shot(vector)       → topics:[...] by cosine against label
                                        prototypes (on by default; opt-out via
                                        IMPRINT_ZERO_SHOT_TAGS=0).
-  4. derive_llm(content)            → topics:[...] via LLM (opt-in via
-                                       IMPRINT_LLM_TAGS=1). Supports:
-                                       anthropic, openai, ollama, vllm,
-                                       gemini, local. Replaces zero-shot.
-  5. derive_llm_classify(content)   → {type, domains[], topics[]} via single
-                                       LLM call. Replaces keyword domains +
-                                       classifier.py regex when LLM is on.
+  4. derive_llm_classify(content)   → {type, domains[], topics[]} via a single
+                                       LLM call (opt-in via IMPRINT_LLM_TAGS=1;
+                                       anthropic, openai, ollama, vllm, gemini
+                                       or local). Replaces keyword domains,
+                                       zero-shot topics and classifier.py regex.
                                        Uses dynamic taxonomy registry to
                                        prefer existing labels while allowing
-                                       new ones to emerge.
+                                       new ones to emerge. Every provider
+                                       receives the prompt with its secrets
+                                       redacted (ADR 0060).
 
-  The ``local`` provider runs Gemma 3 1B via llama-cpp-python — no API key,
-  no network.  Auto-selected when llama_cpp is importable and the user hasn't
-  explicitly set a different provider.
+  The ``local`` provider runs the shared local helper via llama-cpp-python —
+  no API key, no network.
 
 `build_payload_tags` is the orchestrator — always runs (1) and (2) when LLM
-is off, or (1) and (5) when LLM is on. Merges results into a single
+is off, or (1) and (4) when LLM is on. Merges results into a single
 structured dict that matches the vectorstore payload schema.
 """
 
@@ -315,15 +314,7 @@ def derive_zero_shot(vector: list[float], threshold: float = 0.35, top_k: int = 
     return [tag for s, tag in ranked[:top_k] if s >= threshold]
 
 
-# ── 4. LLM-assisted topic tags (opt-in) ────────────────────────
-_LLM_PROMPT = (
-    "Classify this code/text chunk with 1-4 short lowercase topic tags. "
-    "Tags must be descriptive nouns or noun-phrases for a search index "
-    "(e.g. 'auth', 'redis-cache', 'webgl-shader'). "
-    "Never output numbers, single characters, or content copied from the text. "
-    "Return only a comma-separated list, no explanation.\n\n"
-)
-
+# ── 4. LLM providers (opt-in) ──────────────────────────────────
 # Provider configs: default model + API key env var + base URL.
 # Ollama and vLLM use OpenAI-compatible API with custom base_url.
 _PROVIDER_DEFAULTS: dict[str, dict] = {
@@ -436,72 +427,11 @@ def _sanitize_tags(text: str) -> list[str]:
     return tags[:4]
 
 
-def _derive_llm_anthropic(content: str, max_chars: int) -> list[str]:
-    return _derive_llm_anthropic_raw(_LLM_PROMPT + content[:max_chars])
-
-
-def _derive_llm_anthropic_raw(full_input: str) -> list[str]:
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        return []
-    try:
-        import anthropic
-    except ImportError:
-        return []
-    client = anthropic.Anthropic(api_key=key)
-    resp = client.messages.create(
-        model=_get_llm_model(),
-        max_tokens=60,
-        messages=[{"role": "user", "content": full_input}],
-    )
-    text = resp.content[0].text if resp.content else ""
-    return _sanitize_tags(text)
-
-
-def _derive_llm_openai_compat(content: str, max_chars: int) -> list[str]:
-    """OpenAI-compatible provider (openai, ollama, vllm, gemini)."""
-    return _derive_llm_openai_compat_raw(_LLM_PROMPT + content[:max_chars])
-
-
-def _derive_llm_openai_compat_raw(full_input: str) -> list[str]:
-    """OpenAI-compatible provider (openai, ollama, vllm, gemini) — raw input."""
-    provider = _get_llm_provider()
-    defaults = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["openai"])
-
-    key_env = defaults.get("key_env")
-    api_key = os.environ.get(key_env) if key_env else os.environ.get("IMPRINT_LLM_TAGGER_API_KEY", "no-key-needed")
-    if key_env and not api_key:
-        return []
-
-    from .config_schema import resolve
-    configured_url = resolve("tagger.llm_base_url")[0]
-    base_url = configured_url if configured_url else defaults.get("base_url")
-
-    try:
-        import openai
-    except ImportError:
-        return []
-    kwargs: dict = {"api_key": api_key}
-    if base_url:
-        kwargs["base_url"] = base_url
-    client = openai.OpenAI(**kwargs)
-    resp = client.chat.completions.create(
-        model=_get_llm_model(),
-        max_tokens=60,
-        messages=[
-            {"role": "user", "content": full_input},
-        ],
-    )
-    return _sanitize_tags(_extract_openai_content(resp))
-
-
-
 # ── 4b. Local LLM tagger (llama-cpp, shared local helper) ─────────────
 
 _tagger_llm: Any = None
 _tagger_llm_lock = threading.Lock()
 from .local_llm import INFERENCE_LOCK as _tagger_inference_lock
-_tagger_load_error_logged = False
 
 
 def _tagger_cfg(key: str) -> Any:
@@ -583,77 +513,6 @@ def _load_tagger_model() -> tuple[Any, str | None]:
     return _tagger_llm, None
 
 
-def _derive_llm_local(content: str, max_chars: int) -> list[str]:
-    """Classify content using local shared local helper model."""
-    return _derive_llm_local_raw(_LLM_PROMPT + content[:max_chars])
-
-
-def _derive_llm_local_raw(full_input: str) -> list[str]:
-    """Classify using local shared local helper model — raw input."""
-    global _tagger_load_error_logged
-    llm, err = _load_tagger_model()
-    if err or llm is None:
-        if err and not _tagger_load_error_logged:
-            _tagger_load_error_logged = True
-            sys.stderr.write(
-                f"[warn] local LLM tagger unavailable — {err}. "
-                "Falling back to zero-shot tagging.\n"
-            )
-            sys.stderr.flush()
-        return []
-    with _tagger_inference_lock:
-        try:
-            resp = llm.create_chat_completion(
-                messages=[{"role": "user", "content": full_input}],
-                max_tokens=60,
-                temperature=0.1,
-            )
-            text = (resp["choices"][0]["message"]["content"]
-                    if resp.get("choices") else "")
-            return _sanitize_tags(text)
-        except Exception:
-            return []
-
-
-def derive_llm(
-    content: str,
-    max_chars: int = 3000,
-    neighbor_context: str = "",
-    project_hint: str = "",
-    rel_path: str = "",
-) -> list[str]:
-    """Opt-in: ask an LLM for topic tags.
-
-    Provider controlled by IMPRINT_LLM_TAGGER_PROVIDER (default: anthropic).
-    Model controlled by IMPRINT_LLM_TAGGER_MODEL (default per provider).
-    Base URL override: IMPRINT_LLM_TAGGER_BASE_URL.
-    The ``local`` provider runs shared local helper via llama-cpp-python.
-    """
-    # Build context-aware prompt
-    prompt = _LLM_PROMPT
-    ctx_parts = []
-    if project_hint:
-        ctx_parts.append(f"Project: {project_hint}")
-    if rel_path:
-        ctx_parts.append(f"File: {rel_path}")
-    if neighbor_context:
-        ctx_parts.append(f"Surrounding context (for reference only, do NOT tag this):\n{neighbor_context[:500]}")
-    if ctx_parts:
-        prompt = "\n".join(ctx_parts) + "\n\n" + prompt
-
-    full_input = prompt + content[:max_chars]
-
-    try:
-        provider = _get_llm_provider()
-        if provider == "local":
-            return _derive_llm_local_raw(full_input)
-        if provider == "anthropic":
-            return _derive_llm_anthropic_raw(full_input)
-        return _derive_llm_openai_compat_raw(full_input)
-    except Exception:
-        return []
-
-
 # ── 5. Unified LLM classification (type + domains + topics) ───
 
 _LLM_CLASSIFY_PROMPT = (
@@ -689,7 +548,13 @@ _CLASSIFY_FALLBACK = {
 
 
 def _call_llm_raw_text(full_input: str) -> str:
-    """Call the configured LLM provider and return raw response text."""
+    """Call the configured LLM provider and return raw response text.
+
+    The one place the tagger hands text to a model: every provider receives
+    the prompt with its secrets redacted, so classifications and stored tags
+    are derived from redacted text too (ADR 0060)."""
+    from .redaction import redact
+    full_input = redact(full_input)
     provider = _get_llm_provider()
 
     if provider == "local":

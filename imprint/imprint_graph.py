@@ -151,20 +151,35 @@ def invalidate(fact_id: int, workspace: str | None = None) -> bool:
     return cur.rowcount > 0
 
 
+def _supersedes(newer: tuple, older: tuple) -> bool:
+    """Whether fact text ``newer`` is ``older`` redacted further (ADR 0060)."""
+    from .redaction import supersedes
+    return (all(new == old or supersedes(new, old) for new, old in zip(newer, older))
+            and any(supersedes(new, old) for new, old in zip(newer, older)))
+
+
 def import_fact(record: dict, workspace: str | None = None) -> bool:
     """Preserve origin/timestamps, enforce exclusions and redact secrets
-    (whatever the sender did, ADR 0060) on imported facts."""
+    (whatever the sender did, ADR 0060) on imported facts.
+
+    A fact's versions share its valid_from and differ only in redaction. The most redacted one is kept: a received fact this
+    workspace holds more redacted is skipped, and one that redacts a held
+    version further replaces it."""
     from .workspace_policy import workspace_name, write_guard
     from .device import _identity
     from .redaction import redact_all
     ws = workspace_name(workspace)
-    values = (*redact_all([record.get('subject', ''), record.get('predicate', ''), record.get('object', '')]),
-              record.get('valid_from', 0))
-    with write_guard([{'source': record.get('source', '')}], ws), _connection(ws) as conn, conn:
-        if conn.execute('SELECT 1 FROM facts WHERE subject=? AND predicate=? AND object=? AND valid_from=?', values).fetchone():
+    text = tuple(redact_all([record.get('subject', ''), record.get('predicate', ''), record.get('object', '')]))
+    when, source = record.get('valid_from', 0), record.get('source', '') or ''
+    with write_guard([{'source': source}], ws), _connection(ws) as conn, conn:
+        versions = {row['id']: (row['subject'], row['predicate'], row['object']) for row in conn.execute(
+            'SELECT id, subject, predicate, object FROM facts WHERE valid_from=?', (when,))}
+        if any(held == text or _supersedes(held, text) for held in versions.values()):
             return False
+        conn.executemany('DELETE FROM facts WHERE id=?', [(fact_id,) for fact_id, held in versions.items()
+                                                          if _supersedes(text, held)])
         conn.execute('INSERT INTO facts (subject, predicate, object, valid_from, ended, source, recorded_device) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                     (*values, record.get('ended'), record.get('source', '') or '', json.dumps(_identity(record.get('recorded_device')))))
+                     (*text, when, record.get('ended'), source, json.dumps(_identity(record.get('recorded_device')))))
     return True
 
 

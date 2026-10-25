@@ -34,15 +34,16 @@ def _added(before: list[str], after: list[str]) -> Counter:
     return sum((kinds(new) - kinds(old) for old, new in zip(before, after)), Counter())
 
 
-def _scan_memories(client, coll: str, progress) -> tuple[list[tuple], Counter, int]:
+def _scan_memories(client, coll: str, workspace: str, progress) -> tuple[list[tuple], Counter, int]:
     """Every memory the redaction changes, as (point id, redacted content),
-    the kinds it redacts, and how many memories were scanned."""
+    the kinds it redacts, and how many memories were scanned. A memory this
+    workspace also holds a more redacted version of takes that version."""
     found, redacted, scanned, offset = [], Counter(), 0, None
     while True:
-        points, offset = client.scroll(collection_name=coll, limit=_BATCH, offset=offset,
-                                       with_payload=["content"], with_vectors=False)
+        points, offset = client.scroll(collection_name=coll, limit=_BATCH, offset=offset, with_vectors=False,
+                                       with_payload=["content", "project", "source", "chunk_index"])
         before = [(point.payload or {}).get("content", "") for point in points]
-        after = redact_all(before)
+        after = [record["content"] for record in vs._redacted([point.payload or {} for point in points], workspace)]
         found.extend((point.id, new) for point, old, new in zip(points, before, after) if new != old)
         redacted += _added(before, after)
         scanned += len(points)
@@ -52,35 +53,37 @@ def _scan_memories(client, coll: str, progress) -> tuple[list[tuple], Counter, i
 
 
 def _rewrite_memories(client, coll: str, found: list[tuple], workspace: str) -> None:
-    """Store each memory under its redacted content, then drop the old point.
-    Interrupted, the old point stays and the next scrub finishes it."""
+    """Store each memory under its redacted content, unless that version is
+    already stored, then drop the old point. Interrupted, the old point stays
+    and the next scrub finishes it."""
     for start in range(0, len(found), _BATCH):
         contents = dict(found[start:start + _BATCH])
         points = client.retrieve(collection_name=coll, ids=list(contents), with_payload=True, with_vectors=False)
-        vectors = embeddings.embed_documents_batch([contents[point.id] for point in points])
-        if len(vectors) != len(points):
+        targets = {point.id: vs.relabeled_id((point.payload or {}).get("_mid") or "", point.payload or {},
+                                             content=contents[point.id]) for point in points}
+        stored = vs._live_existing_ids(client, coll, targets.values())
+        writes = [point for point in points if targets[point.id] not in stored]
+        vectors = embeddings.embed_documents_batch([contents[point.id] for point in writes])
+        if len(vectors) != len(writes):
             raise ValueError("Embedding batch returned an incomplete result; those memories were left as they were")
-        rewritten = []
-        for point, vector in zip(points, vectors):
-            payload, content = point.payload or {}, contents[point.id]
-            memory_id = vs.relabeled_id(payload.get("_mid") or "", payload, content=content)
-            rewritten.append(qm.PointStruct(id=vs._point_uuid(memory_id), vector={config.QDRANT_VECTOR_NAME: vector},
-                                            payload={**payload, "_mid": memory_id, "content": content}))
-        vs._persist_points(client, coll, rewritten, workspace)
-        kept = {point.id for point in rewritten}
+        vs._persist_points(client, coll, [
+            qm.PointStruct(id=vs._point_uuid(targets[point.id]), vector={config.QDRANT_VECTOR_NAME: vector},
+                           payload={**(point.payload or {}), "_mid": targets[point.id], "content": contents[point.id]})
+            for point, vector in zip(writes, vectors)], workspace)
+        kept = {vs._point_uuid(target) for target in targets.values()}
         client.delete(collection_name=coll, wait=True, points_selector=qm.PointIdsList(
             points=[point.id for point in points if point.id not in kept]))
 
 
 def _scrub_facts(workspace: str, apply: bool) -> tuple[int, int, Counter]:
-    conn = kg._get_conn(workspace)
-    rows = conn.execute("SELECT id, subject, predicate, object FROM facts").fetchall()
+    with kg._connection(workspace) as conn:
+        rows = conn.execute("SELECT id, subject, predicate, object FROM facts").fetchall()
     before = [text for row in rows for text in (row["subject"], row["predicate"], row["object"])]
     after = redact_all(before)
     changed = [(*after[3 * i:3 * i + 3], row["id"]) for i, row in enumerate(rows)
                if after[3 * i:3 * i + 3] != before[3 * i:3 * i + 3]]
     if apply and changed:
-        with conn:
+        with kg._connection(workspace) as conn, conn:
             conn.executemany("UPDATE facts SET subject=?, predicate=?, object=? WHERE id=?", changed)
     return len(rows), len(changed), _added(before, after)
 
@@ -100,7 +103,7 @@ def scrub(workspace: str | None = None, apply: bool = False) -> dict:
             write_progress("scrub", scanned, max(total, scanned), found, 0, started, [], phase="scanning")
 
     try:
-        found, memory_kinds, scanned = _scan_memories(client, coll, progress)
+        found, memory_kinds, scanned = _scan_memories(client, coll, ws, progress)
         if apply and found:
             write_progress("scrub", scanned, scanned, len(found), 0, started, [], phase="embedding")
             _rewrite_memories(client, coll, found, ws)

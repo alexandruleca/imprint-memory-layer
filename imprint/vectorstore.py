@@ -188,11 +188,67 @@ def relabeled_id(memory_id: str, record: dict, **changes) -> str:
     return _make_id(new["content"], new["project"], source, record.get("chunk_index"))
 
 
-def _redacted(records: list[dict]) -> list[dict]:
+def _position(record: dict) -> tuple:
+    """Where a memory sits: its versions differ only in redaction (ADR 0060)."""
+    return record.get("project", ""), record.get("source", ""), int(record.get("chunk_index") or 0)
+
+
+def _stored_versions(client, coll: str, records: list[dict], *, redacted_only: bool) -> dict[tuple, list]:
+    """Stored memories at the records' positions, by position."""
+    if not records:
+        return {}
+    must = [qm.FieldCondition(key="project", match=qm.MatchAny(any=sorted({r.get("project", "") for r in records}))),
+            qm.FieldCondition(key="source", match=qm.MatchAny(any=sorted({r.get("source", "") for r in records})))]
+    if redacted_only:
+        must.append(qm.FieldCondition(key="content", match=qm.MatchText(text="REDACTED")))
+    wanted, found, offset = {_position(r) for r in records}, {}, None
+    while True:
+        points, offset = client.scroll(collection_name=coll, scroll_filter=qm.Filter(must=must), limit=_SCAN_BATCH,
+                                       offset=offset, with_payload=["content", "project", "source", "chunk_index"],
+                                       with_vectors=False)
+        for point in points:
+            if _position(point.payload or {}) in wanted:
+                found.setdefault(_position(point.payload), []).append(point)
+        if offset is None:
+            return found
+
+
+def _redacted(records: list[dict], workspace: str) -> list[dict]:
     """Records with their secrets replaced, before anything derives from
-    their content (ADR 0060)."""
-    from .redaction import redact_all
-    return [{**r, "content": text} for r, text in zip(records, redact_all([r["content"] for r in records]))]
+    their content (ADR 0060). A record takes the content of the most redacted
+    version of itself this workspace holds or receives with it, so a stricter
+    device's redaction wins here too and a looser copy is never stored."""
+    from .redaction import kinds, redact_all, redacted, supersedes
+    records = [{**r, "content": text} for r, text in zip(records, redact_all([r["content"] for r in records]))]
+    client, coll = _ensure_collection(workspace)
+    versions = {position: [(p.payload or {}).get("content", "") for p in points] for position, points in
+                _stored_versions(client, coll, records, redacted_only=True).items()}
+    for record in records:
+        if redacted(record["content"]):
+            versions.setdefault(_position(record), []).append(record["content"])
+    out = []
+    for record in records:
+        stricter = [text for text in versions.get(_position(record), []) if supersedes(text, record["content"])]
+        # The maximal versions; incomparable ones are ordered by redaction count.
+        stricter = [text for text in stricter if not any(supersedes(other, text) for other in stricter)]
+        out.append({**record, "content": min(stricter, key=lambda text: (-sum(kinds(text).values()), text))}
+                   if stricter else record)
+    return out
+
+
+def _retire_superseded(client, coll: str, records: list[dict], workspace: str) -> None:
+    """Delete the stored versions that stored ``records`` redact further."""
+    from .redaction import redacted, supersedes
+    records = [r for r in records if redacted(r["content"])]
+    retired = [point.id for position, points in _stored_versions(client, coll, records, redacted_only=False).items()
+               for point in points
+               if any(_position(r) == position and supersedes(r["content"], (point.payload or {}).get("content", ""))
+                      for r in records)]
+    if retired:
+        client.delete(collection_name=coll, points_selector=qm.PointIdsList(points=retired), wait=True)
+        with _cache_lock:
+            _id_caches.pop(coll, None)
+        _wal_log("supersede", workspace=workspace, count=len(retired))
 
 
 def _point_uuid(memory_id: str) -> str:
@@ -356,11 +412,12 @@ def store(
     from .projects import place
     placed = place([{'project': project, 'source': source}], workspace)[0]
     project = placed['project']
-    from .redaction import redact
-    content = redact(content)
+    note = {"content": content, "project": project, "source": source, "chunk_index": chunk_index}
+    content = _redacted([note], workspace)[0]["content"]
     client, coll = _ensure_collection(workspace)
     memory_id = _make_id(content, project, source)
     if memory_id in _live_existing_ids(client, coll, [memory_id]):
+        _retire_superseded(client, coll, [{**note, "content": content}], workspace)
         return memory_id
 
     _wal_log("store", workspace=workspace, id=memory_id, project=project, source=source, type=type)
@@ -395,6 +452,7 @@ def store(
         ], workspace)
     with _cache_lock:
         _id_caches.pop(coll, None)
+    _retire_superseded(client, coll, [payload], workspace)
     return memory_id
 
 
@@ -455,7 +513,10 @@ def store_batch(records: list[dict], workspace: str | None = None, *, force: boo
     Secrets in the content are redacted first (ADR 0060).
     Returns (inserted, skipped).
     """
-    return _store_redacted(_redacted(records), workspace, force=force, imported=imported)
+    from .workspace_policy import workspace_name
+    from .projects import place
+    workspace = workspace_name(workspace)
+    return _store_redacted(_redacted(place(records, workspace), workspace), workspace, force=force, imported=imported)
 
 
 def _store_redacted(records: list[dict], workspace: str | None, *, force: bool = False,
@@ -482,6 +543,7 @@ def _store_redacted(records: list[dict], workspace: str | None, *, force: bool =
             new_records.append(r)
 
     if not new_records:
+        _retire_superseded(client, coll, records, workspace)
         return 0, len(records)
 
     texts = [r["content"] for r in new_records]
@@ -541,6 +603,7 @@ def _store_redacted(records: list[dict], workspace: str | None, *, force: bool =
         _id_caches.pop(coll, None)
 
     _wal_log("store_batch", workspace=workspace, count=len(points))
+    _retire_superseded(client, coll, records, workspace)
 
     inserted = len(points)
     del points, vectors, texts, new_records
@@ -564,7 +627,7 @@ def replace_source(records: list[dict], source: str, project: str,
     from .workspace_policy import workspace_name
     workspace = workspace_name(workspace)
     from .projects import place
-    records = _redacted(place(records, workspace))
+    records = _redacted(place(records, workspace), workspace)
     project = records[0]["project"]
     inserted, skipped = _store_redacted(records, workspace, force=force)
     client, coll = _ensure_collection(workspace)
@@ -587,11 +650,11 @@ def replace_source(records: list[dict], source: str, project: str,
     return inserted, skipped
 
 
-def _redacted_received(records: list[dict]) -> list[dict]:
+def _redacted_received(records: list[dict], workspace: str) -> list[dict]:
     """Received records after this device's redaction. A record it changes
     takes the ID of its redacted content and drops the sender's vector."""
     out = []
-    for record, redacted in zip(records, _redacted(records)):
+    for record, redacted in zip(records, _redacted(records, workspace)):
         if redacted["content"] != record["content"]:
             redacted["vector"] = None
             if record.get("id"):
@@ -641,7 +704,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
     # After the sender's IDs check out: this workspace's rules place them,
     # and its redaction rewrites them.
     from .projects import place
-    records = _redacted_received(place(records, workspace))
+    records = _redacted_received(place(records, workspace), workspace)
     client, coll = _ensure_collection(workspace)
     stamps = _tagged_at(client, coll, (record_id(r) for r in records))
 
@@ -665,6 +728,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
         _wal_log("sync_retag", workspace=workspace, count=len(retagged))
 
     if not new_records:
+        _retire_superseded(client, coll, records, workspace)
         return 0, len(retagged), len(records) - len(retagged)
 
     redacted = [r for r in new_records if r["vector"] is None]
@@ -714,6 +778,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
         _id_caches.pop(coll, None)
 
     _wal_log("store_batch_precomputed", workspace=workspace, count=len(points))
+    _retire_superseded(client, coll, records, workspace)
 
     inserted = len(points)
     del points, new_records

@@ -27,6 +27,7 @@ class ClientLifecycleTests(unittest.TestCase):
                     assert not self.closed, 'client closed during embedding'
                     self.writes += 1
                 def get_collection(self, name): return SimpleNamespace(points_count=1)
+                def scroll(self, **kwargs): return [], None  # no stored versions to adopt (ADR 0060)
                 def query_points(self, **kwargs):
                     assert not self.closed, 'client closed during query embedding'
                     self.queries += 1

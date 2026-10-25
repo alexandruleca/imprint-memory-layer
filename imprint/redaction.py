@@ -3,8 +3,11 @@
 Every memory and fact passes through :func:`redact_all` on its way into
 storage, before its logical ID is computed and its text embedded, so a
 credential never reaches Qdrant, the graph database or a sync stream. A
-secret becomes ``[REDACTED:<kind>]``; neither the value nor a hash of it is
-kept. The placeholders are the audit record: :func:`kinds` counts them.
+secret becomes ``[REDACTED:<kind>:<length>]``, the length being that of the
+text it replaced; neither the value nor a hash of it is kept. The
+placeholders are the audit record (:func:`kinds` counts them), and their
+lengths let any device recognise a further-redacted version of a memory it
+holds (:func:`supersedes`).
 
 Deterministic rules always run. They match only known credential formats
 and literal values assigned to credential-named keys, so ordinary code,
@@ -16,8 +19,8 @@ gitleaks' rule definitions (MIT, licenses/gitleaks/LICENSE).
 cannot run, the write fails: storing text less redacted than configured is
 not an option, and the caller still holds its source to retry.
 
-Placeholder names are part of stored content and so of memory IDs; renaming
-a kind changes the IDs of memories redacted under it.
+Placeholders are part of stored content and so of memory IDs; renaming a
+kind changes the IDs of memories redacted under it.
 """
 
 from __future__ import annotations
@@ -26,11 +29,11 @@ import math
 import re
 from collections import Counter
 
-_PLACEHOLDER = re.compile(r"\[REDACTED:([a-z0-9-]+)\]")
+_PLACEHOLDER = re.compile(r"\[REDACTED:([a-z0-9-]+):([0-9]+)\]")
 
 
-def placeholder(kind: str) -> str:
-    return f"[REDACTED:{kind}]"
+def placeholder(kind: str, length: int) -> str:
+    return f"[REDACTED:{kind}:{length}]"
 
 
 # ── Known credential formats ────────────────────────────────────
@@ -182,7 +185,7 @@ def apply(text: str, spans) -> str:
         else:
             merged.append([start, end, kind])
     for start, end, kind in reversed(merged):
-        text = text[:start] + placeholder(kind) + text[end:]
+        text = text[:start] + placeholder(kind, end - start) + text[end:]
     return text
 
 
@@ -207,4 +210,32 @@ def redact(text: str) -> str:
 
 def kinds(text: str) -> Counter:
     """How many placeholders of each kind ``text`` holds."""
-    return Counter(_PLACEHOLDER.findall(text))
+    return Counter(kind for kind, _ in _PLACEHOLDER.findall(text))
+
+
+def redacted(text: str) -> bool:
+    return bool(_PLACEHOLDER.search(text))
+
+
+def supersedes(newer: str, older: str) -> bool:
+    """Whether ``newer`` is ``older`` redacted further: equal outside
+    ``newer``'s placeholders, where ``older`` holds either that same
+    placeholder or text of exactly the length the placeholder records, the
+    latter at least once. Transitive, and never true both ways."""
+    if newer == older:
+        return False
+    marks = list(_PLACEHOLDER.finditer(newer))
+    literals = [newer[a:b] for a, b in zip([0] + [m.end() for m in marks], [m.start() for m in marks] + [len(newer)])]
+    if not older.startswith(literals[0]):
+        return False
+    states = {(len(literals[0]), False)}  # (position in older, replaced text seen)
+    for mark, literal in zip(marks, literals[1:]):
+        following = set()
+        for position, replaced in states:
+            kept, raw = position + len(mark.group()), position + int(mark.group(2))
+            if older.startswith(mark.group(), position) and older.startswith(literal, kept):
+                following.add((kept + len(literal), replaced))
+            if older.startswith(literal, raw):
+                following.add((raw + len(literal), True))
+        states = following
+    return (len(older), True) in states

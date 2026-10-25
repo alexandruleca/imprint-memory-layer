@@ -160,7 +160,12 @@ def _extract_transcript_text(path: Path, max_tokens: int) -> str:
 
 
 def _call_summarizer_llm(full_input: str) -> str:
-    """Call the configured summarizer provider. Returns raw text (expected JSON)."""
+    """Call the configured summarizer provider. Returns raw text (expected JSON).
+
+    The one place the summarizer hands text to a model: every provider
+    receives the transcript with its secrets redacted (ADR 0060)."""
+    from .redaction import redact
+    full_input = redact(full_input)
     provider = config_schema.resolve("summarizer.provider")[0] or "local"
     model = config_schema.resolve("summarizer.model")[0] or "qwen3.5:4b"
     base_url = config_schema.resolve("summarizer.base_url")[0]
