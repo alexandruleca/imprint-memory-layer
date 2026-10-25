@@ -146,7 +146,7 @@ imprint enable [target]    # re-wire MCP + hooks + start server
                            #   target: claude-code | cursor | codex | copilot | cline | all
 imprint disable            # disconnect managed clients, strip hooks/rules, stop services (data preserved)
 imprint ingest <path>      # index project source files (directory or single file)
-imprint learn              # index Claude Code + Codex conversations (incl. WSL profiles) + memory files
+imprint learn              # index Claude Code, Codex + Cursor conversations (incl. WSL profiles) + memory files
 imprint learn --desktop    # also ingest Claude Desktop / ChatGPT Desktop export zips from Downloads
 imprint ingest-url <url>   # fetch URL(s), extract content, and index (html/pdf/etc)
 imprint refresh <dir>      # re-index only changed files (SHA256-based)

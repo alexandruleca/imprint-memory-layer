@@ -138,13 +138,14 @@ def transcript_allowed(path, workspace=None):
     """Whether a client conversation belongs to ``workspace`` (ADR 0034).
 
     Ownership comes from the recorded cwd evidence (Claude Code records it per
-    entry, Codex per session and turn; ADR 0037), never the lossy encoded
-    Claude folder name: every cwd must be inside this workspace's roots or
+    entry, Codex per session and turn; ADR 0037; Cursor's folder name when it
+    stands for exactly one existing directory, ADR 0052), never Claude's
+    encoded folder name: every cwd must be inside this workspace's roots or
     outside every other workspace's roots. A conversation about a project
     another workspace claimed stays there; one no workspace claimed is learned
     by the workspace that learns it. Without cwd evidence it belongs nowhere.
     """
-    from .transcripts import records, recorded_cwd
+    from .transcripts import cwds
     ws = workspace_name(workspace)
     with _db() as conn:
         claims = conn.execute('SELECT workspace, path FROM roots').fetchall()
@@ -153,10 +154,7 @@ def transcript_allowed(path, workspace=None):
     # Clients repeat the cwd on most records. Resolve each one once: through
     # \\wsl.localhost every resolution is a filesystem round trip.
     checked = set()
-    for record in records(path):
-        cwd = recorded_cwd(record)
-        if not cwd:
-            continue
+    for cwd in cwds(path):
         if not isinstance(cwd, str):
             return False
         if cwd in checked:

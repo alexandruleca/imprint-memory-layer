@@ -172,3 +172,53 @@ func TestWSLRegistrationDoesNotOverwriteForeignLauncherOrMalformedConfig(t *test
 		t.Fatal("malformed config overwritten")
 	}
 }
+
+func TestWSLCursorRegistrationRecordsItsStoreAndWritesNothing(t *testing.T) {
+	old := runWSL
+	t.Cleanup(func() { runWSL = old })
+	runWSL = func(args ...string) (string, error) {
+		return "/home/test\n/home/test/.claude\n\n/home/test/.claude.json\n/home/test/.cursor\n", nil
+	}
+	p, err := probeWSL("Ubuntu", "", "", "", "")
+	if err != nil || p.CursorHome != "/home/test/.cursor" || p.CodexHome != "" {
+		t.Fatalf("profile = %+v, %v", p, err)
+	}
+	if dir, err := wslClientDir(p, "cursor"); err != nil || dir != p.CursorHome {
+		t.Fatalf("cursor store = %q, %v", dir, err)
+	}
+	if _, err := wslClientDir(p, "copilot"); err == nil {
+		t.Fatal("an unknown target was accepted")
+	}
+
+	root := t.TempDir()
+	project := filepath.Join(root, "runtime")
+	local := func(value string) string { return filepath.Join(root, "profile", filepath.FromSlash(value)) }
+	if err := os.MkdirAll(local(p.CursorHome), 0700); err != nil {
+		t.Fatal(err)
+	}
+	bp := backendPaths{ProjectDir: project, VenvPython: filepath.Join(project, "python"), DataDir: filepath.Join(project, "data")}
+	if err := applyWSLProfile(p, bp, "cursor", local, func(string) error { t.Fatal("nothing to make executable"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(local(p.CursorHome)); len(entries) != 0 {
+		t.Fatalf("registering Cursor wrote %v", entries)
+	}
+	if err := applyWSLProfile(wslProfile{Distribution: "Ubuntu", Home: "/home/test"}, bp, "cursor", local, nil); err == nil {
+		t.Fatal("a profile without Cursor was registered")
+	}
+
+	// Disable drops the record and touches nothing else.
+	if err := saveWSLRegistration(project, wslRegistration{Profile: p, Target: "cursor"}, false); err != nil {
+		t.Fatal(err)
+	}
+	runWSL = func(args ...string) (string, error) { return local(args[len(args)-1]), nil }
+	if err := cleanupWSLRegistrations(project); err != nil {
+		t.Fatal(err)
+	}
+	if records, _ := readWSLRegistrations(project); len(records) != 0 {
+		t.Fatalf("records = %+v", records)
+	}
+	if _, err := os.Stat(local(p.CursorHome)); err != nil {
+		t.Fatal("the Cursor profile was removed")
+	}
+}

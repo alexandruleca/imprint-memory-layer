@@ -1,18 +1,19 @@
 """Learn coding-client conversations into imprint memory.
 
-Reads Claude Code session transcripts (plus Claude's auto-memory files) and
-Codex rollouts, extracts Q+A exchange pairs, classifies each by type, and
-stores them as searchable memories. A conversation's recorded working
-directory decides its workspace (ADR 0034) and its project name.
+Reads Claude Code session transcripts (plus Claude's auto-memory files), Codex
+rollouts and Cursor agent conversations, extracts Q+A exchange pairs,
+classifies each by type, and stores them as searchable memories. A
+conversation's recorded working directory decides its workspace (ADR 0034)
+and its project name.
 
 A store is a client profile directory: Claude Code's CLAUDE_CONFIG_DIR
-(default ~/.claude) or Codex's CODEX_HOME (default ~/.codex). In a WSL path
-context (IMPRINT_WSL_DISTRO, as the WSL bridge sets it) Linux paths, the
-store's and the recorded cwds, resolve the way the bridge resolves them
-(ADR 0026, ADR 0037).
+(default ~/.claude), Codex's CODEX_HOME (default ~/.codex) or Cursor's
+~/.cursor. In a WSL path context (IMPRINT_WSL_DISTRO, as the WSL bridge sets
+it) Linux paths, the store's and the recorded cwds, resolve the way the bridge
+resolves them (ADR 0026, ADR 0037).
 
 Usage:
-  python -m imprint.cli_conversations --store claude-code|codex <dir> [--store ...]
+  python -m imprint.cli_conversations --store claude-code|codex|cursor <dir> [--store ...]
   python -m imprint.cli_conversations --transcript <path>
 """
 
@@ -41,7 +42,7 @@ C_YELLOW = "\033[1;33m"
 # Minimum useful exchange length — drop sub-100-char noise.
 MIN_EXCHANGE_LEN = 100
 
-CLIENTS = {"claude-code": "Claude Code", "codex": "Codex"}
+CLIENTS = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor"}
 
 
 def parse_exchanges(transcript_path: str) -> list[dict]:
@@ -150,22 +151,23 @@ def derive_project(cwd: str) -> str:
 
 
 def identify(transcript_path: str) -> tuple[str, str]:
-    """(source key, project) of a transcript, from its own records.
+    """(source key, project) of a transcript, from what it records.
 
-    Claude Code names a transcript after its random session id, and the first
-    eight characters have always been its source key. Codex session ids are
+    Claude Code and Cursor name a transcript after its random session id, and
+    its first eight characters are the source key. Codex session ids are
     time-ordered, so their leading characters are a timestamp that sessions
-    started within the same minute share: a rollout is keyed by its whole id.
+    started within the same minute share: a rollout is keyed by its whole id,
+    from its session_meta record, which comes no later than its first cwd.
     """
     source = f"conversation/{Path(transcript_path).stem[:8]}"
     for record in transcripts.records(transcript_path):
         session = transcripts.codex_session(record)
         if session:
             source = f"conversation/{session}"
-        cwd = transcripts.recorded_cwd(record)
-        if isinstance(cwd, str) and cwd:
-            return source, derive_project(cwd)
-    return source, ""
+        if session or transcripts.recorded_cwd(record):
+            break
+    cwd = next((cwd for cwd in transcripts.cwds(transcript_path) if isinstance(cwd, str)), "")
+    return source, derive_project(cwd) if cwd else ""
 
 
 def store_transcripts(client: str, root: Path) -> list[Path]:
@@ -173,6 +175,9 @@ def store_transcripts(client: str, root: Path) -> list[Path]:
     if client == "claude-code":
         # One folder per project; subagent transcripts sit a level deeper.
         return list(root.glob("projects/*/*.jsonl"))
+    if client == "cursor":
+        # One folder per conversation; its subagents' transcripts sit a level deeper.
+        return list(root.glob("projects/*/agent-transcripts/*/*.jsonl"))
     return [*root.glob("sessions/**/rollout-*.jsonl"), *root.glob("archived_sessions/rollout-*.jsonl")]
 
 
@@ -454,7 +459,7 @@ def learn(stores: list[tuple[str, str]]) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Learn coding-client conversations.")
     parser.add_argument("--store", nargs=2, action="append", default=[], metavar=("CLIENT", "DIR"),
-                        help="client profile directory to learn (claude-code or codex); repeatable")
+                        help="client profile directory to learn (claude-code, codex or cursor); repeatable")
     parser.add_argument("--transcript", help="index a single transcript")
     args = parser.parse_args()
 
@@ -466,7 +471,7 @@ def main():
         parser.error("give --store or --transcript")
     for client, _ in args.store:
         if client not in CLIENTS:
-            parser.error(f"unknown client {client!r}; expected {' or '.join(CLIENTS)}")
+            parser.error(f"unknown client {client!r}; expected one of {', '.join(CLIENTS)}")
     return learn([tuple(store) for store in args.store])
 
 

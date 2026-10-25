@@ -295,6 +295,21 @@ See [ADR 0037](adr/0037-learn-every-integrated-client-store.md). These checks ra
 
 Not run: a complete `imprint learn` that embeds and stores into the installation's data directory, and the dashboard **Learn** action on Windows. Every Claude Code project folder on this machine has auto-memory files, and their ownership rule rereads every transcript beside them on each run: about 3 minutes for these 1.2 GB through `\\wsl.localhost`.
 
+## Learn from Cursor stores (2026-10-25)
+
+See [ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md). These checks ran on a Windows installation whose Cursor app works on WSL Ubuntu projects through Remote-WSL. The conversations are in the distribution's `~/.cursor` and the Windows profile's `projects/` holds none. All checks were read-only: ownership used an empty workspace policy in a temporary data directory, and nothing was stored.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Folder resolution, natively in WSL | Passed | Of 21 project folders, the 4 named after existing directories resolved to them, the first in 52 ms and the rest in under 2 ms. The other 17 named no directory: numeric empty-window folders, `tmp-*` folders, a `.code-workspace` folder and a cleanup folder. |
+| Conversations, natively in WSL | Passed | 4 conversations; subagent files skipped. Each was owned, keyed `conversation/<id prefix>` and named `arnia-gmv-reporting-service`, `airportlabs-challenge` or `arnia-shopware`, with 40, 21, 4 and 1 exchanges of the user's query and the assistant's text. |
+| The same through the installed Windows interpreter | Passed | With the Ubuntu path context, the store resolved to `\\wsl.localhost\Ubuntu\home\<user>\.cursor`. Every folder resolved as natively, in 1 to 17 ms. Identity, parsing and ownership of the 4 conversations took 0.34 s. |
+| Native Windows folder names | Passed | `C-Users-<user>-AppData-Local-Programs-Imprint` and its lower-case `…-imprint-bin` resolved to the installation folders; the Windows profile's `C-Users-…-Temp-<uuid>` folders and its copy of the WSL project folder named no directory. |
+| Profile probe (cross-compiled CLI, `wsl list`) | Passed | The real Ubuntu profile reported `cursor_home` beside its Claude Code and Codex profiles. |
+| Go learn, WSL and cleanup tests (cross-compiled Windows test binary) | Passed | |
+
+Not run: registering Cursor in the installation (`imprint wsl setup --target cursor` writes its journal), the installer wizard with a Cursor selection, and a complete `imprint learn` that stores Cursor conversations.
+
 ## PersonaPlex startup memory prototype (2026-10-24)
 
 See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the [prototype guide](personaplex-prototype.md). This validates an experimental adapter, not a supported voice/avatar product.

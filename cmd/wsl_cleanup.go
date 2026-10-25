@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hunter/imprint/internal/configfile"
@@ -38,7 +39,7 @@ func readWSLRegistrations(project string) ([]wslRegistration, error) {
 	return records, nil
 }
 func sameWSLRegistration(a, b wslRegistration) bool {
-	return a.Profile.Distribution == b.Profile.Distribution && a.Target == b.Target && a.Profile.Home == b.Profile.Home && a.Profile.ClaudeHome == b.Profile.ClaudeHome && a.Profile.CodexHome == b.Profile.CodexHome && a.User == b.User
+	return a.Profile.Distribution == b.Profile.Distribution && a.Target == b.Target && a.Profile.Home == b.Profile.Home && a.Profile.ClaudeHome == b.Profile.ClaudeHome && a.Profile.CodexHome == b.Profile.CodexHome && a.Profile.CursorHome == b.Profile.CursorHome && a.User == b.User
 }
 func saveWSLRegistration(project string, record wslRegistration, remove bool) error {
 	records, err := readWSLRegistrations(project)
@@ -80,7 +81,7 @@ func cleanupWSLRegistrations(project string) error {
 			continue
 		}
 		fields := strings.Split(line, "|")
-		if len(fields) != 2 || !validDistro(fields[0]) || fields[1] != "codex" && fields[1] != "claude-code" {
+		if len(fields) != 2 || !validDistro(fields[0]) || !slices.Contains(wslTargets, fields[1]) {
 			return fmt.Errorf("invalid saved WSL selection %q", line)
 		}
 		found := false
@@ -100,19 +101,13 @@ func cleanupWSLRegistrations(project string) error {
 		records = append(records, wslRegistration{Profile: p, Target: fields[1]})
 	}
 	for _, r := range records {
-		if !validDistro(r.Profile.Distribution) || !validLinuxPath(r.Profile.Home) ||
-			r.Target != "codex" && r.Target != "claude-code" ||
-			r.Target == "codex" && !validLinuxPath(r.Profile.CodexHome) ||
-			r.Target == "claude-code" && !validLinuxPath(r.Profile.ClaudeHome) {
+		dir, err := wslClientDir(r.Profile, r.Target)
+		if err != nil || !validDistro(r.Profile.Distribution) || !validLinuxPath(r.Profile.Home) || !validLinuxPath(dir) {
 			failures = append(failures, fmt.Errorf("invalid saved WSL profile"))
 			continue
 		}
 		local, err := wslProfileMapper(r.Profile, r.User)
 		if err == nil {
-			dir := r.Profile.CodexHome
-			if r.Target == "claude-code" {
-				dir = r.Profile.ClaudeHome
-			}
 			content, readErr := os.ReadFile(local(path.Join(dir, "imprint-wsl")))
 			if readErr != nil && !os.IsNotExist(readErr) {
 				err = readErr

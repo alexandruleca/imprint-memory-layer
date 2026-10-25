@@ -61,9 +61,9 @@ If you previously ran `imprint ui start`, the app reuses that independent servic
 
 See [ADR 0025](adr/0025-desktop-owned-background-service.md) and [platform validation](platform-validation.md) for ownership and native GUI limitations.
 
-### Claude Code and Codex inside WSL
+### Claude Code, Codex and Cursor inside WSL
 
-The Windows installer offers **Connect clients in WSL** after copying its files. Select the detected Claude Code and/or Codex profiles you want to connect. They share the Windows installation's memories and dashboard; a second Linux runtime is not installed. Discovery may start a distribution, skips Docker/Rancher utility distributions and inspects the distro's default Linux user. No choices are selected on a fresh install.
+The Windows installer offers **Connect clients in WSL** after copying its files. Select the detected Claude Code, Codex and/or Cursor profiles you want to connect. They share the Windows installation's memories and dashboard; a second Linux runtime is not installed. Discovery may start a distribution, skips Docker/Rancher utility distributions and inspects the distro's default Linux user. No choices are selected on a fresh install.
 
 Repair and silent updates reuse saved WSL choices. A fresh silent install does not change WSL profiles. Selected registration failures appear in the setup log and fail setup. Unchecking a profile stops future add/repair work for that choice; use the removal command to disconnect an existing profile.
 
@@ -74,9 +74,12 @@ $ImprintBin = Join-Path $env:LOCALAPPDATA 'Programs\Imprint\bin\imprint.exe'
 & $ImprintBin wsl list
 & $ImprintBin wsl setup --distribution Ubuntu --target claude-code
 & $ImprintBin wsl setup --distribution Ubuntu --target codex
+& $ImprintBin wsl setup --distribution Ubuntu --target cursor
 ```
 
-Restart the selected client, verify the Imprint MCP server and review/trust its hooks. WSL Windows-executable interoperability must be enabled. The wizard detects existing default-user profile directories; it does not install Claude Code, Codex or WSL. Settings exported only by your interactive shell are not sourced during discovery. For another Linux user or profile, pass `--user <name>`, `--claude-home /absolute/profile` or `--codex-home /absolute/profile`. An explicit `--python <Windows-path>` can select an existing Windows Imprint interpreter. A non-default user's profile must also be accessible through the Windows account's WSL filesystem provider; setup does not change Linux permissions or elevate privileges.
+A Cursor selection is for learning only. With Remote-WSL, the Windows Cursor app runs the agent against the distribution and writes its conversations to the distribution's `~/.cursor`. Registering that profile lets `imprint learn` read them and writes nothing into it. Cursor's MCP server and hooks come from `imprint setup cursor` on Windows ([ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md)).
+
+For Claude Code and Codex, restart the selected client, verify the Imprint MCP server and review/trust its hooks. WSL Windows-executable interoperability must be enabled. The wizard detects existing default-user profile directories; it does not install Claude Code, Codex or WSL. Settings exported only by your interactive shell are not sourced during discovery. For another Linux user or profile, pass `--user <name>`, `--claude-home /absolute/profile` or `--codex-home /absolute/profile`. An explicit `--python <Windows-path>` can select an existing Windows Imprint interpreter. A non-default user's profile must also be accessible through the Windows account's WSL filesystem provider; setup does not change Linux permissions or elevate privileges.
 
 Setup does not approve or index project directories. To work with a WSL project through the Windows store, use the installed launcher from WSL (substitute `.claude` if that is your selected profile):
 
@@ -88,13 +91,14 @@ cd ~/code/my-project
 
 Existing workspace overlap, sharing and purge rules apply. Linux files are accessed through the distribution's Windows UNC namespace; mounted Windows drives use their real Windows paths, honoring custom mount locations. Windows paths returned by other tools can be translated with `wslpath -u`. Spaces, Unicode and apostrophes are supported; paths that cannot be represented through Windows filesystem APIs fail explicitly. Hook support follows the current host adapters; a configured entry alone does not establish host-side trust or transcript-version compatibility.
 
-`imprint learn` and the dashboard's **Learn** action also read each registered profile's Claude Code and Codex conversations through `\\wsl.localhost\<distro>\…`, comparing their working directories the way the bridge does. Reading a distribution's mount table can start it. A distribution that cannot be reached is skipped and listed under "Not learned" at the end of the run; the other stores are still learned.
+`imprint learn` and the dashboard's **Learn** action also read each registered profile's Claude Code, Codex and Cursor conversations through `\\wsl.localhost\<distro>\…`, comparing their working directories the way the bridge does. Reading a distribution's mount table can start it. A distribution that cannot be reached is skipped and listed under "Not learned" at the end of the run; the other stores are still learned.
 
 To disconnect a selected profile manually:
 
 ```powershell
 & $ImprintBin wsl remove --distribution Ubuntu --target claude-code
 & $ImprintBin wsl remove --distribution Ubuntu --target codex
+& $ImprintBin wsl remove --distribution Ubuntu --target cursor
 ```
 
 Use the same user/profile override flags when removing a custom registration. Removal preserves memories and other integrations; it refuses to remove an Imprint entry that now points to a different runtime. Windows disable/uninstall also disconnects the WSL profiles previously registered by this installation, including recorded custom users and homes. If a recorded distribution or profile cannot be reached, cleanup fails and uninstall keeps the runtime for a retry. See [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md) and [platform validation](platform-validation.md).
@@ -176,7 +180,7 @@ imprint learn --desktop --interval 300     # every 5 min
 imprint learn --desktop --path ~/Archive   # extra folder(s) in addition to Downloads
 ```
 
-`imprint learn` on its own indexes Claude Code transcripts and auto-memory files and Codex sessions. It reads them from this computer's profiles (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME` or `~/.codex`) and from every Claude Code or Codex profile registered in WSL. `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
+`imprint learn` on its own indexes Claude Code transcripts and auto-memory files, Codex sessions and Cursor agent conversations. It reads them from this computer's profiles (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME` or `~/.codex`, `~/.cursor`) and from every Claude Code, Codex or Cursor profile registered in WSL. `--desktop` is additive. Neither needs an approved workspace root: the Downloads folders are where exports land, and each conversation's recorded working directory decides which workspace it belongs to. Extra `--path` folders must be inside the workspace's approved roots. See [workspaces](workspaces.md#learning-needs-no-root).
 
 ## Install a specific version or channel
 

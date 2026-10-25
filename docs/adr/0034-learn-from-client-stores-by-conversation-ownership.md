@@ -52,4 +52,6 @@ Desktop exports no longer require approving Downloads. Exports keep their per-wo
 - Go: `go build ./...`, `go vet ./cmd/` and `go test ./...` passed on Linux.
 - Not run: `imprint learn` end to end on macOS or Windows with real Claude Code transcripts, and the dashboard **Learn** action on those platforms.
 
+Cursor follow-up: [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) counts a Cursor folder name as a recorded cwd when exactly one existing directory has it. Cursor's records state none. Claude Code's folder names are still never evidence.
+
 Store coverage follow-up: [ADR 0037](0037-learn-every-integrated-client-store.md) extends the stores this rule is applied to (`CLAUDE_CONFIG_DIR`, Codex sessions, registered WSL profiles) and counts Codex's session and turn working directories as recorded cwds.

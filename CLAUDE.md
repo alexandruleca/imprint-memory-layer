@@ -64,7 +64,7 @@ imprint status             # enabled/disabled, server pid, memory stats
 imprint enable [target]    # re-wire MCP + hooks + start server
 imprint disable            # stop server, unregister MCP, strip hooks
 imprint ingest <dir>       # index project source files
-imprint learn              # index Claude Code + Codex conversations (incl. WSL profiles) + memory files
+imprint learn              # index Claude Code, Codex + Cursor conversations (incl. WSL profiles) + memory files
 imprint learn --desktop    # also index Claude Desktop / ChatGPT Desktop export zips
 imprint refresh <dir>      # re-index changed files only
 imprint refresh-urls       # re-fetch stored URLs by ETag/Last-Modified

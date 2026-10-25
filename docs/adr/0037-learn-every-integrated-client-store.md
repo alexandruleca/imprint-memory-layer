@@ -80,3 +80,5 @@ Native Windows and macOS working directories (`C:\…`, `/Users/…`) still get 
   - The installed Windows interpreter, started with each group's environment, resolved the WSL stores to `\\wsl.localhost\Ubuntu\…` and `/mnt/c/…` to `C:\…`, while this computer's paths stayed unchanged.
 - Native Windows, read-only, with the installed interpreter against the real WSL stores and a copy of the workspace policy: 146 conversations listed and identified with distinct sources. The ownership read of all 1.8 GB took 407 s with one resolution per distinct cwd; per-record resolution had not finished after 25 minutes. Details are in [platform validation](../platform-validation.md#learn-from-wsl-and-codex-stores-2026-10-24).
 - Not run: a complete `imprint learn` that embeds and stores into a Windows data directory, the dashboard **Learn** action on Windows, and macOS.
+
+Cursor follow-up: [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) adds this computer's Cursor profile and registered WSL Cursor profiles to the stores.

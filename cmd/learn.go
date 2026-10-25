@@ -12,13 +12,13 @@ import (
 
 // Learn indexes the conversations of every client store Imprint is
 // integrated with: this computer's Claude Code transcripts and auto-memory
-// files and Codex sessions, and those of each Claude Code/Codex profile
-// registered for WSL (ADR 0037). With --desktop it also scans the user's
-// Downloads folder(s) for Claude Desktop / ChatGPT Desktop export zips and
-// ingests them. Separated from ingest so project file indexing doesn't
+// files, Codex sessions and Cursor agent conversations, and those of each
+// Claude Code, Codex or Cursor profile registered for WSL (ADR 0037, ADR
+// 0052). With --desktop it also scans the user's Downloads folder(s) for
+// Claude Desktop / ChatGPT Desktop export zips and ingests them. Separated from ingest so project file indexing doesn't
 // re-process sessions.
 //
-//	imprint learn              # Claude Code + Codex conversations, auto-memory files
+//	imprint learn              # Claude Code, Codex and Cursor conversations, auto-memory files
 //	imprint learn --desktop    # also index new desktop-app export zips
 //	imprint learn --watch      # poll-loop the desktop scanner (implies --desktop)
 //	imprint learn --path DIR   # add an extra scan root (repeatable)
@@ -80,7 +80,7 @@ func Learn(args []string) {
 	}
 
 	for i, g := range groups {
-		output.Info(fmt.Sprintf("Step %d/%d: Learning Claude Code and Codex conversations on %s...", i+1, steps, g.label))
+		output.Info(fmt.Sprintf("Step %d/%d: Learning Claude Code, Codex and Cursor conversations on %s...", i+1, steps, g.label))
 		cmd := runner.CommandWithEnv(venvPython, g.learnArgs(), append(envVars, g.pathContext()...)...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -132,7 +132,7 @@ type conversationStores struct {
 	distribution string      // WSL distribution; empty for this computer
 	user         string      // registered Linux user; empty for the default
 	mounts       string      // its Windows drive mounts (wslDriveMounts)
-	stores       [][2]string // client (claude-code or codex), profile directory
+	stores       [][2]string // client (claude-code, codex or cursor), profile directory
 }
 
 func (g conversationStores) learnArgs() []string {
@@ -153,14 +153,14 @@ func (g conversationStores) pathContext() []string {
 }
 
 // learnStores lists the client stores Imprint is integrated with: this
-// computer's Claude Code (CLAUDE_CONFIG_DIR) and Codex (CODEX_HOME) profiles,
-// then each profile registered for WSL with its recorded home, Claude
-// configuration and Codex home. Reading a distribution's mount table may
-// start it, as WSL discovery does. Registrations that cannot be learned are
+// computer's Claude Code (CLAUDE_CONFIG_DIR), Codex (CODEX_HOME) and Cursor
+// (~/.cursor) profiles, then each profile registered for WSL with the
+// registered target's recorded directory. Reading a distribution's mount
+// table may start it, as WSL discovery does. Registrations that cannot be learned are
 // returned as problems instead of stopping the others.
 func learnStores(project string) ([]conversationStores, []string) {
 	groups := []conversationStores{{label: "this computer", stores: [][2]string{
-		{"claude-code", platform.ClaudeConfigDir()}, {"codex", platform.CodexHome()}}}}
+		{"claude-code", platform.ClaudeConfigDir()}, {"codex", platform.CodexHome()}, {"cursor", platform.CursorConfigDir()}}}}
 	records, err := readWSLRegistrations(project)
 	if err != nil {
 		return groups, []string{"WSL profiles: " + err.Error()}
@@ -168,11 +168,8 @@ func learnStores(project string) ([]conversationStores, []string) {
 	var problems []string
 	wsl := map[[2]string]int{}
 	for _, r := range records {
-		dir := r.Profile.CodexHome
-		if r.Target == "claude-code" {
-			dir = r.Profile.ClaudeHome
-		}
-		if !validDistro(r.Profile.Distribution) || r.Target != "claude-code" && r.Target != "codex" || !validLinuxPath(dir) {
+		dir, err := wslClientDir(r.Profile, r.Target)
+		if err != nil || !validDistro(r.Profile.Distribution) || !validLinuxPath(dir) {
 			problems = append(problems, fmt.Sprintf("WSL %s %s: invalid saved WSL profile", r.Profile.Distribution, r.Target))
 			continue
 		}
