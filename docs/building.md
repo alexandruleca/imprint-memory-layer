@@ -188,7 +188,12 @@ from branches in this repository. Intel macOS remains hosted. See
 
 The repository runner is `Outland-apple-silicon`, installed outside the checkout at
 `~/.local/share/github-runners/imprint-apple-silicon`. Its credentials and work
-folder must never enter git or release archives. It runs one job at a time as a
+folder must never enter git or release archives. Go dependency/build caches stay local on the laptop; setup-go remote caching is
+disabled there to avoid uploading the owner’s shared caches and delaying cleanup.
+The macOS app artifact preserves symlinks while omitting AppleDouble and extended
+attribute metadata so Linux packaging receives only bundle files.
+
+It runs one job at a time as a
 login LaunchAgent under the laptop owner. It starts at login, requires network
 access and an awake laptop, and does not prevent sleep. Jobs queue while it is
 offline; there is no automatic paid hosted fallback. Intel jobs still incur any

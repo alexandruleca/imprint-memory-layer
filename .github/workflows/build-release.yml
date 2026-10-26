@@ -129,7 +129,8 @@ jobs:
       - name: Build macOS universal app
         run: make ui-dist-mac
       - name: Archive .app bundle (tar preserves symlinks)
-        run: tar czf build/electron/imprint-ui.app.tar.gz -C build/electron imprint-ui.app
+        # Do not serialize AppleDouble/xattrs into the Linux packaging job.
+        run: COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -czf build/electron/imprint-ui.app.tar.gz -C build/electron imprint-ui.app
       - uses: actions/upload-artifact@v4
         with:
           name: electron-macos
