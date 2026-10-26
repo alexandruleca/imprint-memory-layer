@@ -145,6 +145,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Recall (MCP tool)** | | |
 | `recall.llm` | `false` | Let the local model plan recall reads and answer from the evidence |
 | `recall.llm_timeout_sec` | `30` | Seconds one recall waits for the local model (planning and answering together) |
+| **Workspace selection** | | |
+| `workspace.unassigned` | — (the active workspace) | Workspace for agent sessions outside an assigned project, such as desktop app chats. Choices are this device's workspaces; deleting the chosen one resets it. Env `IMPRINT_UNASSIGNED_WORKSPACE`. See [workspace per project](workspaces.md#workspace-per-project) |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
@@ -189,6 +191,6 @@ These don't live in `config.json` because they're path-shaped infra knobs the co
 
 `ingest.max_file_bytes` (`IMPRINT_INGEST_MAX_FILE_BYTES`) defaults to 2,000,000 for source-text indexing. Oversize/undecodable sources retain their old chunks and report an incomplete run; there is no silent 50,000-character cutoff. Document extraction keeps `ingest.max_doc_size_mb` separately. LLM tagging remains opt-in even with a local provider; `tagger.zero_shot=false` also disables batch backfill.
 
-`IMPRINT_DATA_DIR` selects persistent storage consistently in Go and Python. `IMPRINT_WORKSPACE` is an operation override used by queued subprocesses; it must name an existing valid workspace. New jobs capture it at submission so a later dashboard switch cannot redirect them. `imprint sync --workspace NAME` selects the workspace for one session the same way, without changing the active workspace. MCP calls resolve their workspace at entry. It does not create persistent per-client/project binding.
+`IMPRINT_DATA_DIR` selects persistent storage consistently in Go and Python. `IMPRINT_WORKSPACE` is an operation override used by queued subprocesses; it must name an existing valid workspace. It outranks a directory's own workspace, so set in a client's MCP server environment it pins every session of that client. New jobs capture it at submission so a later dashboard switch cannot redirect them. `imprint sync --workspace NAME` selects the workspace for one session the same way, without changing the active workspace. MCP calls resolve their workspace at entry. Per-project binding is a project file this device approved ([workspace per project](workspaces.md#workspace-per-project), [ADR 0072](adr/0072-projects-name-their-workspace-and-each-device-approves-it.md)).
 
 See [embedding rebuild instructions](embeddings.md) and [local helper setup](local-models.md). Explicit persisted values override new defaults. Model configuration changes require restarting long-running processes. Local summaries share `tagger.local.*`; local non-thinking and grammar controls do not configure external servers.

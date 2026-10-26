@@ -180,6 +180,7 @@ imprint server <cmd>       # manage the local Qdrant daemon: start | stop | stat
 imprint workspace          # list workspaces and show active
 imprint workspace switch <name>  # switch to workspace (creates if new)
 imprint workspace delete <name>  # delete a workspace and its data
+imprint workspace use [name]     # make this project use a workspace (writes .imprint/workspace.json)
 imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve [--relay <host>] [--workspace <name>] [--send-only | --receive-only]

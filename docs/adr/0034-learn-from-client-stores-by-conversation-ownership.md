@@ -9,6 +9,7 @@ description: Learning reads the clients' own stores without an approved root; re
 - Amended by:
   - [ADR 0037](0037-learn-every-integrated-client-store.md) — more stores (`CLAUDE_CONFIG_DIR`, Codex sessions, registered WSL profiles) and Codex's session and turn working directories as recorded cwds
   - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) — a Cursor folder name counts as a recorded cwd when exactly one existing directory has it
+  - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) — an approved project file assigns its project's conversations to the workspace it names; the Stop hook learns in the session's workspace
 - Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md); [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md), which read recorded cwds from Cline manifests and Copilot session events under the unchanged rule
 - Restructured: 2026-10-25
 

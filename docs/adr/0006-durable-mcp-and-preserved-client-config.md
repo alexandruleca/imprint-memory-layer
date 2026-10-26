@@ -5,7 +5,9 @@ description: Honest write acknowledgements, bounded reads, workspace binding and
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0015](0015-workspace-roots-and-source-purge.md) — workspace binding is extended; the original rationale below is retained
+- Amended by:
+  - [ADR 0015](0015-workspace-roots-and-source-purge.md) — workspace binding is extended; the original rationale below is retained
+  - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) — each MCP session binds to its project's workspace
 - Restructured: 2026-10-25
 
 ## Context
