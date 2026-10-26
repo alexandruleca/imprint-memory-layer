@@ -61,6 +61,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) **Chat speaks each model's native tool protocol.** Chat keeps one registry of tool JSON schemas; local models get them through their chat template and remote providers through API function calling, with no text protocol of Imprint's own. Amended by [ADR 0061](0061-local-tool-call-formats.md) (local parsing).
 - [ADR 0061](0061-local-tool-call-formats.md) **Local tool-call formats by model family.** Local chat parses tool calls in the model family's format (Qwen XML, Hermes JSON, Llama 3, Mistral), detected by rendering a probe call through the template or chosen with `chat.tool_format`; other models chat without tools and say so.
 - [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) **CUDA only for GPU embedding on a supported NVIDIA GPU.** The embedding runtime follows `model.device` and the machine: the CUDA build, with only the libraries its provider loads, installs only for GPU embedding on a supported NVIDIA GPU; switching builds removes what the old one used.
+- [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) **Keep Qwen3.5-4B as the local tagger.** Qwen3.5-2B tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on; putting the prompt's fixed text first gains nothing on Qwen3.5's architecture.
 
 ### Sync and device provenance
 
@@ -216,6 +217,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) | 2026-10-26 | Accepted | Microphone purpose in the macOS installer wrapper |
 | [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
 | [0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | 2026-10-26 | Accepted | The Stop hook hands its turn to one waiting learner under the queue lock |
+| [0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) | 2026-10-26 | Accepted | Keep Qwen3.5-4B as the local tagger |
 
 ## How to write and maintain ADRs
 

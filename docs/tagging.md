@@ -68,6 +68,8 @@ Set `IMPRINT_LLM_TAGS=1` and pick a provider:
 | vLLM | `vllm` | `default` | — | Local server, no API key needed |
 | Local (llama-cpp) | `local` (default) | `Qwen3.5-4B Q4_K_M` (auto GGUF download) | — | In-process via `llama-cpp-python`, no server required. Tune via `tagger.local.model_repo`, `tagger.local.model_file`, `tagger.local.model_path`, `tagger.local.n_ctx`, `tagger.local.n_gpu_layers` |
 
+The local default takes about 3 s per memory on an RTX 4080 Laptop GPU with the Vulkan build and about 18 s on CPU. Qwen3.5-2B is about twice as fast but tags language and topics less accurately, so it is not the default. Choose it with `tagger.local.model_repo` and `tagger.local.model_file` ([ADR 0078](adr/0078-keep-qwen3-5-4b-as-the-local-tagger.md)).
+
 **Overrides:**
 
 | Env var | Purpose | Example |

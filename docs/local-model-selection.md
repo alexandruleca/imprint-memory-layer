@@ -84,6 +84,8 @@ This inspection establishes signatures only, not successful inference or correct
 
 ## LLM shortlist and task routing
 
+Tagging follow-up, 2026-10-26: Qwen3.5-2B was compared with the default 4B on 50 of the owner's memories. It tagged 2.2× faster on the GPU and 2.5× faster on CPU, and was no worse at memory types. But it got the language wrong more often (5 against 1) and gave clearly wrong topics more often (6 against 2). The 4B stays the default ([ADR 0078](adr/0078-keep-qwen3-5-4b-as-the-local-tagger.md)). The comparison does not cover summaries.
+
 | Model | License | Role and tradeoff |
 | --- | --- | --- |
 | [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | Apache-2.0 | First shared-helper evaluation choice: structured extraction, grounded chat and tool use at moderate weight memory. Use non-thinking mode for routine extraction. |
