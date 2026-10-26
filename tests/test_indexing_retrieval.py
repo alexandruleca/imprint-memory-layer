@@ -285,22 +285,30 @@ class StorageTests(unittest.TestCase):
         from imprint import cli_index
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'single.py'
-            content = 'large source content\n' * 3000
-            path.write_text(content)
             settings = lambda key: (False, 'env') if key.startswith(('tagger.', 'redact.')) else (2_000_000, 'default')
             with patch('imprint.config_schema.resolve', side_effect=settings), \
                  patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
                  patch('imprint.tagger.build_payload_tags', return_value={}), \
                  contextlib.redirect_stdout(io.StringIO()):
-                cli_index.ingest_single_file(str(path), 'fixture')
-                self.assertEqual(self.contents('fixture'), [content])
-                path.write_bytes(b'\xff invalid UTF-8')
-                with self.assertRaises(UnicodeDecodeError):
-                    cli_index.ingest_single_file(str(path), 'fixture')
-                self.assertEqual(self.contents('fixture'), [content])
-                path.write_text('')
-                cli_index.ingest_single_file(str(path), 'fixture')
-                self.assertEqual(self.contents('fixture'), [])
+                for newline in ('\n', '\r\n'):
+                    with self.subTest(newline=repr(newline)):
+                        content = ('large source content' + newline) * 3000
+                        # Text-mode writes translate LF to CRLF on Windows.
+                        # Ingestion now preserves the bytes actually written.
+                        path.write_bytes(content.encode('utf-8'))
+                        cli_index.ingest_single_file(str(path), 'fixture')
+                        # A failed assertEqual on thousands of near-identical
+                        # lines spends minutes constructing a difflib report.
+                        self.assertTrue(self.contents('fixture') == [content],
+                                        'Large source did not retain its exact line endings')
+                        path.write_bytes(b'\xff invalid UTF-8')
+                        with self.assertRaises(UnicodeDecodeError):
+                            cli_index.ingest_single_file(str(path), 'fixture')
+                        self.assertTrue(self.contents('fixture') == [content],
+                                        'Invalid UTF-8 replaced the prior source')
+                        path.write_bytes(b'')
+                        cli_index.ingest_single_file(str(path), 'fixture')
+                        self.assertEqual(self.contents('fixture'), [])
 
 
 class RetrievalTests(unittest.TestCase):
