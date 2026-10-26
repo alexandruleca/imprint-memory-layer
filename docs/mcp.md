@@ -19,7 +19,7 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 | Tool | Purpose |
 |------|---------|
 | `search` | Hybrid semantic/exact-term ranking (`mode="hybrid"`, or `"semantic"`). Bounded excerpts and previews, source hash/mtime, semantic score and match type. Filters: `project`, `type`, `lang`, `layer`, `kind`, `domain`, `source`. Query: 1–4,000 characters; `limit` 1–50 (default 5); `offset` 0–255. `detail="compact"` (default) selects verbatim query-relevant windows; `detail="full"` adds broad context. `max_chars` sets a 1,200–12,000-character response budget (default 4,000), not an exact token count. |
-| `get_memory` | Read the full record by the public ID from search/store (legacy point UUIDs also accepted). Content defaults to 4,000 characters; `max_chars` accepts 100–12,000. `start`/`next_start` paginate the original content, with total character count and truncation status. |
+| `get_memory` | Read the full record with `get_memory(memory_id="<id>")`, using the public ID from search/store (legacy point UUIDs also accepted). The MCP argument schema advertises `memory_id`; direct MCP calls also accept `id` as a compatibility alias. Supplying both names is rejected. Content defaults to 4,000 characters; `max_chars` accepts 100–12,000. `start`/`next_start` paginate the original content, with total character count and truncation status. |
 | `neighbors` | KNN over embeddings for a given memory id — finds cross-project kin that share the same chunk space. |
 | `graph_scope` | Navigate KB as a graph. Scopes: `root`, `project:<name>`, `topic:<name>`, `source:<path>`, `chunk:<id>`. Each response ends with concrete next-step suggestions. |
 | `list_sources` | List indexed source files with chunk counts. Filters: `project`, `lang`, `layer`. |
@@ -29,6 +29,8 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 ### Recall: several reads in one call
 
 `recall(question, plan=None, max_chars=4000, condense=True, workspace="")` answers a lookup that needs several reads in one round trip. A `plan` lists up to 8 steps, `{"tool": name, "args": {...}}`, over the read tools `search`, `get_memory`, `neighbors`, `file_chunks`, `file_summary`, `list_sources` and `kg_query`. Each step takes that tool's own arguments, except `workspace` (recall's applies to every step) and output sizes (search `detail`/`max_chars`, get_memory `start`/`max_chars`), which recall's single budget replaces. `graph_scope`, `status` and `device_context` are reads too, but they return navigation and diagnostics rather than evidence, so plans do not include them.
+
+Use the canonical `memory_id` in recall plan steps: `{"tool":"get_memory","args":{"memory_id":"<id>"}}`. The `id` compatibility alias applies only to direct MCP tool calls. Search, recall excerpts and graph expansion hints name `memory_id` explicitly ([ADR 0021](adr/0021-budgeted-mcp-evidence-and-selective-expansion.md)).
 
 ```json
 {"question": "How does Imprint serialize ingest, and how does the reference project queue work?",

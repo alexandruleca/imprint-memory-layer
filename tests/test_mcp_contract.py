@@ -1,7 +1,9 @@
+import json
 import unittest
 from unittest.mock import patch
 
 from imprint import server
+from fastmcp import Client
 
 
 class MCPContractTests(unittest.TestCase):
@@ -52,3 +54,38 @@ class MCPContractTests(unittest.TestCase):
             self.assertLess(len(response), 12500)
             self.assertIn('start=1', response)
             self.assertEqual(read.call_args.kwargs['end'], 19)
+
+
+class MemoryArgumentContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cursor_id_call_and_canonical_call_read_the_same_bounded_record(self):
+        # Exercise MCP validation itself: direct Python calls bypass aliases.
+        memory_id = 'b93a69214464b791'
+        with patch.object(server, '_validate_ws', return_value=('chosen', None)) as workspace, \
+                patch.dict(server._session, {'notice': ''}), \
+                patch.object(server, 'memory_row', side_effect=lambda *a, **kw: {
+                    'id': memory_id, 'content': 'detail ' * 1500}) as read:
+            async with Client(server.mcp) as client:
+                tools = {tool.name: tool for tool in await client.list_tools()}
+                tool = tools['get_memory']
+                self.assertEqual(tool.input_schema['required'], ['memory_id'])
+                self.assertNotIn('id', tool.input_schema['properties'])
+                self.assertTrue(tool.annotations.read_only_hint)
+                args = {'workspace': 'chosen', 'start': 100, 'max_chars': 200}
+                canonical = await client.call_tool('get_memory', {'memory_id': memory_id, **args})
+                cursor = await client.call_tool('get_memory', {'id': memory_id, **args})
+                self.assertEqual(canonical.content, cursor.content)
+                record = json.loads(cursor.content[0].text)
+                self.assertEqual((record['id'], record['start'], len(record['content']), record['next_start']),
+                                 (memory_id, 100, 200, 300))
+                self.assertEqual(read.call_count, 2)
+                read.assert_called_with(memory_id, workspace='chosen')
+                workspace.assert_called_with('chosen')
+
+    async def test_missing_and_ambiguous_identifiers_fail_before_reading(self):
+        with patch.object(server, 'memory_row') as read, patch.dict(server._session, {'notice': ''}):
+            async with Client(server.mcp) as client:
+                for args in ({}, {'memory_id': 'one', 'id': 'two'}):
+                    with self.subTest(args=args):
+                        result = await client.call_tool('get_memory', args, raise_on_error=False)
+                        self.assertTrue(result.is_error)
+            read.assert_not_called()
