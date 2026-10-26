@@ -159,6 +159,42 @@ class LiveSyncTests(unittest.TestCase):
         for secret in (SECRET, room['pin'], self.identity['hostname'], self.identity['fingerprint'], 'team'):
             self.assertNotIn(secret.encode(), wire, secret)
 
+    def test_a_users_cancel_is_reported_but_a_cancelled_task_is_not_swallowed(self):
+        async def run():
+            relay = Relay()
+            async with serve(relay.handler, '127.0.0.1', 0) as server:
+                endpoint = sync_ws.Relay('ws', f"127.0.0.1:{server.sockets[0].getsockname()[1]}")
+
+                async def provide(on_waiting, on_approval=None):
+                    events, room = [], {}
+                    async for event in sync_ws.serve_session('team', BOTH, endpoint):
+                        events.append(event)
+                        if event['type'] == 'room':
+                            room = event
+                        elif event.get('status') == 'waiting':
+                            on_waiting(room)
+                        elif event['type'] == 'approval_required':
+                            on_approval(room)
+                    return events
+
+                # The user cancels while asked to approve the joining device.
+                ready = asyncio.get_running_loop().create_future()
+                task = asyncio.create_task(provide(ready.set_result,
+                                                   lambda room: sync_ws.cancel_session(room['session_id'])))
+                room = await asyncio.wait_for(ready, 5)
+                await self.collect(sync_ws.receive_session(endpoint, room['room_id'], room['pin'], 'team', BOTH))
+                self.assertEqual((await asyncio.wait_for(task, 5))[-1], {'type': 'cancelled'})
+
+                # Cancelling the task (a time limit, the paired worker, shutdown)
+                # reaches whoever cancelled it instead of ending as a user's cancel.
+                waiting = asyncio.Event()
+                task = asyncio.create_task(provide(lambda room: waiting.set()))
+                await asyncio.wait_for(waiting.wait(), 5)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+        asyncio.run(run())
+
     def test_joining_side_learns_who_serves_and_confirms_before_sending(self):
         _, consumer, _ = self.sync()
         served_by = next(event for event in consumer if event['type'] == 'peer_connected')

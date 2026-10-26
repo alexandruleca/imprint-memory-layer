@@ -6,6 +6,7 @@ import io
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -345,37 +346,117 @@ class PairedSyncTests(unittest.TestCase):
                     self.side.reset(token)
             self.scenario(scenario)
 
-    def test_the_other_device_finds_nobody_in_the_paired_room_after_a_remove(self):
+    @contextlib.contextmanager
+    def short_waits(self, limit=1):
+        """A one-second attempt limit and key-exchange wait instead of 10 minutes and 30 s."""
         real_wait_for = asyncio.wait_for
 
-        async def wait_for(awaitable, timeout):  # the 30 s key-exchange wait, shortened
+        async def wait_for(awaitable, timeout):
             return await real_wait_for(awaitable, None if timeout is None else min(timeout, .5))
 
-        # 'a' < 'b', so a opens the room as provider and b joins it as consumer.
+        with patch.object(sync_pairs, 'ATTEMPT_LIMIT', limit), patch('asyncio.wait_for', wait_for):
+            yield
+
+    @staticmethod
+    async def worker_until(done):
+        """Run this side's worker until ``done()``."""
+        task = asyncio.create_task(sync_pairs.watch(interval=60, tick=.05))
+        try:
+            for _ in range(200):
+                if done():
+                    break
+                await asyncio.sleep(.05)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    def test_the_device_left_behind_records_that_the_other_one_does_not_answer(self):
+        # 'a' < 'b': a opens the paired room (provider), b joins it (consumer).
         for remover, left in (('a', 'b'), ('b', 'a')):
             async def scenario(endpoint, relay):
                 await self.initial(endpoint)
+                await self.repeat()  # both answered: last_seen is set on each side
                 await self.at(remover, lambda: asyncio.to_thread(
                     lambda: sync_pairs.remove(sync_pairs.pairs()[0]['id'], confirmed=True)))
                 self.imports.clear()
-                token = self.side.set(left)
-                try:
-                    attempt = sync_pairs._attempt(sync_pairs.pairs()[0])
-                    if left == 'b':  # the consumer's key exchange goes unanswered
-                        with patch('asyncio.wait_for', wait_for), \
-                                self.assertRaisesRegex(RuntimeError, 'did not answer the key exchange'):
-                            await attempt
-                    else:  # the provider waits for a peer until the worker's attempt limit
-                        task = asyncio.ensure_future(attempt)
-                        done, _ = await asyncio.wait({task}, timeout=1)
-                        self.assertFalse(done)
-                        task.cancel()
-                        await asyncio.gather(task, return_exceptions=True)
-                    self.assertEqual([p['state'] for p in sync_pairs.pairs()], ['active'])
-                finally:
-                    self.side.reset(token)
+
+                async def worker():
+                    with self.short_waits():
+                        await self.worker_until(lambda: sync_pairs.pairs()[0]['last_error'])
+                    return sync_pairs.pairs()[0]
+                pair = await self.at(left, worker)
+                since = time.strftime('%Y-%m-%d %H:%M', time.localtime(pair['last_seen']))
+                self.assertEqual(pair['last_error'], f"The other device hasn't answered since {since}; "
+                                                     'it may be offline or have removed this pairing')
+                self.assertEqual(pair['state'], 'active')
                 self.assertEqual(self.imports, [])
+                # The paired-device list shows it as it is stored.
+                out = io.StringIO()
+                with patch('sys.argv', ['imprint sync', 'peers']), contextlib.redirect_stdout(out):
+                    await self.at(left, lambda: asyncio.to_thread(cli_sync.main))
+                self.assertEqual(json.loads(out.getvalue())[0]['last_error'], pair['last_error'])
             self.scenario(scenario)
+
+    def test_a_device_that_never_answered_is_counted_from_the_pairing(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            pair = sync_pairs.pairs()[0]
+            self.assertIsNone(pair['last_seen'])
+            with self.short_waits():
+                await self.worker_until(lambda: sync_pairs.pairs()[0]['last_error'])  # b is not running
+            since = time.strftime('%Y-%m-%d %H:%M', time.localtime(pair['created_at']))
+            self.assertIn(f"hasn't answered since {since};", sync_pairs.pairs()[0]['last_error'])
+        self.scenario(scenario)
+
+    def test_an_attempt_past_its_limit_after_the_other_device_answered_says_so(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            self.digests['a'] = 'c' * 64  # a change, so data moves
+            importer = sync_ws.process_import_buffer.side_effect
+
+            def slow(*args, **kwargs):
+                time.sleep(1.5)
+                return importer(*args, **kwargs)
+
+            async def attempt():
+                await sync_pairs._attempt(sync_pairs.pairs()[0])
+
+            with self.short_waits(), patch.object(sync_ws, 'process_import_buffer', side_effect=slow):
+                a = asyncio.create_task(self.at('a', attempt))
+                await asyncio.sleep(.02)
+                with self.assertRaisesRegex(sync_pairs.AttemptFailed, '^The sync did not finish within'):
+                    await self.at('b', attempt)  # b stores what it pulled: slower than the limit
+                await asyncio.gather(a, return_exceptions=True)
+        self.scenario(scenario)
+
+    def test_pause_and_shutdown_end_an_attempt_waiting_for_the_other_device_quietly(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            pair = sync_pairs.pairs()[0]  # a opens the paired room; b never comes
+
+            def provider_waiting():
+                return any(room.startswith('paired_') for room in relay.rooms)
+
+            task = asyncio.create_task(sync_pairs.watch(interval=60, tick=.02))
+            try:
+                for _ in range(200):
+                    if provider_waiting() and pair['id'] in sync_pairs._running:
+                        break
+                    await asyncio.sleep(.01)
+                first, _ = sync_pairs._running[pair['id']]
+                sync_pairs.set_enabled(pair['id'], False)
+                await asyncio.gather(first, return_exceptions=True)
+                self.assertTrue(first.cancelled())
+                for _ in range(200):  # a paused pairing still opens the room for control frames
+                    if sync_pairs._running.get(pair['id'], (first,))[0] is not first and provider_waiting():
+                        break
+                    await asyncio.sleep(.01)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            self.assertFalse(sync_pairs._running)
+            self.assertEqual(sync_pairs.get(pair['id'])['last_error'], '')
+        self.scenario(scenario)
 
     def test_remove_covers_every_workspace_with_that_device_only(self):
         one = sync_pairs.offer('from-a', self.identities['b'], sync_ws.SyncPolicy(), 'from-b', sync_ws.parse_relay(None))

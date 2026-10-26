@@ -124,14 +124,18 @@ last contact, or since pairing if it never reconnected).
 
 The other device is not told. If it comes back, it still holds its pairing and
 keeps trying the paired room, where this device no longer appears, which to it
-looks the same as this device being offline. When it is the joining side (the
-higher device id) each attempt fails with *The other machine did not answer the
-key exchange*; when it opens the room, each attempt waits up to the worker's
-10-minute limit and ends without recording an error. Either way its last contact
-stops advancing, so after 7 days its own **Paired devices** highlights removal
-too: remove the pairing there the same way. The protocol cannot tell a removed
-pairing from an offline device without that device answering, so no other
-message is shown. See [ADR 0073](adr/0073-remove-a-pairing-from-one-device.md).
+looks the same as this device being offline. Each of its attempts ends with
+*The other device hasn't answered since 2026-10-19 14:03; it may be offline or
+have removed this pairing*, with the time of its last contact: after 30 seconds
+when it joins the room (the higher device id), at the worker's 10-minute
+attempt limit when it opens the room.
+**Paired devices** shows it as the last connection, and `imprint sync peers` as
+`last_error`. After 7 days without contact its **Paired devices** also
+highlights removal: remove the pairing there the same way. The protocol cannot
+tell a removed pairing from an offline device without that device answering,
+so the message names both. Stopping an attempt on purpose (pause, forget,
+remove, closing Imprint) records nothing. See
+[ADR 0073](adr/0073-remove-a-pairing-from-one-device.md).
 
 Pause/forget control frames run before opening either index, so revocation also
 works after a workspace is removed or embedding settings become incompatible.

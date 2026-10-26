@@ -79,6 +79,11 @@ class HandshakeError(Exception):
     """The peers could not set up an encrypted session."""
 
 
+class NoAnswer(HandshakeError):
+    """Nobody answered the key exchange: the other machine is offline, or no
+    longer uses this room. Its error event carries ``no_answer``."""
+
+
 class PeerNotice(Exception):
     """The peer sent a plaintext notice instead of a sealed frame."""
 
@@ -509,7 +514,7 @@ async def _join(ws, room_id: str, pin: str, identity: dict) -> _Channel:
     try:
         frame = await asyncio.wait_for(ws.recv(), 30)
     except asyncio.TimeoutError:
-        raise HandshakeError("The other machine did not answer the key exchange") from None
+        raise NoAnswer("The other machine did not answer the key exchange") from None
     reply = _plain(frame)
     if reply is None or reply.get("method") != "PAKE":
         if reply is not None and reply.get("version") == PROTOCOL:
@@ -851,6 +856,8 @@ async def resume_session(pending: PendingDownload) -> AsyncGenerator[dict, None]
         yield {"type": "pull_complete", "stats": result["stats"]}
         yield {"type": "done", "pull_stats": result["stats"], "push_stats": None}
     except asyncio.CancelledError:
+        if not cancel.is_set():
+            raise  # the task was cancelled (a time limit, the paired worker, shutdown): its owner decides
         yield {"type": "cancelled"}
     except Exception as e:
         yield {"type": "error", "message": f"Storing failed: {e}; the download is kept for the next run"}
@@ -1088,6 +1095,8 @@ async def serve_session(
         yield {"type": "done"}
 
     except asyncio.CancelledError:
+        if not cancel.is_set():
+            raise  # the task was cancelled (a time limit, the paired worker, shutdown): its owner decides
         yield {"type": "cancelled"}
     except websockets.exceptions.ConnectionClosed:
         yield {"type": "done"}
@@ -1140,7 +1149,7 @@ async def receive_session(
             try:
                 channel = await _join(ws, room_id, pin, identity)
             except HandshakeError as e:
-                yield {"type": "error", "message": str(e)}
+                yield {"type": "error", "message": str(e), **({"no_answer": True} if isinstance(e, NoAnswer) else {})}
                 return
             yield {"type": "status", "status": "handshake_sent"}
 
@@ -1273,6 +1282,8 @@ async def receive_session(
         yield {"type": "done", "pull_stats": pull_stats, "push_stats": push_stats}
 
     except asyncio.CancelledError:
+        if not cancel.is_set():
+            raise  # the task was cancelled (a time limit, the paired worker, shutdown): its owner decides
         yield {"type": "cancelled"}
     except websockets.exceptions.ConnectionClosed:
         yield {"type": "error", "message": "Connection closed unexpectedly"}

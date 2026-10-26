@@ -259,6 +259,19 @@ async def exchange(channel, pair, peer, *, provider):
 
 _running: dict[str, tuple[asyncio.Task, str]] = {}
 
+# How long one automatic attempt may take, waiting for the other device included.
+ATTEMPT_LIMIT = 600
+
+
+class AttemptFailed(RuntimeError):
+    """Why an automatic attempt failed, in words for the paired-device list."""
+
+
+def _unanswered(pair):
+    since = time.strftime('%Y-%m-%d %H:%M', time.localtime(pair['last_seen'] or pair['created_at']))
+    return AttemptFailed(f"The other device hasn't answered since {since}; "
+                         'it may be offline or have removed this pairing')
+
 
 def cancel_peer(fingerprint):
     # API and watch each notice persisted changes. Cancel immediately in this
@@ -282,19 +295,31 @@ async def _attempt(pair):
     provider = identity['fingerprint'] < pair['peer']['fingerprint']
     session = (sync_ws.serve_session(pair['workspace'], policy, relay, pairing=pair) if provider else
                sync_ws.receive_session(relay, pair['room'], pair['secret'], pair['workspace'], policy, pairing=pair))
-    errors = []
-    async for event in session:
-        if event['type'] in ('error', 'warning'):
-            errors.append(event.get('message', 'Sync failed'))
-        if event['type'] == 'done' and not errors:
-            fresh = get(pair['id'])
-            if fresh['state'] == 'active' and fresh['enabled']:
-                # Values captured BEFORE the transfer avoid hiding concurrent
-                # writes. Imports may cause one extra deduplicating next pass.
-                update(pair['id'], last_sync=time.time(), last_error='',
-                       local_digest=pair.get('_local_digest'), remote_digest=pair.get('_remote_digest'))
+    errors, unanswered = [], False
+    try:
+        async with asyncio.timeout(ATTEMPT_LIMIT):
+            async for event in session:
+                if event['type'] in ('error', 'warning'):
+                    errors.append(event.get('message', 'Sync failed'))
+                    # The joining side gives up on an unanswered key exchange.
+                    unanswered = unanswered or event.get('no_answer') is True
+                if event['type'] == 'done' and not errors:
+                    fresh = get(pair['id'])
+                    if fresh['state'] == 'active' and fresh['enabled']:
+                        # Values captured BEFORE the transfer avoid hiding concurrent
+                        # writes. Imports may cause one extra deduplicating next pass.
+                        update(pair['id'], last_sync=time.time(), last_error='',
+                               local_digest=pair.get('_local_digest'), remote_digest=pair.get('_remote_digest'))
+    except TimeoutError:
+        # The authenticated exchange records last_seen. Before it, only the
+        # opening side's wait for the other device to join has no bound of its own.
+        if get(pair['id'])['last_seen'] == pair['last_seen']:
+            raise _unanswered(pair) from None
+        raise AttemptFailed(f'The sync did not finish within {ATTEMPT_LIMIT // 60} minutes; it runs again shortly') from None
+    if unanswered:
+        raise _unanswered(pair)
     if errors:
-        raise RuntimeError(errors[-1])
+        raise AttemptFailed(errors[-1])
 
 
 async def watch(*, interval=60, tick=2):
@@ -332,14 +357,16 @@ async def watch(*, interval=60, tick=2):
                     versions[pair_id] = (record['enabled'], record['state'])
 
                     async def run(record=record):
+                        # A cancellation (pause, forget, remove, shutdown) ends
+                        # the attempt quietly; a failure is kept for the user.
                         try:
-                            async with asyncio.timeout(600):
-                                await _attempt(record)
+                            await _attempt(record)
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
+                            problem = str(exc) if isinstance(exc, AttemptFailed) else f'{type(exc).__name__}: {exc}'
                             with contextlib.suppress(ValueError):
-                                update(record['id'], last_error=type(exc).__name__ + ': ' + str(exc)[:240])
+                                update(record['id'], last_error=problem[:240])
 
                     task = asyncio.create_task(run())
                     _running[pair_id] = (task, record['peer']['fingerprint'])
