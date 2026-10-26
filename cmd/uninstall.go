@@ -73,11 +73,6 @@ func Uninstall(args []string) {
 		if err := os.RemoveAll(data); err != nil {
 			output.Fail(err.Error())
 		}
-		// An app bundle keeps its runtime in a separate writable directory;
-		// remove it once empty (a script install may share the path).
-		if base := platform.MutableBaseDir(project); base != project {
-			_ = os.Remove(base)
-		}
 	}
 	// Never erase a separate release installation when called from a checkout.
 	install := filepath.Join(home, ".local", "share", "imprint")

@@ -1,13 +1,15 @@
 #!/bin/bash
 # Double-click to uninstall Imprint. Runs `imprint uninstall` to unwire the
 # MCP hooks, stop every Imprint process and remove the runtime and data
-# (ADR 0028), then removes /Applications/Imprint.app, /usr/local/bin/imprint,
-# and this command file itself.
+# (ADR 0028), then removes the launcher's first-run marker, the emptied
+# writable folder, /Applications/Imprint.app, /usr/local/bin/imprint, and
+# this command file itself.
 set -eu
 
 APP="/Applications/Imprint.app"
 SYMLINK="/usr/local/bin/imprint"
 IMPRINT="$APP/Contents/Resources/imprint/bin/imprint"
+WRITABLE_HOME="$HOME/.local/share/imprint"
 
 echo ""
 echo "================ Uninstall Imprint ================"
@@ -41,6 +43,11 @@ else
     echo "[!] Imprint binary missing; repair the app before uninstalling."
     exit 1
 fi
+
+# The launcher's marker goes with the app. The folder goes once empty: kept
+# data, or a script install sharing the path, keeps it.
+rm -f "$WRITABLE_HOME/.first-run.done"
+rmdir "$WRITABLE_HOME" 2>/dev/null || true
 
 echo ""
 echo "[*] Removing /usr/local/bin/imprint (needs sudo)..."
