@@ -92,6 +92,13 @@ def _embedding_devices() -> tuple[Choice, ...]:
             Choice("gpu", "GPU", "" if unavailable else here, unavailable))
 
 
+def _workspaces() -> tuple[Choice, ...]:
+    """This device's workspaces, after following the active one (ADR 0072)."""
+    from . import config
+    return (Choice("", "Active workspace", "Follow the workspace the CLI and dashboard select"),
+            *(Choice(name, name) for name in config.get_known_workspaces()))
+
+
 AUTO = (Choice("auto", "Auto"),)
 PROVIDER_DEFAULT = (Choice("", "Provider default"),)
 TOOL_FORMATS = (Choice("auto", "Auto", "Detected from the model's chat template"),
@@ -217,6 +224,14 @@ SETTINGS: list[Setting] = [
     # never see recall questions or evidence.
     Setting("recall.llm",             "IMPRINT_RECALL_LLM",         False, bool, "Let the local model plan recall reads and answer from the evidence (tagger provider local, or ollama/vllm on loopback)"),
     Setting("recall.llm_timeout_sec", "IMPRINT_RECALL_LLM_TIMEOUT", 30,    int,  "Seconds one recall waits for the local model before returning the evidence without it"),
+
+    # ── Workspace selection (ADR 0072) ────────────────────────
+    # A project's .imprint/workspace.json, approved on this device, or its
+    # roots choose a session's workspace. This covers the rest: desktop app
+    # chats and folders nothing assigns.
+    Setting("workspace.unassigned", "IMPRINT_UNASSIGNED_WORKSPACE", "", str,
+            "Workspace for agent sessions outside an assigned project, such as desktop app chats (empty: the active workspace)",
+            choices=_workspaces),
 
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),

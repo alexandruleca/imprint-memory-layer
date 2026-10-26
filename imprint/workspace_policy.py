@@ -1,10 +1,20 @@
-"""Durable filesystem scope and purge exclusions, independent of workspace.json."""
+"""Durable filesystem scope and purge exclusions, independent of workspace.json.
+
+Also which workspace a directory belongs to (ADR 0072): a project's
+``.imprint/workspace.json`` proposes one, and this device's approved roots
+decide whether it is honoured.
+
+Stdlib only: the session-start and Stop hooks resolve a session's workspace
+through it.
+"""
 from contextlib import contextmanager
+import json
+import os
 from pathlib import Path
 import sqlite3
 
 from . import config
-from .wsl_paths import native_path
+from .wsl_paths import client_path, native_path
 
 
 def workspace_name(workspace=None):
@@ -135,22 +145,22 @@ def path_allowed(path, workspace=None):
 
 
 def transcript_allowed(path, workspace=None):
-    """Whether a client conversation belongs to ``workspace`` (ADR 0034).
+    """Whether a client conversation belongs to ``workspace`` (ADR 0034, ADR 0072).
 
     Ownership comes from the recorded cwd evidence (Claude Code records it per
     entry, Codex per session and turn; ADR 0037; Cursor's folder name when it
     stands for exactly one existing directory, ADR 0052), never Claude's
-    encoded folder name: every cwd must be inside this workspace's roots or
-    outside every other workspace's roots. A conversation about a project
-    another workspace claimed stays there; one no workspace claimed is learned
-    by the workspace that learns it. Without cwd evidence it belongs nowhere.
+    encoded folder name. Every cwd must be claimed by this workspace or by
+    none (``Place.claimants``): a project file this device approved claims its
+    project for the one workspace it names; otherwise every workspace whose
+    roots contain the cwd claims it. A conversation about a project another
+    workspace claimed stays there; one no workspace claimed is learned by the
+    workspace that learns it. Without cwd evidence it belongs nowhere.
     """
     from .transcripts import cwds
     ws = workspace_name(workspace)
     with _db() as conn:
-        claims = conn.execute('SELECT workspace, path FROM roots').fetchall()
-    own = [Path(root) for owner, root in claims if owner == ws]
-    others = [Path(root) for owner, root in claims if owner != ws]
+        claims = _claims(conn)
     # Clients repeat the cwd on most records. Resolve each one once: through
     # \\wsl.localhost every resolution is a filesystem round trip.
     checked = set()
@@ -162,10 +172,221 @@ def transcript_allowed(path, workspace=None):
         checked.add(cwd)
         if not Path(native_path(cwd)).is_absolute():
             return False
-        where = canonical(cwd)
-        if not any(contains(root, where) for root in own) and any(contains(root, where) for root in others):
+        claimants = place(canonical(cwd), claims, git=False).claimants
+        if claimants and ws not in claimants:
             return False
     return bool(checked)
+
+
+# ── Which workspace a directory belongs to (ADR 0072) ──────────────────────
+
+PROJECT_FILE = Path('.imprint', 'workspace.json')
+
+
+def _claims(conn):
+    return [(owner, Path(root)) for owner, root in conn.execute('SELECT workspace, path FROM roots')]
+
+
+def _homes():
+    """The home directories of the user whose paths are resolved: this
+    runtime's and, for a WSL client of a Windows runtime, the client's."""
+    homes = {Path.home().resolve()}
+    if os.environ.get('IMPRINT_WSL_HOME'):
+        homes.add(canonical(os.environ['IMPRINT_WSL_HOME']))
+    return homes
+
+
+def _candidates(directory):
+    """``directory`` and its ancestors that can be a project, nearest first.
+
+    A filesystem root, a home directory or an ancestor of one never is: a
+    project file there would assign every directory beneath it, and a home
+    that is a git repository (dotfiles) is not a project.
+    """
+    homes = _homes()
+    for candidate in (directory, *directory.parents):
+        if candidate.parent == candidate or any(contains(candidate, home) for home in homes):
+            return
+        yield candidate
+
+
+def read_project_file(path):
+    """(workspace the project file names, why it was ignored)."""
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        return None, f'{client_path(str(path))} was ignored: {error}'
+    name = data.get('workspace') if isinstance(data, dict) else None
+    error = config.validate_workspace_name(name) if isinstance(name, str) else 'expected {"workspace": "<name>"}'
+    if error:
+        return None, f'{client_path(str(path))} was ignored: {error}'
+    return name, ''
+
+
+class Place:
+    """What this device says about one directory's workspace.
+
+    ``project`` is the nearest directory that holds a project file or is a git
+    repository's root (``None`` outside any project); ``file`` the nearest
+    project file. The file's workspace is honoured (``trusted``) only when a
+    root of that workspace contains the file's directory: the file proposes,
+    this device's approval decides. ``assigned`` is the trusted file's
+    workspace, else the workspace with the most specific root containing the
+    directory, else ``None`` (no claim, or roots of several workspaces tie).
+    """
+
+    def __init__(self, directory, claims, *, git=True):
+        self.project = self.file = self.proposal = None
+        self.note = ''
+        if directory is not None:
+            for candidate in _candidates(directory):
+                has_file = (candidate / PROJECT_FILE).is_file()
+                if self.project is None and (has_file or git and (candidate / '.git').exists()):
+                    self.project = candidate
+                if has_file:
+                    self.file = candidate / PROJECT_FILE
+                    self.proposal, self.note = read_project_file(self.file)
+                    break
+        self.trusted = bool(self.proposal) and any(
+            owner == self.proposal and contains(root, self.file.parent) for owner, root in claims)
+        containing = [(owner, root) for owner, root in claims
+                      if directory is not None and contains(root, directory)]
+        self.roots = sorted({owner for owner, _ in containing})
+        deepest = max((len(root.parts) for _, root in containing), default=0)
+        nearest = sorted({owner for owner, root in containing if len(root.parts) == deepest})
+        self.root = next((str(root) for _, root in containing if len(root.parts) == deepest), '')
+        if self.trusted:
+            self.assigned, self.reason = self.proposal, 'file'
+        elif len(nearest) == 1:
+            self.assigned, self.reason = nearest[0], 'root'
+        else:
+            self.assigned, self.reason = None, ''
+        self.tied = nearest if len(nearest) > 1 else []
+
+    @property
+    def claimants(self):
+        """The workspaces this directory's conversations belong to: the trusted
+        file's, else every workspace whose roots contain it (shared roots
+        share them), else none."""
+        return [self.proposal] if self.trusted else self.roots
+
+
+def place(directory, claims=None, *, git=True):
+    if claims is None:
+        with _db() as conn:
+            claims = _claims(conn)
+    return Place(directory, claims, git=git)
+
+
+def _default(session):
+    """(workspace, why) when nothing assigns a directory: the active workspace
+    for a command; for an agent session ``workspace.unassigned`` when set."""
+    if session:
+        from .config_schema import resolve as setting
+        name, _ = setting('workspace.unassigned')
+        if name:
+            return workspace_name(name), 'the workspace.unassigned setting'
+    return workspace_name(), 'the active workspace'
+
+
+def resolve(directory, *, session=False):
+    """Which workspace a command or agent session in ``directory`` uses.
+
+    ``IMPRINT_WORKSPACE`` first, then the directory's ``Place``: its trusted
+    project file, else its most specific approved root. Otherwise the default
+    (``_default``). ``directory`` is ``None`` for a session without a working
+    directory. A tool's explicit ``workspace`` argument outranks all of these.
+    """
+    where = place(None if directory is None else canonical(str(directory)))
+    pinned = os.environ.get('IMPRINT_WORKSPACE')
+    if pinned:
+        workspace, reason, source = workspace_name(pinned), 'env', 'IMPRINT_WORKSPACE'
+    elif where.assigned:
+        workspace, reason = workspace_name(where.assigned), where.reason
+        source = client_path(str(where.file) if reason == 'file' else where.root)
+    else:
+        (workspace, source), reason = _default(session), 'default'
+    return {'workspace': workspace, 'reason': reason, 'source': source,
+            'project': client_path(str(where.project)) if where.project else None,
+            'project_dir': str(where.project) if where.project else None,
+            'file': client_path(str(where.file)) if where.file else None,
+            'proposal': where.proposal, 'trusted': where.trusted, 'tied': where.tied, 'note': where.note}
+
+
+def describe(resolution):
+    """Why a resolution chose its workspace, for people and agents."""
+    return {'env': 'IMPRINT_WORKSPACE', 'file': f'project file {resolution["source"]}',
+            'root': f'approved root {resolution["source"]}'}.get(
+        resolution['reason'], f'{resolution["source"]}; nothing assigns this directory')
+
+
+def ask(resolution):
+    """What an agent should ask the user about this project's workspace, or ''.
+
+    Nothing outside a project, and nothing once a trusted project file or an
+    explicit ``IMPRINT_WORKSPACE`` decided. In a project its roots assign,
+    only a project file proposing another workspace is asked about.
+    """
+    if not resolution['project'] or resolution['reason'] in ('env', 'file'):
+        return ''
+    proposal, current = resolution['proposal'], resolution['workspace']
+    if resolution['reason'] == 'root' and proposal in (None, current):
+        return ''
+    known = config.get_known_workspaces()
+    existing = ', '.join(known)
+    if proposal:
+        missing = '' if proposal in known else ', which does not exist on this device yet'
+        return (f"{resolution['file']} asks for workspace '{proposal}'{missing}. "
+                f"This device has not approved it for this project, so this session uses '{current}'. "
+                f"Ask the user once whether to use '{proposal}' or another workspace ({existing}), "
+                f"then call use_workspace with their choice.")
+    shared = f"; roots of {' and '.join(resolution['tied'])} both cover it" if resolution['tied'] else ''
+    return (f"No workspace is assigned to this project ({resolution['project']}{shared}), "
+            f"so this session uses '{current}'. Ask the user once which workspace it should use, "
+            f"an existing one ({existing}) or a new name, then call use_workspace with it.")
+
+
+def notice(resolution):
+    """The note and question an agent session in this directory gets, or ''."""
+    told = ' '.join(part for part in (resolution['note'], ask(resolution)) if part)
+    return f'Imprint: {told}' if told else ''
+
+
+def use_workspace(name, directory, *, allow_overlap=False):
+    """Assign the project at ``directory`` to workspace ``name`` on this device.
+
+    Creates the workspace if it is new (like the CLI and dashboard), approves
+    ``directory`` as one of its roots unless a root of it already contains
+    the directory, and writes ``directory/.imprint/workspace.json``. Other
+    workspaces' roots that overlap the directory need ``allow_overlap``, as
+    any root does (ADR 0015); then nothing changes before it is confirmed.
+    Git is left alone: committing the file is the user's choice.
+    """
+    error = config.validate_workspace_name(name) if isinstance(name, str) else 'a workspace name is required'
+    if error:
+        raise ValueError(f'Invalid workspace name: {error}')
+    directory = canonical(str(directory))
+    if not directory.is_dir():
+        raise ValueError(f'{client_path(str(directory))} is not a directory')
+    if next(_candidates(directory), None) != directory:
+        raise ValueError('A filesystem root or home directory cannot be a project: '
+                         'a project file there would assign every directory beneath it')
+    with _db() as conn:
+        claims = _claims(conn)
+        overlaps = _overlaps(conn, name, directory)
+        if overlaps and not allow_overlap:
+            raise ValueError(f'{client_path(str(directory))} overlaps the roots of workspace(s) {", ".join(overlaps)}. '
+                             f'Ask whether {name!r} should share it; if so, repeat with --allow-overlap '
+                             '(command line) or allow_overlap=true (use_workspace).')
+        created = config.register_workspace(name)
+        approved = not any(owner == name and contains(root, directory) for owner, root in claims)
+        if approved:
+            conn.execute('INSERT OR IGNORE INTO roots VALUES (?, ?)', (name, str(directory)))
+        file = directory / PROJECT_FILE
+        file.parent.mkdir(exist_ok=True)
+        file.write_text(json.dumps({'workspace': name}) + '\n', encoding='utf-8')
+    return {'workspace': name, 'created': created, 'project': client_path(str(directory)),
+            'file': client_path(str(file)), 'root_added': approved, 'overlaps': overlaps}
 
 
 def source_key(value):
@@ -237,11 +458,15 @@ def restore(target, kind, workspace=None):
 
 
 def remove_workspace(workspace):
+    from . import config_schema
     with _db() as conn:
         conn.execute('DELETE FROM roots WHERE workspace=?', (workspace,))
         conn.execute('DELETE FROM exclusions WHERE workspace=?', (workspace,))
         conn.execute('DELETE FROM project_roots WHERE workspace=?', (workspace,))
         conn.execute('DELETE FROM placements WHERE workspace=?', (workspace,))
+    # Sessions outside an assigned project fall back to the active workspace.
+    if config_schema.resolve('workspace.unassigned') == (workspace, 'config'):
+        config_schema.reset_value('workspace.unassigned')
 
 
 def map_project(project, path, workspace=None):

@@ -59,7 +59,8 @@ def main(argv=None):
         parser.error('This bridge must run with the Windows Imprint interpreter')
     os.environ.update(PYTHONPATH=project, IMPRINT_DATA_DIR=args.data_dir,
                       IMPRINT_WSL_DISTRO=args.distribution, IMPRINT_WSL_CWD=args.cwd,
-                      IMPRINT_WSL_PYTHON=sys.executable, IMPRINT_WSL_MOUNTS=args.mounts)
+                      IMPRINT_WSL_HOME=args.home, IMPRINT_WSL_PYTHON=sys.executable,
+                      IMPRINT_WSL_MOUNTS=args.mounts)
     os.chdir(cwd)
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -97,8 +98,11 @@ def main(argv=None):
     if args.args[0] == 'stop' and payload.get('transcript_path'):
         # All Stop consumers must share the same scope check, including the
         # extraction/summarization modules that do not inspect roots themselves.
+        # The check and the hook use the session's workspace (ADR 0072).
+        from imprint.hook_entry import pin_session
         from imprint.workspace_policy import transcript_allowed
         try:
+            pin_session(payload)
             approved = transcript_allowed(payload['transcript_path'])
         except (OSError, ValueError):
             approved = False

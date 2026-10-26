@@ -59,10 +59,10 @@ func TestLearnStoresCoverLocalProfilesAndRegisteredWSLProfiles(t *testing.T) {
 	want := []conversationStores{
 		{label: "this computer", stores: [][2]string{{"claude-code", claude}, {"cursor", filepath.Join(project, ".cursor")}, {"codex", codex},
 			{"copilot", filepath.Join(project, "copilot home")}, {"cline", filepath.Join(project, "cline data", "sessions")}}},
-		{label: "WSL Ubuntu", distribution: "Ubuntu", mounts: "C:\\134\t/mnt/c\n",
+		{label: "WSL Ubuntu", distribution: "Ubuntu", home: "/home/test", mounts: "C:\\134\t/mnt/c\n",
 			stores: [][2]string{{"claude-code", "/home/test/.config/claude"}, {"codex", "/home/test/codex"}, {"cursor", "/home/test/.cursor"},
 				{"cline", "/home/test/.cline/data/sessions"}, {"copilot", "/home/test/.copilot"}}},
-		{label: "WSL Debian (other)", distribution: "Debian", user: "other", mounts: "C:\\134\t/mnt/c\n",
+		{label: "WSL Debian (other)", distribution: "Debian", user: "other", home: "/home/other", mounts: "C:\\134\t/mnt/c\n",
 			stores: [][2]string{{"claude-code", "/home/other/.claude"}}},
 	}
 	if !reflect.DeepEqual(groups, want) {
@@ -92,18 +92,18 @@ func TestLearnStoresWithoutRegistrationsAreLocalOnly(t *testing.T) {
 }
 
 func TestLearnRunsEachStoreGroupInItsOwnPathContext(t *testing.T) {
-	wsl := conversationStores{label: "WSL Ubuntu", distribution: "Ubuntu", mounts: "C:\\134\t/mnt/c\n",
+	wsl := conversationStores{label: "WSL Ubuntu", distribution: "Ubuntu", home: "/home/test", mounts: "C:\\134\t/mnt/c\n",
 		stores: [][2]string{{"claude-code", "/home/test/.claude"}, {"codex", "/home/test/.codex"}}}
 	if got := wsl.learnArgs(); !reflect.DeepEqual(got, []string{"-m", "imprint.cli_conversations",
 		"--store", "claude-code", "/home/test/.claude", "--store", "codex", "/home/test/.codex"}) {
 		t.Fatalf("args = %q", got)
 	}
-	if got := wsl.pathContext(); !reflect.DeepEqual(got, []string{"IMPRINT_WSL_DISTRO=Ubuntu", "IMPRINT_WSL_MOUNTS=C:\\134\t/mnt/c\n"}) {
+	if got := wsl.pathContext(); !reflect.DeepEqual(got, []string{"IMPRINT_WSL_DISTRO=Ubuntu", "IMPRINT_WSL_MOUNTS=C:\\134\t/mnt/c\n", "IMPRINT_WSL_HOME=/home/test"}) {
 		t.Fatalf("WSL context = %q", got)
 	}
 	// This computer's stores clear a context inherited from a bridged caller.
 	local := conversationStores{label: "this computer"}
-	if got := local.pathContext(); !reflect.DeepEqual(got, []string{"IMPRINT_WSL_DISTRO=", "IMPRINT_WSL_MOUNTS="}) {
+	if got := local.pathContext(); !reflect.DeepEqual(got, []string{"IMPRINT_WSL_DISTRO=", "IMPRINT_WSL_MOUNTS=", "IMPRINT_WSL_HOME="}) {
 		t.Fatalf("local context = %q", got)
 	}
 	if !strings.Contains(wslLauncher(wslProfile{Distribution: "Ubuntu", Home: "/home/test"}, backendPaths{}), "mounts=$("+wslDriveMounts+")\n") {

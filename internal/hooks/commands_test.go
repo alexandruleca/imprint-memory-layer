@@ -10,6 +10,31 @@ import (
 	"testing"
 )
 
+// installHookFixture copies Imprint's Python modules into an install whose
+// path has spaces and an apostrophe. The hooks run them with a bare
+// interpreter: hook_entry and the modules it imports are stdlib-only.
+func installHookFixture(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "Imprint's install with spaces")
+	if err := os.MkdirAll(filepath.Join(root, "imprint"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	modules, err := filepath.Glob(filepath.Join("..", "..", "imprint", "*.py"))
+	if err != nil || len(modules) == 0 {
+		t.Fatalf("no Imprint modules: %v", err)
+	}
+	for _, module := range modules {
+		source, err := os.ReadFile(module)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "imprint", filepath.Base(module)), source, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
 func TestHookCommandsExecuteWithSpacesAndApostrophes(t *testing.T) {
 	python := "python3"
 	if runtime.GOOS == "windows" {
@@ -19,17 +44,7 @@ func TestHookCommandsExecuteWithSpacesAndApostrophes(t *testing.T) {
 	if err != nil {
 		t.Skip("Python needed for hook execution fixture")
 	}
-	root := filepath.Join(t.TempDir(), "Imprint's install with spaces")
-	if err := os.MkdirAll(filepath.Join(root, "imprint"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	entry, err := os.ReadFile(filepath.Join("..", "..", "imprint", "hook_entry.py"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "imprint", "hook_entry.py"), entry, 0644); err != nil {
-		t.Fatal(err)
-	}
+	root := installHookFixture(t)
 	bp := Paths{ProjectDir: root, VenvPython: interpreter, DataDir: filepath.Join(root, "user's data")}
 	run := func(command string) error {
 		child := hookShellCommand(command)
@@ -62,17 +77,7 @@ func TestCopilotHookCommandsExecuteInCopilotsShell(t *testing.T) {
 	if err != nil {
 		t.Skip("Python needed for hook execution fixture")
 	}
-	root := filepath.Join(t.TempDir(), "Imprint's install with spaces")
-	if err := os.MkdirAll(filepath.Join(root, "imprint"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	entry, err := os.ReadFile(filepath.Join("..", "..", "imprint", "hook_entry.py"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "imprint", "hook_entry.py"), entry, 0644); err != nil {
-		t.Fatal(err)
-	}
+	root := installHookFixture(t)
 	bp := Paths{ProjectDir: root, VenvPython: interpreter, DataDir: filepath.Join(root, "user's data")}
 	run := func(command, payload string) []byte {
 		t.Helper()
