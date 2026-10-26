@@ -26,7 +26,7 @@ case "$ans" in
     y|Y|yes|YES) ;;
     *) echo "Aborted."; exit 0 ;;
 esac
-read -r -p "Also delete your memories, workspaces and settings in ~/.local/share/imprint? [Y/n] " ans
+read -r -p "Also delete your memories, workspaces and settings in ~/.local/share/imprint and ~/Library/Application Support/imprint-ui? [Y/n] " ans
 case "$ans" in
     n|N|no|NO) DATA_FLAG="--keep-data" ;;
     *) DATA_FLAG="--delete-data" ;;

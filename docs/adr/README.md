@@ -116,10 +116,11 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main. Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev prereleases).
 - [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
 - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention) and [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases).
-- [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
+- [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) (desktop profile).
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
 - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle.
 - [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version.
+- [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) **Uninstall removes the shared desktop profile.** An uninstall that deletes data also deletes the desktop shell's Electron profile, which every installation on the account shares.
 
 ## Open proposals
 
@@ -160,7 +161,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) | Windows installer registration for WSL clients |
 | [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Symmetric uninstall and branch synchronization |
-| [0028](0028-complete-uninstall.md) | 2026-10-23 | Accepted | Complete uninstall |
+| [0028](0028-complete-uninstall.md) | 2026-10-23 | Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) | Complete uninstall |
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
 | [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Accepted | Chrome preview ZIP and release downloads |
 | [0031](0031-website-analytics-and-public-relay-status.md) | 2026-10-24 | Accepted | Website analytics events and public relay status |
@@ -206,6 +207,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0071](0071-each-look-speaks-in-its-own-voice.md) | 2026-10-25 | Accepted | Each look speaks in its own voice |
 | [0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | 2026-10-26 | Accepted | Projects name their workspace and each device approves it |
 | [0073](0073-remove-a-pairing-from-one-device.md) | 2026-10-26 | Accepted | Remove a pairing from one device without the other's acknowledgement |
+| [0074](0074-uninstall-removes-the-shared-desktop-profile.md) | 2026-10-26 | Accepted | Uninstall removes the shared desktop profile |
 
 ## How to write and maintain ADRs
 
