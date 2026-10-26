@@ -200,8 +200,11 @@ archive and SHA256 from the runners/downloads API, then `./config.sh --unattende
 --url https://github.com/alexandruleca/imprint-memory-layer --token <temporary-registration-token>
 --name Outland-apple-silicon --labels imprint-apple-silicon --work _work`, followed
 by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
-Xcode Command Line Tools, Homebrew, CMake and librsvg are host prerequisites;
-workflow setup actions supply Go, Python 3.12 and Node 22.
+Xcode Command Line Tools, Homebrew, CMake, librsvg and Homebrew `python@3.12` are host prerequisites.
+Laptop jobs create a fresh Python virtual environment under runner temporary
+storage; workflow setup actions supply Go and Node 22. Hosted jobs retain
+`actions/setup-python`. Its prebuilt macOS interpreter requires `/Users/runner`,
+so it is not used on the laptop.
 
 The laptop package check expands the pkg in runner temporary storage and validates
 the payload and compiled helper without installing it or running installer scripts.
