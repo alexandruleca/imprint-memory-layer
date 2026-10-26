@@ -1,4 +1,5 @@
 """Deterministic evidence excerpts; character budgets are not token estimates."""
+import json
 import re
 
 
@@ -49,7 +50,8 @@ def fact_line(fact: dict) -> str:
 
 
 def expand_hint(memory_id: str, start: int, end: int, total: int) -> str:
-    return f'[excerpt chars {start}:{end} of {total}; expand with get_memory("{memory_id}")]'
+    return (f'[excerpt chars {start}:{end} of {total}; expand with '
+            f'get_memory(memory_id={json.dumps(memory_id, ensure_ascii=False)})]')
 
 
 def compact_search(results, query, workspace, offset, limit, max_chars, threshold):

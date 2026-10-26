@@ -3,10 +3,14 @@ import unittest
 from unittest.mock import patch
 
 from imprint import server
-from imprint.mcp_output import compact_search, excerpt
+from imprint.mcp_output import compact_search, excerpt, expand_hint
 
 
 class CompactEvidenceTests(unittest.TestCase):
+    def test_expansion_hint_names_the_actual_mcp_argument(self):
+        self.assertIn('get_memory(memory_id="b93a69214464b791")',
+                      expand_hint('b93a69214464b791', 0, 100, 1000))
+
     def rows(self):
         return [{'id': f'memory-{i}', 'content': ('background ' * 300) + 'reconnect retry and cancellation ' * 20,
                  'similarity': .8, 'project': 'project', 'source': f'source-{i}.py', 'type': 'finding',
