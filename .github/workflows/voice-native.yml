@@ -40,7 +40,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os }}
     env:
       PYTHONPATH: .
     steps:
@@ -48,7 +48,15 @@ jobs:
       - name: Select external voice cache
         shell: bash
         run: echo "VOICE_CACHE=$RUNNER_TEMP/imprint-voice" >> "$GITHUB_ENV"
+      - name: Isolated Python on the laptop
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          python3.12 -m venv "$RUNNER_TEMP/imprint-python"
+          echo "$RUNNER_TEMP/imprint-python/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/imprint-python" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'
         with:
           python-version: '3.12'
           cache: pip

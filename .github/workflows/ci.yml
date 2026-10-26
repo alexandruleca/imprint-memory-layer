@@ -20,13 +20,22 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
-    runs-on: ${{ matrix.os }}
+    # PR code stays on hosted machines, including same-repository PRs.
+    runs-on: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Isolated Python on the laptop
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          python3.12 -m venv "$RUNNER_TEMP/imprint-python"
+          echo "$RUNNER_TEMP/imprint-python/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/imprint-python" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
