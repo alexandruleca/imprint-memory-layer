@@ -1,6 +1,6 @@
 """Auto-extract decisions, findings, and patterns from Claude Code transcripts.
 
-Called by the Stop hook after each conversation turn.
+Called by the Stop hook's learner (``session_learn``).
 Reads the transcript JSONL, extracts assistant text messages,
 and stores meaningful content as memories.
 
@@ -138,8 +138,14 @@ def main():
         else:
             i += 1
 
-    if not transcript_path or not os.path.exists(transcript_path):
-        sys.exit(0)
+    if transcript_path:
+        extract(transcript_path, project)
+
+
+def extract(transcript_path: str, project: str = "") -> int:
+    """Store a transcript's strongest decision-like messages. Returns how many."""
+    if not os.path.exists(transcript_path):
+        return 0
 
     if not project:
         project = derive_project_from_path(transcript_path)
@@ -159,10 +165,10 @@ def main():
                     if text:
                         messages.append(text)
     except Exception:
-        sys.exit(0)
+        return 0
 
     if not messages:
-        sys.exit(0)
+        return 0
 
     # Filter and score messages
     candidates = []
@@ -182,7 +188,7 @@ def main():
         candidates.append((signals, text))
 
     if not candidates:
-        sys.exit(0)
+        return 0
 
     # Sort by signal count (most signals = strongest decisions), take top N
     candidates.sort(key=lambda x: -x[0])
@@ -208,6 +214,7 @@ def main():
 
     if stored > 0:
         print(f"  Auto-extracted {stored} memories from session", file=sys.stderr)
+    return stored
 
 
 if __name__ == "__main__":

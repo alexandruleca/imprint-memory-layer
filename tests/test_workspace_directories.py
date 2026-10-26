@@ -359,10 +359,10 @@ class HookTests(Fixture):
         seen = []
         with patch.dict(os.environ), patch.object(sys, 'argv', ['hook_entry.py', 'stop', os.environ['IMPRINT_DATA_DIR']]), \
                 patch.object(sys, 'stdin', io.StringIO(json.dumps(payload))), \
-                patch.object(hook_entry.subprocess, 'run', side_effect=lambda *a, **k: seen.append(os.environ['IMPRINT_WORKSPACE'])), \
+                patch.object(hook_entry.subprocess, 'Popen', side_effect=lambda *a, **k: seen.append(os.environ['IMPRINT_WORKSPACE'])), \
                 patch('sys.stdout', new_callable=io.StringIO):
             self.assertEqual(hook_entry.main(), 0)
-        self.assertEqual(seen, ['beta'] * 3)
+        self.assertEqual(seen, ['beta'])
 
 
 if __name__ == '__main__':

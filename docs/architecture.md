@@ -139,9 +139,9 @@ sequenceDiagram
     K->>E: embed redacted content → vector
     K->>Q: upsert point (vector + payload)
 
-    Note over C,K: Session End
-    C->>K: Stop hook fires (async)
-    K->>Q: auto-extract decisions, batch upsert
+    Note over C,K: After each turn
+    C->>K: Stop hook (async) starts a detached learner and returns
+    K->>Q: learner, after the turns settle and under the queue lock:<br/>Q+A exchanges and decisions, batch upsert
 ```
 
 ## Concurrency: Auto-Spawned Local Server
@@ -151,7 +151,7 @@ Every Imprint process — MCP servers, hooks, CLI commands and the dashboard —
 ```mermaid
 sequenceDiagram
     participant MCP as MCP server (Claude Code)
-    participant H as Stop hook
+    participant H as Stop hook's learner
     participant CLI as imprint ingest
     participant R as qdrant_runner
     participant Q as qdrant daemon
@@ -173,11 +173,11 @@ sequenceDiagram
         MCP->>Q: search (HTTP)
     and
         CLI->>Q: upsert points (HTTP)
-    and
-        H->>Q: upsert decisions (HTTP)
     end
     Q-->>MCP: results
     Q-->>CLI: ack
+    Note over H,CLI: the learner waits for the queue lock ingest holds
+    H->>Q: upsert exchanges and decisions (HTTP)
     Q-->>H: ack
 ```
 

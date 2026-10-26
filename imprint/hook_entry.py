@@ -27,6 +27,18 @@ def pin_session(payload):
         os.environ['IMPRINT_WORKSPACE'] = policy.resolve(_cwd(payload), session=True)['workspace']
 
 
+def learn_later(transcript):
+    """Start the conversation's learner and return without waiting (ADR 0077).
+
+    The learner is detached on purpose: it may wait behind other jobs for the
+    queue lock, and clients stop a hook that outlives its timeout but not the
+    processes it started. It inherits the session's workspace and paths."""
+    detach = ({'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+              if os.name == 'nt' else {'start_new_session': True})
+    subprocess.Popen([sys.executable, '-m', 'imprint.session_learn', transcript], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detach)
+
+
 def session_context(payload):
     """The session-start reminder, with the session's workspace or the
     question the agent should ask the user about it. A payload without a cwd
@@ -78,13 +90,7 @@ def main():
                 print(f'Imprint skipped this conversation: {error}', file=sys.stderr)
                 transcript = None
         if transcript:
-            for module, args in (
-                ('imprint.cli_conversations', ['--transcript', transcript]),
-                ('imprint.cli_extract', [transcript]),
-                ('imprint.cli_summarize', [transcript]),
-            ):
-                subprocess.run([sys.executable, '-m', module, *args],
-                               stdout=sys.stderr, check=False)
+            learn_later(transcript)
         print('{}')  # Valid Stop output for clients requiring a JSON object.
         return 0
     # Hash untrusted session identifiers instead of treating them as paths.

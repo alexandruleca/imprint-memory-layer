@@ -50,15 +50,37 @@ class HookTests(unittest.TestCase):
         transcript = '/home/me/.copilot/session-state/3f2a/events.jsonl'
         payload = {'hook_event_name': 'Stop', 'session_id': '3f2a', 'cwd': '/home/me/app', 'timestamp': '2026-10-25T08:00:00Z',
                    'transcript_path': transcript, 'stop_reason': 'end_turn', 'stop_hook_active': False}
-        for active, expected in ((False, 3), (True, 0)):
+        for active, expected in ((False, 1), (True, 0)):
             payload['stop_hook_active'] = active
             with tempfile.TemporaryDirectory() as directory, \
                     patch.object(hook_entry.sys, 'argv', ['hook_entry.py', 'stop', directory]), \
                     patch.object(hook_entry.sys, 'stdin', io.StringIO(json.dumps(payload))), \
                     patch.object(hook_entry.sys, 'stdout', io.StringIO()), \
                     patch.dict(hook_entry.os.environ), \
-                    patch.object(hook_entry.subprocess, 'run') as consume:
+                    patch.object(hook_entry.subprocess, 'Popen') as consume:
                 self.assertEqual(hook_entry.main(), 0)
             self.assertEqual(consume.call_count, expected)
             if expected:
-                self.assertEqual(consume.call_args_list[0].args[0][2:], ['imprint.cli_conversations', '--transcript', transcript])
+                self.assertEqual(consume.call_args.args[0][1:], ['-m', 'imprint.session_learn', transcript])
+
+    def test_stop_starts_a_detached_learner_and_returns(self):
+        # The client's hook timeout must never reach the learner (ADR 0077).
+        from unittest.mock import patch
+        from imprint import hook_entry
+        payload = {'session_id': 's', 'cwd': '/home/me/app', 'transcript_path': '/home/me/t.jsonl'}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(hook_entry.sys, 'argv', ['hook_entry.py', 'stop', directory]), \
+                patch.object(hook_entry.sys, 'stdin', io.StringIO(json.dumps(payload))), \
+                patch.object(hook_entry.sys, 'stdout', io.StringIO()) as stdout, \
+                patch.dict(hook_entry.os.environ), \
+                patch.object(hook_entry.subprocess, 'Popen') as learner:
+            self.assertEqual(hook_entry.main(), 0)
+        options = learner.call_args.kwargs
+        for stream in ('stdin', 'stdout', 'stderr'):
+            self.assertEqual(options[stream], subprocess.DEVNULL)
+        if sys.platform == 'win32':
+            self.assertTrue(options['creationflags'] & subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            self.assertTrue(options['start_new_session'])
+        learner.return_value.wait.assert_not_called()
+        self.assertEqual(json.loads(stdout.getvalue()), {})

@@ -44,10 +44,11 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) (default bundled OCR and retryable tool failures).
 - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) **Learn Cursor conversations from their folder names.** A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target.
 - [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) **Learn Cline sessions from their manifests.** A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads, and `cline` is a WSL registration target.
-- [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite. Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (background tagging and preemptible holders) and [ADR 0068](0068-merge-identical-waiting-jobs.md) (merged submissions).
+- [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite. Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (background tagging and preemptible holders), [ADR 0068](0068-merge-identical-waiting-jobs.md) (merged submissions) and [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) (the Stop hook's learner takes the lock).
 - [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) **Background LLM tagging that yields to every other job.** Storing paths mark memories instead of running the LLM tagger; a background job tags them newest first when nothing else waits, steps aside between memories and holds the lock as a holder any other taker may stop.
 - [ADR 0068](0068-merge-identical-waiting-jobs.md) **Merge identical waiting jobs.** A submission identical to a waiting job (same command, workspace and normalized arguments) returns that job; one follow-up may wait behind an identical running job.
 - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) **Projects name their workspace and each device approves it.** A project's `.imprint/workspace.json`, honoured when this device's roots approve it, picks the workspace of sessions, hooks, `ingest`, `refresh` and learning there; sessions ask once and `use_workspace` assigns a project without a restart.
+- [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) **The Stop hook hands its turn to one waiting learner under the queue lock.** The Stop hook starts a detached learner and returns; at most one learner per conversation waits, lets a burst of turns settle, then learns in one process while holding the queue lock.
 
 ### Embeddings, local models and chat
 
@@ -201,7 +202,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0061](0061-local-tool-call-formats.md) | 2026-10-25 | Accepted | Local tool-call formats by model family |
 | [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Accepted | CUDA only for GPU embedding on a supported NVIDIA GPU |
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
-| [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0068](0068-merge-identical-waiting-jobs.md) | Serialize heavy commands with a single-slot queue and a shared lock file |
+| [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0068](0068-merge-identical-waiting-jobs.md), [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | Serialize heavy commands with a single-slot queue and a shared lock file |
 | [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
 | [0066](0066-dev-prereleases-from-the-dev-branch.md) | 2026-10-25 | Accepted | Dev prereleases from the dev branch |
 | [0067](0067-background-llm-tagging-that-yields-to-every-job.md) | 2026-10-25 | Accepted | Background LLM tagging that yields to every other job |
@@ -214,6 +215,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0074](0074-uninstall-removes-the-shared-desktop-profile.md) | 2026-10-26 | Accepted | Uninstall removes the shared desktop profile |
 | [0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) | 2026-10-26 | Accepted | Microphone purpose in the macOS installer wrapper |
 | [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
+| [0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | 2026-10-26 | Accepted | The Stop hook hands its turn to one waiting learner under the queue lock |
 
 ## How to write and maintain ADRs
 

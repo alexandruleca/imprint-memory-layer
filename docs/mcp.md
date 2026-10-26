@@ -82,7 +82,7 @@ Search filters map to payload tags — see [tagging.md](./tagging.md) for the fu
 
 The imprint memory stays current through three mechanisms:
 
-- **Stop hook** (async) — after each Claude response, parses the conversation transcript, extracts Q+A exchanges and decision-like statements, stores them automatically with `lang=conversation` tags. Installed into `~/.claude/settings.json` by `imprint setup`.
+- **Stop hook** (async) — after each Claude response, starts a detached learner and returns. The learner parses the conversation transcript, extracts Q+A exchanges and decision-like statements, and stores them automatically with `lang=conversation` tags. A conversation has at most one learner waiting; it lets a burst of turns settle for 60 s and learns while holding the queue lock ([queue](queue.md), [ADR 0077](adr/0077-stop-hook-hands-turns-to-one-waiting-learner.md)). Installed into `~/.claude/settings.json` by `imprint setup`.
 - **PreCompact hook** (sync) — before Claude's context window gets compressed, blocks and instructs Claude to save all important context via MCP tools.
 - **`imprint refresh <dir>`** — compares complete byte hashes and paths, re-chunks changed sources, and prunes recorded files actually deleted within the selected roots. For URL sources, `imprint refresh-urls` HEAD-checks each stored URL and re-fetches only those with a new ETag or Last-Modified.
 

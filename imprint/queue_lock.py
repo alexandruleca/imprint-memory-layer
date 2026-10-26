@@ -11,6 +11,8 @@ A holder can declare itself preemptible: the background tagging job does
 and takes the lock instead of waiting behind it or refusing; the holder loses
 at most the memory it was tagging. ``internal/queuelock`` does the same.
 
+``try_lock`` and ``unlock`` lock other files with the same backend.
+
 Locking backend: fcntl.flock on Unix, msvcrt.locking on Windows. On Windows
 the locked byte sits past the holder's metadata (``_WINDOWS_LOCK_OFFSET``):
 Windows locks are mandatory, and a lock on byte 0 would stop every other
@@ -174,6 +176,35 @@ def release(fd: int | None) -> None:
         os.close(fd)
     except OSError:
         pass
+
+
+def try_lock(path: Path) -> int | None:
+    """Lock another file the way the queue lock is locked, without waiting.
+
+    Returns the descriptor, or None while another process holds the lock. The
+    Stop hook's learners hold one per transcript (``session_learn``).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
+    if _lock(fd, False):
+        return fd
+    os.close(fd)
+    return None
+
+
+def unlock(fd: int, path: Path) -> None:
+    """Release a ``try_lock`` lock and remove its file.
+
+    A process that opened the file before it is removed can still lock it
+    while another locks a new file at the path, so two processes may hold
+    it at once: use this only where that costs no more than repeated work.
+    """
+    _unlock(fd)
+    os.close(fd)
+    try:
+        path.unlink()
+    except OSError:
+        pass  # Windows keeps a file another process has open.
 
 
 def read_holder() -> dict | None:

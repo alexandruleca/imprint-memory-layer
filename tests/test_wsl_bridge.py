@@ -153,7 +153,7 @@ class WSLPathTests(unittest.TestCase):
                 patch.object(wsl_bridge.sys, 'stderr', io.StringIO()), \
                 patch.object(wsl_bridge.sys, 'argv', ['wsl_bridge.py']), \
                 patch.object(workspace_policy, 'transcript_allowed', return_value=False), \
-                patch.object(hook_entry.subprocess, 'run') as consume:
+                patch.object(hook_entry.subprocess, 'Popen') as consume:
             result = wsl_bridge.main(['--data-dir', data, '--distribution', 'Ubuntu',
                 '--cwd', '/home/project', '--home', '/home/test', 'hook', 'stop'])
             self.assertEqual(result, 0)
