@@ -103,8 +103,13 @@ try {
   assert.equal(await popup.getByRole('combobox').count(), 0, 'settings stay hidden until asked for');
   await popup.getByRole('button', { name: 'Companion settings' }).click();
   const model = popup.getByRole('combobox', { name: 'Voice reasoning model' });
-  // Open the actual native select and choose with the keyboard, not selectOption.
-  await model.click(); await popup.keyboard.press('ArrowDown'); await popup.keyboard.press('Enter');
+  // Nothing (such as a drag handle) covers the select where a person clicks it.
+  // macOS opens native menus outside the page, where keystrokes don't reach,
+  // so the option is chosen through the element on every platform.
+  const select = await model.boundingBox();
+  assert.ok(await popup.evaluate(([x, y]) => document.elementFromPoint(x, y) instanceof HTMLSelectElement,
+    [select.x + select.width / 2, select.y + select.height / 2]), 'the model select is reachable');
+  await model.selectOption('lfm');
   assert.equal(await model.inputValue(), 'lfm');
   await popup.getByRole('group', { name: "Echo's look" }).getByRole('button', { name: /^Kai:/ }).click();
   for (let i = 0; i < 50 && look !== 'kai'; i++) await pause(100);

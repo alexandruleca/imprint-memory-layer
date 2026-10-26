@@ -110,6 +110,20 @@ jobs:
           npm run build --prefix imprint/ui
           npm ci --prefix ui-electron
           node ui-electron/node_modules/electron/install.js
+      # Hosted Windows runners deny desktop apps the microphone in privacy
+      # settings. Allow it, as a user who granted access would have it, so the
+      # smokes exercise the consent and capture path (denial is unit-tested).
+      - name: Allow desktop microphone access
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($root in 'HKLM:\SOFTWARE', 'HKCU:\Software') {
+            foreach ($key in 'microphone', 'microphone\NonPackaged') {
+              $path = "$root\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\$key"
+              New-Item -Path $path -Force | Out-Null
+              Set-ItemProperty -Path $path -Name Value -Value Allow
+            }
+          }
       - name: Native transparent companion and dashboard toggle
         shell: bash
         run: |
