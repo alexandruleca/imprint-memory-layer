@@ -275,63 +275,66 @@ class StoringPathTests(BacklogCase):
         return patch('imprint.tagger.derive_llm_classify', side_effect=AssertionError('the LLM ran inline'))
 
     def test_partial_conversation_is_retried_then_marked_complete(self):
-        from imprint import cli_conversations
+        import json
+        from imprint import cli_conversations, conversation_source, source_memory
+        transcript = self.data / 'retry.jsonl'
+        transcript.write_text(json.dumps({'type': 'user', 'message': {'content': 'Keep all the evidence'}}) + '\n' +
+            json.dumps({'type': 'assistant', 'message': {'content': 'Important evidence and rationale. ' * 150}}))
         original = vs._store_redacted
         calls = 0
-
         def fail_second_batch(records, *args, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise RuntimeError('embedding interrupted')
             return original(records, *args, **kwargs)
-
         with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/retry', 'project')), \
                 patch.object(cli_conversations, 'owned', return_value=True), \
-                patch.object(cli_conversations, 'parse_exchanges', return_value=[{'text': 'Useful exchange ' * 30}]), \
-                patch.object(cli_conversations.chunker, 'chunk_conversation',
-                             return_value=[f'Piece {i} ' * 30 for i in range(10)]), \
                 patch.object(cli_conversations.tagger, 'build_payload_tags', return_value={}), \
-                patch.object(config, 'BATCH_SIZE', 8), \
+                patch.object(config, 'BATCH_SIZE', 8), patch.object(config, 'CHUNK_SIZE_PROSE', 240), \
+                patch.object(config, 'CHUNK_OVERLAP', 0), \
                 patch('imprint.workspace_policy.is_excluded', return_value=False):
+            total = len(source_memory.records(conversation_source.prepare(str(transcript))))
+            self.assertGreater(total, 8)
             with patch.object(vs, '_store_redacted', side_effect=fail_second_batch):
                 with self.assertRaisesRegex(RuntimeError, 'embedding interrupted'):
-                    cli_conversations.index_transcript('retry.jsonl', source_mtime=123)
+                    cli_conversations.index_transcript(str(transcript), source_mtime=123)
             self.assertEqual(vs.get_source_mtimes()['conversation/retry'], 0)
             self.assertEqual(len(self.payloads()), 8)
-            self.assertEqual(cli_conversations.index_transcript('retry.jsonl', source_mtime=123), (2, 0))
+            self.assertEqual(cli_conversations.index_transcript(str(transcript), source_mtime=123), (total - 8, 0))
             self.assertEqual(vs.get_source_mtimes()['conversation/retry'], 123)
-            self.assertEqual(len(self.payloads()), 10)
+            self.assertEqual(self.client.count(vs._ensure_collection()[1]).count, total)
 
     def test_a_transcript_read_differently_keeps_unchanged_chunks_and_drops_the_rest(self):
-        # ADR 0080: a conversation's memories become what reading it gives now;
-        # a chunk already stored keeps its embedding and classification.
+        import json
         from imprint import cli_conversations
-        kept, before, after = 'Kept exchange ' * 20, 'Exchange as read before ' * 10, 'Exchange as read now ' * 10
+        transcript = self.data / 'redo.jsonl'
         embedded = []
-
-        def learn(*texts):
-            with patch.object(cli_conversations, 'parse_exchanges', return_value=[{'text': text} for text in texts]):
-                return cli_conversations.index_transcript('redo.jsonl', source_mtime=123)
-
+        def learn(last):
+            transcript.write_text(json.dumps({'type': 'user', 'message': {'content': 'Keep this question unchanged.'}}) + '\n' +
+                json.dumps({'type': 'assistant', 'message': {'content': 'Unchanged rationale. ' * 30 + last}}))
+            return cli_conversations.index_transcript(str(transcript), source_mtime=123)
         with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/redo', 'project')), \
                 patch.object(cli_conversations, 'owned', return_value=True), \
-                patch.object(cli_conversations.chunker, 'chunk_conversation', side_effect=lambda text: [text]), \
                 patch.object(cli_conversations.tagger, 'build_payload_tags', return_value={}), \
+                patch.object(config, 'CHUNK_SIZE_PROSE', 400), patch.object(config, 'CHUNK_OVERLAP', 0), \
                 patch('imprint.workspace_policy.is_excluded', return_value=False), \
                 patch('imprint.embeddings.embed_documents_batch',
                       side_effect=lambda texts: embedded.extend(texts) or [[1., 0., 0.] for _ in texts]):
-            learn(kept, before)
+            learn('Before the change.')
+            before = self.payloads()
+            kept = next(text for text in before if 'Before the change.' not in text)
             _, coll = vs._ensure_collection()
-            [point], _ = self.client.scroll(coll, scroll_filter=vs.qm.Filter(must=[vs.qm.FieldCondition(
-                key='content', match=vs.qm.MatchValue(value=kept))]), limit=1)
+            points, _ = self.client.scroll(coll, limit=100)
+            point = next(point for point in points if point.payload['content'] == kept)
             self.client.set_payload(coll, {'type': 'pattern', 'llm_tagged': True}, points=[point.id])
             embedded.clear()
-            self.assertEqual(learn(kept, after), (1, 0))
-        self.assertEqual(embedded, [after])
+            added, _ = learn('After the change.')
         payloads = self.payloads()
-        self.assertEqual(set(payloads), {kept, after})
+        self.assertEqual(added, len(set(payloads) - set(before)))
+        self.assertEqual(set(embedded), set(payloads) - set(before))
         self.assertEqual((payloads[kept]['type'], payloads[kept]['llm_tagged']), ('pattern', True))
+        self.assertFalse(any('Before the change.' in text for text in payloads))
         version = cli_conversations.LEARNER_VERSION
         self.assertEqual({p['learner_version'] for p in payloads.values()}, {version})
         self.assertEqual(vs.get_source_mtimes(learner_version=version)['conversation/redo'], 123)
@@ -340,11 +343,11 @@ class StoringPathTests(BacklogCase):
     def test_a_learned_conversation_is_marked_not_classified(self):
         from imprint import cli_conversations
         transcript = self.data / 'session.jsonl'
-        exchanges = [{'text': 'We decided to queue tagging in the background because it took hours. ' * 3}]
+        import json
+        transcript.write_text(json.dumps({'type': 'user', 'message': {'content': 'How should tagging run?'}}) + '\n' +
+            json.dumps({'type': 'assistant', 'message': {'content': 'We decided to tag in the background because it took hours.'}}))
         with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/s', 'project')), \
                 patch.object(cli_conversations, 'owned', return_value=True), \
-                patch.object(cli_conversations, 'parse_exchanges', return_value=exchanges), \
-                patch.object(cli_conversations.chunker, 'chunk_conversation', side_effect=lambda text: [text]), \
                 patch('imprint.workspace_policy.is_excluded', return_value=False):
             stored, _ = cli_conversations.index_transcript(str(transcript), source_mtime=1.0)
             with patch.dict(os.environ, {'IMPRINT_LLM_TAGS': '0'}), \
@@ -364,7 +367,7 @@ class StoringPathTests(BacklogCase):
         chunks = [('# Queue\n\nBackground tagging steps aside.', 0), ('It resumes when the queue is idle.', 1)]
         with self.no_llm(), patch('imprint.workspace_policy.ensure_ingest_paths'), \
                 patch('imprint.workspace_policy.is_excluded', return_value=False), \
-                patch('imprint.workspace_policy.map_project'), patch('imprint.chunker.chunk_file', return_value=chunks), \
+                patch('imprint.workspace_policy.map_project'), \
                 contextlib.redirect_stdout(io.StringIO()):  # its summary is not what this checks
             cli_index.ingest_single_file(str(project / 'notes.md'), 'project', 8)
         self.assertTrue(all(payload['tag_pending'] for payload in self.payloads().values()))

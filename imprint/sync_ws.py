@@ -623,6 +623,9 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
             seq = i // batch_size + 1
             emit({"kind": "batch", "dataset": "facts", "seq": seq, "records": records[i:i + batch_size]})
 
+    from . import source_snapshots
+    for frame in source_snapshots.export_parts(workspace):
+        emit(frame)
     emit({"kind": "done"})
     return lines
 
@@ -706,6 +709,8 @@ def process_import_buffer(
         stats["facts"]["skipped"] += sk
         progress("facts")
 
+    from .source_snapshots import Importer
+    snapshot_import = Importer(workspace)
     with open(path, "r") as f:
         for line in f:
             line = line.strip()
@@ -723,6 +728,9 @@ def process_import_buffer(
                 continue
             if kind == "done":
                 break
+            if kind == "source_snapshot":
+                snapshot_import.feed(msg)
+                continue
             if kind != "batch":
                 continue
             dataset = msg.get("dataset", "memories")
@@ -732,6 +740,9 @@ def process_import_buffer(
             elif dataset == "facts":
                 import_facts(records)
 
+    snapshot_import.finish()
+    if snapshot_import.imported:
+        stats['sources'] = {'imported': snapshot_import.imported}
     return stats
 
 

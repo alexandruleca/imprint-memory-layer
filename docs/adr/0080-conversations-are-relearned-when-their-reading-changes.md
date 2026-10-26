@@ -3,8 +3,9 @@ title: ADR 0080 — Conversations are learned again when their reading changes
 description: Learning replaces a conversation's memories with what reading it gives now, keeping chunks already stored, and the watermark names the learner version so a change in reading relearns every conversation once.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
+- Amended by: [ADR 0081](0081-verifiable-redacted-source-snapshots.md) — completion checks include the source profile and published manifest
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (safe source replacement), [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) (sync merges without deleting), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (new memories wait for LLM tagging), [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) (the Stop hook's learner), [ADR 0079](0079-learn-only-what-the-claude-code-user-typed.md) (the change in reading that needs this), [chunking](../chunking.md)
 
 ## Context

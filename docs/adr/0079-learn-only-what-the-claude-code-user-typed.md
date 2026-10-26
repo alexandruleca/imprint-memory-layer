@@ -3,8 +3,9 @@ title: ADR 0079 — Learn only what the Claude Code user typed
 description: User messages Claude Code writes itself (task notifications, other sessions' messages, system reminders, image placeholders, compaction summaries) are not questions; replies to them stay with the question the user typed.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
+- Amended by: [ADR 0082](0082-retain-readable-conversation-evidence.md) — retain client-written context as labelled evidence while keeping human-question attribution
 - Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (learning from client stores), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) (Cline and Copilot messages are already what the user typed), [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) (where the problem showed), [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md) (how stored conversations are learned again), [chunking](../chunking.md)
 
 ## Context

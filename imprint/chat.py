@@ -194,6 +194,17 @@ TOOLS: dict[str, Tool] = {
         },
         required=("source",),
     ),
+    "read_source": Tool(
+        _mcp_server.read_source,
+        "Read the authoritative redacted source and check whether all indexed chunks are present. "
+        "Use next_start and the returned version to continue reading without mixing versions.",
+        {"source": _SOURCE, "project": _PROJECT,
+         "start": _param("integer", "Character offset (default 0)"),
+         "max_chars": _param("integer", "Content characters (100–12000, default 4000)"),
+         "version": _param("string", "Source version returned by the first read"),
+         "verify": _param("boolean", "Verify indexed chunks against the manifest (default true)")},
+        required=("source",),
+    ),
     "store": Tool(
         _mcp_server.store,
         "Store a new memory: a self-contained note that makes sense months later and explains the WHY, not just the WHAT.",

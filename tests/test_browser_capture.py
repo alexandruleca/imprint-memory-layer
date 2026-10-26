@@ -201,14 +201,12 @@ class WorkerTests(TemporaryData, unittest.TestCase):
         self.assertEqual(argv[-2:], ['imprint.browser_worker', job_id])
         self.assertNotIn('Useful article', ' '.join(argv))
 
-    def test_short_inline_notes_bypass_file_minimum_after_trimming(self):
+    def test_short_inline_notes_preserve_leading_whitespace(self):
         from imprint.ingest_core import store_inline_content
-        with patch('imprint.ingest_core.chunk_file') as chunk, \
-                patch('imprint.tagger.build_payload_tags', return_value={}), \
+        with patch('imprint.tagger.build_payload_tags', return_value={}), \
                 patch('imprint.vectorstore.replace_source', return_value=(1, 0)) as store:
             self.assertEqual(store_inline_content(' ' * 120 + 'A short useful note.', 'short-note'), (1, 'stored'))
-            chunk.assert_not_called()
-            self.assertIn('A short useful note.', store.call_args.args[0][0]['content'])
+            self.assertEqual(store.call_args.args[0][0]['content'], '[short-note]\n' + ' ' * 120 + 'A short useful note.')
 
     def test_revoked_queued_pairing_is_not_indexed(self):
         job_id = self.make_job()

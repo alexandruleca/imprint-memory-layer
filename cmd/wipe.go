@@ -90,6 +90,9 @@ func wipeSingleWorkspace(projectDir, dataDir, workspace string, force bool) {
 
 	// Delete Qdrant collection via API (no server restart needed)
 	venvPython := platform.VenvPython(projectDir)
+	if platform.FileExists(filepath.Join(dataDir, "source-snapshots.sqlite3")) && !platform.FileExists(venvPython) {
+		output.Fail("cannot wipe source snapshots without the Python runtime; run imprint bootstrap and retry")
+	}
 	if platform.FileExists(venvPython) {
 		envVars := []string{
 			"PYTHONPATH=" + projectDir,
@@ -98,7 +101,8 @@ func wipeSingleWorkspace(projectDir, dataDir, workspace string, force bool) {
 		output.Info("deleting collection: " + coll)
 		out, err := runner.RunCaptureEnv(venvPython, envVars,
 			"-c", fmt.Sprintf(`
-from imprint import qdrant_runner
+from imprint import qdrant_runner, source_snapshots
+source_snapshots.remove(workspace=%q)
 from qdrant_client import QdrantClient
 h, p = qdrant_runner.ensure_running()
 c = QdrantClient(host=h, port=p, timeout=10)
@@ -107,9 +111,9 @@ try:
     print("deleted")
 except Exception as e:
     print(f"skip: {e}")
-`, coll))
+`, workspace, coll))
 		if err != nil {
-			output.Warn("collection delete failed: " + err.Error())
+			output.Fail("workspace data cleanup failed: " + err.Error())
 		} else {
 			out = strings.TrimSpace(out)
 			if out == "deleted" {
@@ -168,6 +172,7 @@ func wipeEverything(projectDir, dataDir string, force bool) {
 		".sessions/         (session state)",
 		"workspace.json     (workspace config)",
 		"extraction-results.sqlite3 (documents found to have no text)",
+		"source-snapshots.sqlite3 (redacted sources and chunk manifests)",
 	}
 
 	fmt.Println()
@@ -241,7 +246,7 @@ func wipeEverything(projectDir, dataDir string, force bool) {
 	// Remove other files
 	// extraction-results.sqlite3 is shared by every workspace (keyed by
 	// content hash, ADR 0040), so only wiping everything removes it.
-	for _, name := range []string{"qdrant.pid", "workspace.json", "extraction-results.sqlite3"} {
+	for _, name := range []string{"qdrant.pid", "workspace.json", "extraction-results.sqlite3", "source-snapshots.sqlite3", "source-snapshots.sqlite3-wal", "source-snapshots.sqlite3-shm", "source-snapshots.sqlite3-journal"} {
 		path := filepath.Join(dataDir, name)
 		if platform.FileExists(path) {
 			if err := os.Remove(path); err != nil {

@@ -108,6 +108,16 @@ def scrub(workspace: str | None = None, apply: bool = False) -> dict:
             write_progress("scrub", scanned, scanned, len(found), 0, started, [], phase="embedding")
             _rewrite_memories(client, coll, found, ws)
         facts, changed_facts, fact_kinds = _scrub_facts(ws, apply)
+        from . import source_snapshots
+        source_scanned = source_changed = 0
+        for meta in source_snapshots.list_metadata(ws):
+            source_scanned += 1
+            original = source_snapshots.get(meta['source'], meta['project'], ws)
+            clean = source_snapshots.sanitize(original)
+            if clean['text'] != original['text'] or clean['metadata']['details'] != original['metadata']['details']:
+                source_changed += 1
+                if apply:
+                    source_snapshots.publish(clean, ws)
     finally:
         clear_progress()
     if apply:
@@ -117,6 +127,7 @@ def scrub(workspace: str | None = None, apply: bool = False) -> dict:
     return {"workspace": ws, "applied": apply,
             "memories": {"scanned": scanned, "redacted": len(found)},
             "facts": {"scanned": facts, "redacted": changed_facts},
+            **({"sources": {"scanned": source_scanned, "redacted": source_changed}} if source_scanned else {}),
             "kinds": dict(sorted((memory_kinds + fact_kinds).items()))}
 
 
@@ -126,7 +137,10 @@ def summary(result: dict) -> str:
              f"and {facts['redacted']} of {facts['scanned']} facts hold secrets."]
     width = max((len(kind) for kind in result["kinds"]), default=0)
     lines += [f"    {kind:<{width}}  {count}" for kind, count in result["kinds"].items()]
-    if not memories["redacted"] and not facts["redacted"]:
+    sources = result.get('sources', {})
+    if sources.get('redacted'):
+        lines.append(f"  Source snapshots: {sources['redacted']} of {sources['scanned']} hold secrets.")
+    if not memories["redacted"] and not facts["redacted"] and not sources.get('redacted'):
         return lines[0]
     lines.append("  Redacted; changed memories were embedded again." if result["applied"] else
                  "  Dry run: nothing changed. Run 'imprint scrub --apply' to redact them.")

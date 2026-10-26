@@ -9,13 +9,14 @@ import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from . import config
+from .source_memory import SPAN_FIELDS
 
 # origin_project: the project its writer named, which the project-relative
 # path and project mapping refer to after the memory moves (ADR 0036).
 FIELDS = ['recorded_device', 'recorded_at', 'source_device', 'source_relative_path', 'source_path_local',
           'origin_project']
 TRANSFER_FIELDS = FIELDS + ['source_path', 'source_hash', 'source_size', 'source_type', 'source_url',
-                           'doc_metadata', 'etag', 'last_modified']
+                           'doc_metadata', 'etag', 'last_modified'] + SPAN_FIELDS
 UNKNOWN = {'id': '', 'name': 'Unknown origin (legacy)', 'os': ''}
 
 

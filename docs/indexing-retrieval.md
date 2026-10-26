@@ -21,6 +21,8 @@ The public ID hashes complete stripped content, project, source and optional chu
 
 `--force` on ingest/refresh bypasses both fingerprint skipping and existing-vector dedup within a compatible profile. After changing embedding identity, rebuild in a fresh workspace; see [embeddings](embeddings.md). Indexing failures propagate nonzero through the Go CLI.
 
+Complete redacted readable text and span manifests are stored beside modern chunks, after successful replacement. `read_source` provides version-pinned pages and detects incomplete index coverage. Modern skip checks also verify the source profile and manifest ID set; missing chunks trigger repair. Legacy files need `refresh --force` once to acquire a full-source view. See [source memory](source-memory.md) for content boundaries, deletion, sync and measured costs ([ADR 0081](adr/0081-verifiable-redacted-source-snapshots.md)).
+
 ## Ranking contract
 
 MCP and dashboard call the same vectorstore search. Default `hybrid` uses the existing ONNX semantic vector, Qdrant full-text candidates and deterministic reciprocal rank fusion. Lexical scoring considers term coverage/frequency and exact identifier, path and phrase signals. `semantic` remains available for comparison. Filters apply before ranking. At most 256 candidates per channel are read, query terms cap at 12, pages at 50, and offsets at 255.

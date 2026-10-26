@@ -224,10 +224,10 @@ class LearnStoresTests(unittest.TestCase):
                          {f'conversation/{CLAUDE_SESSION[:8]}', f'conversation/{CODEX_FIRST}', f'conversation/{CODEX_SECOND}'})
         content = '\n'.join(record['content'] for record in self.stored())
         for question in ('How should the cache be keyed?', 'Where do rollouts get written?', 'Can archived sessions be learned?'):
-            self.assertIn(f'Q: {question}', content)
-        for hidden in ('Subagent prompt', 'private thinking', 'tool output', 'developer instructions',
-                       'private reasoning', 'environment_context'):
-            self.assertNotIn(hidden, content)
+            self.assertIn(question, content)
+        self.assertNotIn('Subagent prompt', content)
+        for evidence in ('private thinking', 'tool output', 'developer instructions', 'private reasoning', 'environment_context'):
+            self.assertIn(evidence, content)
         self.assertEqual([memory['source'] for memory in self.memories], ['memory/MEMORY.md'])
 
     def test_learns_a_cursor_store_whose_folder_names_one_directory(self):
@@ -249,10 +249,12 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual({record['source'] for record in stored}, {f'conversation/{CURSOR_SESSION[:8]}'})
         self.assertEqual({record['project'] for record in stored}, {learner.derive_project(str(project))})
         content = '\n'.join(record['content'] for record in stored)
-        self.assertIn('Q: How is the shop deployed?\n\nA: Keep the cache', content)
-        for hidden in ('Subagent prompt', 'Is this one learned', 'timestamp', 'Jul 27', 'image_files', 'attached.png',
-                       '/tool/input/path'):
+        self.assertIn('How is the shop deployed?', content)
+        self.assertIn('Keep the cache', content)
+        for hidden in ('Subagent prompt', 'Is this one learned'):
             self.assertNotIn(hidden, content)
+        for context in ('Jul 27', 'image_files', 'attached.png', '/tool/input/path'):
+            self.assertIn(context, content)
 
     def test_a_cursor_folder_name_stands_for_exactly_one_existing_directory(self):
         def resolve(path):
@@ -494,14 +496,19 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual({record['source'] for record in stored},
                          {f'conversation/{CLINE_FIRST}', f'conversation/{CLINE_SECOND}'})
         content = '\n'.join(record['content'] for record in stored)
-        self.assertIn('Q: How should the cache be keyed?\n\nA: Keep the cache', content)
+        self.assertIn('How should the cache be keyed?', content)
+        self.assertIn('Keep the cache', content)
         self.assertIn('After the hook.', content)
         self.assertIn('Continuing.', content)
-        self.assertIn('Q: /deep-planning plan the cache rewrite\n\nA: Plan:', content)
-        for hidden in ('Subagent prompt', 'Imported', 'Is this one learned', 'mode_notice', 'switched from plan',
-                       'user_input', 'attached file body', 'private thinking', 'opaque', 'tool output',
-                       '/tool/input/path', 'hook output', 'approved switching', 'Provider error'):
+        self.assertIn('/deep-planning plan the cache rewrite', content)
+        self.assertIn('Plan:', content)
+        for hidden in ('Subagent prompt', 'Imported', 'Is this one learned', 'opaque'):
             self.assertNotIn(hidden, content)
+        for evidence in ('attached file body', 'private thinking', 'tool output', '/tool/input/path',
+                         'hook output', 'approved switching', 'Provider error'):
+            self.assertIn(evidence, content)
+        self.assertIn('"role":"context"', content)
+
 
     def test_cline_user_text_is_what_the_user_typed(self):
         def typed(text):
@@ -626,12 +633,18 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual({record['source'] for record in stored},
                          {f'conversation/{COPILOT_SESSION}', 'conversation/release-notes'})
         content = '\n'.join(record['content'] for record in stored)
-        self.assertIn('Q: How should the cache be keyed?\n\nA: Keep the cache', content)
+        self.assertIn('How should the cache be keyed?', content)
+        self.assertIn('Keep the cache', content)
         self.assertIn('After autopilot.', content)
-        self.assertIn('Q: And the second question?\n\nA: Second answer.', content)
-        for hidden in ('Skill instructions', 'Subagent', 'Nested answer', 'Continue with the task', 'private reasoning',
-                       'opaque', 'tool output', '/tool/input/path', 'model-facing', 'current_datetime', 'Is this one learned'):
+        self.assertIn('And the second question?', content)
+        self.assertIn('Second answer.', content)
+        for hidden in ('opaque', 'model-facing', 'current_datetime', 'Is this one learned'):
             self.assertNotIn(hidden, content)
+        for evidence in ('Skill instructions', 'Subagent', 'Nested answer', 'Continue with the task',
+                         'private reasoning', 'tool output', '/tool/input/path'):
+            self.assertIn(evidence, content)
+        self.assertIn('"role":"context"', content)
+
 
     def test_copilot_context_events_are_ownership_evidence(self):
         project, claimed = self.root / 'app', self.root / 'claimed'
@@ -689,7 +702,7 @@ class LearnStoresTests(unittest.TestCase):
         with patch.object(learner.sys, 'argv', ['cli_conversations', '--transcript', str(events)]), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(learner.main(), 0)
-        self.assertIn('Stored 2', output.getvalue())
+        self.assertIn('Stored 1', output.getvalue())
         self.assertEqual({record['source'] for record in self.stored()}, {f'conversation/{COPILOT_SESSION}'})
 
     def test_project_names_follow_claude_folder_naming_of_the_recorded_cwd(self):

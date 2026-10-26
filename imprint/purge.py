@@ -37,6 +37,18 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
                     sources.add((payload.get('project', ''), payload.get('source', '')))
             if offset is None:
                 break
+    from . import source_snapshots
+    snapshot_matches = []
+    for metadata in source_snapshots.list_metadata(ws):
+        provenance = metadata.get('provenance', {})
+        if kind == 'path':
+            from .device import local_source
+            if not local_source(provenance):
+                continue
+        value = provenance.get('source_path', '') if kind == 'path' else metadata['source']
+        if policy.matches(value, target, recursive, kind):
+            snapshot_matches.append(metadata)
+            sources.add((metadata['project'], metadata['source']))
     from . import imprint_graph as kg
     graph, fact_ids = config.graph_db_path(ws).exists(), []
     if graph:
@@ -58,6 +70,8 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
         for start in range(0, len(point_ids), 256):
             client.delete(collection_name=collection,
                           points_selector=qm.PointIdsList(points=point_ids[start:start + 256]), wait=True)
+        for metadata in snapshot_matches:
+            source_snapshots.remove(metadata['source'], metadata['project'], ws)
         vs._wal_log('purge', workspace=ws, target=target, kind=kind, recursive=recursive, chunks=len(point_ids))
         with vs._cache_lock:
             vs._id_caches.pop(collection, None)

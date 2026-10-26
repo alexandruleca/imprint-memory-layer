@@ -32,6 +32,7 @@ from typing import Callable, Iterable
 from qdrant_client import QdrantClient, models as qm
 from qdrant_client.http.exceptions import UnexpectedResponse
 
+from .source_memory import SPAN_FIELDS
 from . import config, embeddings, imprint_graph, qdrant_runner, device
 
 _client: QdrantClient | None = None
@@ -600,6 +601,7 @@ def _store_redacted(records: list[dict], workspace: str | None, *, force: bool =
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
             **({"tag_pending": True} if r.get("tag_pending") else {}),
+            **{key: r[key] for key in SPAN_FIELDS if key in r},
             **device.provenance(r),
         }
         points.append(
@@ -637,6 +639,8 @@ def replace_source(records: list[dict], source: str, project: str,
     stores the chunks that many at a time, calling ``progress(done, total)``
     after each batch.
     """
+    document = next((r.get('_source_document') for r in records if r.get('_source_document')), None)
+    records = [{key: value for key, value in row.items() if key != '_source_document'} for row in records]
     if not records:
         raise ValueError("Refusing to replace a source with no prepared chunks")
     if any(r.get("source") != source or r.get("project", "") != project for r in records):
@@ -646,6 +650,11 @@ def replace_source(records: list[dict], source: str, project: str,
     from .projects import place
     records = _redacted(place(records, workspace), workspace)
     project = records[0]["project"]
+    source_snapshot = None
+    if document is not None:
+        from . import source_memory, source_snapshots
+        document, records = source_memory.tighten(document, records)
+        source_snapshot = source_snapshots.prepare(document, records, source, project)
     inserted = skipped = 0
     step = batch_size or len(records)
     for start in range(0, len(records), step):
@@ -662,6 +671,17 @@ def replace_source(records: list[dict], source: str, project: str,
                   if key in records[0]}
     if provenance:
         client.set_payload(collection_name=coll, payload=provenance, points=ids, wait=True)
+    if source_snapshot is not None:
+        # Existing vectors/classification stay, while their source version and
+        # offsets follow the newly committed complete source.
+        for start in range(0, len(records), 256):
+            operations = [qm.SetPayloadOperation(set_payload=qm.SetPayload(
+                # Logical IDs normalize outer whitespace. Keep the exact
+                # current slice even when a whitespace-only edit reuses its ID.
+                payload={'content': row['content'], **{key: row[key] for key in SPAN_FIELDS if key in row}},
+                points=[_point_uuid(_make_id(row['content'], project, source, row.get('chunk_index')))]))
+                for row in records[start:start + 256]]
+            client.batch_update_points(collection_name=coll, update_operations=operations, wait=True)
     client.delete(collection_name=coll, points_selector=qm.FilterSelector(filter=qm.Filter(
         must=[qm.FieldCondition(key="source", match=qm.MatchValue(value=source)),
               qm.FieldCondition(key="project", match=qm.MatchValue(value=project))],
@@ -669,6 +689,8 @@ def replace_source(records: list[dict], source: str, project: str,
     )), wait=True)
     with _cache_lock:
         _id_caches.pop(coll, None)
+    if source_snapshot is not None:
+        source_snapshots.publish(source_snapshot, workspace)
     _wal_log("replace_source", workspace=workspace, source=source, project=project, count=len(ids))
     return inserted, skipped
 
@@ -785,6 +807,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
             **({"tagged_at": float(r["tagged_at"])} if r.get("tagged_at") else {}),
+            **{key: r[key] for key in SPAN_FIELDS if key in r},
             **device.provenance(r),
         }
         points.append(
@@ -917,6 +940,13 @@ def resolve_point_id(memory_id: str) -> str:
 def delete(memory_id: str, workspace: str | None = None) -> bool:
     client, coll = _ensure_collection(workspace)
     try:
+        held = client.retrieve(collection_name=coll, ids=[_point_uuid(memory_id)],
+                               with_payload=['source', 'project'], with_vectors=False)
+        from . import source_snapshots
+        for point in held:
+            payload = point.payload or {}
+            if payload.get('source'):
+                source_snapshots.remove(payload['source'], payload.get('project', ''), workspace)
         _wal_log("delete", workspace=workspace, id=memory_id)
         client.delete(
             collection_name=coll,
@@ -944,6 +974,8 @@ def delete_by_source(source: str, workspace: str | None = None, project: str | N
     # Invalidate id cache for this collection.
     with _cache_lock:
         _id_caches.pop(coll, None)
+    from . import source_snapshots
+    source_snapshots.remove(source, project, workspace)
     return True
 
 
@@ -974,15 +1006,26 @@ def _scroll_all(fields: list[str], workspace: str | None = None, with_vectors: b
 def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     """Fail visibly if provenance cannot be read; never infer an empty index."""
     states = {}
-    fields = ["source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type", "source_device", "source_path_local", "source_relative_path"]
+    fields = ["_mid", "source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type", "source_device", "source_path_local", "source_relative_path", 'source_version', 'source_format', 'source_profile']
+    from . import source_snapshots
+    metadata = source_snapshots.list_metadata(workspace)
+    heads = {(row['project'], row['source']): row['version'] for row in metadata}
+    seen = {}
     for payload in _scroll_all(fields, workspace=workspace):
+        key = (payload.get('project', ''), payload.get('source', ''))
+        seen.setdefault(key, set()).add(payload.get('_mid'))
         if payload.get("source") and payload.get("source_type") in ("file", "ocr"):
             source = payload["source"]
             previous = states.get(source)
             if previous and previous.get("source_hash") != payload.get("source_hash"):
                 # Incomplete replacement: force a repair rather than calling it unchanged.
                 payload = {**payload, "source_hash": ""}
+            if payload.get('source_format') and heads.get((payload.get('project', ''), source)) != payload.get('source_version'):
+                payload = {**payload, 'source_hash': ''}
             states[source] = payload
+    for meta in metadata:
+        if meta['source'] in states and seen.get((meta['project'], meta['source']), set()) != {r['id'] for r in meta['manifest']}:
+            states[meta['source']]['source_hash'] = ''
     return states
 
 
@@ -998,21 +1041,33 @@ def complete_conversation(source: str, source_mtime: float, learner_version: int
                        wait=True)
 
 
-def get_source_mtimes(workspace: str | None = None, learner_version: int | None = None) -> dict[str, float]:
+def get_source_mtimes(workspace: str | None = None, learner_version: int | None = None, source_profile: str | None = None) -> dict[str, float]:
     """Return {source: watermark}: the oldest source_mtime of a source's
     memories, 0 when one has none or, given ``learner_version``, when another
     learner version wrote it."""
     out: dict[str, float] = {}
+    from . import source_snapshots
+    metadata = source_snapshots.list_metadata(workspace)
+    heads = {(row['project'], row['source']): row['version'] for row in metadata}
+    seen = {}
     try:
-        for pl in _scroll_all(["source", "source_mtime", "learner_version"], workspace=workspace):
+        for pl in _scroll_all(["_mid", "source", "project", "source_mtime", "learner_version", 'source_version', 'source_format', 'source_profile'], workspace=workspace):
             s = pl.get("source")
+            seen.setdefault((pl.get('project', ''), s), set()).add(pl.get('_mid'))
             m = pl.get("source_mtime")
             if learner_version is not None and pl.get("learner_version") != learner_version:
+                m = 0.0
+            if source_profile is not None and pl.get('source_profile') != source_profile:
+                m = 0.0
+            if pl.get('source_format') and heads.get((pl.get('project', ''), s)) != pl.get('source_version'):
                 m = 0.0
             if s:
                 out[s] = min(out.get(s, float("inf")), m or 0.0)
     except Exception:
         pass
+    for meta in metadata:
+        if seen.get((meta['project'], meta['source']), set()) != {r['id'] for r in meta['manifest']}:
+            out[meta['source']] = 0.0
     return out
 
 
@@ -1105,7 +1160,7 @@ def get_source_summary(
             offset=offset,
             with_payload=["content", "project", "type", "tags", "source_type", "source",
                           "source_mtime", "chunk_index", "source_path", "recorded_device", "recorded_at",
-                          "source_device", "source_relative_path", "source_path_local", "origin_project"],
+                          "source_device", "source_relative_path", "source_path_local", "origin_project", *SPAN_FIELDS],
             with_vectors=False,
         )
         all_points.extend(points)
@@ -1200,7 +1255,7 @@ def get_chunks_by_source(
             scroll_filter=flt,
             limit=_SCAN_BATCH,
             offset=offset,
-            with_payload=["_mid", "content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local", "origin_project"],
+            with_payload=["_mid", "content", "chunk_index", "tags", "source", "project", "source_type", "source_path", "recorded_device", "recorded_at", "source_device", "source_relative_path", "source_path_local", "origin_project", *SPAN_FIELDS],
             with_vectors=False,
         )
         all_points.extend(points)
@@ -1228,6 +1283,7 @@ def get_chunks_by_source(
             "chunk_index": idx,
             "content": pl.get("content", ""),
             "tags": pl.get("tags", {}),
+            **{key: pl[key] for key in SPAN_FIELDS if key in pl},
             "recorded_device": pl.get('recorded_device'),
             "path_context": device.context(pl, workspace),
         })

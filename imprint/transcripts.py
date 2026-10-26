@@ -54,7 +54,7 @@ _CLINE_SYNTHETIC = ('<hook_context', '[TASK RESUMPTION]')
 _CLINE_ACT_CONTINUATION = 'The user approved switching to act mode. Continue with the approved plan now.'
 
 
-def records(path):
+def records(path, *, strict=False):
     """Each JSON object in a transcript; lines that are not one are skipped.
 
     A Cline messages file is one JSON document: its records are the
@@ -65,18 +65,26 @@ def records(path):
             try:
                 document = json.load(transcript)
             except ValueError:
+                if strict:
+                    raise ValueError("Malformed transcript JSON") from None
                 return
             messages = document.get('messages') if isinstance(document, dict) else None
+            if strict and (not isinstance(messages, list) or any(not isinstance(record, dict) for record in messages)):
+                raise ValueError('Malformed transcript messages')
             if isinstance(messages, list):
                 yield from (record for record in messages if isinstance(record, dict))
             return
-        for line in transcript:
+        for line_number, line in enumerate(transcript, 1):
             try:
                 record = json.loads(line)
             except ValueError:
+                if strict and line.strip():
+                    raise ValueError(f"Malformed transcript JSON at line {line_number}") from None
                 continue
             if isinstance(record, dict):
                 yield record
+            elif strict:
+                raise ValueError(f'Malformed transcript record at line {line_number}')
 
 
 def recorded_cwd(record):

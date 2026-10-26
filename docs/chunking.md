@@ -1,43 +1,31 @@
 ---
 title: Chunking
-description: How Imprint splits code and prose for embedding — Chonkie's tree-sitter CodeChunker for source files, SemanticChunker for markdown, sliding overlap, and size bounds.
+description: Complete redacted sources, contiguous character spans, bounded overlap and verifiable reconstruction.
 ---
-Long files don't embed well as a single vector — the model has limited context, and one giant vector blurs together too many concepts. The chunker splits text into focused, retrieval-friendly pieces.
+
+File ingestion and conversation learning split a complete redacted source into contiguous character spans. They preserve indentation, line endings, short messages, import preambles and short trailing text. They run no semantic model before embedding. [ADR 0081](adr/0081-verifiable-redacted-source-snapshots.md) records the storage and chunk contract; [ADR 0082](adr/0082-retain-readable-conversation-evidence.md) records the conversation content contract.
 
 ```mermaid
-graph TB
-    INPUT[file content + rel_path] --> EXT{file extension?}
-    EXT -->|.py .ts .go .rs .java<br/>.php .rb .swift .sh ...| CODE[Chonkie CodeChunker<br/>tree-sitter AST boundaries]
-    EXT -->|.md .txt .rst| PROSE[Chonkie SemanticChunker<br/>topic-shift detection]
-    EXT -->|other| LEGACY[regex boundary fallback]
-
-    CODE --> OVERLAP[apply sliding overlap<br/>tail of prev → head of next]
-    PROSE --> OVERLAP
-    LEGACY --> OVERLAP
-
-    OVERLAP --> CAP[enforce HARD_MAX<br/>cut at line boundary]
-    CAP --> WRAP["prefix '[rel_path]\n'<br/>so embedding sees source"]
-    WRAP --> OUT[(chunks<br/>typed for downstream)]
-
-    style CODE fill:#0d1117,stroke:#f472b6,color:#fff
-    style PROSE fill:#0d1117,stroke:#a78bfa,color:#fff
-    style LEGACY fill:#0d1117,stroke:#666,color:#fff
+flowchart LR
+    A[Read and verify source] --> B[Redact complete readable text]
+    B --> C[Paragraph / line span boundaries]
+    C --> D[Bounded overlap and filename prefix]
+    D --> E[Validate exact reconstruction]
+    E --> F[Embed new chunks, then prune old IDs]
+    F --> G[Publish compressed source and manifest]
 ```
 
-**[Chonkie](https://github.com/chonkie-inc/chonkie) hybrid dispatch** in [chunker.py](../imprint/chunker.py):
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `chunker.size_code` / `IMPRINT_CHUNK_SIZE_CODE` | 4000 characters | Target for recognized code extensions |
+| `chunker.size_prose` / `IMPRINT_CHUNK_SIZE_PROSE` | 6000 characters | Target for other text and conversations |
+| `chunker.hard_max` / `IMPRINT_CHUNK_HARD_MAX` | 8000 characters | Cap including the derived filename prefix |
+| `chunker.overlap` / `IMPRINT_CHUNK_OVERLAP` | 400 characters | Overlap, bounded to one third of the effective target |
 
-- **`CodeChunker`** — tree-sitter parses the file into an AST and splits at function/class/method boundaries. Language-aware (Python, TypeScript, Go, Rust, Java, PHP, Ruby, Swift, C/C++, etc.) so it never cuts mid-function.
-- **`SemanticChunker`** — embeds sentences with a tiny [Model2Vec](https://github.com/MinishLab/model2vec) static embedder, computes cosine similarity over a sliding window, and splits where similarity drops below `chunker.semantic_threshold` (default `0.5`). Lower = sharper splits / more chunks, higher = fewer, broader chunks. Dynamic chunk size: a coherent topic stays together; a topic shift triggers a split.
-- **Sliding overlap** — `IMPRINT_CHUNK_OVERLAP=400` chars from the tail of each chunk prepended to the next. Preserves boundary context so retrieval doesn't miss signal sitting right at a split.
-- **Semantic subsplit for code** — oversized code chunks (>8000 chars) get secondary topic-shift splitting via SemanticChunker. Small focused functions stay whole; large functions split where the logic changes.
+The splitter prefers paragraph and then line boundaries in the latter half of a chunk, falling back to a character cut. A long function may cross chunks. Chonkie's AST and semantic helpers remain for legacy direct callers; `chunk_file` and `chunk_conversation` use the span path. `chunker.semantic_threshold` does not affect those paths.
 
-| Knob | Default | Effect |
-|---|---|---|
-| `IMPRINT_CHUNK_SIZE_CODE` | 4000 chars | Soft target for code (semantic subsplit above 2×) |
-| `IMPRINT_CHUNK_SIZE_PROSE` | 6000 chars | Soft target for prose (topic-shift is primary boundary) |
-| `IMPRINT_CHUNK_HARD_MAX` | 8000 chars | Absolute cap (~2k tokens, fits within 2048 token context) |
-| `IMPRINT_CHUNK_OVERLAP` | 400 chars | Sliding window between chunks |
+`source_start` and `source_end` are half-open Unicode character offsets into the redacted source, not offsets into the original private file. `source_prefix` is derived retrieval context, excluded when reconstructing. Overlap is verified for agreement. A manifest records every index, span, content hash and ID, with a source version and expected chunk count. Empty text has a valid zero-chunk snapshot. Extracted documents have one joined text snapshot and ranges for their extracted parts; it does not reconstruct a PDF, image or original binary.
 
-Full setting names for persistence via `imprint config set`: `chunker.size_code`, `chunker.size_prose`, `chunker.hard_max`, `chunker.overlap`, `chunker.semantic_threshold`. See [configuration.md](./configuration.md).
+Conversations preserve ordered readable messages, available analysis and rationale, tool calls and outputs, with role/kind/call metadata. Client-injected content is labelled `context`; it does not become a human question. Opaque reasoning and binary attachments are counted as unavailable. This is an exact reconstruction of the stored readable representation, not of raw transcript JSON. See [source memory](source-memory.md).
 
-Conversation learning uses Q+A exchanges as topic boundaries and splits long exchanges at paragraphs/lines with overlap and the hard size cap. It does not run sentence-level semantic inference before embedding the resulting chunks. Each transcript uses consecutive chunk indices across all exchanges. `learn` logs each embedding batch and publishes dashboard progress; it reports transcript failures and exits nonzero. A transcript receives its watermark, its modification time and the learner version that read it, only after every batch succeeds, so interruption leaves it eligible for retry. Learning replaces a conversation's memories with the chunks its reading gives now: chunks already stored keep their embedding and tags, and chunks it no longer gives are removed. A transcript a different learner version read is learned again ([ADR 0080](adr/0080-conversations-are-relearned-when-their-reading-changes.md)). In Claude Code transcripts, user messages the client wrote itself (task notifications, other sessions' messages, system reminders, image placeholders, compaction summaries) are not questions: replies to them stay with the question the user typed ([ADR 0079](adr/0079-learn-only-what-the-claude-code-user-typed.md)).
+`learn` uses learner version 3, the source profile (format, chunk sizes, overlap and Privacy Filter setting), the transcript modification time and the current manifest's ID set to decide whether to skip. Changes trigger learning again, reusing unchanged embeddings and tags. Missing or mismatched snapshot versions and missing/extra chunks trigger repair. A completion watermark is published after every batch and the source snapshot succeed. File refresh applies the profile and manifest checks to modern sources too. Legacy file chunks have no proof of coverage; use `refresh --force` once to create snapshots.

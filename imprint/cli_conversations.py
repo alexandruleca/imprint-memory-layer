@@ -42,14 +42,15 @@ C_CYAN = "\033[0;36m"
 C_GREEN = "\033[0;32m"
 C_YELLOW = "\033[1;33m"
 
-# Minimum useful exchange length — drop sub-100-char noise.
-MIN_EXCHANGE_LEN = 100
+# Legacy exchange helper keeps brief messages; learning uses readable events.
+MIN_EXCHANGE_LEN = 1
 
 # What reading a transcript makes of it. Bump it when a change gives a
 # transcript different memories: each conversation is then learned again,
 # once, by `imprint learn` or its session's Stop hook (ADR 0080).
 # 2: Claude Code messages the client wrote itself are not questions (ADR 0079).
-LEARNER_VERSION = 2
+# 3: Complete readable event evidence with source spans (ADRs 0081 and 0082).
+LEARNER_VERSION = 3
 
 # A user's home as it begins a folder name: Linux /home/<user>, macOS
 # /Users/<user>, Windows <drive>:\Users\<user>.
@@ -79,7 +80,7 @@ def parse_exchanges(transcript_path: str) -> list[dict]:
 
     for e in entries:
         role, text = transcripts.message(e) or (None, "")
-        if not text or len(text.strip()) <= 10:
+        if not text:
             continue
         if role == "user":
             # If we have a pending pair, save it
@@ -98,16 +99,9 @@ def parse_exchanges(transcript_path: str) -> list[dict]:
 
 
 def _clean_user_text(text: str) -> str:
-    """Strip system tags and noise from user messages."""
-    # Remove XML-style system tags
-    text = re.sub(r"<[^>]+>.*?</[^>]+>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<[^>]+/>", "", text)
-    # Remove system-reminder blocks
-    text = re.sub(r"<system-reminder>.*?</system-reminder>", "", text, flags=re.DOTALL)
-    # Remove task-notification blocks
-    text = re.sub(r"<task-notification>.*?</task-notification>", "", text, flags=re.DOTALL)
-    # Remove ide_opened_file / ide_selection tags
-    text = re.sub(r"<ide_\w+>.*?</ide_\w+>", "", text, flags=re.DOTALL)
+    """Preserve user markup in the legacy exchange representation."""
+    # The transcript adapter identifies client-written context by metadata.
+    # Human markup/code is source material, never a system-tag heuristic.
     return text.strip()
 
 
@@ -121,11 +115,11 @@ def _build_exchange(user_msgs: list[str], assistant_msgs: list[str], title: str)
     user_text = _clean_user_text("\n".join(user_msgs))
 
     # Skip if user message is empty after cleaning (was just system noise).
-    if len(user_text) < 10:
+    if not user_text:
         return {"text": "", "user_text": "", "title": title}
 
-    # Concat every assistant text block, dropping only ack-tier stubs.
-    parts = [m for m in assistant_msgs if len(m) >= 50]
+    # Preserve brief acknowledgements as well as long answer blocks.
+    parts = [m for m in assistant_msgs if m]
     if not parts:
         return {"text": "", "user_text": "", "title": title}
     assistant_text = "\n\n".join(parts)
@@ -261,51 +255,36 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
     source, project = identify(transcript_path)
     if not owned(transcript_path) or is_excluded(path=transcript_path, source=source):
         return 0, 0
-    exchanges = parse_exchanges(transcript_path)
-    stored = 0
-    skipped = 0
-    if not source_mtime:
-        try:
-            source_mtime = os.path.getmtime(transcript_path)
-        except OSError:
-            pass
-
-    # The LLM classifies these later, in the background (ADR 0067); the
-    # regex classifier and keyword tags describe them until then.
+    from . import conversation_source, source_memory
+    from .source_state import fingerprint
+    before = fingerprint(transcript_path)
+    document = conversation_source.prepare(transcript_path)
+    after = fingerprint(transcript_path)
+    if before != after:
+        raise OSError('Transcript changed while reading; prior snapshot retained')
+    source_mtime = source_mtime or before['source_mtime']
     from .tag_backlog import deferring
     pending = deferring()
-    records: list[dict] = []
-    for ex in exchanges:
-        if not ex["text"] or len(ex["text"]) < MIN_EXCHANGE_LEN:
-            skipped += 1
-            continue
-
-        tags = tagger.build_payload_tags(ex["text"], llm=False)
-        tags.pop("_llm_type", None)
-        mem_type, confidence = classify(ex["text"])
-        if confidence < 0.2:
-            mem_type = "finding"
-        tags["lang"] = "conversation"
-        tags["layer"] = "session"
-        tags["kind"] = "qa"
-
-        # Exchanges already supply topic boundaries. Avoid embedding every
-        # sentence through the full retrieval model before the first write.
-        # Keep overlap and size caps for retrieval context.
-        pieces = chunker.chunk_conversation(ex["text"]) or [ex["text"]]
-        for piece in pieces:
-            records.append({
-                "content": piece,
-                "project": project,
-                "type": mem_type,
-                "source": source,
-                "source_path": str(Path(transcript_path).resolve()),
-                "chunk_index": len(records),
-                # A partial transcript must not be skipped on the next learn.
-                "source_mtime": 0.0,
-                "tags": tags,
-                "tag_pending": pending,
-            })
+    records = source_memory.records(document)
+    for record in records:
+        relevant = [event for event in document.get('events', [])
+                    if event['end'] > record['source_start'] and event['start'] < record['source_end']]
+        kinds = sorted({event['kind'] for event in relevant})
+        roles = sorted({event['role'] for event in relevant})
+        tags = tagger.build_payload_tags(record['content'], llm=False)
+        tags.pop('_llm_type', None)
+        tags.update(lang='conversation', layer='session', kind=kinds[0] if len(kinds) == 1 else 'conversation')
+        mem_type, confidence = classify(record['content'])
+        record.update(**{key: value for key, value in before.items() if key != 'source_mtime'},
+                      project=project, source=source, source_type='conversation', source_mtime=0.0,
+                      type=mem_type if confidence >= 0.2 else 'finding', tags=tags,
+                      event_roles=roles, event_kinds=kinds,
+                      tag_pending=pending and any(event['kind'] in ('message', 'analysis') and
+                                                 event['role'] in ('user', 'assistant') for event in relevant))
+    if records:
+        records[0]['_source_document'] = document
+    stored = 0
+    skipped = 0
 
     # Flush in small sub-batches so a transcript with hundreds of exchanges
     # doesn't pin a giant batch through tokenization + ONNX at once.
@@ -368,7 +347,8 @@ def learn(stores: list[tuple[str, str]]) -> int:
     # Pre-filter unchanged transcripts via stored mtime (same logic as cli_index),
     # before reading any conversation in full. Another learner version's
     # memories have no watermark, so their transcripts are learned again.
-    known_mtimes = vs.get_source_mtimes(learner_version=LEARNER_VERSION)
+    from .source_memory import profile as source_profile
+    known_mtimes = vs.get_source_mtimes(learner_version=LEARNER_VERSION, source_profile=source_profile())
     filtered = []
     pre_skipped = 0
     not_owned = 0

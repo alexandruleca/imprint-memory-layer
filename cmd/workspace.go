@@ -193,6 +193,9 @@ func workspaceDelete(projectDir, dataDir, name string) {
 
 	// Delete Qdrant collection via Python
 	venvPython := platform.VenvPython(projectDir)
+	if platform.FileExists(filepath.Join(dataDir, "source-snapshots.sqlite3")) && !platform.FileExists(venvPython) {
+		output.Fail("cannot delete source snapshots without the Python runtime; run imprint bootstrap and retry")
+	}
 	if platform.FileExists(venvPython) {
 		envVars := []string{
 			"PYTHONPATH=" + projectDir,
@@ -201,7 +204,8 @@ func workspaceDelete(projectDir, dataDir, name string) {
 		output.Info("deleting collection: " + coll)
 		out, err := runner.RunCaptureEnv(venvPython, envVars,
 			"-c", fmt.Sprintf(`
-from imprint import qdrant_runner
+from imprint import qdrant_runner, source_snapshots
+source_snapshots.remove(workspace=%q)
 from qdrant_client import QdrantClient
 h, p = qdrant_runner.ensure_running()
 c = QdrantClient(host=h, port=p, timeout=10)
@@ -210,9 +214,9 @@ try:
     print("deleted")
 except Exception as e:
     print(f"skip: {e}")
-`, coll))
+`, name, coll))
 		if err != nil {
-			output.Warn("collection delete failed: " + err.Error())
+			output.Fail("workspace data cleanup failed: " + err.Error())
 		} else {
 			out = strings.TrimSpace(out)
 			if out == "deleted" {

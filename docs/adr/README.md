@@ -35,6 +35,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0063](0063-auto-spawned-local-qdrant-server.md) **Run Qdrant as an auto-spawned local server.** Every Imprint process reaches one Qdrant server on loopback that the first process to need it starts; embedded mode admits one process at a time.
 - [ADR 0065](0065-qdrant-over-lancedb-as-the-vector-store.md) **Qdrant over LanceDB as the vector store.** Memories live in Qdrant, reached through its server API so the auto-spawned local server and a separately run one serve the same code; it replaced LanceDB, which as the owner recalls could not run as a remote server.
 
+- [ADR 0081](0081-verifiable-redacted-source-snapshots.md) **Verifiable redacted source snapshots.** Complete redacted readable sources, character-span manifests and bounded verified source reads.
+
 ### Workspaces, ingestion and learning
 
 - [ADR 0015](0015-workspace-roots-and-source-purge.md) **Workspace roots and source purge.** Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (learning rules) and [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (directory workspaces).
@@ -49,8 +51,10 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0068](0068-merge-identical-waiting-jobs.md) **Merge identical waiting jobs.** A submission identical to a waiting job (same command, workspace and normalized arguments) returns that job; one follow-up may wait behind an identical running job.
 - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) **Projects name their workspace and each device approves it.** A project's `.imprint/workspace.json`, honoured when this device's roots approve it, picks the workspace of sessions, hooks, `ingest`, `refresh` and learning there; sessions ask once and `use_workspace` assigns a project without a restart.
 - [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) **The Stop hook hands its turn to one waiting learner under the queue lock.** The Stop hook starts a detached learner and returns; at most one learner per conversation waits, lets a burst of turns settle, then learns in one process while holding the queue lock.
-- [ADR 0079](0079-learn-only-what-the-claude-code-user-typed.md) **Learn only what the Claude Code user typed.** User messages Claude Code writes itself (task notifications, other sessions' messages, system reminders, image placeholders, compaction summaries) are not questions; replies to them stay with the question the user typed.
-- [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md) **Conversations are learned again when their reading changes.** Learning replaces a conversation's memories with what reading it gives now, keeping chunks already stored; the watermark names the learner version, so a change in reading relearns every conversation once.
+- [ADR 0079](0079-learn-only-what-the-claude-code-user-typed.md) **Learn only what the Claude Code user typed.** Client context is not a human question. Amended by [ADR 0082](0082-retain-readable-conversation-evidence.md) (retain readable context as attributed evidence).
+- [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md) **Conversations are learned again when their reading changes.** Learning replaces the current reading and reuses unchanged chunks. Amended by [ADR 0081](0081-verifiable-redacted-source-snapshots.md) (source profile and manifest checks).
+
+- [ADR 0082](0082-retain-readable-conversation-evidence.md) **Retain readable conversation evidence.** Preserve available messages, analysis and tool evidence with explicit attribution and omission counts.
 
 ### Embeddings, local models and chat
 
@@ -220,8 +224,10 @@ Every record in number order. *Date* is when the decision was made.
 | [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
 | [0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | 2026-10-26 | Accepted | The Stop hook hands its turn to one waiting learner under the queue lock |
 | [0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) | 2026-10-26 | Accepted | Keep Qwen3.5-4B as the local tagger |
-| [0079](0079-learn-only-what-the-claude-code-user-typed.md) | 2026-10-26 | Accepted | Learn only what the Claude Code user typed |
-| [0080](0080-conversations-are-relearned-when-their-reading-changes.md) | 2026-10-26 | Accepted | Conversations are learned again when their reading changes |
+| [0079](0079-learn-only-what-the-claude-code-user-typed.md) | 2026-10-26 | Amended by [ADR 0082](0082-retain-readable-conversation-evidence.md) | Learn only what the Claude Code user typed |
+| [0080](0080-conversations-are-relearned-when-their-reading-changes.md) | 2026-10-26 | Amended by [ADR 0081](0081-verifiable-redacted-source-snapshots.md) | Conversations are learned again when their reading changes |
+| [0081](0081-verifiable-redacted-source-snapshots.md) | 2026-10-26 | Accepted | Verifiable redacted source snapshots |
+| [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Accepted | Retain readable conversation evidence |
 
 ## How to write and maintain ADRs
 

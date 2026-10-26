@@ -315,6 +315,12 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
             points=[point_id for point_id in retired if point_id not in kept]))
     with vs._cache_lock:
         vs._id_caches.pop(coll, None)
+    from . import source_snapshots
+    for metadata in source_snapshots.list_metadata(ws):
+        if metadata['project'] == project and (sources is None or metadata['source'] in sources):
+            snapshot = source_snapshots.get(metadata['source'], project, ws)
+            source_snapshots.publish(source_snapshots.rehome(snapshot, target), ws)
+            source_snapshots.remove(metadata['source'], project, ws)
     vs._wal_log("move", workspace=ws, project=project, target=target, chunks=chunks,
                 sources=len(moved_sources))
     return result

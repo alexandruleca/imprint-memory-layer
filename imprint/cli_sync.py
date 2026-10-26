@@ -76,6 +76,11 @@ def export_snapshot(
     if graph_src.exists():
         shutil.copy2(graph_src, bundle / "imprint_graph.sqlite3")
 
+    from . import source_snapshots
+    with (bundle / 'source-snapshots.jsonl').open('w', encoding='utf-8') as stream:
+        for frame in source_snapshots.export_parts(ws_label):
+            stream.write(json.dumps(frame, ensure_ascii=False) + '\n')
+
     # Metadata
     meta = {
         "workspace": ws_label,
@@ -142,6 +147,15 @@ def import_snapshot(
         print("  Restoring knowledge graph …", file=sys.stderr, flush=True)
         shutil.copy2(graph_file, dst)
 
+    from . import source_snapshots
+    source_snapshots.remove(workspace=workspace)
+    archive_file = bundle / 'source-snapshots.jsonl'
+    if archive_file.exists():
+        importer = source_snapshots.Importer(workspace or config.get_active_workspace())
+        with archive_file.open(encoding='utf-8') as stream:
+            for line in stream:
+                importer.feed(json.loads(line))
+        importer.finish()
     from .cli_scrub import scrub, summary
     print(summary(scrub(workspace, apply=True)), file=sys.stderr)
     print("  Import complete.", file=sys.stderr)

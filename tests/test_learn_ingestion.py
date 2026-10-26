@@ -19,40 +19,38 @@ class ConversationIngestionTests(unittest.TestCase):
             self.assertIn(f'Paragraph {i}:', '\n'.join(chunks))
 
     def test_watermark_published_only_after_all_batches_and_indices_are_unique(self):
+        import json
+        from pathlib import Path
+        from imprint import config
         for fail in (False, True):
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as data, \
                     patch.dict('os.environ', {'IMPRINT_DATA_DIR': data}), \
                     patch.object(learner, 'identify', return_value=('conversation/test', 'app')), \
                     patch.object(learner, 'owned', return_value=True), \
-                    patch('imprint.config.BATCH_SIZE', 8), \
+                    patch.object(config, 'BATCH_SIZE', 8), patch.object(config, 'CHUNK_SIZE_PROSE', 150), \
                     patch('imprint.workspace_policy.is_excluded', return_value=False), \
-                    patch.object(learner, 'parse_exchanges', return_value=[{'text': 'Exchange ' * 30}] * 2), \
-                    patch.object(chunker, 'chunk_conversation', return_value=['Piece ' * 30] * 5), \
                     patch.object(learner.tagger, 'build_payload_tags', return_value={}), \
                     patch.object(vs, 'complete_conversation') as complete:
+                path = Path(data) / 'test.jsonl'
+                path.write_text(json.dumps({'type': 'assistant', 'message': {'content': 'Long visible rationale. ' * 100}}))
                 records, events = [], []
-                def store(batch):
-                    events.append('store')
-                    records.extend(batch)
-                    if fail and len(records) > 8:
+                def replace(rows, *args, **kwargs):
+                    records.extend(rows)
+                    kwargs['progress'](0, len(rows))
+                    if fail:
                         raise RuntimeError('write failed')
-
-                def replace(chunks, source, project, *, batch_size, progress):
-                    # The transcript's memories are replaced batch by batch (ADR 0080).
-                    for start in range(0, len(chunks), batch_size):
-                        store(chunks[start:start + batch_size])
-                        progress(min(start + batch_size, len(chunks)), len(chunks))
-                    return len(chunks), 0
+                    kwargs['progress'](len(rows), len(rows))
+                    return len(rows), 0
                 with patch.object(vs, 'replace_source', side_effect=replace):
                     if fail:
                         with self.assertRaisesRegex(RuntimeError, 'write failed'):
-                            learner.index_transcript('test.jsonl', 123, lambda *args: events.append('progress'))
+                            learner.index_transcript(str(path), 123, lambda *args: events.append('progress'))
                         complete.assert_not_called()
                     else:
-                        self.assertEqual(learner.index_transcript('test.jsonl', 123,
-                                         lambda *args: events.append('progress')), (10, 0))
+                        stored, _ = learner.index_transcript(str(path), 123, lambda *args: events.append('progress'))
+                        self.assertEqual(stored, len(records))
                         complete.assert_called_once_with('conversation/test', 123, learner.LEARNER_VERSION)
-                self.assertEqual([r['chunk_index'] for r in records], list(range(10)))
+                self.assertEqual([r['chunk_index'] for r in records], list(range(len(records))))
                 self.assertTrue(all(r['source_mtime'] == 0 for r in records))
                 self.assertEqual(events[0], 'progress')
 

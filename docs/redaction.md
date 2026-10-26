@@ -18,6 +18,8 @@ A synced record that redaction changes is stored under the ID of its redacted co
 
 The same step keeps one version of each memory: the most redacted one (see [Scrubs reach every device](#scrubs-reach-every-device)).
 
+Complete source snapshots are redacted before splitting into spans. Export/import and `scrub` also apply the current policy to snapshot text and extracted metadata. Existing stricter chunk redactions carry into the full source. See [source memory](source-memory.md) and [ADR 0081](adr/0081-verifiable-redacted-source-snapshots.md).
+
 ## Text sent to models
 
 The opt-in LLM tagger (`tagger.llm`) and the session summarizer (`summarizer.enabled`) redact their whole prompt before it reaches any provider: Anthropic, OpenAI, Gemini, Ollama, vLLM or the local model. With Privacy Filter on, it runs on the prompt too. Tags, types and summaries are therefore derived from redacted text, and no secret fragment can come back as a stored tag.

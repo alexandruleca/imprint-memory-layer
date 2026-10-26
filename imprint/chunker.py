@@ -1,14 +1,8 @@
-"""Hybrid chunking.
+"""Lossless file/conversation spans and legacy prose/AST chunking helpers.
 
-Dispatches by file type:
-  - Code files → Chonkie `CodeChunker` (tree-sitter boundaries, language-aware).
-    Falls back to the legacy regex splitter if tree-sitter can't parse.
-  - Prose files → Chonkie `SemanticChunker` (splits on topic change via a
-    small embedding model, sliding-overlap friendly).
-  - Unknown → size-based with paragraph boundaries.
-
-Chunkers are cached per language so init cost (model load for semantic) pays
-once per process.
+The main file and conversation entry points preserve complete source text using
+paragraph/line cuts and bounded overlap. Legacy direct callers of chunk_prose
+still use the cached Chonkie semantic implementation.
 """
 
 from __future__ import annotations
@@ -202,44 +196,14 @@ def chunk_file(content: str, rel_path: str, chunk_mode: str | None = None) -> li
     ``chunk_mode`` overrides ext-based dispatch. Use "prose" to force the
     SemanticChunker (e.g. for extracted PDF/DOCX text where the extension
     isn't recognized as prose) or "code" for code-like content. ``None``
-    keeps the legacy ext-based routing.
+    selects the code/prose size target from the filename extension.
     """
-    content = content.strip()
-    if not content or len(content) < MIN_SIZE:
-        return []
-
+    from .source_memory import spans
     ext = os.path.splitext(rel_path)[1].lower()
-
-    raw: list[str] = []
-
-    if chunk_mode == "prose":
-        raw = _chunk_prose(content)
-    elif chunk_mode == "code":
-        lang = _CODE_LANG.get(ext, "python")
-        raw = _chunk_code(content, lang)
-    else:
-        is_code = ext in _CODE_LANG
-        if is_code:
-            raw = _chunk_code(content, _CODE_LANG[ext])
-        elif ext in _PROSE_EXTS:
-            raw = _chunk_prose(content)
-        else:
-            raw = []
-
-    # Fallbacks — if chonkie failed or ext unknown.
-    if not raw:
-        raw = _split_by_size(content)
-
-    # Sliding overlap between chunks preserves boundary context so
-    # retrieval doesn't miss signal at split points. Applied to all
-    # chunks — code included, since semantic subsplitting can produce
-    # non-AST boundaries within large functions.
-    raw = _apply_overlap(raw)
-
-    raw = [c for c in raw if len(c) >= MIN_SIZE]
-    raw = _split_oversized(raw)
-
-    return [(f"[{rel_path}]\n{c}", i) for i, c in enumerate(raw)]
+    prefix = f"[{rel_path}]\n"
+    code = chunk_mode == "code" or (chunk_mode is None and ext in _CODE_LANG)
+    return [(prefix + content[start:end], i)
+            for i, (start, end) in enumerate(spans(content, code=code, prefix=prefix))]
 
 
 def chunk_prose(content: str) -> list[str]:
@@ -257,13 +221,11 @@ def chunk_prose(content: str) -> list[str]:
 def chunk_conversation(content: str) -> list[str]:
     """Split an exchange at paragraph/line boundaries without model inference.
 
-    Exchanges already supply topic boundaries. Sentence-level transformer
-    inference here duplicates embedding work and can stall before any write.
+    Paragraph/line boundaries preserve context without model inference before
+    the first write. The full readable event transcript remains reconstructable.
     """
-    content = content.strip()
-    if len(content) < MIN_SIZE:
-        return []
-    return _split_oversized(_apply_overlap(_split_by_size(content)))
+    from .source_memory import spans
+    return [content[start:end] for start, end in spans(content)]
 
 
 # ── Internals ──────────────────────────────────────────────────
@@ -413,7 +375,7 @@ def _legacy_split_by_boundaries(content: str) -> list[str]:
         return _split_by_size(content)
     positions = sorted(boundaries)
     chunks = []
-    if positions[0] > MIN_SIZE:
+    if positions[0] > 0:
         chunks.append(content[:positions[0]].strip())
     for i, start in enumerate(positions):
         end = positions[i + 1] if i + 1 < len(positions) else len(content)

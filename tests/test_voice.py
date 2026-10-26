@@ -273,7 +273,7 @@ class VoiceChatPolicyTests(unittest.TestCase):
         write.assert_not_called()
         read.assert_called_once_with(workspace="alpha")
         offered = [t["function"]["name"] for t in client.chat.completions.create.call_args_list[0].kwargs["tools"]]
-        self.assertEqual(offered, ["search", "kg_query", "status", "wake_up", "list_sources", "file_summary", "file_chunks"])
+        self.assertEqual(offered, ["search", "kg_query", "status", "wake_up", "list_sources", "file_summary", "file_chunks", "read_source"])
 
 
 class LiveRuntimeIntegrityTests(unittest.TestCase):

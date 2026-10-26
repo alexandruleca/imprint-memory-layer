@@ -28,7 +28,7 @@ graph LR
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
         EMB[embeddings.py<br/><small>ONNX Runtime, GPU/CPU</small>]
         KG[imprint_graph.py<br/><small>SQLite facts</small>]
-        CHK[chunker.py<br/><small>Chonkie hybrid</small>]
+        CHK[chunker.py<br/><small>Contiguous source spans</small>]
         TAG[tagger.py<br/><small>4-source metadata</small>]
         CLS[classifier.py<br/><small>type detection</small>]
         PRJ[projects.py<br/><small>manifest detection</small>]
@@ -93,11 +93,12 @@ graph LR
 | Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe ([ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md)); replaced LanceDB ([ADR 0065](adr/0065-qdrant-over-lancedb-as-the-vector-store.md)) |
 | Server runner | `qdrant_runner.py` | Downloads + spawns + supervises the local Qdrant daemon |
 | Embeddings | Qwen3-Embedding-0.6B via ONNX Runtime | 1024-dim, 2048 runtime ctx, pinned q8 ONNX, CPU default. See [embeddings](embeddings.md) for rebuilding. |
-| Chunking | Chonkie 1.6+ | `CodeChunker` (tree-sitter) + `SemanticChunker` (topic shifts) + sliding overlap |
+| Chunking | Source character spans | Paragraph/line cuts, bounded overlap and exact redacted-source reconstruction; [source memory](source-memory.md) |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
+| Source memory | SQLite + zlib | Complete redacted readable sources and versioned span manifests, published after vector replacement. [Read and verify](source-memory.md). |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
 | Redaction | `redaction.py` + opt-in `privacy_filter.py` | Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` before IDs and embeddings are computed or a model sees the text: deterministic rules always, OpenAI Privacy Filter's secret and account-number spans when `redact.privacy_filter` is on. Sync imports are redacted on arrival, and each write keeps the most redacted version of a memory, so one `imprint scrub` reaches every synced device. See [secret redaction](redaction.md) and [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md). |
-| MCP server | FastMCP (Python) | 17 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
+| MCP server | FastMCP (Python) | 19 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`read_source`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats and `use_workspace` for binding. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `scrub`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync; sees only ciphertext |
 | Peer sync | `imprint/sync_ws.py` + `imprint/sync_crypto.py` | The one sync implementation, used by `imprint sync` (`imprint/cli_sync.py`) and the dashboard. End-to-end encrypted: SPAKE2 from the PIN in the one-time share code, then AES-256-GCM per direction. Joining receives only unless the user opts in and confirms the receiving device. See [sync](sync.md). |
@@ -141,7 +142,7 @@ sequenceDiagram
 
     Note over C,K: After each turn
     C->>K: Stop hook (async) starts a detached learner and returns
-    K->>Q: learner, after the turns settle and under the queue lock:<br/>Q+A exchanges and decisions, batch upsert
+    K->>Q: learner, after the turns settle and under the queue lock:<br/>readable messages, available analysis and tool evidence, batch upsert
 ```
 
 ## Concurrency: Auto-Spawned Local Server

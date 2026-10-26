@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 
 from . import tagger, vectorstore as vs
-from .chunker import MIN_SIZE, chunk_file
+from .chunker import chunk_file
 from .config_schema import resolve
 
 
@@ -43,8 +43,8 @@ def store_inline_content(
         source_type: Payload ``source_type`` tag (default ``"content"``).
         rel_path: Path-like hint used by the chunker for extension-based
             dispatch. If ``None``, uses ``source_key``. For code content,
-            include an extension (e.g. ``rel_path="upload.py"``) so the
-            tree-sitter chunker picks the right language.
+            include an extension (e.g. ``rel_path="upload.py"``) to select
+            the code chunk-size target.
         replace: If True, upsert replacement chunks before pruning obsolete
             chunks, scoped to this source_key and project.
         extra_fields: Additional fields merged into each record dict.
@@ -56,13 +56,12 @@ def store_inline_content(
     """
     if not content or len(content.strip()) < 10:
         return 0, "skipped-empty"
-    content = content.strip()
+    from . import source_memory
+    document = source_memory.document(content, kind='inline')
+    content = document['text']
 
     path_for_chunk = rel_path or source_key
-    # File chunking drops tiny files. Inline captures/notes legitimately contain
-    # less than that threshold and already passed this API's 10-character floor.
-    chunks = ([(f'[{path_for_chunk}]\n{content}', 0)] if len(content) < MIN_SIZE
-              else chunk_file(content, path_for_chunk, chunk_mode=chunk_mode))
+    chunks = chunk_file(content, path_for_chunk, chunk_mode=chunk_mode)
     if not chunks:
         return 0, "error: no chunks produced"
 
@@ -101,6 +100,7 @@ def store_inline_content(
         })
 
     if replace:
+        source_memory.attach(document, records, prefix=f'[{path_for_chunk}]\n', code=chunk_mode == 'code')
         inserted, _ = vs.replace_source(records, source_key, project, workspace=workspace)
     else:
         inserted, _ = vs.store_batch(records, workspace=workspace)

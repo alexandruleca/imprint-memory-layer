@@ -32,14 +32,14 @@
 
 - **Remembers what your AI forgets.** Decisions, patterns, bug fixes, and architectural choices persist across sessions — searched semantically, not grepped.
 - **Measured usage and visible trade-offs.** Published retrieval, token, estimated cost and latency measurements include paired trial evidence, failures, exact model/corpus versions and uncertainty. See [BENCHMARK.md](BENCHMARK.md).
-- **Runs 100% locally by default.** Qwen3-Embedding-0.6B via ONNX, Qdrant vector DB, Chonkie chunking — all on your machine. No API credits consumed unless you opt in.
+- **Runs 100% locally by default.** Qwen3-Embedding-0.6B via ONNX, Qdrant vector DB, verifiable source chunking — all on your machine. No API credits consumed unless you opt in.
 - **One command, any host.** Wires into Claude Code, Cursor, Codex CLI, Copilot, or Cline via MCP. Same memory, shared across tools.
 
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
 - **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime on the CPU, no network calls, no per-token cost. GPU embedding on an NVIDIA card is opt-in (`model.device`), and only then does Imprint download the CUDA libraries. A GPU of any vendor speeds up the local LLM through llama.cpp's Vulkan or Metal build.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
-- **Chunking**: Chonkie hybrid (tree-sitter CodeChunker + SemanticChunker), pure Python, local.
+- **Chunking**: Contiguous source spans with bounded overlap and complete redacted source snapshots. [Coverage and reconstruction](docs/source-memory.md).
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. A local LLM call per chunk if you want it, run in the background so `learn` and `ingest` finish once memories are searchable.
 - **Imprint graph**: SQLite on disk for temporal facts.
 - **Secret redaction**: API keys, tokens, private keys and assigned passwords become `[REDACTED:<kind>:<length>]` before anything is stored, embedded, synced or sent to a tagging or summary model. A scrub on one device reaches every synced device. OpenAI Privacy Filter can be added as an opt-in local model. See [secret redaction](docs/redaction.md).
@@ -60,7 +60,7 @@ graph TB
         EXT -->|HTTP| QDB
         EMB[Qwen3 Embedding ONNX<br/>GPU/CPU] -->|1024-dim vectors| QDB
         TAG[Tagger<br/>lang/layer/kind/domain/topics] -->|payload| QDB
-        CHK[Chonkie Hybrid<br/>CodeChunker + SemanticChunker] -->|chunks| EMB
+        CHK[Source character spans<br/>Paragraph / line boundaries] -->|chunks| EMB
     end
 
     subgraph "Sync Relay"
@@ -228,7 +228,7 @@ Terms used across the docs.
 | **Collection** | Qdrant's term for a named set of vectors. Each workspace has its own collection (e.g. `memories`, `memories_research`). |
 | **Workspace** | Isolated memory environment — dedicated Qdrant collection + SQLite DB + WAL. Lets you separate research/staging/prod memories. |
 | **Imprint Graph** | Temporal fact store (SQLite) for structured `subject → predicate → object` facts with `valid_from` / `ended` timestamps. |
-| **MCP** | Model Context Protocol — the open protocol Claude Code uses to call external tools. Imprint ships an MCP server with 17 tools — see [docs/mcp.md](docs/mcp.md). |
+| **MCP** | Model Context Protocol — the open protocol Claude Code uses to call external tools. Imprint ships an MCP server with 19 tools — see [docs/mcp.md](docs/mcp.md). |
 | **Project** | A codebase identified by a canonical name from its manifest (`package.json`, `go.mod`, etc.). Projects get the same identity across machines even if paths differ. |
 | **Layer** | Path-derived tag: `api`, `ui`, `tests`, `infra`, `config`, `migrations`, `docs`, `scripts`, `cli`. |
 | **Kind** | Filename-derived tag: `source`, `test`, `migration`, `readme`, `types`, `module`, `qa`, `auto-extract`. |
@@ -237,7 +237,7 @@ Terms used across the docs.
 | **Ingestion** | Scanning a directory, detecting projects, chunking files, embedding chunks, tagging, and upserting into Qdrant. |
 | **Refresh** | Incremental re-ingest — compares byte hashes, reuses unchanged sources and removes recorded deleted files inside selected roots. |
 | **Queue** | Single-slot FIFO (`data/queue.sqlite3` + `data/queue.lock`) that serializes ingest/refresh/retag/ingest-url so parallel runs can't OOM the box. Identical waiting jobs merge, and background LLM tagging runs only when nothing else waits. UI at `/queue` lists active + queued + background tagging + history; cancel propagates SIGTERM→SIGKILL to the subprocess's process group, so in-flight LLM tagger calls die with it. See [docs/queue.md](docs/queue.md). |
-| **Auto-extract** | Stop hook that parses conversation transcripts after each Claude response and stores Q+A exchanges + decision-like statements. |
+| **Auto-extract** | Stop hook that parses conversation transcripts after each Claude response and stores readable messages, available analysis and tool evidence with role metadata. |
 | **PreCompact hook** | Synchronous hook that fires before Claude's context window compresses — instructs Claude to save important context via MCP tools first. |
 | **Relay server** | Stateless WebSocket forwarder (`imprint relay`) that brokers peer sync between two machines. Sessions are end-to-end encrypted with the one-time share code (SPAKE2 + AES-256-GCM), so the relay sees only room IDs, IP addresses and the sizes and timing of ciphertext — never the code's PIN, devices or memories. Synced records carry content, metadata and precomputed vectors, so both sides need the same embedding profile — see [docs/sync.md](docs/sync.md#end-to-end-encryption). |
 | **WAL** | Write-ahead log — append-only `wal.jsonl` per workspace, used for replay / recovery of memory operations. |

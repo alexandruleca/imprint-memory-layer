@@ -1,0 +1,192 @@
+{
+  "baseline_revision": "1e8eb53cd12b7a9cafb970f86e5f56b70bf15e47",
+  "candidate_revision": "ccecbd65ea42f0e42fe1e73c7b89855608d30e53",
+  "candidate_source_hash": "05036605e74c62c75f99ed4550e17884967c14e7e90c976e348443755c453e66",
+  "method": "Paired synthetic evidence retrieval; optional aggregate local transcript coverage. Baseline semantic sub-splitting is bypassed for preparation only. Real retrieval uses the same local embedding model and hybrid search.",
+  "limitations": [
+    "Synthetic regression corpus, not a held-out quality benchmark.",
+    "No production memories are written.",
+    "Local transcript text and paths are excluded from this report.",
+    "Timing is one run and order-dependent."
+  ],
+  "before": {
+    "sources": 783,
+    "chunks": 3890,
+    "chunk_characters": 8208821,
+    "snapshot_compressed_bytes": 0,
+    "verified_source_snapshots": 0,
+    "preparation_seconds": 9.406151791918091,
+    "synthetic_evidence_present": 4,
+    "corpora": {
+      "synthetic": {
+        "sources": 18,
+        "chunks": 15,
+        "chunk_characters": 2972,
+        "verified_source_snapshots": 0,
+        "snapshot_compressed_bytes": 0
+      },
+      "local_conversations": {
+        "sources": 171,
+        "chunks": 1580,
+        "chunk_characters": 2649593,
+        "verified_source_snapshots": 0,
+        "snapshot_compressed_bytes": 0
+      },
+      "repository_files": {
+        "sources": 594,
+        "chunks": 2295,
+        "chunk_characters": 5556256,
+        "verified_source_snapshots": 0,
+        "snapshot_compressed_bytes": 0
+      }
+    },
+    "retrieval": {
+      "cases": [
+        {
+          "case": "visible-decision",
+          "evidence_rank": 1
+        },
+        {
+          "case": "tool-database",
+          "evidence_rank": null
+        },
+        {
+          "case": "tool-deploy",
+          "evidence_rank": null
+        },
+        {
+          "case": "short-answer",
+          "evidence_rank": null
+        },
+        {
+          "case": "html-question",
+          "evidence_rank": null
+        },
+        {
+          "case": "analysis-rationale",
+          "evidence_rank": null
+        },
+        {
+          "case": "tool-test-finding",
+          "evidence_rank": null
+        },
+        {
+          "case": "visible-root-cause",
+          "evidence_rank": 1
+        },
+        {
+          "case": "tiny-code",
+          "evidence_rank": null
+        },
+        {
+          "case": "fallback-import",
+          "evidence_rank": null
+        },
+        {
+          "case": "normal-code",
+          "evidence_rank": 1
+        },
+        {
+          "case": "visible-alternative",
+          "evidence_rank": 1
+        }
+      ],
+      "evidence_recall_at_1": 0.3333333333333333,
+      "evidence_recall_at_5": 0.3333333333333333,
+      "evidence_mrr_at_5": 0.3333333333333333,
+      "indexing_seconds": 4.855819999938831,
+      "query_seconds": 1.5701006660237908,
+      "embedding_model": "onnx-community/Qwen3-Embedding-0.6B-ONNX"
+    }
+  },
+  "after": {
+    "sources": 783,
+    "chunks": 5166,
+    "chunk_characters": 24526833,
+    "snapshot_compressed_bytes": 5621859,
+    "verified_source_snapshots": 783,
+    "preparation_seconds": 15.165457416092977,
+    "synthetic_evidence_present": 12,
+    "corpora": {
+      "synthetic": {
+        "sources": 18,
+        "chunks": 18,
+        "chunk_characters": 6586,
+        "verified_source_snapshots": 18,
+        "snapshot_compressed_bytes": 3860
+      },
+      "local_conversations": {
+        "sources": 171,
+        "chunks": 3586,
+        "chunk_characters": 19117628,
+        "verified_source_snapshots": 171,
+        "snapshot_compressed_bytes": 3879498
+      },
+      "repository_files": {
+        "sources": 594,
+        "chunks": 1562,
+        "chunk_characters": 5402619,
+        "verified_source_snapshots": 594,
+        "snapshot_compressed_bytes": 1738501
+      }
+    },
+    "retrieval": {
+      "cases": [
+        {
+          "case": "visible-decision",
+          "evidence_rank": 1
+        },
+        {
+          "case": "tool-database",
+          "evidence_rank": 1
+        },
+        {
+          "case": "tool-deploy",
+          "evidence_rank": 1
+        },
+        {
+          "case": "short-answer",
+          "evidence_rank": 1
+        },
+        {
+          "case": "html-question",
+          "evidence_rank": 1
+        },
+        {
+          "case": "analysis-rationale",
+          "evidence_rank": 1
+        },
+        {
+          "case": "tool-test-finding",
+          "evidence_rank": 1
+        },
+        {
+          "case": "visible-root-cause",
+          "evidence_rank": 1
+        },
+        {
+          "case": "tiny-code",
+          "evidence_rank": 1
+        },
+        {
+          "case": "fallback-import",
+          "evidence_rank": 1
+        },
+        {
+          "case": "normal-code",
+          "evidence_rank": 1
+        },
+        {
+          "case": "visible-alternative",
+          "evidence_rank": 1
+        }
+      ],
+      "evidence_recall_at_1": 1.0,
+      "evidence_recall_at_5": 1.0,
+      "evidence_mrr_at_5": 1.0,
+      "indexing_seconds": 7.0850184159353375,
+      "query_seconds": 2.0773540410446003,
+      "embedding_model": "onnx-community/Qwen3-Embedding-0.6B-ONNX"
+    }
+  }
+}

@@ -124,6 +124,24 @@ C_GREEN = "\033[0;32m"
 C_YELLOW = "\033[1;33m"
 
 
+def _attach_source_part(document, records, rel, *, base=0, code=False):
+    from . import source_memory
+    source_memory.attach(document, records, prefix=f"[{rel}]\n", code=code)
+    for record in records:
+        record['source_start'] += base
+        record['source_end'] += base
+        record.pop('_source_document', None)
+    return records
+
+
+def _empty_snapshot(document, source, project, provenance):
+    from . import projects, source_snapshots
+    placed = projects.place([{'project': project, 'source': source, **provenance}])[0]
+    prepared = source_snapshots.prepare(document, [], source, placed['project'])
+    prepared['metadata']['provenance'] = provenance
+    source_snapshots.publish(prepared)
+
+
 def summarize_file(content: str, rel_path: str, max_len: int = 1500) -> str:
     """Create a compact, searchable summary of a file.
 
@@ -499,6 +517,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
     t_start = time.time()
 
     records = []
+    source_document = None
+    from . import source_memory
     mtime = os.path.getmtime(file_path)
     source_key = f"{project}/{rel}"
     profile = extraction_profile()
@@ -518,8 +538,10 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
             print(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
             sys.exit(1)
 
-        for extracted in doc_list:
-            content = extracted.text
+        doc_list = [item for item in doc_list if item.text.strip()]
+        source_document, segments = source_memory.extracted_documents(doc_list)
+        for extracted, (base, content) in zip(doc_list, segments):
+            part_start = len(records)
             if not content.strip():
                 continue
             doc_meta = dict(extracted.metadata or {})
@@ -549,19 +571,23 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
                     "source_mtime": mtime,
                     "tag_pending": pending,
                 })
+            _attach_source_part({'text': content}, records[part_start:], rel, base=base, code=chunk_mode == 'code')
     else:
         max_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
         if snapshot["source_size"] > max_bytes:
             raise ValueError(f"File exceeds ingest.max_file_bytes ({max_bytes}); prior chunks retained")
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8', newline='') as f:
             content = f.read(max_bytes + 1)
-        if not content.strip():
+        source_document = source_memory.document(content, kind='text')
+        content = source_document['text']
+        if not content:
             stamp_records([], file_path, snapshot)
             held = vs.get_source_summary(source_key)
             if held:
                 vs.delete_by_source(source_key, project=held["project"])
+            _empty_snapshot(source_document, source_key, project, snapshot)
             clear_progress()
-            print("  Empty file: prior chunks cleared")
+            print("  Empty file: source snapshot saved; prior chunks cleared")
             return
         chunks = chunk_file(content, rel, chunk_mode=None)
         if not chunks:
@@ -588,6 +614,8 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
                 "source_mtime": mtime,
                 "tag_pending": pending,
             })
+        from .chunker import _CODE_LANG
+        _attach_source_part(source_document, records, rel, code=os.path.splitext(rel)[1].lower() in _CODE_LANG)
 
     if not records:
         # Nothing to index is an outcome, not a failure. Chunks of an earlier
@@ -604,6 +632,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
 
     # Replace any existing chunks for this source
     records = stamp_records(records, file_path, snapshot)
+    records[0]['_source_document'] = source_document
     inserted, _ = vs.replace_source(records, source_key, project, **({"force": True} if force else {}))
 
     clear_progress()
@@ -751,6 +780,8 @@ def _main(command: str = "ingest"):
             })
         return records
 
+    prepared_documents = {}
+
     def read_and_chunk(args):
         """Read a file and chunk it. Returns (records, no_text_reason), or None
         when reading failed. A file with nothing to index returns no records:
@@ -781,19 +812,20 @@ def _main(command: str = "ingest"):
 
                 mtime = os.path.getmtime(fpath)
                 source_key = f"{project}/{rel}"
+                from . import source_memory
+                doc_list = [item for item in doc_list if item.text.strip()]
+                source_document, segments = source_memory.extracted_documents(doc_list)
                 all_records = []
-                for extracted in doc_list:
-                    content = extracted.text
+                for extracted, (base, content) in zip(doc_list, segments):
                     if not content.strip():
                         continue
                     doc_meta = dict(extracted.metadata or {})
                     chunk_mode = extracted.chunk_mode or "prose"
                     chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
                     if chunks:
-                        all_records.extend(_chunks_to_records(
-                            chunks, project, rel, source_key,
-                            mtime, doc_meta, chunk_mode,
-                        ))
+                        part_records = _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode)
+                        _attach_source_part({'text': content}, part_records, rel, base=base, code=chunk_mode == 'code')
+                        all_records.extend(part_records)
                         for index, record in enumerate(all_records):
                             record["chunk_index"] = index
                 if not all_records:
@@ -801,22 +833,30 @@ def _main(command: str = "ingest"):
                     reason = no_text_reason(fpath, profile)
                     remember_no_text(snapshot["source_hash"], profile, reason)
                     return [], reason
+                all_records[0]['_source_document'] = source_document
                 return stamp_records(all_records, fpath, snapshot), ""
             else:
                 if snapshot["source_size"] > max_file_bytes:
                     raise ValueError(f"File exceeds ingest.max_file_bytes ({max_file_bytes}); prior chunks retained")
-                with open(fpath, 'r', encoding='utf-8') as f:
+                with open(fpath, 'r', encoding='utf-8', newline='') as f:
                     content = f.read(max_file_bytes + 1)
-                if not content.strip():
+                from . import source_memory
+                source_document = source_memory.document(content, kind='text')
+                content = source_document['text']
+                source_key = f"{project}/{rel}"
+                if not content:
+                    prepared_documents[source_key] = (source_document, snapshot)
                     return stamp_records([], fpath, snapshot), ""
                 chunks = chunk_file(content, rel, chunk_mode=None)
                 if not chunks:
                     raise ValueError("Chunker produced no chunks for nonempty text")
                 mtime = os.path.getmtime(fpath)
                 source_key = f"{project}/{rel}"
-                return stamp_records(_chunks_to_records(
-                    chunks, project, rel, source_key, mtime, {}, None,
-                ), fpath, snapshot), ""
+                records = _chunks_to_records(chunks, project, rel, source_key, mtime, {}, None)
+                from .chunker import _CODE_LANG
+                _attach_source_part(source_document, records, rel, code=ext in _CODE_LANG)
+                records[0]['_source_document'] = source_document
+                return stamp_records(records, fpath, snapshot), ""
         except Exception as e:
             failures.append(rel)
             print(f"\n  [error] {rel}: {e}", file=sys.stderr)
@@ -901,6 +941,9 @@ def _main(command: str = "ingest"):
                 if source_key in known_states:
                     vs.delete_by_source(source_key, project=known_states[source_key].get("project", ""))
                     cleaned += 1
+                if source_key in prepared_documents:
+                    source_document, provenance = prepared_documents.pop(source_key)
+                    _empty_snapshot(source_document, source_key, project, provenance)
                 continue
             pending_batch.extend(records)
 

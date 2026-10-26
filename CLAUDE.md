@@ -1,6 +1,6 @@
 # Imprint Memory Layer
 
-Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + Qwen3-Embedding-0.6B ONNX embeddings + Chonkie hybrid chunker + structured tag payloads.
+Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + Qwen3-Embedding-0.6B ONNX embeddings + verifiable source-span chunker + structured tag payloads.
 
 ## Working agreement
 
@@ -42,7 +42,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 
 - **Vector store**: Qdrant server, auto-spawned local daemon on `127.0.0.1:6333` via [`qdrant_runner.py`](imprint/qdrant_runner.py) (ADR 0063). Int8 scalar quantization, on-disk payload, payload indexes on `project`/`type`/`source`/`tags.*`
 - **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime (1024-dim, 2048 runtime ctx). Configure via `imprint config set model.name/dim/pooling`. CPU by default; GPU is opt-in. See docs/embeddings.md before reindexing.
-- **Chunker**: Chonkie hybrid — `CodeChunker` (tree-sitter) for code, `SemanticChunker` for prose. Sliding overlap.
+- **Chunker**: Contiguous character spans with paragraph/line boundaries, bounded overlap and full redacted source snapshots. See [source memory](docs/source-memory.md) and ADRs 0081/0082.
 - **Tagger**: `{lang, layer, kind, domain[], topics[]}`. Deterministic + keyword dict always on; zero-shot on by default; LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`), never inline: storing paths mark memories `tag_pending` and the dashboard's background job tags them (ADR 0067; `imprint retag --pending` without a dashboard). Providers: anthropic/openai/ollama/vllm/gemini. Default local: Qwen3.5-4B Q4_K_M (shared with the summarizer).
 - **Imprint graph**: SQLite temporal facts (per workspace)
 - **Redaction**: every memory/fact write (ingest, learn, MCP store/ingest, summaries, sync imports) and every tagger/summarizer prompt replaces credentials with `[REDACTED:<kind>:<length>]` before IDs, embeddings or model calls ([`redaction.py`](imprint/redaction.py)). Writes keep the most redacted version of a memory at its position (adopt/retire), so one `imprint scrub` propagates through sync without storing any hash of a secret. Deterministic rules always on; OpenAI Privacy Filter (secret + account-number spans, CPU ONNX, pinned download) opt-in via `redact.privacy_filter`, and a write fails rather than store less redaction when it cannot run. Details: [docs/redaction.md](docs/redaction.md), ADR 0060.

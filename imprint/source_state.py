@@ -43,6 +43,9 @@ def stamp_records(records: list[dict], path: str, before: dict) -> list[dict]:
 
 
 def unchanged(current: dict, stored: dict | None) -> bool:
+    from .source_memory import profile
+    if stored and stored.get('source_format') and stored.get('source_profile') != profile():
+        return False
     return bool(stored and device.local_source(stored) and stored.get('source_hash') == current['source_hash']
                 and stored.get('source_path') == current['source_path'])
 

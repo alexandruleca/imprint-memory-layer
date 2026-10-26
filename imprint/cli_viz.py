@@ -310,6 +310,10 @@ def get_memory(node_id: str, workspace: str | None = None) -> dict:
             "source_mtime": pay.get("source_mtime", 0),
             "source_type": pay.get("source_type", ""),
             "chunk_index": pay.get("chunk_index", 0),
+            **{key: pay[key] for key in vs.SPAN_FIELDS if key in pay},
+            **({'source_read': {'tool': 'read_source', 'args': {'source': pay['source'],
+                'project': pay.get('project', ''), 'version': pay['source_version']}}}
+               if pay.get('source_version') else {}),
             **provenance(pay),
             "path_context": context(pay, workspace),
         }

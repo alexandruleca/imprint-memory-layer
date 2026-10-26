@@ -4,7 +4,7 @@ description: The 18 MCP tools Imprint exposes to coding agents — search, batch
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **18 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
+The imprint MCP server exposes **19 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
@@ -23,12 +23,13 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 | `neighbors` | KNN over embeddings for a given memory id — finds cross-project kin that share the same chunk space. |
 | `graph_scope` | Navigate KB as a graph. Scopes: `root`, `project:<name>`, `topic:<name>`, `source:<path>`, `chunk:<id>`. Each response ends with concrete next-step suggestions. |
 | `list_sources` | List indexed source files with chunk counts. Filters: `project`, `lang`, `layer`. |
+| `read_source` | Read the stored full redacted source with `source`, optional `project`, character `start` and `max_chars` (100–12,000). Continue with returned `version`; default `verify=True` reports missing/changed/extra index chunks. Never follows filesystem paths. See [source memory](source-memory.md). |
 | `file_summary` | Chunk count, tags, mtime, first-chunk preview for one source. Run before `file_chunks` to know the index range. |
-| `file_chunks` | Retrieve chunks of a file by 0-based index range (`start`/`end`), at most 20 chunks and a 12,000-character content budget per call. Continuation guidance is included. Use for "show me the full content of this file". |
+| `file_chunks` | Retrieve chunks of a file by 0-based index range (`start`/`end`), at most 20 chunks and a 12,000-character content budget per call. Continuation guidance is included. Use to inspect indexed slices; use `read_source` for exact full-source text. |
 
 ### Recall: several reads in one call
 
-`recall(question, plan=None, max_chars=4000, condense=True, workspace="")` answers a lookup that needs several reads in one round trip. A `plan` lists up to 8 steps, `{"tool": name, "args": {...}}`, over the read tools `search`, `get_memory`, `neighbors`, `file_chunks`, `file_summary`, `list_sources` and `kg_query`. Each step takes that tool's own arguments, except `workspace` (recall's applies to every step) and output sizes (search `detail`/`max_chars`, get_memory `start`/`max_chars`), which recall's single budget replaces. `graph_scope`, `status` and `device_context` are reads too, but they return navigation and diagnostics rather than evidence, so plans do not include them.
+`recall(question, plan=None, max_chars=4000, condense=True, workspace="")` answers a lookup that needs several reads in one round trip. A `plan` lists up to 8 steps, `{"tool": name, "args": {...}}`, over the read tools `search`, `get_memory`, `neighbors`, `file_chunks`, `file_summary`, `list_sources` and `kg_query`. Each step takes that tool's own arguments, except `workspace` (recall's applies to every step) and output sizes (search `detail`/`max_chars`, get_memory `start`/`max_chars`), which recall's single budget replaces. `read_source` is a standalone version-pinned full-source read and is not a recall plan step. `graph_scope`, `status` and `device_context` are reads too, but they return navigation and diagnostics rather than evidence, so plans do not include them.
 
 Use the canonical `memory_id` in recall plan steps: `{"tool":"get_memory","args":{"memory_id":"<id>"}}`. The `id` compatibility alias applies only to direct MCP tool calls. Search, recall excerpts and graph expansion hints name `memory_id` explicitly ([ADR 0021](adr/0021-budgeted-mcp-evidence-and-selective-expansion.md)).
 
@@ -84,7 +85,7 @@ Search filters map to payload tags — see [tagging.md](./tagging.md) for the fu
 
 The imprint memory stays current through three mechanisms:
 
-- **Stop hook** (async) — after each Claude response, starts a detached learner and returns. The learner parses the conversation transcript, extracts Q+A exchanges and decision-like statements, and stores them automatically with `lang=conversation` tags. A conversation has at most one learner waiting; it lets a burst of turns settle for 60 s and learns while holding the queue lock ([queue](queue.md), [ADR 0077](adr/0077-stop-hook-hands-turns-to-one-waiting-learner.md)). Installed into `~/.claude/settings.json` by `imprint setup`.
+- **Stop hook** (async) — after each Claude response, starts a detached learner and returns. The learner parses the conversation transcript, preserves ordered readable messages, available analysis and tool evidence with role metadata, and stores them automatically with `lang=conversation` tags. A conversation has at most one learner waiting; it lets a burst of turns settle for 60 s and learns while holding the queue lock ([queue](queue.md), [ADR 0077](adr/0077-stop-hook-hands-turns-to-one-waiting-learner.md)). Installed into `~/.claude/settings.json` by `imprint setup`.
 - **PreCompact hook** (sync) — before Claude's context window gets compressed, blocks and instructs Claude to save all important context via MCP tools.
 - **`imprint refresh <dir>`** — compares complete byte hashes and paths, re-chunks changed sources, and prunes recorded files actually deleted within the selected roots. For URL sources, `imprint refresh-urls` HEAD-checks each stored URL and re-fetches only those with a new ETag or Last-Modified.
 

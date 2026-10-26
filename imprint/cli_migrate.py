@@ -229,6 +229,20 @@ def migrate(
                 )
         moved += len(pending_points)
 
+    if not dry_run:
+        from . import source_snapshots
+        for metadata in source_snapshots.list_metadata(from_workspace):
+            if metadata['source'] not in sources:
+                continue
+            snapshot = source_snapshots.get(metadata['source'], metadata['project'], from_workspace)
+            status = source_snapshots.integrity(snapshot, to_workspace)
+            # A topic/subset copy must never reveal the unselected remainder
+            # of a conversation/file through its full-source snapshot.
+            if status['missing_chunks'] == 0 and status['changed_chunks'] == 0:
+                source_snapshots.publish(snapshot, to_workspace)
+            if not copy:
+                source_snapshots.remove(metadata['source'], metadata['project'], from_workspace)
+
     # KG facts — for project or source migration (topics aren't tracked in KG)
     kg_copied = 0
     if project or source:

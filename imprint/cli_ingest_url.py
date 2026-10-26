@@ -152,8 +152,12 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False,
 
     records = []
     now = time.time()
-    for extracted in doc_list:
-        chunks = chunk_file(extracted.text, url, chunk_mode=extracted.chunk_mode or "prose")
+    from . import source_memory
+    source_document, segments = source_memory.extracted_documents(doc_list)
+    source_document['kind'] = 'url'
+    for extracted, (base, content) in zip(doc_list, segments):
+        part_start = len(records)
+        chunks = chunk_file(content, url, chunk_mode=extracted.chunk_mode or "prose")
         if not chunks:
             continue
 
@@ -189,8 +193,15 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False,
                 "tag_pending": pending,
             })
 
+        part_rows = records[part_start:]
+        source_memory.attach({'text': content}, part_rows, prefix=f'[{url}]\n', code=extracted.chunk_mode == 'code')
+        for row in part_rows:
+            row['source_start'] += base
+            row['source_end'] += base
+            row.pop('_source_document', None)
     if not records:
         return 0, "error: no chunks produced; previous content retained"
+    records[0]['_source_document'] = source_document
     inserted, _ = vs.replace_source(records, source_key, project, workspace=workspace)
     return inserted, "stored"
 

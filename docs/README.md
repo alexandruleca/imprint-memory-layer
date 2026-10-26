@@ -23,7 +23,7 @@ Cross-device context: [devices and portable project paths](devices.md).
 
 Experimental browser capture: [Chrome extension (WIP)](browser-extension.md).
 
-Measurement: [benchmark assessment and methodology](benchmarks.md).
+Measurement: [benchmark assessment and methodology](benchmarks.md), and [verifiable source memory and its paired coverage experiment](source-memory.md).
 
 Ongoing checks: [nightly security scanning](security-scanning.md).
 
