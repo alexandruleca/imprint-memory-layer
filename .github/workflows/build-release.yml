@@ -120,7 +120,7 @@ jobs:
 
   electron-macos:
     needs: branch-policy
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64, imprint-apple-silicon]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -368,7 +368,7 @@ jobs:
           - arch: amd64
             runner: macos-15-intel
           - arch: arm64
-            runner: macos-latest
+            runner: [self-hosted, macOS, ARM64, imprint-apple-silicon]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -400,7 +400,22 @@ jobs:
             --out    "$OUT"
           ls -la "$OUT"
 
+      - name: Validate package payload without installing on the laptop
+        if: runner.environment == 'self-hosted'
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          EXPANDED="$RUNNER_TEMP/imprint-pkg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          pkgutil --expand-full "dist/imprint-darwin-${ARCH}.pkg" "$EXPANDED"
+          trap 'rm -rf "$EXPANDED"' EXIT
+          APP=$(find "$EXPANDED" -type d -name Imprint.app -print -quit)
+          test -n "$APP"
+          test -x "$APP/Contents/MacOS/imprint-setup-helper"
+          python3 scripts/validate-release.py "$APP/Contents/Resources/imprint" "darwin/$ARCH"
+
       - name: Smoke test native package and writable runtime
+        if: runner.environment == 'github-hosted'
         timeout-minutes: 15
         env:
           ARCH: ${{ matrix.arch }}

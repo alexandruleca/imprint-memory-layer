@@ -22,7 +22,7 @@ jobs:
             target: macos-arm64
           - os: macos-15-intel
             target: macos-x64
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os }}
     env:
       PYTHONPATH: .
     steps:

@@ -19,6 +19,8 @@ Records 0001 to 0062 were brought to this structure on 2026-10-25 (*Restructured
 
 The records in force, by area. An amended record is listed with the records that changed it; read them together.
 
+- [ADR 0083](0083-apple-silicon-laptop-runner.md) **Apple silicon laptop runner.** Trusted ARM64 jobs use the laptop; PR and Intel checks remain hosted.
+
 ### Process and evidence
 
 - [ADR 0001](0001-record-significant-decisions.md) **Record significant decisions.** Repository documentation and ADRs are the durable engineering record.
@@ -228,6 +230,8 @@ Every record in number order. *Date* is when the decision was made.
 | [0080](0080-conversations-are-relearned-when-their-reading-changes.md) | 2026-10-26 | Amended by [ADR 0081](0081-verifiable-redacted-source-snapshots.md) | Conversations are learned again when their reading changes |
 | [0081](0081-verifiable-redacted-source-snapshots.md) | 2026-10-26 | Accepted | Verifiable redacted source snapshots |
 | [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Accepted | Retain readable conversation evidence |
+
+| [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Accepted | Apple silicon laptop runner |
 
 ## How to write and maintain ADRs
 

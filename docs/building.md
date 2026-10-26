@@ -110,7 +110,7 @@ asset set and covered by `SHA256SUMS`. Branch CI exercises packaging in temporar
 test directories; it does not publish extension releases. The local packager also
 writes a `.zip.sha256` sidecar. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
-Use the **Build release artifacts** manual workflow on main or dev for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on hosted Linux x64/ARM, macOS Intel/ARM and Windows x64 runners; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
+Use the **Build release artifacts** manual workflow on main or dev for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on hosted Linux x64/ARM, macOS Intel and Windows x64 runners, with trusted Apple silicon jobs on the repository laptop runner; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
 
 Branch push and PR CI run Go checks, Python dependency/unit/runtime checks on five native targets, dashboard lint/production build/Playwright, Electron navigation/service/lifecycle tests and workflow linting. Electron packaging/archive-content checks belong to the release workflow on main and dev; container builds/smoke run only on main. Superseded compile/test runs are cancelled per branch. Signing/notarization and interactive GUI/tray checks remain separate release requirements; see the [roadmap](quality-roadmap.md).
 
@@ -175,3 +175,43 @@ To exercise release-style setup in a checkout, copy that target directory to
 uses a disposable cache, seeds only verified model weights and clears PATH to
 prove managed setup does not discover developer tools. See
 [ADR 0047](adr/0047-bundled-private-voice-engine.md).
+
+## Apple silicon laptop runner
+
+Trusted push/manual jobs use `[self-hosted, macOS, ARM64, imprint-apple-silicon]`
+for native CI, universal Electron packaging, ARM64 installer packaging, voice
+engine builds and native voice checks. PR jobs use hosted macOS, including PRs
+from branches in this repository. Intel macOS remains hosted. See
+[ADR 0083](adr/0083-apple-silicon-laptop-runner.md).
+
+The repository runner is `Outland-apple-silicon`, installed outside the checkout at
+`~/.local/share/github-runners/imprint-apple-silicon`. Its credentials and work
+folder must never enter git or release archives. It runs one job at a time as a
+login LaunchAgent under the laptop owner. It starts at login, requires network
+access and an awake laptop, and does not prevent sleep. Jobs queue while it is
+offline; there is no automatic paid hosted fallback. Intel jobs still incur any
+applicable hosted charges.
+
+From that runner directory, use `./svc.sh status`, `./svc.sh stop` and
+`./svc.sh start`; logs are under `~/Library/Logs/actions.runner.*`. To retire it,
+stop/uninstall the service and remove the repository runner in GitHub Settings →
+Actions → Runners. A fresh registration uses GitHub's current macOS ARM64 runner
+archive and SHA256 from the runners/downloads API, then `./config.sh --unattended
+--url https://github.com/alexandruleca/imprint-memory-layer --token <temporary-registration-token>
+--name Outland-apple-silicon --labels imprint-apple-silicon --work _work`, followed
+by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
+Xcode Command Line Tools, Homebrew, CMake and librsvg are host prerequisites;
+workflow setup actions supply Go, Python 3.12 and Node 22.
+
+The laptop package check expands the pkg in runner temporary storage and validates
+the payload and compiled helper without installing it or running installer scripts.
+The hosted Intel job retains the full native installation/runtime check. A full
+ARM64 install/upgrade test still requires a disposable Mac; a developer laptop is
+not that fixture.
+
+This public repository's runner executes with the owner's user permissions and
+is not a sandbox. Hosted PR routing reduces accidental exposure but cannot stop a
+malicious PR from changing workflow routing itself. Do not approve untrusted
+workflow runs targeting this runner; restrict repository write access and review
+workflow changes. GitHub recommends private repositories for self-hosted runners:
+[runner security guidance](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).
