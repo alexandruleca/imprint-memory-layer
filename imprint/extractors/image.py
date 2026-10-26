@@ -1,7 +1,6 @@
-"""Image OCR extractor via pytesseract (pillow backend).
+"""Image OCR using the bundled local OCR runtime.
 
-Disabled unless `ingest.ocr_enabled` is true. Requires the system
-`tesseract` binary in addition to the Python bindings.
+Enabled by default; no system binaries are needed for the default language.
 """
 
 from __future__ import annotations
@@ -38,18 +37,12 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
         )
     try:
         from PIL import Image  # type: ignore
-        import pytesseract  # type: ignore
     except ImportError as e:
-        raise ExtractorUnavailable(
-            "image OCR needs pillow + pytesseract (+ system tesseract) — "
-            "`pip install pillow pytesseract`"
-        ) from e
+        raise ExtractorUnavailable("image OCR runtime missing — run imprint bootstrap") from e
 
-    try:
-        img = Image.open(io.BytesIO(data))
-        text = pytesseract.image_to_string(img, lang=_ocr_lang())
-    except Exception as e:
-        raise ExtractionError(f"image OCR failed: {e}") from e
+    from .ocr import recognize
+    with Image.open(io.BytesIO(data)) as img:
+        text = recognize(img.convert("RGB"), _ocr_lang())
 
     return ExtractedDoc(
         text=(text or "").strip(),

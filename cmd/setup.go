@@ -651,7 +651,7 @@ func setupBackend() backendPaths {
 	// Sanity check — the core runtime packages should import. If anything
 	// core is missing we give up loud; the extractor/LLM extras are probed
 	// later with graceful fallback.
-	coreReq := []string{"fastmcp", "qdrant_client", "chonkie"}
+	coreReq := []string{"fastmcp", "qdrant_client", "chonkie", "rapidocr", "pypdfium2", "PIL"}
 	if stillMissing := checkPythonImports(venvPython, coreReq); len(stillMissing) > 0 {
 		output.Fail("Core packages failed to install: " + strings.Join(stillMissing, ", "))
 	}
@@ -856,8 +856,7 @@ func checkPythonImports(venvPython string, pkgs []string) []string {
 }
 
 // reportExtractorHealth prints a human summary of which document formats
-// are available after setup, and surfaces OCR prereqs (system tesseract
-// binary + pillow/pytesseract) when ingest.ocr_enabled is true.
+// are available after setup, including the default local OCR runtime.
 func reportExtractorHealth(venvPython, projectDir, dataDir string) {
 	script := `
 import sys
@@ -886,22 +885,18 @@ if missing:
     for m in missing:
         print("  -", m)
 
-# OCR prereqs (optional)
+# The default OCR models and PDF renderer are base runtime wheels.
 from imprint.config_schema import resolve
-ocr = bool(resolve("ingest.ocr_enabled")[0])
-if ocr:
-    try:
-        import pytesseract, PIL  # noqa
-        import shutil as _sh
-        tess = _sh.which("tesseract")
-        if tess:
-            print(f"OCR: enabled (tesseract at {tess})")
-        else:
-            print("OCR: enabled BUT system tesseract binary missing — install via your package manager")
-    except Exception as e:
-        print(f"OCR: enabled BUT python deps missing ({e}) — pip install pillow pytesseract pdf2image")
+from imprint.extractors.ocr import available
+if bool(resolve("ingest.ocr_enabled")[0]):
+    lang = str(resolve("ingest.ocr_lang")[0])
+    if available(lang):
+        print("OCR: enabled (local models + PDF renderer installed)")
+    else:
+        print("OCR: enabled BUT runtime missing — run imprint bootstrap; custom languages need Tesseract language data")
 else:
     print("OCR: disabled (imprint config set ingest.ocr_enabled true to enable)")
+
 `
 	output.Info("Checking extractor health...")
 	out, err := runner.RunCaptureEnv(venvPython,

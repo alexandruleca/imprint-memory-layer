@@ -743,3 +743,24 @@ privacy toggles and hosted-runner privacy defaults, physical microphones and
 speakers, Linux portals and packaged sandboxing, grouped windows on native
 Windows and macOS desktops, and listening tests of the three voices, speaker
 consistency in the small model's interleaved replies and the robotic effect.
+
+
+## Installed macOS microphone crash (2026-10-26)
+
+Apple Silicon macOS 26.6.2: the installed v0.25.0 `.pkg` wrapper has no
+`NSMicrophoneUsageDescription`. The 10:28 crash report identifies TCC termination
+for that missing key, while its nested Electron shell contains the key and passes
+`codesign --verify --deep --strict`. The installer template now declares usage in
+the enclosing app too; see [ADR 0075](adr/0075-microphone-purpose-in-the-macos-installer-wrapper.md).
+Template plist lint and the metadata regression/ADR tests passed locally.
+Interactive consent with a corrected installed package, physical capture and
+Intel macOS remain untested. The installed app and real permission state were
+left unchanged.
+
+## 2026-10-26 — Conversation ingestion and default OCR
+
+On macOS arm64, reproduced the reported `learn` stop at conversation 1/167 from the local job log and traced the first 58,739-character exchange into full-model sentence-level ONNX inference during semantic chunking. The conversation path now chunks without model inference. With real cached Qwen embeddings and a disposable in-memory Qdrant, that exact transcript produced 11 chunks, completed in 113 seconds on the final CPU run, and published its completion watermark only after success. Chunk preparation took about 0.00014 seconds; the first persisted chunk appeared after about eight seconds. This is one transcript, not a throughput estimate for all 167.
+
+Installed hashed base/CPU requirements in a disposable venv and read the expected text from a generated image and an image-only PDF using real RapidOCR/PDFium. Default OCR used wheel-bundled models and rendering libraries without system Tesseract or Poppler. The targeted Python suite passed 146 tests; an additional embedded-Qdrant interruption/resume regression passed separately. Go command/internal tests passed. Other release changes in this workspace have their own validation entries.
+
+Native Windows, Linux and Intel macOS OCR execution, custom-language Tesseract execution and complete installers were not exercised. Wheel metadata checks required an Intel macOS OpenCV 4.11 pin to preserve the macOS 13 baseline. The installed application and real memory store were not patched or reindexed by these checks. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md).

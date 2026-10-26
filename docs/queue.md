@@ -22,7 +22,7 @@ Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant
 | `data/queue.sqlite3` | FIFO queue + job history (see schema below) |
 | `data/queue.lock` | `fcntl` advisory flock + JSON body describing the current holder |
 | `data/queue_logs/{job_id}.log` | Full subprocess stdout+stderr per job (tailed by `/stream`) |
-| `data/ingest_progress.json` | Existing live-progress JSON — unchanged; joined into the active job row by `/api/queue` |
+| `data/ingest_progress.json` | Live ingest/refresh/learn progress JSON, including learn reading and embedding-batch phases; joined into the active job row by `/api/queue` |
 
 ### Schema
 

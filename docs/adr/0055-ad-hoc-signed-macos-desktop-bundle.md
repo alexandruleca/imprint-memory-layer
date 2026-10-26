@@ -3,9 +3,10 @@ title: ADR 0055 — Ad-hoc signed macOS desktop bundle
 description: The macOS desktop app is signed ad hoc as a bundle, so macOS privacy consent can read its microphone usage text; release packaging rejects an unsigned bundle.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Amends: [ADR 0044](0044-native-desktop-voice-platforms.md) — its statement that the app includes microphone/JIT entitlements
+- Amended by: [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) — the enclosing installer app also requires microphone usage text
 - Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (Developer ID signing and notarization still need maintainer credentials)
 - Restructured: 2026-10-25
 

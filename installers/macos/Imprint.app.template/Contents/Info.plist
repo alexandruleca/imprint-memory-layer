@@ -22,6 +22,8 @@
     <string>13.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Imprint uses your microphone for conversations with your local voice companion when you enable it.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>LSUIElement</key>

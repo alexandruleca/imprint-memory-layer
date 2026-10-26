@@ -31,13 +31,16 @@ Split across [requirements/base.txt](requirements/base.txt) (always installed), 
 | `tree-sitter-language-pack` | MIT | base | https://github.com/Goldziher/tree-sitter-language-pack |
 | `anthropic` | MIT | base | https://github.com/anthropics/anthropic-sdk-python |
 | `openai` | Apache 2.0 | base | https://github.com/openai/openai-python |
+| `rapidocr` (including bundled PP-OCR models) | Apache 2.0 | base | https://github.com/RapidAI/RapidOCR |
+| `pypdfium2` | Apache 2.0 / BSD-3-Clause, bundled PDFium and third-party notices in wheel | base | https://github.com/pypdfium2-team/pypdfium2 |
+| `pytesseract` | Apache 2.0 | base (custom language compatibility) | https://github.com/madmaze/pytesseract |
 | `spake2` | MIT | base | https://github.com/warner/python-spake2 |
 | `llama-cpp-python` | MIT | llm (opt-in) | https://github.com/abetlen/llama-cpp-python |
 | `kreuzberg` | **ELv2** (not OSI open-source) | opt-in (`ingest.use_kreuzberg=true`) | https://pypi.org/project/kreuzberg/ |
 
 **Kreuzberg is not Apache/MIT.** Kreuzberg is published under the [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license). ELv2 permits internal and self-hosted use but **prohibits offering kreuzberg's functionality as a hosted/SaaS service** to third parties. Review the full ELv2 terms before enabling `ingest.use_kreuzberg=true` in a multi-tenant deployment. Imprint does not install kreuzberg by default — the user installs it explicitly with `pip install kreuzberg[all]` and opts in via config.
 
-Document extractors (`pypdf`, `python-docx`, `python-pptx`, `openpyxl`, `ebooklib`, `striprtf`, `beautifulsoup4`, `httpx`, `trafilatura`), the FastAPI stack (`fastapi`, `uvicorn`), and optional OCR deps carry permissive licenses (MIT / BSD / Apache 2.0) — see each project's manifest for the exact terms. Transitive dependencies inherit their upstream licenses.
+Document extractors (`pypdf`, `python-docx`, `python-pptx`, `openpyxl`, `ebooklib`, `striprtf`, `beautifulsoup4`, `httpx`, `trafilatura`), the FastAPI stack (`fastapi`, `uvicorn`), and OCR dependencies carry permissive licenses (MIT / BSD / Apache 2.0) — see each project's manifest for the exact terms. Transitive dependencies inherit their upstream licenses.
 
 ## Bundled Binaries
 

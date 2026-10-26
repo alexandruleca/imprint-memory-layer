@@ -167,8 +167,8 @@ SETTINGS: list[Setting] = [
     # ── Ingest (docs + urls) ──────────────────────────────────
     Setting("ingest.max_file_bytes",    "IMPRINT_INGEST_MAX_FILE_BYTES",    2_000_000,    int,  "Per-file byte cap for source text indexing"),
     Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),
-    Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               False,       bool, "OCR for scanned PDFs + images (needs tesseract)"),
-    Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "Tesseract language codes (e.g. 'eng+fra')"),
+    Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               True,       bool, "Local OCR for scanned PDFs + images (installed with runtime)"),
+    Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "OCR language: eng/auto uses bundled models; other codes need Tesseract"),
     Setting("ingest.max_doc_size_mb",   "IMPRINT_INGEST_MAX_DOC_MB",        25,          int,  "Per-file byte cap for document extraction"),
     Setting("ingest.url_timeout_sec",   "IMPRINT_INGEST_URL_TIMEOUT",       30,          int,  "HTTP connect timeout for URL fetch (seconds)"),
     Setting("ingest.url_read_timeout_sec","IMPRINT_INGEST_URL_READ_TIMEOUT", 300,         int,  "Per-chunk read timeout for URL fetch (seconds) — increase for very large files"),

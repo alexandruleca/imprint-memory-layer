@@ -107,8 +107,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `redact.privacy_filter` | `false` | Also redact the secrets and account numbers OpenAI Privacy Filter finds, after the always-on rules. CPU only, ~837 MB download on first use, seconds per chunk; a write fails rather than store less redacted text when the model cannot run. See [secret redaction](redaction.md) |
 | **Ingest (docs + URLs)** | | |
 | `ingest.doc_formats` | `pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json` | Comma-separated doc formats enabled for the file walker |
-| `ingest.ocr_enabled` | `false` | OCR for scanned PDFs + images (requires `tesseract`; PDFs also need poppler). Without it, a PDF with no text layer is skipped with this hint, not failed, and retried once OCR settings or tools change ([ADR 0040](adr/0040-documents-with-nothing-to-index.md)) |
-| `ingest.ocr_lang` | `eng` | Tesseract language codes (e.g. `eng+fra`) |
+| `ingest.ocr_enabled` | `true` | Local OCR for scanned PDFs and images. Setup installs RapidOCR (including its small Chinese/English models), Pillow and the PDFium renderer; no system tools are required. Explicit saved `false` stays off. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md). |
+| `ingest.ocr_lang` | `eng` | `eng` or `auto` uses the bundled Chinese/English recognizer. Other Tesseract codes (e.g. `eng+fra`) use the compatibility backend and require system Tesseract plus the selected language data. |
 | `ingest.max_doc_size_mb` | `25` | Per-file byte cap for document extraction |
 | `ingest.url_timeout_sec` | `30` | HTTP connect timeout for URL fetch |
 | `ingest.url_read_timeout_sec` | `300` | Per-chunk read timeout for URL fetch (raise for very large files) |

@@ -320,3 +320,7 @@ relay.
 Install/update verifies release archives against `SHA256SUMS` before extraction. Bundled uv and auto-downloaded Qdrant use pinned SHA256 values; Python profiles use hash locks. This is not an offline installer or independently signed publisher verification. Models and managed Python still download on first use. Windows signatures/macOS notarization remain pending maintainer configuration.
 
 Run `imprint doctor --json --probe-mcp` after installation to inspect runtime dependencies, dashboard, primary Codex registration, Qdrant readiness and a timed MCP initialize/list-tools handshake. It is read-only and does not provision models. Confirm client-side trust/tools after restarting the host.
+
+## OCR runtime
+
+OCR defaults on for images and scanned PDFs. Bootstrap and update install RapidOCR with its bundled small Chinese/English models, Pillow and PDFium through the hashed base requirements. No separate Tesseract or Poppler install is needed for the default `eng`/`auto` path. Existing explicit OCR opt-outs are preserved. Other `ingest.ocr_lang` values select the Tesseract compatibility backend and still require that system tool and its language data. Run `imprint bootstrap --non-interactive` to repair an older runtime. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md).

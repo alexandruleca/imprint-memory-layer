@@ -254,6 +254,18 @@ def chunk_prose(content: str) -> list[str]:
     return _split_oversized(raw)
 
 
+def chunk_conversation(content: str) -> list[str]:
+    """Split an exchange at paragraph/line boundaries without model inference.
+
+    Exchanges already supply topic boundaries. Sentence-level transformer
+    inference here duplicates embedding work and can stall before any write.
+    """
+    content = content.strip()
+    if len(content) < MIN_SIZE:
+        return []
+    return _split_oversized(_apply_overlap(_split_by_size(content)))
+
+
 # ── Internals ──────────────────────────────────────────────────
 def _chunk_code(content: str, language: str) -> list[str]:
     cc = _get_code_chunker(language)

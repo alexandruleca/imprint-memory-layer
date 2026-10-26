@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -241,10 +242,11 @@ def learn_auto_memory(root: Path) -> int:
     return stored
 
 
-def index_transcript(transcript_path: str, source_mtime: float = 0.0) -> tuple[int, int]:
-    """Index a single transcript. Returns (stored, skipped).
+def index_transcript(transcript_path: str, source_mtime: float = 0.0,
+                     progress: Callable[[int, int], None] | None = None) -> tuple[int, int]:
+    """Index a single transcript. Returns (stored chunks, skipped exchanges).
 
-    Buffers all qualifying exchanges and flushes via vs.store_batch() so the
+    Prepares exchanges without model inference and flushes via vs.store_batch() so the
     embedding model sees grouped inputs and Qdrant gets one upsert call per
     transcript instead of one per exchange. Big throughput win because
     `imprint ingest` walks hundreds of transcripts before touching code.
@@ -281,29 +283,40 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0) -> tuple[i
         tags["layer"] = "session"
         tags["kind"] = "qa"
 
-        # Split long exchanges via semantic chunker (with sliding overlap)
-        # so retrieval lands on coherent topic segments instead of a single
-        # giant embedding or a mid-word truncation.
-        pieces = chunker.chunk_prose(ex["text"]) or [ex["text"]]
-        for ci, piece in enumerate(pieces):
+        # Exchanges already supply topic boundaries. Avoid embedding every
+        # sentence through the full retrieval model before the first write.
+        # Keep overlap and size caps for retrieval context.
+        pieces = chunker.chunk_conversation(ex["text"]) or [ex["text"]]
+        for piece in pieces:
             records.append({
                 "content": piece,
                 "project": project,
                 "type": mem_type,
                 "source": source,
                 "source_path": str(Path(transcript_path).resolve()),
-                "chunk_index": ci,
-                "source_mtime": source_mtime,
+                "chunk_index": len(records),
+                # A partial transcript must not be skipped on the next learn.
+                "source_mtime": 0.0,
                 "tags": tags,
                 "tag_pending": pending,
             })
 
     # Flush in small sub-batches so a transcript with hundreds of exchanges
     # doesn't pin a giant batch through tokenization + ONNX at once.
-    BATCH = 8
+    from . import config
+    # Publish CPU progress after each embedding, rather than leaving one
+    # apparent stall while eight long chunks run serially inside the encoder.
+    BATCH = max(1, min(8, config.BATCH_SIZE or (4 if config.DEVICE == "gpu" else 1)))
+    if progress and records:
+        progress(0, len(records))
     for i in range(0, len(records), BATCH):
         inserted, _ = vs.store_batch(records[i:i + BATCH])
         stored += inserted
+        if progress:
+            progress(min(i + BATCH, len(records)), len(records))
+
+    if records:
+        vs.complete_conversation(source, source_mtime)
 
     return stored, skipped
 
@@ -379,44 +392,60 @@ def learn(stores: list[tuple[str, str]]) -> int:
     except (ValueError, OSError):
         cols = 80
 
+    from .progress import write_progress, clear_progress
+    errors = 0
+    cancelled = False
+    completed = 0
     for idx, (path, source, fmtime, stale) in enumerate(filtered):
-        pct = (idx + 1) / len(filtered) if filtered else 1
+        pct = idx / len(filtered) if filtered else 1
         elapsed = time.time() - t_start
-        eta = elapsed / pct * (1 - pct) if pct < 1 else 0
+        eta = elapsed / pct * (1 - pct) if 0 < pct < 1 else 0
         stats = f" {int(pct*100):3d}% {idx+1}/{len(filtered)} eta {int(eta)}s"
         bar_width = max(10, cols - len(stats) - 3)
         filled = int(bar_width * pct)
         bar = "█" * filled + "░" * (bar_width - filled)
         line = f"  {bar}{stats}"
-        print(f"\r{line[:cols]}", end="", flush=True)
+        print(f"\r{line[:cols]}", flush=True)
+        print(f"  Reading {idx+1}/{len(filtered)}: {source}", flush=True)
+        write_progress("learn", idx, len(filtered), total_stored, total_skipped, t_start, [], phase="reading")
+
+        def batch_progress(done, total):
+            print(f"  {source}: {done}/{total} chunks stored", flush=True)
+            write_progress("learn", idx, len(filtered), total_stored + done,
+                           total_skipped, t_start, [], phase=f"embedding {done}/{total} chunks")
 
         try:
             # Replace the old chunks of a modified transcript.
             if stale:
                 vs.delete_by_source(source)
                 reindexed += 1
-            stored, skipped = index_transcript(path, source_mtime=fmtime)
+            stored, skipped = index_transcript(path, source_mtime=fmtime, progress=batch_progress)
             total_stored += stored
             total_skipped += skipped
+            completed += 1
         except KeyboardInterrupt:
             print()
             print()
             print(f"  {C_YELLOW}Cancelled{C_RESET} — progress saved. Re-run to continue.")
+            cancelled = True
             break
-        except Exception:
-            continue
+        except Exception as error:
+            errors += 1
+            print(f"  {C_YELLOW}Failed {source}: {type(error).__name__}: {error}{C_RESET}", flush=True)
+
+    clear_progress()
 
     # Final bar
     elapsed = time.time() - t_start
-    count = len(filtered) or 1
-    stats = f" 100% {count}/{count} {elapsed:.1f}s"
+    stats = f" {completed}/{len(filtered)} completed {elapsed:.1f}s"
     bar_width = max(10, cols - len(stats) - 3)
-    bar = "█" * bar_width
+    filled = int(bar_width * completed / len(filtered)) if filtered else bar_width
+    bar = "█" * filled + "░" * (bar_width - filled)
     print(f"\r  {bar}{stats}{' ' * 10}")
 
     print()
     print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")
-    print(f"  Stored:   {total_stored} exchanges")
+    print(f"  Stored:   {total_stored} chunks")
     if memory_files:
         print(f"  Memory:   {memory_files} auto-memory files")
     if pre_skipped:
@@ -424,13 +453,15 @@ def learn(stores: list[tuple[str, str]]) -> int:
     if reindexed:
         print(f"  Re-indexed:{reindexed} modified transcripts")
     print(f"  Skipped:  {total_skipped}")
+    if errors:
+        print(f"  Errors:   {errors} transcripts (re-run to retry)")
     print(f"  Time:     {elapsed:.1f}s")
     from .tag_backlog import report
     report(total_stored)
     for label in unreadable:
         print(f"  {C_YELLOW}Not learned: {label} could not be read{C_RESET}")
     print()
-    return 1 if unreadable else 0
+    return 130 if cancelled else (1 if unreadable or errors else 0)
 
 
 def main():

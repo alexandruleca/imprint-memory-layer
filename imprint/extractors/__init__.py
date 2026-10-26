@@ -2,7 +2,7 @@
 
 Each extractor takes a file path (or raw bytes / URL) and returns an
 ExtractedDoc(text, mime, metadata). Heavy third-party deps (pypdf,
-python-docx, trafilatura, pytesseract) are *optional*: a missing import
+python-docx, trafilatura, rapidocr) are *optional*: a missing import
 raises ExtractorUnavailable, and the caller skips with a warning rather
 than crashing the whole ingest run.
 

@@ -274,6 +274,35 @@ class StoringPathTests(BacklogCase):
     def no_llm(self):
         return patch('imprint.tagger.derive_llm_classify', side_effect=AssertionError('the LLM ran inline'))
 
+    def test_partial_conversation_is_retried_then_marked_complete(self):
+        from imprint import cli_conversations
+        original = vs.store_batch
+        calls = 0
+
+        def fail_second_batch(records):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError('embedding interrupted')
+            return original(records)
+
+        with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/retry', 'project')), \
+                patch.object(cli_conversations, 'owned', return_value=True), \
+                patch.object(cli_conversations, 'parse_exchanges', return_value=[{'text': 'Useful exchange ' * 30}]), \
+                patch.object(cli_conversations.chunker, 'chunk_conversation',
+                             return_value=[f'Piece {i} ' * 30 for i in range(10)]), \
+                patch.object(cli_conversations.tagger, 'build_payload_tags', return_value={}), \
+                patch.object(config, 'BATCH_SIZE', 8), \
+                patch('imprint.workspace_policy.is_excluded', return_value=False):
+            with patch.object(vs, 'store_batch', side_effect=fail_second_batch):
+                with self.assertRaisesRegex(RuntimeError, 'embedding interrupted'):
+                    cli_conversations.index_transcript('retry.jsonl', source_mtime=123)
+            self.assertEqual(vs.get_source_mtimes()['conversation/retry'], 0)
+            self.assertEqual(len(self.payloads()), 8)
+            self.assertEqual(cli_conversations.index_transcript('retry.jsonl', source_mtime=123), (2, 0))
+            self.assertEqual(vs.get_source_mtimes()['conversation/retry'], 123)
+            self.assertEqual(len(self.payloads()), 10)
+
     def test_a_learned_conversation_is_marked_not_classified(self):
         from imprint import cli_conversations
         transcript = self.data / 'session.jsonl'
@@ -281,7 +310,7 @@ class StoringPathTests(BacklogCase):
         with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/s', 'project')), \
                 patch.object(cli_conversations, 'owned', return_value=True), \
                 patch.object(cli_conversations, 'parse_exchanges', return_value=exchanges), \
-                patch.object(cli_conversations.chunker, 'chunk_prose', side_effect=lambda text: [text]), \
+                patch.object(cli_conversations.chunker, 'chunk_conversation', side_effect=lambda text: [text]), \
                 patch('imprint.workspace_policy.is_excluded', return_value=False):
             stored, _ = cli_conversations.index_transcript(str(transcript), source_mtime=1.0)
             with patch.dict(os.environ, {'IMPRINT_LLM_TAGS': '0'}), \

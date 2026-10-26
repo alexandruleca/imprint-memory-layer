@@ -3,8 +3,9 @@ title: ADR 0040 — Documents with nothing to index
 description: A document without extractable text is skipped with a reason instead of failing the run, and the result is remembered per content hash and extraction profile so it is retried only when that can change it.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
+- Amended by: [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) — OCR defaults, tool detection and runtime error handling
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (source lifecycle), [ADR 0015](0015-workspace-roots-and-source-purge.md)
 - Restructured: 2026-10-25
 

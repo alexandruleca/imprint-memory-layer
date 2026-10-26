@@ -41,7 +41,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0029](0029-paired-browser-capture.md) **Paired local browser capture prototype.** Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. Amended by [ADR 0030](0030-chrome-extension-release-zip.md) (Gmail availability and distribution).
 - [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) **Learn from client stores by conversation ownership.** Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. Amended by [ADR 0037](0037-learn-every-integrated-client-store.md) (stores and Codex working directories) and [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor folder names).
 - [ADR 0037](0037-learn-every-integrated-client-store.md) **Learn from every integrated client store.** Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use. Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor stores), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) (Cline stores) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) (Copilot stores).
-- [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change.
+- [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) (default bundled OCR and retryable tool failures).
 - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) **Learn Cursor conversations from their folder names.** A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target.
 - [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) **Learn Cline sessions from their manifests.** A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads, and `cline` is a WSL registration target.
 - [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite. Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (background tagging and preemptible holders) and [ADR 0068](0068-merge-identical-waiting-jobs.md) (merged submissions).
@@ -116,8 +116,12 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention) and [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases).
 - [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
-- [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle.
+- [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. Amended by [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) (enclosing installer app).
 - [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version.
+
+- [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
+
+- [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled.
 
 ## Open proposals
 
@@ -170,7 +174,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0037](0037-learn-every-integrated-client-store.md) | 2026-10-24 | Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md), [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) | Learn from every integrated client store |
 | [0038](0038-gpu-runtime-ships-cuda-libraries.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | GPU runtime ships its CUDA libraries |
 | [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | 2026-10-24 | Accepted | shadcn overlays and desktop drag handles |
-| [0040](0040-documents-with-nothing-to-index.md) | 2026-10-24 | Accepted | Documents with nothing to index |
+| [0040](0040-documents-with-nothing-to-index.md) | 2026-10-24 | Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | Documents with nothing to index |
 | [0041](0041-personaplex-startup-memory-prototype.md) | 2026-10-24 | Accepted | PersonaPlex startup memory prototype |
 | [0042](0042-lfm-audio-cpu-experiment.md) | 2026-10-24 | Accepted | Small LFM audio experiment on CPU |
 | [0043](0043-live-voice-and-echo-companion.md) | 2026-10-24 | Amended by [ADR 0044](0044-native-desktop-voice-platforms.md), [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | Local live voice and the Echo companion |
@@ -185,7 +189,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0052](0052-learn-cursor-conversations-from-their-folder-names.md) | 2026-10-25 | Accepted | Learn Cursor conversations from their folder names |
 | [0053](0053-connect-clients-without-touching-the-runtime.md) | 2026-10-25 | Accepted | Connect and disconnect clients without touching the runtime |
 | [0054](0054-echo-looks-declare-their-motion.md) | 2026-10-25 | Accepted | Echo's looks declare their motion and follow the pointer |
-| [0055](0055-ad-hoc-signed-macos-desktop-bundle.md) | 2026-10-25 | Accepted | Ad-hoc signed macOS desktop bundle |
+| [0055](0055-ad-hoc-signed-macos-desktop-bundle.md) | 2026-10-25 | Amended by [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) | Ad-hoc signed macOS desktop bundle |
 | [0056](0056-learn-cline-sessions-from-their-manifests.md) | 2026-10-25 | Accepted | Learn Cline sessions from their manifests |
 | [0057](0057-copilot-home-as-store-config-and-hook-root.md) | 2026-10-25 | Accepted | The Copilot home is GitHub Copilot's store, configuration and hook root |
 | [0058](0058-recall-batched-reads-with-optional-local-planning.md) | 2026-10-25 | Accepted | Recall: batched reads with optional local planning |
@@ -202,6 +206,8 @@ Every record in number order. *Date* is when the decision was made.
 | [0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | 2026-10-25 | Accepted | Echo opens the microphone only on the user's intent, after an OS consent check |
 | [0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | 2026-10-25 | Accepted | The floating companion moves with the launcher and keeps its options in settings |
 | [0071](0071-each-look-speaks-in-its-own-voice.md) | 2026-10-25 | Accepted | Each look speaks in its own voice |
+| [0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) | 2026-10-26 | Accepted | Microphone purpose in the macOS installer wrapper |
+| [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
 
 ## How to write and maintain ADRs
 

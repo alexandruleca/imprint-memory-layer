@@ -39,3 +39,5 @@ graph TB
 | `IMPRINT_CHUNK_OVERLAP` | 400 chars | Sliding window between chunks |
 
 Full setting names for persistence via `imprint config set`: `chunker.size_code`, `chunker.size_prose`, `chunker.hard_max`, `chunker.overlap`, `chunker.semantic_threshold`. See [configuration.md](./configuration.md).
+
+Conversation learning uses Q+A exchanges as topic boundaries and splits long exchanges at paragraphs/lines with overlap and the hard size cap. It does not run sentence-level semantic inference before embedding the resulting chunks. Each transcript uses consecutive chunk indices across all exchanges. `learn` logs each embedding batch and publishes dashboard progress; it reports transcript failures and exits nonzero. A transcript receives its modification-time watermark only after every batch succeeds, so interruption leaves it eligible for retry.

@@ -179,7 +179,11 @@ operating system can still refuse, and is asked every time. Stop, or clearing
 the choice while the system is still asking, means the microphone does not open
 when the answer arrives.
 
-- **macOS:** the first microphone action shows the system prompt. If access was
+- **macOS:** the first microphone action should show the system prompt.
+  Affected `.pkg` installations (including observed v0.25.0) instead crash before
+  consent because the enclosing app lacks microphone purpose text. Reinstalling
+  the same package does not fix it; a corrected installer is required
+  ([ADR 0075](adr/0075-microphone-purpose-in-the-macos-installer-wrapper.md)). If access was
   denied, use **Open microphone settings**, allow Imprint under **Privacy &
   Security → Microphone**, then **Quit** and reopen Imprint; closing the
   dashboard only hides it. macOS asks again after each update, because each

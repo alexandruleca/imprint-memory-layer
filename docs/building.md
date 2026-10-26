@@ -81,6 +81,10 @@ or helper apps are not signed that way, or whose app declares no
 `NSMicrophoneUsageDescription`. The check runs on Linux, so it does not
 replace `codesign --verify` on a Mac. See
 [ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md).
+The `.pkg` enclosing `Imprint.app` also declares microphone usage: verifying only
+the nested Electron signature missed a TCC crash in an installed v0.25.0 bundle.
+See [ADR 0075](adr/0075-microphone-purpose-in-the-macos-installer-wrapper.md);
+interactive consent with the corrected installer still needs validation.
 
 Intel macOS uses ONNX Runtime 1.23.2 through platform markers because newer releases no longer publish its CPython 3.12 wheel. Other CPU targets retain the current runtime. Windows silent installation skips interactive wizard pages and has a 15-minute CI deadline with process-tree cleanup and retained installer/bootstrap logs. Native package jobs and runtime checks have explicit timeouts; see [ADR 0012](adr/0012-native-package-runtime-and-silent-installs.md).
 

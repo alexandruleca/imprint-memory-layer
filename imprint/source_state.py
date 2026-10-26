@@ -77,13 +77,10 @@ def extraction_profile() -> dict:
     ocr = bool(resolve('ingest.ocr_enabled')[0])
     profile = {'ocr': ocr, 'kreuzberg': bool(resolve('ingest.use_kreuzberg')[0])}
     if ocr:
-        import importlib.util
-        import shutil
+        from .extractors.ocr import available
         profile['ocr_lang'] = str(resolve('ingest.ocr_lang')[0])
-        # Installing the tools changes the result, so it changes the profile.
-        profile['ocr_tools'] = bool(shutil.which('tesseract') and shutil.which('pdftoppm')
-                                    and importlib.util.find_spec('pytesseract')
-                                    and importlib.util.find_spec('pdf2image'))
+        profile['ocr_backend'] = 'rapidocr-3.10.0-pdfium' if profile['ocr_lang'] in ('eng', 'auto') else 'tesseract-pdfium'
+        profile['ocr_tools'] = available(profile['ocr_lang'])
     return profile
 
 
@@ -93,10 +90,10 @@ def no_text_reason(path: str | Path, profile: dict) -> str:
         return 'no extractable text'
     if not profile['ocr']:
         return ('no text layer (scanned or image-only). OCR is off: '
-                '`imprint config set ingest.ocr_enabled true` (needs tesseract and poppler)')
+                '`imprint config set ingest.ocr_enabled true`')
     if not profile.get('ocr_tools'):
-        return ('no text layer, and OCR cannot run: install tesseract, poppler and the '
-                'pytesseract and pdf2image packages')
+        return ('no text layer, and OCR cannot run: run imprint bootstrap; '
+                'custom languages also need system Tesseract and language data')
     return f"no text found, even with OCR ({profile.get('ocr_lang')})"
 
 

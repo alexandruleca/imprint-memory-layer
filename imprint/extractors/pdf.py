@@ -1,7 +1,7 @@
 """PDF extractor.
 
 Primary: pypdf for text-layer PDFs (fast, pure-python).
-Fallback (opt-in): OCR via pdf2image + pytesseract for scanned PDFs
+Fallback (default on): local OCR with a wheel-installed PDF renderer for scanned PDFs
 with no text layer — only triggered when the primary pass returns
 near-empty output AND `ingest.ocr_enabled` config is true.
 """
@@ -59,20 +59,24 @@ def _extract_text_pypdf(data: bytes) -> tuple[str, dict]:
 
 def _extract_ocr(data: bytes, lang: str) -> str:
     try:
-        import pdf2image  # type: ignore
-        import pytesseract  # type: ignore
+        import pypdfium2 as pdfium
     except ImportError as e:
-        raise ExtractorUnavailable(
-            "OCR needs pdf2image + pytesseract (and system tesseract + poppler)"
-        ) from e
-
-    images = pdf2image.convert_from_bytes(data)
+        raise ExtractorUnavailable("PDF OCR runtime missing — run imprint bootstrap") from e
+    from .ocr import recognize
     chunks = []
-    for img in images:
-        try:
-            chunks.append(pytesseract.image_to_string(img, lang=lang))
-        except Exception:
-            continue
+    # Render one page at a time so long scans do not retain every bitmap.
+    with pdfium.PdfDocument(data) as document:
+        for index in range(len(document)):
+            page = document[index]
+            try:
+                bitmap = page.render(scale=2)
+                try:
+                    with bitmap.to_pil() as image:
+                        chunks.append(recognize(image.convert("RGB"), lang))
+                finally:
+                    bitmap.close()
+            finally:
+                page.close()
     return "\n\n".join(chunks).strip()
 
 
@@ -86,15 +90,10 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
 
     # If text layer is empty/near-empty and OCR is enabled, try OCR.
     if len(text) < 50 and _ocr_enabled():
-        try:
-            ocr_text = _extract_ocr(data, _ocr_lang())
-            if ocr_text:
-                text = ocr_text
-                meta["ocr"] = True
-        except ExtractorUnavailable:
-            pass
-        except Exception:
-            pass
+        ocr_text = _extract_ocr(data, _ocr_lang())
+        if ocr_text:
+            text = ocr_text
+            meta["ocr"] = True
 
     return ExtractedDoc(
         text=text,

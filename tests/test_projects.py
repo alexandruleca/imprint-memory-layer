@@ -249,7 +249,7 @@ class NoTextDocumentTests(ProjectStoreTests):
                      patch('imprint.chunker.chunk_file',
                            side_effect=lambda text, *args, **kwargs: [(text, 0)] if text.strip() else []),
                      patch('imprint.tagger.build_payload_tags', return_value={}),
-                     patch('shutil.which', return_value=None)]:
+                     patch('imprint.extractors.ocr.available', return_value=False)]:
             item.start()
             self.addCleanup(item.stop)
 

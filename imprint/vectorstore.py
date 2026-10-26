@@ -976,6 +976,16 @@ def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     return states
 
 
+def complete_conversation(source: str, source_mtime: float, workspace: str | None = None) -> None:
+    """Publish a transcript's watermark only after every batch succeeded."""
+    if not source.startswith("conversation/"):
+        raise ValueError("Expected a conversation source")
+    client, coll = _ensure_collection(workspace)
+    client.set_payload(collection_name=coll, payload={"source_mtime": source_mtime},
+                       points=qm.Filter(must=[qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]),
+                       wait=True)
+
+
 def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:
     """Return {source: source_mtime} for refresh deduplication."""
     out: dict[str, float] = {}
@@ -983,8 +993,8 @@ def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:
         for pl in _scroll_all(["source", "source_mtime"], workspace=workspace):
             s = pl.get("source")
             m = pl.get("source_mtime")
-            if s and m:
-                out[s] = m
+            if s:
+                out[s] = min(out.get(s, float("inf")), m or 0.0)
     except Exception:
         pass
     return out

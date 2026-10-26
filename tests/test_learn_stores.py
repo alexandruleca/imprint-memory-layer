@@ -183,10 +183,11 @@ class LearnStoresTests(unittest.TestCase):
         for target, attribute, kwargs in (
                 (vs, 'store_batch', {'side_effect': lambda records: self.batches.append(records) or (len(records), 0)}),
                 (vs, 'store', {'side_effect': lambda **record: self.memories.append(record)}),
+                (vs, 'complete_conversation', {'return_value': None}),
                 (vs, 'delete_by_source', {'side_effect': self.deleted.append}),
                 (vs, 'get_source_mtimes', {'side_effect': lambda: dict(self.known)}),
                 (learner.tagger, 'build_payload_tags', {'side_effect': lambda *args, **kwargs: {}}),
-                (learner.chunker, 'chunk_prose', {'side_effect': lambda text: [text]}),
+                (learner.chunker, 'chunk_conversation', {'side_effect': lambda text: [text]}),
                 (learner, 'classify', {'return_value': ('decision', 1.0)})):
             patcher = patch.object(target, attribute, **kwargs)
             patcher.start()
