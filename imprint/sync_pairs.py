@@ -169,7 +169,22 @@ def forget(pair_id, *, confirmed=False):
     cancel_peer(fingerprint)
 
 
+def remove(pair_id, *, confirmed=False):
+    """Delete this device's pairings with that peer now, without telling it.
+
+    For a peer that will never acknowledge a forget (uninstalled, reset, lost).
+    The peer keeps its own pairing; it no longer finds this device in the
+    paired relay room, the same as when this device is offline.
+    """
+    if confirmed is not True:
+        raise ValueError('Explicit confirmation is required to remove this pairing from this device')
+    remove_peer(get(pair_id)['peer']['fingerprint'])
+
+
 def remove_peer(fingerprint):
+    # The one removal path, for an acknowledged forget and for remove():
+    # records with their room, secret and digests (secure_delete overwrites
+    # them), legacy trust and running sessions.
     with _database() as conn:
         conn.execute('BEGIN IMMEDIATE')
         for record in _all(conn):

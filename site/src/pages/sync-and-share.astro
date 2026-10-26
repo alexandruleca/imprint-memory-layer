@@ -293,13 +293,15 @@ imprint sync f5b9c62d-CYHSeQEC --workspace from-alice</code></pre>
             <p class="mt-2 text-[color:var(--color-text-muted)] leading-relaxed">
               The device is revoked on this machine at once. The other one removes the pairing when the two next
               connect. In this session that took 51 seconds. Until then it shows as pending, never as done.
-              Memories already shared stay.
+              Memories already shared stay. If the other device is gone for good, uninstalled or reset, remove the
+              pairing from this machine alone: it is deleted at once, without waiting for an answer that will not come.
             </p>
             <Shot class="mt-5" src={forgetPending} machine="alice-laptop" alt="sam-workstation marked Removal pending: revoked locally, remote removal pending until both devices reconnect" />
             <pre class="mt-5 overflow-x-auto rounded-xl bg-[color:var(--color-bg-elevated)] border border-[color:var(--color-border)] p-4 text-[13px] leading-relaxed font-mono"><code>imprint sync peers              <span class="text-[color:var(--color-text-dim)]"># list paired devices</span>
 imprint sync watch              <span class="text-[color:var(--color-text-dim)]"># sync them without the dashboard</span>
 imprint sync disable &lt;id&gt;       <span class="text-[color:var(--color-text-dim)]"># pause; enable resumes</span>
-imprint sync forget &lt;id&gt;        <span class="text-[color:var(--color-text-dim)]"># remove on both sides</span></code></pre>
+imprint sync forget &lt;id&gt;        <span class="text-[color:var(--color-text-dim)]"># remove on both sides</span>
+imprint sync remove &lt;id&gt;        <span class="text-[color:var(--color-text-dim)]"># this side only, now: the other device is gone</span></code></pre>
           </div>
         </div>
       </div>

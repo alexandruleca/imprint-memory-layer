@@ -85,6 +85,7 @@ imprint workspace [list|switch|delete]
 imprint workspace use [name] [--allow-overlap]  # this project's workspace: approve + write .imprint/workspace.json (ADR 0072)
 imprint wipe [--force|--all]
 imprint sync serve --relay <host> | <host>/<id>
+imprint sync peers | forget <id> | remove <id>  # paired devices: forget on both, or remove from this one now (ADR 0073)
 imprint update [--check [--json]]  # install the latest release the way this install was set up (ADR 0023)
 imprint version
 ```

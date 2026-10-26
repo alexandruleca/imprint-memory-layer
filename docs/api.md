@@ -333,10 +333,14 @@ OpenAPI schema at `/openapi.json` always matches the running container.
 ## Paired sync controls
 
 `GET /api/sync/peers` returns public pair status without credentials.
-`POST /api/sync/peers/{pair_id}` accepts `{"action":"enabled","enabled":false}`
-or `{"action":"forget","confirm":true}`. Forget requires prior user confirmation,
-revokes every paired workspace with that device, and reports remote removal as
-pending until acknowledged. Existing memories remain. The local-origin boundary
-applies. Serve/receive SSE requests accept optional boolean `remember` (default
+`POST /api/sync/peers/{pair_id}` accepts `{"action":"enabled","enabled":false}`,
+`{"action":"forget","confirm":true}` or `{"action":"remove","confirm":true}`.
+Forget and remove require prior user confirmation (the literal `true`) and cover
+every paired workspace with that device. Forget revokes and reports remote
+removal as pending until the other device acknowledges. Remove deletes this
+device's pairing, credentials and trust for that device at once without
+contacting it, for a device that is gone. Existing memories remain. Both answer
+with the updated `peers` list; an unknown pairing is a 400. The local-origin
+boundary applies. Serve/receive SSE requests accept optional boolean `remember` (default
 false); both sides must opt in. A `paired` event confirms completion. The backend
 runs automatic reconnects while alive. See [sync](sync.md).

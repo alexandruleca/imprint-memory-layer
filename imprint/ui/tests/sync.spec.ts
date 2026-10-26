@@ -25,7 +25,7 @@ test('paired-device controls pause and require confirmation to forget both devic
   let peer = {
     id: 'pair-1', peer: { hostname: 'workstation', fingerprint: 'bbbbbbbb', user: 'bob', os: 'linux' },
     workspace: 'team', remote_workspace: 'team-laptop', relay: 'wss://relay.example.com',
-    direction: 'both', enabled: true, state: 'active', last_sync: null, last_seen: null, last_error: '',
+    direction: 'both', enabled: true, state: 'active', created_at: Date.now() / 1000, last_sync: null, last_seen: null, last_error: '',
   };
   const changes: Record<string, unknown>[] = [];
   await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [peer] } }));
@@ -50,6 +50,76 @@ test('paired-device controls pause and require confirmation to forget both devic
   await expect(page.getByText(/Remote removal pending/)).toBeVisible();
   expect(changes[2]).toEqual({ action: 'forget', confirm: true });
   await expect(page.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+});
+
+test('a pairing can be removed from this device alone, after its own confirmation', async ({ page }) => {
+  let peers = [{
+    id: 'pair-1', peer: { hostname: 'workstation', fingerprint: 'bbbbbbbb', user: 'bob', os: 'linux' },
+    workspace: 'team', remote_workspace: 'team-laptop', relay: 'wss://relay.example.com', direction: 'both',
+    enabled: true, state: 'active', created_at: Date.now() / 1000 - 30 * 86400, last_sync: null,
+    last_seen: Date.now() / 1000 - 60, last_error: '',
+  }];
+  const changes: Record<string, unknown>[] = [];
+  await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers } }));
+  await page.route('**/api/sync/peers/pair-1', async route => {
+    changes.push(route.request().postDataJSON());
+    peers = [];
+    await route.fulfill({ json: { peers } });
+  });
+  await page.goto('/sync/');
+  const remove = page.getByRole('button', { name: 'Remove from this device…' });
+  // Seen a minute ago: offered, not pushed.
+  await expect(remove).toBeVisible();
+  await expect(remove).not.toHaveClass(/bg-destructive/);
+  await expect(page.getByText(/was uninstalled or reset/)).toHaveCount(0);
+  await remove.click();
+  const dialog = page.getByRole('alertdialog', { name: 'Remove this pairing from this device only?' });
+  await expect(dialog).toContainText('ALL paired workspaces');
+  await expect(dialog).toContainText('workstation is not notified');
+  await expect(dialog).toContainText('removed there the same way');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(changes).toEqual([]);
+  await remove.click();
+  await dialog.getByRole('button', { name: 'Remove from this device', exact: true }).click();
+  await expect(page.getByText('Removed workstation from this device')).toBeVisible();
+  await expect(page.getByText('No paired devices yet')).toBeVisible();
+  expect(changes).toEqual([{ action: 'remove', confirm: true }]);
+});
+
+test('removing here is highlighted for a pending forget and a device not seen for a week', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const peer = (id: string, hostname: string, extra: object) => ({
+    id, peer: { hostname, fingerprint: id.padEnd(8, 'x'), user: 'bob', os: 'linux' },
+    workspace: 'team', remote_workspace: 'team', relay: 'wss://relay.example.com', direction: 'both',
+    enabled: true, state: 'active', created_at: now - 60 * 86400, last_sync: null, last_seen: now - 120,
+    last_error: '', ...extra,
+  });
+  await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [
+    peer('pending', 'old-laptop', { state: 'forget_pending', enabled: false }),
+    peer('stale', 'wiped-desktop', { last_seen: now - 10 * 86400 - 60 }),
+    peer('never', 'never-reconnected', { last_seen: null }),
+    peer('fresh', 'workstation', {}),
+  ] } }));
+  await page.goto('/sync/');
+  const row = (host: string) => page.getByRole('listitem').filter({ hasText: host });
+  const remove = (host: string) => row(host).getByRole('button', { name: 'Remove from this device…' });
+
+  await expect(row('old-laptop')).toContainText('Remote removal pending');
+  await expect(row('old-laptop')).toContainText('If old-laptop was uninstalled or reset, remove it from this device.');
+  await expect(row('old-laptop').getByRole('button', { name: 'Forget…' })).toHaveCount(0);
+  await expect(remove('old-laptop')).toHaveClass(/bg-destructive/);
+
+  await expect(row('wiped-desktop')).toContainText('Not seen for 10 days.');
+  await expect(remove('wiped-desktop')).toHaveClass(/bg-destructive/);
+  await expect(row('wiped-desktop').getByRole('button', { name: 'Forget…' })).toBeVisible();
+
+  // Never answered since pairing 60 days ago: counted from the pairing.
+  await expect(row('never-reconnected')).toContainText('Not seen for 60 days.');
+  await expect(remove('never-reconnected')).toHaveClass(/bg-destructive/);
+
+  await expect(row('workstation')).not.toContainText('uninstalled or reset');
+  await expect(remove('workstation')).not.toHaveClass(/bg-destructive/);
 });
 
 test('automatic sync is an explicit checkbox on both serve and receive', async ({ page }) => {

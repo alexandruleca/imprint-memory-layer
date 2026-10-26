@@ -1253,17 +1253,19 @@ async def api_sync_peers():
 
 @app.post('/api/sync/peers/{pair_id}')
 async def api_sync_peer_control(pair_id: str, request: Request):
-    from .sync_pairs import forget, set_enabled, pairs
+    from .sync_pairs import forget, remove, set_enabled, pairs
     try:
         body = await request.json()
         if not isinstance(body, dict):
             raise ValueError('JSON object body required')
         if body.get('action') == 'forget':
             forget(pair_id, confirmed=body.get('confirm') is True)
+        elif body.get('action') == 'remove':
+            remove(pair_id, confirmed=body.get('confirm') is True)
         elif body.get('action') == 'enabled':
             set_enabled(pair_id, body.get('enabled'))
         else:
-            raise ValueError('action must be enabled or forget')
+            raise ValueError('action must be enabled, forget or remove')
         return {'peers': pairs(public=True)}
     except ValueError as exc:
         return JSONResponse({'error': str(exc)}, status_code=400)

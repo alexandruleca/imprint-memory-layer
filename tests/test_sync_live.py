@@ -19,6 +19,7 @@ from urllib.parse import parse_qs
 import websockets
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
+from websockets.protocol import State
 
 from imprint import cli_sync, config, sync_ws
 from imprint.sync_crypto import KeyExchange
@@ -52,6 +53,8 @@ class Relay:
         peers = self.rooms.setdefault(room, {})
         peers[role] = ws
         while other_role not in peers:
+            if ws.state is State.CLOSED:  # left before a peer joined; cmd/relay.go frees the room
+                return
             await asyncio.sleep(0.005)
         other = peers[other_role]
         try:

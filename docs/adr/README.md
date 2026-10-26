@@ -66,8 +66,9 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0016](0016-sync-direction-and-workspace-sharing.md) **Sync direction and workspace sharing.** Per-machine sync direction policies, per-session workspace selection and copy migration for sharing curated workspaces. Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) (implementation details).
 - [ADR 0017](0017-device-provenance-and-local-project-paths.md) **Device provenance and local project paths.** Portable memory origin, current-device context and approved local project-path mappings.
 - [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) **Single sync implementation and end-to-end encryption.** One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback.
-- [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) **Explicit pairing and automatic workspace sync.** Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation.
+- [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) **Explicit pairing and automatic workspace sync.** Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. Amended by [ADR 0073](0073-remove-a-pairing-from-one-device.md) (one-sided removal).
 - [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) **Synced tags follow the latest retag.** Each memory carries a `tagged_at` stamp; sync gives a memory both devices hold the classification that was set last.
+- [ADR 0073](0073-remove-a-pairing-from-one-device.md) **Remove a pairing from one device without the other's acknowledgement.** A confirmed removal deletes this device's pairing with a peer, its credentials and trust at once, without contacting the relay or the peer; forgetting on both devices stays the normal path.
 
 ### Security and privacy
 
@@ -151,7 +152,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0017](0017-device-provenance-and-local-project-paths.md) | 2026-10-23 | Accepted | Device provenance and local project paths |
 | [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | 2026-10-23 | Accepted | Single sync implementation and end-to-end encryption |
 | [0019](0019-reproducible-benchmark-evidence.md) | 2026-10-23 | Accepted | Reproducible benchmark evidence |
-| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | 2026-10-23 | Accepted | Explicit pairing and automatic workspace sync |
+| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | 2026-10-23 | Amended by [ADR 0073](0073-remove-a-pairing-from-one-device.md) | Explicit pairing and automatic workspace sync |
 | [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | 2026-10-23 | Accepted | Budgeted MCP evidence and selective expansion |
 | [0022](0022-http-client-lifetime-during-model-work.md) | 2026-10-23 | Accepted | Retain HTTP clients during model work |
 | [0023](0023-update-by-installation-type.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Update by installation type |
@@ -204,6 +205,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | 2026-10-25 | Accepted | The floating companion moves with the launcher and keeps its options in settings |
 | [0071](0071-each-look-speaks-in-its-own-voice.md) | 2026-10-25 | Accepted | Each look speaks in its own voice |
 | [0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | 2026-10-26 | Accepted | Projects name their workspace and each device approves it |
+| [0073](0073-remove-a-pairing-from-one-device.md) | 2026-10-26 | Accepted | Remove a pairing from one device without the other's acknowledgement |
 
 ## How to write and maintain ADRs
 

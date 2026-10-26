@@ -154,6 +154,8 @@ Usage:
                              Receive from the serving machine; --two-way also sends (confirmed first)
   imprint sync export         Export snapshot bundle (no re-embed on import)
   imprint sync import <dir>   Import snapshot bundle from another device
+  imprint sync peers          List paired devices; enable|disable <id> resumes|pauses one,
+                             forget <id> unpairs on both devices, remove <id> on this one now
   imprint relay [--port N] [--ga4-id G-…]
                              Run the sync relay server; --ga4-id adds Google Analytics to its browser page
   imprint ui [--port N]      Dashboard UI foreground (FastAPI + Next.js; Ctrl+C to stop)
