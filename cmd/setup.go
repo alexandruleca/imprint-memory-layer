@@ -265,10 +265,10 @@ func normalizeDistribution(name string) string {
 
 // installRuntime makes the venv hold rt's complete requirements with
 // rt.Distribution as the only, complete ONNX Runtime, and removes what only
-// the other runtime needs (ADR 0062). It installs first: uv downloads
-// everything before it changes the venv, so the runtime in place keeps
-// working while a new one downloads, and swapping the build takes a reinstall
-// from uv's cache. A healthy venv that already matches is left untouched.
+// the other runtime needs (ADR 0062). It installs first, then removes the
+// other build, so the swap takes a reinstall from uv's cache. Either build
+// writes the same files, so a swap or a repair frees the runtime first
+// (ADR 0084). A healthy venv that already matches is left untouched.
 func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
 	for _, requirements := range rt.Requirements {
 		if !platform.FileExists(requirements) {
@@ -278,6 +278,9 @@ func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
 	// Asked before installing, while the build being replaced still says
 	// what it brought in.
 	unused := unusedDistributions(venvPython, projectDir, rt.Name)
+	if providers, err := ortProviders(venvPython, projectDir); err == nil && len(staleOrtProviders(providers, rt.Distribution)) > 0 {
+		freeRuntime()
+	}
 	install := func() {
 		if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(rt.Requirements...)...); err != nil {
 			output.Fail("Installing dependencies for the " + rt.Name + " runtime failed: " + err.Error())
@@ -322,10 +325,7 @@ func unusedDistributions(venvPython, projectDir, selected string) []string {
 
 // removeDistributions uninstalls names, except the providers already
 // removed, and drops each of them from uv's cache: uv links the venv's files
-// to its cache, so only then is their disk space free. On Windows a library
-// a running Imprint process has loaded cannot lose its last link; uv then
-// forgets the entry but leaves its files, which pruneUvCache frees once that
-// process has exited.
+// to its cache, so only then is their disk space free.
 func removeDistributions(uv, venvPython, venvPip string, names, removed []string) {
 	if len(names) == 0 {
 		return
@@ -346,27 +346,10 @@ func removeDistributions(uv, venvPython, venvPip string, names, removed []string
 	if uv == "" {
 		return
 	}
-	var held []string
 	for _, name := range names { // One at a time: uv stops at the first file it cannot delete.
-		if _, err := runner.RunCapture(uv, "cache", "clean", name); err != nil {
-			held = append(held, name)
+		if out, err := runner.RunCapture(uv, "cache", "clean", name); err != nil {
+			output.Warn("Could not remove " + name + " from uv's cache: " + lastNonBlankLines(out, 1))
 		}
-	}
-	if len(held) > 0 {
-		output.Info("A running Imprint process still uses files of " + strings.Join(held, ", ") +
-			"; a later setup frees them in uv's cache once it has exited")
-	}
-}
-
-// pruneUvCache deletes what uv's cache no longer refers to, such as the files
-// an earlier removal could not delete while a process had them loaded.
-func pruneUvCache(uv string) {
-	if uv == "" {
-		return
-	}
-	out, _ := runner.RunCapture(uv, "cache", "prune")
-	if line := lastLine(out); strings.HasPrefix(line, "Removed") {
-		output.Info("uv cache: " + line)
 	}
 }
 
@@ -378,7 +361,6 @@ func provisionEmbeddingRuntime(uv, venvPython, venvPip, projectDir, dataDir stri
 	runtimes := ortRuntimes(projectDir)
 	plan := planEmbeddingRuntime(venvPython, projectDir, dataDir, retry)
 	reportEmbeddingPlan(plan)
-	defer pruneUvCache(uv)
 	if plan.Runtime == "gpu" {
 		installRuntime(uv, venvPython, venvPip, projectDir, runtimes["gpu"])
 		if gpuRuntimeWorks(venvPython, projectDir, dataDir) {
@@ -504,17 +486,30 @@ func requirementInstallArgs(requirements ...string) []string {
 // typically doesn't exist on post-uv installs, and every venvPip call
 // silently fails. That used to leave broken onnxruntime-gpu stub wheels
 // in place (AttributeError: no SessionOptions at import time).
+//
+// uv's dry run says first whether the install changes the venv and whether
+// it replaces or removes installed packages, which frees the runtime
+// (ADR 0084). Adding packages does not: no process has their files loaded.
 func pipInstall(uv, venvPython, venvPip string, args ...string) error {
 	if uv != "" {
 		full := append([]string{"pip", "install", "--python", venvPython}, args...)
+		plan, err := runner.RunCapture(uv, append(full, "--dry-run")...)
+		switch {
+		case err == nil && strings.Contains(plan, "Would make no changes"):
+			return nil
+		case err == nil && strings.Contains(plan, "Would uninstall"):
+			freeRuntime()
+		}
 		return runner.Run(uv, full...)
 	}
+	freeRuntime()
 	full := append([]string{"install"}, args...)
 	return runner.Run(venvPip, full...)
 }
 
 // pipUninstall removes packages from the venv, preferring uv.
 func pipUninstall(uv, venvPython, venvPip string, pkgs ...string) error {
+	freeRuntime()
 	if uv != "" {
 		full := append([]string{"pip", "uninstall", "--python", venvPython}, pkgs...)
 		return runner.Run(uv, full...)
@@ -642,7 +637,10 @@ func setupBackend() backendPaths {
 	// model.device and this machine select one complete environment with
 	// exactly one ONNX Runtime distribution (ADR 0032, 0062); the install
 	// profile selects only the local LLM's build. --retry-gpu forgets a
-	// recorded CUDA failure, so this run tries the GPU runtime again.
+	// recorded CUDA failure, so this run tries the GPU runtime again. The
+	// plan reads the configuration once running jobs and setups are done.
+	holdRuntime(projectDir)
+	defer releaseRuntime()
 	if retryGPU {
 		output.Info("--retry-gpu: forgetting any recorded CUDA failure")
 	}

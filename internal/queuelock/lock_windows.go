@@ -24,8 +24,9 @@ var (
 
 // Handle owns a held queue lock. Windows impl: HANDLE + LockFileEx.
 type Handle struct {
-	fd   syscall.Handle
-	path string
+	fd       syscall.Handle
+	path     string
+	released bool
 }
 
 func acquireNative(path string, body []byte) (*Handle, error) {

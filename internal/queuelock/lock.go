@@ -9,6 +9,10 @@
 // A holder may declare itself preemptible (the dashboard's background
 // tagging job, ADR 0067). TryAcquire stops such a holder and takes the lock
 // instead of reporting it busy; imprint/queue_lock.py does the same.
+//
+// The runtime lock, {dataDir}/runtime.lock, uses the same backend. Setup
+// holds it while it changes the venv, and the dashboard server's launchers
+// wait for it before they start the server (ADR 0084).
 package queuelock
 
 import (
@@ -95,11 +99,38 @@ func takeFromPreemptible(dataDir string, body []byte, pid int) (*Handle, error) 
 	}
 }
 
-// Release drops the lock. Safe to call on a nil handle.
+func runtimeLockPath(dataDir string) string {
+	return filepath.Join(dataDir, "runtime.lock")
+}
+
+// HoldRuntime takes the runtime lock, waiting while another setup holds it.
+func HoldRuntime(dataDir string) (*Handle, error) {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir data dir: %w", err)
+	}
+	body, _ := json.Marshal(Holder{PID: os.Getpid(), Command: "setup", StartedAt: float64(time.Now().UnixNano()) / 1e9})
+	for {
+		handle, err := acquireNative(runtimeLockPath(dataDir), body)
+		if _, busy := err.(*busySentinel); !busy {
+			return handle, err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// WaitRuntime returns once no setup holds the runtime lock.
+func WaitRuntime(dataDir string) error {
+	handle, err := HoldRuntime(dataDir)
+	handle.Release()
+	return err
+}
+
+// Release drops the lock. Safe to call on a nil or released handle.
 func (h *Handle) Release() {
-	if h == nil {
+	if h == nil || h.released {
 		return
 	}
+	h.released = true
 	releaseNative(h)
 }
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -77,20 +78,9 @@ func TestStopOwnedProcessesEndsOnlyThisInstallation(t *testing.T) {
 	bin := filepath.Join(root, "bin")
 	copyFile(t, self, filepath.Join(bin, "sleeper"+filepath.Ext(self)))
 
-	start := func(binary string, extra ...string) chan struct{} {
-		cmd := exec.Command(binary, append([]string{"-test.run=^TestHelperSleep$", "--"}, extra...)...)
-		cmd.Env = append(os.Environ(), "IMPRINT_TEST_SLEEPER=1")
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		done := make(chan struct{})
-		go func() { _ = cmd.Wait(); close(done) }()
-		t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
-		return done
-	}
-	fromInstall := start(filepath.Join(bin, "sleeper"+filepath.Ext(self)))
-	shell := start(self, "--project-dir="+root)
-	unrelated := start(self, "--project-dir="+root+"-other")
+	_, fromInstall := startSleeper(t, filepath.Join(bin, "sleeper"+filepath.Ext(self)))
+	_, shell := startSleeper(t, self, "--project-dir="+root)
+	_, unrelated := startSleeper(t, self, "--project-dir="+root+"-other")
 	waitUntil(t, func() bool { return countOwned(t, bin, root) == 2 })
 
 	if err := stopOwnedProcesses([]string{bin}, root); err != nil {
@@ -108,6 +98,60 @@ func TestStopOwnedProcessesEndsOnlyThisInstallation(t *testing.T) {
 		t.Error("a process of another installation was stopped")
 	default:
 	}
+}
+
+// Setup restarts the dashboard server, and on Windows the venv launcher
+// running it, instead of stopping them (ADR 0084).
+func TestStopOwnedProcessesSparesTheRestartedServer(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "bin")
+	sleeper := filepath.Join(bin, "sleeper"+filepath.Ext(self))
+	copyFile(t, self, sleeper)
+	server, serverDone := startSleeper(t, sleeper)
+	other, otherDone := startSleeper(t, sleeper)
+	waitUntil(t, func() bool { return countOwned(t, bin, "") == 2 })
+
+	// This test process started the server; it is its launcher only when it
+	// runs from the runtime too.
+	if got := withLauncher(server.Process.Pid, []string{bin}); !slices.Equal(got, []int{server.Process.Pid}) {
+		t.Errorf("withLauncher outside the runtime = %v, want only the server", got)
+	}
+	if got := withLauncher(server.Process.Pid, []string{bin, filepath.Dir(self)}); !slices.Equal(got, []int{server.Process.Pid, os.Getpid()}) {
+		t.Errorf("withLauncher = %v, want the server and this process", got)
+	}
+
+	if err := stopOwnedProcesses([]string{bin}, "", server.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-otherDone:
+	case <-time.After(5 * time.Second):
+		t.Errorf("process %d still running", other.Process.Pid)
+	}
+	select {
+	case <-serverDone:
+		t.Error("the excepted server was stopped")
+	default:
+	}
+	if !waitForExit([]int{other.Process.Pid}, time.Second) || waitForExit([]int{server.Process.Pid}, 200*time.Millisecond) {
+		t.Error("waitForExit does not tell an exited process from a running one")
+	}
+}
+
+// startSleeper runs binary as TestHelperSleep until the test ends.
+func startSleeper(t *testing.T, binary string, extra ...string) (*exec.Cmd, chan struct{}) {
+	cmd := exec.Command(binary, append([]string{"-test.run=^TestHelperSleep$", "--"}, extra...)...)
+	cmd.Env = append(os.Environ(), "IMPRINT_TEST_SLEEPER=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+	return cmd, done
 }
 
 func countOwned(t *testing.T, bin, project string) int {

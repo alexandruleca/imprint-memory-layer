@@ -54,7 +54,11 @@ def main():
         daemon=True,
     ).start()
     try:
-        # Start watching before the comparatively expensive dashboard imports.
+        # Start watching before the comparatively expensive dashboard imports,
+        # which wait while setup changes the runtime (ADR 0084).
+        from .queue_lock import wait_for_runtime
+
+        wait_for_runtime()
         from .api import DashboardServer, mount_static
 
         if parent_closed.is_set():

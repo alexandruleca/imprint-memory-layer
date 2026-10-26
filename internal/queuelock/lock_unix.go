@@ -9,8 +9,9 @@ import (
 
 // Handle owns a held queue lock. Unix impl: posix fd + fcntl flock.
 type Handle struct {
-	fd   int
-	path string
+	fd       int
+	path     string
+	released bool
 }
 
 func acquireNative(path string, body []byte) (*Handle, error) {

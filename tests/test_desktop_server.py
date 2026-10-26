@@ -132,6 +132,20 @@ class ParentWatchTests(unittest.TestCase):
             self.assertEqual(proc.wait(timeout=15), RESTART_EXIT_CODE)
             self.assertFalse((Path(data) / 'imprint_ui.json').exists())
 
+    def test_service_waits_while_setup_changes_the_runtime(self):
+        # Setup holds runtime.lock while it replaces the venv's packages (ADR 0084).
+        from imprint import queue_lock
+        with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data, tempfile.TemporaryFile() as log:
+            fd = os.open(os.path.join(data, 'runtime.lock'), os.O_RDWR | os.O_CREAT)
+            self.addCleanup(os.close, fd)
+            self.assertTrue(queue_lock._lock(fd, False))
+            release = threading.Timer(3, queue_lock._unlock, args=(fd,))
+            release.start()
+            self.addCleanup(release.cancel)
+            started = time.monotonic()
+            self.serve(data, log)
+            self.assertGreaterEqual(time.monotonic() - started, 3)
+
 
 class RestartEndpointTests(unittest.TestCase):
     def test_stopping_never_waits_on_clients_indefinitely(self):

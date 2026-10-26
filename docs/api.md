@@ -222,11 +222,12 @@ available.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/config` | All resolved config values + their source, and each setting's choices; `model.device`'s say what each value does on this device. |
+| GET | `/api/config` | All resolved config values + their source, and each setting's choices; `model.device`'s say what each value does on this device. `runtime` is the ONNX Runtime the configured device still needs (`pending`, empty when installed), whether this server's `imprint bootstrap` runs (`provisioning`), and while it is missing the end of `data/bootstrap.log` (`log`). |
 | PUT | `/api/config/{key}` | Set a config key. Body: `{"value": ...}`. |
 | DELETE | `/api/config/{key}` | Remove the `config.json` override. |
+| POST | `/api/runtime/provision` | Start `imprint bootstrap` for the runtime the configured device still needs; answers `runtime`. |
 
-Both writes answer with `provisioning`: the ID of a queued `imprint bootstrap` job when the change (to `model.device` or `model.gpu_device`) needs another ONNX Runtime build on this device, else `null`. The server restarts itself once that job has replaced the runtime it loaded ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)).
+Both writes answer with `provisioning`: `true` when the change (to `model.device` or `model.gpu_device`) needs another ONNX Runtime build on this device and the server started `imprint bootstrap` outside the queue ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)). Bootstrap restarts the server before it replaces the runtime the server loaded, and the server starts again on the new runtime once bootstrap is done ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)).
 
 ```bash
 # Turn on LLM tagging

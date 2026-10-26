@@ -11,7 +11,8 @@ A holder can declare itself preemptible: the background tagging job does
 and takes the lock instead of waiting behind it or refusing; the holder loses
 at most the memory it was tagging. ``internal/queuelock`` does the same.
 
-``try_lock`` and ``unlock`` lock other files with the same backend.
+``try_lock`` and ``unlock`` lock other files with the same backend, and
+``wait_for_runtime`` waits for the runtime lock setup holds (ADR 0084).
 
 Locking backend: fcntl.flock on Unix, msvcrt.locking on Windows. On Windows
 the locked byte sits past the holder's metadata (``_WINDOWS_LOCK_OFFSET``):
@@ -205,6 +206,26 @@ def unlock(fd: int, path: Path) -> None:
         path.unlink()
     except OSError:
         pass  # Windows keeps a file another process has open.
+
+
+def wait_for_runtime() -> None:
+    """Return once no ``imprint setup`` holds ``runtime.lock`` (ADR 0084).
+
+    Setup holds it while it changes the venv. The dashboard server waits
+    before it imports its dependencies, so a server started meanwhile does
+    not load the packages being replaced. Only the standard library is
+    loaded until then.
+    """
+    from .config import get_data_dir
+    path = get_data_dir() / "runtime.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        while not _lock(fd, False):
+            time.sleep(0.2)
+        _unlock(fd)
+    finally:
+        os.close(fd)
 
 
 def read_holder() -> dict | None:

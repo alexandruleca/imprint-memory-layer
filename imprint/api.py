@@ -893,7 +893,7 @@ def api_config():
             "choices": [asdict(c) for c in s.options()],
             "custom": s.custom,
         })
-    return {"settings": settings}
+    return {"settings": settings, "runtime": _runtime_state()}
 
 
 @app.put("/api/config/{key:path}")
@@ -932,37 +932,71 @@ def _tagging_settings_changed(key: str) -> None:
         job_queue.backlog_changed()
 
 
-def _provision_runtime(key: str) -> str | None:
-    """Queue ``imprint bootstrap`` when changing ``key`` changed which ONNX
-    Runtime embeddings need here, and return the job's ID (ADR 0062).
+def _provision_runtime(key: str) -> bool:
+    """Start ``imprint bootstrap`` when changing ``key`` changed which ONNX
+    Runtime embeddings need here, and say whether it started (ADR 0062).
 
-    Setup's own process installs the runtime: this server keeps the one it
-    loaded until that job finishes, then restarts into the new one. A queued
-    job reads the configuration when it starts, so one is enough; a running
-    job may have read it before this change, so another follows it.
+    Setup runs outside this server: once running jobs are done, it restarts
+    the server before it replaces what the server loaded, and the server
+    starts again on the new runtime when setup is done (ADR 0084). A
+    bootstrap still running may have read the configuration before this
+    change, so another follows it.
     """
     if key not in gpu_runtime.SETTINGS:
-        return None
-    jobs = job_queue.list_queue(recent_limit=0)
-    queued = next((job for job in jobs["queued"] if job["command"] == "bootstrap"), None)
-    if queued:
-        return queued["id"]
-    running = (jobs["active"] or {}).get("command") == "bootstrap"
-    if not running and not gpu_runtime.pending():
-        return None
-    return job_queue.enqueue("bootstrap", {})
+        return False
+    if not _bootstrap_running() and not gpu_runtime.pending():
+        return False
+    _start_bootstrap()
+    return True
 
 
-# The ONNX Runtime this process loaded, when it imported vectorstore.
-_LOADED_RUNTIME = gpu_runtime.installed()
+# The ``imprint bootstrap`` this server started, and its output.
+_bootstrap: subprocess.Popen | None = None
 
 
-def restart_into_runtime() -> None:
-    """Restart this server after a queued ``imprint bootstrap`` replaced the
-    ONNX Runtime it loaded, so it embeds with the new one (ADR 0050, 0062).
-    A server no launcher supervises keeps running until it is restarted."""
-    if app.state.server is not None and gpu_runtime.installed() != _LOADED_RUNTIME:
-        app.state.server.restart()
+def _bootstrap_log() -> Path:
+    return config.get_data_dir() / "bootstrap.log"
+
+
+def _bootstrap_running() -> bool:
+    return _bootstrap is not None and _bootstrap.poll() is None
+
+
+def _start_bootstrap() -> None:
+    """Run ``imprint bootstrap`` outside this server's process group, like the
+    updater: it outlives this server, which it restarts."""
+    global _bootstrap
+    detach = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+        if os.name == "nt" else {"start_new_session": True}
+    )
+    with open(_bootstrap_log(), "a", encoding="utf-8") as log:
+        _bootstrap = subprocess.Popen(
+            [job_queue.find_imprint_binary(), "bootstrap", "--non-interactive"],
+            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            env={**os.environ, "NO_COLOR": "1"}, **detach,
+        )
+
+
+def _runtime_state(lines: int = 8) -> dict:
+    """Whether the configured device still needs another runtime, and how the
+    last bootstrap ended while it does."""
+    pending = gpu_runtime.pending()
+    log: list[str] = []
+    if pending:
+        try:
+            log = _bootstrap_log().read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+        except FileNotFoundError:
+            pass
+    return {"pending": pending, "provisioning": _bootstrap_running(), "log": log}
+
+
+@app.post("/api/runtime/provision")
+def api_runtime_provision():
+    """Install the runtime the configured device needs, as saving it does."""
+    if not _bootstrap_running() and gpu_runtime.pending():
+        _start_bootstrap()
+    return _runtime_state()
 
 
 # ── CLI command execution ──────────────────────────────────────
@@ -974,8 +1008,6 @@ def _after_job(command: str, status: str) -> None:
         return
     if command in ("wipe", "migrate", "workspace", "retag", "scrub"):
         _reset_after_wipe()  # They mutate collections.
-    elif command == "bootstrap":
-        restart_into_runtime()  # Settings changed the embedding runtime.
 
 
 def _reset_after_wipe():

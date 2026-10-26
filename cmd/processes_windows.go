@@ -33,7 +33,7 @@ func listProcesses() ([]processInfo, error) {
 		exe, cmdline := imagePath(handle), commandLine(handle)
 		syscall.CloseHandle(handle)
 		if exe != "" || cmdline != "" {
-			procs = append(procs, processInfo{PID: int(entry.ProcessID), Exe: exe, Cmdline: cmdline})
+			procs = append(procs, processInfo{PID: int(entry.ProcessID), PPID: int(entry.ParentProcessID), Exe: exe, Cmdline: cmdline})
 		}
 	}
 	return procs, nil

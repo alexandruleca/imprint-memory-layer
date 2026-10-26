@@ -25,7 +25,19 @@ func listProcesses() ([]processInfo, error) {
 		if exe == "" && len(cmdline) == 0 {
 			continue
 		}
-		procs = append(procs, processInfo{PID: pid, Exe: strings.TrimSuffix(exe, " (deleted)"), Cmdline: string(cmdline)})
+		procs = append(procs, processInfo{PID: pid, PPID: parentPID(dir), Exe: strings.TrimSuffix(exe, " (deleted)"), Cmdline: string(cmdline)})
 	}
 	return procs, nil
+}
+
+// parentPID reads the fourth field of /proc/<pid>/stat, after the command
+// name, which is parenthesized and may itself contain spaces or parentheses.
+func parentPID(dir string) int {
+	data, _ := os.ReadFile(filepath.Join(dir, "stat"))
+	stat := string(data)
+	if f := strings.Fields(stat[strings.LastIndexByte(stat, ')')+1:]); len(f) > 1 {
+		ppid, _ := strconv.Atoi(f[1])
+		return ppid
+	}
+	return 0
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/queuelock"
 	"github.com/hunter/imprint/internal/runner"
 )
 
@@ -94,7 +95,8 @@ func uiServe(args []string) {
 
 // superviseUI runs the dashboard server with this process's standard streams
 // and starts it again each time it exits for a restart, so a restart serves
-// the installed code under the same owner (ADR 0050).
+// the installed code under the same owner (ADR 0050). Each start waits while
+// setup changes the runtime (ADR 0084).
 func superviseUI(pyArgs []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
@@ -106,6 +108,9 @@ func superviseUI(pyArgs []string) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	err := superviseServer(func() *exec.Cmd {
+		if err := queuelock.WaitRuntime(dataDir); err != nil {
+			output.Warn("Could not check for a running setup: " + err.Error())
+		}
 		cmd := runner.CommandWithEnv(venvPython, pyArgs,
 			"PYTHONPATH="+projectDir,
 			"IMPRINT_DATA_DIR="+dataDir,
@@ -270,6 +275,23 @@ func uiRestart(_ []string) {
 // restartRegisteredUI restarts the registered server and waits up to timeout
 // for its replacement to answer.
 func restartRegisteredUI(dataDir string, timeout time.Duration) (*uiState, error) {
+	old, err := requestUIRestart(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if st, ok := readUIState(dataDir); ok && st.PID != old.PID && uiHealthy(st.Port) {
+			return st, nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("the UI server (pid %d) stopped and did not start again within %s; reopen Imprint or run `imprint ui start` (`imprint ui log` has details)", old.PID, timeout)
+}
+
+// requestUIRestart asks the registered server to exit for a restart and
+// returns the server it asked.
+func requestUIRestart(dataDir string) (*uiState, error) {
 	old, ok := readUIState(dataDir)
 	if !ok || !uiHealthy(old.Port) {
 		return nil, errNoUIServer
@@ -283,14 +305,7 @@ func restartRegisteredUI(dataDir string, timeout time.Duration) (*uiState, error
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("the UI server (pid %d) cannot restart: HTTP %d", old.PID, resp.StatusCode)
 	}
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if st, ok := readUIState(dataDir); ok && st.PID != old.PID && uiHealthy(st.Port) {
-			return st, nil
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return nil, fmt.Errorf("the UI server (pid %d) stopped and did not start again within %s; reopen Imprint or run `imprint ui start` (`imprint ui log` has details)", old.PID, timeout)
+	return old, nil
 }
 
 func uiStatus(_ []string) {

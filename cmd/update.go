@@ -125,7 +125,7 @@ func Update(args []string, currentVersion string) {
 	case installMacPkg:
 		updateWithMacPkg(inst, target, currentVersion, flags.Yes)
 	default:
-		updateArchive(inst, target, currentVersion, flags.Yes)
+		updateArchive(inst, target, currentVersion, flags.Yes, lock)
 	}
 }
 
@@ -165,7 +165,8 @@ func printUpdateCheck(asJSON bool, currentVersion string, target *release.Releas
 
 // updateArchive overlays the release archive onto an install.sh /
 // install.ps1 tree, re-runs setup and restarts a running dashboard server.
-func updateArchive(inst installation, target *release.Release, currentVersion string, yes bool) {
+// It holds lock while it replaces files; setup takes it itself.
+func updateArchive(inst installation, target *release.Release, currentVersion string, yes bool, lock *queuelock.Handle) {
 	installDir := inst.dir
 	asset, err := release.FindArchiveAsset(target)
 	if err != nil {
@@ -231,21 +232,12 @@ func updateArchive(inst installation, target *release.Release, currentVersion st
 		}
 	}
 
-	// Install Python deps via the existing venv (install.sh keeps it across
-	// upgrades, and that policy matches here).
-	venvPip := platform.VenvBin(installDir, "pip")
-	reqs := filepath.Join(installDir, "requirements.txt")
-	if platform.FileExists(venvPip) && platform.FileExists(reqs) {
-		output.Info("Installing Python dependencies...")
-		if err := runner.Run(venvPip, "install", "-r", reqs, "--quiet"); err != nil {
-			output.Warn("pip install failed: " + err.Error() + " — run `imprint setup` manually")
-		}
-	}
-
 	output.Success("Updated to " + target.TagName)
 
-	// Hand off to the new binary's setup so any new GPU/dependency logic
-	// shipped in the release runs with up-to-date code.
+	// Hand off to the new binary's setup, which installs the release's
+	// dependencies into the existing venv (install.sh keeps it across
+	// upgrades) with up-to-date code (ADR 0084).
+	lock.Release()
 	output.Info("Re-running setup with new binary...")
 	if err := runner.Run(binPath, "setup"); err != nil {
 		output.Warn("Setup returned error: " + err.Error())

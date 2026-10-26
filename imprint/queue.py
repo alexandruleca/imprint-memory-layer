@@ -1021,9 +1021,6 @@ def build_command_args(command: str, body: dict) -> list[str]:
             args.append(action)
         if body.get("name"):
             args.append(body["name"])
-    elif command == "bootstrap":
-        # Settings changed the embedding runtime (ADR 0062); a job cannot answer prompts.
-        args.append("--non-interactive")
     elif command == "wsl":
         # setup or remove one distribution's default-user profile of a client
         if body.get("action"):

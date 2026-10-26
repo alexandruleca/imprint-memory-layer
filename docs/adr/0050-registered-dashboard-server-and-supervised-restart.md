@@ -3,11 +3,12 @@ title: ADR 0050 — Registered dashboard server and supervised restart
 description: The serving dashboard registers itself, and every launcher starts it again when it exits for a restart, so updates replace it whoever started it.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
 - Amends:
   - [ADR 0023](0023-update-by-installation-type.md) — the update methods' server stop/restart
   - [ADR 0025](0025-desktop-owned-background-service.md) — desktop-owned servers now register themselves
+- Amended by: [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) — the server's launchers wait while setup changes the runtime, and setup restarts the server
 - Restructured: 2026-10-25
 
 ## Context

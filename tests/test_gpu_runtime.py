@@ -230,17 +230,18 @@ class ProvisioningAPITests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(environment.stop)
         for name in ('IMPRINT_DEVICE', 'IMPRINT_GPU_DEVICE'):
             os.environ.pop(name, None)
-        self.queued = []
-        self.jobs = {'active': None, 'queued': [], 'recent': []}
-        patches = [patch.object(queue, 'enqueue', side_effect=self.enqueue),
-                   patch.object(queue, 'list_queue', side_effect=lambda recent_limit=20: self.jobs)]
+        self.data = Path(directory.name)
+        self.started = 0
+        self.running = False
+        from imprint import api
+        patches = [patch.object(api, '_start_bootstrap', side_effect=self.start),
+                   patch.object(api, '_bootstrap_running', side_effect=lambda: self.running)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
 
-    def enqueue(self, command, body):
-        self.queued.append(command)
-        return f'job-{len(self.queued)}'
+    def start(self):
+        self.started += 1
 
     async def request(self, method, path, **kwargs):
         from imprint.api import app
@@ -248,70 +249,77 @@ class ProvisioningAPITests(unittest.IsolatedAsyncioTestCase):
                                      base_url='http://127.0.0.1:8420') as client:
             return await client.request(method, path, **kwargs)
 
-    async def test_choosing_the_gpu_queues_bootstrap(self):
+    async def test_choosing_the_gpu_starts_bootstrap(self):
         with machine():
             response = await self.request('PUT', '/api/config/model.device', json={'value': 'gpu'})
-        self.assertEqual(response.json()['provisioning'], 'job-1')
-        self.assertEqual(self.queued, ['bootstrap'])
+        self.assertIs(response.json()['provisioning'], True)
+        self.assertEqual(self.started, 1)
 
-    async def test_a_change_the_runtime_already_matches_queues_nothing(self):
+    async def test_a_change_the_runtime_already_matches_starts_nothing(self):
         with machine(devices=()):
             response = await self.request('PUT', '/api/config/model.device', json={'value': 'gpu'})
-        self.assertIsNone(response.json()['provisioning'])
+        self.assertIs(response.json()['provisioning'], False)
         with machine():
             response = await self.request('PUT', '/api/config/tagger.llm', json={'value': 'true'})
-        self.assertIsNone(response.json()['provisioning'])
-        self.assertEqual(self.queued, [])
+        self.assertIs(response.json()['provisioning'], False)
+        self.assertEqual(self.started, 0)
 
     async def test_resetting_the_device_removes_the_cuda_runtime(self):
         config_schema.set_value('model.device', 'gpu')
         with machine(providers={'onnxruntime-gpu': True}):
             response = await self.request('DELETE', '/api/config/model.device')
-        self.assertEqual((response.json()['removed'], response.json()['provisioning']), (True, 'job-1'))
+        self.assertEqual((response.json()['removed'], response.json()['provisioning']), (True, True))
 
-    async def test_one_queued_bootstrap_serves_every_change(self):
-        self.jobs['queued'] = [{'id': 'queued-1', 'command': 'bootstrap'}]
-        with machine():
-            response = await self.request('PUT', '/api/config/model.device', json={'value': 'gpu'})
-        self.assertEqual(response.json()['provisioning'], 'queued-1')
-        self.assertEqual(self.queued, [])
-
-    async def test_a_change_during_a_running_bootstrap_queues_another(self):
-        self.jobs['active'] = {'id': 'running-1', 'command': 'bootstrap'}
-        with machine(devices=()):  # Nothing pending by now, but the job may have planned before.
+    async def test_a_change_during_a_running_bootstrap_starts_another(self):
+        self.running = True
+        with machine(devices=()):  # Nothing pending by now, but that one may have planned before.
             response = await self.request('PUT', '/api/config/model.device', json={'value': 'cpu'})
-        self.assertEqual(response.json()['provisioning'], 'job-1')
+        self.assertIs(response.json()['provisioning'], True)
+        self.assertEqual(self.started, 1)
+
+    async def test_settings_show_a_runtime_setup_did_not_install(self):
+        config_schema.set_value('model.device', 'gpu')
+        (self.data / 'bootstrap.log').write_text('[*] Installing dependencies for the gpu runtime\n'
+                                                 '[x] Installing dependencies for the gpu runtime failed\n')
+        with machine():
+            runtime = (await self.request('GET', '/api/config')).json()['runtime']
+            self.assertIn('the CUDA runtime', runtime['pending'])
+            self.assertEqual(runtime['log'][-1], '[x] Installing dependencies for the gpu runtime failed')
+            await self.request('POST', '/api/runtime/provision')
+            self.assertEqual(self.started, 1)
+            self.running = True
+            await self.request('POST', '/api/runtime/provision')
+            self.assertEqual(self.started, 1)
+        with machine(providers={'onnxruntime-gpu': True}):
+            runtime = (await self.request('GET', '/api/config')).json()['runtime']
+        self.assertEqual((runtime['pending'], runtime['log']), ('', []))
 
 
-class RestartTests(unittest.TestCase):
-    def test_the_server_restarts_only_into_another_runtime(self):
+class BootstrapProcessTests(DataDirTestCase):
+    def test_bootstrap_runs_outside_the_server_and_logs_to_a_file(self):
+        import sys
         from imprint import api
+        # Python stands in for the CLI: it reports that it found no `bootstrap` script.
+        with patch.object(queue, 'find_imprint_binary', return_value=sys.executable), \
+             patch.object(api, '_bootstrap', None):
+            with patch.object(api.subprocess, 'Popen', wraps=api.subprocess.Popen) as popen:
+                api._start_bootstrap()
+            argv = popen.call_args.args[0]
+            self.assertEqual(argv[1:], ['bootstrap', '--non-interactive'])
+            api._bootstrap.wait(30)
+            self.assertFalse(api._bootstrap_running())
+        detach = popen.call_args.kwargs
+        self.assertTrue(detach.get('start_new_session') or detach.get('creationflags'))
+        self.assertIn('bootstrap', (self.data / 'bootstrap.log').read_text())
 
-        class Server:
-            restarted = False
 
-            def restart(self):
-                self.restarted = True
-
-        for installed, server_runs, want in [('gpu', True, True), (api._LOADED_RUNTIME, True, False), ('gpu', False, False)]:
-            server = Server()
-            with patch.object(api.app.state, 'server', server if server_runs else None), \
-                 patch.object(gpu_runtime, 'installed', return_value=installed), \
-                 patch.object(api, '_LOADED_RUNTIME', 'cpu' if installed == 'gpu' else installed):
-                api.restart_into_runtime()
-            self.assertEqual(server.restarted, want, (installed, server_runs))
-
-    def test_bootstrap_jobs_never_prompt(self):
-        self.assertEqual(queue.build_command_args('bootstrap', {}), ['--non-interactive'])
-
-    def test_only_a_finished_bootstrap_restarts_the_server(self):
+class AfterJobTests(unittest.TestCase):
+    def test_only_jobs_that_changed_collections_reset_the_server(self):
         from imprint import api
-        with patch.object(api, 'restart_into_runtime') as restart, patch.object(api, '_reset_after_wipe') as reset:
-            api._after_job('bootstrap', 'failed')
+        with patch.object(api, '_reset_after_wipe') as reset:
+            api._after_job('wipe', 'failed')
             api._after_job('ingest', 'done')
-            restart.assert_not_called()
-            api._after_job('bootstrap', 'done')
-            restart.assert_called_once_with()
+            reset.assert_not_called()
             api._after_job('wipe', 'done')
             reset.assert_called_once_with()
 
@@ -322,10 +330,10 @@ class RestartTests(unittest.TestCase):
         import sys
         with tempfile.TemporaryDirectory() as data, patch.dict(os.environ, {'IMPRINT_DATA_DIR': data}), \
                 patch.object(queue, '_build_argv', lambda command, body: [sys.executable, '-c', 'pass']):
-            job_id = queue.enqueue('bootstrap', {})
+            job_id = queue.enqueue('wipe', {})
             seen = []
             asyncio.run(queue._run_job(queue.get_job(job_id), lambda command, status: seen.append((command, status))))
-        self.assertEqual(seen, [('bootstrap', 'done')])
+        self.assertEqual(seen, [('wipe', 'done')])
 
 
 if __name__ == '__main__':

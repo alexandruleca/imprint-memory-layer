@@ -764,3 +764,16 @@ On macOS arm64, reproduced the reported `learn` stop at conversation 1/167 from 
 Installed hashed base/CPU requirements in a disposable venv and read the expected text from a generated image and an image-only PDF using real RapidOCR/PDFium. Default OCR used wheel-bundled models and rendering libraries without system Tesseract or Poppler. The targeted Python suite passed 146 tests; an additional embedded-Qdrant interruption/resume regression passed separately. Go command/internal tests passed. Other release changes in this workspace have their own validation entries.
 
 Native Windows, Linux and Intel macOS OCR execution, custom-language Tesseract execution and complete installers were not exercised. Wheel metadata checks required an Intel macOS OpenCV 4.11 pin to preserve the macOS 13 baseline. The installed application and real memory store were not patched or reindexed by these checks. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md).
+
+## Setup frees the runtime before replacing its files (2026-10-26)
+
+See [ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md). Machine: RTX 4080 Laptop, Windows 11, plus WSL2 Ubuntu. Windows runs used a scratch tree under `%TEMP%` with an isolated `USERPROFILE`; the installed runtime was only read, apart from one `uv cache prune` on its cache that removed nothing.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Field failure (installed Windows runtime) | Reproduced | Setup's `uv cache prune` had removed every archive the fresh venv was linked to (15,626 files, 438 MiB), leaving loaded DLLs with one link; switching to GPU from Settings then failed with "Access is denied". Prune on scratch caches with the same uv, locks and bootstrap kept every archive; the trigger was not reproduced. |
+| Swap with a held, single-link runtime (native Windows) | Passed | The old install command failed exactly as in the field. `imprint bootstrap` then stopped the holding process, restarted an `imprint ui start` server, installed `onnxruntime-gpu` alone and passed the CUDA check in 12 s; the server came back under the same supervisor. |
+| Settings switch back to CPU (native Windows) | Passed | `PUT /api/config/model.device` started bootstrap detached; it stopped a holding process, restarted the server that started it, installed the CPU build and removed the CUDA libraries, and the server came back with nothing pending. |
+| Go tests natively on Windows | Passed | `cmd` (run with `-test.v`) and `queuelock`, including Python waiting while Go holds `runtime.lock`. |
+
+Not run: the desktop app restarted by setup, the Windows installer, `imprint update`, macOS and an archive update.

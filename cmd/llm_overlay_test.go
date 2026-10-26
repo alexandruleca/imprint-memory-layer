@@ -30,7 +30,9 @@ func TestInstallLLMOverlayKeepsTheGPUBuildOnlyWhenItOffloads(t *testing.T) {
 		log := filepath.Join(t.TempDir(), "installs")
 		t.Setenv("IMPRINT_FAKE_TOOL_LOG", log)
 		t.Setenv("IMPRINT_FAKE_OFFLOAD", c.offload)
+		holdRuntime(project)
 		installLLMOverlay("", os.Args[0], os.Args[0], project, c.profile)
+		releaseRuntime()
 		if got := fakeCalls(t, log); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("profile %s, offload %s: installed %v, want %v", c.profile, c.offload, got, c.want)
 		}

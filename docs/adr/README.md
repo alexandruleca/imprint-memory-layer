@@ -68,7 +68,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) **llama.cpp GPU offload through upstream's Vulkan wheels.** The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed.
 - [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) **Chat speaks each model's native tool protocol.** Chat keeps one registry of tool JSON schemas; local models get them through their chat template and remote providers through API function calling, with no text protocol of Imprint's own. Amended by [ADR 0061](0061-local-tool-call-formats.md) (local parsing).
 - [ADR 0061](0061-local-tool-call-formats.md) **Local tool-call formats by model family.** Local chat parses tool calls in the model family's format (Qwen XML, Hermes JSON, Llama 3, Mistral), detected by rendering a probe call through the template or chosen with `chat.tool_format`; other models chat without tools and say so.
-- [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) **CUDA only for GPU embedding on a supported NVIDIA GPU.** The embedding runtime follows `model.device` and the machine: the CUDA build, with only the libraries its provider loads, installs only for GPU embedding on a supported NVIDIA GPU; switching builds removes what the old one used.
+- [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) **CUDA only for GPU embedding on a supported NVIDIA GPU.** The embedding runtime follows `model.device` and the machine: the CUDA build, with only the libraries its provider loads, installs only for GPU embedding on a supported NVIDIA GPU; switching builds removes what the old one used. Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) (swapping under running processes, provisioning through the queue and pruning uv's cache).
 - [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) **Keep Qwen3.5-4B as the local tagger.** Qwen3.5-2B tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on; putting the prompt's fixed text first gains nothing on Qwen3.5's architecture.
 
 ### Sync and device provenance
@@ -101,7 +101,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0008](0008-dashboard-retrieval-and-accessibility.md) **Dashboard retrieval and accessibility.** Same-origin dashboard, usable search states and accessible modal behavior. Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) (dialog primitive).
 - [ADR 0025](0025-desktop-owned-background-service.md) **Desktop-owned background service.** Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (service registration).
 - [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) **shadcn overlays and desktop drag handles.** Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open.
-- [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) **Registered dashboard server and supervised restart.** The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads.
+- [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) **Registered dashboard server and supervised restart.** The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) (launchers wait while setup changes the runtime; setup restarts the server).
 
 ### Voice and Echo
 
@@ -135,6 +135,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
 
 - [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled.
+
+- [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) **Setup frees the runtime before replacing its files.** Setup holds the queue and runtime locks while it changes the venv; before it replaces or removes packages it restarts the dashboard server and, on Windows, stops every other process running from the runtime. Settings starts bootstrap outside the queue.
 
 ## Open proposals
 
@@ -197,7 +199,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0047](0047-bundled-private-voice-engine.md) | 2026-10-24 | Accepted | Bundle the private voice engine |
 | [0048](0048-anime-echo-and-desktop-recovery.md) | 2026-10-24 | Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md), [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | Anime Echo and recoverable desktop controls |
 | [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | 2026-10-24 | Accepted | llama.cpp GPU offload through upstream's Vulkan wheels |
-| [0050](0050-registered-dashboard-server-and-supervised-restart.md) | 2026-10-24 | Accepted | Registered dashboard server and supervised restart |
+| [0050](0050-registered-dashboard-server-and-supervised-restart.md) | 2026-10-24 | Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | Registered dashboard server and supervised restart |
 | [0051](0051-synced-tags-follow-the-latest-retag.md) | 2026-10-24 | Accepted | Synced tags follow the latest retag |
 | [0052](0052-learn-cursor-conversations-from-their-folder-names.md) | 2026-10-25 | Accepted | Learn Cursor conversations from their folder names |
 | [0053](0053-connect-clients-without-touching-the-runtime.md) | 2026-10-25 | Accepted | Connect and disconnect clients without touching the runtime |
@@ -209,7 +211,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0059](0059-chat-speaks-each-models-native-tool-protocol.md) | 2026-10-25 | Amended by [ADR 0061](0061-local-tool-call-formats.md) | Chat speaks each model's native tool protocol |
 | [0060](0060-redact-secrets-before-memories-are-stored.md) | 2026-10-25 | Accepted | Redact secrets before memories are stored |
 | [0061](0061-local-tool-call-formats.md) | 2026-10-25 | Accepted | Local tool-call formats by model family |
-| [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Accepted | CUDA only for GPU embedding on a supported NVIDIA GPU |
+| [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | CUDA only for GPU embedding on a supported NVIDIA GPU |
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
 | [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0068](0068-merge-identical-waiting-jobs.md), [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | Serialize heavy commands with a single-slot queue and a shared lock file |
 | [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
@@ -232,6 +234,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Accepted | Retain readable conversation evidence |
 
 | [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Accepted | Apple silicon laptop runner |
+| [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Accepted | Setup frees the runtime before replacing its files |
 
 ## How to write and maintain ADRs
 

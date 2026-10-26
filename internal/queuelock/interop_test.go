@@ -141,3 +141,68 @@ func TestReleaseClearsTheHolderMetadata(t *testing.T) {
 		t.Fatalf("a released lock still names its holder: %+v", h)
 	}
 }
+
+func TestReleaseTwiceLeavesALaterHolderAlone(t *testing.T) {
+	directory := t.TempDir()
+	first, err := TryAcquire(directory, "update")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Release()
+	second, err := TryAcquire(directory, "setup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Release()
+	first.Release() // The second lock may reuse the first one's descriptor.
+	if third, err := TryAcquire(directory, "ingest"); err == nil {
+		third.Release()
+		t.Fatal("releasing a released handle released the next holder's lock")
+	}
+}
+
+// The dashboard server waits in Python while setup holds the runtime lock (ADR 0084).
+func TestPythonWaitsForTheRuntimeLock(t *testing.T) {
+	python := "python3"
+	if runtime.GOOS == "windows" {
+		python = "python"
+	}
+	interpreter, err := exec.LookPath(python)
+	if err != nil {
+		t.Skip("Python not available")
+	}
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	handle, err := HoldRuntime(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Release()
+	waiter := exec.Command(interpreter, "-c", "from imprint.queue_lock import wait_for_runtime; wait_for_runtime()")
+	waiter.Env = append(os.Environ(), "PYTHONPATH="+root, "IMPRINT_DATA_DIR="+directory)
+	if err := waiter.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- waiter.Wait() }()
+	select {
+	case err := <-done:
+		t.Fatalf("Python did not wait while setup held the runtime lock: %v", err)
+	case <-time.After(time.Second):
+	}
+	handle.Release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("waiting failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Python kept waiting after setup released the runtime lock")
+	}
+	if err := WaitRuntime(directory); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 // arguments with NUL where the OS keeps them apart (Linux), else spaces.
 type processInfo struct {
 	PID     int
+	PPID    int
 	Exe     string
 	Cmdline string
 }
@@ -67,10 +69,11 @@ func hasArgument(cmdline, arg string) bool {
 }
 
 // stopOwnedProcesses ends every process of this installation except this
-// one, so its files can be deleted: a polite stop first, then a forced one.
-// Run it after clients are disconnected, or they may start servers again.
-func stopOwnedProcesses(roots []string, project string) error {
-	self := os.Getpid()
+// one and except, so its files can be deleted or replaced: a polite stop
+// first, then a forced one. Run it after clients are disconnected, or they
+// may start servers again.
+func stopOwnedProcesses(roots []string, project string, except ...int) error {
+	except = append(except, os.Getpid())
 	owned := func() ([]processInfo, error) {
 		all, err := listProcesses()
 		if err != nil {
@@ -78,7 +81,7 @@ func stopOwnedProcesses(roots []string, project string) error {
 		}
 		var found []processInfo
 		for _, p := range all {
-			if p.PID != self && ownedBy(p, roots, project) {
+			if !slices.Contains(except, p.PID) && ownedBy(p, roots, project) {
 				found = append(found, p)
 			}
 		}
@@ -117,6 +120,37 @@ func stopOwnedProcesses(roots []string, project string) error {
 		names = append(names, fmt.Sprintf("%s (pid %d)", processLabel(p), p.PID))
 	}
 	return fmt.Errorf("these Imprint processes would not stop: %s", strings.Join(names, ", "))
+}
+
+// withLauncher is pid and, when it also runs from one of roots, its parent:
+// on Windows a venv's python.exe is a launcher that runs the interpreter as
+// its child and exits with it.
+func withLauncher(pid int, roots []string) []int {
+	all, _ := listProcesses()
+	for _, p := range all {
+		if p.PID != pid {
+			continue
+		}
+		for _, parent := range all {
+			if parent.PID == p.PPID && ownedBy(parent, roots, "") {
+				return []int{pid, parent.PID}
+			}
+		}
+	}
+	return []int{pid}
+}
+
+// waitForExit reports whether every process in pids exited within timeout.
+func waitForExit(pids []int, timeout time.Duration) bool {
+	for deadline := time.Now().Add(timeout); ; time.Sleep(200 * time.Millisecond) {
+		all, err := listProcesses()
+		if err == nil && !slices.ContainsFunc(all, func(p processInfo) bool { return slices.Contains(pids, p.PID) }) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
 }
 
 func processLabel(p processInfo) string {

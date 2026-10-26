@@ -259,7 +259,7 @@ Every download is verified against the release's `SHA256SUMS` before anything is
 | Installed with | Update |
 | --- | --- |
 | `install.sh` / `install.ps1` | Replaces the install tree in place, re-runs `imprint setup` and restarts the running dashboard server. The previous files in `bin/` are kept as `bin/<name>.prev` for a manual rollback. |
-| Windows installer | Runs the new `setup.exe` silently while Imprint keeps running. After provisioning, it restarts the running dashboard server and reopens Imprint; your install profile (local LLM and its build) and settings are kept. The installer log is `data/update-setup.log`. |
+| Windows installer | Runs the new `setup.exe` silently while Imprint keeps running. After provisioning, it restarts the running dashboard server and reopens Imprint; your install profile (local LLM and its build) and settings are kept. When the release replaces installed packages, setup first stops Imprint's MCP servers, so AI clients reconnect Imprint ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)). The installer log is `data/update-setup.log`. |
 | macOS `.pkg` | Opens the new `.pkg` in Installer, which asks for your password, then restarts the running dashboard server. |
 | Docker | Pull the new image and recreate the container; the `/data` volume is kept. |
 | Source checkout | `git pull` and rebuild. |

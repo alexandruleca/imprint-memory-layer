@@ -52,12 +52,9 @@ func Profile(args []string) {
 		projectDir := platform.FindProjectDir()
 		venvPython := platform.VenvPython(projectDir)
 		if platform.FileExists(venvPython) {
-			uv := uvBinary(projectDir)
-			if uv != "" {
-				_ = runner.Run(uv, "pip", "uninstall", "--python", venvPython, "llama-cpp-python")
-			} else {
-				_ = runner.Run(platform.VenvBin(projectDir, "pip"), "uninstall", "-y", "llama-cpp-python")
-			}
+			holdRuntime(projectDir)
+			_ = pipUninstall(uvBinary(projectDir), venvPython, platform.VenvBin(projectDir, "pip"), "llama-cpp-python")
+			releaseRuntime()
 		}
 		_ = setupBackend() // re-run to persist profile.json with with_llm=false
 	default:
@@ -66,10 +63,10 @@ func Profile(args []string) {
 }
 
 // addLLM installs only the local LLM overlay into the existing environment
-// and records it in profile.json. Re-running setupBackend would also re-sync
-// the ONNX Runtime, which fails on Windows while the dashboard or an MCP
-// server holds the venv's libraries open; the dashboard runs this command on
-// the first local chat (ADR 0035).
+// and records it in profile.json. The dashboard runs this command on the
+// first local chat (ADR 0035): adding packages leaves it running, while
+// re-running setupBackend could also change the ONNX Runtime, which restarts
+// the dashboard (ADR 0084).
 func addLLM() {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
@@ -77,6 +74,8 @@ func addLLM() {
 		output.Fail("No Imprint environment at " + platform.VenvDir(projectDir) + " — run `imprint setup` first")
 	}
 	scopeUv(projectDir)
+	holdRuntime(projectDir)
+	defer releaseRuntime()
 	stored := loadProfile(projectDir)
 	installLLMOverlay(uvBinary(projectDir), venvPython, platform.VenvBin(projectDir, "pip"),
 		projectDir, resolveInstallProfile(stored))

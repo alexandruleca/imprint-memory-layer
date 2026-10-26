@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -24,14 +25,16 @@ func TestMain(m *testing.M) {
 // installs and removals take effect:
 //
 //	install <requirements files>   uv pip install / pip install
+//	dry-run <requirements files>   uv pip install --dry-run
 //	uninstall <distributions>      uv pip uninstall / pip uninstall
 //	cache-clean <distribution>     uv cache clean
-//	cache-prune                    uv cache prune
 //	plan [--retry] | check         python -m imprint.gpu_runtime
 //
 // The plan is IMPRINT_FAKE_PLAN, the CUDA check passes when
 // IMPRINT_FAKE_CHECK is "ok", IMPRINT_FAKE_UNUSED maps each runtime to what
 // it does not use, and llama.cpp's offload answer is IMPRINT_FAKE_OFFLOAD.
+// A dry run would upgrade the installed distributions IMPRINT_FAKE_OUTDATED
+// lists (comma-separated).
 func fakeTool(log string, args []string) int {
 	record := func(line string) {
 		f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -44,6 +47,32 @@ func fakeTool(log string, args []string) int {
 		args = append([]string{args[1]}, args[4:]...)
 	}
 	switch {
+	case len(args) > 0 && args[0] == "install" && slices.Contains(args, "--dry-run"):
+		var files []string
+		installed, outdated := fakeVenv(), strings.Split(os.Getenv("IMPRINT_FAKE_OUTDATED"), ",")
+		adds, upgrades := 0, 0
+		for i, arg := range args {
+			if arg == "-r" {
+				files = append(files, filepath.Base(args[i+1]))
+				for _, name := range fakeRequirementNames(args[i+1]) {
+					switch {
+					case !installed[name]:
+						adds++
+					case slices.Contains(outdated, name):
+						upgrades++
+					}
+				}
+			}
+		}
+		record("dry-run " + strings.Join(files, " "))
+		if upgrades > 0 {
+			fmt.Printf("Would uninstall %d packages\n", upgrades)
+		}
+		if adds+upgrades == 0 {
+			fmt.Println("Would make no changes")
+		} else {
+			fmt.Printf("Would install %d packages\n", adds+upgrades)
+		}
 	case len(args) > 0 && args[0] == "install":
 		var files []string
 		installed := fakeVenv()
@@ -70,8 +99,6 @@ func fakeTool(log string, args []string) int {
 		record("uninstall " + strings.Join(names, " "))
 	case len(args) > 1 && args[0] == "cache" && args[1] == "clean":
 		record("cache-clean " + strings.Join(args[2:], " "))
-	case len(args) > 1 && args[0] == "cache" && args[1] == "prune":
-		record("cache-prune")
 	case len(args) > 2 && args[0] == "-m" && args[1] == "imprint.gpu_runtime":
 		record(strings.Join(args[2:], " "))
 		if args[2] == "plan" {

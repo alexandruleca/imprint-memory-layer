@@ -389,15 +389,29 @@ export async function streamChat(
 
 // ── Config ──────────────────────────────────────────────────────
 
-export async function getConfig() {
-  return fetchAPI<{ settings: ConfigSetting[] }>("/api/config");
+/** The embedding runtime the configured device still needs (empty when it is
+ * installed), whether this server's `imprint bootstrap` is installing it, and
+ * the end of the last bootstrap's log while it is missing. */
+export interface RuntimeState {
+  pending: string;
+  provisioning: boolean;
+  log: string[];
 }
 
-/** A saved setting. `provisioning` names the queued `imprint bootstrap` job
- * when the change needs another embedding runtime on this device. */
+export async function getConfig() {
+  return fetchAPI<{ settings: ConfigSetting[]; runtime: RuntimeState }>("/api/config");
+}
+
+/** Start `imprint bootstrap` for the runtime the configured device needs. */
+export async function provisionRuntime() {
+  return fetchAPI<RuntimeState>("/api/runtime/provision", { method: "POST" });
+}
+
+/** A saved setting. `provisioning` is set when the change started `imprint
+ * bootstrap` to install another embedding runtime on this device. */
 export interface ConfigChange {
   ok: boolean;
-  provisioning?: string | null;
+  provisioning?: boolean;
 }
 
 export async function setConfigValue(key: string, value: unknown) {

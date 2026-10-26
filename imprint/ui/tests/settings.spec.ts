@@ -121,14 +121,23 @@ test('GPUs are picked from a list that explains which ones cannot run, or entere
 const RTX = 'NVIDIA GeForce RTX 4080 Laptop GPU, CUDA 13';
 
 // Mirrors imprint/api.py: model.device's choices say what each value does on
-// this device, and a change that needs another ONNX Runtime build names the
-// queued `imprint bootstrap` that installs it (ADR 0062).
+// this device, a change that needs another ONNX Runtime build starts the
+// `imprint bootstrap` that installs it (ADR 0062, 0084), and the runtime it
+// still needs is reported with the last bootstrap's log.
 async function mockDeviceApi(page: Page, auto: string, gpu: { detail: string; unavailable: string }) {
-  const state = { value: 'cpu', puts: [] as unknown[] };
+  const state = {
+    value: 'cpu', puts: [] as unknown[], provisions: 0,
+    runtime: { pending: '', provisioning: false, log: [] as string[] },
+  };
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/queue**', route => route.fulfill({ json: { active: null, queued: [], recent: [] } }));
-  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+  await page.route('**/api/runtime/provision', async route => {
+    state.provisions++;
+    state.runtime = { ...state.runtime, provisioning: true };
+    await route.fulfill({ json: state.runtime });
+  });
+  await page.route('**/api/config', route => route.fulfill({ json: { runtime: state.runtime, settings: [
     { key: 'model.device', value: state.value, source: state.value === 'cpu' ? 'default' : 'config', default: 'cpu', type: 'str',
       env: 'IMPRINT_DEVICE', desc: 'Compute device: auto / cpu / gpu (NVIDIA GPUs, through CUDA)', custom: false, choices: [
         { value: 'auto', label: 'Auto', detail: auto, unavailable: '' },
@@ -140,12 +149,12 @@ async function mockDeviceApi(page: Page, auto: string, gpu: { detail: string; un
     const body = route.request().postDataJSON();
     state.puts.push(body);
     state.value = body.value;
-    await route.fulfill({ json: { ok: true, value: body.value, provisioning: body.value === 'cpu' ? null : 'job-1' } });
+    await route.fulfill({ json: { ok: true, value: body.value, provisioning: body.value !== 'cpu' } });
   });
   return state;
 }
 
-test('choosing GPU embedding says what it installs and queues the installation', async ({ page }) => {
+test('choosing GPU embedding says what it installs and starts the installation', async ({ page }) => {
   const installs = `${RTX}; installs the CUDA runtime, more than 1 GB`;
   const state = await mockDeviceApi(page, installs, { detail: installs, unavailable: '' });
   await page.goto('/settings/');
@@ -156,9 +165,25 @@ test('choosing GPU embedding says what it installs and queues the installation',
   await option.click();
   await expect.poll(() => state.puts).toEqual([{ value: 'gpu' }]);
   const toast = page.locator('[data-sonner-toast]', { hasText: 'Installing the embedding runtime' });
-  await expect(toast).toContainText('then the dashboard restarts');
-  await toast.getByRole('button', { name: 'Open queue' }).click();
-  await expect(page).toHaveURL(/\/queue\/?$/);
+  await expect(toast).toContainText('The dashboard restarts while it replaces the runtime');
+});
+
+test('a runtime setup did not install shows its last log and installs again', async ({ page }) => {
+  const installs = `${RTX}; installs the CUDA runtime, more than 1 GB`;
+  const state = await mockDeviceApi(page, installs, { detail: installs, unavailable: '' });
+  state.value = 'gpu';
+  state.runtime = {
+    pending: `the CUDA runtime (more than 1 GB) for ${RTX}`, provisioning: false,
+    log: ['[x] Installing dependencies for the gpu runtime failed: Access is denied. (os error 5)'],
+  };
+  await page.goto('/settings/');
+  const alert = page.getByRole('alert').filter({ hasText: 'The embedding runtime does not match this device' });
+  await expect(alert).toContainText(`Setup still has to install the CUDA runtime (more than 1 GB) for ${RTX}`);
+  await expect(alert).toContainText('Access is denied');
+  await alert.getByRole('button', { name: 'Install' }).click();
+  await expect.poll(() => state.provisions).toBe(1);
+  await expect(page.locator('[data-sonner-toast]', { hasText: 'Installing the embedding runtime' })).toBeVisible();
+  await expect(alert).toBeHidden();
 });
 
 test('a device without a usable NVIDIA GPU cannot choose GPU embedding', async ({ page }) => {

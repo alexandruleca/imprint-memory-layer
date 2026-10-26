@@ -16,9 +16,14 @@ func listProcesses() ([]processInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	parents, err := psColumn("ppid")
+	if err != nil {
+		return nil, err
+	}
 	procs := make([]processInfo, 0, len(exes))
 	for pid, exe := range exes {
-		procs = append(procs, processInfo{PID: pid, Exe: exe, Cmdline: args[pid]})
+		ppid, _ := strconv.Atoi(parents[pid])
+		procs = append(procs, processInfo{PID: pid, PPID: ppid, Exe: exe, Cmdline: args[pid]})
 	}
 	return procs, nil
 }
