@@ -67,6 +67,8 @@ const fontHead = [
 // https://astro.build/config
 export default defineConfig({
   site: 'https://imprintmcp.alexandruleca.com',
+  // The ADR index is docs/adr/README.md, so GitHub shows it in the folder.
+  redirects: { '/adr': '/adr/readme/' },
   // Templates are written with HTML whitespace semantics; Astro 7's default
   // JSX rules would drop the spaces between inline elements and text.
   compressHTML: true,
