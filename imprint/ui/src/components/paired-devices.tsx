@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, Link2, MonitorSmartphone, Pause, Play, Trash2, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, Link2, MonitorSmartphone, MoreHorizontal, Pause, Play, Trash2, Unlink } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -13,6 +13,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/loaders";
 import { getPairedDevices, controlPairedDevice, type PairedDevice, type PairedDeviceAction } from "@/lib/sync-api";
@@ -52,9 +59,9 @@ const CONFIRM = {
     title: "Remove this pairing from this device only?",
     button: "Remove from this device",
     body: (host: string) => `This device deletes its automatic pairing with ${host} for ALL paired workspaces now, `
-      + `with the keys and trust it holds for it. ${host} is not notified: if it comes back, its automatic sync keeps `
-      + "reporting that this device does not answer until its pairing is removed there the same way. Existing memories "
-      + "remain. Pair again with a new code to sync with it.",
+      + `with the keys and trust it holds for it. ${host} is not notified: if it comes back, its automatic sync reports `
+      + "that this device hasn't answered until its pairing is removed there the same way. Existing memories remain. "
+      + "Pair again with a new code to sync with it.",
   },
 } as const;
 
@@ -157,10 +164,11 @@ export function PairedDevices() {
             const Arrow = direction.icon;
             const removing = peer.state === "forget_pending";
             const unseen = unseenDays(peer);
+            const stale = unseen >= STALE_DAYS;
             // Point to local removal when the peer may never answer again.
-            const gone = removing || unseen >= STALE_DAYS;
+            const gone = removing || stale;
             return (
-              <li key={peer.id} className="flex flex-wrap items-start gap-x-4 gap-y-3 px-5 py-4 sm:px-6">
+              <li key={peer.id} className="flex items-start gap-4 px-5 py-4 sm:px-6">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
                   <MonitorSmartphone className="size-4" aria-hidden />
                 </span>
@@ -169,6 +177,11 @@ export function PairedDevices() {
                     <span className="font-semibold">{peer.peer.hostname}</span>
                     <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{peer.peer.fingerprint}</span>
                     <State peer={peer} />
+                    {stale && (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-600/25 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                        <AlertTriangle className="size-3" aria-hidden /> Not seen for {unseen} days
+                      </span>
+                    )}
                   </p>
                   <p className="flex flex-wrap items-center gap-1.5 text-sm">
                     <span className="font-mono">{peer.workspace}</span>
@@ -181,35 +194,38 @@ export function PairedDevices() {
                       ? "Revoked locally. Remote removal pending: keep Imprint running on both devices until they reconnect."
                       : peer.enabled ? "Automatic sync enabled" : "Automatic sync paused on this device"}
                     {peer.last_sync ? ` · last sync ${ago(peer.last_sync)}` : ""}
-                    {peer.last_error ? ` · last connection: ${peer.last_error}` : ""}
                   </p>
+                  {peer.last_error && <p className="text-xs text-muted-foreground">Last connection: {peer.last_error}</p>}
                   {gone && (
                     <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
                       <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
-                      {unseen >= STALE_DAYS ? `Not seen for ${unseen} days. ` : ""}
-                      If {peer.peer.hostname} was uninstalled or reset, remove it from this device.
+                      If {peer.peer.hostname} was uninstalled or reset, choose Remove from this device in its actions menu.
                     </p>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {!removing && (<>
-                    <Button variant="outline" disabled={busy} onClick={() => void change(peer, "enabled")}>
-                      {pending?.id === peer.id && pending.action === "enabled"
-                        ? <Spinner className="size-3.5" />
-                        : peer.enabled ? <Pause className="size-3.5" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
-                      {peer.enabled ? "Pause" : "Resume"}
-                    </Button>
-                    <Button variant="ghost" disabled={busy} onClick={() => ask(peer, "forget")}
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                      <Trash2 className="size-3.5" aria-hidden /> Forget…
-                    </Button>
-                  </>)}
-                  <Button variant={gone ? "destructive" : "ghost"} disabled={busy}
-                    onClick={() => ask(peer, "remove")}
-                    className={gone ? undefined : "text-muted-foreground"}>
-                    <Unlink className="size-3.5" aria-hidden /> Remove from this device…
-                  </Button>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={<Button variant="ghost" size="icon" disabled={busy} aria-label={`Actions for ${peer.peer.hostname}`} />}
+                  >
+                    {pending?.id === peer.id ? <Spinner className="size-3.5" /> : <MoreHorizontal />}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    {!removing && (<>
+                      <DropdownMenuItem onClick={() => void change(peer, "enabled")}>
+                        {peer.enabled ? <Pause /> : <Play />} {peer.enabled ? "Pause automatic sync" : "Resume automatic sync"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => ask(peer, "forget")}>
+                        <Trash2 /> Forget on both devices…
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>)}
+                    {/* Emphasized when the other device may never answer again. */}
+                    <DropdownMenuItem variant="destructive" onClick={() => ask(peer, "remove")}
+                      className={gone ? "bg-destructive/10 font-medium" : undefined}>
+                      <Unlink /> Remove from this device…
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </li>
             );
           })}

@@ -20,7 +20,7 @@ The owner asked on 2026-10-26: "a user should be able to completely remove a pai
 
 - API: `POST /api/sync/peers/{pair_id}` with `{"action": "remove", "confirm": true}`, the same endpoint, validation and local-origin boundary as pause and forget. Confirmation must be the literal `true`.
 - CLI: `imprint sync remove <pair-id>`, a new subcommand next to `forget`, with its own `[y/N]` prompt. `forget` keeps its meaning.
-- Dashboard: **Remove from this device…** on every pairing, with its own confirmation, which says the other device is not notified and what it will see. It is highlighted, with a hint, when a forget is pending or the device has not answered for 7 days (`last_seen`, or the pairing time when it never reconnected).
+- Dashboard: **Remove from this device…** in every pairing's actions menu, next to pause/resume and **Forget on both devices…**, with its own confirmation, which says the other device is not notified and what it will see. When a forget is pending or the device has not answered for 7 days (`last_seen`, or the pairing time when it never reconnected), the row says so with a badge and a hint, and the menu item is emphasized.
 
 **Forget on both devices** is unchanged and stays the normal path while both devices are in use.
 
@@ -54,7 +54,7 @@ Executed on Linux (WSL2):
 
 - `tests/test_sync_pairs.py`, over a real WebSocket relay with two isolated device profiles: removal from an active pairing and from a pending forget deletes every record, the legacy trust and the stored bytes of the secret, room and id, while the other device keeps its active pairing; removal needs the literal `True`; it covers every workspace with that device and no other device; a running session is cancelled at once in this process and on the next tick when another process removes it, and nothing restarts; the worker on the device left behind records *The other device hasn't answered since …* in both roles (the 30-second wait and the attempt limit shortened), counted from the pairing when it never answered, and `imprint sync peers` lists it; an attempt past its limit after the other device answered records that it did not finish; a pause and a shutdown end an attempt waiting in the room without recording anything; the API refuses a missing or non-literal confirmation, a foreign origin and an unknown pairing; the CLI asks first, does nothing on *n* and reports an unknown pairing. The existing forget, pause and acknowledgement tests still pass.
 - `cmd/sync_test.go`: `imprint sync remove` reaches the Python CLI as a subcommand, not as a share code to join.
-- `imprint/ui/tests/sync.spec.ts`: the remove dialog, its cancellation and the request it sends; the highlight on a pending forget, on a device last seen 10 days ago and on one never seen since pairing 60 days ago, and none on a device seen recently; the existing forget flow.
+- `imprint/ui/tests/sync.spec.ts`: the actions menu by mouse and keyboard; the remove dialog, its cancellation and the request it sends; the badge, hint and emphasized item on a pending forget, on a device last seen 10 days ago and on one never seen since pairing 60 days ago, and none on a device seen recently; pause, resume and the forget flow from the menu.
 - `tests/test_sync_live.py`: a cancel the user asks for still ends a session with `cancelled`, and cancelling the task that runs a session raises instead.
 
 Not validated: removal against a running dashboard with a real peer on another machine, and on macOS or Windows.

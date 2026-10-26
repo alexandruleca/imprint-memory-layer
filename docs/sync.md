@@ -89,9 +89,10 @@ network outages or an unavailable relay delay sync. `watch` is a foreground
 service command; pairing does not silently install a system startup service.
 
 **Sync → Paired devices** shows the relay, local/remote workspace, direction,
-last completed sync and connection errors. **Pause automatic sync** on either
-side stops workspace transfers; **Enable automatic sync** resumes without a new
-code. CLI equivalents:
+last completed sync and the last connection problem. Each device's actions
+menu (**⋯**) holds **Pause automatic sync**, which stops workspace transfers
+from either side, **Resume automatic sync**, which needs no new code, **Forget
+on both devices…** and **Remove from this device…**. CLI equivalents:
 
 ```bash
 imprint sync peers
@@ -101,7 +102,7 @@ imprint sync forget <pair-id>  # asks for confirmation; no implicit --yes
 imprint sync remove <pair-id>  # this device only, now; asks for confirmation
 ```
 
-**Forget device…** requires confirmation and affects **all paired workspaces
+**Forget on both devices…** requires confirmation and affects **all paired workspaces
 with that device**. It revokes automatic transfer locally and removes its old
 fingerprint trust immediately. When both workers reconnect, an encrypted
 notification causes the other device to forget this one too. While it is offline,
