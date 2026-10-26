@@ -49,6 +49,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0068](0068-merge-identical-waiting-jobs.md) **Merge identical waiting jobs.** A submission identical to a waiting job (same command, workspace and normalized arguments) returns that job; one follow-up may wait behind an identical running job.
 - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) **Projects name their workspace and each device approves it.** A project's `.imprint/workspace.json`, honoured when this device's roots approve it, picks the workspace of sessions, hooks, `ingest`, `refresh` and learning there; sessions ask once and `use_workspace` assigns a project without a restart.
 - [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) **The Stop hook hands its turn to one waiting learner under the queue lock.** The Stop hook starts a detached learner and returns; at most one learner per conversation waits, lets a burst of turns settle, then learns in one process while holding the queue lock.
+- [ADR 0079](0079-learn-only-what-the-claude-code-user-typed.md) **Learn only what the Claude Code user typed.** User messages Claude Code writes itself (task notifications, other sessions' messages, system reminders, image placeholders, compaction summaries) are not questions; replies to them stay with the question the user typed.
+- [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md) **Conversations are learned again when their reading changes.** Learning replaces a conversation's memories with what reading it gives now, keeping chunks already stored; the watermark names the learner version, so a change in reading relearns every conversation once.
 
 ### Embeddings, local models and chat
 
@@ -218,6 +220,8 @@ Every record in number order. *Date* is when the decision was made.
 | [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
 | [0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | 2026-10-26 | Accepted | The Stop hook hands its turn to one waiting learner under the queue lock |
 | [0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) | 2026-10-26 | Accepted | Keep Qwen3.5-4B as the local tagger |
+| [0079](0079-learn-only-what-the-claude-code-user-typed.md) | 2026-10-26 | Accepted | Learn only what the Claude Code user typed |
+| [0080](0080-conversations-are-relearned-when-their-reading-changes.md) | 2026-10-26 | Accepted | Conversations are learned again when their reading changes |
 
 ## How to write and maintain ADRs
 

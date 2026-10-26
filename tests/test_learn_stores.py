@@ -181,11 +181,11 @@ class LearnStoresTests(unittest.TestCase):
         self.addCleanup(transcripts.folder_directory.cache_clear)
         self.batches, self.memories, self.deleted, self.known = [], [], [], {}
         for target, attribute, kwargs in (
-                (vs, 'store_batch', {'side_effect': lambda records: self.batches.append(records) or (len(records), 0)}),
+                (vs, 'replace_source', {'side_effect': lambda records, source, project, **kwargs: self.batches.append(records) or (len(records), 0)}),
                 (vs, 'store', {'side_effect': lambda **record: self.memories.append(record)}),
                 (vs, 'complete_conversation', {'return_value': None}),
                 (vs, 'delete_by_source', {'side_effect': self.deleted.append}),
-                (vs, 'get_source_mtimes', {'side_effect': lambda: dict(self.known)}),
+                (vs, 'get_source_mtimes', {'side_effect': lambda **kwargs: dict(self.known)}),
                 (learner.tagger, 'build_payload_tags', {'side_effect': lambda *args, **kwargs: {}}),
                 (learner.chunker, 'chunk_conversation', {'side_effect': lambda text: [text]}),
                 (learner, 'classify', {'return_value': ('decision', 1.0)})):
@@ -404,9 +404,10 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual(self.batches, [])
         self.assertIn('1 unchanged', output)
 
+        # A modified transcript's memories are replaced, not deleted first (ADR 0080).
         self.known = {source: 1_000_000}
         self.learn(('claude-code', str(first)), ('claude-code', str(second)))
-        self.assertEqual(self.deleted, [source])
+        self.assertEqual(self.deleted, [])
         self.assertEqual(len(self.batches), 1)
 
     def test_an_unreadable_store_is_reported_and_the_others_are_learned(self):
@@ -513,6 +514,37 @@ class LearnStoresTests(unittest.TestCase):
         self.assertEqual(typed('<user_command slash="newtask"></user_command>'), '/newtask')
         self.assertEqual(typed('<user_input mode="act">[TASK RESUMPTION] This task was interrupted.</user_input>'), '')
         self.assertIsNone(transcripts.message({'role': 'user', 'content': 'compacted summary', 'metadata': {'displayRole': 'Status'}}))
+
+    def test_claude_code_user_text_is_what_the_user_typed(self):
+        # Claude Code marks the user messages it writes itself (ADR 0079).
+        def text(**marks):
+            found = transcripts.message({'type': 'user', 'message': {'content': 'a message of some length'}, **marks})
+            return found and found[1]
+
+        self.assertEqual(text(origin={'kind': 'human'}), 'a message of some length')
+        self.assertEqual(text(), 'a message of some length')  # versions that mark nothing
+        for marks in ({'origin': {'kind': 'task-notification'}}, {'origin': {'kind': 'peer'}},
+                      {'origin': {'kind': 'coordinator'}}, {'isMeta': True}, {'isCompactSummary': True}):
+            self.assertIsNone(text(**marks), marks)
+
+    def test_replies_to_injected_messages_stay_with_the_typed_question(self):
+        cwd = str(self.root)
+        def says(text):
+            return {'type': 'assistant', 'cwd': cwd, 'message': {'content': [{'type': 'text', 'text': text * 3}]}}
+        path = write(self.root / 'profile' / 'projects' / '-app' / f'{CLAUDE_SESSION}.jsonl', [
+            {'type': 'user', 'cwd': cwd, 'origin': {'kind': 'human'}, 'message': {'content': 'Run the benchmark and report it'}},
+            says('Started the benchmark in the background. '),
+            {'type': 'user', 'cwd': cwd, 'origin': {'kind': 'task-notification'}, 'message': {'content':
+                '<task-notification>done</task-notification>\nIf this event is something the user would act on now, '
+                'send a PushNotification.'}},
+            {'type': 'user', 'cwd': cwd, 'isMeta': True, 'origin': {'kind': 'peer'}, 'message': {'content':
+                'Another Claude session sent a message: That "other Claude session" is an agent in this session.'}},
+            says('The benchmark finished: recall@5 is 0.83. ')])
+        [exchange] = learner.parse_exchanges(str(path))
+        self.assertTrue(exchange['text'].startswith('Q: Run the benchmark and report it\n\nA: Started the benchmark'))
+        self.assertIn('recall@5 is 0.83', exchange['text'])
+        for injected in ('PushNotification', 'Another Claude session'):
+            self.assertNotIn(injected, exchange['text'])
 
     def test_cline_session_manifests_are_ownership_evidence(self):
         unclaimed, claimed = self.root / 'unclaimed', self.root / 'claimed'

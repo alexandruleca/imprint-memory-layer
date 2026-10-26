@@ -36,8 +36,14 @@ class ConversationIngestionTests(unittest.TestCase):
                     records.extend(batch)
                     if fail and len(records) > 8:
                         raise RuntimeError('write failed')
-                    return len(batch), 0
-                with patch.object(vs, 'store_batch', side_effect=store):
+
+                def replace(chunks, source, project, *, batch_size, progress):
+                    # The transcript's memories are replaced batch by batch (ADR 0080).
+                    for start in range(0, len(chunks), batch_size):
+                        store(chunks[start:start + batch_size])
+                        progress(min(start + batch_size, len(chunks)), len(chunks))
+                    return len(chunks), 0
+                with patch.object(vs, 'replace_source', side_effect=replace):
                     if fail:
                         with self.assertRaisesRegex(RuntimeError, 'write failed'):
                             learner.index_transcript('test.jsonl', 123, lambda *args: events.append('progress'))
@@ -45,7 +51,7 @@ class ConversationIngestionTests(unittest.TestCase):
                     else:
                         self.assertEqual(learner.index_transcript('test.jsonl', 123,
                                          lambda *args: events.append('progress')), (10, 0))
-                        complete.assert_called_once_with('conversation/test', 123)
+                        complete.assert_called_once_with('conversation/test', 123, learner.LEARNER_VERSION)
                 self.assertEqual([r['chunk_index'] for r in records], list(range(10)))
                 self.assertTrue(all(r['source_mtime'] == 0 for r in records))
                 self.assertEqual(events[0], 'progress')
@@ -54,6 +60,15 @@ class ConversationIngestionTests(unittest.TestCase):
         for times in ([123, 0], [0, 123]):
             with patch.object(vs, '_scroll_all', return_value=[{'source': 'conversation/test', 'source_mtime': t} for t in times]):
                 self.assertEqual(vs.get_source_mtimes(), {'conversation/test': 0})
+
+    def test_another_learner_versions_memories_have_no_watermark(self):
+        # A transcript another learner version read is learned again (ADR 0080).
+        points = [{'source': 'conversation/new', 'source_mtime': 123, 'learner_version': learner.LEARNER_VERSION},
+                  {'source': 'conversation/old', 'source_mtime': 123, 'learner_version': learner.LEARNER_VERSION - 1},
+                  {'source': 'conversation/older', 'source_mtime': 123}]
+        with patch.object(vs, '_scroll_all', return_value=points):
+            self.assertEqual(vs.get_source_mtimes(learner_version=learner.LEARNER_VERSION),
+                             {'conversation/new': 123, 'conversation/old': 0, 'conversation/older': 0})
 
     def test_failed_transcripts_are_reported_and_cancellation_is_nonzero(self):
         from pathlib import Path

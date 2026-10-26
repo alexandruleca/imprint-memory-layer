@@ -276,15 +276,15 @@ class StoringPathTests(BacklogCase):
 
     def test_partial_conversation_is_retried_then_marked_complete(self):
         from imprint import cli_conversations
-        original = vs.store_batch
+        original = vs._store_redacted
         calls = 0
 
-        def fail_second_batch(records):
+        def fail_second_batch(records, *args, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise RuntimeError('embedding interrupted')
-            return original(records)
+            return original(records, *args, **kwargs)
 
         with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/retry', 'project')), \
                 patch.object(cli_conversations, 'owned', return_value=True), \
@@ -294,7 +294,7 @@ class StoringPathTests(BacklogCase):
                 patch.object(cli_conversations.tagger, 'build_payload_tags', return_value={}), \
                 patch.object(config, 'BATCH_SIZE', 8), \
                 patch('imprint.workspace_policy.is_excluded', return_value=False):
-            with patch.object(vs, 'store_batch', side_effect=fail_second_batch):
+            with patch.object(vs, '_store_redacted', side_effect=fail_second_batch):
                 with self.assertRaisesRegex(RuntimeError, 'embedding interrupted'):
                     cli_conversations.index_transcript('retry.jsonl', source_mtime=123)
             self.assertEqual(vs.get_source_mtimes()['conversation/retry'], 0)
@@ -302,6 +302,40 @@ class StoringPathTests(BacklogCase):
             self.assertEqual(cli_conversations.index_transcript('retry.jsonl', source_mtime=123), (2, 0))
             self.assertEqual(vs.get_source_mtimes()['conversation/retry'], 123)
             self.assertEqual(len(self.payloads()), 10)
+
+    def test_a_transcript_read_differently_keeps_unchanged_chunks_and_drops_the_rest(self):
+        # ADR 0080: a conversation's memories become what reading it gives now;
+        # a chunk already stored keeps its embedding and classification.
+        from imprint import cli_conversations
+        kept, before, after = 'Kept exchange ' * 20, 'Exchange as read before ' * 10, 'Exchange as read now ' * 10
+        embedded = []
+
+        def learn(*texts):
+            with patch.object(cli_conversations, 'parse_exchanges', return_value=[{'text': text} for text in texts]):
+                return cli_conversations.index_transcript('redo.jsonl', source_mtime=123)
+
+        with self.no_llm(), patch.object(cli_conversations, 'identify', return_value=('conversation/redo', 'project')), \
+                patch.object(cli_conversations, 'owned', return_value=True), \
+                patch.object(cli_conversations.chunker, 'chunk_conversation', side_effect=lambda text: [text]), \
+                patch.object(cli_conversations.tagger, 'build_payload_tags', return_value={}), \
+                patch('imprint.workspace_policy.is_excluded', return_value=False), \
+                patch('imprint.embeddings.embed_documents_batch',
+                      side_effect=lambda texts: embedded.extend(texts) or [[1., 0., 0.] for _ in texts]):
+            learn(kept, before)
+            _, coll = vs._ensure_collection()
+            [point], _ = self.client.scroll(coll, scroll_filter=vs.qm.Filter(must=[vs.qm.FieldCondition(
+                key='content', match=vs.qm.MatchValue(value=kept))]), limit=1)
+            self.client.set_payload(coll, {'type': 'pattern', 'llm_tagged': True}, points=[point.id])
+            embedded.clear()
+            self.assertEqual(learn(kept, after), (1, 0))
+        self.assertEqual(embedded, [after])
+        payloads = self.payloads()
+        self.assertEqual(set(payloads), {kept, after})
+        self.assertEqual((payloads[kept]['type'], payloads[kept]['llm_tagged']), ('pattern', True))
+        version = cli_conversations.LEARNER_VERSION
+        self.assertEqual({p['learner_version'] for p in payloads.values()}, {version})
+        self.assertEqual(vs.get_source_mtimes(learner_version=version)['conversation/redo'], 123)
+        self.assertEqual(vs.get_source_mtimes(learner_version=version + 1)['conversation/redo'], 0)
 
     def test_a_learned_conversation_is_marked_not_classified(self):
         from imprint import cli_conversations

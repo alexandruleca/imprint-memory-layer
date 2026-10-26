@@ -106,9 +106,11 @@ def message(record):
 
     Only text blocks count: tool calls, tool output and reasoning are not
     conversation text. A Cursor or Cline user message's text is what the user
-    typed.
+    typed, and a user message Claude Code wrote itself is none.
     """
     typed = None
+    if _claude_injected(record):
+        return None
     if record.get('type') == 'response_item':  # Codex
         item = record.get('payload')
         if not isinstance(item, dict) or item.get('type') != 'message':
@@ -144,6 +146,19 @@ def message(record):
     if typed and role == 'user':
         text = typed(text)
     return role, text
+
+
+def _claude_injected(record):
+    """Whether Claude Code wrote a user message itself: a task notification,
+    another session's message, a system reminder, an image placeholder or a
+    compaction summary. It marks them with isMeta, isCompactSummary or an
+    origin other than the human's; records of versions that mark none count
+    as typed."""
+    if record.get('type') != 'user' or 'role' in record:
+        return False
+    origin = record.get('origin')
+    kind = origin.get('kind') if isinstance(origin, dict) else None
+    return bool(record.get('isMeta') or record.get('isCompactSummary') or (kind and kind != 'human'))
 
 
 def _copilot_conversation(record, data):

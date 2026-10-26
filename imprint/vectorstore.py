@@ -27,7 +27,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from qdrant_client import QdrantClient, models as qm
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -627,11 +627,15 @@ def _store_redacted(records: list[dict], workspace: str | None, *, force: bool =
 
 
 def replace_source(records: list[dict], source: str, project: str,
-                   workspace: str | None = None, *, force: bool = False) -> tuple[int, int]:
+                   workspace: str | None = None, *, force: bool = False, batch_size: int | None = None,
+                   progress: Callable[[int, int], None] | None = None) -> tuple[int, int]:
     """Upsert a complete source before pruning old chunks; failures keep old data.
 
     Readers can briefly see old and new chunks. This is not a multi-point
     database transaction. Destructive cleanup is scoped to source AND project.
+    Chunks already stored keep their embedding and tags. ``batch_size``
+    stores the chunks that many at a time, calling ``progress(done, total)``
+    after each batch.
     """
     if not records:
         raise ValueError("Refusing to replace a source with no prepared chunks")
@@ -642,7 +646,13 @@ def replace_source(records: list[dict], source: str, project: str,
     from .projects import place
     records = _redacted(place(records, workspace), workspace)
     project = records[0]["project"]
-    inserted, skipped = _store_redacted(records, workspace, force=force)
+    inserted = skipped = 0
+    step = batch_size or len(records)
+    for start in range(0, len(records), step):
+        added, kept = _store_redacted(records[start:start + step], workspace, force=force)
+        inserted, skipped = inserted + added, skipped + kept
+        if progress:
+            progress(min(start + step, len(records)), len(records))
     client, coll = _ensure_collection(workspace)
     ids = list({_point_uuid(_make_id(r["content"], project, source, r.get("chunk_index"))) for r in records})
     # Refresh provenance even when unchanged chunks reused their embeddings.
@@ -976,23 +986,29 @@ def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     return states
 
 
-def complete_conversation(source: str, source_mtime: float, workspace: str | None = None) -> None:
-    """Publish a transcript's watermark only after every batch succeeded."""
+def complete_conversation(source: str, source_mtime: float, learner_version: int,
+                          workspace: str | None = None) -> None:
+    """Publish a transcript's watermark only after every batch succeeded: the
+    modification time it was read at and the learner version that read it."""
     if not source.startswith("conversation/"):
         raise ValueError("Expected a conversation source")
     client, coll = _ensure_collection(workspace)
-    client.set_payload(collection_name=coll, payload={"source_mtime": source_mtime},
+    client.set_payload(collection_name=coll, payload={"source_mtime": source_mtime, "learner_version": learner_version},
                        points=qm.Filter(must=[qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]),
                        wait=True)
 
 
-def get_source_mtimes(workspace: str | None = None) -> dict[str, float]:
-    """Return {source: source_mtime} for refresh deduplication."""
+def get_source_mtimes(workspace: str | None = None, learner_version: int | None = None) -> dict[str, float]:
+    """Return {source: watermark}: the oldest source_mtime of a source's
+    memories, 0 when one has none or, given ``learner_version``, when another
+    learner version wrote it."""
     out: dict[str, float] = {}
     try:
-        for pl in _scroll_all(["source", "source_mtime"], workspace=workspace):
+        for pl in _scroll_all(["source", "source_mtime", "learner_version"], workspace=workspace):
             s = pl.get("source")
             m = pl.get("source_mtime")
+            if learner_version is not None and pl.get("learner_version") != learner_version:
+                m = 0.0
             if s:
                 out[s] = min(out.get(s, float("inf")), m or 0.0)
     except Exception:

@@ -45,6 +45,12 @@ C_YELLOW = "\033[1;33m"
 # Minimum useful exchange length — drop sub-100-char noise.
 MIN_EXCHANGE_LEN = 100
 
+# What reading a transcript makes of it. Bump it when a change gives a
+# transcript different memories: each conversation is then learned again,
+# once, by `imprint learn` or its session's Stop hook (ADR 0080).
+# 2: Claude Code messages the client wrote itself are not questions (ADR 0079).
+LEARNER_VERSION = 2
+
 # A user's home as it begins a folder name: Linux /home/<user>, macOS
 # /Users/<user>, Windows <drive>:\Users\<user>.
 _HOME_FOLDER = re.compile(r"-home-|-Users-|[A-Za-z]--Users-")
@@ -246,10 +252,10 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
                      progress: Callable[[int, int], None] | None = None) -> tuple[int, int]:
     """Index a single transcript. Returns (stored chunks, skipped exchanges).
 
-    Prepares exchanges without model inference and flushes via vs.store_batch() so the
-    embedding model sees grouped inputs and Qdrant gets one upsert call per
-    transcript instead of one per exchange. Big throughput win because
-    `imprint ingest` walks hundreds of transcripts before touching code.
+    Prepares exchanges without model inference and replaces the transcript's
+    memories with them through vs.replace_source() in small batches, so the
+    embedding model sees grouped inputs and only chunks not stored yet are
+    embedded.
     """
     from .workspace_policy import is_excluded
     source, project = identify(transcript_path)
@@ -307,16 +313,14 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
     # Publish CPU progress after each embedding, rather than leaving one
     # apparent stall while eight long chunks run serially inside the encoder.
     BATCH = max(1, min(8, config.BATCH_SIZE or (4 if config.DEVICE == "gpu" else 1)))
-    if progress and records:
-        progress(0, len(records))
-    for i in range(0, len(records), BATCH):
-        inserted, _ = vs.store_batch(records[i:i + BATCH])
-        stored += inserted
-        if progress:
-            progress(min(i + BATCH, len(records)), len(records))
-
     if records:
-        vs.complete_conversation(source, source_mtime)
+        if progress:
+            progress(0, len(records))
+        # The transcript's memories become exactly these chunks: those already
+        # stored stay as they are, and those its reading no longer gives go
+        # (ADR 0080).
+        stored, _ = vs.replace_source(records, source, project, batch_size=BATCH, progress=progress)
+        vs.complete_conversation(source, source_mtime, LEARNER_VERSION)
 
     return stored, skipped
 
@@ -362,8 +366,9 @@ def learn(stores: list[tuple[str, str]]) -> int:
                 found[source] = (str(path), mtime)
 
     # Pre-filter unchanged transcripts via stored mtime (same logic as cli_index),
-    # before reading any conversation in full.
-    known_mtimes = vs.get_source_mtimes()
+    # before reading any conversation in full. Another learner version's
+    # memories have no watermark, so their transcripts are learned again.
+    known_mtimes = vs.get_source_mtimes(learner_version=LEARNER_VERSION)
     filtered = []
     pre_skipped = 0
     not_owned = 0
@@ -415,10 +420,8 @@ def learn(stores: list[tuple[str, str]]) -> int:
                            total_skipped, t_start, [], phase=f"embedding {done}/{total} chunks")
 
         try:
-            # Replace the old chunks of a modified transcript.
-            if stale:
-                vs.delete_by_source(source)
-                reindexed += 1
+            # A modified transcript's chunks are replaced by index_transcript.
+            reindexed += stale
             stored, skipped = index_transcript(path, source_mtime=fmtime, progress=batch_progress)
             total_stored += stored
             total_skipped += skipped
