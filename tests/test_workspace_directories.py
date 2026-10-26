@@ -26,7 +26,9 @@ class Fixture(unittest.TestCase):
         self.home = self.root / 'home'
         self.home.mkdir()
         env = patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(self.root / 'data'), 'IMPRINT_WORKSPACE': '',
-                                      'HOME': str(self.home), 'IMPRINT_UNASSIGNED_WORKSPACE': ''})
+                                      # Path.home() reads USERPROFILE on Windows and HOME elsewhere.
+                                      'HOME': str(self.home), 'USERPROFILE': str(self.home),
+                                      'IMPRINT_UNASSIGNED_WORKSPACE': ''})
         env.start()
         self.addCleanup(env.stop)
         os.environ.pop('IMPRINT_UNASSIGNED_WORKSPACE')
