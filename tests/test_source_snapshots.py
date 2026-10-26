@@ -11,11 +11,12 @@ from unittest.mock import patch
 
 from qdrant_client import QdrantClient, models as qm
 from fastmcp import Client
-from imprint import config, source_memory as sm, source_snapshots as ss, vectorstore as vs
+from imprint import config, imprint_graph as kg, source_memory as sm, source_snapshots as ss, vectorstore as vs
 
 
 class SourceFixture(unittest.TestCase):
     def setUp(self):
+        kg._close_all()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -33,6 +34,9 @@ class SourceFixture(unittest.TestCase):
         vs._collections_ready.clear(); vs._id_caches.clear()
         self.addCleanup(vs._collections_ready.clear)
         self.addCleanup(vs._id_caches.clear)
+        # Sync opens a cached graph connection. Windows cannot remove the
+        # disposable data directory until that connection has been closed.
+        self.addCleanup(kg._close_all)
 
     def rows(self, text, *, source='project/code.py', project='project', size=80):
         doc = sm.document(text)

@@ -377,7 +377,7 @@ class WritePathTests(unittest.TestCase):
         from imprint import cli_index
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.py"
-            path.write_text(f"STRIPE_KEY = '{SECRETS['stripe-key']}'\nDEBUG = False\n")
+            path.write_text(f"STRIPE_KEY = '{SECRETS['stripe-key']}'\nDEBUG = False\n", encoding='utf-8', newline='')
             settings = lambda key: (False, 'env') if key.startswith(('tagger.', 'redact.')) else (2_000_000, 'default')
             with patch('imprint.config_schema.resolve', side_effect=settings), \
                  patch('imprint.chunker.chunk_file', side_effect=lambda text, *args, **kwargs: [(text, 0)]), \
