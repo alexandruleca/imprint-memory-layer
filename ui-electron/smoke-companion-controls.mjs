@@ -56,6 +56,8 @@ server.on('upgrade', (request, socket) => {
   const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
   sockets.add(socket); socket.on('close', () => sockets.delete(socket));
+  // Windows resets the connection when Electron quits; a server tolerates that.
+  socket.on('error', () => sockets.delete(socket));
   let pending = Buffer.alloc(0), ready = false;
   socket.on('data', chunk => {
     pending = Buffer.concat([pending, chunk]);
