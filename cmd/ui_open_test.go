@@ -15,7 +15,13 @@ import (
 func init() {
 	if capture := os.Getenv("IMPRINT_TEST_DESKTOP_ARGS"); capture != "" {
 		b, _ := json.Marshal(os.Args[1:])
-		if err := os.WriteFile(capture, b, 0o600); err != nil {
+		// Publish only the complete JSON: the parent polls concurrently and
+		// can otherwise read the file between creation and the first write.
+		pending := capture + ".tmp"
+		if err := os.WriteFile(pending, b, 0o600); err != nil {
+			os.Exit(1)
+		}
+		if err := os.Rename(pending, capture); err != nil {
 			os.Exit(1)
 		}
 		os.Exit(0)
