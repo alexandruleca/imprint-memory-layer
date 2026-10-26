@@ -40,11 +40,12 @@ Examples:
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
-	pinWorkspace(dataDir)
 
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
 	}
+	// The refreshed directory's workspace (ADR 0072).
+	pinDirectoryWorkspace(projectDir, dataDir, targetDir)
 
 	lock := acquireOrEnqueue(dataDir, "refresh", queueArgs(originalArgs, true, nil, []string{"--batch-size"}))
 	defer lock.Release()

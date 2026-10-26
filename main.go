@@ -190,6 +190,7 @@ Usage:
   imprint workspace          List workspaces and show active
   imprint workspace switch <n>  Switch to workspace (create if new)
   imprint workspace delete <n>  Delete a workspace and its data
+  imprint workspace use [<n>]   Make this project use a workspace: approve it, write .imprint/workspace.json
   imprint workspace roots [add|remove] <path>  Approve filesystem roots (--allow-overlap confirms sharing)
   imprint workspace map <project> <directory>  Map shared project paths to this device's checkout
   imprint device            Show this device and the current working directory
