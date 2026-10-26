@@ -26,10 +26,13 @@ try {
     args: [path.join(root, 'main.js'), `--imprint-url=${origin}`, `--user-data-dir=${profile}`,
       '--use-fake-device-for-media-stream', ...process.platform === 'linux' ? ['--no-sandbox'] : []] });
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
+  // Use the dashboard only once the app has shown it and finished loading it;
+  // navigating while startup still loads or swaps windows aborts the request.
   let page;
   for (let i = 0; i < 100; i++) {
     page = app.windows().find(window => window.url().startsWith(origin));
-    if (page) break;
+    if (page && await app.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().some(window =>
+      window.webContents.getURL().startsWith(url) && window.isVisible() && !window.webContents.isLoading()), origin)) break;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.ok(page, 'dashboard opened');

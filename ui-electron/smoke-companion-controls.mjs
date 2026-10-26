@@ -89,8 +89,15 @@ try {
     `--imprint-url=${origin}`, `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream',
     '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader', ...process.platform === 'linux' ? ['--no-sandbox'] : []] });
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
+  // Navigate only once the app has shown the dashboard and finished loading it;
+  // navigating while startup still loads or swaps windows aborts the request.
   let dashboard;
-  for (let i = 0; i < 100 && !dashboard; i++) { dashboard = app.windows().find(page => page.url().startsWith(origin)); if (!dashboard) await pause(100); }
+  for (let i = 0; i < 100; i++) {
+    dashboard = app.windows().find(page => page.url().startsWith(origin));
+    if (dashboard && await app.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows().some(window =>
+      window.webContents.getURL().startsWith(url) && window.isVisible() && !window.webContents.isLoading()), origin)) break;
+    await pause(100);
+  }
   assert.ok(dashboard, 'dashboard opened');
   await dashboard.waitForLoadState();
   await dashboard.goto(origin + '/voice/');
