@@ -126,8 +126,10 @@ test('removing here is highlighted for a pending forget and a device not seen fo
   await page.goto('/sync/');
   const row = (host: string) => page.getByRole('listitem').filter({ hasText: host });
   const removeIn = async (host: string) => {
+    // A closed menu stays mounted while it animates out; open the next one after it is gone.
+    await expect(page.getByRole('menu')).toHaveCount(0);
     await page.getByRole('button', { name: `Actions for ${host}` }).click();
-    return page.getByRole('menuitem', { name: 'Remove from this device…' });
+    return page.getByRole('menu').getByRole('menuitem', { name: 'Remove from this device…' });
   };
   const hint = (host: string) => `If ${host} was uninstalled or reset, choose Remove from this device in its actions menu.`;
 
