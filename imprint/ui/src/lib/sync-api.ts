@@ -151,6 +151,8 @@ export interface PairedDevice {
   direction: SyncDirection;
   enabled: boolean;
   state: "active" | "forget_pending";
+  created_at: number;
+  /** When the device last answered on its pairing; null until the first reconnect. */
   last_seen: number | null;
   last_sync: number | null;
   last_error: string;
@@ -162,10 +164,13 @@ export async function getPairedDevices(): Promise<PairedDevice[]> {
   return (await res.json()).peers;
 }
 
-export async function controlPairedDevice(id: string, action: "enabled" | "forget", enabled?: boolean): Promise<void> {
+/** Pause/resume; forget on both devices (the peer is told); remove from this device only, now. */
+export type PairedDeviceAction = "enabled" | "forget" | "remove";
+
+export async function controlPairedDevice(id: string, action: PairedDeviceAction, enabled?: boolean): Promise<void> {
   const res = await fetch(`${API_BASE}/api/sync/peers/${encodeURIComponent(id)}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(action === "forget" ? { action, confirm: true } : { action, enabled }),
+    body: JSON.stringify(action === "enabled" ? { action, enabled } : { action, confirm: true }),
   });
   if (!res.ok) throw new Error((await res.json()).error || "Could not update paired device");
 }

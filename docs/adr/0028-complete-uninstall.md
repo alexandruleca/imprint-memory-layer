@@ -3,9 +3,10 @@ title: "ADR 0028 — Complete uninstall"
 description: Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
 - Amends: [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) — data retention and the ask-to-quit step
+- Amended by: [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) — what uninstall deletes with the data: the desktop profile as well
 - Related: [ADR 0025](0025-desktop-owned-background-service.md)
 - Restructured: 2026-10-25
 

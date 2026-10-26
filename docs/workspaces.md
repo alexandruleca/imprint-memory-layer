@@ -105,6 +105,9 @@ imprint workspace switch default
 
 # Delete a workspace (must not be active)
 imprint workspace delete research
+
+# Make the project in this directory use a workspace (see "Workspace per project")
+imprint workspace use research
 ```
 
 In the dashboard, the workspace menu at the top right of every page shows the active workspace, switches to another one (the dashboard reloads) and creates one. **Manage workspaces** in that menu lists every workspace with its roots and lets you create, switch, edit roots, wipe, copy/move memories and delete. Deleting requires typing the workspace name and is unavailable for `default` and for the active workspace.
@@ -126,7 +129,58 @@ imprint wipe --workspace research  # wipe a specific workspace
 imprint wipe --all                 # stop Qdrant, delete all data, restart fresh
 ```
 
-The MCP process pins its default workspace at startup, so another window's `workspace switch` cannot redirect it. Restart the client connection after switching, set `IMPRINT_WORKSPACE` in the client's server environment, or pass a tool's explicit `workspace`. CLI ingestion captures its workspace before waiting/queueing. Selection is stored in `data/workspace.json`.
+`workspace switch` and the dashboard menu set the *active* workspace, stored in `data/workspace.json`. Agent sessions and directory commands follow the project they run in instead, when the project has one; see [Workspace per project](#workspace-per-project). Each MCP process pins its workspace at startup, so another window's `workspace switch` cannot redirect it. CLI ingestion captures its workspace before waiting/queueing.
+
+## Workspace per project
+
+A project chooses its workspace with a file in the project, `.imprint/workspace.json`:
+
+```json
+{"workspace": "client-acme"}
+```
+
+Your device decides whether to honour it: the file counts only when the directory that holds it is inside an [approved root](#approved-roots-and-sharing) of the workspace it names. A cloned repository can therefore propose a workspace but never move your sessions into one, such as a client's, on its own. Imprint writes the file and leaves git alone; committing it, or ignoring it, is your choice.
+
+### Assign a project
+
+```bash
+cd ~/code/acme-web
+imprint workspace use client-acme     # create if new, approve the project folder, write the file
+imprint workspace use                 # on a terminal: pick from a list or name a new workspace
+imprint workspace use client-acme --allow-overlap   # when another workspace's roots cover the folder
+```
+
+The file goes in the project folder: the nearest folder, from the current directory up, that holds a `.imprint/workspace.json` or is a git repository's root, else the current directory. A home directory or a filesystem root is refused, since a file there would assign everything beneath it. `imprint workspace use` changes neither the active workspace nor any running session; sessions started in the project afterwards use it.
+
+Agents do the same through the `use_workspace` MCP tool. When a session starts in a project no workspace is assigned to, or whose file names a workspace this device has not approved, the session-start hook (Claude Code, Codex, GitHub Copilot) and the first Imprint tool result tell the agent to ask you once: pick an existing workspace, confirm the proposed one or name a new one. The agent then calls `use_workspace`, which creates the workspace if needed, approves the project folder as a root, writes the file and switches the running session without a restart. Until you answer, the session keeps its default, so nothing breaks.
+
+### Which workspace a directory uses
+
+Every consumer asks the same question, in this order:
+
+1. A tool call's explicit `workspace` argument (that call only).
+2. `IMPRINT_WORKSPACE` in the environment, for example in a client's MCP server entry.
+3. The nearest `.imprint/workspace.json` above the directory, when this device approved it. The search stops below your home directory and below the filesystem root; an unreadable or invalid file is ignored with a visible note.
+4. The workspace whose approved root containing the directory is the most specific. When roots of several workspaces tie, nothing is assigned and agents ask.
+5. The default: the active workspace for CLI commands; for agent sessions the `workspace.unassigned` setting, which follows the active workspace unless you set it.
+
+`imprint ingest` and `imprint refresh` resolve the directory they index and print the result, for example `Workspace: client-acme (project file …/.imprint/workspace.json)`. `learn`, `move`, `purge` and the roots commands keep the active workspace or `--workspace`. Dashboard jobs carry the dashboard's workspace, as before.
+
+A session has a project folder only inside a git repository or under a `.imprint/workspace.json`. Elsewhere, including a plain folder, your home directory, an application's own folder or `/`, the session uses the default and is not asked; run `imprint workspace use` in a plain folder to make it a project.
+
+### Desktop apps
+
+Claude Desktop starts one Imprint server for the whole app, with no project folder, and every chat shares it; the server cannot tell chats apart. Its chats use **Settings → Workspace selection → Unassigned** (`workspace.unassigned`), the default for every session outside an assigned project. To use another workspace in one chat, name it: the agent passes `workspace` on every Imprint call for the rest of that conversation. `use_workspace` there creates the workspace if needed but does not switch the shared server, which would move the other chats too.
+
+The closest thing to a project file is a Project's instructions: in a Claude or ChatGPT Project, add a line such as
+
+```text
+Use Imprint workspace `client-acme` for every Imprint call.
+```
+
+Every chat in that Project then passes the workspace. ChatGPT Desktop runs local MCP servers through the Codex configuration it shares; a Codex thread with a project folder follows that folder like any coding session.
+
+Which clients start their server in your project folder is listed in [ADR 0072](adr/0072-projects-name-their-workspace-and-each-device-approves-it.md): Claude Code, Codex and VS Code with Copilot do; Claude Desktop does not; Cursor's is undocumented and Cline's is its extension host's, so their sessions may count as having no project.
 
 ## Copy, move and share a workspace
 
@@ -163,7 +217,7 @@ Existing data is retained; old provenance does not automatically establish owner
 
 ### Learning needs no root
 
-`imprint learn` reads the stores of the clients Imprint is integrated with, so it needs no approved root. These are Claude Code's transcripts and auto-memory files, Codex's sessions, Cursor's agent conversations, GitHub Copilot's sessions and Cline's sessions on this computer, the same from every client profile registered in WSL, and the Downloads folders where desktop exports land. Roots decide which workspace each conversation belongs to. A conversation is learned when every working directory it recorded is inside this workspace's roots or outside every other workspace's roots. Claude Code records a working directory with each entry, Codex records one per session and turn, and Copilot records one when a session starts, resumes or changes context. Cursor records none; its conversation folder's name counts as the working directory when exactly one existing directory has that name. Cline records a session's working directory and workspace root in the session's manifest. A WSL conversation's directories are compared in the `\\wsl.localhost\<distro>\…` and drive-path form the WSL bridge uses. Conversations about another workspace's projects stay there, and conversations with no recorded working directory are skipped. Auto-memory files and the Stop hook follow the same rule. Desktop exports are tracked per workspace. Extra export folders passed with `--path` must be inside approved roots. See [ADR 0034](adr/0034-learn-from-client-stores-by-conversation-ownership.md), [ADR 0037](adr/0037-learn-every-integrated-client-store.md), [ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md) and [ADR 0057](adr/0057-copilot-home-as-store-config-and-hook-root.md).
+`imprint learn` reads the stores of the clients Imprint is integrated with, so it needs no approved root. These are Claude Code's transcripts and auto-memory files, Codex's sessions, Cursor's agent conversations, GitHub Copilot's sessions and Cline's sessions on this computer, the same from every client profile registered in WSL, and the Downloads folders where desktop exports land. Roots, and project files this device approved, decide which workspace each conversation belongs to. A working directory under an approved `.imprint/workspace.json` belongs to the workspace it names; any other belongs to every workspace whose roots contain it, or to none. A conversation is learned when every working directory it recorded belongs to this workspace or to none. Claude Code records a working directory with each entry, Codex records one per session and turn, and Copilot records one when a session starts, resumes or changes context. Cursor records none; its conversation folder's name counts as the working directory when exactly one existing directory has that name. Cline records a session's working directory and workspace root in the session's manifest. A WSL conversation's directories are compared in the `\\wsl.localhost\<distro>\…` and drive-path form the WSL bridge uses. Conversations about another workspace's projects stay there, and conversations with no recorded working directory are skipped. Auto-memory files and the Stop hook follow the same rule; the Stop hook learns in the session's workspace ([Workspace per project](#workspace-per-project)). Desktop exports are tracked per workspace. Extra export folders passed with `--path` must be inside approved roots. See [ADR 0034](adr/0034-learn-from-client-stores-by-conversation-ownership.md), [ADR 0072](adr/0072-projects-name-their-workspace-and-each-device-approves-it.md), [ADR 0037](adr/0037-learn-every-integrated-client-store.md), [ADR 0052](adr/0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0056](adr/0056-learn-cline-sessions-from-their-manifests.md) and [ADR 0057](adr/0057-copilot-home-as-store-config-and-hook-root.md).
 
 ## Purge mistaken files or directories
 

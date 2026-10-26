@@ -6,7 +6,9 @@ description: Approved filesystem scope, confirmed overlap, stable write destinat
 - Status: Amended
 - Date: 2026-10-23
 - Amends: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) — extends its workspace binding policy
-- Amended by: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — the conversation-learning and desktop-export rules; roots still gate filesystem ingestion and refresh
+- Amended by:
+  - [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — the conversation-learning and desktop-export rules; roots still gate filesystem ingestion and refresh
+  - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) — the MCP startup pin follows the session's directory, `ingest` and `refresh` use their target directory's workspace, and a root also approves the project files inside it
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md)
 - Restructured: 2026-10-25
 

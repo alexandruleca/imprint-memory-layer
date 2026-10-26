@@ -1,11 +1,10 @@
 import os
-from . import config
 
-# A running client session must not follow another window's workspace switch.
-if not os.environ.get('IMPRINT_WORKSPACE'):
-    os.environ['IMPRINT_WORKSPACE'] = config.get_active_workspace()
+# Pin this process's workspace for the session it serves: the directory's
+# workspace (ADR 0072), so another window's switch cannot redirect it.
+from .server import mcp, start_session
+start_session(os.getcwd())
 
-from .server import mcp
 from .device import current
 from .wsl_paths import client_context
 import json

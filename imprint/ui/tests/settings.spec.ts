@@ -170,3 +170,48 @@ test('a device without a usable NVIDIA GPU cannot choose GPU embedding', async (
   await expect(option).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('option', { name: /^Auto/ })).toContainText('CPU here: no NVIDIA GPU found');
 });
+
+// Mirrors imprint/api.py for workspace.unassigned (ADR 0072): its choices are
+// following the active workspace (the empty value) and this device's workspaces.
+test('desktop app chats and unassigned folders get a workspace picked from this device\'s', async ({ page }) => {
+  const state = { value: '', puts: [] as unknown[] };
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default', 'personal'] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'workspace.unassigned', value: state.value, source: state.value ? 'config' : 'default', default: '', type: 'str',
+      env: 'IMPRINT_UNASSIGNED_WORKSPACE', custom: false,
+      desc: 'Workspace for agent sessions outside an assigned project, such as desktop app chats (empty: the active workspace)',
+      choices: [
+        { value: '', label: 'Active workspace', detail: 'Follow the workspace the CLI and dashboard select', unavailable: '' },
+        { value: 'default', label: 'default', detail: '', unavailable: '' },
+        { value: 'personal', label: 'personal', detail: '', unavailable: '' },
+      ] },
+  ] } }));
+  await page.route('**/api/config/workspace.unassigned', async route => {
+    if (route.request().method() === 'DELETE') {
+      state.puts.push('reset');
+      state.value = '';
+      await route.fulfill({ json: { ok: true } });
+      return;
+    }
+    const body = route.request().postDataJSON();
+    state.puts.push(body);
+    state.value = body.value;
+    await route.fulfill({ json: { ok: true, value: body.value } });
+  });
+  await page.goto('/settings/');
+  const card = page.locator('#settings-workspace');
+  await expect(card).toContainText('Workspace selection');
+  const trigger = card.getByRole('combobox', { name: 'Unassigned' });
+  await expect(trigger).toHaveText(/Active workspace/);
+
+  await trigger.click();
+  await page.getByRole('option', { name: 'personal' }).click();
+  await expect.poll(() => state.puts).toEqual([{ value: 'personal' }]);
+  await expect(trigger).toHaveText('personal');
+
+  await trigger.click();
+  await page.getByRole('option', { name: /Active workspace/ }).click();
+  await expect.poll(() => state.puts).toEqual([{ value: 'personal' }, { value: '' }]);
+  await expect(trigger).toHaveText(/Active workspace/);
+});

@@ -131,6 +131,7 @@ type conversationStores struct {
 	label        string
 	distribution string      // WSL distribution; empty for this computer
 	user         string      // registered Linux user; empty for the default
+	home         string      // that user's home directory; empty for this computer
 	mounts       string      // its Windows drive mounts (wslDriveMounts)
 	stores       [][2]string // client name, store directory
 }
@@ -145,11 +146,12 @@ func (g conversationStores) learnArgs() []string {
 
 // pathContext is the context the WSL bridge gives a distribution's hooks: a
 // WSL profile's directories and recorded cwds are Linux paths, translated by
-// imprint.wsl_paths exactly as for that distribution's Stop hook (ADR 0026).
+// imprint.wsl_paths exactly as for that distribution's Stop hook (ADR 0026),
+// and its home bounds the search for project files (ADR 0072).
 // This computer's stores state an empty context, so a learn started through
 // the bridge does not apply its caller's distribution to them.
 func (g conversationStores) pathContext() []string {
-	return []string{"IMPRINT_WSL_DISTRO=" + g.distribution, "IMPRINT_WSL_MOUNTS=" + g.mounts}
+	return []string{"IMPRINT_WSL_DISTRO=" + g.distribution, "IMPRINT_WSL_MOUNTS=" + g.mounts, "IMPRINT_WSL_HOME=" + g.home}
 }
 
 // learnStores lists the client stores Imprint is integrated with: this
@@ -188,7 +190,7 @@ func learnStores(project string) ([]conversationStores, []string) {
 			}
 			i = len(groups)
 			wsl[key] = i
-			groups = append(groups, conversationStores{label: label, distribution: r.Profile.Distribution, user: r.User})
+			groups = append(groups, conversationStores{label: label, distribution: r.Profile.Distribution, user: r.User, home: r.Profile.Home})
 		}
 		if store := [2]string{r.Target, dir}; !slices.Contains(groups[i].stores, store) {
 			groups[i].stores = append(groups[i].stores, store)

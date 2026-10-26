@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  Bot, Boxes, Cpu, Database, FileInput, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
+  Bot, Boxes, Cpu, Database, FileInput, FolderTree, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
   ShieldCheck, SquareTerminal, Tags, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,11 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   chat: { title: "Chat", desc: "The dashboard chat assistant.", icon: MessageSquare },
   summarizer: { title: "Session summaries", desc: "LLM summaries written when a session ends.", icon: ScrollText },
   recall: { title: "Recall", desc: "The MCP recall tool's optional local model.", icon: Search },
+  workspace: {
+    title: "Workspace selection",
+    desc: "A project's approved .imprint/workspace.json or roots choose an agent session's workspace; this covers the rest.",
+    icon: FolderTree,
+  },
   collection: { title: "Storage", desc: "Collection naming.", icon: Layers },
 };
 const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };

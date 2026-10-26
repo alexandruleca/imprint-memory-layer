@@ -537,6 +537,8 @@ def main():
     for name in ('enable', 'disable', 'forget'):
         control = sub.add_parser(name, help=f'{name.title()} a paired device')
         control.add_argument('pair_id')
+    sub.add_parser('remove', help='Remove a paired device from this device now, without notifying it'
+                   ' (for a device that is gone)').add_argument('pair_id')
 
     args = parser.parse_args()
 
@@ -557,8 +559,8 @@ def main():
     elif args.action == 'peers':
         from .sync_pairs import pairs
         print(json.dumps(pairs(public=True), indent=2))
-    elif args.action in ('enable', 'disable', 'forget'):
-        from .sync_pairs import get, forget, set_enabled
+    elif args.action in ('enable', 'disable', 'forget', 'remove'):
+        from .sync_pairs import get, forget, remove, set_enabled
         try:
             if args.action == 'forget':
                 peer = get(args.pair_id)['peer']
@@ -567,7 +569,17 @@ def main():
                 if answer.strip().lower() not in ('y', 'yes'):
                     return
                 forget(args.pair_id, confirmed=True)
-                _ok('Revoked locally. Remote removal is pending until the devices reconnect. Run imprint sync watch or keep the dashboard open.')
+                _ok('Revoked locally. Remote removal is pending until the devices reconnect. Run imprint sync watch or keep the dashboard open. '
+                    f'If that device is gone for good, run imprint sync remove {args.pair_id}.')
+            elif args.action == 'remove':
+                peer = get(args.pair_id)['peer']
+                answer = input(f"Remove the pairing with {_device(peer)} from THIS device now, for all paired workspaces? "
+                               'The other device is not notified: if it comes back, it keeps trying to reach this one '
+                               'until its pairing is removed there too. Existing memories remain. [y/N]: ')
+                if answer.strip().lower() not in ('y', 'yes'):
+                    return
+                remove(args.pair_id, confirmed=True)
+                _ok(f'Removed the pairing with {_device(peer)} from this device. Pair again with a new code to sync with it.')
             else:
                 set_enabled(args.pair_id, args.action == 'enable')
         except ValueError as exc:

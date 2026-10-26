@@ -626,6 +626,19 @@ func DataDir(projectDir string) string {
 	return filepath.Join(MutableBaseDir(projectDir), "data")
 }
 
+// DesktopProfileDir is the desktop shell's Electron profile: window positions
+// and the dashboard's browser storage. Electron keeps it under the per-user
+// directory os.UserConfigDir returns, named after ui-electron/package.json,
+// so every installation's shell shares it. Empty when that directory is
+// unknown.
+func DesktopProfileDir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "imprint-ui")
+}
+
 // DetectShell returns the shell name and the path to its RC file.
 // On Windows, it returns "powershell" and the PowerShell profile path.
 func DetectShell() (name string, rcFile string) {

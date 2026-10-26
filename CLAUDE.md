@@ -8,7 +8,7 @@ Follow [AGENTS.md](AGENTS.md). Keep docs current and add an ADR for significant 
 
 Store durable decisions with their reasons. A successful MCP `store` response means persistence completed; errors are visible. Use explicit workspace/project filters when context must stay isolated.
 
-## MCP Tools (17 total)
+## MCP Tools (18 total)
 
 | Tool | Purpose |
 |------|---------|
@@ -28,7 +28,8 @@ Store durable decisions with their reasons. A successful MCP `store` response me
 | `ingest_url` | Fetch + chunk + store a URL |
 | `ingest_content` | Chunk + store an inline blob (text/markdown/csv/json/`code:<lang>`). Dedup + replace by `name`. |
 | `purge_sources` | Preview, then (apply=True) purge a file/directory from one workspace and exclude re-ingestion |
-| `device_context` | Current device, working directory and approved roots |
+| `device_context` | Current device, working directory, the session's workspace and why, and approved roots |
+| `use_workspace` | On the user's choice: create a workspace if new, approve the project folder, write `.imprint/workspace.json`, switch the session (no project folder: create only, pass `workspace` per call) |
 
 `wake_up` is internal — `search` auto-loads session context on first call.
 `refresh_urls` is CLI-only (`imprint refresh-urls`).
@@ -46,7 +47,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 - **Imprint graph**: SQLite temporal facts (per workspace)
 - **Redaction**: every memory/fact write (ingest, learn, MCP store/ingest, summaries, sync imports) and every tagger/summarizer prompt replaces credentials with `[REDACTED:<kind>:<length>]` before IDs, embeddings or model calls ([`redaction.py`](imprint/redaction.py)). Writes keep the most redacted version of a memory at its position (adopt/retire), so one `imprint scrub` propagates through sync without storing any hash of a secret. Deterministic rules always on; OpenAI Privacy Filter (secret + account-number spans, CPU ONNX, pinned download) opt-in via `redact.privacy_filter`, and a write fails rather than store less redaction when it cannot run. Details: [docs/redaction.md](docs/redaction.md), ADR 0060.
 - **Command queue**: Single-slot FIFO in [`imprint/queue.py`](imprint/queue.py) backed by `data/queue.sqlite3`; a shared advisory flock on `data/queue.lock` (see [`queue_lock.py`](imprint/queue_lock.py) and Go-side [`internal/queuelock`](internal/queuelock/lock.go)) blocks concurrent ingest/refresh/retag/scrub/ingest-url starts across the CLI and the API. FastAPI dispatcher spawns subprocesses with `start_new_session=True`; cancel fires SIGTERM to the process group and escalates to SIGKILL after 3s, taking down the LLM tagger's httpx calls and llama-cpp threads alongside the parent. CLI callers that find the lock busy enqueue through the dashboard's API when it runs, otherwise wait; `IMPRINT_QUEUE_NO_WAIT=1` makes them exit nonzero with the holder's PID. An identical waiting job absorbs a new submission (ADR 0068). When nothing waits, the slot runs background LLM tagging, a preemptible lock holder that yields to queued jobs between memories and is stopped by any other lock taker (ADR 0067). Details: [docs/queue.md](docs/queue.md), ADR 0064.
-- **Workspaces**: isolated — own collection (`memories_{name}`), DB (`imprint_graph_{name}.sqlite3`), WAL. Config in `data/workspace.json`.
+- **Workspaces**: isolated — own collection (`memories_{name}`), DB (`imprint_graph_{name}.sqlite3`), WAL. Active one in `data/workspace.json`. A project's `.imprint/workspace.json`, honoured when this device's roots approve it, picks the workspace of sessions, hooks, `ingest`/`refresh` and learning there; sessions ask once and `use_workspace` assigns ([ADR 0072](docs/adr/0072-projects-name-their-workspace-and-each-device-approves-it.md)).
 - **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph*.sqlite3` + `data/workspace.json` (gitignored)
 - **Lifecycle**: `imprint enable` / `disable` / `status`; `imprint connect` / `disconnect` only register and unregister clients (one client table in `cmd/dispatch.go`, ADR 0053)
 
@@ -81,8 +82,10 @@ imprint config [set|get|reset] ...
 imprint server <cmd>       # Qdrant daemon: start | stop | status | log
 imprint ui [start|stop|status|open|restart|log|runtime]
 imprint workspace [list|switch|delete]
+imprint workspace use [name] [--allow-overlap]  # this project's workspace: approve + write .imprint/workspace.json (ADR 0072)
 imprint wipe [--force|--all]
 imprint sync serve --relay <host> | <host>/<id>
+imprint sync peers | forget <id> | remove <id>  # paired devices: forget on both, or remove from this one now (ADR 0073)
 imprint update [--check [--json]]  # install the latest release the way this install was set up (ADR 0023)
 imprint version
 ```

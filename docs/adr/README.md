@@ -37,9 +37,9 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Workspaces, ingestion and learning
 
-- [ADR 0015](0015-workspace-roots-and-source-purge.md) **Workspace roots and source purge.** Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (learning rules).
+- [ADR 0015](0015-workspace-roots-and-source-purge.md) **Workspace roots and source purge.** Approved workspace roots, confirmed sharing, stable writes and previewable file/directory purge. Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) (learning rules) and [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (directory workspaces).
 - [ADR 0029](0029-paired-browser-capture.md) **Paired local browser capture prototype.** Explicit browser capture through workspace-bound extension pairing and serialized local ingestion. Amended by [ADR 0030](0030-chrome-extension-release-zip.md) (Gmail availability and distribution).
-- [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) **Learn from client stores by conversation ownership.** Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. Amended by [ADR 0037](0037-learn-every-integrated-client-store.md) (stores and Codex working directories) and [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor folder names).
+- [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) **Learn from client stores by conversation ownership.** Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. Amended by [ADR 0037](0037-learn-every-integrated-client-store.md) (stores and Codex working directories), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor folder names) and [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (project files).
 - [ADR 0037](0037-learn-every-integrated-client-store.md) **Learn from every integrated client store.** Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use. Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor stores), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) (Cline stores) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) (Copilot stores).
 - [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) (default bundled OCR and retryable tool failures).
 - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) **Learn Cursor conversations from their folder names.** A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target.
@@ -47,6 +47,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md) **Serialize heavy commands with a single-slot queue and a shared lock file.** One heavy job at a time per data directory, enforced by an advisory lock on `data/queue.lock` that the Go CLI and the Python dashboard share; the dashboard queues its jobs in SQLite. Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (background tagging and preemptible holders) and [ADR 0068](0068-merge-identical-waiting-jobs.md) (merged submissions).
 - [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) **Background LLM tagging that yields to every other job.** Storing paths mark memories instead of running the LLM tagger; a background job tags them newest first when nothing else waits, steps aside between memories and holds the lock as a holder any other taker may stop.
 - [ADR 0068](0068-merge-identical-waiting-jobs.md) **Merge identical waiting jobs.** A submission identical to a waiting job (same command, workspace and normalized arguments) returns that job; one follow-up may wait behind an identical running job.
+- [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) **Projects name their workspace and each device approves it.** A project's `.imprint/workspace.json`, honoured when this device's roots approve it, picks the workspace of sessions, hooks, `ingest`, `refresh` and learning there; sessions ask once and `use_workspace` assigns a project without a restart.
 
 ### Embeddings, local models and chat
 
@@ -65,8 +66,9 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0016](0016-sync-direction-and-workspace-sharing.md) **Sync direction and workspace sharing.** Per-machine sync direction policies, per-session workspace selection and copy migration for sharing curated workspaces. Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) (implementation details).
 - [ADR 0017](0017-device-provenance-and-local-project-paths.md) **Device provenance and local project paths.** Portable memory origin, current-device context and approved local project-path mappings.
 - [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) **Single sync implementation and end-to-end encryption.** One Python sync implementation for CLI and dashboard; SPAKE2 + AES-256-GCM end-to-end encryption with no plaintext fallback.
-- [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) **Explicit pairing and automatic workspace sync.** Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation.
+- [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) **Explicit pairing and automatic workspace sync.** Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. Amended by [ADR 0073](0073-remove-a-pairing-from-one-device.md) (one-sided removal).
 - [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) **Synced tags follow the latest retag.** Each memory carries a `tagged_at` stamp; sync gives a memory both devices hold the classification that was set last.
+- [ADR 0073](0073-remove-a-pairing-from-one-device.md) **Remove a pairing from one device without the other's acknowledgement.** A confirmed removal deletes this device's pairing with a peer, its credentials and trust at once, without contacting the relay or the peer; forgetting on both devices stays the normal path.
 
 ### Security and privacy
 
@@ -79,7 +81,7 @@ The records in force, by area. An amended record is listed with the records that
 ### MCP clients and hooks
 
 - [ADR 0003](0003-local-mcp-and-portable-hooks.md) **Local MCP and portable hooks.** Local stdio MCP, shared runtime preparation and portable hook commands.
-- [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) **Durable MCP and preserved client configuration.** Durable writes, workspace binding, diagnostics and preserved profiles. Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md) (workspace binding).
+- [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) **Durable MCP and preserved client configuration.** Durable writes, workspace binding, diagnostics and preserved profiles. Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md) (workspace binding) and [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (per-project sessions).
 - [ADR 0026](0026-windows-installer-wsl-client-bridge.md) **Windows installer registration for WSL clients.** Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) (WSL cleanup on disable and uninstall).
 - [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) **Connect and disconnect clients without touching the runtime.** One client table drives every client command; `imprint connect` and `disconnect` only register and unregister clients, so the dashboard can run them, and Settings enrolls WSL profiles.
 - [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) **The Copilot home is GitHub Copilot's store, configuration and hook root.** GitHub Copilot's surfaces share `COPILOT_HOME`: Imprint registers MCP, instructions and SessionStart/Stop hooks there, learns its session events by their recorded context, and `copilot` is a WSL registration target.
@@ -114,10 +116,11 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main. Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev prereleases).
 - [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
 - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention) and [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases).
-- [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data.
+- [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) (desktop profile).
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
 - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. Amended by [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) (enclosing installer app).
 - [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version.
+- [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) **Uninstall removes the shared desktop profile.** An uninstall that deletes data also deletes the desktop shell's Electron profile, which every installation on the account shares.
 
 - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
 
@@ -140,7 +143,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0003](0003-local-mcp-and-portable-hooks.md) | 2026-10-23 | Accepted | Local MCP and portable hooks |
 | [0004](0004-runtime-dependencies-and-local-boundaries.md) | 2026-10-23 | Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) | Runtime dependencies and local boundaries |
 | [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | 2026-10-23 | Accepted | Source lifecycle and hybrid retrieval |
-| [0006](0006-durable-mcp-and-preserved-client-config.md) | 2026-10-23 | Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md) | Durable MCP and preserved client configuration |
+| [0006](0006-durable-mcp-and-preserved-client-config.md) | 2026-10-23 | Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Durable MCP and preserved client configuration |
 | [0007](0007-verified-runtime-and-desktop-baseline.md) | 2026-10-23 | Accepted | Verified runtime and desktop baseline |
 | [0008](0008-dashboard-retrieval-and-accessibility.md) | 2026-10-23 | Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Dashboard retrieval and accessibility |
 | [0009](0009-model-profiles-and-embedding-identity.md) | 2026-10-23 | Proposed | Model profiles and embedding identity |
@@ -149,12 +152,12 @@ Every record in number order. *Date* is when the decision was made.
 | [0012](0012-native-package-runtime-and-silent-installs.md) | 2026-10-23 | Accepted | Native package runtime and silent installs |
 | [0013](0013-remediate-security-scan-dependencies.md) | 2026-10-23 | Accepted | Remediate security scan dependencies |
 | [0014](0014-main-only-release-packaging.md) | 2026-10-23 | Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Main-only release packaging |
-| [0015](0015-workspace-roots-and-source-purge.md) | 2026-10-23 | Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) | Workspace roots and source purge |
+| [0015](0015-workspace-roots-and-source-purge.md) | 2026-10-23 | Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Workspace roots and source purge |
 | [0016](0016-sync-direction-and-workspace-sharing.md) | 2026-10-23 | Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Sync direction and workspace sharing |
 | [0017](0017-device-provenance-and-local-project-paths.md) | 2026-10-23 | Accepted | Device provenance and local project paths |
 | [0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | 2026-10-23 | Accepted | Single sync implementation and end-to-end encryption |
 | [0019](0019-reproducible-benchmark-evidence.md) | 2026-10-23 | Accepted | Reproducible benchmark evidence |
-| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | 2026-10-23 | Accepted | Explicit pairing and automatic workspace sync |
+| [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | 2026-10-23 | Amended by [ADR 0073](0073-remove-a-pairing-from-one-device.md) | Explicit pairing and automatic workspace sync |
 | [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | 2026-10-23 | Accepted | Budgeted MCP evidence and selective expansion |
 | [0022](0022-http-client-lifetime-during-model-work.md) | 2026-10-23 | Accepted | Retain HTTP clients during model work |
 | [0023](0023-update-by-installation-type.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Update by installation type |
@@ -162,13 +165,13 @@ Every record in number order. *Date* is when the decision was made.
 | [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) | Windows installer registration for WSL clients |
 | [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Symmetric uninstall and branch synchronization |
-| [0028](0028-complete-uninstall.md) | 2026-10-23 | Accepted | Complete uninstall |
+| [0028](0028-complete-uninstall.md) | 2026-10-23 | Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) | Complete uninstall |
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
 | [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Accepted | Chrome preview ZIP and release downloads |
 | [0031](0031-website-analytics-and-public-relay-status.md) | 2026-10-24 | Accepted | Website analytics events and public relay status |
 | [0032](0032-one-onnx-runtime-per-environment.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | One ONNX Runtime per environment |
 | [0033](0033-stored-secret-settings.md) | 2026-10-24 | Accepted | Stored secret settings |
-| [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | 2026-10-24 | Amended by [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) | Learn from client stores by conversation ownership |
+| [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | 2026-10-24 | Amended by [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Learn from client stores by conversation ownership |
 | [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) | 2026-10-24 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Prebuilt llama.cpp wheels and first-chat provisioning |
 | [0036](0036-move-memories-between-projects.md) | 2026-10-24 | Accepted | Move memories between projects |
 | [0037](0037-learn-every-integrated-client-store.md) | 2026-10-24 | Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md), [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) | Learn from every integrated client store |
@@ -206,6 +209,9 @@ Every record in number order. *Date* is when the decision was made.
 | [0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | 2026-10-25 | Accepted | Echo opens the microphone only on the user's intent, after an OS consent check |
 | [0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | 2026-10-25 | Accepted | The floating companion moves with the launcher and keeps its options in settings |
 | [0071](0071-each-look-speaks-in-its-own-voice.md) | 2026-10-25 | Accepted | Each look speaks in its own voice |
+| [0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | 2026-10-26 | Accepted | Projects name their workspace and each device approves it |
+| [0073](0073-remove-a-pairing-from-one-device.md) | 2026-10-26 | Accepted | Remove a pairing from one device without the other's acknowledgement |
+| [0074](0074-uninstall-removes-the-shared-desktop-profile.md) | 2026-10-26 | Accepted | Uninstall removes the shared desktop profile |
 | [0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) | 2026-10-26 | Accepted | Microphone purpose in the macOS installer wrapper |
 | [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
 

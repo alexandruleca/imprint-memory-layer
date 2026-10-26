@@ -1,12 +1,28 @@
-"""Workspace roots, exclusions and preview-first source cleanup."""
+"""Workspace roots, exclusions, preview-first source cleanup and, for the
+current directory, which workspace it belongs to (ADR 0072)."""
 import argparse
 import json
+import os
 from . import workspace_policy as policy
+
+
+def directory_workspace(args):
+    if args.action == 'resolve':
+        # The workspace a command acting on this directory uses, and why.
+        resolution = policy.resolve(args.target or os.getcwd())
+        return {**resolution, 'why': policy.describe(resolution)}
+    if not args.target:
+        raise ValueError('use requires a workspace name')
+    # In a project, its folder; elsewhere the folder the user ran this in.
+    here = policy.canonical(os.getcwd())
+    return policy.use_workspace(args.target, policy.place(here).project or here,
+                                allow_overlap=args.allow_overlap)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['roots', 'add', 'remove', 'exclusions', 'restore', 'purge', 'map'])
+    parser.add_argument('action', choices=['roots', 'add', 'remove', 'exclusions', 'restore', 'purge', 'map',
+                                           'resolve', 'use'])
     parser.add_argument('target', nargs='?')
     parser.add_argument('directory', nargs='?')
     parser.add_argument('--workspace')
@@ -17,6 +33,12 @@ def main():
     args = parser.parse_args()
     if args.action != 'map' and args.directory is not None:
         parser.error('Only map accepts a second positional argument')
+    if args.action in ('resolve', 'use'):
+        try:
+            print(json.dumps(directory_workspace(args), indent=2))
+        except ValueError as error:
+            parser.exit(1, f'{error}\n')
+        return
     ws = policy.workspace_name(args.workspace)
     if args.action not in ('roots', 'exclusions') and args.target is None:
         parser.error('target is required')

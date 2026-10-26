@@ -1,16 +1,18 @@
 ---
 title: MCP Tools & Automatic Updates
-description: The 17 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, and more.
+description: The 18 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, per-project workspaces, and more.
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **17 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
+The imprint MCP server exposes **18 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
-The MCP process pins its default workspace at startup. Restart after switching the global selection, set `IMPRINT_WORKSPACE` in the client environment, or use explicit tool workspace parameters. A running client's default no longer follows another window's workspace switch.
+The MCP process pins its default workspace at startup: the workspace of the directory it serves ([ADR 0072](adr/0072-projects-name-their-workspace-and-each-device-approves-it.md)). That is `IMPRINT_WORKSPACE` from the client environment when set, else the project's `.imprint/workspace.json` when this device approved it, else the most specific approved root, else `workspace.unassigned` (the active workspace unless set). Another window's workspace switch does not move a running session; explicit tool `workspace` parameters still win per call. See [workspace per project](workspaces.md#workspace-per-project).
 
-The read-only `device_context(workspace="")` tool reports the current device, process cwd and approved roots. The handshake includes current device/cwd; retrieval labels origin and foreign-versus-local paths. Shared conversations stay searchable across devices. See [device provenance](devices.md).
+`use_workspace(name, allow_overlap=False)` acts on the user's choice of workspace for the session's project. When a session's project has no workspace, or its file names one this device has not approved, the first tool result of the session begins with a one-time `Imprint:` notice asking the agent to ask the user and call `use_workspace`. In a project (a git repository or a folder with `.imprint/workspace.json`), the tool creates the workspace if new, approves the project folder as a root, writes `.imprint/workspace.json` and switches the running session; committing the file is the user's choice. Other workspaces' roots on the folder need the user's confirmation and a second call with `allow_overlap=True`. Without a project folder (a desktop app, whose server every chat shares) it only creates the workspace and tells the agent to pass `workspace` on every later call. It is annotated as destructive because it can replace an existing project file.
+
+The read-only `device_context(workspace="")` tool reports the current device, process cwd, the session's workspace and why, and approved roots. The handshake includes current device/cwd; retrieval labels origin and foreign-versus-local paths. Shared conversations stay searchable across devices. See [device provenance](devices.md).
 
 ### Search & retrieval
 
@@ -51,6 +53,7 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 | `delete` | Remove a memory by id (as returned from `search`/`store`). |
 | `ingest_url` | Fetch an http(s) URL, extract content, chunk + embed + store. Skips unchanged pages (HEAD check against stored ETag/Last-Modified). |
 | `ingest_content` | Chunk + embed + store an inline blob — text, markdown, CSV, JSON, or code (`format="code:python"` etc.). Dedup + replace keyed by `name`: re-sending the same `name` overwrites prior chunks. Valid inline text of 10–99 characters is kept as a single chunk rather than dropped by the file chunker's minimum. Designed for API uploads and external services pushing data into memory. |
+| `use_workspace` | Make a workspace the session's project's workspace on the user's choice: create it if new, approve the project folder, write `.imprint/workspace.json`, switch the session. Without a project folder, create only; pass `workspace` per call. |
 
 ### Knowledge graph
 
@@ -65,7 +68,7 @@ The read-only `device_context(workspace="")` tool reports the current device, pr
 |------|---------|
 | `status` | Memory count, active-facts count, per-project breakdown. |
 
-Every tool accepts an optional `workspace` argument — omit it to target the active workspace (`data/workspace.json`).
+Every tool except `use_workspace` accepts an optional `workspace` argument — omit it to target the session's workspace (see above).
 
 ### Not exposed as MCP
 

@@ -1,9 +1,12 @@
 """Paired sync through a real untrusted relay, with isolated device profiles."""
 import asyncio
+import contextlib
 import contextvars
+import io
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -11,7 +14,7 @@ from unittest.mock import Mock, patch
 import httpx
 from websockets.asyncio.server import serve
 
-from imprint import config, sync_pairs, sync_ws
+from imprint import cli_sync, config, sync_pairs, sync_ws
 from imprint.sync_pair_lock import owner
 from test_sync_live import Relay, EXPORT, STATS
 
@@ -305,6 +308,263 @@ class PairedSyncTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()['peers'][0]['state'], 'forget_pending')
         asyncio.run(run())
+
+
+    def assert_gone_from_this_device(self, pair):
+        """No record, credential, digest or trust for the peer is left here."""
+        self.assertEqual(sync_pairs.pairs(), [])
+        with self.assertRaisesRegex(ValueError, 'Unknown pairing'):
+            sync_pairs.get(pair['id'])
+        self.assertNotIn(pair['peer']['fingerprint'], sync_ws.load_trusted_devices())
+        stored = (self.dirs[self.side.get()] / 'sync-pairs.sqlite3').read_bytes()
+        for value in (pair['secret'], pair['room'], pair['id']):
+            self.assertNotIn(value.encode(), stored)  # secure_delete overwrote the rows
+
+    def test_remove_deletes_this_side_at_once_from_active_and_pending_states(self):
+        for pending in (False, True):
+            async def scenario(endpoint, relay):
+                await self.initial(endpoint)
+                await self.repeat()  # checkpoints digests into the records
+                pair = sync_pairs.pairs()[0]
+                self.assertIsNotNone(pair['local_digest'])
+                sync_ws.save_trusted_device(pair['peer'])
+                if pending:
+                    sync_pairs.forget(pair['id'], confirmed=True)
+                for confirmed in (False, 'yes', 1):
+                    with self.assertRaisesRegex(ValueError, 'confirmation'):
+                        sync_pairs.remove(pair['id'], confirmed=confirmed)
+                self.assertEqual(len(sync_pairs.pairs()), 1)
+                sync_pairs.remove(pair['id'], confirmed=True)
+                self.assert_gone_from_this_device(pair)
+                with self.assertRaisesRegex(ValueError, 'Unknown pairing'):
+                    sync_pairs.remove(pair['id'], confirmed=True)
+                # Nothing was sent: the other device still holds its pairing.
+                token = self.side.set('b')
+                try:
+                    self.assertEqual([p['state'] for p in sync_pairs.pairs()], ['active'])
+                finally:
+                    self.side.reset(token)
+            self.scenario(scenario)
+
+    @contextlib.contextmanager
+    def short_waits(self, limit=1):
+        """A one-second attempt limit and key-exchange wait instead of 10 minutes and 30 s."""
+        real_wait_for = asyncio.wait_for
+
+        async def wait_for(awaitable, timeout):
+            return await real_wait_for(awaitable, None if timeout is None else min(timeout, .5))
+
+        with patch.object(sync_pairs, 'ATTEMPT_LIMIT', limit), patch('asyncio.wait_for', wait_for):
+            yield
+
+    @staticmethod
+    async def worker_until(done):
+        """Run this side's worker until ``done()``."""
+        task = asyncio.create_task(sync_pairs.watch(interval=60, tick=.05))
+        try:
+            for _ in range(200):
+                if done():
+                    break
+                await asyncio.sleep(.05)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    def test_the_device_left_behind_records_that_the_other_one_does_not_answer(self):
+        # 'a' < 'b': a opens the paired room (provider), b joins it (consumer).
+        for remover, left in (('a', 'b'), ('b', 'a')):
+            async def scenario(endpoint, relay):
+                await self.initial(endpoint)
+                await self.repeat()  # both answered: last_seen is set on each side
+                await self.at(remover, lambda: asyncio.to_thread(
+                    lambda: sync_pairs.remove(sync_pairs.pairs()[0]['id'], confirmed=True)))
+                self.imports.clear()
+
+                async def worker():
+                    with self.short_waits():
+                        await self.worker_until(lambda: sync_pairs.pairs()[0]['last_error'])
+                    return sync_pairs.pairs()[0]
+                pair = await self.at(left, worker)
+                since = time.strftime('%Y-%m-%d %H:%M', time.localtime(pair['last_seen']))
+                self.assertEqual(pair['last_error'], f"The other device hasn't answered since {since}; "
+                                                     'it may be offline or have removed this pairing')
+                self.assertEqual(pair['state'], 'active')
+                self.assertEqual(self.imports, [])
+                # The paired-device list shows it as it is stored.
+                out = io.StringIO()
+                with patch('sys.argv', ['imprint sync', 'peers']), contextlib.redirect_stdout(out):
+                    await self.at(left, lambda: asyncio.to_thread(cli_sync.main))
+                self.assertEqual(json.loads(out.getvalue())[0]['last_error'], pair['last_error'])
+            self.scenario(scenario)
+
+    def test_a_device_that_never_answered_is_counted_from_the_pairing(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            pair = sync_pairs.pairs()[0]
+            self.assertIsNone(pair['last_seen'])
+            with self.short_waits():
+                await self.worker_until(lambda: sync_pairs.pairs()[0]['last_error'])  # b is not running
+            since = time.strftime('%Y-%m-%d %H:%M', time.localtime(pair['created_at']))
+            self.assertIn(f"hasn't answered since {since};", sync_pairs.pairs()[0]['last_error'])
+        self.scenario(scenario)
+
+    def test_an_attempt_past_its_limit_after_the_other_device_answered_says_so(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            self.digests['a'] = 'c' * 64  # a change, so data moves
+            importer = sync_ws.process_import_buffer.side_effect
+
+            def slow(*args, **kwargs):
+                time.sleep(1.5)
+                return importer(*args, **kwargs)
+
+            async def attempt():
+                await sync_pairs._attempt(sync_pairs.pairs()[0])
+
+            with self.short_waits(), patch.object(sync_ws, 'process_import_buffer', side_effect=slow):
+                a = asyncio.create_task(self.at('a', attempt))
+                await asyncio.sleep(.02)
+                with self.assertRaisesRegex(sync_pairs.AttemptFailed, '^The sync did not finish within'):
+                    await self.at('b', attempt)  # b stores what it pulled: slower than the limit
+                await asyncio.gather(a, return_exceptions=True)
+        self.scenario(scenario)
+
+    def test_pause_and_shutdown_end_an_attempt_waiting_for_the_other_device_quietly(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            pair = sync_pairs.pairs()[0]  # a opens the paired room; b never comes
+
+            def provider_waiting():
+                return any(room.startswith('paired_') for room in relay.rooms)
+
+            task = asyncio.create_task(sync_pairs.watch(interval=60, tick=.02))
+            try:
+                for _ in range(200):
+                    if provider_waiting() and pair['id'] in sync_pairs._running:
+                        break
+                    await asyncio.sleep(.01)
+                first, _ = sync_pairs._running[pair['id']]
+                sync_pairs.set_enabled(pair['id'], False)
+                await asyncio.gather(first, return_exceptions=True)
+                self.assertTrue(first.cancelled())
+                for _ in range(200):  # a paused pairing still opens the room for control frames
+                    if sync_pairs._running.get(pair['id'], (first,))[0] is not first and provider_waiting():
+                        break
+                    await asyncio.sleep(.01)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            self.assertFalse(sync_pairs._running)
+            self.assertEqual(sync_pairs.get(pair['id'])['last_error'], '')
+        self.scenario(scenario)
+
+    def test_remove_covers_every_workspace_with_that_device_only(self):
+        one = sync_pairs.offer('from-a', self.identities['b'], sync_ws.SyncPolicy(), 'from-b', sync_ws.parse_relay(None))
+        two = sync_pairs.offer('other', self.identities['b'], sync_ws.SyncPolicy(), 'other', sync_ws.parse_relay(None))
+        other = sync_pairs.offer('from-a', {**self.identities['b'], 'fingerprint': 'c' * 8}, sync_ws.SyncPolicy(),
+                                 'from-c', sync_ws.parse_relay(None))
+        for record in (one, two, other):
+            sync_pairs.save(record)
+        sync_pairs.remove(two['id'], confirmed=True)
+        self.assertEqual([p['id'] for p in sync_pairs.pairs()], [other['id']])
+
+    def test_remove_stops_the_running_worker_in_this_and_other_processes(self):
+        for other_process in (False, True):
+            sync_pairs.save(sync_pairs.offer('from-a', self.identities['b'], sync_ws.SyncPolicy(), 'from-b',
+                                             sync_ws.parse_relay(None)))
+            record = sync_pairs.pairs()[0]
+            starts, cancelled = [], []
+
+            async def attempt(pair):
+                starts.append(pair['id'])
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    cancelled.append(pair['id'])
+                    raise
+
+            async def run():
+                with patch.object(sync_pairs, '_attempt', side_effect=attempt):
+                    task = asyncio.create_task(sync_pairs.watch(interval=.02, tick=.01))
+                    try:
+                        for _ in range(100):
+                            if starts:
+                                break
+                            await asyncio.sleep(.01)
+                        # Another process (CLI) only changes the database; this
+                        # one also cancels its own sessions at once.
+                        with patch.object(sync_pairs, 'cancel_peer') if other_process else contextlib.nullcontext():
+                            sync_pairs.remove(record['id'], confirmed=True)
+                        if not other_process:
+                            await asyncio.sleep(0)
+                            self.assertEqual(cancelled, [record['id']])
+                        for _ in range(100):
+                            if not sync_pairs._running:
+                                break
+                            await asyncio.sleep(.01)
+                        await asyncio.sleep(.1)  # several ticks: nothing starts again
+                        self.assertEqual((starts, cancelled), ([record['id']], [record['id']]))
+                        self.assertFalse(sync_pairs._running)
+                    finally:
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+            asyncio.run(run())
+
+    def test_http_remove_validates_confirmation_and_the_local_origin(self):
+        from imprint.api import app
+        record = sync_pairs.offer('from-a', self.identities['b'], sync_ws.SyncPolicy(), 'from-b', sync_ws.parse_relay(None))
+        sync_pairs.save(record)
+        sync_pairs.forget(record['id'], confirmed=True)
+
+        async def run():
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8420') as client:
+                for body in ({'action': 'remove'}, {'action': 'remove', 'confirm': 'yes'},
+                             {'action': 'remove', 'confirm': 1}, {'action': 'delete', 'confirm': True}):
+                    response = await client.post('/api/sync/peers/' + record['id'], json=body)
+                    self.assertEqual(response.status_code, 400, body)
+                response = await client.post('/api/sync/peers/' + record['id'], json={'action': 'remove', 'confirm': True},
+                                             headers={'origin': 'https://evil.test'})
+                self.assertEqual(response.status_code, 403)
+                response = await client.post('/api/sync/peers/' + 'f' * 32, json={'action': 'remove', 'confirm': True})
+                self.assertEqual((response.status_code, response.json()), (400, {'error': 'Unknown pairing'}))
+                self.assertEqual(len(sync_pairs.pairs()), 1)
+                response = await client.post('/api/sync/peers/' + record['id'], json={'action': 'remove', 'confirm': True})
+                self.assertEqual((response.status_code, response.json()), (200, {'peers': []}))
+        asyncio.run(run())
+
+    def test_cli_remove_asks_first_and_reports_unknown_pairings(self):
+        record = sync_pairs.offer('from-a', self.identities['b'], sync_ws.SyncPolicy(), 'from-b', sync_ws.parse_relay(None))
+        sync_pairs.save(record)
+
+        def cli(*args, answer=None):
+            out = io.StringIO()
+            prompts = []
+
+            def ask(prompt):
+                prompts.append(prompt)
+                return answer
+
+            with patch('sys.argv', ['imprint sync', *args]), patch('builtins.input', side_effect=ask), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                try:
+                    cli_sync.main()
+                    code = 0
+                except SystemExit as exit:
+                    code = exit.code
+            return code, prompts, out.getvalue()
+
+        code, prompts, _ = cli('remove', record['id'], answer='n')
+        self.assertEqual(code, 0)
+        self.assertIn('device-b', prompts[0])
+        self.assertIn('not notified', prompts[0])
+        self.assertEqual(len(sync_pairs.pairs()), 1)
+        code, _, output = cli('remove', record['id'], answer='y')
+        self.assertEqual(code, 0)
+        self.assertIn('Removed the pairing with device-b', output)
+        self.assertEqual(sync_pairs.pairs(), [])
+        code, prompts, output = cli('remove', record['id'], answer='y')
+        self.assertEqual((code, prompts), (1, []))
+        self.assertIn('Unknown pairing', output)
 
 
 if __name__ == '__main__':

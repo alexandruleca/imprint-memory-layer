@@ -115,6 +115,34 @@ class WSLPathTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertIn('additionalContext', json.loads(output.getvalue()))
 
+    def test_stop_checks_ownership_in_the_sessions_workspace(self):
+        # The client's cwd, translated, decides the session's workspace (ADR
+        # 0072): here a project file this device approved for beta.
+        from imprint import config, workspace_policy as policy
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(Path(directory) / 'data'), 'IMPRINT_WORKSPACE': ''}):
+            project = Path(directory).resolve() / 'project'
+            (project / '.git').mkdir(parents=True)
+            config.register_workspace('beta')
+            policy.use_workspace('beta', project)
+            seen = []
+            payload = {'cwd': '/home/test/project', 'transcript_path': '/home/test/t.jsonl'}
+            translate = lambda value, *args: str(project) if value == '/home/test/project' else value
+            with patch.object(wsl_bridge, 'linux_to_windows', side_effect=translate), \
+                    patch.object(policy, 'native_path', side_effect=lambda value: value), \
+                    patch.object(wsl_bridge.os, 'chdir'), \
+                    patch.object(wsl_bridge.sys, 'platform', 'win32'), \
+                    patch.object(wsl_bridge.sys, 'stdin', io.StringIO(json.dumps(payload))), \
+                    patch.object(wsl_bridge.sys, 'stdout', io.StringIO()), \
+                    patch.object(wsl_bridge.sys, 'stderr', io.StringIO()), \
+                    patch.object(wsl_bridge.sys, 'argv', ['wsl_bridge.py']), \
+                    patch.object(policy, 'transcript_allowed',
+                                 side_effect=lambda path: seen.append(os.environ['IMPRINT_WORKSPACE']) or False):
+                self.assertEqual(wsl_bridge.main(['--data-dir', str(Path(directory) / 'data'), '--distribution', 'Ubuntu',
+                    '--cwd', '/home/test/project', '--home', '/home/test', 'hook', 'stop']), 0)
+                self.assertEqual(os.environ['IMPRINT_WSL_HOME'], '/home/test')
+            self.assertEqual(seen, ['beta'])
+
     def test_unapproved_stop_does_not_launch_any_transcript_consumer(self):
         from imprint import hook_entry, workspace_policy
         with tempfile.TemporaryDirectory() as data, patch.dict(os.environ), \

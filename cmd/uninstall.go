@@ -31,12 +31,13 @@ func Uninstall(args []string) {
 	}
 	project := platform.FindProjectDir()
 	data := platform.DataDir(project)
+	profile := platform.DesktopProfileDir()
 	output.Header("Uninstalling Imprint")
 	fmt.Println("  Disconnect managed clients, stop every Imprint process and remove this installation's runtime.")
 	if keepData {
 		fmt.Println("  Memories preserved at " + data)
 	} else {
-		fmt.Println("  DELETE all memories and configuration at " + data + " (keep them with --keep-data)")
+		fmt.Println("  DELETE all memories and configuration at " + data + " and the desktop app's profile at " + profile + " (keep them with --keep-data)")
 	}
 	if !force {
 		fmt.Print("  Type 'yes' to continue: ")
@@ -70,13 +71,12 @@ func Uninstall(args []string) {
 		}
 	}
 	if !keepData {
-		if err := os.RemoveAll(data); err != nil {
-			output.Fail(err.Error())
-		}
-		// An app bundle keeps its runtime in a separate writable directory;
-		// remove it once empty (a script install may share the path).
-		if base := platform.MutableBaseDir(project); base != project {
-			_ = os.Remove(base)
+		// The desktop profile goes first: another installation's running shell
+		// can hold it open on Windows, and that failure must not cost memories.
+		for _, dir := range []string{profile, data} {
+			if err := os.RemoveAll(dir); err != nil {
+				output.Fail(err.Error())
+			}
 		}
 	}
 	// Never erase a separate release installation when called from a checkout.

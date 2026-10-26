@@ -180,6 +180,7 @@ imprint server <cmd>       # manage the local Qdrant daemon: start | stop | stat
 imprint workspace          # list workspaces and show active
 imprint workspace switch <name>  # switch to workspace (creates if new)
 imprint workspace delete <name>  # delete a workspace and its data
+imprint workspace use [name]     # make this project use a workspace (writes .imprint/workspace.json)
 imprint wipe [--force]     # wipe active workspace
 imprint wipe --all         # wipe everything (all workspaces)
 imprint sync serve [--relay <host>] [--workspace <name>] [--send-only | --receive-only]
@@ -188,6 +189,7 @@ imprint sync <code> [--workspace <name>] [--two-way | --send-only] [--fresh]
                            # join with that code; receives only unless --two-way/--send-only (confirmed before sending)
 imprint sync watch          # auto-sync explicitly paired devices while this process runs
 imprint sync peers          # list pairings; enable/disable/forget <pair-id> controls them
+imprint sync remove <pair-id>   # drop a pairing on this device only, now (its device is gone)
 imprint sync export | import <dir>       # snapshot bundle; import re-embeds only memories it scrubs
 imprint relay              # run the sync relay server
 imprint ui [start|stop|status|open|restart|log|runtime] [--port N]

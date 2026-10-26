@@ -17,17 +17,9 @@ import (
 //	imprint sync serve [--relay <host>] [--workspace <name>] [--send-only | --receive-only]
 //	imprint sync <code> [--workspace <name>] [--two-way | --send-only] [--fresh]
 //	imprint sync export | import ...
+//	imprint sync watch | peers | enable | disable | forget | remove ...
 func Sync(args []string) {
-	if len(args) == 0 {
-		args = []string{"--help"}
-	} else {
-		switch args[0] {
-		case "serve", "export", "import", "watch", "peers", "enable", "disable", "forget", "-h", "--help":
-		default:
-			args = append([]string{"join"}, args...)
-		}
-	}
-
+	args = syncArgs(args)
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	if !platform.FileExists(venvPython) {
@@ -70,4 +62,17 @@ func Sync(args []string) {
 		code = 1
 	}
 	os.Exit(code)
+}
+
+// syncArgs maps `imprint sync` arguments to cli_sync's: a subcommand passes
+// through, and anything else is a share code to join.
+func syncArgs(args []string) []string {
+	if len(args) == 0 {
+		return []string{"--help"}
+	}
+	switch args[0] {
+	case "serve", "export", "import", "watch", "peers", "enable", "disable", "forget", "remove", "-h", "--help":
+		return args
+	}
+	return append([]string{"join"}, args...)
 }

@@ -5,6 +5,9 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent
 
 from . import config
 from . import imprint_graph as kg
@@ -29,9 +32,69 @@ are references on the source device. Use device_context and project mappings;
 verify local_source_path and live files before reading or editing.
 Search returns compact excerpts. Expand only evidence needed for the task;
 stop when sufficient. Use detail="full" for broader session context.
+Workspaces: a session follows its project's workspace. When an Imprint result
+asks which workspace a project should use, ask the user once and call
+use_workspace with their answer. A chat without a project folder (a desktop
+app) shares this server with other chats: when the user, or the project's
+instructions ("Use Imprint workspace <name>"), names a workspace, pass
+workspace=<name> on every Imprint call in that conversation.
 """
 
 mcp = FastMCP("imprint", instructions=_MCP_INSTRUCTIONS)
+
+
+# ── Session workspace (ADR 0072) ──────────────────────────────────────────
+# This process serves one client session. Its default workspace follows the
+# directory it serves (workspace_policy.resolve): IMPRINT_WORKSPACE, the
+# project's approved .imprint/workspace.json, its most specific root, or
+# workspace.unassigned. The choice is pinned in IMPRINT_WORKSPACE, as before
+# (another window's switch cannot redirect it); use_workspace re-pins it.
+# ``notice`` is what the first tool result tells the agent, once.
+_session: dict = {'project_dir': None, 'notice': ''}
+
+
+def start_session(directory) -> dict:
+    """Pin this process's workspace for the session in ``directory`` (None:
+    the client gave it no working directory).
+
+    When the directory cannot be resolved, the session keeps what it had
+    before ADR 0072 (the client's IMPRINT_WORKSPACE, else the active
+    workspace) and its first result says why.
+    """
+    import os
+    import sqlite3
+    from . import workspace_policy as policy
+    _session.clear()
+    try:
+        resolution = policy.resolve(directory, session=True)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        os.environ['IMPRINT_WORKSPACE'] = os.environ.get('IMPRINT_WORKSPACE') or config.get_active_workspace()
+        _session.update(project_dir=None, notice=f"Imprint could not resolve this directory's workspace: {error}")
+        return _session
+    os.environ['IMPRINT_WORKSPACE'] = resolution['workspace']
+    _session.update(resolution, notice=policy.notice(resolution))
+    return _session
+
+
+class _SessionNotice(Middleware):
+    """Prefix the session's workspace question to its first tool result."""
+
+    async def on_call_tool(self, context, call_next):
+        result = await call_next(context)
+        notice = _session.get('notice')
+        if not notice:
+            return result
+        _session['notice'] = ''
+        if context.message.name == 'use_workspace' or not isinstance(result, ToolResult):
+            return result
+        structured = result.structured_content
+        if isinstance(structured, dict) and isinstance(structured.get('result'), str):
+            structured = {**structured, 'result': f'{notice}\n\n{structured["result"]}'}
+        return ToolResult(content=[TextContent(type='text', text=notice), *result.content],
+                          structured_content=structured, meta=result.meta)
+
+
+mcp.add_middleware(_SessionNotice())
 
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
@@ -65,25 +128,71 @@ def _validate_ws(workspace: str) -> tuple[str | None, str | None]:
         return None, f"Invalid workspace name: {err}"
     if workspace not in config.get_known_workspaces():
         known = ", ".join(config.get_known_workspaces())
-        return None, f"Unknown workspace '{workspace}'. Known: {known}. Create with: imprint workspace switch {workspace}"
+        return None, f"Unknown workspace '{workspace}'. Known: {known}. use_workspace creates it once the user chooses it."
     return workspace, None
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
 def device_context(workspace: str = '') -> str:
-    """Current device, working directory and approved roots. Shared conversation
-    and project memories are portable; foreign original paths are references.
-    Map projects with imprint workspace map <project> <local-directory>.
+    """Current device, working directory, this session's workspace and why,
+    and approved roots. Shared conversation and project memories are portable;
+    foreign original paths are references. Map projects with
+    imprint workspace map <project> <local-directory>.
     """
     ws, error = _validate_ws(workspace)
     if error:
         return error
     from .device import current
-    from .workspace_policy import roots
+    from .workspace_policy import describe, roots
     from .wsl_paths import client_context, client_path
     import json, os
-    return json.dumps({'device': current(), 'working_directory': os.getcwd(), 'workspace': ws,
+    session = {}
+    if 'reason' in _session:
+        session = {'session': {'workspace': _session['workspace'], 'why': describe(_session),
+                               'project': _session['project']}}
+    return json.dumps({'device': current(), 'working_directory': os.getcwd(), 'workspace': ws, **session,
                        'roots': [client_path(root) for root in roots(ws)[:50]], **client_context()})
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
+def use_workspace(name: Annotated[str, Field(min_length=1, max_length=40)], allow_overlap: bool = False) -> str:
+    """Make workspace `name` this project's workspace, on the user's choice only.
+
+    Call it with the workspace the user picked or confirmed when Imprint asks
+    which workspace a project should use, or when the user asks to switch.
+    A new name creates the workspace. In a project (a git repository or a
+    folder with .imprint/workspace.json) it approves the project folder as a
+    root of `name`, writes .imprint/workspace.json there and switches this
+    session. Without a project folder (desktop app chats) it switches nothing:
+    pass workspace=`name` on every later call instead. When other workspaces'
+    roots overlap the folder, ask the user to confirm sharing, then call again
+    with allow_overlap=true.
+    """
+    import os
+    from . import workspace_policy as policy
+    error = config.validate_workspace_name(name)
+    if error:
+        return f"Invalid workspace name: {error}"
+    project = _session.get('project_dir')
+    if not project:
+        created = config.register_workspace(name)
+        current = _session.get('workspace') or config.get_active_workspace()
+        return (f"Workspace '{name}' {'was created' if created else 'exists'}. This session has no project folder "
+                f"(a desktop app chat, or a folder that is neither a git repository nor holds "
+                f".imprint/workspace.json), and other conversations may share this server, so its default stays "
+                f"'{current}'. Pass workspace='{name}' on every Imprint call for the rest of this conversation. "
+                f"To assign a folder, run `imprint workspace use {name}` in it.")
+    try:
+        result = policy.use_workspace(name, project, allow_overlap=allow_overlap)
+    except ValueError as failure:
+        return f"Nothing changed: {failure}"
+    os.environ['IMPRINT_WORKSPACE'] = name
+    _session.update(workspace=name, reason='file', source=result['file'], proposal=name, trusted=True, notice='')
+    root = f"approved {result['project']} as a root of it, " if result['root_added'] else ''
+    shared = f" It shares this folder with {', '.join(result['overlaps'])}." if result['overlaps'] else ''
+    return (f"This project now uses workspace '{name}'{' (created)' if result['created'] else ''}: {root}"
+            f"wrote {result['file']} and switched this session to it.{shared} Committing that file, or "
+            f"ignoring it in git, is the user's choice; Imprint did not change git.")
 
 
 def wake_up(workspace: str = "") -> str:

@@ -67,7 +67,6 @@ func Ingest(args []string) {
 	projectDir := platform.FindProjectDir()
 	venvPython := platform.VenvPython(projectDir)
 	dataDir := platform.DataDir(projectDir)
-	pinWorkspace(dataDir)
 
 	if !platform.FileExists(venvPython) {
 		output.Fail("Python venv not found — run 'imprint setup' first")
@@ -75,6 +74,20 @@ func Ingest(args []string) {
 
 	if len(args) == 0 {
 		output.Fail("Usage: imprint ingest <path> [--batch-size N] [--force]\n  <path> can be a directory or a single file\n  Tip: run 'imprint learn' to index conversations + memory files")
+	}
+
+	target, _ := filepath.Abs(platform.TranslateWSLPath(args[0]))
+
+	// Detect file vs directory
+	info, err := os.Stat(target)
+	if err != nil {
+		output.Fail("Path not found: " + target)
+	}
+	// The ingested directory's workspace (ADR 0072); a file's is its folder's.
+	if info.IsDir() {
+		pinDirectoryWorkspace(projectDir, dataDir, target)
+	} else {
+		pinDirectoryWorkspace(projectDir, dataDir, filepath.Dir(target))
 	}
 
 	lock := acquireOrEnqueue(dataDir, "ingest", queueArgs(originalArgs, true, nil, []string{"--batch-size"}))
@@ -88,14 +101,6 @@ func Ingest(args []string) {
 	fmt.Println()
 	output.Header("═══ Imprint Ingest ═══")
 	fmt.Println()
-
-	target, _ := filepath.Abs(platform.TranslateWSLPath(args[0]))
-
-	// Detect file vs directory
-	info, err := os.Stat(target)
-	if err != nil {
-		output.Fail("Path not found: " + target)
-	}
 
 	if info.IsDir() {
 		output.Info("Indexing project files...")

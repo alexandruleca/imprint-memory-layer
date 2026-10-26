@@ -89,18 +89,20 @@ network outages or an unavailable relay delay sync. `watch` is a foreground
 service command; pairing does not silently install a system startup service.
 
 **Sync → Paired devices** shows the relay, local/remote workspace, direction,
-last completed sync and connection errors. **Pause automatic sync** on either
-side stops workspace transfers; **Enable automatic sync** resumes without a new
-code. CLI equivalents:
+last completed sync and the last connection problem. Each device's actions
+menu (**⋯**) holds **Pause automatic sync**, which stops workspace transfers
+from either side, **Resume automatic sync**, which needs no new code, **Forget
+on both devices…** and **Remove from this device…**. CLI equivalents:
 
 ```bash
 imprint sync peers
 imprint sync disable <pair-id>
 imprint sync enable <pair-id>
 imprint sync forget <pair-id>  # asks for confirmation; no implicit --yes
+imprint sync remove <pair-id>  # this device only, now; asks for confirmation
 ```
 
-**Forget device…** requires confirmation and affects **all paired workspaces
+**Forget on both devices…** requires confirmation and affects **all paired workspaces
 with that device**. It revokes automatic transfer locally and removes its old
 fingerprint trust immediately. When both workers reconnect, an encrypted
 notification causes the other device to forget this one too. While it is offline,
@@ -109,6 +111,32 @@ finish; the relay does not store an offline revocation mailbox. A lost final
 acknowledgement may leave a pending notification rather than a false success.
 Existing memories remain on both machines; forgetting cannot retract knowledge
 already shared. Pair again with a fresh code to restore authorization.
+
+**Remove from this device…** is for a device that will not come back: uninstalled,
+reset or lost. It has its own confirmation, also affects all paired workspaces
+with that device, and deletes this device's side at once: the pair records with
+their relay room, pair secret and sync checkpoints (the store overwrites deleted
+rows), the old fingerprint trust, and any session running for it (a worker in
+another process stops within its two-second management tick). Nothing is sent;
+neither the relay nor the other device is contacted. It works on an active or
+paused pairing and on one whose removal is pending. **Paired devices** highlights
+it when a forget is pending or the device has not answered for 7 days (since its
+last contact, or since pairing if it never reconnected).
+
+The other device is not told. If it comes back, it still holds its pairing and
+keeps trying the paired room, where this device no longer appears, which to it
+looks the same as this device being offline. Each of its attempts ends with
+*The other device hasn't answered since 2026-10-19 14:03; it may be offline or
+have removed this pairing*, with the time of its last contact: after 30 seconds
+when it joins the room (the higher device id), at the worker's 10-minute
+attempt limit when it opens the room.
+**Paired devices** shows it as the last connection, and `imprint sync peers` as
+`last_error`. After 7 days without contact its **Paired devices** also
+highlights removal: remove the pairing there the same way. The protocol cannot
+tell a removed pairing from an offline device without that device answering,
+so the message names both. Stopping an attempt on purpose (pause, forget,
+remove, closing Imprint) records nothing. See
+[ADR 0073](adr/0073-remove-a-pairing-from-one-device.md).
 
 Pause/forget control frames run before opening either index, so revocation also
 works after a workspace is removed or embedding settings become incompatible.

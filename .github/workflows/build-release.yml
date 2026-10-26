@@ -313,6 +313,9 @@ jobs:
           '{"hooks":{"Stop":[{"hooks":[{"command":"imprint/hook_entry.py stop"},{"command":"keep-hook"}]}]}}' |
             Set-Content "$env:CODEX_HOME/hooks.json" -Encoding utf8NoBOM
           'remove memories' | Set-Content "$dest/data/uninstall-probe.txt"
+          $desktopProfile = Join-Path $env:APPDATA 'imprint-ui'
+          New-Item -ItemType Directory -Path $desktopProfile -Force | Out-Null
+          '{}' | Set-Content "$desktopProfile/echo-window.json"
           # Stands in for an MCP server a client started from the venv.
           $server = Start-Process "$dest/.venv/Scripts/python.exe" -ArgumentList @('-c', '"import time; time.sleep(600)"') -PassThru -WindowStyle Hidden
           $null = $server.Handle
@@ -330,6 +333,7 @@ jobs:
             Get-ChildItem -LiteralPath $dest -Recurse -Force | Select-Object -First 20 FullName | Out-Host
             throw 'Uninstall left files behind'
           }
+          if (Test-Path $desktopProfile) { throw 'Uninstall left the desktop profile behind' }
           $config = Get-Content "$env:CODEX_HOME/config.toml" -Raw
           if ($config -match 'mcp_servers.imprint' -or $config -notmatch 'keep-other') { throw 'MCP cleanup failed' }
           $rules = Get-Content "$env:CODEX_HOME/AGENTS.md" -Raw

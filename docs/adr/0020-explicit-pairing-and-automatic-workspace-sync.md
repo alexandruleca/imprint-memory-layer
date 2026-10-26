@@ -3,8 +3,9 @@ title: ADR 0020 — Explicit pairing and automatic workspace sync
 description: Opt-in device capabilities, scoped automatic merge and acknowledged peer revocation.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0073](0073-remove-a-pairing-from-one-device.md) — a pairing can also be removed from this device alone, at once, without the encrypted forget acknowledgement
 - Related: [ADR 0016](0016-sync-direction-and-workspace-sharing.md), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md)
 - Restructured: 2026-10-25
 
