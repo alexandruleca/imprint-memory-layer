@@ -26,23 +26,30 @@ try {
       '--use-fake-device-for-media-stream'], env: environment });
   const actualProfile = await app.evaluate(({ app }) => app.getPath('userData'));
   if (!actualProfile.startsWith(profile)) throw Error('Native smoke requires a disposable profile');
+  // Wait until startup settles: the dashboard is shown and the splash window,
+  // which the app destroys right after, is gone.
+  let main;
+  for (let i = 0; i < 100; i++) {
+    main = app.windows().find(window => window.url().startsWith(url));
+    const settled = await app.evaluate(({ BrowserWindow }, origin) => {
+      const windows = BrowserWindow.getAllWindows();
+      return windows.some(window => window.webContents.getURL().startsWith(origin) && window.isVisible())
+        && windows.every(window => !window.webContents.getURL().startsWith('file:'));
+    }, url);
+    if (main && settled) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  if (!main) throw Error('Dashboard did not open');
   // Hosted desktops need not have a physical playback endpoint. A silent sink
   // still runs the graph/clock; production keeps the user's actual speakers.
+  // Registered after startup, so no window is closing underneath it; the next
+  // navigation and every later window run it.
   await app.context().addInitScript(() => {
     const Original = window.AudioContext;
     window.AudioContext = class extends Original {
       constructor(options) { super({ ...options, sinkId: { type: 'none' } }); }
     };
   });
-  let main;
-  for (let i = 0; i < 100; i++) {
-    main = app.windows().find(window => window.url().startsWith(url));
-    const visible = await app.evaluate(({ BrowserWindow }, origin) => BrowserWindow.getAllWindows()
-      .some(window => window.webContents.getURL().startsWith(origin) && window.isVisible()), url);
-    if (main && visible) break;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  if (!main) throw Error('Dashboard did not open');
   await main.goto(`${url}/voice/`);
   await main.locator('.echo-canvas[data-loaded=true]').waitFor();
   await main.screenshot({ path: path.join(output, 'dashboard.png') });
