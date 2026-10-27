@@ -134,14 +134,111 @@ func TestWSLProfilesPreserveSettingsAndRemainIdempotent(t *testing.T) {
 func TestWSLLauncherShellSyntaxAndDataIsolation(t *testing.T) {
 	p := wslProfile{Distribution: "Ubuntu", Home: "/home/test"}
 	bp := backendPaths{ProjectDir: `C:\with ' apostrophe`, VenvPython: `C:\with ' apostrophe\python.exe`, DataDir: `C:\with spaces\data`}
-	script := wslLauncher(p, bp)
+	script := wslLauncher(p, bp, "imprint-wsl")
 	for _, part := range []string{"wslpath -u", "exec \"$python\"", "--data-dir", "--cwd \"$PWD\"", "\"$@\""} {
 		if !strings.Contains(script, part) {
 			t.Fatalf("missing %s", part)
 		}
 	}
+	// Clients name the action; the imprint command is always the bridge's CLI.
+	if !strings.HasSuffix(script, `--home '/home/test' "$@"`+"\n") {
+		t.Fatalf("launcher fixes an action: %s", script)
+	}
+	command := wslLauncher(p, bp, "imprint", "cli")
+	if !strings.HasSuffix(command, `--home '/home/test' cli "$@"`+"\n") || !strings.HasPrefix(command, "#!/bin/sh\n"+wslBridgeMarker+" (imprint).\n") {
+		t.Fatalf("imprint command: %s", command)
+	}
 	if got := wslUNC("Ubuntu", "/home/user/../project"); got != `\\wsl.localhost\Ubuntu\home\project` {
 		t.Fatal(got)
+	}
+}
+
+func TestWSLCommandKeepsAnotherImprintAndLeavesWithTheHomesLastRegistration(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "runtime")
+	p := wslProfile{Distribution: "Ubuntu", Home: "/fixture", ClaudeHome: "/fixture/.claude", CodexHome: "/fixture/.codex"}
+	local := func(value string) string {
+		return filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(value, "/")))
+	}
+	bp := backendPaths{ProjectDir: project, VenvPython: "/python", DataDir: "/data"}
+	command := local("/fixture/.local/bin/imprint")
+	var executable []string
+	install := func(bp backendPaths) bool {
+		t.Helper()
+		installed, err := installWSLCommand(p, bp, local, func(value string) error {
+			executable = append(executable, value)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return installed
+	}
+	if !install(bp) || !install(bp) {
+		t.Fatal("the command was not installed")
+	}
+	content, _ := os.ReadFile(command)
+	if string(content) != wslLauncher(p, bp, "imprint", "cli") || executable[0] != "/fixture/.local/bin/imprint" {
+		t.Fatalf("command %q made executable as %v", content, executable)
+	}
+
+	// A Linux installation links its own imprint here (install.sh); a user
+	// script is just as foreign.
+	native := local("/opt/imprint/bin/imprint")
+	os.MkdirAll(filepath.Dir(native), 0700)
+	os.WriteFile(native, []byte("native binary"), 0700)
+	os.Remove(command)
+	if err := os.Symlink(native, command); err != nil {
+		t.Log("symlinks unavailable:", err)
+	} else {
+		if install(bp) {
+			t.Fatal("replaced a Linux installation's imprint")
+		}
+		if target, err := os.Readlink(command); err != nil || target != native {
+			t.Fatal("the Linux installation's link changed")
+		}
+		os.Remove(command)
+	}
+	os.WriteFile(command, []byte("#!/bin/sh\necho mine\n"), 0700)
+	if install(bp) {
+		t.Fatal("replaced a user's imprint")
+	}
+	os.Remove(command)
+
+	// The command stays while any registration in the home remains.
+	install(bp)
+	claude := wslRegistration{Profile: p, Target: "claude-code"}
+	codex := wslRegistration{Profile: p, Target: "codex"}
+	elsewhere := wslRegistration{Profile: wslProfile{Distribution: "Debian", Home: "/fixture", CodexHome: "/fixture/.codex"}, Target: "codex"}
+	for _, r := range []wslRegistration{claude, codex, elsewhere} {
+		saveWSLRegistration(project, r, false)
+	}
+	if err := releaseWSLCommand(project, codex, local); err != nil {
+		t.Fatal(err)
+	}
+	saveWSLRegistration(project, codex, true)
+	if _, err := os.Stat(command); err != nil {
+		t.Fatal("removed while Claude Code is registered in the home")
+	}
+	// Another installation's command is that installation's to remove.
+	other := bp
+	other.ProjectDir = filepath.Join(root, "other-runtime")
+	install(other)
+	if err := releaseWSLCommand(project, claude, local); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(command); err != nil {
+		t.Fatal("removed another installation's command")
+	}
+	install(bp)
+	if err := releaseWSLCommand(project, claude, local); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(command); !os.IsNotExist(err) {
+		t.Fatal("the command outlived the home's last registration")
+	}
+	if err := releaseWSLCommand(project, claude, local); err != nil {
+		t.Fatal("releasing an absent command:", err)
 	}
 }
 

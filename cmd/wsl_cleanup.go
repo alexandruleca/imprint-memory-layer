@@ -126,12 +126,15 @@ func cleanupWSLRegistrations(project string, targets []string) error {
 			content, readErr := os.ReadFile(local(path.Join(dir, "imprint-wsl")))
 			if readErr != nil && !os.IsNotExist(readErr) {
 				err = readErr
-			} else if readErr == nil && !strings.Contains(string(content), shellQuote(filepath.Join(project, "imprint", "wsl_bridge.py"))) {
+			} else if readErr == nil && !strings.Contains(string(content), shellQuote(wslBridge(project))) {
 				// A newer/different installation owns the shared launcher now.
 				output.Skip("Preserving another runtime's WSL bridge in " + r.Profile.Distribution)
 			} else {
 				err = removeWSLProfile(r.Profile, r.Target, local)
 			}
+		}
+		if err == nil {
+			err = releaseWSLCommand(project, r, local)
 		}
 		if err == nil {
 			err = saveWSLRegistration(project, r, true)

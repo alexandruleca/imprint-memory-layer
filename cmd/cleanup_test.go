@@ -121,6 +121,9 @@ func TestCleanupWSLJournalRetriesAndPreservesForeignBridge(t *testing.T) {
 	if err := applyWSLProfile(p, bp, "codex", local, func(string) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := installWSLCommand(p, bp, local, func(string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	record := wslRegistration{Profile: p, User: "custom-user", Target: "codex"}
 	if err := saveWSLRegistration(project, record, false); err != nil {
 		t.Fatal(err)
@@ -139,6 +142,9 @@ func TestCleanupWSLJournalRetriesAndPreservesForeignBridge(t *testing.T) {
 	}
 	if _, err := os.Stat(local("/fixture/.codex/imprint-wsl")); !os.IsNotExist(err) {
 		t.Fatal("bridge remains")
+	}
+	if _, err := os.Stat(local("/fixture/.local/bin/imprint")); !os.IsNotExist(err) {
+		t.Fatal("the imprint command outlived the home's last registration")
 	}
 	records, _ = readWSLRegistrations(project)
 	if len(records) != 0 {

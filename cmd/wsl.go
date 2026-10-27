@@ -284,16 +284,83 @@ const wslDriveMounts = "while read -r source target kind rest; do\n" +
 	"  case \"$source\" in [a-zA-Z]:*) case \"$kind\" in drvfs|9p) printf '%s\\t%s\\n' \"$source\" \"$target\";; esac;; esac\n" +
 	"done < /proc/mounts"
 
-func wslLauncher(p wslProfile, bp backendPaths) string {
+// wslBridgeMarker opens every script imprint wsl setup writes, so setup may
+// replace them and remove takes out only these.
+const wslBridgeMarker = "# Imprint managed Windows runtime bridge"
+
+// wslLauncher is the script, called name, that runs the Windows bridge with
+// action before its own arguments: a client profile's imprint-wsl leaves the
+// action to the client, the imprint command is the bridge's "cli".
+func wslLauncher(p wslProfile, bp backendPaths, name string, action ...string) string {
 	// wslpath honors custom Windows drive mount locations. No shell re-parses
 	// client payloads: stdin goes directly to the stdlib Windows bridge.
 	cli, _ := os.Executable()
-	return "#!/bin/sh\n# Imprint managed Windows runtime bridge (imprint-wsl).\nset -eu\n" +
+	return "#!/bin/sh\n" + wslBridgeMarker + " (" + name + ").\nset -eu\n" +
 		"python=$(wslpath -u " + shellQuote(bp.VenvPython) + ")\n" +
 		"mounts=$(" + wslDriveMounts + ")\n" +
-		"exec \"$python\" " + shellQuote(filepath.Join(bp.ProjectDir, "imprint", "wsl_bridge.py")) +
+		"exec \"$python\" " + shellQuote(wslBridge(bp.ProjectDir)) +
 		" --cli " + shellQuote(cli) + " --data-dir " + shellQuote(bp.DataDir) + " --distribution " + shellQuote(p.Distribution) +
-		" --cwd \"$PWD\" --mounts \"$mounts\" --home " + shellQuote(p.Home) + " \"$@\"\n"
+		" --cwd \"$PWD\" --mounts \"$mounts\" --home " + shellQuote(p.Home) + " " + strings.Join(append(action, `"$@"`), " ") + "\n"
+}
+
+func wslBridge(project string) string { return filepath.Join(project, "imprint", "wsl_bridge.py") }
+
+// wslCommand is where a registration puts the imprint command: the directory
+// the Linux installer links imprint into (install.sh).
+func wslCommand(p wslProfile) string { return path.Join(p.Home, ".local", "bin", "imprint") }
+
+// installWSLCommand writes the imprint command into the profile's home. An
+// imprint that is not this command, such as the link of a Linux installation,
+// keeps its place, and installWSLCommand reports false.
+func installWSLCommand(p wslProfile, bp backendPaths, local func(string) string, makeExecutable func(string) error) (bool, error) {
+	command := wslCommand(p)
+	// Lstat first: Windows reads a Linux symlink on \\wsl.localhost as missing.
+	info, err := os.Lstat(local(command))
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return false, nil
+		}
+		previous, err := os.ReadFile(local(command))
+		if err != nil {
+			return false, err
+		}
+		if !strings.Contains(string(previous), wslBridgeMarker) {
+			return false, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if err := configfile.Write(local(command), []byte(wslLauncher(p, bp, "imprint", "cli"))); err != nil {
+		return false, err
+	}
+	return true, makeExecutable(command)
+}
+
+// releaseWSLCommand removes the imprint command from record's home before
+// record is dropped, unless another recorded registration still uses that
+// home or the command runs another installation's bridge.
+func releaseWSLCommand(project string, record wslRegistration, local func(string) string) error {
+	records, err := readWSLRegistrations(project)
+	if err != nil {
+		return err
+	}
+	for _, r := range records {
+		if r.Profile.Distribution == record.Profile.Distribution && r.Profile.Home == record.Profile.Home && !sameWSLRegistration(r, record) {
+			return nil
+		}
+	}
+	command := local(wslCommand(record.Profile))
+	content, err := os.ReadFile(command)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(content), shellQuote(wslBridge(project))) {
+		return nil
+	}
+	return os.Remove(command)
 }
 
 func wslProfileMapper(p wslProfile, user string) (func(string) string, error) {
@@ -398,12 +465,12 @@ func applyWSLProfile(p wslProfile, bp backendPaths, target string, local func(st
 		return nil
 	}
 	launcher := path.Join(dir, "imprint-wsl")
-	if previous, err := os.ReadFile(local(launcher)); err == nil && !strings.Contains(string(previous), "# Imprint managed Windows runtime bridge") {
+	if previous, err := os.ReadFile(local(launcher)); err == nil && !strings.Contains(string(previous), wslBridgeMarker) {
 		return fmt.Errorf("refusing to overwrite an unrecognized launcher: %s", launcher)
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := configfile.Write(local(launcher), []byte(wslLauncher(p, bp))); err != nil {
+	if err := configfile.Write(local(launcher), []byte(wslLauncher(p, bp, "imprint-wsl"))); err != nil {
 		return err
 	}
 	if err := makeExecutable(launcher); err != nil {
@@ -468,7 +535,7 @@ func removeWSLProfile(p wslProfile, target string, local func(string) string) er
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err == nil && !strings.Contains(string(previous), "# Imprint managed Windows runtime bridge") {
+	if err == nil && !strings.Contains(string(previous), wslBridgeMarker) {
 		return fmt.Errorf("unrecognized launcher; refusing removal")
 	}
 	var data map[string]any
@@ -608,11 +675,15 @@ func WSL(args []string) {
 		if err != nil {
 			output.Fail(err.Error())
 		}
+		record := wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}
 		if args[0] == "remove" {
 			if err := removeWSLProfile(p, *target, local); err != nil {
 				output.Fail(err.Error())
 			}
-			if err := saveWSLRegistration(project, wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}, true); err != nil {
+			if err := releaseWSLCommand(project, record, local); err != nil {
+				output.Fail(err.Error())
+			}
+			if err := saveWSLRegistration(project, record, true); err != nil {
 				output.Fail(err.Error())
 			}
 			// Only default-user registrations are represented in installer choices.
@@ -643,11 +714,15 @@ func WSL(args []string) {
 			output.Fail("Windows runtime missing; run imprint bootstrap first")
 		}
 		// Journal before mutation so even partial setup is removable.
-		if err := saveWSLRegistration(project, wslRegistration{Profile: p, User: *user, Target: *target, CustomProfile: *home != "" || *claude != "" || *codex != ""}, false); err != nil {
+		if err := saveWSLRegistration(project, record, false); err != nil {
 			output.Fail(err.Error())
 		}
-		err = applyWSLProfile(p, bp, *target, local, func(value string) error {
+		chmod := func(value string) error {
 			_, err := runWSL(wslArgs(p.Distribution, *user, "chmod", "700", value)...)
+			return err
+		}
+		err = applyWSLProfile(p, bp, *target, local, func(value string) error {
+			err := chmod(value)
 			if err == nil {
 				_, err = runWSL(wslArgs(p.Distribution, *user, value, "probe")...)
 			}
@@ -655,6 +730,15 @@ func WSL(args []string) {
 		})
 		if err != nil {
 			output.Fail("WSL registration failed: " + err.Error())
+		}
+		installed, err := installWSLCommand(p, bp, local, chmod)
+		if err != nil {
+			output.Fail("WSL registration failed: " + err.Error())
+		}
+		if installed {
+			output.Info(fmt.Sprintf("WSL %s runs this Imprint as %s", p.Distribution, wslCommand(p)))
+		} else {
+			output.Warn(fmt.Sprintf("Left %s in WSL %s as it is: it is not Imprint's WSL command (a Linux installation's link, for one)", wslCommand(p), p.Distribution))
 		}
 		if *target == "cursor" {
 			output.Success(fmt.Sprintf("Registered Cursor's conversations in WSL %s for imprint learn. Its MCP server and hooks come from Imprint's Windows Cursor setup.", p.Distribution))

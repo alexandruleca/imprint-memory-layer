@@ -5,7 +5,9 @@ description: Connect selected WSL Claude Code and Codex profiles to one Windows 
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) — disable and native uninstall clean up recorded WSL profiles; the manual removal path remains available
+- Amended by:
+  - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) — disable and native uninstall clean up recorded WSL profiles; the manual removal path remains available
+  - [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) — the bridge's CLI is also the `imprint` command in each registered WSL home
 - Related: [ADR 0003](0003-local-mcp-and-portable-hooks.md), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0024](0024-enforce-local-service-boundaries.md)
 - Restructured: 2026-10-25
 

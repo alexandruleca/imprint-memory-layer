@@ -19,6 +19,24 @@ class WSLPathTests(unittest.TestCase):
         self.assertEqual(mapped[2], '/project-label')
         self.assertEqual(mapped[3], r'\\wsl.localhost\Ubuntu\home\project')
 
+    def test_cli_runs_windows_imprint_or_names_what_it_runs(self):
+        bridge = ['--data-dir', 'C:\\data', '--distribution', 'Ubuntu', '--cli', 'C:\\imprint.exe',
+                  '--cwd', '/home/test/project', '--home', '/home/test', 'cli']
+        with patch.dict(os.environ), patch.object(wsl_bridge.os, 'chdir'), \
+                patch.object(wsl_bridge.sys, 'platform', 'win32'), \
+                patch.object(wsl_bridge.sys, 'stdout', io.StringIO()), \
+                patch.object(wsl_bridge.subprocess, 'call', return_value=3) as call:
+            self.assertEqual(wsl_bridge.main(bridge + ['ingest', '/home/test/project']), 3)
+            call.assert_called_once_with(['C:\\imprint.exe', 'ingest', r'\\wsl.localhost\Ubuntu\home\test\project'])
+            call.reset_mock()
+            # The WSL imprint command hands people this answer, not the bridge's usage.
+            for refused in ([], ['--help'], ['update']):
+                with patch.object(wsl_bridge.sys, 'stderr', io.StringIO()) as stderr:
+                    self.assertEqual(wsl_bridge.main(bridge + refused), 2)
+                self.assertIn('In WSL, imprint runs: status, doctor, ingest', stderr.getvalue())
+                self.assertNotIn('usage:', stderr.getvalue())
+            call.assert_not_called()
+
     def test_namespace_and_mount_paths_do_not_assume_automount_root(self):
         convert = wsl_paths.linux_to_windows
         self.assertEqual(convert('/home/test/project/../file.py', 'Ubuntu'),

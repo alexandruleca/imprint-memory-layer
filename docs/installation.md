@@ -94,12 +94,14 @@ Cline's VS Code extension runs inside the distribution under Remote-WSL, as the 
 
 For Claude Code, Codex and Copilot, restart the selected client, verify the Imprint MCP server and review/trust its hooks. For Cline, reload the extension or restart the CLI. WSL Windows-executable interoperability must be enabled. The wizard detects existing default-user profile directories; it does not install Claude Code, Codex or WSL. Settings exported only by your interactive shell are not sourced during discovery. For another Linux user or profile, pass `--user <name>`, `--claude-home /absolute/profile` or `--codex-home /absolute/profile`. An explicit `--python <Windows-path>` can select an existing Windows Imprint interpreter. A non-default user's profile must also be accessible through the Windows account's WSL filesystem provider; setup does not change Linux permissions or elevate privileges.
 
-Setup does not approve or index project directories. To work with a WSL project through the Windows store, use the installed launcher from WSL (substitute `.claude` if that is your selected profile):
+Every distribution home with a connected client also gets the `imprint` command, at `~/.local/bin/imprint`, where the Linux installer links it. It runs this Windows installation: `status`, `doctor`, `ingest`, `refresh`, `learn`, `ingest-url`, `refresh-urls`, `retag`, `purge`, `workspace`, `config` and `device`, with Linux paths translated. Setup, installation, updates and desktop commands run from Windows. Open a new WSL shell after the first registration: Ubuntu's and Debian's `~/.profile` put `~/.local/bin` on `PATH` only when it exists at login. Setup leaves an `imprint` that is not this command alone, such as a Linux installation's link, and says so; that home keeps reaching the Windows runtime through `"$HOME/.codex/imprint-wsl" cli …` (or `.claude`). The command goes with the home's last registration. Homes registered before the command existed get it on the next repair or update, or from `imprint wsl setup` ([ADR 0091](adr/0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md)).
+
+Setup does not approve or index project directories. To work with a WSL project through the Windows store, approve and index it from WSL:
 
 ```bash
 cd ~/code/my-project
-"$HOME/.codex/imprint-wsl" cli workspace roots add "$PWD"
-"$HOME/.codex/imprint-wsl" cli ingest "$PWD"
+imprint workspace roots add "$PWD"
+imprint ingest "$PWD"
 ```
 
 Existing workspace overlap, sharing and purge rules apply. Linux files are accessed through the distribution's Windows UNC namespace; mounted Windows drives use their real Windows paths, honoring custom mount locations. Windows paths returned by other tools can be translated with `wslpath -u`. Spaces, Unicode and apostrophes are supported; paths that cannot be represented through Windows filesystem APIs fail explicitly. Hook support follows the current host adapters; a configured entry alone does not establish host-side trust or transcript-version compatibility.

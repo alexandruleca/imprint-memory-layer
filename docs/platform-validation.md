@@ -777,3 +777,17 @@ See [ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md). 
 | Go tests natively on Windows | Passed | `cmd` (run with `-test.v`) and `queuelock`, including Python waiting while Go holds `runtime.lock`. |
 
 Not run: the desktop app restarted by setup, the Windows installer, `imprint update`, macOS and an archive update.
+
+## The imprint command in WSL homes (2026-10-27)
+
+See [ADR 0091](adr/0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md). Machine: Windows 11 with WSL2 Ubuntu. Windows runs used a cross-compiled `imprint.exe` and the checkout's `imprint/` in `%TEMP%`, the installed venv's Python reused read-only, disposable Linux homes and Windows data. No real client profile was registered.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| Linux symlinks seen from Windows | Measured | Through `\\wsl.localhost`, `os.ReadFile` of a valid absolute or relative Linux symlink reports the path missing; `os.Lstat` finds it as a non-regular file. |
+| Go tests (Linux, and natively on Windows) | Passed | `cmd` WSL and cleanup tests: the command's install, ownership, per-home release and removal on disconnect. Windows lacks the symlink privilege, so the symlink case logs and is skipped there. |
+| Python bridge tests | Passed | The CLI refusal lists supported commands without bridge usage; the new test fails against the previous bridge. |
+| Real WSL → native Windows smoke | Passed | `scripts/test-wsl-interop.py`: the command is installed, approves a Linux root and refuses `update` (exit 2). A Linux installation's link survives setup and removal. A Windows-drive home gets and loses the command, and the command stays until the home's last registration goes. MCP discovery found 19 tools. |
+| Regression: ownership by reading the file | Reproduced | A build that checks with `os.ReadFile` alone replaced a Linux installation's `~/.local/bin/imprint` link with the bridge command; this change kept it and warned. |
+
+Not run: an Inno Setup compile of the WSL page's new description, the GUI installer, dashboard enrollment, and distributions other than Ubuntu.

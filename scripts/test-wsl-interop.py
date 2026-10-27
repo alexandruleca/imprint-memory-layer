@@ -47,23 +47,39 @@ def main():
             assert config.read_bytes() == original, 'Registration must be idempotent'
             assert b'keep-me' in original, 'Other MCP servers must survive'
         launcher = str(home / '.codex/imprint-wsl')
+        command = home / '.local/bin/imprint'
+        assert os.access(command, os.X_OK), 'Registration must put the imprint command in the home'
         cwd = str(home / 'project')
         for action, code in [('session-start', 0), ('pre-read', 2), ('post-search', 0), ('pre-read', 0), ('stop', 0)]:
             result = subprocess.run([launcher, 'hook', action], input='{"session_id":"fixture"}',
                                     text=True, capture_output=True, cwd=cwd)
             assert result.returncode == code, (action, result.stderr)
+        # A conversation without a recorded cwd belongs to no workspace (ADR 0072).
         transcript = home / 'project/session.jsonl'
-        transcript.write_text(json.dumps({'cwd': cwd, 'type': 'fixture'}))
+        transcript.write_text(json.dumps({'type': 'fixture'}))
         blocked = subprocess.run([launcher, 'hook', 'stop'],
             input=json.dumps({'transcript_path': str(transcript)}), text=True, capture_output=True, cwd=cwd)
-        assert blocked.returncode == 0 and 'outside approved workspace roots' in blocked.stderr
+        assert blocked.returncode == 0 and 'Imprint skipped a conversation' in blocked.stderr, blocked.stderr
         probe = subprocess.run([launcher, 'probe'], capture_output=True, text=True, check=True, cwd=cwd)
         report = json.loads(probe.stdout)
         assert report['runtime'] == 'win32' and report['data_dir'] == data
         assert report['client_working_directory'] == cwd
-        # The normal CLI can explicitly approve a WSL project; setup itself
+        # The imprint command can explicitly approve a WSL project; setup itself
         # has not approved or indexed any source directory.
-        subprocess.run([launcher, 'cli', 'workspace', 'roots', 'add', cwd], check=True, cwd=cwd)
+        subprocess.run([str(command), 'workspace', 'roots', 'add', cwd], check=True, cwd=cwd)
+        refused = subprocess.run([str(command), 'update'], capture_output=True, text=True, cwd=cwd)
+        assert refused.returncode == 2 and 'In WSL, imprint runs' in refused.stderr, refused.stderr
+        # A Linux installation's imprint is a symlink, which Windows reads
+        # through \\wsl.localhost as missing; registration must keep it.
+        native = home / 'native profile'
+        (native / '.codex').mkdir(parents=True)
+        (native / '.local/bin').mkdir(parents=True)
+        (native / 'linux-imprint').write_text('#!/bin/sh\n')
+        (native / '.local/bin/imprint').symlink_to(native / 'linux-imprint')
+        for verb in ('setup', 'remove'):
+            subprocess.run([args.windows_cli, 'wsl', verb, '--distribution', args.distribution, '--home', str(native),
+                            '--target', 'codex'] + (['--python', args.windows_python] if verb == 'setup' else []), check=True, env=env)
+            assert os.readlink(native / '.local/bin/imprint') == str(native / 'linux-imprint'), 'Kept the Linux imprint'
 
         async def handshake(working=cwd, expected_roots=None):
             from mcp import ClientSession, StdioServerParameters
@@ -97,13 +113,16 @@ def main():
         subprocess.run([args.windows_cli, 'wsl', 'remove', '--distribution', args.distribution,
             '--home', str(drive_home), '--target', 'codex'], check=True, env=env)
         assert 'keep-drive-model' in (drive_home / '.codex/config.toml').read_text()
+        assert not (drive_home / '.local/bin/imprint').exists()
         for target in ('claude-code', 'codex'):
+            assert command.exists(), 'The imprint command stays while a client in the home is registered'
             subprocess.run([args.windows_cli, 'wsl', 'remove', '--distribution', args.distribution,
                             '--home', str(home), '--target', target], check=True, env=env)
         assert b'keep-me' in (home / '.codex/config.toml').read_bytes()
         assert b'keep-me' in (home / '.claude.json').read_bytes()
         assert not (home / '.codex/imprint-wsl').exists()
         assert not (home / '.claude/imprint-wsl').exists()
+        assert not command.exists(), "The imprint command leaves with the home's last registration"
     # Keep failed-run data for diagnosis. Only this successful fixture's
     # uniquely allocated data directory is removed, never an installed store.
     import shutil

@@ -12,7 +12,7 @@ begin
   GWslPage := CreateInputOptionPage(wpInstalling,
     'Connect clients in WSL',
     'Choose Linux client profiles to connect to this Windows Imprint.',
-    'Selected clients share this Windows memory store. Existing settings are preserved. WSL distributions may start during discovery. Hook trust remains a client setting.',
+    'Selected clients share this Windows memory store, and their distributions get the imprint command. Existing settings are preserved. WSL distributions may start during discovery. Hook trust remains a client setting.',
     False, False);
 end;
 

@@ -73,10 +73,13 @@ def main(argv=None):
         runpy.run_module('imprint', run_name='__main__')
         return 0
     if args.action == 'cli':
-        supported = {'ingest', 'refresh', 'workspace', 'purge', 'config', 'device',
-                     'status', 'doctor', 'learn', 'ingest-url', 'refresh-urls', 'retag'}
+        supported = ['status', 'doctor', 'ingest', 'refresh', 'learn', 'ingest-url', 'refresh-urls',
+                     'retag', 'purge', 'workspace', 'config', 'device']
         if not args.args or args.args[0] not in supported:
-            parser.error('Use Windows Imprint directly for setup, installation, updates and desktop commands')
+            # People type these at the WSL imprint command, so no bridge usage.
+            print('In WSL, imprint runs: ' + ', '.join(supported) + '.\n'
+                  'Run setup, installation, updates and desktop commands with Windows Imprint.', file=sys.stderr)
+            return 2
         # CLI commands accept filesystem paths as individual arguments. Never
         # interpolate a command string or alter URLs, flags or relative keys.
         translated = cli_arguments(args.args, args.distribution, args.mounts)

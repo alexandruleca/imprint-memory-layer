@@ -106,7 +106,7 @@ func TestLearnRunsEachStoreGroupInItsOwnPathContext(t *testing.T) {
 	if got := local.pathContext(); !reflect.DeepEqual(got, []string{"IMPRINT_WSL_DISTRO=", "IMPRINT_WSL_MOUNTS=", "IMPRINT_WSL_HOME="}) {
 		t.Fatalf("local context = %q", got)
 	}
-	if !strings.Contains(wslLauncher(wslProfile{Distribution: "Ubuntu", Home: "/home/test"}, backendPaths{}), "mounts=$("+wslDriveMounts+")\n") {
+	if !strings.Contains(wslLauncher(wslProfile{Distribution: "Ubuntu", Home: "/home/test"}, backendPaths{}, "imprint-wsl"), "mounts=$("+wslDriveMounts+")\n") {
 		t.Fatal("the launcher and learn must read the same mount table")
 	}
 }

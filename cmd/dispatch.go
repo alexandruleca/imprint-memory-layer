@@ -29,7 +29,8 @@ type client struct {
 	// bridge launcher, MCP entry, rules and, where the client has them, hooks. Cursor's agent runs from
 	// the Windows app over Remote-WSL, which Imprint's Windows Cursor setup
 	// already wires; its WSL profile only holds the conversations it records,
-	// so registering it writes nothing and lets learn read them (ADR 0052).
+	// so registering it writes nothing into it and lets learn read them (ADR
+	// 0052). Every registration puts the imprint command in the home (ADR 0091).
 	wslHome func(wslProfile) string
 	// store is the directory where imprint learn reads the client's
 	// conversations on this computer (imprint.cli_conversations --store

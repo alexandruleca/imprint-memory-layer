@@ -95,9 +95,10 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0003](0003-local-mcp-and-portable-hooks.md) **Local MCP and portable hooks.** Local stdio MCP, shared runtime preparation and portable hook commands.
 - [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) **Durable MCP and preserved client configuration.** Durable writes, workspace binding, diagnostics and preserved profiles. Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md) (workspace binding) and [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (per-project sessions).
-- [ADR 0026](0026-windows-installer-wsl-client-bridge.md) **Windows installer registration for WSL clients.** Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) (WSL cleanup on disable and uninstall).
+- [ADR 0026](0026-windows-installer-wsl-client-bridge.md) **Windows installer registration for WSL clients.** Opt-in WSL Claude Code/Codex registration through a shared Windows stdio runtime, path-aware hooks and preserved profiles. Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) (WSL cleanup on disable and uninstall) and [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) (the `imprint` command in WSL homes).
 - [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) **Connect and disconnect clients without touching the runtime.** One client table drives every client command; `imprint connect` and `disconnect` only register and unregister clients, so the dashboard can run them, and Settings enrolls WSL profiles.
 - [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) **The Copilot home is GitHub Copilot's store, configuration and hook root.** GitHub Copilot's surfaces share `COPILOT_HOME`: Imprint registers MCP, instructions and SessionStart/Stop hooks there, learns its session events by their recorded context, and `copilot` is a WSL registration target.
+- [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) **WSL homes with a connected client get the imprint command.** `imprint wsl setup` puts the Windows bridge's CLI in the home's `~/.local/bin/imprint`, keeps any other `imprint` there (a Linux installation's link, for one), and removes it with the home's last registration.
 
 ### Dashboard and desktop
 
@@ -180,7 +181,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0023](0023-update-by-installation-type.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Update by installation type |
 | [0024](0024-enforce-local-service-boundaries.md) | 2026-10-23 | Accepted | Enforce local service boundaries |
 | [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
-| [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) | Windows installer registration for WSL clients |
+| [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md), [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | Windows installer registration for WSL clients |
 | [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md), [ADR 0085](0085-main-only-fast-forwards-to-dev.md) | Symmetric uninstall and branch synchronization |
 | [0028](0028-complete-uninstall.md) | 2026-10-23 | Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) | Complete uninstall |
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
@@ -246,6 +247,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) | 2026-10-27 | Accepted | Bytes a crash never wrote are counted omissions |
 | [0089](0089-one-progress-record-for-the-running-job.md) | 2026-10-27 | Accepted | One progress record for the running job, read by every surface |
 | [0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | 2026-10-27 | Accepted | macOS installs llama.cpp wheels built by this repository |
+| [0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | 2026-10-27 | Accepted | WSL homes with a connected client get the imprint command |
 
 ## How to write and maintain ADRs
 
