@@ -73,7 +73,7 @@ evidence-based human review or an independently validated judge.
 
 ## Run and reproduce
 
-Use Python 3.12 with `requirements/base.lock.txt` and `requirements/cpu.lock.txt`, an authenticated Claude Code
+Use Python 3.12 with `requirements/base.lock.txt`, `requirements/cpu.lock.txt` and `requirements/llm.lock.txt`, an authenticated Claude Code
 CLI supporting restricted mode and explicit per-session settings, and a POSIX host. No setup or real memory
 directory is used. The default embedding profile downloads once into the
 disposable run directory. The runner selects independent loopback Qdrant ports.
