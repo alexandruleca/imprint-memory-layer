@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { getStats, getOverview } from "@/lib/api";
+import { ApiError, getStats, getOverview } from "@/lib/api";
 import { DashboardSkeleton } from "@/components/loaders";
 import { IngestionProgress } from "@/components/ingestion-progress";
 import { QuickIngest } from "@/components/quick-ingest";
@@ -80,23 +81,50 @@ function BarList({ items }: { items: [string, number][] }) {
 export default function DashboardPage() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [overview, setOverview] = useState<OverviewData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; serverResponded: boolean; profileConflict: boolean } | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    Promise.all([getStats(), getOverview()])
-      .then(([s, o]) => { setStats(s); setOverview(o); })
-      .catch((e) => setError(e.message));
-  }, []);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function load() {
+      try {
+        const [s, o] = await Promise.all([getStats(), getOverview()]);
+        if (cancelled) return;
+        setStats(s);
+        setOverview(o);
+        setError(null);
+      } catch (cause) {
+        if (cancelled) return;
+        const serverResponded = cause instanceof ApiError;
+        const profileConflict = serverResponded && cause.body.error === "embedding_profile_conflict";
+        setError({ message: cause instanceof Error ? cause.message : "Unknown error", serverResponded, profileConflict });
+        // Starting the API after a failed load must recover the open dashboard.
+        if (!serverResponded) timer = setTimeout(load, 3000);
+      }
+    }
+    void load();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [retry]);
 
   if (error) {
     return (
       <div className="p-8">
         <Card className="border-destructive">
           <CardContent className="pt-6">
-            <p role="alert" className="text-destructive">Failed to connect to API: {error}</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Make sure the API server is running: <code>imprint ui start</code>
+            <p role="alert" className="text-destructive">
+              {error.profileConflict ? "Memory index needs rebuilding" : error.serverResponded ? "Could not load dashboard" : "Failed to connect to API"}: {error.message}
             </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {error.profileConflict
+                ? <>Use the workspace menu to create and switch to a new workspace, then reindex your sources. Your old workspace is preserved; its memories are not copied automatically.</>
+                : error.serverResponded
+                ? <>The API server responded with an error. Check its log with <code>imprint ui log</code>, then try again.</>
+                : <>Reconnecting automatically. Check the server with <code>imprint ui status</code>. If it is stopped, run <code>imprint ui start</code>.</>}
+            </p>
+            <Button className="mt-4" variant="outline" onClick={() => { setError(null); setRetry(value => value + 1); }}>
+              Try again
+            </Button>
           </CardContent>
         </Card>
       </div>

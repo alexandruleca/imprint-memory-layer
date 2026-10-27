@@ -68,6 +68,16 @@ app = FastAPI(title="Imprint API", version="1.0.0")
 app.state.container_bind = False
 app.state.server = None  # The DashboardServer serving this app, if any.
 
+
+@app.exception_handler(vs.EmbeddingProfileError)
+async def embedding_profile_conflict(_request: Request, error: vs.EmbeddingProfileError):
+    return JSONResponse({
+        "error": "embedding_profile_conflict",
+        "detail": str(error),
+        "collection": error.collection,
+    }, status_code=409)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"http://(?:127\.0\.0\.1|localhost|\[::1\])(?::[0-9]+)?",

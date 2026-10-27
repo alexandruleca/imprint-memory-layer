@@ -35,6 +35,8 @@ imprint ingest /path/to/project
 
 A new workspace preserves the old workspace's notes, graph and vectors. Reimport conversations, documents, URLs and durable memories you want available there; indexing a code directory does not reconstruct manually stored notes. Workspace migration and vector sync copy existing vectors and cannot convert an old embedding index. Back up irreplaceable memories before choosing to wipe instead. No upgrade automatically wipes, switches workspaces or starts a rebuild.
 
+In the dashboard, **Memory index needs rebuilding** reports this compatibility conflict and leaves the workspace menu available to create and switch to a new workspace. The API returns HTTP 409 with `error: "embedding_profile_conflict"` and the rebuild explanation. Earlier releases returned HTTP 500 while the dashboard said **Failed to connect to API** and suggested `imprint ui start`; restarting the server cannot change a collection's embedding profile. For those releases, `imprint workspace switch qwen-gguf` followed by reloading the dashboard selects a fresh index while keeping the old one; choose another new name if that workspace already exists. Then reindex and reimport the sources you need.
+
 Qdrant collection metadata stores an embedding fingerprint covering repository, revision, file, dimensions, pooling, query instruction, token cap and encoder version. The runtime refuses a different profile, including equal-dimension changes. Nonempty legacy collections without identity require an explicit rebuild; empty compatible collections can acquire identity. Topic prototypes have separate caches keyed by this fingerprint and label inventory, so old prototypes are not reused.
 
 For a complete refresh **within the same profile**, use:

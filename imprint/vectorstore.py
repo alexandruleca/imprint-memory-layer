@@ -44,6 +44,20 @@ _inserts_since_compact = 0
 _COMPACT_EVERY = int(os.environ.get("IMPRINT_COMPACT_EVERY", "500"))
 _SCAN_BATCH = int(os.environ.get("IMPRINT_SCAN_BATCH", "2000"))
 
+
+class EmbeddingProfileError(ValueError):
+    """A collection needs an explicit rebuild under the configured encoder.
+
+    Keep this distinct from unexpected storage errors so the dashboard can
+    explain the compatibility conflict without suggesting another API start.
+    The rejection policy is defined by ADR 0010 and ADR 0086.
+    """
+
+    def __init__(self, collection: str, message: str):
+        super().__init__(message)
+        self.collection = collection
+
+
 # ── Client + schema ─────────────────────────────────────────────
 def _get_client() -> QdrantClient:
     """Connect to the local Qdrant server. The runner auto-spawns it
@@ -130,10 +144,10 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
     dense = vectors.get(config.QDRANT_VECTOR_NAME) if isinstance(vectors, dict) else None
     identity = (info.config.metadata or {}).get("imprint_embedding_identity")
     if dense is None or dense.size != config.EMBEDDING_DIM or (identity and identity != config.embedding_identity()):
-        raise ValueError(f"Embedding profile mismatch for collection {coll!r}. Create a new workspace and reindex your sources; --force cannot change a collection's embedding profile. See docs/embeddings.md.")
+        raise EmbeddingProfileError(coll, f"Embedding profile mismatch for collection {coll!r}. Create a new workspace and reindex your sources; --force cannot change a collection's embedding profile. See docs/embeddings.md.")
     if not identity:
         if client.count(coll, exact=True).count:
-            raise ValueError(f"Collection {coll!r} has unversioned embeddings. Create a new workspace and reindex, or back up and explicitly wipe this workspace before rebuilding. See docs/embeddings.md.")
+            raise EmbeddingProfileError(coll, f"Collection {coll!r} has unversioned embeddings. Create a new workspace and reindex, or back up and explicitly wipe this workspace before rebuilding. See docs/embeddings.md.")
         client.update_collection(coll, metadata={**(info.config.metadata or {}), "imprint_embedding_identity": config.embedding_identity()})
 
     # Payload indexes — server mode honors these and uses them to skip

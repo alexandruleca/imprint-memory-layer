@@ -66,6 +66,8 @@ side by side.
 
 ### Overview & stats
 
+Dashboard statistics, overview and graph requests against a collection with a mismatched embedding profile, or nonempty unversioned embeddings, return HTTP **409** with `{"error": "embedding_profile_conflict", "collection": "memories", "detail": "…"}`. The detail explains how to rebuild explicitly; the stored collection is preserved. `/api/ping` can still return 200 because the API itself is healthy. Workspace creation and switching remain available so the dashboard can recover in a fresh workspace. See [rebuilding an index](embeddings.md#rebuild-after-upgrading), [ADR 0010](adr/0010-qwen-defaults-and-explicit-reindex.md) and [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md).
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/version` | Version of this installation's imprint CLI (`bin/imprint` beside the package, else PATH); `unknown` when it can't be run. |

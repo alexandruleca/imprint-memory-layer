@@ -62,6 +62,10 @@ If you previously ran `imprint ui start`, the app reuses that independent servic
 
 See [ADR 0025](adr/0025-desktop-owned-background-service.md) and [platform validation](platform-validation.md) for ownership and native GUI limitations.
 
+If the dashboard reports **Failed to connect to API**, it retries automatically every three seconds; **Try again** retries immediately. Check `imprint ui status` and start the server with `imprint ui start` if it is stopped. **Could not load dashboard** means the API returned an error while loading memory data; starting another server will not fix that error. Run `imprint ui log` to locate the log, inspect its recent entries, and use **Try again** after correcting the cause. To diagnose an older release that keeps showing an error after the API starts, open the URL printed by `imprint ui status` in a browser and compare it with the app; quit with **Quit Imprint** before reopening the installed app (closing the window only hides it).
+
+**Memory index needs rebuilding** means the collection's embedding profile is incompatible with the configured encoder. The workspace menu remains available to create and switch to a fresh workspace. This preserves the old workspace; reindex sources and reimport any durable notes you need in the new workspace. Earlier releases report this as HTTP 500 and **Failed to connect to API**, even while `/api/ping` returns 200. See [rebuilding after upgrading](embeddings.md#rebuild-after-upgrading), including the CLI recovery command and limits on copying old vectors.
+
 ### Clients inside WSL
 
 The Windows installer offers **Connect clients in WSL** after copying its files. Select the detected Claude Code, Codex, Cursor, GitHub Copilot and/or Cline profiles you want to connect. They share the Windows installation's memories and dashboard; a second Linux runtime is not installed. Discovery may start a distribution, skips Docker/Rancher utility distributions and inspects the distro's default Linux user. No choices are selected on a fresh install.
