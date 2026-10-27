@@ -36,8 +36,14 @@ class PlacementTests(unittest.TestCase):
             self.assertEqual(llama_runtime.placement(0), {'n_gpu_layers': 0})
             gpus.assert_called_once()
 
-    def test_a_cpu_build_lists_no_gpu(self):
-        self.assertEqual(llama_runtime.gpus(), [])  # The test environment has the CPU build.
+    def test_the_installed_build_lists_the_gpus_it_offloads_to(self):
+        # The CPU build on Windows and Linux; on macOS the Metal build, which
+        # lists the Mac's GPU (ADR 0090).
+        found = llama_runtime.gpus()
+        if not llama_cpp.llama_supports_gpu_offload():
+            self.assertEqual(found, [])
+        self.assertEqual([gpu.index for gpu in found], list(range(len(found))))
+        self.assertTrue(all(gpu.name and gpu.memory_mb > 0 for gpu in found), found)
 
 
 class LoadTests(unittest.TestCase):
