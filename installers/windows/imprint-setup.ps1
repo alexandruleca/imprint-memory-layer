@@ -76,15 +76,20 @@ function Invoke-Imprint {
         # Native commands update the global automatic variable. A local
         # assignment would shadow it and hide the completed process's exit.
         $global:LASTEXITCODE = $null
-        # Each line goes to the log, which the wizard's output page follows,
-        # and to this window, where Repair shows setup's progress.
+        # Each line goes to the log, which the wizard's output page follows
+        # while it is open, and to this window, where Repair shows setup's
+        # progress. Reopening the log and Write-Host for every line tripled
+        # the time setup spends on its output.
+        $writer = New-Object System.IO.StreamWriter ([System.IO.File]::Open($Log, 'Append', 'Write', 'ReadWrite')), (New-Object System.Text.UTF8Encoding $false)
+        $writer.AutoFlush = $true
         & $Bin @Arguments 2>&1 | ForEach-Object {
             $line = "$_"
-            $line | Out-File -FilePath $Log -Append -Encoding utf8
-            Write-Host $line
+            $writer.WriteLine($line)
+            [Console]::Out.WriteLine($line)
         }
         $nativeExit = $global:LASTEXITCODE
     } finally {
+        if ($writer) { $writer.Dispose() }
         $ErrorActionPreference = $previousPreference
     }
     if ($null -eq $nativeExit) { throw 'Could not execute imprint.exe' }
