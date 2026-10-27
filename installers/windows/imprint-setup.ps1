@@ -76,8 +76,12 @@ function Invoke-Imprint {
         # Native commands update the global automatic variable. A local
         # assignment would shadow it and hide the completed process's exit.
         $global:LASTEXITCODE = $null
+        # Each line goes to the log, which the wizard's output page follows,
+        # and to this window, where Repair shows setup's progress.
         & $Bin @Arguments 2>&1 | ForEach-Object {
-            "$_" | Out-File -FilePath $Log -Append -Encoding utf8
+            $line = "$_"
+            $line | Out-File -FilePath $Log -Append -Encoding utf8
+            Write-Host $line
         }
         $nativeExit = $global:LASTEXITCODE
     } finally {
