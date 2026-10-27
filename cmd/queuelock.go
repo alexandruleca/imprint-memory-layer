@@ -72,7 +72,7 @@ func acquireOrFail(dataDir, command string) *queuelock.Handle {
 }
 
 func waitForLock(dataDir, command string, busy *queuelock.BusyError) *queuelock.Handle {
-	announceBusy(busy)
+	announceBusy(dataDir, busy)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	reminder := time.NewTicker(30 * time.Second)
@@ -91,7 +91,7 @@ func waitForLock(dataDir, command string, busy *queuelock.BusyError) *queuelock.
 				os.Exit(1)
 			}
 		case <-reminder.C:
-			announceBusy(busy)
+			announceBusy(dataDir, busy)
 		}
 	}
 }
@@ -193,13 +193,16 @@ func queueArgs(args []string, firstIsPath bool, pathFlags, valueFlags []string) 
 	return out
 }
 
-func announceBusy(busy *queuelock.BusyError) {
+// announceBusy says what holds the queue and, from the progress record, how
+// far it is (ADR 0089).
+func announceBusy(dataDir string, busy *queuelock.BusyError) {
 	if busy.Holder == nil {
 		output.Info("  Queue busy — waiting for current job to finish...")
 		return
 	}
-	output.Info(fmt.Sprintf(
-		"  Queued behind: %s (pid %d). Waiting...",
-		busy.Holder.Command, busy.Holder.PID,
-	))
+	holder := fmt.Sprintf("%s (pid %d)", busy.Holder.Command, busy.Holder.PID)
+	if p, ok := queuelock.ReadProgress(dataDir); ok {
+		holder = p.String()
+	}
+	output.Info("  Queued behind " + holder + ". Waiting...")
 }

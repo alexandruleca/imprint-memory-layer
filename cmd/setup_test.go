@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/queuelock"
 )
 
 func TestStaleOrtProviders(t *testing.T) {
@@ -139,5 +142,20 @@ func saveFakeVenvTo(t *testing.T, path string, names []string) {
 	data, _ := json.Marshal(names)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSetupReportsItsStepsUntilItReleasesTheRuntime(t *testing.T) {
+	project := runtimeProject(t)
+	dataDir := platform.DataDir(project)
+	holdRuntime(project)
+	setupStep(2, 3, "installing llama.cpp")
+	p, ok := queuelock.ReadProgress(dataDir)
+	if !ok || p.String() != "setup: installing llama.cpp, 1/3 steps" {
+		t.Fatalf("ReadProgress = %+v, %v", p, ok)
+	}
+	releaseRuntime()
+	if _, ok := queuelock.ReadProgress(dataDir); ok {
+		t.Error("the record outlived setup")
 	}
 }

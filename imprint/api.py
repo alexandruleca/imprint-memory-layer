@@ -647,6 +647,7 @@ def _merge_progress(job: dict, progress: dict) -> dict:
         "phase": progress.get("phase"),
         "processed": processed,
         "total": total,
+        "unit": progress.get("unit", "files"),
         "stored": progress.get("stored", 0),
         "skipped": progress.get("skipped", 0),
         "projects": progress.get("projects", []),

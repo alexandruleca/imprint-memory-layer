@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => { ipcRenderer.removeListener('voice-cursor', listener); ipcRenderer.send('voice-cursor-watch', false); };
   },
   startupState: () => ipcRenderer.invoke('startup-state'),
+  activity: () => ipcRenderer.invoke('activity'),
   retryStartup: () => ipcRenderer.send('startup-retry'),
   openStartupLog: () => ipcRenderer.send('startup-log'),
   onStartupState: callback => {

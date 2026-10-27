@@ -1,8 +1,13 @@
-"""Progress file protocol for ingestion tracking.
+"""The running job's progress: the one record every surface reads (ADR 0089).
 
-Writes a JSON progress file to the data directory so the API can report
-active ingestion/refresh jobs to the dashboard.  Atomic writes via
-tempfile + os.replace prevent partial reads.
+Heavy work runs one job at a time under the queue lock (ADR 0064), and the
+job holding it reports how far it is in ``data/progress.json``: the
+dashboard's API, the desktop app while the dashboard server is down, and a
+command waiting for the lock all read it. Go setup writes the same record.
+Atomic writes via tempfile + os.replace prevent partial reads.
+
+``processed`` of ``total`` counts ``unit`` (files, conversations, chunks,
+memories, pages, steps); a total of 0 is a step whose size is unknown.
 """
 
 from __future__ import annotations
@@ -17,9 +22,9 @@ from .processes import is_alive
 
 
 def progress_path() -> Path:
-    """Return path to the progress file: {DATA_DIR}/ingest_progress.json."""
+    """Return path to the progress file: {DATA_DIR}/progress.json."""
     from .config import get_data_dir
-    return get_data_dir() / "ingest_progress.json"
+    return get_data_dir() / "progress.json"
 
 
 def write_progress(
@@ -31,6 +36,7 @@ def write_progress(
     started_at: float,
     projects: list[str],
     phase: str = "embedding",
+    unit: str = "files",
 ) -> None:
     """Atomically write progress JSON.  Caller should throttle to ~1 call/sec."""
     data = {
@@ -39,6 +45,7 @@ def write_progress(
         "phase": phase,
         "processed": processed,
         "total": total,
+        "unit": unit,
         "stored": stored,
         "skipped": skipped,
         "started_at": started_at,

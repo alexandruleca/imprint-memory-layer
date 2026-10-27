@@ -67,16 +67,28 @@ def learn(transcript: str) -> None:
 def _learn(transcript: str) -> None:
     """The Stop hook's three learners in one process, so the embedding model
     (and the privacy filter, when on) loads once. A step that fails does not
-    stop the others."""
+    stop the others. Each step reports in the progress record (ADR 0089)."""
     from . import cli_conversations, cli_extract, cli_summarize
+    from .progress import clear_progress, write_progress
     print(time.strftime("%Y-%m-%d %H:%M:%S"), transcript, flush=True)
-    for name, step in (("conversation", cli_conversations.index_transcript),
-                       ("extraction", cli_extract.extract),
-                       ("summary", cli_summarize.summarize_transcript)):
-        try:
-            print(f"  {name}: {step(transcript)}", flush=True)
-        except Exception as error:
-            print(f"  {name} failed: {type(error).__name__}: {error}", flush=True)
+    started = time.time()
+
+    def report(phase: str, done: int = 0, total: int = 0) -> None:
+        write_progress("learn", done, total, done, 0, started, [], phase=phase, unit="chunks")
+
+    steps = (("conversation", "reading",
+              lambda: cli_conversations.index_transcript(transcript, progress=lambda done, total: report("embedding", done, total))),
+             ("extraction", "extracting", lambda: cli_extract.extract(transcript)),
+             ("summary", "summarizing", lambda: cli_summarize.summarize_transcript(transcript)))
+    try:
+        for name, phase, step in steps:
+            report(phase)
+            try:
+                print(f"  {name}: {step()}", flush=True)
+            except Exception as error:
+                print(f"  {name} failed: {type(error).__name__}: {error}", flush=True)
+    finally:
+        clear_progress()
 
 
 def _log():

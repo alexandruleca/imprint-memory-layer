@@ -100,12 +100,12 @@ def scrub(workspace: str | None = None, apply: bool = False) -> dict:
         nonlocal last
         if time.time() - last >= 1.0 or scanned >= total:
             last = time.time()
-            write_progress("scrub", scanned, max(total, scanned), found, 0, started, [], phase="scanning")
+            write_progress("scrub", scanned, max(total, scanned), found, 0, started, [], phase="scanning", unit="memories")
 
     try:
         found, memory_kinds, scanned = _scan_memories(client, coll, ws, progress)
         if apply and found:
-            write_progress("scrub", scanned, scanned, len(found), 0, started, [], phase="embedding")
+            write_progress("scrub", scanned, scanned, len(found), 0, started, [], phase="embedding", unit="memories")
             _rewrite_memories(client, coll, found, ws)
         facts, changed_facts, fact_kinds = _scrub_facts(ws, apply)
         from . import source_snapshots

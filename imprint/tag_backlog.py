@@ -223,7 +223,7 @@ def _tag_all() -> int:
             nonlocal last_print
             processed = done + n
             write_progress(COMMAND, processed, max(total, processed), processed, 0, started, [workspace],
-                           phase="llm_tagging")
+                           phase="llm_tagging", unit="memories")
             now = time.time()
             if now - last_print >= 30 or processed == total:
                 last_print = now

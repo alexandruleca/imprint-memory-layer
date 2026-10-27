@@ -50,6 +50,8 @@ declare global {
       setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       onCompanionState?: (callback: (state: { open: boolean; pinned: boolean }) => void) => () => void;
       watchCursor?: (callback: (point: { x: number; y: number }) => void) => () => void;
+      /** The running job's progress record, which the app reads directly. */
+      activity?: () => Promise<{ command: string; phase?: string; processed?: number; total?: number; unit?: string } | null>;
     };
   }
 }

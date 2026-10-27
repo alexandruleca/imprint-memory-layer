@@ -520,6 +520,7 @@ func setupBackend() backendPaths {
 	// Setup changes the venv once running jobs and setups are done.
 	holdRuntime(projectDir)
 	defer releaseRuntime()
+	setupStep(1, 3, "installing dependencies")
 	installCoreRuntime(uv, venvPython, venvPip, projectDir)
 
 	// Sanity check — the core runtime packages should import. If anything
@@ -535,6 +536,7 @@ func setupBackend() backendPaths {
 		output.Success("Core dependencies installed")
 	}
 
+	setupStep(2, 3, "installing llama.cpp")
 	installLlama(uv, venvPython, venvPip, projectDir, profile)
 
 	// Persist the effective profile so subsequent runs without flags stay
@@ -548,6 +550,7 @@ func setupBackend() backendPaths {
 	// both backend provisioning and host registration have finished.
 
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
+	setupStep(3, 3, "checking document extractors")
 	reportExtractorHealth(venvPython, projectDir, dataDir)
 
 	output.Info("Checking data directory...")

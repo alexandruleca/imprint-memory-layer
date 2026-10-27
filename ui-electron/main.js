@@ -11,6 +11,7 @@ const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConse
   requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
 const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage, dockCompanion, clampFloatingGroup } = require('./companion');
 const { desktopRuntime } = require('./runtime');
+const { readActivity, describeActivity } = require('./activity');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -35,6 +36,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let win = null;
+// Where the running job reports its progress (ADR 0089); known once the
+// runtime is.
+let dataDir = NAMED_RUNTIME.dataDir;
 let startupWin = null;
 let companionWin = null;
 let launcherWin = null;
@@ -232,11 +236,20 @@ async function start() {
       const runtime = await desktopRuntime(NAMED_RUNTIME,
         { platform: process.platform, execPath: process.execPath, env: process.env, execFile });
       if (quitting || id !== attempt) return;
+      dataDir = runtime.dataDir;
       service = new DesktopService({ ...runtime, port: PORT });
       service.start(error => showError(error));
-      const deadline = Date.now() + 60000;
+      let deadline = Date.now() + 60000;
       while (!quitting && id === attempt) {
         if (await ping()) break;
+        const busy = readActivity(dataDir);
+        if (busy) {
+          message = `Waiting for ${describeActivity(busy)}…`;
+          updateStartup();
+          // Setup holds the service back while it changes the runtime
+          // (ADR 0084); it is not late while setup works.
+          if (busy.command === 'setup') deadline = Date.now() + 60000;
+        }
         if (Date.now() >= deadline) throw new Error('The local service did not become ready within 60 seconds. Check the startup log, then try again.');
         await new Promise(resolve => setTimeout(resolve, 300));
       }
@@ -511,6 +524,8 @@ ipcMain.on('win-maximize', event => {
   win.isMaximized() ? win.unmaximize() : win.maximize();
 });
 ipcMain.handle('startup-state', event => appWindow(event) ? startupState() : null);
+// What the dashboard shows while its server is down, which it cannot ask.
+ipcMain.handle('activity', event => trustedDashboardSender(event) ? readActivity(dataDir) : null);
 ipcMain.on('startup-retry', event => {
   if (startupWin?.webContents === event.sender && phase === 'error') start();
 });

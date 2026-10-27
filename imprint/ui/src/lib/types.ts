@@ -185,7 +185,7 @@ export type ChatEvent =
 export interface IngestionJob {
   pid: number;
   command: string;
-  phase?: "embedding" | "llm_tagging";
+  phase?: string;
   processed: number;
   total: number;
   stored: number;
@@ -214,10 +214,12 @@ export interface QueueJob {
   created_at: number;
   started_at: number | null;
   ended_at: number | null;
-  // Present when status === "running" and the progress file matches this job.
-  phase?: "embedding" | "llm_tagging";
+  // Present when status === "running" and the progress record matches this job.
+  phase?: string;
   processed?: number;
   total?: number;
+  /** What processed and total count; a total of 0 is a step of unknown size. */
+  unit?: string;
   stored?: number;
   skipped?: number;
   projects?: string[];

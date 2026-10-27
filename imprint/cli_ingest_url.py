@@ -242,7 +242,7 @@ def main():
     processed = 0
 
     write_progress(
-        "ingest-url", 0, len(urls), 0, 0, t_start, progress_projects,
+        "ingest-url", 0, len(urls), 0, 0, t_start, progress_projects, unit="pages",
     )
 
     while queue:
@@ -266,7 +266,7 @@ def main():
 
         write_progress(
             "ingest-url", processed, max(processed, len(queue) + processed),
-            total_stored, total_skipped, t_start, progress_projects,
+            total_stored, total_skipped, t_start, progress_projects, unit="pages",
         )
 
         # Follow same-domain links if enabled and within depth limit

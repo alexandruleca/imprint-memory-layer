@@ -16,6 +16,7 @@ var venvChange struct {
 	projectDir string
 	locks      []*queuelock.Handle
 	freed      bool
+	started    float64
 }
 
 // holdRuntime takes the queue lock, so running jobs finish first and no job
@@ -34,11 +35,27 @@ func holdRuntime(projectDir string) {
 		output.Fail("Could not take the runtime lock: " + err.Error())
 	}
 	venvChange.projectDir, venvChange.locks = projectDir, []*queuelock.Handle{runtimeLock, queue}
+	venvChange.started = float64(time.Now().UnixNano()) / 1e9
+}
+
+// setupStep reports which of setup's steps runs in the progress record
+// (ADR 0089). Setup may restart the dashboard server, so the desktop app and
+// waiting commands read the record, not the dashboard.
+func setupStep(step, of int, phase string) {
+	if venvChange.locks == nil {
+		return
+	}
+	_ = queuelock.WriteProgress(platform.DataDir(venvChange.projectDir), queuelock.Progress{
+		Command: "setup", Phase: phase, Processed: step - 1, Total: of, Unit: "steps", StartedAt: venvChange.started,
+	})
 }
 
 // releaseRuntime lets the dashboard server start on the changed venv and
 // jobs run again.
 func releaseRuntime() {
+	if venvChange.locks != nil {
+		queuelock.ClearProgress(platform.DataDir(venvChange.projectDir))
+	}
 	for _, lock := range venvChange.locks {
 		lock.Release()
 	}

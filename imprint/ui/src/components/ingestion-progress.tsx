@@ -1,17 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Hint } from "@/components/hint";
-import { cancelJob, getQueue } from "@/lib/api";
+import { cancelJob } from "@/lib/api";
+import { useQueue } from "@/lib/queue";
 import { Spinner } from "@/components/loaders";
 import { HardDriveDownload, Sparkles, X, ListOrdered } from "lucide-react";
-import type { QueueJob, QueueResponse } from "@/lib/types";
+import type { QueueJob } from "@/lib/types";
 
 function formatEta(seconds: number | null | undefined): string {
   if (seconds == null) return "calculating...";
@@ -22,27 +23,7 @@ function formatEta(seconds: number | null | undefined): string {
 }
 
 export function IngestionProgress() {
-  const [data, setData] = useState<QueueResponse | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const q = await getQueue(0);
-        if (!cancelled) setData(q);
-      } catch {
-        // API unreachable — ignore
-      }
-    }
-
-    poll();
-    const interval = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+  const data = useQueue();
 
   if (!data) return null;
   const { active, queued } = data;
@@ -87,7 +68,7 @@ function ActiveCard({ job }: { job: QueueJob }) {
   const isTagging = job.phase === "llm_tagging";
   const label = isTagging ? "LLM tagging" : job.command;
   const Icon = isTagging ? Sparkles : HardDriveDownload;
-  const unit = isTagging ? "chunks" : "files";
+  const unit = job.unit ?? (isTagging ? "memories" : "files");
   const pct = Math.min(job.percent ?? 0, 100);
   const processed = job.processed ?? 0;
   const total = job.total ?? 0;
@@ -118,7 +99,7 @@ function ActiveCard({ job }: { job: QueueJob }) {
             ))}
           </div>
           <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-            {processed}/{total} {unit}
+            {total > 0 ? `${processed}/${total} ${unit}` : job.phase}
           </span>
           <CancelButton job={job} label="Cancel running job" className="h-7 px-2 text-muted-foreground hover:text-red-600" iconClassName="w-3.5 h-3.5" />
         </div>

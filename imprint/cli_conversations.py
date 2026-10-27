@@ -389,12 +389,13 @@ def learn(stores: list[tuple[str, str]]) -> int:
         line = f"  {bar}{stats}"
         print(f"\r{line[:cols]}", flush=True)
         print(f"  Reading {idx+1}/{len(filtered)}: {source}", flush=True)
-        write_progress("learn", idx, len(filtered), total_stored, total_skipped, t_start, [], phase="reading")
+        write_progress("learn", idx, len(filtered), total_stored, total_skipped, t_start, [], phase="reading",
+                       unit="conversations")
 
         def batch_progress(done, total):
             print(f"  {source}: {done}/{total} chunks stored", flush=True)
             write_progress("learn", idx, len(filtered), total_stored + done,
-                           total_skipped, t_start, [], phase=f"embedding {done}/{total} chunks")
+                           total_skipped, t_start, [], phase=f"embedding {done}/{total} chunks", unit="conversations")
 
         try:
             # A modified transcript's chunks are replaced by index_transcript.

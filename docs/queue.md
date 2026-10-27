@@ -23,7 +23,7 @@ Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant
 | `data/queue.sqlite3` | FIFO queue + job history (see schema below) |
 | `data/queue.lock` | `fcntl` advisory flock + JSON body describing the current holder |
 | `data/queue_logs/{job_id}.log` | Full subprocess stdout+stderr per job (tailed by `/stream`) |
-| `data/ingest_progress.json` | Live ingest/refresh/learn progress JSON, including learn reading and embedding-batch phases; joined into the active job row by `/api/queue` |
+| `data/progress.json` | The lock holder's progress: command, phase, processed of total and the unit it counts (files, conversations, chunks, memories, pages, steps). Python jobs, the Stop hook's learner and Go setup write it; `/api/queue` joins it into the active job, the top bar shows it on every page, the desktop app reads it while the dashboard server is down, and a waiting command prints it ([ADR 0089](adr/0089-one-progress-record-for-the-running-job.md)) |
 | `data/learn_slots/{hash}.lock` | Stop hook learners' waiting slots, one per conversation and workspace; removed when the waiting learner takes the queue lock |
 | `data/session_learn.log` | Stop hook learners' output; starts over past 1 MiB |
 
@@ -100,6 +100,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 
 - **`/queue`** — active job card (with live progress bar + cancel), queued list (cancel removes the row; a merged job shows how many requests it answers), background tagging (state, memories waiting, progress, the current or latest run with its log, cancel, and **Resume now** after a cancel or failure), recent history (exit code, duration, expandable log viewer). Background runs raise no job toasts.
 - **Dashboard sidebar** — [`IngestionProgress`](../imprint/ui/src/components/ingestion-progress.tsx) now shows the active card plus a compact queued list with per-row cancel X.
+- **Top bar** — [`ActivityIndicator`](../imprint/ui/src/components/activity-indicator.tsx) shows the running job, or background tagging while it runs, on every page and links to the queue. It and the other queue views share one poll ([`lib/queue.ts`](../imprint/ui/src/lib/queue.ts)); the offline banner shows the record the desktop app reads while the server is down ([ADR 0089](adr/0089-one-progress-record-for-the-running-job.md)).
 - **`QuickIngest` / `CommandsPage`** — the Commands page loads its commands from `GET /api/commands` and reloads them when a job finishes, so client connection states stay current. Both continue to use `streamCommand()` from [`lib/api.ts`](../imprint/ui/src/lib/api.ts). The helper now enqueues first, then SSE-tails `/api/jobs/{id}/stream`. `AbortController.abort()` cancels the job server-side (not just the fetch).
 
 ## Verification

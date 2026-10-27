@@ -85,7 +85,7 @@ def retag(
     progress_projects = [project] if project else []
     last_progress_ts = 0.0
     write_progress(
-        "retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging",
+        "retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging", unit="memories",
     )
 
     while True:
@@ -122,7 +122,7 @@ def retag(
                     last_progress_ts = now_ts
                     write_progress(
                         "retag", scanned, max(total, scanned),
-                        updated, 0, t0, progress_projects, phase="llm_tagging",
+                        updated, 0, t0, progress_projects, phase="llm_tagging", unit="memories",
                     )
 
         if offset is None:
@@ -137,7 +137,7 @@ def retag(
     final_total = max(total, scanned)
     write_progress(
         "retag", scanned, final_total, updated, 0, t0,
-        progress_projects, phase="llm_tagging",
+        progress_projects, phase="llm_tagging", unit="memories",
     )
     clear_progress()
 
@@ -158,13 +158,13 @@ def retag_pending(project: str = "", workspace: str | None = None) -> int:
     total = tag_backlog.pending_count(workspace, project)
     t0 = time.time()
     progress_projects = [project] if project else []
-    write_progress("retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging")
+    write_progress("retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging", unit="memories")
 
     def tagged_one(n: int) -> None:
         elapsed = time.time() - t0
         print(f"\r  Tagged {n} / {total}  ({n / elapsed if elapsed > 0 else 0:.1f}/s)",
               end="", file=sys.stderr, flush=True)
-        write_progress("retag", n, max(total, n), n, 0, t0, progress_projects, phase="llm_tagging")
+        write_progress("retag", n, max(total, n), n, 0, t0, progress_projects, phase="llm_tagging", unit="memories")
 
     try:
         tagged, _ = tag_backlog.drain(workspace, project=project, on_tagged=tagged_one)

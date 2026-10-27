@@ -12,7 +12,7 @@ const path = require('node:path');
 const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'];
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
-  mediaStatus = 'granted', consent = async () => true } = {}) {
+  mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -102,7 +102,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       calls.push('ping');
       const req = new EventEmitter();
       req.destroy = () => {};
-      queueMicrotask(() => callback({ statusCode: alreadyUp || services.some(service => !service.stopped) ? 200 : 503, resume() {} }));
+      const up = alreadyUp || (!servicePending && services.some(service => !service.stopped));
+      queueMicrotask(() => callback({ statusCode: up ? 200 : 503, resume() {} }));
       return req;
     },
   };
@@ -115,6 +116,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     'node:fs': { readFileSync: () => { if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
     './companion': require('./companion'),
     './navigation': require('./navigation'), './service': { DesktopService: Service },
+    './activity': { readActivity: dir => { calls.push(['activity', dir]); return activity; },
+      describeActivity: require('./activity').describeActivity },
     './voice-permissions': require('./voice-permissions') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },
@@ -145,6 +148,24 @@ test('splash precedes probes/service and stays until dashboard finishes loading'
   await settle();
   assert.equal(h.windows[0].destroyed, true);
   assert.equal(h.windows[1].visible, true);
+});
+
+const SETUP = { pid: 7, command: 'setup', phase: 'installing llama.cpp', processed: 1, total: 3, unit: 'steps' };
+
+test('while setup holds the service back the splash says what it does', async () => {
+  const h = harness({ activity: SETUP, servicePending: true });
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.deepEqual(h.calls.find(call => call[0] === 'activity'), ['activity', '/data']);
+  assert.equal(h.invoke('startup-state', h.windows[0]).message, 'Waiting for setup: installing llama.cpp (1 of 3 steps)…');
+  assert.equal(h.invoke('startup-state', h.windows[0]).phase, 'starting');
+  h.app.quit();
+});
+
+test('the dashboard reads the running job from the app while its server is down', async () => {
+  const h = harness({ alreadyUp: true, activity: SETUP });
+  await settle();
+  assert.deepEqual(h.invoke('activity', h.windows[1]), SETUP);
+  assert.equal(h.invoke('activity', h.windows[0]), null);
 });
 
 test('dashboard toggle opens and destroys Echo from any app page, reflecting manual close', async () => {

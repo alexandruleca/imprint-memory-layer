@@ -1,37 +1,25 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { getQueue } from "@/lib/api";
+import { useQueue } from "@/lib/queue";
 import type { QueueJob } from "@/lib/types";
-
-const POLL_MS = 3000;
 
 /** Reports each queued job this tab saw waiting or running when it ends,
  * whichever page is open by then. */
 export function JobToasts() {
   const router = useRouter();
+  const queue = useQueue();
+  const watched = useRef(new Set<string>());
 
   useEffect(() => {
-    let watched = new Set<string>();
-    let cancelled = false;
-    async function poll() {
-      try {
-        const { active, queued, recent } = await getQueue(10);
-        if (cancelled) return;
-        for (const job of recent) {
-          if (watched.has(job.id)) announce(job, () => router.push("/queue"));
-        }
-        watched = new Set([active, ...queued].flatMap((job) => (job ? [job.id] : [])));
-      } catch {
-        // The heartbeat reports an unreachable service.
-      }
+    if (!queue) return;
+    for (const job of queue.recent) {
+      if (watched.current.has(job.id)) announce(job, () => router.push("/queue"));
     }
-    void poll();
-    const timer = setInterval(poll, POLL_MS);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [router]);
+    watched.current = new Set([queue.active, ...queue.queued].flatMap((job) => (job ? [job.id] : [])));
+  }, [queue, router]);
 
   return null;
 }

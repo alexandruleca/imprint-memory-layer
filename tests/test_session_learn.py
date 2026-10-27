@@ -104,6 +104,31 @@ class SessionLearnTests(unittest.TestCase):
         self.assertIn('extraction: 2', log)
         self.assertIsNone(queue_lock.read_holder())
 
+    def test_each_step_is_reported_while_it_runs_and_nothing_after(self):
+        # The progress record is what the dashboard, the desktop app and a
+        # waiting command show (ADR 0089).
+        from imprint import cli_conversations, cli_extract, cli_summarize, progress
+        seen = []
+
+        def indexed(transcript, progress):
+            seen.append(_record())
+            progress(3, 8)
+            seen.append(_record())
+            return 8, 0
+
+        def _record():
+            record = progress.read_progress()
+            return record['phase'], record['processed'], record['total'], record['unit']
+
+        with patch.object(session_learn.time, 'sleep'), \
+                patch.object(cli_conversations, 'index_transcript', side_effect=indexed), \
+                patch.object(cli_extract, 'extract', side_effect=lambda t: seen.append(_record())), \
+                patch.object(cli_summarize, 'summarize_transcript', side_effect=lambda t: seen.append(_record())):
+            session_learn.learn(self.transcript)
+        self.assertEqual(seen, [('reading', 0, 0, 'chunks'), ('embedding', 3, 8, 'chunks'),
+                                ('extracting', 0, 0, 'chunks'), ('summarizing', 0, 0, 'chunks')])
+        self.assertIsNone(progress.read_progress())
+
     def test_the_log_starts_over_past_its_limit(self):
         log = self.data / 'session_learn.log'
         log.write_text('old\n' * 10, encoding='utf-8')

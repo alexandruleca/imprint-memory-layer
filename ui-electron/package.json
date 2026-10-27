@@ -29,6 +29,7 @@
       "runtime.js",
       "companion.js",
       "service.js",
+      "activity.js",
       "startup.html",
       "startup.css",
       "startup.js",
