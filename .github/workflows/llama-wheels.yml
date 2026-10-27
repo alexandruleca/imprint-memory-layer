@@ -1,0 +1,109 @@
+name: Build llama.cpp wheels for macOS
+
+# PyPI publishes llama-cpp-python only as source, and upstream's Metal wheel
+# fails its CRC checks (ADR 0035), so macOS installs compile the binding.
+# Every installation needs it for embeddings (ADR 0085). This builds the
+# pinned version's macOS wheels once, from the hash-locked source, and
+# publishes them on a release of this repository; requirements/llm.txt and
+# llm-gpu.txt then pin them by URL and sha256 like upstream's other wheels.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: llama-cpp-python version (must match requirements/llm.lock.txt)
+        default: 0.3.36
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple silicon offloads to the GPU through Metal.
+          - target: macos-arm64
+            runner: '["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]'
+            cmake: -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_NATIVE=OFF
+            offload: 'True'
+          # Intel Macs run on the CPU, with Accelerate.
+          - target: macos-x64
+            runner: '"macos-15-intel"'
+            cmake: -DGGML_METAL=OFF -DGGML_NATIVE=OFF
+            offload: 'False'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Isolated Python on the laptop
+        if: runner.environment == 'self-hosted'
+        run: |
+          python3.12 -m venv "$RUNNER_TEMP/llama-python"
+          echo "$RUNNER_TEMP/llama-python/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'
+        with:
+          python-version: '3.12'
+      - name: Take the source pin from the lock
+        run: |
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          lock = Path('requirements/llm.lock.txt').read_text()
+          pin = re.search(r'^llama-cpp-python==(\S+) ;[^\n]*\\\n\s+--hash=(sha256:[0-9a-f]{64})', lock, re.M)
+          assert pin and pin.group(1) == os.environ['VERSION'], 'the lock pins another source version'
+          Path('llama-source.txt').write_text(f'llama-cpp-python=={pin.group(1)} --hash={pin.group(2)}\n')
+          PY
+      - name: Build the wheel from the hashed source
+        env:
+          CMAKE_ARGS: ${{ matrix.cmake }} -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip wheel --no-deps --no-binary llama-cpp-python --require-hashes \
+            -r llama-source.txt -w dist/
+      - name: Check the archive and that it loads
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          wheel, = Path('dist').glob('llama_cpp_python-*.whl')
+          assert zipfile.ZipFile(wheel).testzip() is None, f'{wheel.name} fails its CRC check'
+          print(wheel.name)
+          PY
+          python -m venv "$RUNNER_TEMP/check"
+          "$RUNNER_TEMP/check/bin/pip" install dist/llama_cpp_python-*.whl
+          offload=$("$RUNNER_TEMP/check/bin/python" -c "import llama_cpp; print(llama_cpp.llama_supports_gpu_offload())" | tail -n 1)
+          test "$offload" = "${{ matrix.offload }}"
+          shasum -a 256 dist/*.whl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llama-wheel-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    needs: wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: llama-cpp-python-v${{ inputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: llama-wheel-*
+          merge-multiple: true
+          path: dist
+      - name: Publish the wheels and their digests
+        run: |
+          sha256sum dist/*.whl | tee dist/SHA256SUMS
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --title "$TAG" \
+              --notes "macOS wheels of llama-cpp-python ${{ inputs.version }}, built from its hash-locked source (ADR 0085)."
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber dist/*.whl dist/SHA256SUMS
