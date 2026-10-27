@@ -137,14 +137,19 @@ class ParentWatchTests(unittest.TestCase):
         from imprint import queue_lock
         with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data, tempfile.TemporaryFile() as log:
             fd = os.open(os.path.join(data, 'runtime.lock'), os.O_RDWR | os.O_CREAT)
-            self.addCleanup(os.close, fd)
-            self.assertTrue(queue_lock._lock(fd, False))
             release = threading.Timer(3, queue_lock._unlock, args=(fd,))
-            release.start()
-            self.addCleanup(release.cancel)
-            started = time.monotonic()
-            self.serve(data, log)
-            self.assertGreaterEqual(time.monotonic() - started, 3)
+            try:
+                self.assertTrue(queue_lock._lock(fd, False))
+                release.start()
+                started = time.monotonic()
+                proc, _ = self.serve(data, log)
+                self.assertGreaterEqual(time.monotonic() - started, 3)
+                # Windows deletes no file that a live process, or this one,
+                # still holds, and the directory goes when this block ends.
+                self.reap(proc)
+            finally:
+                release.cancel()
+                os.close(fd)
 
 
 class RestartEndpointTests(unittest.TestCase):
