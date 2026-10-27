@@ -19,14 +19,21 @@ descriptors 1 and 2 at the null device while a model loads, and in an MCP
 server standard output carries the protocol. What the binding itself prints
 while loading, the model's metadata and chat template, goes to a buffer that
 only a failed load reports; the loaded model is quiet.
+
+Models loaded here are freed when Python exits. Python does not free
+module-level objects such as the embedding model, and ggml's Metal device,
+a C++ static destroyed after the interpreter, aborts the process if a model
+still holds GPU memory then.
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import ctypes
 import io
 import sys
 import threading
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +43,7 @@ _GGML_LOG_LEVEL_ERROR = 3
 _log_callback = None  # Referenced for as long as llama.cpp may call it.
 # Loads redirect sys.stderr, which is process-wide: one at a time.
 _construct_lock = threading.Lock()
+_loaded = weakref.WeakSet()  # Models still alive, freed at exit.
 
 
 @dataclass(frozen=True)
@@ -124,7 +132,14 @@ def _construct(path: str, **options):
             sys.stderr.write(printed.getvalue())  # Why loading failed, in llama.cpp's words.
             raise
     model.verbose = False
+    _loaded.add(model)
     return model
+
+
+@atexit.register
+def _free_loaded() -> None:
+    for model in list(_loaded):
+        model.close()
 
 
 def _quiet_logs() -> None:

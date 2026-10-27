@@ -1,7 +1,9 @@
 import contextlib
+import gc
 import io
 import sys
 import unittest
+import weakref
 from unittest.mock import MagicMock, patch
 
 import llama_cpp
@@ -72,6 +74,19 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(out.getvalue(), '')
         self.assertEqual(err.getvalue().count('Model metadata'), 1)  # From the failed load only.
         self.assertIn('failed to allocate 639 MB', err.getvalue())
+
+    def test_models_still_loaded_at_exit_are_freed(self):
+        # ggml's Metal device aborts the process at exit while a model holds
+        # GPU memory, and Python does not free module-level models.
+        with patch.object(llama_runtime, 'placement', return_value={'n_gpu_layers': 0}), \
+                patch.object(llama_cpp, 'Llama', MagicMock(side_effect=lambda **options: MagicMock())), \
+                patch.object(llama_runtime, '_loaded', weakref.WeakSet()):
+            kept, _ = llama_runtime.load('/models/kept.gguf', 0)
+            dropped_ref = weakref.ref(llama_runtime.load('/models/dropped.gguf', 0)[0])
+            gc.collect()
+            self.assertIsNone(dropped_ref(), 'freeing at exit must not keep a dropped model alive')
+            llama_runtime._free_loaded()
+        kept.close.assert_called_once_with()
 
     def test_a_model_the_cpu_cannot_load_fails(self):
         with patch.object(llama_runtime, 'placement', return_value={'n_gpu_layers': 0}), \
