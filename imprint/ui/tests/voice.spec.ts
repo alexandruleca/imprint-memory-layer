@@ -204,7 +204,8 @@ test('companion: pin shows the on-top state the main process reports', async ({ 
   await pin.click();
   const unpin = page.getByRole('button', { name: 'Unpin companion' });
   await expect(unpin).toHaveAttribute('aria-pressed', 'true');
-  expect(await unpin.evaluate(element => getComputedStyle(element).color)).not.toBe(unpinnedColor);
+  // The colour animates to the pinned one; a single read can catch its start.
+  await expect.poll(() => unpin.evaluate(element => getComputedStyle(element).color)).not.toBe(unpinnedColor);
   expect(await bridge.calls()).toEqual(['pin']);
   // Unpinned elsewhere (the main process is the owner): the button follows.
   await page.evaluate(() => (window as unknown as { publishCompanion: (state: { pinned: boolean }) => void }).publishCompanion({ pinned: false }));
