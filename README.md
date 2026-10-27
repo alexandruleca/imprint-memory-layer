@@ -91,8 +91,6 @@ graph TB
 curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash
 ```
 
-On macOS, setup builds llama.cpp from source, which needs the Xcode Command Line Tools (`xcode-select --install`).
-
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex

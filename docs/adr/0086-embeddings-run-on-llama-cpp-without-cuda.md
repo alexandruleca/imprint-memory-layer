@@ -3,7 +3,7 @@ title: ADR 0086 — Embeddings run on llama.cpp, without CUDA
 description: Embeddings use Qwen's Q8_0 GGUF of Qwen3-Embedding-0.6B through llama.cpp, whose Vulkan or Metal build runs them on any GPU and whose CPU build runs them elsewhere; the CUDA runtime and the int8 ONNX export are removed.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-27
 - Supersedes:
   - [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
@@ -14,6 +14,7 @@ description: Embeddings use Qwen's Q8_0 GGUF of Qwen3-Embedding-0.6B through lla
   - [ADR 0032](0032-one-onnx-runtime-per-environment.md) — ONNX Runtime's CPU build serves OCR and the privacy filter only, and setup removes any other build
   - [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) — the binding is part of every installation; the first local chat only downloads the model
   - [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) — Settings no longer starts `imprint bootstrap`
+- Amended by: [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) — macOS installs prebuilt wheels and needs no compiler
 - Related: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md)
 
 ## Context
