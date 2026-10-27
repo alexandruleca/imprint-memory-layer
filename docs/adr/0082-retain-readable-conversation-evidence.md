@@ -3,9 +3,10 @@ title: ADR 0082 — Retain readable conversation evidence
 description: Learn ordered readable conversation events including available analysis and tool evidence, with client context and unavailable content explicitly distinguished.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
 - Amends: [ADR 0079](0079-learn-only-what-the-claude-code-user-typed.md) — retain client-written context as labelled evidence while keeping human-question attribution
+- Amended by: [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) — a line made malformed only by NUL bytes no longer fails the reading
 - Related: [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md), [ADR 0081](0081-verifiable-redacted-source-snapshots.md)
 
 ## Context

@@ -56,7 +56,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0079](0079-learn-only-what-the-claude-code-user-typed.md) **Learn only what the Claude Code user typed.** Client context is not a human question. Amended by [ADR 0082](0082-retain-readable-conversation-evidence.md) (retain readable context as attributed evidence).
 - [ADR 0080](0080-conversations-are-relearned-when-their-reading-changes.md) **Conversations are learned again when their reading changes.** Learning replaces the current reading and reuses unchanged chunks. Amended by [ADR 0081](0081-verifiable-redacted-source-snapshots.md) (source profile and manifest checks).
 
-- [ADR 0082](0082-retain-readable-conversation-evidence.md) **Retain readable conversation evidence.** Preserve available messages, analysis and tool evidence with explicit attribution and omission counts.
+- [ADR 0082](0082-retain-readable-conversation-evidence.md) **Retain readable conversation evidence.** Preserve available messages, analysis and tool evidence with explicit attribution and omission counts. Amended by [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) (unwritten bytes are counted omissions).
+- [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) **Bytes a crash never wrote are counted omissions.** A reading drops the NUL bytes an interrupted write leaves and counts each run, instead of failing the transcript.
 
 ### Embeddings, local models and chat
 
@@ -233,13 +234,14 @@ Every record in number order. *Date* is when the decision was made.
 | [0079](0079-learn-only-what-the-claude-code-user-typed.md) | 2026-10-26 | Amended by [ADR 0082](0082-retain-readable-conversation-evidence.md) | Learn only what the Claude Code user typed |
 | [0080](0080-conversations-are-relearned-when-their-reading-changes.md) | 2026-10-26 | Amended by [ADR 0081](0081-verifiable-redacted-source-snapshots.md) | Conversations are learned again when their reading changes |
 | [0081](0081-verifiable-redacted-source-snapshots.md) | 2026-10-26 | Accepted | Verifiable redacted source snapshots |
-| [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Accepted | Retain readable conversation evidence |
+| [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Amended by [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) | Retain readable conversation evidence |
 
 | [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Accepted | Apple silicon laptop runner |
 | [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Setup frees the runtime before replacing its files |
 | [0085](0085-main-only-fast-forwards-to-dev.md) | 2026-10-27 | Accepted | Main only fast-forwards to dev |
 | [0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | 2026-10-27 | Accepted | Embeddings run on llama.cpp, without CUDA |
 | [0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) | 2026-10-27 | Accepted | llama.cpp runs each model on one GPU |
+| [0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) | 2026-10-27 | Accepted | Bytes a crash never wrote are counted omissions |
 
 ## How to write and maintain ADRs
 

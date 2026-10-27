@@ -287,6 +287,22 @@ class ConversationSourceTests(unittest.TestCase):
         self.assertIn('"role":"context"', doc['text'])
         self.assertEqual(sm.reconstruct(sm.records(doc), len(doc['text'])), doc['text'])
 
+    def test_bytes_a_crash_never_wrote_are_counted_not_failed(self):
+        # As a crash leaves them: a NUL-only line, then a record appended after
+        # a NUL run on the same line (ADR 0088).
+        from imprint.conversation_source import prepare
+        first = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': 'before the crash'}})
+        after = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': 'after the crash'}})
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'IMPRINT_DATA_DIR': temp}):
+            path = Path(temp) / 'session.jsonl'
+            path.write_text(first + '\n' + '\x00' * 900 + '\n' + '\x00' * 140 + after + '\n')
+            doc = prepare(str(path))
+        self.assertIn('before the crash', doc['text'])
+        self.assertIn('after the crash', doc['text'])
+        self.assertNotIn('\x00', doc['text'])
+        self.assertEqual(doc['metadata']['omissions']['zero_filled_lines'], 2)
+        self.assertEqual(doc['metadata']['event_count'], 2)
+
     def test_invalid_transcript_fails_instead_of_claiming_complete(self):
         from imprint.conversation_source import prepare
         with tempfile.TemporaryDirectory() as temp:

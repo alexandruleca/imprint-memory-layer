@@ -54,8 +54,13 @@ _CLINE_SYNTHETIC = ('<hook_context', '[TASK RESUMPTION]')
 _CLINE_ACT_CONTINUATION = 'The user approved switching to act mode. Continue with the approved plan now.'
 
 
-def records(path, *, strict=False):
+def records(path, *, strict=False, omissions=None):
     """Each JSON object in a transcript; lines that are not one are skipped.
+
+    A write that a crash interrupted leaves its unwritten bytes as NULs, which
+    JSON text never contains (ADR 0088). They are dropped before a line is
+    read, so a record the client appended after them is kept, and each such
+    run counts in ``omissions['zero_filled_lines']``.
 
     A Cline messages file is one JSON document: its records are the
     document's "messages".
@@ -75,6 +80,10 @@ def records(path, *, strict=False):
                 yield from (record for record in messages if isinstance(record, dict))
             return
         for line_number, line in enumerate(transcript, 1):
+            if '\x00' in line:
+                line = line.replace('\x00', '')
+                if omissions is not None:
+                    omissions['zero_filled_lines'] += 1
             try:
                 record = json.loads(line)
             except ValueError:

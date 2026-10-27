@@ -37,7 +37,7 @@ def _render(value, omissions):
 
 
 def prepare(path: str) -> dict:
-    events, omissions = [], {'opaque_reasoning': 0, 'binary_attachments': 0}
+    events, omissions = [], {'opaque_reasoning': 0, 'binary_attachments': 0, 'zero_filled_lines': 0}
     turn = 0
     render = lambda value: _render(value, omissions)
 
@@ -57,7 +57,7 @@ def prepare(path: str) -> dict:
         meta.update(metadata)
         events.append((meta, text))
 
-    for row in transcripts.records(path, strict=True):
+    for row in transcripts.records(path, strict=True, omissions=omissions):
         payload = row.get('payload')
         if row.get('type') == 'tool.execution_complete':
             data = row.get('data') or {}
