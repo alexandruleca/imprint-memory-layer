@@ -9,6 +9,7 @@ description: Disconnect managed clients before runtime removal, preserve memorie
 - Amended by:
   - [ADR 0028](0028-complete-uninstall.md) — memory retention and the ask-to-quit step
   - [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) — releases are no longer main-only: dev publishes prereleases
+  - [ADR 0085](0085-main-only-fast-forwards-to-dev.md) — no workflow fast-forwards dev after main changes
 - Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md), [ADR 0014](0014-main-only-release-packaging.md), [ADR 0025](0025-desktop-owned-background-service.md)
 - Restructured: 2026-10-25
 

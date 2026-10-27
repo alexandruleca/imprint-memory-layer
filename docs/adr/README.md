@@ -125,7 +125,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0012](0012-native-package-runtime-and-silent-installs.md) **Native package runtime and silent installs.** Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke.
 - [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main. Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev prereleases).
 - [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
-- [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention) and [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases).
+- [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases) and [ADR 0085](0085-main-only-fast-forwards-to-dev.md) (no dev sync).
 - [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) (desktop profile).
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
 - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. Amended by [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) (enclosing installer app).
@@ -135,6 +135,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
 
 - [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled.
+
+- [ADR 0085](0085-main-only-fast-forwards-to-dev.md) **Main only fast-forwards to dev.** Every change reaches main by fast-forwarding main to a dev commit; pull requests target dev, and no workflow fast-forwards dev after pushes to main.
 
 - [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) **Setup frees the runtime before replacing its files.** Setup holds the queue and runtime locks while it changes the venv; before it replaces or removes packages it restarts the dashboard server and, on Windows, stops every other process running from the runtime. Settings starts bootstrap outside the queue.
 
@@ -176,7 +178,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0024](0024-enforce-local-service-boundaries.md) | 2026-10-23 | Accepted | Enforce local service boundaries |
 | [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) | Windows installer registration for WSL clients |
-| [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Symmetric uninstall and branch synchronization |
+| [0027](0027-symmetric-uninstall-and-branch-sync.md) | 2026-10-23 | Amended by [ADR 0028](0028-complete-uninstall.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md), [ADR 0085](0085-main-only-fast-forwards-to-dev.md) | Symmetric uninstall and branch synchronization |
 | [0028](0028-complete-uninstall.md) | 2026-10-23 | Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) | Complete uninstall |
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
 | [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Accepted | Chrome preview ZIP and release downloads |
@@ -235,6 +237,7 @@ Every record in number order. *Date* is when the decision was made.
 
 | [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Accepted | Apple silicon laptop runner |
 | [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Accepted | Setup frees the runtime before replacing its files |
+| [0085](0085-main-only-fast-forwards-to-dev.md) | 2026-10-27 | Accepted | Main only fast-forwards to dev |
 
 ## How to write and maintain ADRs
 
