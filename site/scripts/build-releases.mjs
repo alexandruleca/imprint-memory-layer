@@ -9,7 +9,11 @@
 //   - Set IMPRINT_RELEASES_REFRESH=1 to bypass cache.
 //   - Set GITHUB_TOKEN to raise the rate limit (optional).
 //   - Offline / API failure falls back to the cached copy (any age) and, beyond
-//     that, to a minimal stub so the build still succeeds.
+//     that, to no releases so the build still succeeds.
+//
+// Only Imprint's releases are listed: tags vX.Y.Z and vX.Y.Z-dev.N, the ones
+// the installers and `imprint update` accept. The repository also publishes
+// other prereleases, such as the macOS llama.cpp wheels (ADR 0086).
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -27,6 +31,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 // and the stable history and latest Chrome extension come from this window.
 const MAX_RELEASES = 100;
 const TIMEOUT_MS = 8000;
+const IMPRINT_TAG = /^v\d+\.\d+\.\d+(-dev\.\d+)?$/;
 
 const PLATFORM_MATCHERS = [
   { os: 'macos', arch: 'arm64',   kind: 'installer', rx: /darwin.*arm64.*\.(pkg|dmg)$/i },
@@ -100,22 +105,9 @@ function cacheFresh() {
   return age < CACHE_TTL_MS;
 }
 
-function stubReleases() {
-  return [{
-    tag_name: 'unreleased',
-    name: 'No releases cached',
-    published_at: new Date().toISOString(),
-    prerelease: false,
-    draft: false,
-    html_url: `https://github.com/${REPO}/releases`,
-    body: '',
-    assets: [],
-  }];
-}
-
 function normalize(releases) {
   const sorted = [...releases]
-    .filter((r) => !r.draft)
+    .filter((r) => !r.draft && IMPRINT_TAG.test(r.tag_name))
     .sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
 
   const normalized = sorted.map((r) => {
@@ -190,9 +182,9 @@ async function main() {
         source = 'cache-stale';
         console.warn(`[build-releases] API fetch failed (${err.message}); using stale cache`);
       } else {
-        raw = stubReleases();
-        source = 'stub';
-        console.warn(`[build-releases] API fetch failed (${err.message}); using stub`);
+        raw = [];
+        source = 'none';
+        console.warn(`[build-releases] API fetch failed (${err.message}); listing no releases`);
       }
     }
   }
