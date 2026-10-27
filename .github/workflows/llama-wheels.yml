@@ -22,18 +22,15 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
+      # The binding builds Metal, its library embedded, on both architectures,
+      # whatever CMAKE_ARGS say, and leaves out AVX on Intel. GGML_NATIVE=OFF
+      # keeps the build machine's CPU features out of the wheel.
       matrix:
         include:
-          # Apple silicon offloads to the GPU through Metal.
           - target: macos-arm64
             runner: '["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]'
-            cmake: -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_NATIVE=OFF
-            offload: 'True'
-          # Intel Macs run on the CPU, with Accelerate.
           - target: macos-x64
             runner: '"macos-15-intel"'
-            cmake: -DGGML_METAL=OFF -DGGML_NATIVE=OFF
-            offload: 'False'
     runs-on: ${{ fromJSON(matrix.runner) }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
@@ -61,7 +58,7 @@ jobs:
           PY
       - name: Build the wheel from the hashed source
         env:
-          CMAKE_ARGS: ${{ matrix.cmake }} -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+          CMAKE_ARGS: -DGGML_NATIVE=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
         run: |
           python -m pip install --upgrade pip
           python -m pip wheel --no-deps --no-binary llama-cpp-python --require-hashes \
@@ -78,7 +75,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/check"
           "$RUNNER_TEMP/check/bin/pip" install dist/llama_cpp_python-*.whl
           offload=$("$RUNNER_TEMP/check/bin/python" -c "import llama_cpp; print(llama_cpp.llama_supports_gpu_offload())" | tail -n 1)
-          test "$offload" = "${{ matrix.offload }}"
+          test "$offload" = "True"
           shasum -a 256 dist/*.whl
       - uses: actions/upload-artifact@v4
         with:
