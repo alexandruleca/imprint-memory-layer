@@ -50,7 +50,7 @@ No command that stores memories runs the LLM itself: learn, ingest, refresh, ing
 
 - **Without the dashboard** nothing tags in the background. A storing command prints how many memories wait; `imprint retag --pending` tags them now, newest first. `imprint retag` still classifies every memory not yet LLM-tagged, which includes them.
 - **Turning LLM tagging on** marks only memories stored from then on; earlier memories are classified with `imprint retag`. Turning it off stops the background job between memories; the marks stay for when it is turned on again. The dashboard's own setting decides whether the background job runs.
-- **A configuration that cannot tag** (no llama.cpp binding or model for `local`, a missing API key) makes the background job fail without touching a memory; it retries after 30 minutes, when a `tagger.*` setting changes, or from **Resume now** on the Queue page.
+- **A configuration that cannot tag** (for `local`, a llama.cpp binding that does not load or a model that cannot be downloaded; a missing API key) makes the background job fail without touching a memory; it retries after 30 minutes, when a `tagger.*` setting changes, or from **Resume now** on the Queue page.
 - **Sync** never carries the mark. The device that stored a memory tags it, and the classification reaches other devices through its `tagged_at` stamp ([ADR 0051](adr/0051-synced-tags-follow-the-latest-retag.md)); a classification received that way clears a local mark.
 
 Every provider, local or remote, receives the classification prompt with its secrets redacted, so tags and types are derived from redacted text ([secret redaction](redaction.md#text-sent-to-models)).

@@ -180,8 +180,7 @@ class BackgroundSchedulingTests(QueueCase):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8420') as client:
                 return await client.put('/api/config/tagger.llm', json={'value': 'true'})
 
-        with patch('imprint.api._provision_runtime', return_value=False):
-            self.assertEqual(asyncio.run(put()).status_code, 200)
+        self.assertEqual(asyncio.run(put()).status_code, 200)
         self.assertEqual(queue._startable_backlog(), 3)
 
 

@@ -6,14 +6,10 @@ import {
   Bot, Boxes, Cpu, Database, FileInput, FolderTree, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
   ShieldCheck, SquareTerminal, Tags, type LucideIcon,
 } from "lucide-react";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import {
-  getConfig, provisionRuntime, resetConfigValue, setConfigValue, type ConfigChange, type RuntimeState,
-} from "@/lib/api";
+import { getConfig, resetConfigValue, setConfigValue } from "@/lib/api";
 import { SettingsSkeleton } from "@/components/loaders";
 import { WorkspaceManager } from "@/components/workspace-manager";
 import { WslProfiles } from "@/components/wsl-profiles";
@@ -52,52 +48,26 @@ function matches(s: ConfigSetting, query: string) {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ConfigSetting[]>([]);
-  const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
 
   async function load() {
-    const config = await getConfig();
-    setSettings(config.settings);
-    setRuntime(config.runtime);
+    setSettings((await getConfig()).settings);
   }
 
   useEffect(() => {
     getConfig()
-      .then((d) => {
-        setSettings(d.settings);
-        setRuntime(d.runtime);
-      })
+      .then((d) => setSettings(d.settings))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, []);
 
   // Rows confirm success inline. Secret values never appear in these
   // messages: only the key does.
-  // A change of embedding device can need another ONNX Runtime. The server
-  // starts `imprint bootstrap`, which restarts the dashboard before it
-  // replaces the runtime the dashboard loaded (ADR 0084).
-  function announceProvisioning(change: ConfigChange) {
-    if (!change.provisioning) return;
-    toast("Installing the embedding runtime", {
-      description: "imprint bootstrap installs what this device needs. The dashboard restarts while it replaces the runtime.",
-    });
-  }
-
-  async function installRuntime() {
-    try {
-      const state = await provisionRuntime();
-      setRuntime(state);
-      announceProvisioning({ ok: true, provisioning: state.provisioning });
-    } catch (e) {
-      toast.error("Could not start imprint bootstrap", { description: e instanceof Error ? e.message : String(e) });
-    }
-  }
-
   async function saveValue(key: string, value: string) {
     try {
-      announceProvisioning(await setConfigValue(key, value));
+      await setConfigValue(key, value);
       await load();
       return true;
     } catch (e) {
@@ -108,7 +78,7 @@ export default function SettingsPage() {
 
   async function resetValue(s: ConfigSetting) {
     try {
-      announceProvisioning(await resetConfigValue(s.key));
+      await resetConfigValue(s.key);
       await load();
       return true;
     } catch (e) {
@@ -184,9 +154,6 @@ export default function SettingsPage() {
             return (
               <Card key={name} id={`settings-${name}`} className="scroll-mt-6 gap-0 pb-0">
                 <SectionHeader icon={meta.icon} title={meta.title} desc={meta.desc} />
-                {name === "model" && runtime?.pending && !runtime.provisioning && (
-                  <MissingRuntime runtime={runtime} onInstall={installRuntime} />
-                )}
                 <CardContent className="@container mt-4 divide-y divide-border border-t border-border px-0">
                   {items.map((s) => {
                     const prefix = s.key.split(".").slice(0, -1).join(".");
@@ -231,27 +198,6 @@ function SectionHeader({ icon: Icon, title, desc }: { icon: LucideIcon; title: s
         {desc && <CardDescription className="text-xs">{desc}</CardDescription>}
       </div>
     </CardHeader>
-  );
-}
-
-// The configured device needs a runtime setup has not installed: its last
-// bootstrap failed, or the device changed where no bootstrap ran.
-function MissingRuntime({ runtime, onInstall }: { runtime: RuntimeState; onInstall: () => void }) {
-  return (
-    <div className="px-4 pt-4 sm:px-6">
-      <Alert variant="destructive">
-        <AlertTitle>The embedding runtime does not match this device</AlertTitle>
-        <AlertDescription>
-          <p>Setup still has to install {runtime.pending}. Install it here or run <code>imprint setup</code>; the dashboard restarts while it replaces the runtime.</p>
-          {runtime.log.length > 0 && (
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs">{runtime.log.join("\n")}</pre>
-          )}
-        </AlertDescription>
-        <AlertAction>
-          <Button size="sm" variant="outline" onClick={onInstall}>Install</Button>
-        </AlertAction>
-      </Alert>
-    </div>
   );
 }
 

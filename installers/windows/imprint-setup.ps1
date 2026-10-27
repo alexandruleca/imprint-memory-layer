@@ -10,8 +10,8 @@
 #
 # Parameters:
 #   -InstallDir <path>      Imprint install root (required).
-#   -Profile cpu|gpu|auto   Install profile (default: cpu).
-#   -WithLlm                Install llama-cpp-python (default: off).
+#   -Profile cpu|gpu|auto   Install profile: llama.cpp's build (default: the
+#                           persisted one; ADR 0049, 0086).
 #   -PauseOnFinish          Linger 3s after success (visible [Run] only).
 #   -Interactive            Wait for Enter after success/failure (Repair
 #                           Imprint shortcut uses this).
@@ -19,8 +19,6 @@
 param(
     [Parameter(Mandatory=$true)] [string]$InstallDir,
     [ValidateSet("","cpu","gpu","auto")] [string]$Profile = "",
-    [switch]$WithLlm,
-    [switch]$NoLlm,
     [switch]$PauseOnFinish,
     [switch]$Interactive
 )
@@ -97,7 +95,6 @@ Write-Host "=== Imprint first-run setup ===" -ForegroundColor Cyan
 Write-Host ""
 Log-Line "InstallDir = $InstallDir"
 Log-Line "Profile    = $Profile"
-Log-Line "WithLlm    = $($WithLlm.IsPresent)"
 
 if (-not (Test-Path $Uv)) {
     Fail-Exit "Bundled uv.exe not found at $Uv. Re-download the installer."
@@ -119,8 +116,6 @@ try {
 # reuse the last chosen profile instead of overriding it).
 $BootstrapArgs = @("bootstrap")
 if ($Profile -ne "") { $BootstrapArgs += @("--profile", $Profile) }
-if ($WithLlm) { $BootstrapArgs += "--with-llm" }
-elseif ($NoLlm) { $BootstrapArgs += "--no-llm" }
 $BootstrapArgs += "--non-interactive"
 
 Log-Line "Running: imprint $($BootstrapArgs -join ' ')"

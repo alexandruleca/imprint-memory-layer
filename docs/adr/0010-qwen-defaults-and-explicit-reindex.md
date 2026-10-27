@@ -5,7 +5,9 @@ description: Adopt local Apache-2.0 model defaults with encoding identity, bound
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — local classification no longer uses a JSON-schema grammar
+- Amended by:
+  - [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — local classification no longer uses a JSON-schema grammar
+  - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — the default embedding export (Qwen's Q8_0 GGUF) and device (`auto`)
 - Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md); scoped implementation following proposed [ADR 0009](0009-model-profiles-and-embedding-identity.md)
 - Restructured: 2026-10-25
 

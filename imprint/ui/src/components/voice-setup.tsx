@@ -25,7 +25,7 @@ export function VoiceChatSetup({ preparation, compact = false }: { preparation: 
   if (!preparation) return null;
   const { stage, downloaded, total } = preparation;
   const percent = stage === "download" && total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : null;
-  const title = stage === "install" ? "Installing local chat support" : stage === "download" ? "Downloading your chat model" : "Loading your chat model";
+  const title = stage === "download" ? "Downloading your chat model" : "Loading your chat model";
   return <section className={`echo-setup ${compact ? "echo-setup-compact" : ""}`} aria-label="Local chat preparation" aria-busy="true">
     <div className="echo-setup-heading"><Spinner className="size-4"/><div><p className="echo-setup-eyebrow">{stage === "load" ? "SAME MODEL AS CHAT" : "FIRST-TIME CHAT SETUP"}</p><h2>{title}</h2></div></div>
     <div className="echo-setup-progress"><div className="echo-setup-progress-label"><span role="status">{title}</span><span>{percent !== null ? `${percent}%` : "In progress"}</span></div>

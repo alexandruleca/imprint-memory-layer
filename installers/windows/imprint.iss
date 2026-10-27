@@ -94,7 +94,7 @@ Name: "{userdesktop}\{#AppName}";     Filename: "powershell.exe"; Parameters: "-
 
 [Run]
 ; Silent installs skip custom wizard pages. Provision explicitly in that case:
-; deterministic CPU/no-LLM defaults on a first install (ADR 0012), the
+; the deterministic CPU default on a first install (ADR 0012), the
 ; persisted profile on an update (ADR 0023).
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -NonInteractive -File ""{app}\imprint-setup.ps1"" -InstallDir ""{app}"" {code:SilentProfileArgs}"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; Check: WizardSilent
 ; `imprint update` runs this installer with /RELAUNCH=1 and has closed
@@ -167,7 +167,7 @@ begin
   if FileExists(ExpandConstant('{app}\data\profile.json')) then
     Result := ''
   else
-    Result := '-Profile cpu -NoLlm';
+    Result := '-Profile cpu';
 end;
 
 function RelaunchRequested: Boolean;

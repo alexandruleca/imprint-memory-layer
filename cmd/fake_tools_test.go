@@ -28,11 +28,9 @@ func TestMain(m *testing.M) {
 //	dry-run <requirements files>   uv pip install --dry-run
 //	uninstall <distributions>      uv pip uninstall / pip uninstall
 //	cache-clean <distribution>     uv cache clean
-//	plan [--retry] | check         python -m imprint.gpu_runtime
 //
-// The plan is IMPRINT_FAKE_PLAN, the CUDA check passes when
-// IMPRINT_FAKE_CHECK is "ok", IMPRINT_FAKE_UNUSED maps each runtime to what
-// it does not use, and llama.cpp's offload answer is IMPRINT_FAKE_OFFLOAD.
+// IMPRINT_FAKE_UNUSED lists what Imprint no longer uses (a JSON list), and
+// llama.cpp's offload answer is IMPRINT_FAKE_OFFLOAD.
 // A dry run would upgrade the installed distributions IMPRINT_FAKE_OUTDATED
 // lists (comma-separated).
 func fakeTool(log string, args []string) int {
@@ -99,26 +97,14 @@ func fakeTool(log string, args []string) int {
 		record("uninstall " + strings.Join(names, " "))
 	case len(args) > 1 && args[0] == "cache" && args[1] == "clean":
 		record("cache-clean " + strings.Join(args[2:], " "))
-	case len(args) > 2 && args[0] == "-m" && args[1] == "imprint.gpu_runtime":
-		record(strings.Join(args[2:], " "))
-		if args[2] == "plan" {
-			fmt.Println(os.Getenv("IMPRINT_FAKE_PLAN"))
-			return 0
-		}
-		if os.Getenv("IMPRINT_FAKE_CHECK") == "ok" {
-			fmt.Println(`{"ok": true, "detail": "NVIDIA GeForce RTX 4080 Laptop GPU"}`)
-			return 0
-		}
-		fmt.Println(`{"ok": false, "detail": "cuDNN is unavailable"}`)
-		return 1
-	case len(args) > 3 && args[0] == "-m" && args[1] == "imprint.onnx_runtime" && args[2] == "unused":
+	case len(args) > 2 && args[0] == "-m" && args[1] == "imprint.onnx_runtime" && args[2] == "unused":
 		// What imprint.onnx_runtime would name: the installed distributions
-		// IMPRINT_FAKE_UNUSED lists for the selected runtime.
-		var only map[string][]string
-		_ = json.Unmarshal([]byte(os.Getenv("IMPRINT_FAKE_UNUSED")), &only)
+		// IMPRINT_FAKE_UNUSED lists.
+		var listed []string
+		_ = json.Unmarshal([]byte(os.Getenv("IMPRINT_FAKE_UNUSED")), &listed)
 		installed := fakeVenv()
 		unused := []string{}
-		for _, name := range only[args[3]] {
+		for _, name := range listed {
 			if installed[name] {
 				unused = append(unused, name)
 			}

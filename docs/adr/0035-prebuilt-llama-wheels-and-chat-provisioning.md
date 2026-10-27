@@ -5,7 +5,9 @@ description: Install llama-cpp-python from upstream's hash-pinned prebuilt wheel
 
 - Status: Amended
 - Date: 2026-10-24
-- Amended by: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — the GPU profile's CUDA rebuild is replaced by upstream's hash-locked Vulkan wheels
+- Amended by:
+  - [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — the GPU profile's CUDA rebuild is replaced by upstream's hash-locked Vulkan wheels
+  - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — the binding is part of every installation; the first local chat only downloads the model
 - Related: [ADR 0012](0012-native-package-runtime-and-silent-installs.md), [ADR 0013](0013-remediate-security-scan-dependencies.md), [ADR 0032](0032-one-onnx-runtime-per-environment.md)
 - Restructured: 2026-10-25
 

@@ -3,11 +3,12 @@ title: ADR 0084 — Setup frees the runtime before replacing its files
 description: Setup holds the queue and runtime locks while it changes the venv, and before it replaces or removes installed packages it restarts the dashboard server and, on Windows, stops every other process running from the runtime; Settings starts bootstrap outside the queue.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
 - Amends:
   - [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — swapping builds under running processes, provisioning through the queue, and pruning uv's cache
   - [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) — the server's launchers wait while setup changes the runtime, and setup restarts the server
+- Amended by: [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — Settings no longer starts `imprint bootstrap`
 - Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md), [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md)
 
 ## Context

@@ -134,8 +134,7 @@ begin
     '-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden ' +
     '-File "' + PsFile + '" ' +
     '-InstallDir "' + AppDir + '" ' +
-    '-Profile '    + SelectedProfile('') + ' ' +
-    WithLlmFlag('');
+    '-Profile '    + SelectedProfile('');
 
   if not Exec('powershell.exe', PsArgs, AppDir, SW_HIDE, ewNoWait, ResultCode) then
   begin

@@ -1,4 +1,4 @@
-"""Shared optional GGUF runtime. Importing this module never loads a model."""
+"""The local LLM's GGUF runtime. Importing this module never loads a model."""
 from __future__ import annotations
 
 import codecs
@@ -66,12 +66,8 @@ def load(path: Path, n_ctx: int, n_gpu_layers: int, *, expected_sha256: str | No
             verify_archive(path, expected_sha256)
         if key in _models:
             return _models[key]
-        import llama_cpp
-        from . import _llama_compat
-        _llama_compat.apply()
-        llm = llama_cpp.Llama(model_path=key[0], n_ctx=n_ctx,
-                              n_gpu_layers=n_gpu_layers, n_threads=4, n_threads_batch=4,
-                              n_batch=256, verbose=False)
+        from . import llama_runtime
+        llm, _ = llama_runtime.load(key[0], n_gpu_layers, n_ctx=n_ctx, n_threads=4, n_threads_batch=4, n_batch=256)
         try:
             # Never deserialize a disk-backed prompt/state cache. The optional
             # binding still depends on unfixed diskcache (CVE-2025-69872).

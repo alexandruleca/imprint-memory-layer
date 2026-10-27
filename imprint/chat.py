@@ -11,15 +11,13 @@ through its own chat template, remote providers through API function calling
 
 Structured so the import is cheap: we only try to import `llama_cpp` and
 `huggingface_hub` at call time via helpers; the dashboard still works if they're missing.
-The first local chat installs the binding and downloads the model (ADR 0035).
+The first local chat downloads the model; every installation has the binding (ADR 0086).
 """
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -38,12 +36,10 @@ _llama_import_error: str | None = None
 
 
 def _llama() -> Any:
-    """The llama.cpp binding, or None while it is not installed. A failed
-    import is retried on the next call, so a binding installed while the
-    dashboard runs is picked up without a restart."""
+    """The llama.cpp binding, or None when it does not load. Every
+    installation has it (ADR 0086), so None means a damaged one."""
     global llama_cpp, _llama_import_error
     if llama_cpp is None:
-        importlib.invalidate_caches()
         try:
             import llama_cpp as module  # type: ignore
             from imprint import _llama_compat
@@ -399,7 +395,7 @@ def load_model() -> tuple[Any, str | None]:
     if _llm is not None:
         return _llm, None
     if _llama() is None:
-        return None, f"llama-cpp-python not installed ({_llama_import_error}). Run: imprint profile add-llm"
+        return None, _BINDING_BROKEN.format(_llama_import_error)
 
     with _llm_lock:
         if _llm is not None:
@@ -422,10 +418,11 @@ def load_model() -> tuple[Any, str | None]:
 
 
 # ── First-use provisioning ───────────────────────────────────
-# The first local chat installs the binding (`imprint profile add-llm`) and
-# downloads the model. One process-wide job does both; every chat stream that
-# needs it follows the job's events. A stream that closes never interrupts
-# the job: stopping uv mid-install would leave a half-written venv.
+# The first local chat downloads the model. One process-wide job does it;
+# every chat stream that needs it follows the job's events. A stream that
+# closes never interrupts the job, which other chats may be following.
+
+_BINDING_BROKEN = "llama.cpp does not load ({}). Run: imprint bootstrap --non-interactive"
 
 class _Provisioning:
     def __init__(self) -> None:
@@ -478,35 +475,8 @@ def _provision() -> _Provisioning:
         return _provisioning
 
 
-def _install_binding(job: _Provisioning) -> None:
-    from .queue import _strip_ansi, find_imprint_binary
-    env = {**os.environ, "PYTHONUTF8": "1"}
-    tail: list[str] = []
-    with subprocess.Popen(
-        [find_imprint_binary(), "profile", "add-llm"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        encoding="utf-8", errors="replace", bufsize=1,
-        start_new_session=True, env=env,
-    ) as proc:
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            line = _strip_ansi(raw).rstrip()
-            if line:
-                tail = (tail + [line])[-5:]
-                job.emit({"type": "install_progress", "line": line})
-    if proc.returncode != 0:
-        raise RuntimeError("installing llama-cpp-python failed:\n" + "\n".join(tail))
-    if _llama() is None:
-        raise RuntimeError(f"llama-cpp-python does not import after installing: {_llama_import_error}")
-
-
 def _run_provisioning(job: _Provisioning) -> None:
     try:
-        if _llama() is None:
-            job.emit({"type": "install_start"})
-            _install_binding(job)
-            job.emit({"type": "install_complete"})
-
         if _model_missing():
             path, _ = _resolve_local_model_path()
             job.emit({"type": "download_start", "file": _cfg("chat.model_file"),
@@ -549,9 +519,10 @@ def status() -> dict:
             "error": f"{key_env} not set" if missing_key else None,
         }
 
-    # Local provider. A missing binding or model is not an error: the first
-    # chat provisions both.
+    # Local provider. A missing model is not an error: the first chat
+    # downloads it. A binding that does not load is a damaged installation.
     installed = _llama() is not None
+    broken = None if installed else _BINDING_BROKEN.format(_llama_import_error)
     explicit = _cfg("chat.model_path")
     if explicit:
         p = Path(explicit)
@@ -561,7 +532,7 @@ def status() -> dict:
             "provider": "local",
             "model_ready": p.exists() or _llm is not None,
             "model_path": str(p),
-            "error": None if p.exists() else f"model_path does not exist: {p}",
+            "error": broken or (None if p.exists() else f"model_path does not exist: {p}"),
         }
 
     fname = _cfg("chat.model_file")
@@ -574,7 +545,7 @@ def status() -> dict:
         "model_path": str(local) if local else "",
         "model_repo": _cfg("chat.model_repo"),
         "model_file": fname,
-        "error": None,
+        "error": broken,
     }
 
 
@@ -728,7 +699,6 @@ def stream_reply(
     """Yield SSE-ready event dicts.
 
     Event types:
-      {"type": "install_start"} / {"type": "install_progress", "line": str} / {"type": "install_complete"}
       {"type": "download_start", "file", "repo", "path"} / {"type": "download_progress", "downloaded", "total"}
       {"type": "download_complete", "path": str}
       {"type": "load_start"}                         # loading the local model into memory
@@ -760,8 +730,8 @@ def stream_reply(
             yield {"type": "done"}
             return
     else:
-        # ── Local: install the binding and download the model on first use ──
-        if _llama() is None or _model_missing():
+        # ── Local: download the model on first use ──
+        if _model_missing():
             job = _provision()
             for event in job.follow():
                 if cancelled():

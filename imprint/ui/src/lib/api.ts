@@ -389,33 +389,12 @@ export async function streamChat(
 
 // ── Config ──────────────────────────────────────────────────────
 
-/** The embedding runtime the configured device still needs (empty when it is
- * installed), whether this server's `imprint bootstrap` is installing it, and
- * the end of the last bootstrap's log while it is missing. */
-export interface RuntimeState {
-  pending: string;
-  provisioning: boolean;
-  log: string[];
-}
-
 export async function getConfig() {
-  return fetchAPI<{ settings: ConfigSetting[]; runtime: RuntimeState }>("/api/config");
-}
-
-/** Start `imprint bootstrap` for the runtime the configured device needs. */
-export async function provisionRuntime() {
-  return fetchAPI<RuntimeState>("/api/runtime/provision", { method: "POST" });
-}
-
-/** A saved setting. `provisioning` is set when the change started `imprint
- * bootstrap` to install another embedding runtime on this device. */
-export interface ConfigChange {
-  ok: boolean;
-  provisioning?: boolean;
+  return fetchAPI<{ settings: ConfigSetting[] }>("/api/config");
 }
 
 export async function setConfigValue(key: string, value: unknown) {
-  return fetchAPI<ConfigChange & { value: unknown }>(`/api/config/${encodeURIComponent(key)}`, {
+  return fetchAPI<{ ok: boolean; value: unknown }>(`/api/config/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: JSON.stringify({ value }),
   });
@@ -423,7 +402,7 @@ export async function setConfigValue(key: string, value: unknown) {
 
 /** Remove the config.json override so the env var or default applies. */
 export async function resetConfigValue(key: string) {
-  return fetchAPI<ConfigChange & { removed: boolean }>(`/api/config/${encodeURIComponent(key)}`, { method: "DELETE" });
+  return fetchAPI<{ ok: boolean; removed: boolean }>(`/api/config/${encodeURIComponent(key)}`, { method: "DELETE" });
 }
 
 // ── Queue / Commands ───────────────────────────────────────────

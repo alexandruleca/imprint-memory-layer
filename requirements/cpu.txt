@@ -1,6 +1,7 @@
-# ONNX Runtime CPU build, installed on top of base.txt whenever embeddings
-# do not run on CUDA (ADR 0062). onnxruntime and onnxruntime-gpu install
-# the same `onnxruntime` package directory, so setup installs exactly one.
+# ONNX Runtime CPU build, installed on top of base.txt for OCR and the
+# privacy filter; embeddings run on llama.cpp (ADR 0086). Setup removes
+# another build an older installation holds: onnxruntime and onnxruntime-gpu
+# install the same `onnxruntime` package directory (ADR 0032).
 #
 # ONNX Runtime 1.24+ no longer publishes Intel macOS wheels. Keep the last
 # supported wheel line there; other native targets use the current runtime.

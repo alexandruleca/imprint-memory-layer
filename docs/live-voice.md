@@ -49,14 +49,13 @@ This can take a few minutes. A top-bar indicator links back to setup while you
 continue using other dashboard pages. Completion enables **Start conversation**;
 it never opens the microphone or starts a conversation automatically.
 
-The **Same local model as Chat** route may separately install chat support and
-download the configured chat model on your first question. Voice shows its real
-download bytes, installation and loading stages rather than a generic thinking
-state. This setup has a separate 30-minute budget; normal reply generation is
-bounded to two minutes once tokens begin. Stopping voice clears playback and the
-voice request, while the existing chat provisioning job finishes safely and can
-be joined by a later question. Choosing **Small voice model · LFM 1.5B** avoids
-the additional chat model.
+The **Same local model as Chat** route may download the configured chat model
+on your first question. Voice shows its real download bytes and loading stages
+rather than a generic thinking state. This setup has a separate 30-minute
+budget; normal reply generation is bounded to two minutes once tokens begin.
+Stopping voice clears playback and the voice request, while the existing chat
+provisioning job finishes safely and can be joined by a later question.
+Choosing **Small voice model · LFM 1.5B** avoids the additional chat model.
 
 [Dashboard preview](assets/voice/echo-first-time-setup.png) ·
 [Download progress](assets/voice/echo-download-progress.png) ·
@@ -232,8 +231,8 @@ terminates only its owned speech process, including native prefill, then reloads
 it for a fresh turn. A normal completed turn keeps the model warm. Chat generation
 receives a cancellation event, checks it before subsequent tokens/tools and closes
 its token iterator; in-process model loading/prefill or an already executing read
-cannot be forcibly interrupted safely. Installing chat dependencies may continue
-under the existing provisioning policy, to avoid leaving a half-installed runtime.
+cannot be forcibly interrupted safely. A chat model download continues in its
+provisioning job, which a later question can join.
 
 Only fully played replies enter the bounded in-memory conversation history.
 Interrupted, generated-but-unheard replies do not. Switching workspaces in another

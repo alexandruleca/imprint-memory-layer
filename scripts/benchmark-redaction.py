@@ -74,7 +74,7 @@ def main() -> None:
         session, tokenizer = privacy_filter._load()
         pf = {"model": f"{model_profiles.PRIVACY_FILTER_REPO}@{model_profiles.PRIVACY_FILTER_REVISION}"
                        f"/{model_profiles.PRIVACY_FILTER_FILE}",
-              "onnxruntime": onnxruntime.__version__, "threads": config.ONNX_THREADS,
+              "onnxruntime": onnxruntime.__version__, "threads": config.CPU_THREADS,
               "load_seconds_including_sha256": time.perf_counter() - started, "sizes": {}}
         privacy_filter.spans("warm up the session once")
         for size, texts in chunks.items():

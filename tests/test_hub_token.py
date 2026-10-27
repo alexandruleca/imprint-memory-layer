@@ -58,10 +58,10 @@ class HubTokenTests(unittest.TestCase):
 
     def test_embedding_download_sends_the_token(self):
         config_schema.set_value('huggingface.token', TOKEN)
-        with patch.object(embeddings, '_session', None), \
+        with patch.object(embeddings, '_model', None), \
              patch.object(embeddings, 'hf_hub_download', side_effect=Stop) as download, \
              self.assertRaises(Stop):
-            embeddings._load_locked()
+            embeddings._load()
         self.assertEqual(download.call_args.kwargs['token'], TOKEN)
 
     def test_gguf_download_sends_the_token(self):

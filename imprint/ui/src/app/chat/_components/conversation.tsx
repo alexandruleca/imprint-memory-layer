@@ -13,7 +13,7 @@ import { SetupProgress } from "./setup-progress";
 import { ToolStepRow } from "./tool-step";
 
 const setupRunning = (setup?: Setup) =>
-  !!setup && [setup.install, setup.download, setup.load].some((step) => step && !step.done);
+  !!setup && [setup.download, setup.load].some((step) => step && !step.done);
 
 function ThinkingIndicator() {
   return (

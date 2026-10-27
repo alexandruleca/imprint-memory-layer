@@ -5,7 +5,9 @@ description: Each install profile resolves to base requirements plus exactly one
 
 - Status: Amended
 - Date: 2026-10-24
-- Amended by: [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — selecting the runtime from the profile
+- Amended by:
+  - [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — selecting the runtime from the profile
+  - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — ONNX Runtime's CPU build serves OCR and the privacy filter only, and setup removes any other build
 - Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md)
 - Restructured: 2026-10-25
 

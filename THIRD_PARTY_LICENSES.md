@@ -14,15 +14,13 @@ From [go.mod](go.mod):
 
 ## Python Dependencies
 
-Split across [requirements/base.txt](requirements/base.txt) (always installed), one ONNX Runtime build from [requirements/cpu.txt](requirements/cpu.txt) or [requirements/gpu.txt](requirements/gpu.txt), and [requirements/llm.txt](requirements/llm.txt) or its GPU build [requirements/llm-gpu.txt](requirements/llm-gpu.txt) (opt-in with `--with-llm`):
+Split across [requirements/base.txt](requirements/base.txt), the CPU build of ONNX Runtime in [requirements/cpu.txt](requirements/cpu.txt), and llama.cpp's binding from [requirements/llm.txt](requirements/llm.txt) or its GPU build [requirements/llm-gpu.txt](requirements/llm-gpu.txt), chosen by the install profile. Every installation has all three:
 
 | Package | License | Profile | Source |
 |---|---|---|---|
 | `fastmcp` | Apache 2.0 | base | https://github.com/jlowin/fastmcp |
 | `qdrant-client` | Apache 2.0 | base | https://github.com/qdrant/qdrant-client |
 | `onnxruntime` | MIT | cpu | https://github.com/microsoft/onnxruntime |
-| `onnxruntime-gpu` | MIT | gpu | https://github.com/microsoft/onnxruntime |
-| `onnx` | Apache 2.0 | gpu | https://github.com/onnx/onnx |
 | `tokenizers` | Apache 2.0 | base | https://github.com/huggingface/tokenizers |
 | `huggingface-hub` | Apache 2.0 | base | https://github.com/huggingface/huggingface_hub |
 | `numpy` | BSD-3-Clause | base | https://github.com/numpy/numpy |
@@ -35,7 +33,7 @@ Split across [requirements/base.txt](requirements/base.txt) (always installed), 
 | `pypdfium2` | Apache 2.0 / BSD-3-Clause, bundled PDFium and third-party notices in wheel | base | https://github.com/pypdfium2-team/pypdfium2 |
 | `pytesseract` | Apache 2.0 | base (custom language compatibility) | https://github.com/madmaze/pytesseract |
 | `spake2` | MIT | base | https://github.com/warner/python-spake2 |
-| `llama-cpp-python` | MIT | llm (opt-in) | https://github.com/abetlen/llama-cpp-python |
+| `llama-cpp-python` | MIT | llm or llm-gpu | https://github.com/abetlen/llama-cpp-python |
 | `kreuzberg` | **ELv2** (not OSI open-source) | opt-in (`ingest.use_kreuzberg=true`) | https://pypi.org/project/kreuzberg/ |
 
 **Kreuzberg is not Apache/MIT.** Kreuzberg is published under the [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license). ELv2 permits internal and self-hosted use but **prohibits offering kreuzberg's functionality as a hosted/SaaS service** to third parties. Review the full ELv2 terms before enabling `ingest.use_kreuzberg=true` in a multi-tenant deployment. Imprint does not install kreuzberg by default — the user installs it explicitly with `pip install kreuzberg[all]` and opts in via config.
@@ -75,9 +73,9 @@ obscura is an external CLI binary that provides JS-rendered HTML extraction for 
 
 | Model | License | Source |
 |---|---|---|
-| **Qwen3-Embedding-0.6B** (default) | Apache-2.0 | https://huggingface.co/Qwen/Qwen3-Embedding-0.6B (ONNX: https://huggingface.co/onnx-community/Qwen3-Embedding-0.6B-ONNX) |
+| **Qwen3-Embedding-0.6B** (default) | Apache-2.0 | https://huggingface.co/Qwen/Qwen3-Embedding-0.6B (GGUF: https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF) |
 | **Qwen3.5-4B** (optional local helper default) | Apache-2.0 | https://huggingface.co/Qwen/Qwen3.5-4B (GGUF: https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) |
-| **EmbeddingGemma-300M** (optional legacy model) | [Gemma Terms of Use](https://ai.google.dev/gemma/terms) + [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) | https://huggingface.co/google/embeddinggemma-300m (ONNX: https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX) |
+| **EmbeddingGemma-300M** (optional legacy model; needs a GGUF conversion) | [Gemma Terms of Use](https://ai.google.dev/gemma/terms) + [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) | https://huggingface.co/google/embeddinggemma-300m |
 | BGE-M3 (alternative) | MIT | https://huggingface.co/BAAI/bge-m3 |
 | OpenAI Privacy Filter (opt-in, `redact.privacy_filter`) | Apache-2.0 | https://huggingface.co/openai/privacy-filter (code: https://github.com/openai/privacy-filter) |
 | Model2Vec static embedder (used by chunker) | MIT | https://huggingface.co/minishlab |

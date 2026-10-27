@@ -38,7 +38,6 @@ from . import imprint_graph as kg
 from . import chat as chat_mod
 from . import chat_store
 from . import commands
-from . import gpu_runtime
 from . import queue as job_queue
 from . import updates
 from .http_security import local_origin, local_host, loopback_address
@@ -893,7 +892,7 @@ def api_config():
             "choices": [asdict(c) for c in s.options()],
             "custom": s.custom,
         })
-    return {"settings": settings, "runtime": _runtime_state()}
+    return {"settings": settings}
 
 
 @app.put("/api/config/{key:path}")
@@ -910,7 +909,7 @@ async def api_config_set(key: str, request: Request):
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     _tagging_settings_changed(key)
-    return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val), "provisioning": _provision_runtime(key)}
+    return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val)}
 
 
 @app.delete("/api/config/{key:path}")
@@ -922,7 +921,7 @@ def api_config_reset(key: str):
     except KeyError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
     _tagging_settings_changed(key)
-    return {"ok": True, "removed": removed, "provisioning": _provision_runtime(key)}
+    return {"ok": True, "removed": removed}
 
 
 def _tagging_settings_changed(key: str) -> None:
@@ -930,73 +929,6 @@ def _tagging_settings_changed(key: str) -> None:
     tagging start or retry at once (ADR 0067)."""
     if key.startswith("tagger."):
         job_queue.backlog_changed()
-
-
-def _provision_runtime(key: str) -> bool:
-    """Start ``imprint bootstrap`` when changing ``key`` changed which ONNX
-    Runtime embeddings need here, and say whether it started (ADR 0062).
-
-    Setup runs outside this server: once running jobs are done, it restarts
-    the server before it replaces what the server loaded, and the server
-    starts again on the new runtime when setup is done (ADR 0084). A
-    bootstrap still running may have read the configuration before this
-    change, so another follows it.
-    """
-    if key not in gpu_runtime.SETTINGS:
-        return False
-    if not _bootstrap_running() and not gpu_runtime.pending():
-        return False
-    _start_bootstrap()
-    return True
-
-
-# The ``imprint bootstrap`` this server started, and its output.
-_bootstrap: subprocess.Popen | None = None
-
-
-def _bootstrap_log() -> Path:
-    return config.get_data_dir() / "bootstrap.log"
-
-
-def _bootstrap_running() -> bool:
-    return _bootstrap is not None and _bootstrap.poll() is None
-
-
-def _start_bootstrap() -> None:
-    """Run ``imprint bootstrap`` outside this server's process group, like the
-    updater: it outlives this server, which it restarts."""
-    global _bootstrap
-    detach = (
-        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
-        if os.name == "nt" else {"start_new_session": True}
-    )
-    with open(_bootstrap_log(), "a", encoding="utf-8") as log:
-        _bootstrap = subprocess.Popen(
-            [job_queue.find_imprint_binary(), "bootstrap", "--non-interactive"],
-            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-            env={**os.environ, "NO_COLOR": "1"}, **detach,
-        )
-
-
-def _runtime_state(lines: int = 8) -> dict:
-    """Whether the configured device still needs another runtime, and how the
-    last bootstrap ended while it does."""
-    pending = gpu_runtime.pending()
-    log: list[str] = []
-    if pending:
-        try:
-            log = _bootstrap_log().read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
-        except FileNotFoundError:
-            pass
-    return {"pending": pending, "provisioning": _bootstrap_running(), "log": log}
-
-
-@app.post("/api/runtime/provision")
-def api_runtime_provision():
-    """Install the runtime the configured device needs, as saving it does."""
-    if not _bootstrap_running() and gpu_runtime.pending():
-        _start_bootstrap()
-    return _runtime_state()
 
 
 # ── CLI command execution ──────────────────────────────────────

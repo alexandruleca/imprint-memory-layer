@@ -14,8 +14,8 @@ set -euo pipefail
 #   IMPRINT_CHANNEL=dev curl -fsSL .../install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --dev
 #
-# Profile & extras (bypass the interactive prompt):
-#   curl -fsSL .../install.sh | bash -s -- --profile gpu --with-llm
+# Profile (bypass the interactive prompt):
+#   curl -fsSL .../install.sh | bash -s -- --profile gpu
 #   curl -fsSL .../install.sh | bash -s -- --profile cpu --non-interactive
 #
 # No host Python required — the release archive ships a statically-linked
@@ -30,7 +30,6 @@ VERSION="${IMPRINT_VERSION:-}"
 CHANNEL="${IMPRINT_CHANNEL:-stable}"
 ASSUME_YES="${IMPRINT_ASSUME_YES:-0}"
 PROFILE="${IMPRINT_PROFILE:-}"
-WITH_LLM="${IMPRINT_WITH_LLM:-}"
 NON_INTERACTIVE="${IMPRINT_NON_INTERACTIVE:-0}"
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -41,8 +40,6 @@ while [ $# -gt 0 ]; do
         -y|--yes) ASSUME_YES=1; shift ;;
         --profile) PROFILE="$2"; shift 2 ;;
         --profile=*) PROFILE="${1#--profile=}"; shift ;;
-        --with-llm) WITH_LLM=1; shift ;;
-        --no-llm) WITH_LLM=0; shift ;;
         --non-interactive) NON_INTERACTIVE=1; shift ;;
         -h|--help)
             sed -n '3,22p' "$0" 2>/dev/null || echo "See script header for usage."
@@ -161,7 +158,7 @@ EXISTING_INSTALL=0
 if [ -f "$INSTALL_DIR/bin/imprint" ]; then
     EXISTING_INSTALL=1
     info "Existing install detected at $INSTALL_DIR"
-    info "Will replace code; preserves data/ (workspaces, qdrant, sqlite, config, gpu_state) and .venv/"
+    info "Will replace code; preserves data/ (workspaces, qdrant, sqlite, config, profile) and .venv/"
     if [ "$ASSUME_YES" != "1" ]; then
         if [ -t 0 ]; then
             printf "\033[0;36m[?]\033[0m Upgrade existing install? [y/N] "
@@ -213,14 +210,9 @@ fi
 success "Bundled uv: $("$UV_BIN" --version 2>/dev/null || echo unknown)"
 
 # --- Determine install profile (prompt unless --non-interactive / piped) ---
-# NVIDIA auto-detect pre-selects the "gpu" default when nvidia-smi reports
-# at least one device.
-GPU_AVAILABLE=0
-if command -v nvidia-smi >/dev/null 2>&1; then
-    if nvidia-smi -L 2>/dev/null | grep -q "GPU "; then
-        GPU_AVAILABLE=1
-    fi
-fi
+# The profile is llama.cpp's build, which runs embeddings and the local LLM.
+# "gpu" keeps the GPU build (Vulkan, any vendor) only when llama.cpp finds a
+# GPU and installs the CPU build otherwise, so it is the interactive default.
 
 # tty-detect: interactive only when stdin IS a tty. `curl | bash` never is.
 INTERACTIVE=0
@@ -230,11 +222,8 @@ fi
 
 if [ -z "$PROFILE" ]; then
     if [ "$INTERACTIVE" = "1" ]; then
-        default="cpu"
-        [ "$GPU_AVAILABLE" = "1" ] && default="gpu"
-        gpu_hint=""
-        [ "$GPU_AVAILABLE" = "1" ] && gpu_hint=" (NVIDIA GPU detected)"
-        printf "\033[0;36m[?]\033[0m Install profile [cpu/gpu] (default: %s)%s: " "$default" "$gpu_hint"
+        default="gpu"
+        printf "\033[0;36m[?]\033[0m Install profile [cpu/gpu] (default: %s, the CPU when no GPU is found): " "$default"
         read -r reply
         case "$(echo "${reply:-$default}" | tr '[:upper:]' '[:lower:]')" in
             gpu) PROFILE="gpu" ;;
@@ -246,34 +235,11 @@ if [ -z "$PROFILE" ]; then
     fi
 fi
 
-if [ -z "$WITH_LLM" ]; then
-    if [ "$INTERACTIVE" = "1" ]; then
-        printf "\033[0;36m[?]\033[0m Install local LLM tagger (llama-cpp-python, ~200 MB)? [y/N]: "
-        read -r reply
-        case "$(echo "${reply:-n}" | tr '[:upper:]' '[:lower:]')" in
-            y|yes) WITH_LLM=1 ;;
-            *) WITH_LLM=0 ;;
-        esac
-    else
-        WITH_LLM=0
-        info "Local LLM tagger skipped (non-interactive). Add it later with: imprint profile add-llm"
-    fi
-fi
-
-if [ "$WITH_LLM" = "1" ]; then
-    info "Profile: $PROFILE + local LLM tagger"
-else
-    info "Profile: $PROFILE (no local LLM)"
-fi
+info "Profile: $PROFILE"
 
 # --- Run imprint bootstrap (uv-powered venv + deps) ---
 info "Running imprint bootstrap (uv downloads its own Python — no host install required)..."
 BOOTSTRAP_ARGS=("--profile" "$PROFILE")
-if [ "$WITH_LLM" = "1" ]; then
-    BOOTSTRAP_ARGS+=("--with-llm")
-else
-    BOOTSTRAP_ARGS+=("--no-llm")
-fi
 [ "$NON_INTERACTIVE" = "1" ] && BOOTSTRAP_ARGS+=("--non-interactive")
 "$IMPRINT_BIN" bootstrap "${BOOTSTRAP_ARGS[@]}" || fail "imprint bootstrap failed"
 
@@ -282,7 +248,7 @@ info "Running imprint setup (MCP registration)..."
 "$IMPRINT_BIN" setup
 
 if [ "$EXISTING_INSTALL" = "1" ]; then
-    success "Update complete. Preserved: data/ (workspaces, qdrant, sqlite, config, gpu_state.json, profile.json), .venv/"
+    success "Update complete. Preserved: data/ (workspaces, qdrant, sqlite, config, profile.json), .venv/"
     info "Future updates can use 'imprint update' directly — no curl required."
 else
     success "Installation complete! Restart your terminal to use the 'imprint' command."

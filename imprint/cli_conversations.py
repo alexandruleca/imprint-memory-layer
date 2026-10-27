@@ -286,19 +286,16 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
     stored = 0
     skipped = 0
 
-    # Flush in small sub-batches so a transcript with hundreds of exchanges
-    # doesn't pin a giant batch through tokenization + ONNX at once.
-    from . import config
-    # Publish CPU progress after each embedding, rather than leaving one
-    # apparent stall while eight long chunks run serially inside the encoder.
-    BATCH = max(1, min(8, config.BATCH_SIZE or (4 if config.DEVICE == "gpu" else 1)))
     if records:
         if progress:
             progress(0, len(records))
         # The transcript's memories become exactly these chunks: those already
         # stored stay as they are, and those its reading no longer gives go
-        # (ADR 0080).
-        stored, _ = vs.replace_source(records, source, project, batch_size=BATCH, progress=progress)
+        # (ADR 0080). Small sub-batches move progress after each one, and a
+        # transcript with hundreds of exchanges never forms one giant batch.
+        from .embeddings import default_batch_size
+        stored, _ = vs.replace_source(records, source, project, batch_size=min(8, default_batch_size()),
+                                      progress=progress)
         vs.complete_conversation(source, source_mtime, LEARNER_VERSION)
 
     return stored, skipped

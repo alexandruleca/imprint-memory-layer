@@ -87,7 +87,7 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 
 - `connect` registers the installed runtime with clients and installs and starts nothing.
 - `disconnect` only unregisters clients, and the dashboard and Qdrant keep running.
-- `setup`, `enable`, `bootstrap` and `profile` install dependencies into the venv the server has loaded. Not offered. When a change in Settings needs another embedding runtime (`model.device`, `model.gpu_device`), the server starts `imprint bootstrap --non-interactive` outside the queue, writing `data/bootstrap.log` ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)).
+- `setup`, `enable`, `bootstrap` and `profile` install dependencies into the venv the server has loaded. Not offered. No setting needs them: `model.device` and `model.gpu_device` choose where llama.cpp runs and install nothing ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)), so the dashboard never restarts for a device change.
 
 **Setup and the queue.** Setup takes the queue lock while it changes the venv, so it waits for a running job and stops background tagging, and holds `data/runtime.lock`, which the dashboard server's launchers wait for before they start it. Before it replaces or removes installed packages, it restarts the dashboard server and, on Windows, stops every other process running from the runtime; MCP clients reconnect afterwards ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)).
 - `disable`, `ui`, `server` and `uninstall` stop or remove the dashboard itself. Not offered.

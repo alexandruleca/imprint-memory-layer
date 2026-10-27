@@ -200,7 +200,7 @@ func UvBinary(projectDir string) string {
 }
 
 // ProfileStatePath returns the path to the JSON file that records the
-// active install profile (cpu|gpu, with-llm yes/no). Written by
+// active install profile (cpu|gpu|auto: llama.cpp's build). Written by
 // `imprint bootstrap` / `imprint profile set`, read by `imprint setup` when
 // no explicit flags are passed so subsequent runs stay consistent.
 func ProfileStatePath(projectDir string) string {

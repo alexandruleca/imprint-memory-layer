@@ -424,7 +424,7 @@ jobs:
           set -euo pipefail
           sudo installer -pkg "dist/imprint-darwin-${ARCH}.pkg" -target /
           ROOT=/Applications/Imprint.app/Contents/Resources/imprint
-          "$ROOT/bin/imprint" bootstrap --profile cpu --no-llm --non-interactive
+          "$ROOT/bin/imprint" bootstrap --profile cpu --non-interactive
           PYTHONPATH="$ROOT" "$HOME/.local/share/imprint/.venv/bin/python" scripts/smoke-runtime.py --with-embeddings
           test -x /Applications/Imprint.app/Contents/MacOS/imprint-setup-helper
       - uses: actions/upload-artifact@v4
@@ -458,7 +458,7 @@ jobs:
           set -euo pipefail
           tar -xzf "dist/imprint-linux-${ARCH}.tar.gz" -C dist
           ROOT="$PWD/dist/imprint-linux-${ARCH}"
-          "$ROOT/bin/imprint" bootstrap --profile cpu --no-llm --non-interactive
+          "$ROOT/bin/imprint" bootstrap --profile cpu --non-interactive
           PYTHONPATH="$ROOT" "$ROOT/.venv/bin/python" scripts/smoke-runtime.py --with-embeddings
 
 

@@ -1,8 +1,7 @@
 #!/bin/bash
 # Shortcut target for /Applications/Imprint.app.
 #
-# Responsibility: on first launch, show a small AppleScript dialog asking
-# whether to ship the local LLM tagger, then run `imprint bootstrap` +
+# Responsibility: on first launch, run `imprint bootstrap` +
 # `imprint setup` in a progress window (the native helper, or Terminal.app as
 # a fallback) that continues with `imprint ui open` once setup succeeds. On
 # subsequent launches, just call `imprint ui open` and exit.
@@ -29,54 +28,34 @@ show_error() {
     echo "[x] $title: $msg" >&2
 }
 
-# Profile is always "cpu" on macOS: NVIDIA dropped Mac support long before
-# Apple Silicon, and Metal/MPS backends are not wired into Imprint's ORT
-# stack yet. So we skip the profile question entirely and only ask about
-# the optional local LLM tagger. If Metal support lands upstream, this is
-# the one place to flip.
-prompt_profile() {
-    # Returns: "cpu|<with-llm>" where with-llm=1|0.
-    local llm_choice
-    llm_choice=$(osascript <<'APPLESCRIPT' 2>/dev/null || echo "0"
-set dlg to display dialog "Install the local LLM tagger (llama-cpp-python, ~200 MB)?
-
-Skip this if you only want embeddings + MCP search. You can add it later with 'imprint profile add-llm'." with title "Imprint - Local LLM tagger" buttons {"Skip", "Install"} default button "Skip" cancel button "Skip"
-if button returned of dlg is "Install" then
-    return "1"
-else
-    return "0"
-end if
-APPLESCRIPT
-)
-    echo "cpu|${llm_choice}"
-}
+# The profile picks llama.cpp's build, which runs embeddings and the local
+# LLM. "auto" keeps the GPU build (Metal on macOS) when llama.cpp finds a GPU
+# and installs the CPU build otherwise (ADR 0049, 0086), so first-run setup
+# asks nothing.
+PROFILE=auto
 
 run_bootstrap_in_window() {
     local profile="$1"
-    local with_llm="$2"
     local helper="$APP_DIR/MacOS/imprint-setup-helper"
 
     if [ -x "$helper" ]; then
         # exec replaces this launcher process with the helper, so Imprint.app
         # stays active in the Dock while the setup window is shown.
-        exec "$helper" "$BIN" "$WRITABLE_HOME" "$profile" "$with_llm"
+        exec "$helper" "$BIN" "$WRITABLE_HOME" "$profile"
         # exec only returns on failure — fall through to Terminal fallback.
     fi
 
     # Fallback: no compiled helper present (local dev builds) or exec failed.
     # exec only returns on failure, so reaching here from the helper path means
     # the binary couldn't launch (Gatekeeper block, missing dylib, wrong arch).
-    local llm_flag="--no-llm"
-    [ "$with_llm" = "1" ] && llm_flag="--with-llm"
     mkdir -p "$WRITABLE_HOME"
-    if ! osascript - "$BIN" "$WRITABLE_HOME" "$profile" "$llm_flag" <<'APPLESCRIPT'
+    if ! osascript - "$BIN" "$WRITABLE_HOME" "$profile" <<'APPLESCRIPT'
 on run argv
 set imprintBin to quoted form of item 1 of argv
 set writableHome to quoted form of item 2 of argv
 set profileArg to quoted form of item 3 of argv
-set llmArg to quoted form of item 4 of argv
 set sentinelPath to quoted form of ((item 2 of argv) & "/.first-run.done")
-set setupCommand to imprintBin & " bootstrap --profile " & profileArg & " " & llmArg & " --non-interactive && " & imprintBin & " setup --non-interactive && mkdir -p " & writableHome & " && touch " & sentinelPath & " && " & imprintBin & " ui open && echo '[+] Imprint is open. You can close this window.'"
+set setupCommand to imprintBin & " bootstrap --profile " & profileArg & " --non-interactive && " & imprintBin & " setup --non-interactive && mkdir -p " & writableHome & " && touch " & sentinelPath & " && " & imprintBin & " ui open && echo '[+] Imprint is open. You can close this window.'"
 tell application "Terminal"
     activate
     do script setupCommand
@@ -87,7 +66,7 @@ APPLESCRIPT
         show_error "Setup failed" "Could not open a Terminal window to run first-run setup.
 
 Open Terminal.app manually and run:
-  imprint bootstrap --profile $profile $llm_flag --non-interactive
+  imprint bootstrap --profile $profile --non-interactive
   imprint setup"
     fi
 }
@@ -108,10 +87,9 @@ fi
 VENV_PY="$WRITABLE_HOME/.venv/bin/python"
 if [ ! -f "$SENTINEL" ] || [ ! -x "$VENV_PY" ]; then
     [ -f "$SENTINEL" ] && rm -f "$SENTINEL"
-    IFS='|' read -r PROFILE WITH_LLM <<< "$(prompt_profile)"
     # run_bootstrap_in_window execs the helper (replacing this process) or
     # opens Terminal.app as fallback, then exits.
-    run_bootstrap_in_window "${PROFILE:-cpu}" "${WITH_LLM:-0}"
+    run_bootstrap_in_window "$PROFILE"
     exit 0
 fi
 

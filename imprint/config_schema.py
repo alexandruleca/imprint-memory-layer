@@ -52,44 +52,36 @@ class Setting:
 
 
 def device_index(raw: Any) -> str:
-    """``auto`` or a CUDA device index."""
+    """``auto`` or the index of a GPU llama.cpp offloads to."""
     value = str(raw).strip().lower()
     if value != "auto" and not value.isdigit():
-        raise ValueError("expected auto or a CUDA device index")
+        raise ValueError("expected auto or a GPU index")
     return value if value == "auto" else str(int(value))
 
 
+def _gpus():
+    """The GPUs llama.cpp offloads to; none when the binding cannot load."""
+    try:
+        from . import llama_runtime
+        return llama_runtime.gpus()
+    except Exception:
+        return []
+
+
 def _gpu_devices() -> tuple[Choice, ...]:
-    from . import cuda_devices
-    major = cuda_devices.runtime_major()
-    minimum = cuda_devices.minimum_compute(major)
-    options = [Choice("auto", "Auto", "First GPU the CUDA runtime supports")]
-    for device in cuda_devices.devices():
-        compute = "%d.%d" % device.compute
-        unavailable = ""
-        if cuda_devices.supported(device, major) is False:
-            unavailable = f"CUDA {major} needs compute capability {minimum[0]}.{minimum[1]}+, this GPU has {compute}"
-        options.append(Choice(str(device.index), f"{device.index}: {device.name}",
-                              f"{device.memory_mb / 1024:.0f} GB, compute {compute}", unavailable))
-    return tuple(options)
+    return (Choice("auto", "Auto", "The discrete GPU with the most memory"),
+            *(Choice(str(gpu.index), f"{gpu.index}: {gpu.name}", f"{gpu.memory_mb / 1024:.0f} GB")
+              for gpu in _gpus()))
 
 
 def _embedding_devices() -> tuple[Choice, ...]:
-    """What each ``model.device`` value does on this device (ADR 0062): the
-    GPU needs Imprint's CUDA runtime, which only an NVIDIA GPU it supports
-    can use."""
-    from . import gpu_runtime
-    plan = gpu_runtime.plan("gpu")
-    if plan.runtime == "cpu":
-        here = "CPU here: " + plan.reason
-    elif gpu_runtime.installed() == "gpu":
-        here = plan.reason
-    else:
-        here = f"{plan.reason}; installs the CUDA runtime, {gpu_runtime.DOWNLOAD}"
-    unavailable = plan.reason[:1].upper() + plan.reason[1:] if plan.runtime == "cpu" else ""
+    """What each ``model.device`` value does on this device (ADR 0086)."""
+    from . import config, llama_runtime
+    gpu = llama_runtime.choose(str(config.GPU_DEVICE), _gpus())
+    here = gpu.name if gpu else "CPU here: llama.cpp found no GPU it can use"
     return (Choice("auto", "Auto", here),
-            Choice("cpu", "CPU", "The default model runs faster on the CPU"),
-            Choice("gpu", "GPU", "" if unavailable else here, unavailable))
+            Choice("cpu", "CPU"),
+            Choice("gpu", "GPU", here if gpu else "", "" if gpu else "llama.cpp found no GPU it can use"))
 
 
 def _workspaces() -> tuple[Choice, ...]:
@@ -114,23 +106,22 @@ SETTINGS: list[Setting] = [
     # ── Embedding model ───────────────────────────────────────
     Setting("model.name",       "IMPRINT_MODEL_NAME",       EMBEDDING_REPO,  str,   "HuggingFace embedding model repo"),
     Setting("model.revision",   "IMPRINT_MODEL_REVISION",   "auto",           str,   "HF revision (auto = pinned default export, main for custom repos)", choices=AUTO, custom=True),
-    Setting("model.file",       "IMPRINT_MODEL_FILE",       "auto",           str,   "ONNX model file (auto = pick by model/device)", choices=AUTO, custom=True),
-    Setting("model.device",     "IMPRINT_DEVICE",           "cpu",            str,   "Compute device: auto / cpu / gpu (NVIDIA GPUs, through CUDA)",
+    Setting("model.file",       "IMPRINT_MODEL_FILE",       "auto",           str,   "GGUF file in the model repo (auto = the default model's file)", choices=AUTO, custom=True),
+    Setting("model.device",     "IMPRINT_DEVICE",           "auto",           str,   "Compute device: auto / cpu / gpu (any GPU llama.cpp can use: Vulkan on Windows and Linux, Metal on macOS)",
             choices=_embedding_devices),
     Setting("model.dim",        "IMPRINT_EMBEDDING_DIM",    1024,             int,   "Embedding vector dimension (known model defaults inferred unless overridden)"),
     Setting("model.seq_length", "IMPRINT_MAX_SEQ_LENGTH",   2048,             int,   "Token cap per embed call"),
-    Setting("model.threads",    "IMPRINT_ONNX_THREADS",     4,                int,   "CPU intra-op threads for ONNX"),
-    Setting("model.gpu_mem_mb", "IMPRINT_GPU_MEM_MB",       2048,             int,   "VRAM cap for ORT CUDA arena (MB)"),
-    Setting("model.gpu_device", "IMPRINT_GPU_DEVICE",       "auto",           device_index, "CUDA device index (auto = first GPU the CUDA runtime supports)",
+    Setting("model.threads",    "IMPRINT_ONNX_THREADS",     0,                int,   "CPU threads for local models (0 = half the logical CPUs)",
+            choices=(Choice(0, "Auto", "Half the logical CPUs"),), custom=True),
+    Setting("model.gpu_device", "IMPRINT_GPU_DEVICE",       "auto",           device_index, "GPU that runs local models (auto = the discrete GPU with the most memory)",
             choices=_gpu_devices, custom=True),
-    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = conservative auto: 1 CPU, 4 GPU)",
-            choices=(Choice(0, "Auto", "1 on CPU, 4 on GPU"),), custom=True),
+    Setting("model.batch_size", "IMPRINT_BATCH_SIZE",       0,                int,   "Embedding batch size (0 = auto: 8 on a GPU, 1 on the CPU)",
+            choices=(Choice(0, "Auto", "8 on a GPU, 1 on the CPU"),), custom=True),
     Setting("model.pooling",    "IMPRINT_POOLING",          "auto",           str,   "Pooling strategy: auto / cls / mean / last",
-            choices=(Choice("auto", "Auto", "By model family"), Choice("cls", "CLS token"),
+            choices=(Choice("auto", "Auto", "By model family, else the model's own"), Choice("cls", "CLS token"),
                      Choice("mean", "Mean"), Choice("last", "Last token"))),
     Setting("model.query_instruction", "IMPRINT_QUERY_INSTRUCTION", "auto", str, "Query instruction (auto = model-specific; Qwen wraps Instruct/Query)",
             choices=AUTO, custom=True),
-    Setting("model.output",     "IMPRINT_MODEL_OUTPUT",     "auto",           str,   "ONNX output name (auto = preferred pooled/token output)", choices=AUTO, custom=True),
 
     # ── Hugging Face Hub ──────────────────────────────────────
     # The env var is the standard one, so an exported HF_TOKEN overrides the
@@ -514,18 +505,12 @@ def cli_set(key: str, value: str) -> None:
 
 
 def _print_effect(key: str, value: Any) -> None:
-    """What the value means on this device, and how to apply a change of
-    runtime (ADR 0062)."""
+    """What the value means on this device."""
     choice = next((c for c in SETTINGS_BY_KEY[key].options() if c.value == value), None)
     if choice is not None and choice.unavailable:
         print(f"  {C_YELLOW}{choice.unavailable}{C_RESET}")
     elif choice is not None and choice.detail:
         print(f"  {choice.detail}")
-    from . import gpu_runtime
-    if key in gpu_runtime.SETTINGS:
-        change = gpu_runtime.pending()
-        if change:
-            print(f"  Run imprint setup to install {change}; servers use it once they restart.")
 
 
 def cli_reset(key: str) -> None:

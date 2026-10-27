@@ -1,9 +1,12 @@
 """Versioned defaults and encoding contracts. No inference dependencies."""
 
-EMBEDDING_REPO = "onnx-community/Qwen3-Embedding-0.6B-ONNX"
-EMBEDDING_REVISION = "c25a394dd583836952667c12f008335071b3f43d"
-EMBEDDING_FILE = "onnx/model_quantized.onnx"
-EMBEDDING_SHA256 = "87cd124e0ef1fd1f223ebc283efccbaeac386d0b08344701c46975d0657b591f"
+# Qwen's own GGUF of Qwen3-Embedding-0.6B. Q8_0 matches the full-precision
+# model (mean cosine 0.9994 on real chunks) where the int8 ONNX export it
+# replaced did not (0.84; ADR 0086).
+EMBEDDING_REPO = "Qwen/Qwen3-Embedding-0.6B-GGUF"
+EMBEDDING_REVISION = "370f27d7550e0def9b39c1f16d3fbaa13aa67728"
+EMBEDDING_FILE = "Qwen3-Embedding-0.6B-Q8_0.gguf"
+EMBEDDING_SHA256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
 QUERY_INSTRUCTION = "Retrieve relevant source code, documentation, and engineering decisions for the query"
 HELPER_REPO = "unsloth/Qwen3.5-4B-GGUF"
 HELPER_FILE = "Qwen3.5-4B-Q4_K_M.gguf"

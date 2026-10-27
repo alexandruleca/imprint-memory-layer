@@ -20,11 +20,14 @@ class EncodingTests(unittest.TestCase):
                 import_snapshot(path)
             storage.assert_not_called()
 
-    def test_last_token_pooling_handles_both_padding_sides(self):
-        values = np.arange(24).reshape(2, 4, 3)
-        mask = np.array([[1, 1, 0, 0], [0, 0, 1, 1]])
-        with patch.object(config, 'POOLING', 'auto'), patch.object(config, 'MODEL_FAMILY', 'qwen3'):
-            np.testing.assert_array_equal(embeddings._pool(values, mask), values[[0, 1], [1, 3]])
+    def test_pooling_follows_the_model_family_or_the_gguf(self):
+        import llama_cpp
+        cases = [('auto', 'qwen3', llama_cpp.LLAMA_POOLING_TYPE_LAST), ('auto', 'bge-m3', llama_cpp.LLAMA_POOLING_TYPE_CLS),
+                 ('auto', 'custom', llama_cpp.LLAMA_POOLING_TYPE_UNSPECIFIED), ('mean', 'qwen3', llama_cpp.LLAMA_POOLING_TYPE_MEAN)]
+        for pooling, family, expected in cases:
+            with self.subTest(pooling=pooling, family=family), patch.object(config, 'POOLING', pooling), \
+                    patch.object(config, 'MODEL_FAMILY', family):
+                self.assertEqual(embeddings._pooling(), expected)
 
     def test_query_instruction_never_applies_to_documents(self):
         with patch.object(config, 'QUERY_INSTRUCTION', 'Find evidence'), \
@@ -34,63 +37,52 @@ class EncodingTests(unittest.TestCase):
             embeddings.embed_document('auth implementation')
             self.assertEqual(run.call_args.args[0], ['auth implementation'])
 
-    def session(self, values, output_names=('last_hidden_state', 'sentence_embedding')):
-        session = MagicMock()
-        session.get_inputs.return_value = [types.SimpleNamespace(name=n) for n in ('input_ids', 'attention_mask', 'position_ids')]
-        session.get_outputs.return_value = [types.SimpleNamespace(name=n) for n in output_names]
-        session.run.return_value = [values]
-        return session
+    class Model:
+        """A llama.cpp embedding model whose tokens are characters and whose
+        tokenizer appends one end-of-text token."""
+        def __init__(self, vectors):
+            self.vectors, self.inputs = vectors, []
 
-    def test_named_pooled_output_projection_and_normalization(self):
-        session = self.session(np.arange(1, 65).reshape(1, 64).astype(np.float32))
-        tokenizer = MagicMock()
-        tokenizer.encode_batch.return_value = [types.SimpleNamespace(ids=[1, 2], attention_mask=[1, 1])]
-        with patch.object(embeddings, '_tokenizer', tokenizer), patch.object(config, 'EMBEDDING_DIM', 32), \
-             patch.object(config, 'MODEL_FAMILY', 'qwen3'), patch.object(config, 'MODEL_OUTPUT', 'auto'):
-            result = embeddings._run_session(session, ['text'])
+        def tokenize(self, text, add_bos=True):
+            return list(text) + ([0] if add_bos else [])
+
+        def detokenize(self, tokens):
+            return bytes(tokens)
+
+        def embed(self, texts, normalize, truncate):
+            self.inputs = texts
+            return self.vectors
+
+    def embedded(self, model, texts, dim):
+        with patch.object(embeddings, '_load', return_value=model), patch.object(embeddings, '_specials', 1), \
+                patch.object(config, 'EMBEDDING_DIM', dim), patch.object(config, 'MODEL_FAMILY', 'qwen3'):
+            return embeddings._embed_raw(texts)
+
+    def test_matryoshka_projection_and_normalization(self):
+        result = self.embedded(self.Model([list(range(1, 65))]), ['text'], 32)
         self.assertEqual(result.shape, (1, 32))
         self.assertAlmostEqual(float(np.linalg.norm(result)), 1, places=6)
-        self.assertEqual(session.run.call_args.args[0], ['sentence_embedding'])
-        np.testing.assert_array_equal(session.run.call_args.args[1]['position_ids'], [[0, 1]])
+        np.testing.assert_allclose(result[0], np.arange(1, 33) / np.linalg.norm(np.arange(1, 33)), rtol=1e-6)
+
+    def test_a_long_input_loses_words_from_its_end_but_keeps_the_end_of_text_token(self):
+        model = self.Model([[1.0, 0.0, 0.0]])
+        with patch.object(config, 'MAX_SEQ_LENGTH', 10):
+            self.embedded(model, ['abcdefghijklmnopqrstuvwxyz'], 3)
+            self.assertEqual(model.inputs, ['abcdefghi'])
+            self.assertEqual(len(model.tokenize(model.inputs[0].encode())), 10)
+            self.embedded(model, ['short'], 3)
+            self.assertEqual(model.inputs, ['short'])
 
     def test_bad_dimensions_nonfinite_and_zero_vectors_fail(self):
-        tokenizer = MagicMock()
-        tokenizer.encode_batch.return_value = [types.SimpleNamespace(ids=[1], attention_mask=[1])]
-        for values in (np.ones((1, 2)), np.full((1, 3), np.nan), np.zeros((1, 3))):
-            with self.subTest(values=values), patch.object(embeddings, '_tokenizer', tokenizer), \
-                 patch.object(config, 'EMBEDDING_DIM', 3), patch.object(config, 'MODEL_OUTPUT', 'auto'):
-                with self.assertRaises(ValueError):
-                    embeddings._run_session(self.session(values), ['text'])
-
-    def test_qwen_decoder_export_receives_empty_past_cache(self):
-        session = self.session(np.ones((1, 32)))
-        session.get_inputs.return_value.append(types.SimpleNamespace(
-            name='past_key_values.0.key', type='tensor(float)', shape=['batch_size', 8, 'past_sequence_length', 128]))
-        tokenizer = MagicMock()
-        tokenizer.encode_batch.return_value = [types.SimpleNamespace(ids=[1], attention_mask=[1])]
-        with patch.object(embeddings, '_tokenizer', tokenizer), patch.object(config, 'EMBEDDING_DIM', 32), \
-             patch.object(config, 'MODEL_FAMILY', 'qwen3'), patch.object(config, 'MODEL_OUTPUT', 'auto'):
-            embeddings._run_session(session, ['text'])
-        cache = session.run.call_args.args[1]['past_key_values.0.key']
-        self.assertEqual(cache.shape, (1, 8, 0, 128))
-        self.assertEqual(cache.dtype, np.float32)
+        for vectors in ([[1.0, 1.0]], [[np.nan] * 3], [[0.0] * 3], [[1.0] * 3, [1.0] * 3]):
+            with self.subTest(vectors=vectors), self.assertRaises(ValueError):
+                self.embedded(self.Model(vectors), ['text'], 3)
 
     def test_embedding_identity_changes_with_encoding_semantics(self):
         original = config.embedding_identity()
         for key, value in [('QUERY_INSTRUCTION', 'another task'), ('MAX_SEQ_LENGTH', 128), ('MODEL_REVISION', 'another revision')]:
             with patch.object(config, key, value):
                 self.assertNotEqual(config.embedding_identity(), original)
-
-    def test_cuda_preload_reports_on_stderr_not_the_mcp_stream(self):
-        import contextlib
-        import io
-        out, err = io.StringIO(), io.StringIO()
-        with patch.object(embeddings.ort, 'preload_dlls', side_effect=lambda: print('Failed to load cudnn64_9.dll')), \
-                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            embeddings._preload_cuda_libs()
-        self.assertEqual(out.getvalue(), '')
-        self.assertIn('Failed to load cudnn64_9.dll', err.getvalue())
-
 
 class LocalHelperTests(unittest.TestCase):
     def test_queued_reindex_retains_force_and_batch_size(self):
@@ -113,11 +105,13 @@ class LocalHelperTests(unittest.TestCase):
         formatter_module.Jinja2ChatFormatter = MagicMock()
         with tempfile.TemporaryDirectory() as directory, patch.dict(local_llm._models, {}, clear=True), \
              patch.dict('sys.modules', {'llama_cpp': llama, 'llama_cpp.llama_chat_format': formatter_module}), \
-             patch('imprint._llama_compat.apply'):
+             patch('imprint._llama_compat.apply'), patch('imprint.llama_runtime._quiet_logs'):
             first = local_llm.load(Path(directory) / 'model.gguf', 8192, 0)
             second = local_llm.load(Path(directory) / 'model.gguf', 8192, 0)
             self.assertIs(first, second)
             llama.Llama.assert_called_once()
+            # Quiet without pointing standard output at the null device.
+            self.assertEqual((llama.Llama.call_args.kwargs['verbose'], llama.Llama.call_args.kwargs['n_gpu_layers']), (True, 0))
             llm.set_cache.assert_called_once_with(None)
             self.assertIn('set enable_thinking = false', formatter_module.Jinja2ChatFormatter.call_args.kwargs['template'])
 

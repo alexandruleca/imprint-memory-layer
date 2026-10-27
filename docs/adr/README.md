@@ -60,15 +60,15 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Embeddings, local models and chat
 
-- [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) **Qwen defaults and explicit reindex.** Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (classification grammar).
-- [ADR 0032](0032-one-onnx-runtime-per-environment.md) **One ONNX Runtime per environment.** Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (runtime selection).
-- [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) **Prebuilt llama.cpp wheels and first-chat provisioning.** `llama-cpp-python` installs from upstream's hash-pinned prebuilt wheels where they exist; the first local chat installs the binding and downloads the model, with progress in the chat. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (GPU build).
-- [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md) **GPU runtime ships its CUDA libraries.** The GPU profile installs CUDA 13 and cuDNN from NVIDIA wheels in its hashed lock, gated on the driver's supported CUDA version. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (library set, driver gate and CUDA check).
-- [ADR 0045](0045-setting-choices-and-gpu-auto-select.md) **Settings declare their choices; the GPU device defaults to auto.** Settings declare their choices; the GPU device defaults to the first one the CUDA runtime supports. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (setup's device-0 check).
-- [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) **llama.cpp GPU offload through upstream's Vulkan wheels.** The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed.
+- [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) **Qwen defaults and explicit reindex.** Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (classification grammar) and [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (default export and device).
+- [ADR 0032](0032-one-onnx-runtime-per-environment.md) **One ONNX Runtime per environment.** Each profile installs base requirements plus exactly one ONNX Runtime build, verified from package records and repaired by setup. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (runtime selection) and [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (the CPU build only, for OCR and the privacy filter).
+- [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) **Prebuilt llama.cpp wheels and first-chat provisioning.** `llama-cpp-python` installs from upstream's hash-pinned prebuilt wheels where they exist; the first local chat installs the binding and downloads the model, with progress in the chat. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (GPU build) and [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (the binding in every installation).
+- [ADR 0045](0045-setting-choices-and-gpu-auto-select.md) **Settings declare their choices; the GPU device defaults to auto.** Settings declare their choices; the GPU device defaults to auto. Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) (setup's device-0 check) and [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) (the GPU llama.cpp runs on).
+- [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) **llama.cpp GPU offload through upstream's Vulkan wheels.** The gpu and auto profiles install llama.cpp's hash-locked Vulkan build and keep it only when it finds a GPU; the nvcc rebuild is removed. Amended by [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) (one GPU per model).
 - [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) **Chat speaks each model's native tool protocol.** Chat keeps one registry of tool JSON schemas; local models get them through their chat template and remote providers through API function calling, with no text protocol of Imprint's own. Amended by [ADR 0061](0061-local-tool-call-formats.md) (local parsing).
 - [ADR 0061](0061-local-tool-call-formats.md) **Local tool-call formats by model family.** Local chat parses tool calls in the model family's format (Qwen XML, Hermes JSON, Llama 3, Mistral), detected by rendering a probe call through the template or chosen with `chat.tool_format`; other models chat without tools and say so.
-- [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) **CUDA only for GPU embedding on a supported NVIDIA GPU.** The embedding runtime follows `model.device` and the machine: the CUDA build, with only the libraries its provider loads, installs only for GPU embedding on a supported NVIDIA GPU; switching builds removes what the old one used. Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) (swapping under running processes, provisioning through the queue and pruning uv's cache).
+- [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) **Embeddings run on llama.cpp, without CUDA.** Qwen's Q8_0 GGUF of Qwen3-Embedding-0.6B runs on llama.cpp: the Vulkan or Metal build on any GPU it finds, the CPU build elsewhere. The CUDA runtime and the int8 ONNX export are gone, and the binding is part of every installation.
+- [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) **llama.cpp runs each model on one GPU.** Embeddings and the local LLM load whole onto `model.gpu_device`, by default the discrete GPU with the most memory, instead of llama.cpp's split across every GPU.
 - [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) **Keep Qwen3.5-4B as the local tagger.** Qwen3.5-2B tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on; putting the prompt's fixed text first gains nothing on Qwen3.5's architecture.
 
 ### Sync and device provenance
@@ -122,7 +122,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0002](0002-build-and-validate-before-publication.md) **Validate releases before publication.** Build all release artifacts and run native checks before publication. Amended by [ADR 0014](0014-main-only-release-packaging.md) (which branches build and publish releases).
 - [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md) **Runtime dependencies and local boundaries.** Resolve base dependencies and enforce explicit local browser/process boundaries. Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (deferred hash locks, Electron upgrade and Host defense).
 - [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) **Verified runtime and desktop baseline.** Hashed dependencies/downloads, Electron 45, macOS 13 and container parity.
-- [ADR 0012](0012-native-package-runtime-and-silent-installs.md) **Native package runtime and silent installs.** Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke.
+- [ADR 0012](0012-native-package-runtime-and-silent-installs.md) **Native package runtime and silent installs.** Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke. Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (no LLM choice).
 - [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main. Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev prereleases).
 - [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
 - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases) and [ADR 0085](0085-main-only-fast-forwards-to-dev.md) (no dev sync).
@@ -138,7 +138,7 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0085](0085-main-only-fast-forwards-to-dev.md) **Main only fast-forwards to dev.** Every change reaches main by fast-forwarding main to a dev commit; pull requests target dev, and no workflow fast-forwards dev after pushes to main.
 
-- [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) **Setup frees the runtime before replacing its files.** Setup holds the queue and runtime locks while it changes the venv; before it replaces or removes packages it restarts the dashboard server and, on Windows, stops every other process running from the runtime. Settings starts bootstrap outside the queue.
+- [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) **Setup frees the runtime before replacing its files.** Setup holds the queue and runtime locks while it changes the venv; before it replaces or removes packages it restarts the dashboard server and, on Windows, stops every other process running from the runtime. Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (Settings starts no bootstrap).
 
 ## Open proposals
 
@@ -161,9 +161,9 @@ Every record in number order. *Date* is when the decision was made.
 | [0007](0007-verified-runtime-and-desktop-baseline.md) | 2026-10-23 | Accepted | Verified runtime and desktop baseline |
 | [0008](0008-dashboard-retrieval-and-accessibility.md) | 2026-10-23 | Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Dashboard retrieval and accessibility |
 | [0009](0009-model-profiles-and-embedding-identity.md) | 2026-10-23 | Proposed | Model profiles and embedding identity |
-| [0010](0010-qwen-defaults-and-explicit-reindex.md) | 2026-10-23 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Qwen defaults and explicit reindex |
+| [0010](0010-qwen-defaults-and-explicit-reindex.md) | 2026-10-23 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Qwen defaults and explicit reindex |
 | [0011](0011-nightly-trivy-security-scanning.md) | 2026-10-23 | Accepted | Nightly Trivy security scanning |
-| [0012](0012-native-package-runtime-and-silent-installs.md) | 2026-10-23 | Accepted | Native package runtime and silent installs |
+| [0012](0012-native-package-runtime-and-silent-installs.md) | 2026-10-23 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Native package runtime and silent installs |
 | [0013](0013-remediate-security-scan-dependencies.md) | 2026-10-23 | Accepted | Remediate security scan dependencies |
 | [0014](0014-main-only-release-packaging.md) | 2026-10-23 | Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Main-only release packaging |
 | [0015](0015-workspace-roots-and-source-purge.md) | 2026-10-23 | Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Workspace roots and source purge |
@@ -183,24 +183,24 @@ Every record in number order. *Date* is when the decision was made.
 | [0029](0029-paired-browser-capture.md) | 2026-10-23 | Amended by [ADR 0030](0030-chrome-extension-release-zip.md) | Paired local browser capture prototype |
 | [0030](0030-chrome-extension-release-zip.md) | 2026-10-23 | Accepted | Chrome preview ZIP and release downloads |
 | [0031](0031-website-analytics-and-public-relay-status.md) | 2026-10-24 | Accepted | Website analytics events and public relay status |
-| [0032](0032-one-onnx-runtime-per-environment.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | One ONNX Runtime per environment |
+| [0032](0032-one-onnx-runtime-per-environment.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md), [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | One ONNX Runtime per environment |
 | [0033](0033-stored-secret-settings.md) | 2026-10-24 | Accepted | Stored secret settings |
 | [0034](0034-learn-from-client-stores-by-conversation-ownership.md) | 2026-10-24 | Amended by [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Learn from client stores by conversation ownership |
-| [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) | 2026-10-24 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | Prebuilt llama.cpp wheels and first-chat provisioning |
+| [0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) | 2026-10-24 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Prebuilt llama.cpp wheels and first-chat provisioning |
 | [0036](0036-move-memories-between-projects.md) | 2026-10-24 | Accepted | Move memories between projects |
 | [0037](0037-learn-every-integrated-client-store.md) | 2026-10-24 | Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md), [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) | Learn from every integrated client store |
-| [0038](0038-gpu-runtime-ships-cuda-libraries.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | GPU runtime ships its CUDA libraries |
+| [0038](0038-gpu-runtime-ships-cuda-libraries.md) | 2026-10-24 | Superseded by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md); amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | GPU runtime ships its CUDA libraries |
 | [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | 2026-10-24 | Accepted | shadcn overlays and desktop drag handles |
 | [0040](0040-documents-with-nothing-to-index.md) | 2026-10-24 | Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | Documents with nothing to index |
 | [0041](0041-personaplex-startup-memory-prototype.md) | 2026-10-24 | Accepted | PersonaPlex startup memory prototype |
 | [0042](0042-lfm-audio-cpu-experiment.md) | 2026-10-24 | Accepted | Small LFM audio experiment on CPU |
 | [0043](0043-live-voice-and-echo-companion.md) | 2026-10-24 | Amended by [ADR 0044](0044-native-desktop-voice-platforms.md), [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | Local live voice and the Echo companion |
 | [0044](0044-native-desktop-voice-platforms.md) | 2026-10-24 | Amended by [ADR 0046](0046-visible-echo-runtime-setup.md), [ADR 0047](0047-bundled-private-voice-engine.md), [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | Native Windows and macOS voice |
-| [0045](0045-setting-choices-and-gpu-auto-select.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | Settings declare their choices; the GPU device defaults to auto |
+| [0045](0045-setting-choices-and-gpu-auto-select.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md), [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) | Settings declare their choices; the GPU device defaults to auto |
 | [0046](0046-visible-echo-runtime-setup.md) | 2026-10-24 | Amended by [ADR 0047](0047-bundled-private-voice-engine.md) | Visible first-time Echo setup |
 | [0047](0047-bundled-private-voice-engine.md) | 2026-10-24 | Accepted | Bundle the private voice engine |
 | [0048](0048-anime-echo-and-desktop-recovery.md) | 2026-10-24 | Amended by [ADR 0054](0054-echo-looks-declare-their-motion.md), [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) | Anime Echo and recoverable desktop controls |
-| [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | 2026-10-24 | Accepted | llama.cpp GPU offload through upstream's Vulkan wheels |
+| [0049](0049-llama-gpu-offload-through-vulkan-wheels.md) | 2026-10-24 | Amended by [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) | llama.cpp GPU offload through upstream's Vulkan wheels |
 | [0050](0050-registered-dashboard-server-and-supervised-restart.md) | 2026-10-24 | Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | Registered dashboard server and supervised restart |
 | [0051](0051-synced-tags-follow-the-latest-retag.md) | 2026-10-24 | Accepted | Synced tags follow the latest retag |
 | [0052](0052-learn-cursor-conversations-from-their-folder-names.md) | 2026-10-25 | Accepted | Learn Cursor conversations from their folder names |
@@ -213,7 +213,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0059](0059-chat-speaks-each-models-native-tool-protocol.md) | 2026-10-25 | Amended by [ADR 0061](0061-local-tool-call-formats.md) | Chat speaks each model's native tool protocol |
 | [0060](0060-redact-secrets-before-memories-are-stored.md) | 2026-10-25 | Accepted | Redact secrets before memories are stored |
 | [0061](0061-local-tool-call-formats.md) | 2026-10-25 | Accepted | Local tool-call formats by model family |
-| [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | CUDA only for GPU embedding on a supported NVIDIA GPU |
+| [0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | 2026-10-25 | Superseded by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md); amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | CUDA only for GPU embedding on a supported NVIDIA GPU |
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
 | [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0068](0068-merge-identical-waiting-jobs.md), [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | Serialize heavy commands with a single-slot queue and a shared lock file |
 | [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
@@ -236,8 +236,10 @@ Every record in number order. *Date* is when the decision was made.
 | [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Accepted | Retain readable conversation evidence |
 
 | [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Accepted | Apple silicon laptop runner |
-| [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Accepted | Setup frees the runtime before replacing its files |
+| [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Setup frees the runtime before replacing its files |
 | [0085](0085-main-only-fast-forwards-to-dev.md) | 2026-10-27 | Accepted | Main only fast-forwards to dev |
+| [0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | 2026-10-27 | Accepted | Embeddings run on llama.cpp, without CUDA |
+| [0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) | 2026-10-27 | Accepted | llama.cpp runs each model on one GPU |
 
 ## How to write and maintain ADRs
 

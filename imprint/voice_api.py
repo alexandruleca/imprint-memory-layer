@@ -28,7 +28,7 @@ MAX_MESSAGE = 2_000_000
 MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
 STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load.
 TURN_TIMEOUT = 120
-CHAT_SETUP_TIMEOUT = 1800  # First-time binding/model provisioning is not a reply.
+CHAT_SETUP_TIMEOUT = 1800  # A first-time model download is not a reply.
 # Each of Echo's looks (the voice.avatar setting) speaks in its own voice
 # (ADR 0071): the speaker the native model is asked for, and an effect the
 # dashboard applies to reply audio.
@@ -475,11 +475,11 @@ async def stream(websocket: WebSocket):
                                     await synthesize(phrase)
                             elif kind == "tool_call":
                                 await emit({"type": "tool", "name": event["name"]})
-                            elif kind in {"install_start", "download_start", "download_progress", "download_complete", "load_start"}:
-                                if kind in {"install_start", "download_start"} and not provisioning:
+                            elif kind in {"download_start", "download_progress", "download_complete", "load_start"}:
+                                if kind == "download_start" and not provisioning:
                                     turn_budget.reschedule(asyncio.get_running_loop().time() + CHAT_SETUP_TIMEOUT)
                                     provisioning = True
-                                stage = "install" if kind == "install_start" else "download" if kind.startswith("download_") and kind != "download_complete" else "load"
+                                stage = "download" if kind in {"download_start", "download_progress"} else "load"
                                 progress = {"type": "provision", "stage": stage}
                                 for name in ("downloaded", "total"):
                                     value = event.get(name)

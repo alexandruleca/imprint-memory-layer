@@ -5,7 +5,9 @@ description: The config schema carries known values per setting, read from the d
 
 - Status: Amended
 - Date: 2026-10-24
-- Amended by: [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — setup's CUDA check on device 0
+- Amended by:
+  - [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) — setup's CUDA check on device 0
+  - [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) — `model.gpu_device` indexes the GPUs llama.cpp offloads to, and `auto` is the discrete GPU with the most memory
 - Related: [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
 - Restructured: 2026-10-25
 

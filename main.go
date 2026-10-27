@@ -23,22 +23,13 @@ func main() {
 		// `imprint setup all`          → run every handler; each self-skips
 		//                                  if its host tool isn't installed.
 		// Flags:
-		//   --retry-gpu           forget a recorded CUDA failure (GPU embeddings)
-		//   --profile <cpu|gpu|auto>   local LLM build: cpu, or GPU when available (persists)
-		//   --with-llm            install llama-cpp-python local tagger
-		//   --no-llm              skip llama-cpp-python
+		//   --profile <cpu|gpu|auto>   llama.cpp build: cpu, or GPU when available (persists)
 		//   --non-interactive     never prompt; fail fast on ambiguity
 		target := "all"
 		rest := os.Args[2:]
 		for i := 0; i < len(rest); i++ {
 			a := rest[i]
 			switch {
-			case a == "--retry-gpu":
-				cmd.SetRetryGPU(true)
-			case a == "--with-llm":
-				cmd.SetWithLLM(true)
-			case a == "--no-llm":
-				cmd.SetWithLLM(false)
 			case a == "--non-interactive":
 				cmd.SetNonInteractive(true)
 			case a == "--profile" && i+1 < len(rest):
@@ -132,17 +123,15 @@ Usage:
                              Connect a selected WSL profile to this Windows runtime
   imprint wsl remove --distribution NAME --target %[2]s
                              Remove that bridge while preserving memories and other clients
-  imprint setup [target] [--profile cpu|gpu|auto] [--with-llm|--no-llm] [--retry-gpu] [--non-interactive]
+  imprint setup [target] [--profile cpu|gpu|auto] [--non-interactive]
                              Install deps, then connect AI clients (MCP server, hooks, instructions).
-                             The embedding runtime follows model.device; --profile picks the local LLM's build
+                             --profile picks llama.cpp's build, which runs embeddings and the local LLM
                                target (default all): %[1]s
-  imprint bootstrap [--profile cpu|gpu|auto] [--with-llm] [--non-interactive]
+  imprint bootstrap [--profile cpu|gpu|auto] [--non-interactive]
                              Provision venv + selected dependencies only (no MCP registration).
                              Intended for installer scripts; end users should run 'imprint setup'.
-  imprint profile            Show active install profile (local LLM build + with-llm flag)
-  imprint profile set <cpu|gpu|auto>   Swap profile (cpu: CPU LLM; gpu/auto: GPU LLM when found); reinstalls deps via uv
-  imprint profile add-llm    Install llama-cpp-python into active profile
-  imprint profile drop-llm   Uninstall llama-cpp-python
+  imprint profile            Show active install profile (llama.cpp build)
+  imprint profile set <cpu|gpu|auto>   Swap profile (cpu: CPU build; gpu/auto: GPU build when llama.cpp finds a GPU); reinstalls deps via uv
   imprint ingest <path>      Index project source files (directory or single file)
   imprint learn              Index coding-client conversations (incl. WSL profiles) + memory files
   imprint ingest-url <url>   Fetch URL(s), extract content, and index (html/pdf/etc)

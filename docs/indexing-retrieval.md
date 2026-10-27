@@ -25,7 +25,7 @@ Complete redacted readable text and span manifests are stored beside modern chun
 
 ## Ranking contract
 
-MCP and dashboard call the same vectorstore search. Default `hybrid` uses the existing ONNX semantic vector, Qdrant full-text candidates and deterministic reciprocal rank fusion. Lexical scoring considers term coverage/frequency and exact identifier, path and phrase signals. `semantic` remains available for comparison. Filters apply before ranking. At most 256 candidates per channel are read, query terms cap at 12, pages at 50, and offsets at 255.
+MCP and dashboard call the same vectorstore search. Default `hybrid` uses the existing semantic vector, Qdrant full-text candidates and deterministic reciprocal rank fusion. Lexical scoring considers term coverage/frequency and exact identifier, path and phrase signals. `semantic` remains available for comparison. Filters apply before ranking. At most 256 candidates per channel are read, query terms cap at 12, pages at 50, and offsets at 255.
 
 Results include semantic `similarity`, `match_type`, `lexical_score` and `retrieval_score`, plus available provenance. These scores have different meanings; none is a probability that an answer is correct. A lexical-only candidate can have semantic similarity zero. Hybrid search still requires embeddings and is not a lexical-only fallback when models fail. Qdrant's bounded lexical scroll is not global BM25 and can miss relevant candidates in large corpora. Pagination is not a snapshot during concurrent writes.
 

@@ -43,7 +43,7 @@ Coordinated disclosure is **preferred when practical**: maintainers may work tow
 
 - Findings that require the victim to run untrusted code or paste untrusted content into a shell **and** that are inherent to that action (e.g. “running `curl | bash` with a malicious URL”) without a defect in our scripts.
 - Denial of service by exhausting local resources on the reporter’s own machine when no other user is affected.
-- Vulnerabilities in **third-party** dependencies or tools (Qdrant, ONNX Runtime, host editors, MCP clients): report those to the upstream project; we still welcome a heads-up so we can bump versions or document mitigations.
+- Vulnerabilities in **third-party** dependencies or tools (Qdrant, llama.cpp, ONNX Runtime, host editors, MCP clients): report those to the upstream project; we still welcome a heads-up so we can bump versions or document mitigations.
 - Misconfiguration (e.g. exposing Qdrant or relay ports to the public internet without firewalling) when defaults are local-only and documented.
 
 If you are unsure whether something is in scope, report it privately anyway.

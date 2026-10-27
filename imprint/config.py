@@ -39,35 +39,10 @@ DEVICE = str(_get("model.device")).lower()
 MODEL_FAMILY = _profiles.family(MODEL_NAME)
 _revision_raw = _get("model.revision")
 MODEL_REVISION = (_profiles.EMBEDDING_REVISION if MODEL_NAME == _profiles.EMBEDDING_REPO else "main") if _revision_raw == "auto" else _revision_raw
-
-
-def _default_model_file() -> str:
-    """Pick the best ONNX variant for the configured model + device.
-
-    BGE-M3 ships int8/fp16 variants — pick by device. EmbeddingGemma
-    and most other models have a single onnx/model.onnx.
-    """
-    model_lower = MODEL_NAME.lower()
-    if MODEL_NAME == _profiles.EMBEDDING_REPO:
-        return _profiles.EMBEDDING_FILE
-    if "bge-m3" in model_lower:
-        if DEVICE == "cpu":
-            return "onnx/model_int8.onnx"
-        if DEVICE == "gpu":
-            return "onnx/model_fp16.onnx"
-        try:
-            import onnxruntime as _ort
-            if "CUDAExecutionProvider" in _ort.get_available_providers():
-                return "onnx/model_fp16.onnx"
-        except Exception:
-            pass
-        return "onnx/model_int8.onnx"
-    # Generic ONNX model — single file
-    return "onnx/model.onnx"
-
-
+# A custom model repo names its GGUF file; there is no file to guess.
 _model_file_raw = _get("model.file")
-MODEL_FILE = _default_model_file() if _model_file_raw == "auto" else _model_file_raw
+MODEL_FILE = ((_profiles.EMBEDDING_FILE if MODEL_NAME == _profiles.EMBEDDING_REPO else "")
+              if _model_file_raw == "auto" else _model_file_raw)
 EMBEDDING_DIM, _dim_source = _resolve("model.dim")
 if _dim_source == "default" and MODEL_FAMILY == "embeddinggemma":
     EMBEDDING_DIM = 768
@@ -76,14 +51,13 @@ POOLING = str(_get("model.pooling")).lower()
 QUERY_INSTRUCTION = _get("model.query_instruction")
 if QUERY_INSTRUCTION == "auto":
     QUERY_INSTRUCTION = _profiles.QUERY_INSTRUCTION if MODEL_FAMILY == "qwen3" else ""
-MODEL_OUTPUT = _get("model.output")
 
 
 def embedding_identity() -> str:
     """Fingerprint vector semantics, including templates and truncation policy."""
-    profile = {"encoder": 1, "repo": MODEL_NAME, "revision": MODEL_REVISION,
+    profile = {"encoder": 2, "repo": MODEL_NAME, "revision": MODEL_REVISION,
                "file": MODEL_FILE, "dim": EMBEDDING_DIM, "seq_length": MAX_SEQ_LENGTH,
-               "pooling": POOLING, "instruction": QUERY_INSTRUCTION, "output": MODEL_OUTPUT}
+               "pooling": POOLING, "instruction": QUERY_INSTRUCTION}
     return hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()
 
 # ── Qdrant ──────────────────────────────────────────────────────
@@ -115,9 +89,8 @@ def hub_token() -> str | None:
     return _get("huggingface.token") or None
 
 
-# ── Embedding runtime ──────────────────────────────────────────
-ONNX_THREADS = _get("model.threads")
-GPU_MEM_MB = _get("model.gpu_mem_mb")
+# ── Local model runtime ────────────────────────────────────────
+CPU_THREADS = _get("model.threads") or max(1, (os.cpu_count() or 2) // 2)
 GPU_DEVICE = _get("model.gpu_device")
 BATCH_SIZE = _get("model.batch_size")  # 0 = auto
 

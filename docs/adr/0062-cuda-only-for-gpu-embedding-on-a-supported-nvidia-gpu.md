@@ -3,8 +3,9 @@ title: ADR 0062 — CUDA only for GPU embedding on a supported NVIDIA GPU
 description: The embedding runtime follows model.device and the machine, not the install profile; the CUDA build carries only the NVIDIA libraries its provider loads, and switching builds removes what the old one used.
 ---
 
-- Status: Amended
+- Status: Superseded
 - Date: 2026-10-25
+- Superseded by: [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md)
 - Amends:
   - [ADR 0032](0032-one-onnx-runtime-per-environment.md) — runtime selection
   - [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md) — which NVIDIA wheels, the driver gate, the CUDA check and its verdict

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestInstallLLMOverlayKeepsTheGPUBuildOnlyWhenItOffloads(t *testing.T) {
+func TestInstallLlamaKeepsTheGPUBuildOnlyWhenItOffloads(t *testing.T) {
 	project := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(project, "requirements"), 0o755); err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestInstallLLMOverlayKeepsTheGPUBuildOnlyWhenItOffloads(t *testing.T) {
 		t.Setenv("IMPRINT_FAKE_TOOL_LOG", log)
 		t.Setenv("IMPRINT_FAKE_OFFLOAD", c.offload)
 		holdRuntime(project)
-		installLLMOverlay("", os.Args[0], os.Args[0], project, c.profile)
+		installLlama("", os.Args[0], os.Args[0], project, c.profile)
 		releaseRuntime()
 		if got := fakeCalls(t, log); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("profile %s, offload %s: installed %v, want %v", c.profile, c.offload, got, c.want)

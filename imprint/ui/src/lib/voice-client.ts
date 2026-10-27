@@ -2,7 +2,7 @@ import { API_BASE } from "./api-base";
 
 export type VoiceMode = "ptt" | "handsfree";
 export type VoicePhase = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "error";
-export type VoicePreparation = { stage: "install" | "download" | "load"; downloaded: number; total: number };
+export type VoicePreparation = { stage: "download" | "load"; downloaded: number; total: number };
 export type VoiceSnapshot = {
   phase: VoicePhase; detail: string; connected: boolean; microphone: boolean;
   /** Why the last attempt to turn the microphone on failed; empty otherwise. */
@@ -348,10 +348,10 @@ export class VoiceClient {
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
     if (!event.id || event.id !== this.accepted) return;
     if (event.type === "user") this.update({ user: event.text || "" });
-    if (event.type === "provision" && ["install", "download", "load"].includes(event.stage || "")) {
+    if (event.type === "provision" && ["download", "load"].includes(event.stage || "")) {
       const stage = event.stage as VoicePreparation["stage"];
       this.update({ preparation: { stage, downloaded: Math.max(0, event.downloaded || 0), total: Math.max(0, event.total || 0) },
-        detail: stage === "download" ? "Downloading your chat model…" : stage === "install" ? "Setting up local chat…" : "Loading your chat model…" });
+        detail: stage === "download" ? "Downloading your chat model…" : "Loading your chat model…" });
       return;
     }
     if (event.type === "text") this.update({ answer: this.snapshot.answer + event.text, preparation: null });

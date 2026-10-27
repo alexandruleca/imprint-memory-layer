@@ -8,7 +8,7 @@ All settings can be persisted via `imprint config` instead of setting environmen
 
 ```bash
 # Select the supported Qwen default (then rebuild; see embeddings.md)
-imprint config set model.name onnx-community/Qwen3-Embedding-0.6B-ONNX
+imprint config set model.name Qwen/Qwen3-Embedding-0.6B-GGUF
 imprint config set model.dim 1024
 imprint config set model.seq_length 2048
 
@@ -32,7 +32,7 @@ imprint config
 imprint config get model.device
 
 # One-off env override (doesn't persist)
-IMPRINT_DEVICE=gpu imprint ingest ~/code
+IMPRINT_DEVICE=cpu imprint ingest ~/code
 
 # Remove one override
 imprint config reset model.device
@@ -43,7 +43,7 @@ imprint config reset --all
 
 `imprint config` groups settings visually by prefix (`model.*`, `huggingface.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`, `recall.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
 
-The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs this device reports), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
+The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs llama.cpp finds on this device), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
 
 Settings also holds **Workspaces** and, for a Windows installation, **WSL profiles**: enroll or remove the client profiles (whichever clients the CLI supports there) of each WSL distribution's default user. See [installation](installation.md#clients-inside-wsl).
 
@@ -64,19 +64,17 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | Key | Default | Description |
 |-----|---------|-------------|
 | **Embedding model** | | |
-| `model.name` | `onnx-community/Qwen3-Embedding-0.6B-ONNX` | HuggingFace embedding model repo |
+| `model.name` | `Qwen/Qwen3-Embedding-0.6B-GGUF` | HuggingFace embedding model repo (GGUF) |
 | `model.revision` | `auto` | Pinned default export revision; custom repos use main unless pinned |
-| `model.file` | `auto` | ONNX model file (auto = pick by device) |
-| `model.device` | `cpu` | Compute device: auto / cpu / gpu. `gpu` and `auto` embed on an NVIDIA GPU through CUDA when this machine can; setup then installs the CUDA runtime (more than 1 GB), and the dashboard queues that installation when you change it in Settings. Settings marks `gpu` unavailable, with the reason, where it cannot help ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)) |
+| `model.file` | `auto` | GGUF file in the model repo (auto = the default model's file; a custom repo must name its file) |
+| `model.device` | `auto` | Compute device: auto / cpu / gpu. `auto` embeds on a GPU when llama.cpp finds one, else on the CPU; `cpu` forces the CPU; `gpu` asks for the GPU and warns, then uses the CPU, when there is none. Any GPU llama.cpp's build supports: Vulkan on Windows and Linux x64, Metal on macOS. Changing it installs nothing; running processes use it once they restart. Settings marks `gpu` unavailable where llama.cpp finds no GPU ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)) |
 | `model.dim` | `1024` | Embedding vector dimension |
 | `model.seq_length` | `2048` | Token cap per embed call |
-| `model.threads` | `4` | CPU intra-op threads for ONNX |
-| `model.gpu_mem_mb` | `2048` | VRAM cap for ORT CUDA arena (MB) |
-| `model.gpu_device` | `auto` | CUDA device index; `auto` picks the first GPU the CUDA runtime supports ([ADR 0045](adr/0045-setting-choices-and-gpu-auto-select.md)). Setup installs the CUDA runtime only for a GPU it supports |
-| `model.batch_size` | `0` | Embedding batch size (0 = auto: 4 explicit GPU, 1 CPU/auto) |
-| `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last |
+| `model.threads` | `0` | CPU threads for CPU embedding and the privacy filter (0 = half the logical CPUs) |
+| `model.gpu_device` | `auto` | GPU that runs embeddings and the local LLM, each model whole on it: `auto` = the discrete GPU with the most memory (an integrated GPU only when there is no discrete one), else an index into the GPUs llama.cpp offloads to ([ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md)) |
+| `model.batch_size` | `0` | Embedding batch size (0 = auto: 8 on a GPU, 1 on the CPU) |
+| `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last. `auto` follows the model family (Qwen3 last token, BGE-M3 CLS), else the GGUF's own metadata |
 | `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |
-| `model.output` | `auto` | Named ONNX output selection |
 | **Hugging Face Hub** | | |
 | `huggingface.token` | — | Access token for model downloads. Secret: displayed masked. Its env var is the standard `HF_TOKEN`, not an `IMPRINT_*` name |
 | **Qdrant** | | |

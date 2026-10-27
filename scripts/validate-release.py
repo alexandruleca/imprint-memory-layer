@@ -136,8 +136,8 @@ def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
     for name in ('personaplex-test.txt', 'personaplex-test.lock.txt'):
         if (root / 'requirements' / name).exists():
             raise ValueError(f'Development state in archive: requirements/{name}')
-    for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/cpu.txt', 'requirements/cpu.lock.txt', 'requirements/gpu.txt',
-                'requirements/llm.txt', 'requirements/gpu.lock.txt', 'requirements/llm.lock.txt',
+    for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/cpu.txt', 'requirements/cpu.lock.txt',
+                'requirements/llm.txt', 'requirements/llm.lock.txt',
                 'requirements/llm-gpu.txt', 'requirements/llm-gpu.lock.txt',
                 'requirements/runtime-manifest.json', 'LICENSE', 'licenses/uv/LICENSE-APACHE',
                 'licenses/uv/LICENSE-MIT', 'imprint/ui/out/index.html'):

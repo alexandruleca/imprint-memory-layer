@@ -60,7 +60,7 @@ def _load():
             from huggingface_hub import hf_hub_download
             from tokenizers import Tokenizer
 
-            from . import config, embeddings
+            from . import config
             from .downloads import verify_archive
             directory = config.get_data_dir() / "models" / "privacy-filter" / profiles.PRIVACY_FILTER_REVISION[:12]
             paths = {}
@@ -69,8 +69,14 @@ def _load():
                                                    revision=profiles.PRIVACY_FILTER_REVISION,
                                                    local_dir=directory, token=config.hub_token()))
                 verify_archive(paths[name], digest)
-            session = ort.InferenceSession(str(paths[profiles.PRIVACY_FILTER_FILE]),
-                                           sess_options=embeddings._build_session_options(),
+            options = ort.SessionOptions()
+            options.enable_cpu_mem_arena = False  # Bounded memory in long-running servers.
+            options.enable_mem_pattern = False
+            options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            options.log_severity_level = 4  # Failures raise; ONNX Runtime's log adds nothing.
+            options.intra_op_num_threads = config.CPU_THREADS
+            options.inter_op_num_threads = 1
+            session = ort.InferenceSession(str(paths[profiles.PRIVACY_FILTER_FILE]), sess_options=options,
                                            providers=["CPUExecutionProvider"])
             _model = session, Tokenizer.from_file(str(paths["tokenizer.json"]))
         return _model

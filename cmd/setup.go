@@ -31,7 +31,6 @@ const bundledPythonVersion = "3.12"
 // `imprint setup` without flags picks up the last explicit choice.
 type profileState struct {
 	Profile string `json:"profile"` // cpu | gpu | auto
-	WithLLM bool   `json:"with_llm"`
 }
 
 func loadProfile(projectDir string) profileState {
@@ -137,25 +136,6 @@ func createVenvWithHostPython(venvDir, venvPython, venvPip string) {
 	_ = runner.Run(venvPip, "install", "--upgrade", "pip", "--quiet")
 }
 
-// ortRuntime is one way to provide the `onnxruntime` Python package. The
-// distributions (onnxruntime, onnxruntime-gpu) install into the same package
-// directory, so they cannot be layered: each runtime's requirements are a
-// complete environment, base plus one overlay that contains exactly one of
-// them (ADR 0032).
-type ortRuntime struct {
-	Name         string   // cpu | gpu
-	Requirements []string // base + runtime overlay, locks preferred
-	Distribution string   // the ONNX Runtime distribution the overlay installs
-}
-
-func ortRuntimes(projectDir string) map[string]ortRuntime {
-	base := requirementsFile(projectDir, "base")
-	return map[string]ortRuntime{
-		"cpu": {Name: "cpu", Requirements: []string{base, requirementsFile(projectDir, "cpu")}, Distribution: "onnxruntime"},
-		"gpu": {Name: "gpu", Requirements: []string{base, requirementsFile(projectDir, "gpu")}, Distribution: "onnxruntime-gpu"},
-	}
-}
-
 // requirementsFile prefers the hash-locked file when the install ships it.
 func requirementsFile(projectDir, name string) string {
 	locked := filepath.Join(projectDir, "requirements", name+".lock.txt")
@@ -163,52 +143,6 @@ func requirementsFile(projectDir, name string) string {
 		return locked
 	}
 	return filepath.Join(projectDir, "requirements", name+".txt")
-}
-
-// overlay is the runtime's own requirements file, the one after base.
-func (rt ortRuntime) overlay() string {
-	return rt.Requirements[len(rt.Requirements)-1]
-}
-
-// embeddingPlan is the ONNX Runtime build embeddings need on this machine,
-// as imprint.gpu_runtime decides it (ADR 0062).
-type embeddingPlan struct {
-	Requested string `json:"requested"` // model.device
-	Runtime   string `json:"runtime"`   // cpu | gpu
-	Reason    string `json:"reason"`
-}
-
-// planEmbeddingRuntime asks imprint.gpu_runtime which runtime model.device
-// needs here: the GPU runtime only for an NVIDIA GPU this CUDA build
-// supports, on a platform with its wheels, and without a recorded CUDA
-// failure. Planning needs only the standard library, so it runs before
-// anything is installed. retry forgets a recorded failure first. When the
-// question cannot be answered, embeddings get the CPU runtime.
-func planEmbeddingRuntime(venvPython, projectDir, dataDir string, retry bool) embeddingPlan {
-	args := []string{"-m", "imprint.gpu_runtime", "plan"}
-	if retry {
-		args = append(args, "--retry")
-	}
-	out, err := runner.CommandWithEnv(venvPython, args, "PYTHONPATH="+projectDir, "IMPRINT_DATA_DIR="+dataDir).Output()
-	var plan embeddingPlan
-	if err == nil {
-		err = json.Unmarshal([]byte(lastLine(string(out))), &plan)
-	}
-	if err == nil && plan.Runtime != "cpu" && plan.Runtime != "gpu" {
-		err = fmt.Errorf("unexpected runtime %q", plan.Runtime)
-	}
-	if err != nil {
-		return embeddingPlan{Runtime: "cpu", Reason: "the GPU check could not run (" + err.Error() + ")"}
-	}
-	return plan
-}
-
-func reportEmbeddingPlan(plan embeddingPlan) {
-	if plan.Requested == "gpu" && plan.Runtime == "cpu" {
-		output.Warn("model.device is gpu, but embeddings stay on the CPU: " + plan.Reason)
-		return
-	}
-	output.Info("Embeddings run on the " + strings.ToUpper(plan.Runtime) + ": " + plan.Reason)
 }
 
 // lastLine is the last non-empty line of s: the JSON a Python helper prints
@@ -263,38 +197,40 @@ func normalizeDistribution(name string) string {
 	return strings.ToLower(distributionSeparators.ReplaceAllString(name, "-"))
 }
 
-// installRuntime makes the venv hold rt's complete requirements with
-// rt.Distribution as the only, complete ONNX Runtime, and removes what only
-// the other runtime needs (ADR 0062). It installs first, then removes the
-// other build, so the swap takes a reinstall from uv's cache. Either build
-// writes the same files, so a swap or a repair frees the runtime first
-// (ADR 0084). A healthy venv that already matches is left untouched.
-func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
-	for _, requirements := range rt.Requirements {
-		if !platform.FileExists(requirements) {
-			output.Fail("requirements not found at " + requirements + " — is the install tree intact?")
+// installCoreRuntime makes the venv hold the base requirements with the CPU
+// build of ONNX Runtime, which OCR and the privacy filter use, as its only,
+// complete ONNX Runtime (ADR 0032). It removes another build left from
+// before embeddings moved to llama.cpp, with what only that build brought
+// in (ADR 0086). Both builds write the same files, so removing one or
+// repairing the CPU build frees the runtime first (ADR 0084). A healthy venv
+// that already matches is left untouched.
+func installCoreRuntime(uv, venvPython, venvPip, projectDir string) {
+	requirements := []string{requirementsFile(projectDir, "base"), requirementsFile(projectDir, "cpu")}
+	for _, path := range requirements {
+		if !platform.FileExists(path) {
+			output.Fail("requirements not found at " + path + " — is the install tree intact?")
 		}
 	}
-	// Asked before installing, while the build being replaced still says
+	// Asked before installing, while the build being removed still says
 	// what it brought in.
-	unused := unusedDistributions(venvPython, projectDir, rt.Name)
-	if providers, err := ortProviders(venvPython, projectDir); err == nil && len(staleOrtProviders(providers, rt.Distribution)) > 0 {
+	unused := unusedDistributions(venvPython, projectDir)
+	if providers, err := ortProviders(venvPython, projectDir); err == nil && len(staleOrtProviders(providers, cpuOrt)) > 0 {
 		freeRuntime()
 	}
 	install := func() {
-		if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(rt.Requirements...)...); err != nil {
-			output.Fail("Installing dependencies for the " + rt.Name + " runtime failed: " + err.Error())
+		if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(requirements...)...); err != nil {
+			output.Fail("Installing dependencies failed: " + err.Error())
 		}
 	}
-	output.Info(fmt.Sprintf("Installing dependencies for the %s runtime (%s)...", rt.Name, rt.Distribution))
+	output.Info("Installing dependencies...")
 	install()
 	providers, err := ortProviders(venvPython, projectDir)
 	if err != nil {
 		output.Fail("Could not inspect the installed ONNX Runtime: " + err.Error())
 	}
-	stale := staleOrtProviders(providers, rt.Distribution)
+	stale := staleOrtProviders(providers, cpuOrt)
 	if len(stale) > 0 {
-		output.Info("Removing " + strings.Join(stale, ", ") + " so " + rt.Distribution + " is installed alone and complete...")
+		output.Info("Removing " + strings.Join(stale, ", ") + " so " + cpuOrt + " is installed alone and complete...")
 		if err := pipUninstall(uv, venvPython, venvPip, stale...); err != nil {
 			output.Fail("Removing the previous ONNX Runtime failed (stop Imprint and run setup again): " + err.Error())
 		}
@@ -302,22 +238,25 @@ func installRuntime(uv, venvPython, venvPip, projectDir string, rt ortRuntime) {
 	}
 	removeDistributions(uv, venvPython, venvPip, unused, stale)
 	if out, err := runner.RunCapture(venvPython, "-c", "import onnxruntime; onnxruntime.InferenceSession"); err != nil {
-		output.Fail("ONNX Runtime does not load after installing " + rt.Distribution + ":\n" + lastNonBlankLines(out, 3))
+		output.Fail("ONNX Runtime does not load after installing " + cpuOrt + ":\n" + lastNonBlankLines(out, 3))
 	}
 }
 
+// cpuOrt is the ONNX Runtime distribution Imprint installs.
+const cpuOrt = "onnxruntime"
+
 // unusedDistributions asks imprint.onnx_runtime which installed
-// distributions the runtime named selected does not use: the other build,
-// what only it needs, and libraries an older lock brought in. When it cannot
-// tell, nothing is removed.
-func unusedDistributions(venvPython, projectDir, selected string) []string {
-	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime", "unused", selected)
+// distributions Imprint no longer uses: ONNX Runtime builds other than the
+// CPU one, what only they need, and libraries an older lock brought in.
+// When it cannot tell, nothing is removed.
+func unusedDistributions(venvPython, projectDir string) []string {
+	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime", "unused")
 	var names []string
 	if err == nil {
 		err = json.Unmarshal([]byte(lastLine(out)), &names)
 	}
 	if err != nil {
-		output.Warn("Could not tell which packages the " + selected + " runtime does not use, so none are removed: " + lastNonBlankLines(out, 2))
+		output.Warn("Could not tell which packages Imprint no longer uses, so none are removed: " + lastNonBlankLines(out, 2))
 		return nil
 	}
 	return names
@@ -330,7 +269,7 @@ func removeDistributions(uv, venvPython, venvPip string, names, removed []string
 	if len(names) == 0 {
 		return
 	}
-	output.Info("Removing packages the selected runtime does not use: " + strings.Join(names, ", "))
+	output.Info("Removing packages Imprint no longer uses: " + strings.Join(names, ", "))
 	var remove []string
 	for _, name := range names {
 		if !slices.ContainsFunc(removed, func(r string) bool { return normalizeDistribution(r) == name }) {
@@ -353,59 +292,25 @@ func removeDistributions(uv, venvPython, venvPip string, names, removed []string
 	}
 }
 
-// provisionEmbeddingRuntime installs the runtime embeddings need here and,
-// for the GPU runtime, checks CUDA on the GPU they will use. A failed check
-// is recorded, so later plans choose the CPU runtime, which replaces the
-// libraries that cannot help right away.
-func provisionEmbeddingRuntime(uv, venvPython, venvPip, projectDir, dataDir string, retry bool) {
-	runtimes := ortRuntimes(projectDir)
-	plan := planEmbeddingRuntime(venvPython, projectDir, dataDir, retry)
-	reportEmbeddingPlan(plan)
-	if plan.Runtime == "gpu" {
-		installRuntime(uv, venvPython, venvPip, projectDir, runtimes["gpu"])
-		if gpuRuntimeWorks(venvPython, projectDir, dataDir) {
-			return
-		}
-	}
-	installRuntime(uv, venvPython, venvPip, projectDir, runtimes["cpu"])
-}
-
-// gpuRuntimeWorks runs imprint.gpu_runtime's CUDA check on the planned GPU,
-// which records its verdict in data/gpu_state.json. It reads only stdout:
-// ONNX Runtime logs to stderr, in UTF-16 on Windows.
-func gpuRuntimeWorks(venvPython, projectDir, dataDir string) bool {
-	out, _ := runner.CommandWithEnv(venvPython, []string{"-m", "imprint.gpu_runtime", "check"},
-		"PYTHONPATH="+projectDir, "IMPRINT_DATA_DIR="+dataDir).Output()
-	var verdict struct {
-		OK     bool   `json:"ok"`
-		Detail string `json:"detail"`
-	}
-	if err := json.Unmarshal([]byte(lastLine(string(out))), &verdict); err != nil {
-		verdict.Detail = "no result: " + strings.TrimSpace(string(out))
-	}
-	if verdict.OK {
-		output.Success("GPU embeddings work (CUDA) — " + verdict.Detail)
-		return true
-	}
-	output.Warn("CUDA check failed (" + verdict.Detail + ") — installing the CPU runtime; imprint setup --retry-gpu tries again")
-	return false
-}
-
-// installLLMOverlay installs the local LLM binding into an existing venv.
-// The gpu and auto profiles install its GPU build (Vulkan on Windows and
-// Linux x64, Metal on macOS) and keep it only when llama.cpp finds a GPU;
-// otherwise the CPU build replaces it (ADR 0049). Both are the same version,
-// so uv swaps them by wheel URL.
-func installLLMOverlay(uv, venvPython, venvPip, projectDir, profile string) {
+// installLlama installs llama.cpp's binding, which runs embeddings and the
+// local LLM (ADR 0086). The gpu and auto profiles install its GPU build
+// (Vulkan on Windows and Linux x64, Metal on macOS) and keep it only when
+// llama.cpp finds a GPU; otherwise the CPU build replaces it (ADR 0049).
+// Both are the same version, so uv swaps them by wheel URL.
+func installLlama(uv, venvPython, venvPip, projectDir, profile string) {
 	if profile != "cpu" {
-		installLlmReqs(uv, venvPython, venvPip, requirementsFile(projectDir, "llm-gpu"))
+		installLlamaBuild(uv, venvPython, venvPip, requirementsFile(projectDir, "llm-gpu"))
 		if llamaOffloads(venvPython) {
-			output.Success("Local LLM offloads to the GPU")
+			output.Success("llama.cpp runs on the GPU")
 			return
 		}
 		output.Info("llama.cpp found no GPU it can use — installing its CPU build")
 	}
-	installLlmReqs(uv, venvPython, venvPip, requirementsFile(projectDir, "llm"))
+	installLlamaBuild(uv, venvPython, venvPip, requirementsFile(projectDir, "llm"))
+	if out, err := runner.RunCapture(venvPython, "-c", "import llama_cpp"); err != nil {
+		output.Fail("llama.cpp does not load after installing:\n" + lastNonBlankLines(out, 3))
+	}
+	output.Success("llama.cpp runs on the CPU")
 }
 
 // llamaOffloads reports whether the installed binding loads and has a GPU
@@ -453,15 +358,15 @@ func resolveInstallProfile(stored profileState) string {
 	return profile
 }
 
-// installLlmReqs layers one LLM overlay (llm or llm-gpu) on top of the base install.
-func installLlmReqs(uv, venvPython, venvPip, llmReqs string) {
-	if !platform.FileExists(llmReqs) {
-		output.Warn("llm requirements not found at " + llmReqs + " — skipping LLM overlay")
-		return
+// installLlamaBuild installs one build of the binding (llm or llm-gpu) on top
+// of the base install.
+func installLlamaBuild(uv, venvPython, venvPip, requirements string) {
+	if !platform.FileExists(requirements) {
+		output.Fail("requirements not found at " + requirements + " — is the install tree intact?")
 	}
-	output.Info("Installing llama-cpp-python (local tagger + chat)...")
-	if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(llmReqs)...); err != nil {
-		output.Warn("LLM overlay install failed: " + err.Error())
+	output.Info("Installing llama.cpp (embeddings, local tagger and chat)...")
+	if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(requirements)...); err != nil {
+		output.Fail("Installing llama.cpp failed: " + err.Error())
 	}
 }
 
@@ -532,34 +437,19 @@ func uvBinary(projectDir string) string {
 	return ""
 }
 
-// retryGPU is set by main.go when the user passes --retry-gpu. When true,
-// setupBackend forgets a CUDA failure recorded in data/gpu_state.json, so
-// the GPU runtime is tried again.
-var retryGPU bool
-
-// SetRetryGPU lets main.go toggle the retry-on-failure flag.
-func SetRetryGPU(v bool) { retryGPU = v }
-
 // Install profile selected by the user (CLI flag, env var, or persisted
-// state). It selects the local LLM's build: "cpu" installs the CPU build;
-// "gpu" and "auto" (the default) install the GPU build and keep it when
-// llama.cpp finds a GPU (ADR 0049). The embedding runtime follows
-// model.device instead (ADR 0062).
-// withLLM toggles the llama-cpp-python install (local tagger + chat).
+// state). It selects llama.cpp's build: "cpu" installs the CPU build; "gpu"
+// and "auto" (the default) install the GPU build and keep it when llama.cpp
+// finds a GPU (ADR 0049, 0086).
 // nonInteractiveInstall suppresses interactive fall-back prompts in setupBackend.
 var (
 	installProfile        string
-	withLLM               *bool // tri-state: nil = unset (read from profile.json), else set
 	nonInteractiveInstall bool
 )
 
 // SetInstallProfile records the profile flag passed on the CLI / from env.
 // Empty string leaves the existing value alone.
 func SetInstallProfile(v string) { installProfile = v }
-
-// SetWithLLM explicitly enables or disables the llama-cpp-python install.
-// Installers pass true when the user opted in on the wizard page.
-func SetWithLLM(v bool) { b := v; withLLM = &b }
 
 // SetNonInteractive disables interactive prompts during setupBackend. Used
 // by installers that run in non-tty contexts (Inno [Run] hidden, macOS
@@ -601,20 +491,10 @@ func setupBackend() backendPaths {
 	scopeUv(projectDir)
 
 	// ── Resolve install profile ────────────────────────────────
-	stored := loadProfile(projectDir)
-	profile := resolveInstallProfile(stored)
-	var llmOn bool
-	switch {
-	case withLLM != nil:
-		llmOn = *withLLM
-	case os.Getenv("IMPRINT_WITH_LLM") != "":
-		llmOn = os.Getenv("IMPRINT_WITH_LLM") == "1" || strings.EqualFold(os.Getenv("IMPRINT_WITH_LLM"), "true")
-	default:
-		llmOn = stored.WithLLM
-	}
+	profile := resolveInstallProfile(loadProfile(projectDir))
 
 	output.Info("Detected platform: " + platform.OSName())
-	output.Info(fmt.Sprintf("Install profile: %s%s", profile, map[bool]string{true: " + local LLM tagger", false: ""}[llmOn]))
+	output.Info("Install profile: " + profile)
 
 	venvPython := platform.VenvPython(projectDir)
 	venvPip := platform.VenvBin(projectDir, "pip")
@@ -633,18 +513,14 @@ func setupBackend() backendPaths {
 		usedLegacyFallback = true
 	}
 
-	// ── Dependencies + ONNX Runtime ────────────────────────────
-	// model.device and this machine select one complete environment with
-	// exactly one ONNX Runtime distribution (ADR 0032, 0062); the install
-	// profile selects only the local LLM's build. --retry-gpu forgets a
-	// recorded CUDA failure, so this run tries the GPU runtime again. The
-	// plan reads the configuration once running jobs and setups are done.
+	// ── Dependencies, ONNX Runtime and llama.cpp ───────────────
+	// One complete environment with exactly one ONNX Runtime distribution,
+	// the CPU build (ADR 0032), and llama.cpp, which runs embeddings and the
+	// local LLM; the install profile selects llama.cpp's build (ADR 0086).
+	// Setup changes the venv once running jobs and setups are done.
 	holdRuntime(projectDir)
 	defer releaseRuntime()
-	if retryGPU {
-		output.Info("--retry-gpu: forgetting any recorded CUDA failure")
-	}
-	provisionEmbeddingRuntime(uv, venvPython, venvPip, projectDir, dataDir, retryGPU)
+	installCoreRuntime(uv, venvPython, venvPip, projectDir)
 
 	// Sanity check — the core runtime packages should import. If anything
 	// core is missing we give up loud; the extractor/LLM extras are probed
@@ -659,18 +535,13 @@ func setupBackend() backendPaths {
 		output.Success("Core dependencies installed")
 	}
 
-	// ── Optional local LLM tagger (llama-cpp-python) ───────────
-	if llmOn {
-		installLLMOverlay(uv, venvPython, venvPip, projectDir, profile)
-	} else {
-		output.Skip("Local LLM tagger skipped (--with-llm not set)")
-	}
+	installLlama(uv, venvPython, venvPip, projectDir, profile)
 
 	// Persist the effective profile so subsequent runs without flags stay
 	// consistent. Skip when we fell back to the legacy path — that run
 	// didn't exercise uv, so we'd rather not lock the user in.
 	if !usedLegacyFallback {
-		saveProfile(projectDir, profileState{Profile: profile, WithLLM: llmOn})
+		saveProfile(projectDir, profileState{Profile: profile})
 	}
 
 	// Native installer entry points mark first-run completion only after

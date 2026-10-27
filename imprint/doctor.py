@@ -12,11 +12,11 @@ from pathlib import Path
 
 
 def _onnx_runtime_check() -> tuple[str, bool, str, str]:
-    """The embedding runtime is sound when one intact distribution provides
-    ``onnxruntime`` and its bindings load."""
+    """ONNX Runtime, which OCR and the privacy filter use, is sound when one
+    intact distribution provides ``onnxruntime`` and its bindings load."""
     from . import onnx_runtime
     providers = onnx_runtime.providers()
-    action = 'Run imprint bootstrap --non-interactive; it reinstalls the runtime of the selected profile.'
+    action = 'Run imprint bootstrap --non-interactive; it reinstalls ONNX Runtime.'
     if not providers:
         return 'runtime:onnxruntime', False, 'Missing', action
     detail = ', '.join(f"{name} {importlib.metadata.version(name)}{'' if intact else ' (files missing)'}"
@@ -34,19 +34,21 @@ def _onnx_runtime_check() -> tuple[str, bool, str, str]:
 
 
 def _embedding_device_check() -> tuple[str, bool, str, str]:
-    """``model.device``, what this machine makes of it, and whether the
-    installed runtime matches (ADR 0062)."""
-    from . import gpu_runtime
-    plan = gpu_runtime.plan()
-    detail = f'Embeddings run on the {plan.runtime.upper()}: {plan.reason}'
-    if plan.requested != 'cpu':
-        detail += f' (model.device {plan.requested})'
-    change = gpu_runtime.pending(plan)
-    if change:
-        return 'runtime:embedding-device', False, detail, f'Run imprint setup; it installs {change}.'
-    if plan.requested == 'gpu' and plan.runtime == 'cpu':
+    """Where llama.cpp runs embeddings here (ADR 0086)."""
+    from . import config, llama_runtime
+    try:
+        gpu = llama_runtime.choose(str(config.GPU_DEVICE), llama_runtime.gpus())
+    except Exception as error:
+        return ('runtime:embedding-device', False, f'llama.cpp does not load: {type(error).__name__}: {error}',
+                'Run imprint bootstrap --non-interactive; it reinstalls llama.cpp.')
+    if config.DEVICE == 'cpu':
+        return 'runtime:embedding-device', True, 'CPU (model.device cpu)', ''
+    if gpu:
+        return 'runtime:embedding-device', True, f'GPU: {gpu.name}', ''
+    detail = 'CPU: llama.cpp found no GPU it can use'
+    if config.DEVICE == 'gpu':
         return ('runtime:embedding-device', False, detail,
-                'Embeddings cannot use the GPU here: set model.device to cpu or auto, or fix the cause and run imprint setup.')
+                'Update the GPU driver (Vulkan on Windows and Linux) and run imprint setup, or set model.device to auto.')
     return 'runtime:embedding-device', True, detail, ''
 
 

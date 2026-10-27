@@ -6,7 +6,6 @@ export type Step = TextStep | ToolStep;
 
 /** First-use setup of the local model, shown above the reply it unblocks. */
 export type Setup = {
-  install?: { done: boolean; line: string };
   download?: { done: boolean; file: string; downloaded: number; total: number };
   load?: { done: boolean };
 };
@@ -58,12 +57,6 @@ function loaded(setup: Setup | undefined): Setup | undefined {
 export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
   const setup = turn.setup ?? {};
   switch (ev.type) {
-    case "install_start":
-      return { ...turn, setup: { ...setup, install: { done: false, line: "" } } };
-    case "install_progress":
-      return { ...turn, setup: { ...setup, install: { done: false, line: ev.line } } };
-    case "install_complete":
-      return { ...turn, setup: { ...setup, install: { done: true, line: "" } } };
     case "download_start":
       return { ...turn, setup: { ...setup, download: { done: false, file: ev.file, downloaded: 0, total: 0 } } };
     case "download_progress":

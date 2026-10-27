@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: How Imprint's pieces fit together — Go CLI, Python MCP server, local Qdrant daemon, ONNX embeddings, SQLite knowledge graph, and data flow.
+description: How Imprint's pieces fit together — Go CLI, Python MCP server, local Qdrant daemon, llama.cpp embeddings, SQLite knowledge graph, and data flow.
 ---
 ## Components
 
@@ -26,7 +26,7 @@ graph LR
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
         RED[redaction.py<br/><small>secrets → placeholders</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
-        EMB[embeddings.py<br/><small>ONNX Runtime, GPU/CPU</small>]
+        EMB[embeddings.py<br/><small>llama.cpp, GPU/CPU</small>]
         KG[imprint_graph.py<br/><small>SQLite facts</small>]
         CHK[chunker.py<br/><small>Contiguous source spans</small>]
         TAG[tagger.py<br/><small>4-source metadata</small>]
@@ -92,7 +92,7 @@ graph LR
 |---|---|---|
 | Vector store | Qdrant server (auto-spawned daemon) | HNSW + int8 scalar quantization, payload-indexed filters, multi-client safe ([ADR 0063](adr/0063-auto-spawned-local-qdrant-server.md)); replaced LanceDB ([ADR 0065](adr/0065-qdrant-over-lancedb-as-the-vector-store.md)) |
 | Server runner | `qdrant_runner.py` | Downloads + spawns + supervises the local Qdrant daemon |
-| Embeddings | Qwen3-Embedding-0.6B via ONNX Runtime | 1024-dim, 2048 runtime ctx, pinned q8 ONNX, CPU default. See [embeddings](embeddings.md) for rebuilding. |
+| Embeddings | Qwen3-Embedding-0.6B via llama.cpp | 1024-dim, 2048 runtime ctx, pinned Q8_0 GGUF. Runs whole on one GPU when llama.cpp finds one (Vulkan or Metal, no CUDA; `llama_runtime.py`), else on the CPU ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md), [ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md)). See [embeddings](embeddings.md) for rebuilding. |
 | Chunking | Source character spans | Paragraph/line cuts, bounded overlap and exact redacted-source reconstruction; [source memory](source-memory.md) |
 | Metadata tagger | Python | Deterministic + keyword dict + zero-shot (default) + opt-in multi-provider LLM |
 | Source memory | SQLite + zlib | Complete redacted readable sources and versioned span manifests, published after vector replacement. [Read and verify](source-memory.md). |
@@ -111,7 +111,7 @@ sequenceDiagram
     participant U as You
     participant C as Claude Code
     participant K as Imprint MCP
-    participant E as Embedding ONNX
+    participant E as Embedding model
     participant Q as Qdrant
 
     Note over C,K: Session Start

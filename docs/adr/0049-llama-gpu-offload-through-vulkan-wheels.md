@@ -3,11 +3,12 @@ title: ADR 0049 — llama.cpp GPU offload through upstream's Vulkan wheels
 description: The gpu and auto profiles install llama-cpp-python's hash-locked Vulkan build and keep it only when llama.cpp finds a GPU, replacing the nvcc rebuild.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
 - Amends:
   - [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) — drops the JSON-schema grammar for local classification
   - [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) — replaces the GPU profile's nvcc CUDA rebuild with hash-locked Vulkan wheels
+- Amended by: [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) — a model no longer splits across GPUs
 - Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md), [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
 - Restructured: 2026-10-25
 

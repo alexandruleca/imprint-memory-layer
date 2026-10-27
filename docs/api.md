@@ -222,12 +222,11 @@ available.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/config` | All resolved config values + their source, and each setting's choices; `model.device`'s say what each value does on this device. `runtime` is the ONNX Runtime the configured device still needs (`pending`, empty when installed), whether this server's `imprint bootstrap` runs (`provisioning`), and while it is missing the end of `data/bootstrap.log` (`log`). |
+| GET | `/api/config` | All resolved config values + their source, and each setting's choices; `model.device`'s say what each value does on this device, and `model.gpu_device`'s list the GPUs llama.cpp finds. |
 | PUT | `/api/config/{key}` | Set a config key. Body: `{"value": ...}`. |
 | DELETE | `/api/config/{key}` | Remove the `config.json` override. |
-| POST | `/api/runtime/provision` | Start `imprint bootstrap` for the runtime the configured device still needs; answers `runtime`. |
 
-Both writes answer with `provisioning`: `true` when the change (to `model.device` or `model.gpu_device`) needs another ONNX Runtime build on this device and the server started `imprint bootstrap` outside the queue ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)). Bootstrap restarts the server before it replaces the runtime the server loaded, and the server starts again on the new runtime once bootstrap is done ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)).
+PUT answers `{"ok": true, "value": ...}` and DELETE `{"ok": true, "removed": ...}`. No setting installs anything: a change to `model.device` or `model.gpu_device` takes effect in each process once it restarts ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)).
 
 ```bash
 # Turn on LLM tagging
@@ -240,7 +239,7 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/chat/status` | Configured provider + model + readiness. |
+| GET | `/api/chat/status` | Configured provider + model + readiness. For `local`, `error` reports a llama.cpp binding that does not load (a damaged installation). |
 | GET | `/api/chat/sessions` | List chat sessions. |
 | POST | `/api/chat/sessions` | Create a new session. |
 | GET | `/api/chat/sessions/{sid}` | Session transcript. |
@@ -250,8 +249,6 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 
 `/api/chat` events, in order of appearance:
 
-- `install_start`, `install_progress` (`line`), `install_complete`: the first
-  local chat installs the llama.cpp binding (`imprint profile add-llm`).
 - `download_start` (`file`, `repo`, `path`), `download_progress`
   (`downloaded`, `total` bytes), `download_complete`: the model download.
 - `load_start`: the local model is being loaded into memory.

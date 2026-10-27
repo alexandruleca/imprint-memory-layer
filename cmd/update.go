@@ -176,7 +176,7 @@ func updateArchive(inst installation, target *release.Release, currentVersion st
 	fmt.Printf("\n  Current: %s\n  New:     %s\n  Archive: %s\n  Install: %s\n\n",
 		currentVersion, target.TagName, asset.Name, installDir)
 	fmt.Println("  Will update: bin/, imprint/, cmd/, requirements.txt (and rest of source tree)")
-	fmt.Println("  Preserved:   data/ (workspaces, qdrant, sqlite, config, gpu_state), .venv/")
+	fmt.Println("  Preserved:   data/ (workspaces, qdrant, sqlite, config, profile), .venv/")
 	fmt.Println()
 
 	if !yes && !confirm(fmt.Sprintf("Update to %s?", target.TagName)) {
@@ -414,7 +414,7 @@ How it installs depends on how Imprint was installed:
                              running dashboard server
 
 Data preservation:
-  data/   (workspaces, qdrant storage, sqlite graphs, config, gpu_state.json)
+  data/   (workspaces, qdrant storage, sqlite graphs, config, profile.json)
   .venv/  (Python virtual environment)
 are never touched.
 `)

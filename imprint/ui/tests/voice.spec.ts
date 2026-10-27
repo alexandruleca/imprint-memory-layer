@@ -311,8 +311,8 @@ test('first-time chat setup shows real download progress in Voice and ignores la
   await page.getByRole('textbox', { name: 'Type a question' }).fill('Hello');
   await page.getByRole('button', { name: 'Send question' }).click();
   await expect.poll(() => server.controls.some(c => c.type === 'turn')).toBe(true);
-  server.send({ type: 'provision', id: 1, stage: 'install' });
-  await expect(page.getByRole('heading', { name: 'Installing local chat support' })).toBeVisible();
+  server.send({ type: 'provision', id: 1, stage: 'download' });
+  await expect(page.getByRole('heading', { name: 'Downloading your chat model' })).toBeVisible();
   await expect(page.getByRole('progressbar', { name: 'Local chat model preparation' })).not.toHaveAttribute('aria-valuenow');
   server.send({ type: 'provision', id: 1, stage: 'download', downloaded: 500000000, total: 1000000000 });
   await expect(page.getByRole('progressbar', { name: 'Local chat model preparation' })).toHaveAttribute('aria-valuenow', '50');

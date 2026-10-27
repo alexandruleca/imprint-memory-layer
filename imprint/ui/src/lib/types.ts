@@ -170,9 +170,6 @@ export interface ChatStatus {
 
 /** One server-sent event of a chat reply (imprint/chat.py stream_reply). */
 export type ChatEvent =
-  | { type: "install_start" }
-  | { type: "install_progress"; line: string }
-  | { type: "install_complete" }
   | { type: "download_start"; file: string; repo: string; path: string }
   | { type: "download_progress"; downloaded: number; total: number }
   | { type: "download_complete"; path: string }

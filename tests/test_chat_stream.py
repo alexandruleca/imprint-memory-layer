@@ -1,6 +1,5 @@
 import json
 import os
-import stat
 import sys
 import tempfile
 import threading
@@ -12,71 +11,47 @@ from unittest.mock import MagicMock, Mock, patch
 from imprint import chat
 
 
-def _cli(directory: Path, body: str) -> str:
-    """A stand-in for `imprint profile add-llm`."""
-    script = directory / 'imprint'
-    script.write_text('#!/bin/sh\n' + body)
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    return str(script)
-
-
-@unittest.skipIf(os.name == 'nt', 'stand-in CLI is a POSIX shell script')
 class ProvisioningTests(unittest.TestCase):
+    """The first local chat downloads the model; every installation already
+    has the binding (ADR 0086)."""
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.site = self.tmp / 'site'
-        self.site.mkdir()
         self.model = self.tmp / 'model.gguf'
-        self.model.write_bytes(b'gguf')
-        sys.path.insert(0, str(self.site))
-        self.addCleanup(sys.path.remove, str(self.site))
-        self.addCleanup(sys.modules.pop, 'llama_cpp', None)
         replacements = {
             'llama_cpp': None, '_llm': None, '_provisioning': None,
             '_is_remote_provider': MagicMock(return_value=False),
             '_resolve_local_model_path': MagicMock(return_value=(self.model, None)),
             '_models_dir': MagicMock(return_value=self.tmp),
         }
-        for patcher in [patch.object(chat, name, value) for name, value in replacements.items()] + \
-                [patch('imprint._llama_compat.apply')]:
+        for patcher in [patch.object(chat, name, value) for name, value in replacements.items()] + [llama_binding()]:
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def _install_creates_binding(self) -> str:
-        package = self.site / 'llama_cpp'
-        return _cli(self.tmp, f"printf '\\033[32m[+] Installing llama-cpp-python\\033[0m\\n'\n"
-                              f"mkdir -p '{package}' && printf '{BINDING}' > '{package}/__init__.py'\n")
+    def download(self, done=None):
+        """A download that reports half, then all, of the model and writes it."""
+        def run(progress_cb=None):
+            progress_cb(5, 10)
+            if done:
+                done.wait(5)
+            progress_cb(10, 10)
+            self.model.write_bytes(b'gguf')
+            return self.model, None
+        return run
 
-    def test_binding_installed_while_running_is_picked_up(self):
-        self.assertIsNone(chat._llama())
-        self.assertIn('llama_cpp', chat._llama_import_error)
-        (self.site / 'llama_cpp').mkdir()
-        (self.site / 'llama_cpp' / '__init__.py').write_text('')
-        self.assertEqual(chat._llama().__name__, 'llama_cpp')
-        self.assertIsNone(chat._llama_import_error)
-
-    def test_first_local_chat_installs_the_binding_then_answers(self):
+    def test_first_local_chat_downloads_the_model_then_answers(self):
         llm = LocalModel(['Hello.'])
-        with patch('imprint.queue.find_imprint_binary', return_value=self._install_creates_binding()), \
+        with patch.object(chat, 'download_model', side_effect=self.download()), \
              patch.object(chat, 'load_model', return_value=(llm, None)), \
              patch.dict(os.environ, {'IMPRINT_CHAT_TOOL_FORMAT': 'none'}):
             events = list(chat.stream_reply([], 'hi'))
         kinds = [event['type'] for event in events]
-        self.assertEqual(kinds, ['install_start', 'install_progress', 'install_complete',
+        self.assertEqual(kinds, ['download_start', 'download_progress', 'download_progress', 'download_complete',
                                  'load_start', 'token', 'assistant_message', 'done'])
-        self.assertEqual(events[1]['line'], '[+] Installing llama-cpp-python')
+        self.assertEqual((events[1]['downloaded'], events[1]['total']), (5, 10))
 
-    def test_concurrent_chats_follow_one_install(self):
-        release, runs = threading.Event(), []
-
-        def install(job):
-            runs.append(job)
-            job.emit({'type': 'install_progress', 'line': 'working'})
-            release.wait(5)
-            (self.site / 'llama_cpp').mkdir()
-            (self.site / 'llama_cpp' / '__init__.py').write_text('')
-
-        with patch.object(chat, '_install_binding', side_effect=install):
+    def test_concurrent_chats_follow_one_download(self):
+        release = threading.Event()
+        with patch.object(chat, 'download_model', side_effect=self.download(release)) as download:
             first, second = chat._provision(), chat._provision()
             self.assertIs(first, second)
             seen = []
@@ -85,26 +60,35 @@ class ProvisioningTests(unittest.TestCase):
             release.set()
             events = list(first.follow())
             follower.join(5)
-        self.assertEqual(len(runs), 1)
+        download.assert_called_once()
         self.assertEqual(events, seen)
-        self.assertEqual([e['type'] for e in events], ['install_start', 'install_progress', 'install_complete'])
+        self.assertEqual([e['type'] for e in events], ['download_start', 'download_progress', 'download_progress', 'download_complete'])
         self.assertIsNone(first.error)
 
-    def test_failed_install_ends_the_chat_with_its_output(self):
-        cli = _cli(self.tmp, "echo 'error: no matching distribution'\nexit 1\n")
-        with patch('imprint.queue.find_imprint_binary', return_value=cli):
+    def test_a_failed_download_ends_the_chat_with_its_error(self):
+        with patch.object(chat, 'download_model', return_value=(None, 'download failed: connection reset by peer')):
             events = list(chat.stream_reply([], 'hi'))
-        self.assertEqual(events[-2]['type'], 'error')
-        self.assertIn('no matching distribution', events[-2]['error'])
+        self.assertEqual(events[-2], {'type': 'error', 'error': 'download failed: connection reset by peer'})
         self.assertEqual(events[-1], {'type': 'done'})
         # A later chat retries instead of replaying the failed job.
         failed = chat._provisioning
         with patch.object(chat, '_run_provisioning'):
             self.assertIsNot(chat._provision(), failed)
 
-    def test_status_reports_missing_binding_without_an_error(self):
-        status = chat.status()
+    def test_a_binding_that_does_not_load_is_a_damaged_installation(self):
+        self.model.write_bytes(b'gguf')
+        with patch.object(chat, 'llama_cpp', None), patch.object(chat, '_llama', return_value=None), \
+             patch.object(chat, '_llama_import_error', 'libllama.so: cannot open shared object file'):
+            status = chat.status()
+            events = list(chat.stream_reply([], 'hi'))
         self.assertFalse(status['installed'])
+        self.assertIn('libllama.so', status['error'])
+        self.assertIn('imprint bootstrap', events[-2]['error'])
+        self.assertEqual(events[-1], {'type': 'done'})
+
+    def test_status_reports_a_missing_model_without_an_error(self):
+        status = chat.status()
+        self.assertFalse(status['model_ready'])
         self.assertIsNone(status['error'])
 
 
@@ -148,9 +132,6 @@ def remote_provider(*turns):
 
 EOG = -1
 # The llama_cpp names local_llm.generate uses, for a stand-in binding.
-BINDING = 'llama_vocab_is_eog = lambda vocab, token: token == -1\\nLlamaGrammar = None\\n'
-
-
 def llama_binding():
     """Patch in a stand-in llama_cpp binding: end-of-generation and grammars."""
     module = types.ModuleType('llama_cpp')

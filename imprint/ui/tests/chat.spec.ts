@@ -88,11 +88,11 @@ test('reopens the chat this browser was last in', async ({ page }) => {
 
 test('without chats the page is a new chat whose first message sets up local chat', async ({ page }) => {
   const state = await mockChat(page, {
-    status: { ...LOCAL, installed: false, model_ready: true },
+    status: { ...LOCAL, installed: true, model_ready: false },
     replies: [sse(
-      { type: 'install_start' },
-      { type: 'install_progress', line: '[*] Installing llama-cpp-python (local tagger + chat)...' },
-      { type: 'install_complete' },
+      { type: 'download_start', file: 'Qwen3.5-4B-Q4_K_M.gguf', repo: 'unsloth/Qwen3.5-4B-GGUF', path: '/models/q.gguf' },
+      { type: 'download_progress', downloaded: 2_740_000_000, total: 2_740_000_000 },
+      { type: 'download_complete', path: '/models/q.gguf' },
       { type: 'load_start' },
       { type: 'tool_call', name: 'search', args: { query: 'decisions' } },
       { type: 'tool_result', name: 'search', result: 'ADR 0035' },
@@ -104,7 +104,7 @@ test('without chats the page is a new chat whose first message sets up local cha
   });
   await page.goto('/chat/');
   await expect(page.getByRole('heading', { name: 'What do you want to recall?' })).toBeVisible();
-  await expect(page.getByText('Your first message sets up local chat: Imprint installs the llama.cpp runtime on this device, once.')).toBeVisible();
+  await expect(page.getByText('Your first message sets up local chat: Imprint downloads the model (a few GB) on this device, once.')).toBeVisible();
   await expect(page.getByText('Local · Qwen3.5-4B-Q4_K_M')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
@@ -144,21 +144,18 @@ test('a local model without a tool-call format says the chat runs without tools'
   await expect(page.getByText('Loading the local model…')).toHaveCount(0);
 });
 
-test('shows install output and download progress while setup runs', async ({ page }) => {
+test('shows download progress while setup runs', async ({ page }) => {
   await mockChat(page, {
-    status: { ...LOCAL, installed: false, model_ready: false },
+    status: { ...LOCAL, installed: true, model_ready: false },
     replies: [sse(
-      { type: 'install_start' },
-      { type: 'install_complete' },
       { type: 'download_start', file: 'Qwen3.5-4B-Q4_K_M.gguf', repo: 'unsloth/Qwen3.5-4B-GGUF', path: '/models/q.gguf' },
       { type: 'download_progress', downloaded: 1_370_000_000, total: 2_740_000_000 },
     )],
   });
   await page.goto('/chat/');
-  await expect(page.getByText('installs the llama.cpp runtime and downloads the model (a few GB)')).toBeVisible();
+  await expect(page.getByText('downloads the model (a few GB)')).toBeVisible();
   await page.getByRole('button', { name: 'Which projects are indexed?' }).click();
   const setup = page.getByRole('region', { name: 'Setting up local chat' });
-  await expect(setup).toContainText('Install the llama.cpp runtime');
   await expect(setup).toContainText('Download Qwen3.5-4B-Q4_K_M.gguf');
   await expect(setup).toContainText('1.4 GB of 2.7 GB · 50%');
   await expect(setup.getByRole('progressbar', { name: 'Model download' })).toBeVisible();
@@ -168,7 +165,7 @@ test('a failed reply offers retry, which asks again', async ({ page }) => {
   const state = await mockChat(page, {
     sessions: [{ id: 'chat1', title: 'Setup', created_at: now, updated_at: now }],
     replies: [
-      sse({ type: 'error', error: 'installing llama-cpp-python failed:\nno C compiler' }, { type: 'done' }),
+      sse({ type: 'error', error: 'download failed: connection reset by peer' }, { type: 'done' }),
       sse({ type: 'token', text: 'Working now.' }, { type: 'assistant_message', text: 'Working now.' }, { type: 'done' }),
     ],
   });
@@ -177,7 +174,7 @@ test('a failed reply offers retry, which asks again', async ({ page }) => {
   await page.getByRole('textbox', { name: 'Message' }).fill('hello');
   await page.getByRole('button', { name: 'Send message' }).click();
   const failure = page.getByRole('alert').filter({ hasText: 'The reply failed' });
-  await expect(failure).toContainText('no C compiler');
+  await expect(failure).toContainText('connection reset by peer');
   await failure.getByRole('button', { name: 'Retry' }).click();
   await expect(page.getByText('Working now.')).toBeVisible();
   await expect(page.getByText('The reply failed')).toHaveCount(0);

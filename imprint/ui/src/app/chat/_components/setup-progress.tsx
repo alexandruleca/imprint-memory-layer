@@ -21,15 +21,13 @@ function Step({ done, label, children }: { done: boolean; label: string; childre
   );
 }
 
-/** Progress of the one-time local setup (runtime install, model download)
- * and of loading the model, which every first message after a restart
- * waits for. */
+/** Progress of the one-time model download and of loading the model, which
+ * every first message after a restart waits for. */
 export function SetupProgress({ setup }: { setup: Setup }) {
-  const { install, download, load } = setup;
-  const oneTime = install || download;
-  const finished = (!install || install.done) && (!download || download.done) && (!load || load.done);
+  const { download, load } = setup;
+  const finished = (!download || download.done) && (!load || load.done);
 
-  if (!oneTime) {
+  if (!download) {
     if (!load || load.done) return null;
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
@@ -45,7 +43,7 @@ export function SetupProgress({ setup }: { setup: Setup }) {
       </p>
     );
   }
-  const percent = download && download.total ? Math.round((download.downloaded / download.total) * 100) : null;
+  const percent = download.total ? Math.round((download.downloaded / download.total) * 100) : null;
   return (
     <section aria-label="Setting up local chat" className="space-y-3 rounded-xl border border-border bg-card p-4 text-sm">
       <div className="space-y-0.5">
@@ -53,19 +51,12 @@ export function SetupProgress({ setup }: { setup: Setup }) {
         <p className="text-xs text-muted-foreground">This happens once. The model then runs on this device.</p>
       </div>
       <ol className="space-y-2.5">
-        {install && (
-          <Step done={install.done} label="Install the llama.cpp runtime">
-            {install.line && <p className="truncate font-mono text-xs text-muted-foreground">{install.line}</p>}
-          </Step>
-        )}
-        {download && (
-          <Step done={download.done} label={`Download ${download.file}`}>
-            <Progress value={percent} aria-label="Model download" />
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {download.total ? `${gb(download.downloaded)} of ${gb(download.total)} · ${percent}%` : "Starting download…"}
-            </p>
-          </Step>
-        )}
+        <Step done={download.done} label={`Download ${download.file}`}>
+          <Progress value={percent} aria-label="Model download" />
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {download.total ? `${gb(download.downloaded)} of ${gb(download.total)} · ${percent}%` : "Starting download…"}
+          </p>
+        </Step>
         {load && <Step done={load.done} label="Load the model" />}
       </ol>
     </section>

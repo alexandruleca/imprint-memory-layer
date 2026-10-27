@@ -14,23 +14,23 @@ import numpy as np
 
 from . import config
 
-# ── GPU-backed embedding adapter for Chonkie ──────────────────
-# Wraps our ONNX GPU embeddings so SemanticChunker uses the same
-# accelerated model instead of its own CPU-only model2vec.
+# ── Embedding adapter for Chonkie ─────────────────────────────
+# Wraps Imprint's embeddings so SemanticChunker uses the same model, on the
+# GPU when there is one, instead of its own CPU-only model2vec.
 
-_OnnxChonkieEmbeddings = None  # built lazily to avoid top-level import
+_ChonkieEmbeddings = None  # built lazily to avoid top-level import
 
 
 def _get_adapter_class():
     """Build adapter class that inherits from Chonkie's BaseEmbeddings."""
-    global _OnnxChonkieEmbeddings
-    if _OnnxChonkieEmbeddings is not None:
-        return _OnnxChonkieEmbeddings
+    global _ChonkieEmbeddings
+    if _ChonkieEmbeddings is not None:
+        return _ChonkieEmbeddings
 
     from chonkie.embeddings.base import BaseEmbeddings
 
-    class OnnxChonkieEmbeddings(BaseEmbeddings):
-        """Adapts imprint.embeddings (GPU ONNX) to Chonkie's BaseEmbeddings."""
+    class ImprintChonkieEmbeddings(BaseEmbeddings):
+        """Adapts imprint.embeddings to Chonkie's BaseEmbeddings."""
 
         _is_available = staticmethod(lambda: True)
 
@@ -75,8 +75,8 @@ def _get_adapter_class():
         async def aembed_batch(self, texts: list[str]) -> list[np.ndarray]:
             return self.embed_batch(texts)
 
-    _OnnxChonkieEmbeddings = OnnxChonkieEmbeddings
-    return _OnnxChonkieEmbeddings
+    _ChonkieEmbeddings = ImprintChonkieEmbeddings
+    return _ChonkieEmbeddings
 
 
 def _make_chonkie_embeddings():
@@ -161,8 +161,8 @@ def _get_semantic_chunker():
         return _semantic_chunker
     try:
         from chonkie import SemanticChunker
-        # Use GPU-backed ONNX embeddings when available; falls back to
-        # Chonkie's default CPU model2vec if GPU init fails.
+        # Use Imprint's embeddings; falls back to Chonkie's default CPU
+        # model2vec if they cannot load.
         gpu_emb = _make_chonkie_embeddings()
         kwargs = dict(
             threshold=SEMANTIC_THRESHOLD,

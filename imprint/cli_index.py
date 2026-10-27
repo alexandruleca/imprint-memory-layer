@@ -979,9 +979,6 @@ def _main(command: str = "ingest"):
         print(f"  {C_YELLOW}═══ Indexing Incomplete ═══{C_RESET}")
     else:
         print(f"  {C_GREEN}═══ Indexing Complete ═══{C_RESET}")
-    from imprint.embeddings import get_gpu_retries, reset_gpu_retries
-    gpu_retries = get_gpu_retries()
-    reset_gpu_retries()
     print(f"  Stored:   {stored}")
     print(f"  Skipped:  {skipped}")
     if no_text or known_no_text_count:
@@ -993,8 +990,6 @@ def _main(command: str = "ingest"):
         print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
     if cleaned:
         print(f"  Cleaned:  {cleaned} stale sources")
-    if gpu_retries:
-        print(f"  {C_DIM}GPU batch reductions: {gpu_retries} (memory pressure){C_RESET}")
     print(f"  Time:     {elapsed:.1f}s")
     report(stored)
     if cancelled:

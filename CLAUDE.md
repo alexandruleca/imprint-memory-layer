@@ -1,6 +1,6 @@
 # Imprint Memory Layer
 
-Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + Qwen3-Embedding-0.6B ONNX embeddings + verifiable source-span chunker + structured tag payloads.
+Custom lightweight MCP memory server for Claude Code. Qdrant (embedded) + Qwen3-Embedding-0.6B GGUF embeddings on llama.cpp + verifiable source-span chunker + structured tag payloads.
 
 ## Working agreement
 
@@ -41,7 +41,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 ## Architecture
 
 - **Vector store**: Qdrant server, auto-spawned local daemon on `127.0.0.1:6333` via [`qdrant_runner.py`](imprint/qdrant_runner.py) (ADR 0063). Int8 scalar quantization, on-disk payload, payload indexes on `project`/`type`/`source`/`tags.*`
-- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime (1024-dim, 2048 runtime ctx). Configure via `imprint config set model.name/dim/pooling`. CPU by default; GPU is opt-in. See docs/embeddings.md before reindexing.
+- **Embeddings**: Qwen3-Embedding-0.6B, Qwen's Q8_0 GGUF, via llama.cpp (1024-dim, 2048 runtime ctx; ADR 0086). Configure via `imprint config set model.name/file/dim/pooling`. `model.device` auto: any GPU llama.cpp finds (Vulkan on Windows/Linux x64, Metal on macOS; no CUDA), else CPU; [`llama_runtime.py`](imprint/llama_runtime.py) runs each model whole on the one GPU `model.gpu_device` picks, for embeddings and the local LLM (ADR 0087). llama-cpp-python is in every install; the install profile picks its CPU or GPU build. ONNX Runtime (CPU build) remains for OCR and the privacy filter. See docs/embeddings.md before reindexing.
 - **Chunker**: Contiguous character spans with paragraph/line boundaries, bounded overlap and full redacted source snapshots. See [source memory](docs/source-memory.md) and ADRs 0081/0082.
 - **Tagger**: `{lang, layer, kind, domain[], topics[]}`. Deterministic + keyword dict always on; zero-shot on by default; LLM tagging opt-in (`IMPRINT_LLM_TAGS=1`), never inline: storing paths mark memories `tag_pending` and the dashboard's background job tags them (ADR 0067; `imprint retag --pending` without a dashboard). Providers: anthropic/openai/ollama/vllm/gemini. Default local: Qwen3.5-4B Q4_K_M (shared with the summarizer).
 - **Imprint graph**: SQLite temporal facts (per workspace)
@@ -55,7 +55,7 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 
 `imprint config set <key> <value>` — persists to `data/config.json`. Precedence: env var > config.json > default. `imprint config` shows all.
 
-Key settings: `model.name`, `model.dim`, `model.device`, `qdrant.host/port`, `chunker.overlap/size_code/size_prose/hard_max`, `tagger.llm/llm_provider/llm_model`, `recall.llm/llm_timeout_sec`, `redact.privacy_filter`. Env vars `IMPRINT_*` take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` are env-only.
+Key settings: `model.name`, `model.file`, `model.dim`, `model.device`, `model.gpu_device`, `model.threads`, `qdrant.host/port`, `chunker.overlap/size_code/size_prose/hard_max`, `tagger.llm/llm_provider/llm_model`, `recall.llm/llm_timeout_sec`, `redact.privacy_filter`. Env vars `IMPRINT_*` take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` are env-only.
 
 ## Project Detection
 

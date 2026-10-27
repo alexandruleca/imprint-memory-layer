@@ -59,7 +59,7 @@ func main() {
         while (-not (Test-Path $ready)) { Start-Sleep -Milliseconds 50 }
         $child = Start-Process powershell.exe -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-            '-File', "`"$dest/imprint-setup.ps1`"", '-InstallDir', "`"$dest`"", '-Profile', 'cpu', '-NoLlm'
+            '-File', "`"$dest/imprint-setup.ps1`"", '-InstallDir', "`"$dest`"", '-Profile', 'cpu'
         ) -WorkingDirectory $dest -RedirectStandardOutput "$dest/stdout.log" -RedirectStandardError "$dest/stderr.log" -PassThru
         # Windows PowerShell 5.1 needs the handle opened before the process
         # exits to retain ExitCode reliably after WaitForExit/Refresh.

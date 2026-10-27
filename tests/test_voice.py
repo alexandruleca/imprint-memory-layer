@@ -161,10 +161,8 @@ class VoiceBoundaryTests(unittest.TestCase):
 
     def test_first_chat_download_has_progress_and_a_separate_budget_without_private_logs(self):
         async def events(*args):
-            yield {"type": "install_start"}
-            yield {"type": "install_progress", "line": "PRIVATE /user/profile/install.log"}
-            await asyncio.sleep(.15)
             yield {"type": "download_start", "path": "/PRIVATE/model.gguf", "repo": "PRIVATE"}
+            await asyncio.sleep(.15)
             yield {"type": "download_progress", "downloaded": 12, "total": 24}
             await asyncio.sleep(.15)
             yield {"type": "load_start"}

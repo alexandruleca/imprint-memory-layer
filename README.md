@@ -32,12 +32,12 @@
 
 - **Remembers what your AI forgets.** Decisions, patterns, bug fixes, and architectural choices persist across sessions — searched semantically, not grepped.
 - **Measured usage and visible trade-offs.** Published retrieval, token, estimated cost and latency measurements include paired trial evidence, failures, exact model/corpus versions and uncertainty. See [BENCHMARK.md](BENCHMARK.md).
-- **Runs 100% locally by default.** Qwen3-Embedding-0.6B via ONNX, Qdrant vector DB, verifiable source chunking — all on your machine. No API credits consumed unless you opt in.
+- **Runs 100% locally by default.** Qwen3-Embedding-0.6B via llama.cpp, Qdrant vector DB, verifiable source chunking — all on your machine. No API credits consumed unless you opt in.
 - **One command, any host.** Wires into Claude Code, Cursor, Codex CLI, Copilot, or Cline via MCP. Same memory, shared across tools.
 
 **Runs 100% locally. Zero API credits consumed by default.** Everything from embeddings, chunking, tagging, vector search, and the knowledge graph — runs on your machine:
 
-- **Embeddings**: Qwen3-Embedding-0.6B via ONNX Runtime on the CPU, no network calls, no per-token cost. GPU embedding on an NVIDIA card is opt-in (`model.device`), and only then does Imprint download the CUDA libraries. A GPU of any vendor speeds up the local LLM through llama.cpp's Vulkan or Metal build.
+- **Embeddings**: Qwen3-Embedding-0.6B (Qwen's Q8_0 GGUF) via llama.cpp, no network calls, no per-token cost. It runs on a GPU of any vendor through llama.cpp's Vulkan or Metal build when one is found, with no CUDA, and on the CPU otherwise; the local LLM uses the same GPU.
 - **Vector store**: Qdrant auto-spawned as a local daemon on `127.0.0.1:6333`. Your data never leaves the box unless you sync it to another device.
 - **Chunking**: Contiguous source spans with bounded overlap and complete redacted source snapshots. [Coverage and reconstruction](docs/source-memory.md).
 - **Tagging**: deterministic rules + zero-shot cosine similarity against pre-embedded labels. A local LLM call per chunk if you want it, run in the background so `learn` and `ingest` finish once memories are searchable.
@@ -58,7 +58,7 @@ graph TB
         CC -->|Stop hook| EXT[Auto-Extract<br/>Decisions]
         CC -->|PreCompact hook| SAVE[Save Before<br/>Compression]
         EXT -->|HTTP| QDB
-        EMB[Qwen3 Embedding ONNX<br/>GPU/CPU] -->|1024-dim vectors| QDB
+        EMB[Qwen3 Embedding GGUF<br/>llama.cpp, GPU/CPU] -->|1024-dim vectors| QDB
         TAG[Tagger<br/>lang/layer/kind/domain/topics] -->|payload| QDB
         CHK[Source character spans<br/>Paragraph / line boundaries] -->|chunks| EMB
     end
@@ -91,6 +91,8 @@ graph TB
 curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.sh | bash
 ```
 
+On macOS, setup builds llama.cpp from source, which needs the Xcode Command Line Tools (`xcode-select --install`).
+
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex
@@ -100,7 +102,7 @@ Pin a specific version, pick the dev channel, or use prebuilt Docker images — 
 
 ## Updating
 
-Once installed, use the built-in updater — no curl, no sudo. `data/` (workspaces, Qdrant storage, SQLite graphs, config, `gpu_state.json`) and `.venv/` are always preserved; only the code tree is replaced.
+Once installed, use the built-in updater — no curl, no sudo. `data/` (workspaces, Qdrant storage, SQLite graphs, config, `profile.json`) and `.venv/` are always preserved; only the code tree is replaced.
 
 ```bash
 imprint update              # latest stable, asks for confirmation
@@ -112,11 +114,7 @@ imprint update -y           # skip confirmation (CI / scripts)
 
 Re-running `install.sh` also works and now prompts before overwriting an existing install. For non-interactive upgrades pass `--yes` or set `IMPRINT_ASSUME_YES=1`.
 
-**GPU embedding** (`model.device=gpu` or `auto`) installs ONNX Runtime's CUDA build on the next `imprint setup`, or right away from the dashboard's Settings, but only on a machine with an NVIDIA GPU that CUDA 13 supports; everywhere else embeddings stay on the CPU and nothing CUDA is downloaded. **If the CUDA check fails once** the failure is remembered in `data/gpu_state.json`, so future `imprint setup` runs keep the CPU embedding runtime instead of downloading the GPU one again. After you update the driver, force a retry with:
-
-```bash
-imprint setup --retry-gpu
-```
+**Embeddings and the local LLM use a GPU** of any vendor when llama.cpp finds one (`model.device`, default `auto`), through its Vulkan or Metal build; no CUDA is installed. An update that changes the embedding model needs a reindex into a new workspace; see [embeddings and rebuilding](docs/embeddings.md#rebuild-after-upgrading).
 
 ## Supported hosts
 
@@ -139,7 +137,6 @@ To rehook or unhook clients without touching the runtime or its services, use `i
 ```bash
 imprint setup [target]     # install deps, register MCP, configure the chosen host tool
                            #   target: claude-code (default) | cursor | codex | copilot | cline | all
-                           # add --retry-gpu to forget a recorded CUDA failure and try GPU embedding again
 imprint update [--version v0.3.1] [--dev] [-y] [--check]
                            # install the latest release the way this install was set up; preserves data/ and .venv/
 imprint uninstall [-y] [--keep-data]
@@ -269,7 +266,7 @@ Imprint is licensed under the [Apache License 2.0](LICENSE).
 
 Third-party dependencies retain their own licenses — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full table.
 
-**Default models:** [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B) for retrieval and optional [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) for tags, summaries and dashboard tools declare Apache-2.0. Imprint downloads pinned ONNX/GGUF artifacts on demand. See [embeddings and rebuilding](docs/embeddings.md) and [local helper configuration](docs/local-models.md). Existing indexes require explicit rebuilding; an upgrade does not erase memories.
+**Default models:** [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B) for retrieval and optional [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) for tags, summaries and dashboard tools declare Apache-2.0. Imprint downloads pinned GGUF artifacts on demand. See [embeddings and rebuilding](docs/embeddings.md) and [local helper configuration](docs/local-models.md). Existing indexes require explicit rebuilding; an upgrade does not erase memories.
 
 ## Contact
 

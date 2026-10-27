@@ -13,21 +13,20 @@ func TestStaleOrtProviders(t *testing.T) {
 	cases := []struct {
 		name      string
 		providers map[string]bool
-		selected  string
 		want      []string
 	}{
-		{"fresh venv", map[string]bool{}, "onnxruntime-gpu", nil},
-		{"selected intact", map[string]bool{"onnxruntime-gpu": true}, "onnxruntime-gpu", nil},
-		{"selected half-deleted", map[string]bool{"onnxruntime-gpu": false}, "onnxruntime-gpu", []string{"onnxruntime-gpu"}},
-		{"switch build", map[string]bool{"onnxruntime": true}, "onnxruntime-gpu", []string{"onnxruntime"}},
-		// Removing the other build deletes shared files, so the selected one
-		// is reinstalled even though its own RECORD is still complete.
-		{"both installed", map[string]bool{"onnxruntime": true, "onnxruntime-gpu": true}, "onnxruntime-gpu", []string{"onnxruntime", "onnxruntime-gpu"}},
-		{"metadata spelling", map[string]bool{"onnxruntime_gpu": false}, "onnxruntime-gpu", []string{"onnxruntime_gpu"}},
+		{"fresh venv", map[string]bool{}, nil},
+		{"intact", map[string]bool{"onnxruntime": true}, nil},
+		{"half-deleted", map[string]bool{"onnxruntime": false}, []string{"onnxruntime"}},
+		{"CUDA build from before ADR 0086", map[string]bool{"onnxruntime-gpu": true}, []string{"onnxruntime-gpu"}},
+		// Removing the other build deletes shared files, so the CPU build is
+		// reinstalled even though its own RECORD is still complete.
+		{"both installed", map[string]bool{"onnxruntime": true, "onnxruntime-gpu": true}, []string{"onnxruntime", "onnxruntime-gpu"}},
+		{"metadata spelling", map[string]bool{"onnxruntime_gpu": true}, []string{"onnxruntime_gpu"}},
 	}
 	for _, c := range cases {
-		if got := staleOrtProviders(c.providers, c.selected); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: staleOrtProviders(%v, %q) = %v, want %v", c.name, c.providers, c.selected, got, c.want)
+		if got := staleOrtProviders(c.providers, cpuOrt); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: staleOrtProviders(%v) = %v, want %v", c.name, c.providers, got, c.want)
 		}
 	}
 }
@@ -37,7 +36,7 @@ func TestRequirementInstallArgs(t *testing.T) {
 		files []string
 		want  []string
 	}{
-		{[]string{"base.lock.txt", "gpu.lock.txt"}, []string{"-r", "base.lock.txt", "-r", "gpu.lock.txt", "--require-hashes"}},
+		{[]string{"base.lock.txt", "cpu.lock.txt"}, []string{"-r", "base.lock.txt", "-r", "cpu.lock.txt", "--require-hashes"}},
 		{[]string{"base.lock.txt", "cpu.txt"}, []string{"-r", "base.lock.txt", "-r", "cpu.txt"}},
 		{[]string{"llm.txt"}, []string{"-r", "llm.txt"}},
 	}
@@ -55,10 +54,7 @@ func runtimeProject(t *testing.T) string {
 	locks := map[string]string{
 		"base.lock.txt": "numpy==2.5.4 \\\n    --hash=sha256:00\n    # via -r requirements/base.txt\n",
 		"cpu.lock.txt":  "numpy==2.5.4\nonnxruntime==1.31.0 ; sys_platform != 'darwin'\nsympy==1.14.0\n",
-		"gpu.lock.txt": "# via onnxruntime-gpu\nnumpy==2.5.4\nnvidia-cublas==13.8.0.4\nnvidia-curand==10.4.4.72 ; sys_platform == 'linux' \\\n" +
-			"    --hash=sha256:00\nonnx==1.23.2\nonnxruntime-gpu==1.31.0\n",
-		"llm.lock.txt": "llama-cpp-python==0.3.36\nnumpy==2.5.4\n",
-		"gpu.txt":      "onnxruntime-gpu>=1.20.0\nnvidia-cuda-runtime~=13.0\n",
+		"llm.lock.txt":  "llama-cpp-python==0.3.36\nnumpy==2.5.4\n",
 	}
 	if err := os.MkdirAll(filepath.Join(project, "requirements"), 0o755); err != nil {
 		t.Fatal(err)
@@ -71,59 +67,39 @@ func runtimeProject(t *testing.T) string {
 	return project
 }
 
-func TestProvisionEmbeddingRuntime(t *testing.T) {
-	gpuVenv := []string{"numpy", "nvidia-cublas", "nvidia-curand", "onnx", "onnxruntime-gpu"}
+func TestInstallCoreRuntime(t *testing.T) {
 	cpuVenv := []string{"numpy", "onnxruntime", "sympy"}
-	cpuPlan := `{"requested": "cpu", "runtime": "cpu", "reason": "model.device is cpu"}`
-	gpuPlan := `{"requested": "gpu", "runtime": "gpu", "reason": "NVIDIA GeForce RTX 4080 Laptop GPU, CUDA 13"}`
-	toCPU := []string{"dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt", "uninstall onnxruntime onnxruntime-gpu",
-		"dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt", "uninstall nvidia-cublas nvidia-curand onnx",
-		"cache-clean nvidia-cublas", "cache-clean nvidia-curand", "cache-clean onnx", "cache-clean onnxruntime-gpu"}
-	toGPU := []string{"dry-run base.lock.txt gpu.lock.txt", "install base.lock.txt gpu.lock.txt", "uninstall onnxruntime onnxruntime-gpu",
-		"dry-run base.lock.txt gpu.lock.txt", "install base.lock.txt gpu.lock.txt", "uninstall sympy",
-		"cache-clean onnxruntime", "cache-clean sympy"}
 	cases := []struct {
-		name, plan, check, outdated string
-		retry                       bool
-		venv, wantVenv              []string
-		wantCalls                   []string
+		name, outdated string
+		venv, unused   []string
+		wantVenv       []string
+		wantCalls      []string
 		// Whether setup freed the runtime: a change that replaces or removes
 		// installed files needs it, adding packages does not (ADR 0084).
 		wantFreed bool
 	}{
 		{
-			// An install from before ADR 0062: the GPU profile installed CUDA
-			// while embeddings ran on the CPU.
-			name: "cpu device on a GPU venv", plan: cpuPlan, venv: gpuVenv, wantVenv: cpuVenv,
-			wantCalls: append([]string{"plan"}, toCPU...), wantFreed: true,
+			// Embeddings ran on CUDA before ADR 0086. onnx, which only the
+			// CUDA check used, is required by nothing that is removed.
+			name: "CUDA venv from before", venv: []string{"numpy", "nvidia-cublas", "nvidia-curand", "onnx", "onnxruntime-gpu"},
+			unused:   []string{"nvidia-cublas", "nvidia-curand", "onnxruntime-gpu"},
+			wantVenv: []string{"numpy", "onnx", "onnxruntime", "sympy"},
+			wantCalls: []string{"dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt", "uninstall onnxruntime onnxruntime-gpu",
+				"dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt", "uninstall nvidia-cublas nvidia-curand",
+				"cache-clean nvidia-cublas", "cache-clean nvidia-curand", "cache-clean onnxruntime-gpu"},
+			wantFreed: true,
 		},
 		{
-			name: "cpu device, nothing to change", plan: cpuPlan, venv: cpuVenv, wantVenv: cpuVenv,
-			wantCalls: []string{"plan", "dry-run base.lock.txt cpu.lock.txt"},
+			name: "nothing to change", venv: cpuVenv, wantVenv: cpuVenv,
+			wantCalls: []string{"dry-run base.lock.txt cpu.lock.txt"},
 		},
 		{
-			name: "upgrade", plan: cpuPlan, outdated: "numpy", venv: cpuVenv, wantVenv: cpuVenv,
-			wantCalls: []string{"plan", "dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt"}, wantFreed: true,
+			name: "upgrade", outdated: "numpy", venv: cpuVenv, wantVenv: cpuVenv,
+			wantCalls: []string{"dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt"}, wantFreed: true,
 		},
 		{
-			name: "fresh venv", plan: cpuPlan, venv: []string{}, wantVenv: cpuVenv,
-			wantCalls: []string{"plan", "dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt"},
-		},
-		{
-			name: "gpu enabled and CUDA works", plan: gpuPlan, check: "ok", venv: cpuVenv, wantVenv: gpuVenv,
-			wantCalls: append(append([]string{"plan"}, toGPU...), "check"), wantFreed: true,
-		},
-		{
-			name: "gpu enabled but CUDA fails", plan: gpuPlan, check: "broken", venv: cpuVenv, wantVenv: cpuVenv,
-			wantCalls: append(append(append([]string{"plan"}, toGPU...), "check"), toCPU...), wantFreed: true,
-		},
-		{
-			name: "retry", plan: gpuPlan, check: "ok", retry: true, venv: gpuVenv, wantVenv: gpuVenv,
-			wantCalls: []string{"plan --retry", "dry-run base.lock.txt gpu.lock.txt", "check"},
-		},
-		{
-			name: "plan unavailable", plan: "Traceback (most recent call last):", venv: cpuVenv, wantVenv: cpuVenv,
-			wantCalls: []string{"plan", "dry-run base.lock.txt cpu.lock.txt"},
+			name: "fresh venv", venv: []string{}, wantVenv: cpuVenv,
+			wantCalls: []string{"dry-run base.lock.txt cpu.lock.txt", "install base.lock.txt cpu.lock.txt"},
 		},
 	}
 	for _, c := range cases {
@@ -131,18 +107,15 @@ func TestProvisionEmbeddingRuntime(t *testing.T) {
 			project := runtimeProject(t)
 			log, venv := filepath.Join(t.TempDir(), "calls"), filepath.Join(t.TempDir(), "venv.json")
 			saveFakeVenvTo(t, venv, c.venv)
+			unused, _ := json.Marshal(append([]string{}, c.unused...))
 			t.Setenv("IMPRINT_FAKE_TOOL_LOG", log)
 			t.Setenv("IMPRINT_FAKE_VENV", venv)
-			t.Setenv("IMPRINT_FAKE_PLAN", c.plan)
-			t.Setenv("IMPRINT_FAKE_CHECK", c.check)
 			t.Setenv("IMPRINT_FAKE_OUTDATED", c.outdated)
-			// The GPU lock's NVIDIA libraries and onnx are in no other file,
-			// and sympy is only in the CPU lock.
-			t.Setenv("IMPRINT_FAKE_UNUSED", `{"cpu": ["nvidia-cublas", "nvidia-curand", "onnx", "onnxruntime-gpu"], "gpu": ["onnxruntime", "sympy"]}`)
+			t.Setenv("IMPRINT_FAKE_UNUSED", string(unused))
 			fake := os.Args[0]
 			holdRuntime(project)
 			defer releaseRuntime()
-			provisionEmbeddingRuntime(fake, fake, fake, project, t.TempDir(), c.retry)
+			installCoreRuntime(fake, fake, fake, project)
 			if got := fakeCalls(t, log); !reflect.DeepEqual(got, c.wantCalls) {
 				t.Errorf("calls:\n  got  %q\n  want %q", got, c.wantCalls)
 			}

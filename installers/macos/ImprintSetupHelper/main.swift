@@ -1,7 +1,7 @@
 // imprint-setup-helper — native macOS progress window for first-run bootstrap.
 //
 // Invoked by imprint-launcher via exec on first launch:
-//   imprint-setup-helper <bin> <writable_home> <profile> <with_llm:0|1>
+//   imprint-setup-helper <bin> <writable_home> <profile>
 //
 // The helper replaces the launcher process (exec), so Imprint.app stays
 // active in the Dock while setup runs. Closing the window exits the app.
@@ -13,19 +13,17 @@ import Cocoa
 import Foundation
 
 let cliArgs = CommandLine.arguments
-guard cliArgs.count >= 5 else {
-    fputs("Usage: imprint-setup-helper <bin> <writable_home> <profile> <with_llm:0|1>\n", stderr)
+guard cliArgs.count >= 4 else {
+    fputs("Usage: imprint-setup-helper <bin> <writable_home> <profile>\n", stderr)
     exit(1)
 }
 
 let gBin          = cliArgs[1]
 let gWritableHome = cliArgs[2]
 let gProfile      = cliArgs[3]
-let gWithLlm      = cliArgs[4] == "1"
 let gSentinel     = gWritableHome + "/.first-run.done"
 
-var gBootstrapArgs = ["bootstrap", "--profile", gProfile, "--non-interactive"]
-gBootstrapArgs += gWithLlm ? ["--with-llm"] : ["--no-llm"]
+let gBootstrapArgs = ["bootstrap", "--profile", gProfile, "--non-interactive"]
 
 // ---------------------------------------------------------------------------
 

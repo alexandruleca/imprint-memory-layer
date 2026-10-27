@@ -105,15 +105,16 @@ services:
 
 - Imprint Go CLI (`imprint ingest`, `imprint status`, `imprint workspace`, …)
 - Python package (`imprint.api` dashboard, `python -m imprint` MCP server)
-- The base requirements with the CPU ONNX Runtime, plus `llama-cpp-python`
-  from upstream's prebuilt Linux wheel (ADR 0035), so the `local` chat
-  provider works in the container. Remote chat providers (OpenAI, Anthropic,
+- The base requirements with the CPU ONNX Runtime (OCR, privacy filter), plus
+  `llama-cpp-python` from upstream's prebuilt Linux CPU wheel (ADR 0035), which
+  runs embeddings, the tagger and the `local` chat provider (ADR 0086). The
+  container embeds on the CPU. Remote chat providers (OpenAI, Anthropic,
   Ollama, vLLM, Gemini) need no local model.
 
 ### What's lazy (first-run downloads)
 
 - Qdrant binary (v1.17.x, 96 MB unpacked on x86-64) — written to `/data/qdrant-bin/`
-- Qwen3-Embedding-0.6B ONNX model (~614 MB q8) — written to `/data/models/embeddings/`
+- Qwen3-Embedding-0.6B Q8_0 GGUF (639 MB) — written to `/data/models/embeddings/`
   via `HF_HOME`
 - Qwen3.5-4B Q4_K_M GGUF (~2.7 GB) — written to `/data/models/` by the first
   local chat only

@@ -50,6 +50,15 @@ function modelLabel(status: ChatStatus | null): string {
 
 function SetupNotice({ status }: { status: ChatStatus | null }) {
   if (!status) return null;
+  if (status.error && status.provider === "local") {
+    return (
+      <Alert variant="destructive">
+        <CircleAlert />
+        <AlertTitle>Local chat can&apos;t run</AlertTitle>
+        <AlertDescription>{status.error}</AlertDescription>
+      </Alert>
+    );
+  }
   if (status.error) {
     return (
       <Alert variant="destructive">
@@ -61,15 +70,11 @@ function SetupNotice({ status }: { status: ChatStatus | null }) {
       </Alert>
     );
   }
-  if (status.provider !== "local" || (status.installed && status.model_ready)) return null;
-  const steps = [
-    !status.installed && "installs the llama.cpp runtime",
-    !status.model_ready && "downloads the model (a few GB)",
-  ].filter(Boolean);
+  if (status.provider !== "local" || status.model_ready) return null;
   return (
     <p className="flex items-start justify-center gap-2 text-xs text-muted-foreground">
       <Info className="mt-px size-3.5 shrink-0" aria-hidden />
-      <span>Your first message sets up local chat: Imprint {steps.join(" and ")} on this device, once.</span>
+      <span>Your first message sets up local chat: Imprint downloads the model (a few GB) on this device, once.</span>
     </p>
   );
 }
@@ -180,7 +185,7 @@ export default function ChatPage() {
       if (current === view.current) updateReply((turn) => ({ ...turn, streaming: false }));
       setStreaming(false);
       refreshSessions();
-      // The first reply may have installed the runtime or downloaded the model.
+      // The first reply may have downloaded the model.
       getChatStatus().then(setStatus).catch(() => {});
     }
   }

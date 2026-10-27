@@ -10,7 +10,7 @@ const description =
 const faqs = [
   {
     q: 'What is an MCP memory layer?',
-    a: 'MCP (Model Context Protocol) is the open standard Anthropic, OpenAI, and others use to expose tools to coding agents. An MCP memory layer is a server that speaks MCP and stores prior context — code chunks, decisions, bug fixes, architectural notes — so the agent can recall it instead of re-reading the whole repo every session. Imprint is a local-first implementation: vectors in Qdrant, facts in SQLite, embeddings via on-device ONNX.',
+    a: 'MCP (Model Context Protocol) is the open standard Anthropic, OpenAI, and others use to expose tools to coding agents. An MCP memory layer is a server that speaks MCP and stores prior context — code chunks, decisions, bug fixes, architectural notes — so the agent can recall it instead of re-reading the whole repo every session. Imprint is a local-first implementation: vectors in Qdrant, facts in SQLite, embeddings via on-device llama.cpp.',
   },
   {
     q: 'How is this different from Cursor or ChatGPT built-in memory?',
@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'Does my code ever leave my machine?',
-    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via ONNX Runtime — no network call. The knowledge graph is local SQLite. Two things send data out, and only when you ask: `imprint sync` streams the workspace you choose through a relay, end-to-end encrypted with the session’s share code so the relay sees only ciphertext, and opt-in LLM topic tagging (`imprint config set tagger.llm true`) calls the provider you pick (Anthropic, OpenAI, Gemini, or local Ollama / vLLM).',
+    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via llama.cpp — no network call. The knowledge graph is local SQLite. Two things send data out, and only when you ask: `imprint sync` streams the workspace you choose through a relay, end-to-end encrypted with the session’s share code so the relay sees only ciphertext, and opt-in LLM topic tagging (`imprint config set tagger.llm true`) calls the provider you pick (Anthropic, OpenAI, Gemini, or local Ollama / vLLM).',
   },
   {
     q: 'Why not just wait for bigger context windows?',

@@ -12,11 +12,9 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 
 **Host Python is *not* required.** Every release archive now ships Astral's `uv` binary alongside `imprint`; on first run `uv` downloads a pinned Python 3.12 via python-build-standalone into the install dir's `.venv/`. Nothing is installed system-wide.
 
-**Optional — GPU acceleration:**
-- **Local LLM** (tagging, summaries, chat): any NVIDIA, AMD or Intel GPU through its graphics driver. On Windows x64 and Linux x64 the `gpu` and `auto` install profiles install llama.cpp's Vulkan build and keep it only when it finds a GPU; macOS uses Metal. No CUDA is involved ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md)). This is where a GPU helps most: on an RTX 4080 Laptop a tagging call took about 4 s on the Vulkan build against 38 s on the CPU. Pick the profile with `--profile gpu` at install, or `imprint profile set gpu` later.
-- **Embeddings** run on the CPU by default (`model.device=cpu`), and the install downloads only ONNX Runtime's CPU build (about 15 MB). The default model is Qwen3-Embedding-0.6B's int8 export, which ran faster on CPU than through CUDA on an RTX 4080 Laptop (1.4 s against 2.4 s per 4,000-character exchange). GPU embedding pays off for fp16 models such as BGE-M3; turn it on with `model.device=gpu` (or `auto`) in Settings or with `imprint config set`. Only then, and only on a machine that can use it, does Imprint download ONNX Runtime's CUDA build with the NVIDIA libraries it loads: the CUDA runtime, cuBLAS and cuDNN (about 1.1 GB on Windows, 1.4 GB on Linux; no toolkit). That needs Windows x64 or Linux x64/arm64, an NVIDIA driver for CUDA 13 (R580 or newer) and a GPU of compute capability 7.5 or newer. AMD and Intel GPUs, macOS and older NVIDIA cards keep the CPU runtime and download no CUDA package ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md), [embeddings.md](./embeddings.md#gpu-embeddings)).
+**Local models — llama.cpp:** every installation includes `llama-cpp-python` 0.3.36, llama.cpp's Python binding, which runs embeddings, the local tagger, summaries and chat ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)). Windows x64 and Linux x64/arm64 install upstream's prebuilt wheel, so no compiler is needed ([ADR 0035](adr/0035-prebuilt-llama-wheels-and-chat-provisioning.md)). **macOS builds it from source, which needs the Xcode Command Line Tools** (`xcode-select --install`), until Imprint pins prebuilt Metal wheels from its own release workflow (planned). ONNX Runtime's CPU build (about 15 MB) is installed for OCR and the opt-in privacy filter.
 
-**Optional — local LLM tagger** — `llama-cpp-python` is skipped by default to keep the install footprint small. Opt in with `--with-llm` at install time or `imprint profile add-llm` afterward; the dashboard's first local chat also installs it. Windows x64 and Linux x64/arm64 get upstream's prebuilt wheel, so no compiler is needed; macOS builds it from source with the Xcode Command Line Tools (ADR 0035). On the `gpu` and `auto` profiles, Windows x64 and Linux x64 get the Vulkan build, which offloads to any NVIDIA, AMD or Intel GPU through the graphics driver; setup keeps it only when llama.cpp finds a GPU and installs the CPU build otherwise. No CUDA toolkit is needed (ADR 0049).
+**Optional — GPU acceleration:** any NVIDIA, AMD or Intel GPU through its graphics driver; no CUDA or other toolkit is installed. On Windows x64 and Linux x64 the `gpu` and `auto` install profiles install llama.cpp's Vulkan build (a 40 MB wheel on Windows, 121 MB on Linux) and keep it only when it finds a GPU; macOS uses Metal ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md)). Embeddings and the local LLM then run on one GPU: on an RTX 4080 Laptop, embedding ran at 7,316 tokens/s against 438 on the CPU, and a tagging call took about 4 s against 38 s. Pick the profile with `--profile gpu` at install, or `imprint profile set gpu` later. `model.device` (default `auto`) decides whether embeddings use the GPU ([embeddings](./embeddings.md#gpu-embeddings)).
 
 **LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically in the base profile. No extra steps needed for any provider.
 
@@ -50,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/
 irm https://raw.githubusercontent.com/alexandruleca/imprint-memory-layer/main/install.ps1 | iex
 ```
 
-This downloads the pre-built imprint binary + bundled `uv`, prompts for the install profile (CPU / GPU + optional local LLM tagger — auto-skipped in `curl | bash` mode), provisions a Python venv via `uv`, installs the selected dependencies, registers the MCP server, configures Claude Code hooks, and sets up shell aliases. One command, everything ready.
+This downloads the pre-built imprint binary + bundled `uv`, picks the install profile (`install.sh` asks on a terminal, defaulting to GPU, and installs `cpu` under `curl | bash`; `install.ps1` uses `auto`), provisions a Python venv via `uv`, installs the selected dependencies, registers the MCP server, configures Claude Code hooks, and sets up shell aliases. One command, everything ready.
 
 ### Desktop startup and background operation
 
@@ -132,22 +130,22 @@ For archive/script installations, run `imprint uninstall [-y]`. It removes the w
 
 See [ADR 0027](adr/0027-symmetric-uninstall-and-branch-sync.md) for client ownership and retry behavior, [ADR 0028](adr/0028-complete-uninstall.md) for process and data removal and [ADR 0074](adr/0074-uninstall-removes-the-shared-desktop-profile.md) for the desktop profile.
 
-### Profile & extras flags
+### Profile flags
 
 Skip the interactive prompt with CLI flags:
 
 ```bash
-# Force GPU + local LLM tagger, no prompts
-curl -fsSL .../install.sh | bash -s -- --profile gpu --with-llm
+# GPU build when llama.cpp finds a GPU, no prompts
+curl -fsSL .../install.sh | bash -s -- --profile gpu
 
-# CPU-only, explicitly disable the LLM tagger (default when piped)
-curl -fsSL .../install.sh | bash -s -- --profile cpu --no-llm
+# CPU build only (the default when piped)
+curl -fsSL .../install.sh | bash -s -- --profile cpu
 
 # Fully non-interactive: fail fast on any ambiguity
 curl -fsSL .../install.sh | bash -s -- --non-interactive
 ```
 
-The profile selects the local LLM's build: `cpu` installs the CPU build, and `gpu` and `auto` (the default) install the GPU build and keep it when llama.cpp finds a GPU, so the two behave the same. It no longer decides the embedding runtime, which follows `model.device` ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)). Swap profile after the fact with `imprint profile set gpu`, add the LLM tagger with `imprint profile add-llm`, or drop it with `imprint profile drop-llm`. `set` and `drop-llm` re-run the installer's bootstrap step via `uv`. `add-llm` installs only the LLM overlay into the existing environment, so it is safe while the dashboard or an MCP server is running.
+The profile selects llama.cpp's build, which runs embeddings and the local LLM: `cpu` installs the CPU build, and `gpu` and `auto` (the default of `imprint setup` and `imprint bootstrap`) install the GPU build and keep it when llama.cpp finds a GPU, so the two behave the same ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)). `data/profile.json` records it. Swap it later with `imprint profile set cpu|gpu|auto`, which re-runs the installer's bootstrap step via `uv`. Whether embeddings use the GPU is `model.device`, which installs nothing.
 
 ## Supported hosts
 
@@ -259,12 +257,12 @@ Every download is verified against the release's `SHA256SUMS` before anything is
 | Installed with | Update |
 | --- | --- |
 | `install.sh` / `install.ps1` | Replaces the install tree in place, re-runs `imprint setup` and restarts the running dashboard server. The previous files in `bin/` are kept as `bin/<name>.prev` for a manual rollback. |
-| Windows installer | Runs the new `setup.exe` silently while Imprint keeps running. After provisioning, it restarts the running dashboard server and reopens Imprint; your install profile (local LLM and its build) and settings are kept. When the release replaces installed packages, setup first stops Imprint's MCP servers, so AI clients reconnect Imprint ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)). The installer log is `data/update-setup.log`. |
+| Windows installer | Runs the new `setup.exe` silently while Imprint keeps running. After provisioning, it restarts the running dashboard server and reopens Imprint; your install profile (llama.cpp's build) and settings are kept. When the release replaces installed packages, setup first stops Imprint's MCP servers, so AI clients reconnect Imprint ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)). The installer log is `data/update-setup.log`. |
 | macOS `.pkg` | Opens the new `.pkg` in Installer, which asks for your password, then restarts the running dashboard server. |
 | Docker | Pull the new image and recreate the container; the `/data` volume is kept. |
 | Source checkout | `git pull` and rebuild. |
 
-**What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `gpu_state.json`) and `.venv/` (Python virtual environment). An in-place update overwrites the release's files and leaves files that newer releases dropped. Installations from before ADR 0023 update once by the old route (installer, install script or `imprint update`) before the dashboard can update them.
+**What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `profile.json`) and `.venv/` (Python virtual environment). An in-place update overwrites the release's files and leaves files that newer releases dropped. Installations from before ADR 0023 update once by the old route (installer, install script or `imprint update`) before the dashboard can update them.
 
 The dashboard server is restarted under whoever started it: the desktop app or `imprint ui start`. The desktop app's own window code updates the next time you quit and reopen Imprint. Releases before [ADR 0050](adr/0050-registered-dashboard-server-and-supervised-restart.md) cannot restart their server this way, so after the first update from one of them, reopen Imprint once.
 
@@ -279,27 +277,14 @@ IMPRINT_ASSUME_YES=1 curl -fsSL .../install.sh | bash
 curl -fsSL .../install.sh | bash -s -- --yes
 ```
 
-### Embedding runtime and CUDA failures
+### llama.cpp and ONNX Runtime
 
-Setup installs exactly one ONNX Runtime build, chosen from `model.device` and this machine, not from the install profile ([ADR 0062](adr/0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md)). The CUDA build (`onnxruntime-gpu` plus NVIDIA's CUDA runtime, cuBLAS and cuDNN wheels from the hashed GPU lock) is installed only when all of these hold:
+Setup installs two native runtimes into the venv ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)):
 
-- `model.device` is `gpu` or `auto`;
-- the platform is Windows x64, Linux x64 or Linux arm64;
-- the NVIDIA driver supports the lock's CUDA major (13);
-- the GPU that `model.gpu_device` selects has compute capability 7.5 or newer (`auto` picks the first such GPU);
-- CUDA has not already failed on this machine for this build.
+- **llama.cpp's binding** runs embeddings, the local tagger, summaries and chat. The install profile picks its build: the GPU build from `requirements/llm-gpu.txt`, kept when llama.cpp finds a GPU (`llama_supports_gpu_offload()`), otherwise the CPU build from `requirements/llm.txt`. On those profiles setup checks the GPU build on every run, so after installing or updating a graphics driver another `imprint setup` picks it up. Setup fails when the binding does not load. A binding that stops loading later is a damaged installation: chat, the tagger and `imprint doctor` say to run `imprint bootstrap --non-interactive`.
+- **ONNX Runtime's CPU build** (`requirements/cpu.txt`) runs OCR and the opt-in privacy filter. ONNX Runtime's builds share one package directory, so setup keeps exactly one: it removes any other build and reinstalls a build with missing files. Rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md)).
 
-Otherwise setup installs `onnxruntime`, says why (`imprint setup`, Settings and `imprint doctor` show the same reason), and downloads nothing for CUDA. Setup prints the decision as `Embeddings run on the GPU: …` or `Embeddings run on the CPU: …`.
-
-Changing the build removes what only the old one used, including NVIDIA libraries an earlier release installed, and clears them from the install's `uv` cache, whose files the environment shares: an installation from before this change that has CUDA but embeds on the CPU gets about 1.8 GB back on its next update or `imprint setup`. Imprint processes that are running keep the build they loaded until they restart; new ones load the new build.
-
-After installing the CUDA build, setup runs a CUDA check on the GPU embeddings will use: a model whose convolution needs cuDNN and whose matrix product needs cuBLAS. When it fails, the failure is recorded in `data/gpu_state.json`, keyed on the GPU, driver, Python and the GPU lock, and setup installs the CPU build instead. Later runs keep the CPU build without downloading CUDA again. A new driver, GPU, Python or GPU lock retries automatically; after fixing the cause in place, force a retry:
-
-```bash
-imprint setup --retry-gpu
-```
-
-The two builds share one package directory, so setup removes the other build and reinstalls a build with missing files; rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md)). The local LLM needs no record: setup checks the llama.cpp GPU build on every run and keeps the CPU build when it finds no GPU.
+An installation from a release that embedded through CUDA loses `onnxruntime-gpu` and the NVIDIA libraries only it brought in on its next update or `imprint setup` (`python -m imprint.onnx_runtime unused` names them), and setup clears them from the install's `uv` cache, whose files the environment shares, so their disk space is freed. `onnx` and `ml-dtypes`, which the old CUDA check installed (about 20 MB), stay. Before it replaces or removes packages, setup restarts the dashboard server and, on Windows, stops Imprint's MCP servers; AI clients reconnect Imprint ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)). The new embedding model also changes the embedding profile: reindex into a new workspace ([embeddings](embeddings.md#rebuild-after-upgrading)).
 
 ## Run the relay server (Docker)
 

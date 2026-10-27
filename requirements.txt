@@ -2,15 +2,14 @@
 # installers can pick what the user actually wants:
 #
 #   requirements/base.txt   — always installed (fastmcp, qdrant, extractors, FastAPI)
-#   requirements/cpu.txt    — onnxruntime CPU build (embeddings on the CPU)
-#   requirements/gpu.txt    — onnxruntime-gpu build + CUDA libraries (model.device gpu/auto on a supported NVIDIA GPU)
-#   requirements/llm.txt    — llama-cpp-python local tagger + chat (--with-llm only)
+#   requirements/cpu.txt    — onnxruntime CPU build (OCR, privacy filter)
+#   requirements/llm.txt    — llama-cpp-python CPU build: embeddings, local tagger + chat
 #   requirements/llm-gpu.txt — its GPU build (Vulkan/Metal), used instead of llm.txt when llama.cpp finds a GPU
 #
 # This file is a dev convenience: `pip install -r requirements.txt` installs
-# the full historical stack. Production installers use
-# `imprint bootstrap --profile <cpu|gpu> [--with-llm]` instead, which shells
-# out to the bundled `uv` and composes these files.
+# the CPU stack. Production installers use `imprint bootstrap --profile
+# <cpu|gpu|auto>` instead, which shells out to the bundled `uv` and composes
+# these files.
 -r requirements/base.txt
 -r requirements/cpu.txt
 -r requirements/llm.txt
