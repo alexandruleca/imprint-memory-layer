@@ -13,7 +13,7 @@
 # alongside the Imprint tag so release reproducibility is preserved.
 set -euo pipefail
 
-UV_VERSION="${UV_VERSION:-0.5.11}"
+UV_VERSION="${UV_VERSION:-0.13.6}"
 OS="${1:?os required: linux|darwin|windows}"
 ARCH="${2:?arch required: amd64|arm64}"
 DEST_DIR="${3:?dest_dir required}"

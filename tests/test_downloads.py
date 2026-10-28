@@ -1,4 +1,5 @@
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,20 @@ from imprint import qdrant_runner
 
 
 class DownloadTests(unittest.TestCase):
+    def test_bundled_uv_version_and_every_packaged_target_have_pinned_checksums(self):
+        root = Path(__file__).resolve().parents[1]
+        entry = json.loads((root / 'requirements/runtime-manifest.json').read_text())['uv']
+        version = entry['version']
+        for name in ('Makefile', 'scripts/fetch-uv.sh', 'scripts/fetch-uv.ps1'):
+            self.assertIn(version, (root / name).read_text(), name)
+        for target, suffix in (
+            ('x86_64-unknown-linux-gnu', 'tar.gz'), ('aarch64-unknown-linux-gnu', 'tar.gz'),
+            ('x86_64-apple-darwin', 'tar.gz'), ('aarch64-apple-darwin', 'tar.gz'),
+            ('x86_64-pc-windows-msvc', 'zip'), ('aarch64-pc-windows-msvc', 'zip'),
+        ):
+            digest = expected_digest('uv', version, f'uv-{target}.{suffix}')
+            self.assertRegex(digest, r'^[0-9a-f]{64}$')
+
     def test_corrupted_download_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / 'asset.zip'

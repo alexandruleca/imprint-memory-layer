@@ -31,24 +31,24 @@
   },
   "uv": {
     "assets": {
-      "uv-aarch64-apple-darwin.tar.gz": "695f3640d5b1a4e28de7e36e3a2e14072852dcc6c70bf9e4deec6ada00d516b4",
-      "uv-aarch64-unknown-linux-gnu.tar.gz": "055c329c38a93c01d378349d51cb4d521d1998c8a79355ddc00f863ce451942f",
-      "uv-aarch64-unknown-linux-musl.tar.gz": "d0bb82d8bceb561dc785f3811f5f5a427f1be47b654f0cc5d6c36d779e03a3ff",
-      "uv-arm-unknown-linux-musleabihf.tar.gz": "a889ef4a6bbb7d2c2e460544e8c949ca9d01e18c56af23b6bfb4d8b952319dc7",
-      "uv-armv7-unknown-linux-gnueabihf.tar.gz": "e9f4ff168ecaf87fee4ba129c0de59f6bab96a249fa21ecafdd853d61f2ff929",
-      "uv-armv7-unknown-linux-musleabihf.tar.gz": "202b6437480af1e46a9722d20e179983951edee1d92c307ea457acfafbd378bf",
-      "uv-i686-pc-windows-msvc.zip": "955dfba777851761b246bfa701a05fa809676493fa83ec29837f5315ada38b3f",
-      "uv-i686-unknown-linux-gnu.tar.gz": "916df079c0125c2a5d48e1f012064f24dc7ef2ab8c94bccc192cf9d96094db5a",
-      "uv-i686-unknown-linux-musl.tar.gz": "a06d22d1f9d0233941817fc263dd928913f20aaac940c336f995e3ad3592736d",
-      "uv-powerpc64-unknown-linux-gnu.tar.gz": "dc2e4ce36bf01c1fb1f1ff8506cc11f4fe607f077ab235ea660417fd4e1964df",
-      "uv-powerpc64le-unknown-linux-gnu.tar.gz": "ca60d5f715f068647e487c003f1e55eea303abcec2ef8cb04c3d87c83bc580f7",
-      "uv-s390x-unknown-linux-gnu.tar.gz": "8b1b9d9c1dc2f195e4f490c1ea7c848e0eec025510dd576036df44dc78c27c28",
-      "uv-x86_64-apple-darwin.tar.gz": "7e23d1d892c23f9e74245c4fd3d3e246438ce9b34460f85eee61f784de137b0b",
-      "uv-x86_64-pc-windows-msvc.zip": "3e8203e6434b45427f20824419f8d8d53f970a76d94ccdcad07f8498fa01a9d0",
-      "uv-x86_64-unknown-linux-gnu.tar.gz": "14411de26cdea5f5139fafaf2b675b1c633e744dd49c6d6a9fc8817ec065158b",
-      "uv-x86_64-unknown-linux-musl.tar.gz": "5b77978bc8ded7e1b6ddb6d6a3e52f684bcc07c6d9be11d7b4fc3c1c23f4458f"
+      "uv-aarch64-apple-darwin.tar.gz": "60fbd5c8a1ed681845eea28d9d622fcde03c51e91a43465b64a1e17db1ed3472",
+      "uv-aarch64-pc-windows-msvc.zip": "c2426c0c8e28b53d8c440e47a18d96ad4db51e159866c0e81435b196d7f0081c",
+      "uv-aarch64-unknown-linux-gnu.tar.gz": "229e194255c7958d86d56e8790d969a6f74736592133f0dfd0076f754c642c1d",
+      "uv-aarch64-unknown-linux-musl.tar.gz": "819692e404d23e5aae6bc44c0e260f1f5492fd1910ab4693b2c650f926dbe800",
+      "uv-arm-unknown-linux-musleabihf.tar.gz": "57ac0f7c04deb42c5d686b4eeeef555c442db6ffea16fe4cbd7adb0384403794",
+      "uv-armv7-unknown-linux-gnueabihf.tar.gz": "d00cd4949c4524c934afcfee1aedfa9d337cf4e43be4d6b692ad8d74d0a65562",
+      "uv-armv7-unknown-linux-musleabihf.tar.gz": "b215398c886e8cc2cfa282fe346c02025957f8633b75a3d4fd848e0adda4eddd",
+      "uv-i686-pc-windows-msvc.zip": "32ceb64db231cbedfd499f7654c72e4c0b564f2846f9e76c0a4a7b2d03d7e67c",
+      "uv-i686-unknown-linux-gnu.tar.gz": "665ea831c38d342900950e606beb2ccc37b7ba0fcefc37b814eb4b076305f2b6",
+      "uv-i686-unknown-linux-musl.tar.gz": "de3a015c4b0fce63c178ae4fa95c94c873adfd92fa1e258c6a2a94e529812629",
+      "uv-powerpc64le-unknown-linux-gnu.tar.gz": "3b2847185ec2946fcc928500efef7e3e74c255d3be6f2cb435081a84885d8c6c",
+      "uv-s390x-unknown-linux-gnu.tar.gz": "fb56d731308aa5c7718059d71afcb14d9a933a974997cee3d4eb5d06fc462a4b",
+      "uv-x86_64-apple-darwin.tar.gz": "63ba17fdda55ad1a230d4b37fc6017ffa10c23688c83818bd3bfdf914c652a02",
+      "uv-x86_64-pc-windows-msvc.zip": "a2a8820d5eea32f08ef467ef3b7f66883a9b076d5737a2fc2fbb5f458d1bb50f",
+      "uv-x86_64-unknown-linux-gnu.tar.gz": "f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645",
+      "uv-x86_64-unknown-linux-musl.tar.gz": "5d61f26b6c7213779eda90edc6971ea6b0b796bfb8d49a574c8ad69b59838548"
     },
-    "upstream": "https://github.com/astral-sh/uv/releases/tag/0.5.11",
-    "version": "0.5.11"
+    "upstream": "https://github.com/astral-sh/uv/releases/tag/0.13.6",
+    "version": "0.13.6"
   }
 }

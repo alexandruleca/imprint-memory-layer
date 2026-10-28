@@ -5,6 +5,21 @@ description: Executed checks, installer defects addressed and the remaining nati
 
 ## Environment and limits
 
+Fresh-bootstrap follow-up, 2026-10-28: both Linux prerelease smokes exposed an
+old uv 0.5.11 resolver failure on the conditional hashed ONNX pins introduced as
+transitive audio dependencies. The failure reproduces in an empty disposable
+venv but is masked by installed dependencies. uv 0.13.6 resolves the identical
+locks without disabling hashes; its official archive digests are pinned in the
+runtime manifest. Native package validation must use the updated bundled uv.
+See [ADR 0104](adr/0104-bundle-uv-with-conditional-hash-lock-support.md).
+
+With the updated binary, a disposable Linux/WSL stage completed fresh CPU
+bootstrap and repeat bootstrap on managed Python 3.12.16, then passed native
+audio imports, MCP discovery, dashboard origin checks and a Qdrant write/read.
+Download/release/ADR checks passed 21 tests. Repeat bootstrap disabled alias
+writing; the first run's scratch alias was removed from the shell profile.
+
+
 Windows CI follow-up, 2026-10-28: the native suite exposed open handles on
 `project-associations.sqlite3` during temporary-source cleanup. SQLite's
 transaction context committed/rolled back without closing the connection.

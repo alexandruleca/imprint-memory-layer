@@ -10,7 +10,7 @@
 param(
     [Parameter(Mandatory=$true)] [ValidateSet("amd64","arm64")] [string]$Arch,
     [Parameter(Mandatory=$true)] [string]$DestDir,
-    [string]$UvVersion = "0.5.11"
+    [string]$UvVersion = "0.13.6"
 )
 
 $ErrorActionPreference = "Stop"

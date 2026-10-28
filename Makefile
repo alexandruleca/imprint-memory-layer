@@ -1,5 +1,5 @@
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-UV_VERSION ?= 0.5.11
+UV_VERSION ?= 0.13.6
 LDFLAGS    := -s -w -X main.version=$(VERSION)
 PLATFORMS  := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 

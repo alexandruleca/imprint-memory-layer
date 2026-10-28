@@ -85,6 +85,13 @@ Intel macOS uses ONNX Runtime 1.23.2 through platform markers because newer rele
 
 The Windows setup helper logs ordinary native stderr as progress and uses the global native exit code to detect failure; Windows PowerShell 5.1 must not turn bootstrap's stderr banner into a terminating error or shadow the updated exit code with a local variable. The helper decodes native output as UTF-8 and sets `NO_COLOR`, so `first-run.log` is plain UTF-8 text. Each line also goes to the console, so the Start menu's **Repair Imprint** shortcut shows setup's progress in its window. The helper reopens the log for every line, so the installer wizard polls it with `LoadStringsFromLockedFile` (read/write sharing); a share-read poll makes an append fail and aborts setup. The Windows native CI job runs `scripts/test-windows-setup.ps1` against both successful stderr output and a real nonzero exit before runtime provisioning, with a concurrent poller using the wizard's sharing mode and checks for UTF-8 decoding and absent ANSI escapes.
 
+The bundled installer is **uv 0.13.6**, pinned in the Makefile, both fetchers and
+`requirements/runtime-manifest.json`. Verify fresh bootstrap with this binary;
+uv 0.5.11 can accept an already-populated environment while rejecting the same
+conditional hashed audio/ONNX requirements in an empty one. Hash enforcement and
+platform-specific package pins remain required. See
+[ADR 0104](adr/0104-bundle-uv-with-conditional-hash-lock-support.md).
+
 ## Release workflow
 
 `release.yml` runs on pushes to `main` and `dev`. It selects a version and calls `build-release.yml`, the same build for both branches. Conventional commits retain the existing bump rules: `feat` minor, `fix`/`perf` patch, breaking changes major; documentation-only changes do not release. A manual run can force a bump.

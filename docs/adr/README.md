@@ -162,6 +162,8 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) **Echo has a generated eye with shared morph controls.** An opaque generated iris follows gaze and the nucleus blinks with it through named morph targets.
 
+- [ADR 0104](0104-bundle-uv-with-conditional-hash-lock-support.md) **Bundle uv with conditional hash-lock support.** Pin verified uv 0.13.6 so fresh native bootstrap resolves the platform-specific audio/ONNX requirements without weakening hashes.
+
 ## Open proposals
 
 Under consideration; not current behavior.
@@ -278,6 +280,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0101](0101-chat-research-always-reserves-an-answer.md) | 2026-10-28 | Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) | Chat research always reserves an answer |
 | [0102](0102-chat-research-follows-progress-and-resource-budgets.md) | 2026-10-28 | Accepted | Chat research follows progress and resource budgets |
 | [0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | 2026-10-28 | Accepted | Echo has a generated eye with shared morph controls |
+| [0104](0104-bundle-uv-with-conditional-hash-lock-support.md) | 2026-10-28 | Accepted | Bundle uv with conditional hash-lock support |
 
 ## How to write and maintain ADRs
 
