@@ -3,9 +3,10 @@ title: ADR 0097 — Echo's looks fire like synapses
 description: A new "flow" node extra runs light through a node at moments stored in its texture coordinates; Echo becomes a generated 3D neural network and each head gets a generated synaptic halo.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
 - Amends: [ADR 0054](0054-echo-looks-declare-their-motion.md) — adds the `flow` extra beside gaze, spin and pulse, and replaces the parts of Echo's generated core
+- Amended by: [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) — the generated eye and its shared morph/opaque-surface behavior
 - Related: [ADR 0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) (how the looks are lit), [live voice](../live-voice.md)
 
 ## Context

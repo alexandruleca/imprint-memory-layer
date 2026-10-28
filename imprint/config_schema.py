@@ -230,7 +230,7 @@ SETTINGS: list[Setting] = [
     # ── Chat (optional local helper in dashboard) ───────────────
     Setting("voice.runtime_dir",   "IMPRINT_VOICE_RUNTIME_DIR",   "",                               str,   "Explicit external cache with the built native live voice runtime"),
     Setting("voice.avatar",        "IMPRINT_VOICE_AVATAR",        "echo",                           str,   "How Echo looks and sounds; change it anytime",
-            choices=(Choice("echo", "Echo", "Synaptic core that fires as it thinks and pulses as it speaks; robotic voice"),
+            choices=(Choice("echo", "Echo", "Synaptic core with a watching eye; fires as it thinks; robotic voice"),
                      Choice("iris", "Iris", "Indigo straight cut, pale lavender eyes; female voice"),
                      Choice("kai", "Kai", "Spiky orange hair, a determined frown; male voice"))),
     Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),

@@ -317,9 +317,10 @@ replies, and how intelligible the robotic effect is still need listening tests.
 
 - **Echo** ([glTF model](../imprint/ui/public/models/imprint-echo.glb)), the default: an original synaptic core.
   About 200 neurons, wired by fibres, fill a sphere around a glowing nucleus. Signals cascade out from hub neurons,
-  and each neuron lights as its signal arrives, faster while Echo thinks or speaks. The network turns slowly inside
-  tilted orbits and a ring of ticks, the nucleus swells as Echo speaks, and a lens on the nucleus follows the pointer.
-  The brighter iris and the nucleus blink shut together; the glow stays behind the eye.
+  and each neuron lights as its signal arrives, faster while Echo thinks or speaks. The nucleus is an eye: a
+  generated iris with radial fibres and synapses, set in turning gimbal rings. It follows the pointer like an eyeball,
+  blinks shut together with the nucleus, and widens its pupil as Echo speaks; the glow stays behind it. The network
+  turns slowly inside tilted orbits, twinkling motes and a ring of ticks.
 - **Iris** ([glTF head](../imprint/ui/public/models/imprint-iris.glb)): a head-only adaptation of the CC0 beta
   **Victoria Rubin** model, with straight-cut bangs, indigo locks folded at the jaw, its ribbon and side tail removed,
   and a generated pale lavender iris without pupils.
@@ -337,7 +338,8 @@ with Echo's voice, and `flow` nodes carry light that passes each vertex at a mom
 coordinates. Lit materials (the heads) take the renderer's light; unlit ones (everything generated) glow. The heads' eyes turn where the source models' eye bones turn them, within the
 look-at range those models declare.
 
-The renderer uses a locally bundled Three.js module. Both heads keep modeled eyes/eyelids/lips and
+The renderer uses a locally bundled Three.js module. Morph targets named `jawOpen` follow Echo's voice and those
+named `blink` blink, in every look. Both heads keep modeled eyes/eyelids/lips and
 `jawOpen`/`blink` expressions, and get a cool holographic surface and fine connected wire
 contours on the skin and every hair layer. The user’s Hinata and Ichigo
 references guide the anime direction; these are credited sample adaptations, not original sculpts
@@ -347,7 +349,7 @@ release and attribution accompany the models. Rebuild with
 without arguments it rebuilds all three. Echo's core is generated and needs no source.
 The authoring command may fetch the pinned source; the app loads only local files.
 No camera, face tracking, external avatar service or NVIDIA Audio2Face is needed.
-[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls; [ADR 0054](adr/0054-echo-looks-declare-their-motion.md) the looks' motion and pointer follow; [ADR 0097](adr/0097-echo-looks-fire-like-synapses.md) the synaptic networks; and [ADR 0098](adr/0098-head-surfaces-take-light-and-generated-parts-glow.md) how the looks are lit.
+[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls; [ADR 0054](adr/0054-echo-looks-declare-their-motion.md) the looks' motion and pointer follow; [ADR 0097](adr/0097-echo-looks-fire-like-synapses.md) the synaptic networks; [ADR 0098](adr/0098-head-surfaces-take-light-and-generated-parts-glow.md) how the looks are lit; and [ADR 0103](adr/0103-echo-has-a-generated-eye-with-shared-morph-controls.md) the generated eye and shared morph controls.
 
 Closing or minimizing the dashboard hides it to the tray and leaves a small
 transparent floating Imprint icon. Drag it anywhere, click it to restore the

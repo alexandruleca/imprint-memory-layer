@@ -125,8 +125,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) **The floating companion moves with the launcher and keeps its options in settings.** While the dashboard is hidden the companion docks beside the launcher and either window drags both; only the head and header drag it; everything except talking sits in a settings panel.
 - [ADR 0071](0071-each-look-speaks-in-its-own-voice.md) **Each look speaks in its own voice.** The voice.avatar look also chooses Echo's voice, the native model's speaker on both reasoning routes plus a robotic effect for Echo; a session keeps the voice it started with.
 - [ADR 0092](0092-voice-generation-follows-playback.md) **Voice generation follows playback.** Completed audio releases bounded playback credit; active replies use an inactivity timeout instead of a fixed whole-turn limit.
-- [ADR 0097](0097-echo-looks-fire-like-synapses.md) **Echo's looks fire like synapses.** A flow node extra runs light through a node at moments stored on its vertices; Echo is a generated 3D neural network whose signals cascade from hubs, and each head gets a synaptic halo.
-- [ADR 0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) **Head surfaces take light; generated parts glow.** Lighting follows each glTF material: the heads' lit materials take a sky and a key light, unlit generated parts render as light that fades toward their silhouettes.
+- [ADR 0097](0097-echo-looks-fire-like-synapses.md) **Echo's looks fire like synapses.** A flow node extra runs light through a node at moments stored on its vertices; Echo is a generated 3D neural network whose signals cascade from hubs, and each head gets a synaptic halo. Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) (generated eye and shared morphs).
+- [ADR 0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) **Head surfaces take light; generated parts glow.** Lighting follows each glTF material: the heads' lit materials take a sky and a key light, unlit generated parts render as light that fades toward their silhouettes. Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) (generated eye and shared morphs).
 
 - [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md) **CPU Whisper runtime for audio imports.** Locked native wheels provide CPU transcription with pinned multilingual models downloaded on first audio use.
 
@@ -159,6 +159,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0101](0101-chat-research-always-reserves-an-answer.md) **Chat research always reserves an answer.** Tool rounds are bounded; exhaustion, repeating reads or a full research context transition to tools-free synthesis and preserved evidence. Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) (evidence novelty and resource budgets).
 
 - [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) **Chat research follows progress and resource budgets.** No fixed round cutoff; bounded evidence-novelty tracking and reply-wide time/token reservations lead to synthesis.
+
+- [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) **Echo has a generated eye with shared morph controls.** An opaque generated iris follows gaze and the nucleus blinks with it through named morph targets.
 
 ## Open proposals
 
@@ -269,12 +271,13 @@ Every record in number order. *Date* is when the decision was made.
 | [0094](0094-the-dashboard-reads-whole-sources-from-their-snapshots.md) | 2026-10-28 | Amended by [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) | The dashboard reads whole sources from their snapshots |
 | [0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) | 2026-10-28 | Accepted | Audio files enter the source ingestion pipeline |
 | [0096](0096-cpu-whisper-runtime-for-audio-imports.md) | 2026-10-28 | Accepted | CPU Whisper runtime for audio imports |
-| [0097](0097-echo-looks-fire-like-synapses.md) | 2026-10-28 | Accepted | Echo's looks fire like synapses |
-| [0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) | 2026-10-28 | Accepted | Head surfaces take light; generated parts glow |
+| [0097](0097-echo-looks-fire-like-synapses.md) | 2026-10-28 | Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | Echo's looks fire like synapses |
+| [0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) | 2026-10-28 | Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | Head surfaces take light; generated parts glow |
 | [0099](0099-sources-can-belong-to-several-projects.md) | 2026-10-28 | Accepted | Sources can belong to several projects |
 | [0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) | 2026-10-28 | Accepted | Explicit workspace inbox for unassigned conversations |
 | [0101](0101-chat-research-always-reserves-an-answer.md) | 2026-10-28 | Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) | Chat research always reserves an answer |
 | [0102](0102-chat-research-follows-progress-and-resource-budgets.md) | 2026-10-28 | Accepted | Chat research follows progress and resource budgets |
+| [0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | 2026-10-28 | Accepted | Echo has a generated eye with shared morph controls |
 
 ## How to write and maintain ADRs
 

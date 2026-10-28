@@ -3,8 +3,9 @@ title: ADR 0098 — Head surfaces take light; generated parts glow
 description: The heads export lit glTF materials that the renderer lights with a sky and a key light; generated parts stay unlit and render as light seen through a volume.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
+- Amended by: [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) — the generated eye and its shared morph/opaque-surface behavior
 - Related: [ADR 0054](0054-echo-looks-declare-their-motion.md) (the looks and their extras), [ADR 0097](0097-echo-looks-fire-like-synapses.md) (the synaptic parts), [live voice](../live-voice.md)
 
 ## Context
