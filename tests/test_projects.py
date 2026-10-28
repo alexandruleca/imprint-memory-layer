@@ -281,6 +281,17 @@ class NoTextDocumentTests(ProjectStoreTests):
         self.assertIn('OCR cannot run', self.ingest())
         self.assertEqual([Path(call.args[0]).name for call in extract.call_args_list], ['scan.pdf'])
 
+    def test_photos_without_text_complete_with_notes(self):
+        (self.folder / 'photo.jpg').write_bytes(b'photo without text')
+        self.unreadable.add('photo.jpg')
+        self.ocr = True
+        with patch('imprint.extractors.ocr.available', return_value=True):
+            output = self.ingest()
+            self.assertIn('Indexing Complete', output)
+            self.assertNotIn('Indexing Incomplete', output)
+            self.assertIn('photo.jpg: no extractable text', output)
+            self.assertNotIn('Failed:', output)
+
     def test_document_that_loses_its_text_keeps_its_earlier_chunks(self):
         self.ingest()
         (self.folder / 'text.pdf').write_bytes(b'%PDF rescanned without a text layer')

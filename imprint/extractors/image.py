@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 import os
 
-from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, register_ext, register_mime
+from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, OcrRuntimeMissing, register_ext, register_mime
 
 
 _IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
@@ -38,7 +38,7 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     try:
         from PIL import Image  # type: ignore
     except ImportError as e:
-        raise ExtractorUnavailable(f"image OCR runtime missing ({e}) — run imprint bootstrap") from e
+        raise OcrRuntimeMissing(f"image OCR runtime missing ({e}) — run imprint bootstrap") from e
 
     from .ocr import recognize
     with Image.open(io.BytesIO(data)) as img:

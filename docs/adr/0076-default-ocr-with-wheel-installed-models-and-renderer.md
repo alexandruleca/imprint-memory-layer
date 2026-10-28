@@ -3,9 +3,10 @@ title: ADR 0076 — Default OCR with wheel-installed models and renderer
 description: Enable OCR by default and install its models and PDF renderer with the base runtime instead of requiring separately installed system tools.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
 - Amends: [ADR 0040](0040-documents-with-nothing-to-index.md) — OCR defaults, tool detection and runtime error handling
+- Amended by: [ADR 0109](0109-automatic-ocr-runtime-repair.md) — automatically repair missing bundled OCR dependencies
 
 ## Context
 

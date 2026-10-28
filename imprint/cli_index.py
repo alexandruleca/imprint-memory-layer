@@ -55,7 +55,7 @@ def _enabled_doc_formats() -> set[str]:
     base = {"pdf": [".pdf"], "docx": [".docx"], "pptx": [".pptx"],
             "xlsx": [".xlsx"], "csv": [".csv", ".tsv"], "epub": [".epub"],
             "rtf": [".rtf"], "html": [".html", ".htm"],
-            "eml": [".eml", ".mbox"], "json": [".json"]}
+            "eml": [".eml", ".mbox"], "json": [".json", ".jsonc"]}
     out: set[str] = set()
     for name in (x.strip().lower() for x in raw.split(",") if x.strip()):
         out.update(base.get(name, []))

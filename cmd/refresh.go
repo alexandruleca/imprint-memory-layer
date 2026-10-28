@@ -48,7 +48,7 @@ Examples:
 	pinDirectoryWorkspace(projectDir, dataDir, targetDir)
 
 	lock := acquireOrEnqueue(dataDir, "refresh", queueArgs(originalArgs, true, nil, []string{"--batch-size"}))
-	defer lock.Release()
+	defer func() { lock.Release() }()
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
@@ -97,7 +97,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
+	if err := runWithOcrRepair(cmd, &lock); err != nil {
 		output.Fail("Refresh failed: " + err.Error())
 	}
 }

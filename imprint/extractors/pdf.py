@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, register_ext, register_mime
+from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, OcrRuntimeMissing, register_ext, register_mime
 
 
 def _ocr_enabled() -> bool:
@@ -61,7 +61,7 @@ def _extract_ocr(data: bytes, lang: str) -> str:
     try:
         import pypdfium2 as pdfium
     except ImportError as e:
-        raise ExtractorUnavailable("PDF OCR runtime missing — run imprint bootstrap") from e
+        raise OcrRuntimeMissing("PDF OCR runtime missing — run imprint bootstrap") from e
     from .ocr import recognize
     chunks = []
     # Render one page at a time so long scans do not retain every bitmap.

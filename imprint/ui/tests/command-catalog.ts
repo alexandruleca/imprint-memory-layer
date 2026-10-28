@@ -21,7 +21,7 @@ export const commands = [
     description: "Register Imprint's MCP server, hooks and instructions with your AI tools", fields: [client] },
   { name: 'disconnect', label: 'Disconnect clients', group: 'Clients',
     description: "Remove Imprint's MCP server, hooks and instructions from your AI tools", fields: [client],
-    confirm: 'The chosen clients stop using Imprint: its MCP server, hooks and instructions are removed from their settings, including their recorded WSL profiles. Memories, the runtime and this dashboard stay; Connect clients restores the local ones.' },
+    confirm: 'The chosen clients stop using Imprint: its MCP server, hooks and instructions are removed from their settings. Memories, the runtime and this dashboard stay; Connect clients restores the local ones.' },
   { name: 'doctor', label: 'Diagnose', group: 'Inspect', description: 'Check the runtime, dependencies and integrations without changing them',
     fields: [{ key: 'probe_mcp', label: 'Start the MCP server', kind: 'switch', hint: "Also start Imprint's MCP server once and list its tools, as a client would" }] },
 ];

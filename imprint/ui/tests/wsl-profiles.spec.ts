@@ -26,6 +26,7 @@ async function mockApi(page: Page, wsl: Record<string, unknown> | (() => Record<
   await page.route('**/api/ping', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/version', route => route.fulfill({ json: { version: 'test' } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/fs/roots', route => route.fulfill({ json: { platform: 'Windows', roots: [], wsl: false } }));
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [] } }));
   await page.route('**/api/wsl', route => {
     state.probes++;
@@ -94,9 +95,16 @@ test('removing asks first', async ({ page }) => {
   expect(state.posts).toEqual([{ action: 'remove', distribution: 'Ubuntu', target: 'claude-code' }]);
 });
 
-test('a runtime that is not Windows says where WSL profiles are enrolled', async ({ page }) => {
-  await mockApi(page, { supported: false, platform: 'Linux' });
-  await page.goto('/settings/#wsl');
-  await section(page).getByRole('button', { name: 'Check distributions' }).click();
-  await expect(section(page)).toContainText('enrolled from a Windows installation of Imprint; this one runs on Linux');
-});
+for (const platform of ['Darwin', 'Linux']) {
+  test(`${platform} hides WSL navigation, deep links and search results`, async ({ page }) => {
+    const state = await mockApi(page, { supported: false, platform });
+    await page.route('**/api/fs/roots', route => route.fulfill({ json: { platform, roots: [], wsl: false } }));
+    await page.goto('/settings/#wsl');
+    await expect(page.getByRole('link', { name: 'Workspaces', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'WSL profiles' })).toHaveCount(0);
+    await expect(section(page)).toHaveCount(0);
+    await page.getByRole('textbox', { name: 'Filter settings' }).fill('wsl');
+    await expect(page.getByText('No matching settings')).toBeVisible();
+    expect(state.probes).toBe(0);
+  });
+}

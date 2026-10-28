@@ -150,7 +150,8 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
 
-- [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled.
+- [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled. Amended by [ADR 0109](0109-automatic-ocr-runtime-repair.md) (automatic missing-runtime repair).
+- [ADR 0109](0109-automatic-ocr-runtime-repair.md) **Automatic OCR runtime repair.** Release the job lock, attempt noninteractive bootstrap once per managed command and retry in a fresh extraction worker when bundled OCR dependencies are missing.
 
 - [ADR 0085](0085-main-only-fast-forwards-to-dev.md) **Main only fast-forwards to dev.** Every change reaches main by fast-forwarding main to a dev commit; pull requests target dev, and no workflow fast-forwards dev after pushes to main.
 
@@ -255,7 +256,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0073](0073-remove-a-pairing-from-one-device.md) | 2026-10-26 | Accepted | Remove a pairing from one device without the other's acknowledgement |
 | [0074](0074-uninstall-removes-the-shared-desktop-profile.md) | 2026-10-26 | Accepted | Uninstall removes the shared desktop profile |
 | [0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) | 2026-10-26 | Accepted | Microphone purpose in the macOS installer wrapper |
-| [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Accepted | Default OCR with wheel-installed models and renderer |
+| [0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | 2026-10-26 | Amended by [ADR 0109](0109-automatic-ocr-runtime-repair.md) | Default OCR with wheel-installed models and renderer |
 | [0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md) | 2026-10-26 | Accepted | The Stop hook hands its turn to one waiting learner under the queue lock |
 | [0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) | 2026-10-26 | Accepted | Keep Qwen3.5-4B as the local tagger |
 | [0079](0079-learn-only-what-the-claude-code-user-typed.md) | 2026-10-26 | Amended by [ADR 0082](0082-retain-readable-conversation-evidence.md) | Learn only what the Claude Code user typed |
@@ -289,6 +290,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0106](0106-intel-mac-laptop-runner.md) | 2026-10-28 | Accepted | Intel Mac laptop runner |
 | [0107](0107-git-lists-a-repositorys-files-wsl-repositories-through-their-distribution.md) | 2026-10-28 | Accepted | Git lists a repository's files; WSL repositories through their distribution |
 | [0108](0108-installations-opt-in-to-dev-builds-in-settings.md) | 2026-10-28 | Accepted | Installations opt in to dev builds in Settings |
+| [0109](0109-automatic-ocr-runtime-repair.md) | 2026-10-28 | Accepted | Automatic OCR runtime repair |
 
 ## How to write and maintain ADRs
 

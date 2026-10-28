@@ -28,7 +28,7 @@ func IngestURL(args []string) {
 	}
 
 	lock := acquireOrEnqueue(dataDir, "ingest-url", queueArgs(args, false, []string{"--from-file"}, []string{"--project", "--follow-depth"}))
-	defer lock.Release()
+	defer func() { lock.Release() }()
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
@@ -45,8 +45,8 @@ func IngestURL(args []string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
-		os.Exit(1)
+	if err := runWithOcrRepair(cmd, &lock); err != nil {
+		output.Fail("URL ingestion failed: " + err.Error())
 	}
 }
 
@@ -83,7 +83,7 @@ func RefreshURLs(args []string) {
 	}
 
 	lock := acquireOrEnqueue(dataDir, "refresh-urls", args)
-	defer lock.Release()
+	defer func() { lock.Release() }()
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
@@ -95,7 +95,7 @@ func RefreshURLs(args []string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
-		os.Exit(1)
+	if err := runWithOcrRepair(cmd, &lock); err != nil {
+		output.Fail("URL ingestion failed: " + err.Error())
 	}
 }

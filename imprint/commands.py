@@ -88,7 +88,7 @@ CATALOG: tuple[dict, ...] = (
      'description': "Remove Imprint's MCP server, hooks and instructions from your AI tools",
      'fields': [{'key': 'target', 'label': 'Client', 'kind': 'client'}],
      'confirm': ("The chosen clients stop using Imprint: its MCP server, hooks and instructions are removed "
-                 "from their settings, including their recorded WSL profiles. Memories, the runtime and this "
+                 "from their settings. Memories, the runtime and this "
                  "dashboard stay; Connect clients restores the local ones.")},
     {'name': 'status', 'label': 'Status', 'group': 'Inspect',
      'description': 'Server state, memory counts and hooks', 'fields': []},

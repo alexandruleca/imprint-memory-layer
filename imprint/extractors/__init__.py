@@ -27,6 +27,10 @@ class ExtractorUnavailable(RuntimeError):
     """Raised when an extractor's optional dep isn't installed."""
 
 
+class OcrRuntimeMissing(ExtractorUnavailable):
+    """Missing bundled OCR dependencies; eligible for one bootstrap attempt."""
+
+
 class ExtractionError(RuntimeError):
     """Raised when extraction of an otherwise-supported file fails."""
 
@@ -75,7 +79,7 @@ DOC_EXTENSIONS: set[str] = {
     ".epub", ".rtf",
     ".html", ".htm",
     ".eml", ".mbox",
-    ".json",
+    ".json", ".jsonc",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
 }
 from ..audio_ingest import AUDIO_EXTENSIONS
@@ -93,6 +97,19 @@ def _normalize_result(result: ExtractorResult) -> list[ExtractedDoc]:
     return [result]
 
 
+def _with_ocr_repair(extract):
+    try:
+        return extract()
+    except OcrRuntimeMissing:
+        if os.environ.get("IMPRINT_OCR_REPAIR_REQUEST") == "1":
+            import sys
+            print("OCR runtime missing; pausing ingestion for automatic bootstrap…", file=sys.stderr, flush=True)
+            # The CLI must let this worker exit and release the queue lock
+            # before bootstrap can hold it and replace the runtime.
+            raise SystemExit(75)
+        raise
+
+
 def dispatch_by_ext(path: str, *, force: bool = False) -> list[ExtractedDoc]:
     """Route a file path to the matching extractor. Raises
     ExtractorUnavailable if the extractor's optional dep is missing.
@@ -104,7 +121,8 @@ def dispatch_by_ext(path: str, *, force: bool = False) -> list[ExtractedDoc]:
     fn = _BY_EXT.get(ext)
     if fn is None:
         raise ExtractorUnavailable(f"no extractor registered for {ext!r}")
-    return _normalize_result(fn(path, force=force) if ext in AUDIO_EXTENSIONS else fn(path))
+    return _normalize_result(_with_ocr_repair(
+        lambda: fn(path, force=force) if ext in AUDIO_EXTENSIONS else fn(path)))
 
 
 def dispatch_by_mime(mime: str, data: bytes, source_url: str = "") -> list[ExtractedDoc]:
@@ -125,7 +143,7 @@ def dispatch_by_mime(mime: str, data: bytes, source_url: str = "") -> list[Extra
             fn = _BY_MIME.get("image/*")
     if fn is None:
         raise ExtractorUnavailable(f"no extractor registered for mime {base!r}")
-    return _normalize_result(fn(data, source_url))
+    return _normalize_result(_with_ocr_repair(lambda: fn(data, source_url)))
 
 
 # ── Plain-text extractor (always available) ────────────────────
@@ -187,6 +205,7 @@ __all__ = [
     "ExtractedDoc",
     "ExtractorResult",
     "ExtractorUnavailable",
+    "OcrRuntimeMissing",
     "ExtractionError",
     "register_ext",
     "register_mime",

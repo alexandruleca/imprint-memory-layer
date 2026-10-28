@@ -10,7 +10,7 @@ from imprint.extractors import ExtractionError, json_doc
 class JsoncTests(unittest.TestCase):
     def extract(self, text):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'tsconfig.node.json'
+            path = Path(directory) / 'devcontainer.json'
             path.write_text(text)
             return json_doc.extract(str(path))
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 import threading
 
-from . import ExtractorUnavailable, ExtractionError
+from . import ExtractorUnavailable, ExtractionError, OcrRuntimeMissing
 
 _lock = threading.Lock()
 
@@ -14,7 +14,7 @@ def _engine():
     try:
         from rapidocr import RapidOCR
     except ImportError as error:
-        raise ExtractorUnavailable(f'OCR runtime missing ({error}) — run imprint bootstrap') from error
+        raise OcrRuntimeMissing(f'OCR runtime missing ({error}) — run imprint bootstrap') from error
     # Small, bundled models; keep CPU parallelism bounded on workstations.
     return RapidOCR(params={
         'Global.log_level': 'error',

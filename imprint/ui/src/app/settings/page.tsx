@@ -9,7 +9,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { getConfig, resetConfigValue, setConfigValue } from "@/lib/api";
+import { getConfig, getFsRoots, resetConfigValue, setConfigValue } from "@/lib/api";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader, PaneHeading, PaneLink, SplitPage } from "@/components/split-page";
@@ -71,12 +71,15 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const hash = useHash();
+  const [windows, setWindows] = useState(false);
+  const deviceSections = DEVICE_SECTIONS.filter((section) => section.id !== "wsl" || windows);
 
   async function load() {
     setSettings((await getConfig()).settings);
   }
 
   useEffect(() => {
+    getFsRoots().then((roots) => setWindows(roots.platform === "Windows")).catch(() => {});
     getConfig()
       .then((d) => setSettings(d.settings))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
@@ -134,14 +137,14 @@ export default function SettingsPage() {
     if (group) group[1].push(s);
     else groups.push([name, [s]]);
   }
-  const ids = [...groups.map(([name]) => `settings-${name}`), ...DEVICE_SECTIONS.map((d) => d.id)];
+  const ids = [...groups.map(([name]) => `settings-${name}`), ...deviceSections.map((d) => d.id)];
   // Filtering searches every section; otherwise one section shows at a time.
   const current = ids.includes(hash) ? hash : ids[0];
   const visible = (id: string) => (q ? true : id === current);
   const found = groups
     .map(([name, items]) => [name, q ? items.filter((s) => matches(s, q)) : items] as [string, ConfigSetting[]])
     .filter(([name, items]) => items.length > 0 && visible(`settings-${name}`));
-  const devices = DEVICE_SECTIONS.filter((d) => (q ? d.words.includes(q) : d.id === current));
+  const devices = deviceSections.filter((d) => (q ? d.words.includes(q) : d.id === current));
 
   return (
     <SplitPage
@@ -172,7 +175,7 @@ export default function SettingsPage() {
           </div>
           <PaneHeading>This device</PaneHeading>
           <div className="space-y-0.5">
-            {DEVICE_SECTIONS.map(({ id, title, icon: Icon }) => (
+            {deviceSections.map(({ id, title, icon: Icon }) => (
               <PaneLink key={id} href={`#${id}`} selected={!q && current === id} onClick={() => setQuery("")}>
                 <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{title}</span>

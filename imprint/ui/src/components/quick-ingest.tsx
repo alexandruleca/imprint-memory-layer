@@ -255,8 +255,7 @@ export function QuickIngest() {
               {activeAction.fields.some((f) => f.browse) && (
                 <p className="text-[11px] text-muted-foreground sm:pl-[152px]">
                   Paths are resolved on the server (not in your browser). The
-                  picker browses the server&apos;s filesystem — on WSL2 that
-                  means WSL paths like <code>/mnt/c/</code>.
+                  picker browses the filesystem of the device running Imprint.
                 </p>
               )}
             </div>

@@ -542,6 +542,15 @@ def extract(path: str) -> ExtractorResult:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
         data = _loads(raw)
+        fname = os.path.basename(path)
+        # TypeScript accepts JSON with comments and trailing commas. Keep
+        # configuration source verbatim rather than parsing it as an export.
+        if (fname.endswith(".jsonc") or
+                any(fname == f"{prefix}.json" or
+                    (fname.startswith(f"{prefix}.") and fname.endswith(".json"))
+                    for prefix in ("tsconfig", "jsconfig"))):
+            return ExtractedDoc(text=raw, mime="application/jsonc",
+                                metadata={"source_format": "jsonc"}, chunk_mode="code")
     except _json.JSONDecodeError as e:
         raise ExtractionError(f"invalid JSON: {e}")
     except OSError as e:
@@ -643,3 +652,5 @@ def extract(path: str) -> ExtractorResult:
 
 
 register_ext(".json", extract)
+
+register_ext(".jsonc", extract)

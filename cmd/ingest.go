@@ -10,6 +10,7 @@ import (
 
 	"github.com/hunter/imprint/internal/output"
 	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/queuelock"
 	"github.com/hunter/imprint/internal/runner"
 )
 
@@ -91,7 +92,7 @@ func Ingest(args []string) {
 	}
 
 	lock := acquireOrEnqueue(dataDir, "ingest", queueArgs(originalArgs, true, nil, []string{"--batch-size"}))
-	defer lock.Release()
+	defer func() { lock.Release() }()
 
 	envVars := []string{
 		"PYTHONPATH=" + projectDir,
@@ -104,10 +105,10 @@ func Ingest(args []string) {
 
 	if info.IsDir() {
 		output.Info("Indexing project files...")
-		indexDir(venvPython, envVars, target, projectDir, dataDir, batchSize, force)
+		indexDir(venvPython, envVars, target, projectDir, dataDir, batchSize, force, &lock)
 	} else {
 		output.Info("Indexing single file...")
-		indexFile(venvPython, envVars, target, projectDir, batchSize, force)
+		indexFile(venvPython, envVars, target, projectDir, batchSize, force, &lock)
 	}
 
 	fmt.Println()
@@ -133,7 +134,7 @@ func runPython(venvPython string, envVars []string, script string) {
 	}
 }
 
-func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDir string, batchSize int, force bool) {
+func indexDir(venvPython string, envVars []string, targetDir, projectDir, dataDir string, batchSize int, force bool, held ...**queuelock.Handle) {
 	if !platform.DirExists(targetDir) {
 		output.Warn("Directory not found: " + targetDir)
 		return
@@ -187,12 +188,12 @@ print(json.dumps([{"name": p["name"], "path": p["path"], "type": p["type"]} for 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
+	if err := runWithOcrRepair(cmd, held...); err != nil {
 		output.Fail("Indexing command failed: " + err.Error())
 	}
 }
 
-func indexFile(venvPython string, envVars []string, filePath, projectDir string, batchSize int, force bool) {
+func indexFile(venvPython string, envVars []string, filePath, projectDir string, batchSize int, force bool, held ...**queuelock.Handle) {
 	// Detect project from the file's parent directory
 	parentDir := filepath.Dir(filePath)
 	detectScript := fmt.Sprintf(`
@@ -227,7 +228,7 @@ print(json.dumps([{"name": p["name"], "path": p["path"]} for p in projects]))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
+	if err := runWithOcrRepair(cmd, held...); err != nil {
 		output.Fail("Indexing command failed: " + err.Error())
 	}
 }
