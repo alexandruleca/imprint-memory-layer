@@ -15,10 +15,29 @@ from __future__ import annotations
 
 import json as _json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 from . import ExtractedDoc, ExtractorResult, ExtractionError, register_ext
+
+
+# JSON with comments (JSONC): tsconfig, jsconfig, dev container and VS Code
+# files carry // and /* */ comments and trailing commas under a .json name.
+# Strings are matched first so slashes inside them are left alone.
+_JSONC_COMMENT = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+_JSONC_TRAILING_COMMA = re.compile(r'"(?:\\.|[^"\\])*"|,(?=\s*[}\]])')
+
+
+def _loads(raw: str) -> Any:
+    """Parse JSON or JSONC. Only text that is not plain JSON pays for the
+    JSONC pass, which blanks comments and trailing commas to spaces so
+    errors keep their line and column."""
+    try:
+        return _json.loads(raw)
+    except _json.JSONDecodeError:
+        blank = lambda match: match[0] if match[0][0] == '"' else re.sub(r'[^\n]', ' ', match[0])
+        return _json.loads(_JSONC_TRAILING_COMMA.sub(blank, _JSONC_COMMENT.sub(blank, raw)))
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -522,7 +541,7 @@ def extract(path: str) -> ExtractorResult:
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
-        data = _json.loads(raw)
+        data = _loads(raw)
     except _json.JSONDecodeError as e:
         raise ExtractionError(f"invalid JSON: {e}")
     except OSError as e:
