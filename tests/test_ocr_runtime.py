@@ -20,6 +20,17 @@ class OcrRuntimeTests(unittest.TestCase):
                     image._extract_bytes(b'not read while disabled')
         self.assertTrue(next(s.default for s in config_schema.SETTINGS if s.key == 'ingest.ocr_enabled'))
 
+    def test_a_missing_runtime_names_the_import_that_failed(self):
+        from imprint.extractors import ocr
+        ocr._engine.cache_clear()
+        self.addCleanup(ocr._engine.cache_clear)
+        with patch.dict('sys.modules', {'rapidocr': None}), \
+                self.assertRaisesRegex(ExtractorUnavailable, 'rapidocr'):
+            ocr._engine()
+        with patch.object(image, '_ocr_enabled', return_value=True), patch.dict('sys.modules', {'PIL': None}), \
+                self.assertRaisesRegex(ExtractorUnavailable, 'PIL'):
+            image._extract_bytes(b'not read without Pillow')
+
     def test_pdf_ocr_errors_propagate_and_text_layer_skips_ocr(self):
         with patch.object(pdf, '_ocr_enabled', return_value=True), \
                 patch.object(pdf, '_extract_text_pypdf', return_value=('', {'page_count': 1})), \

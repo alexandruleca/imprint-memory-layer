@@ -14,7 +14,7 @@ def _engine():
     try:
         from rapidocr import RapidOCR
     except ImportError as error:
-        raise ExtractorUnavailable('OCR runtime missing — run imprint bootstrap') from error
+        raise ExtractorUnavailable(f'OCR runtime missing ({error}) — run imprint bootstrap') from error
     # Small, bundled models; keep CPU parallelism bounded on workstations.
     return RapidOCR(params={
         'Global.log_level': 'error',

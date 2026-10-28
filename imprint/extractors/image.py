@@ -38,7 +38,7 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     try:
         from PIL import Image  # type: ignore
     except ImportError as e:
-        raise ExtractorUnavailable("image OCR runtime missing — run imprint bootstrap") from e
+        raise ExtractorUnavailable(f"image OCR runtime missing ({e}) — run imprint bootstrap") from e
 
     from .ocr import recognize
     with Image.open(io.BytesIO(data)) as img:
