@@ -385,7 +385,8 @@ jobs:
         run: tar -xzf "dist/imprint-darwin-${ARCH}.tar.gz" -C dist
 
       - name: Install librsvg (for icon rendering)
-        run: brew install librsvg
+        # The Intel laptop's rsvg-convert comes from MacPorts (ADR 0106).
+        run: command -v rsvg-convert >/dev/null || brew install librsvg
 
       - name: Build .pkg
         env:

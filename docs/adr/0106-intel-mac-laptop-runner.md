@@ -48,6 +48,9 @@ The owner chose this over keeping the release-time Intel job hosted.
   testing until a disposable Mac exists.
 - The laptop runs one job at a time; Intel jobs queue while it sleeps or is offline,
   with no hosted fallback.
+- Homebrew has no bottles for macOS 13 and could not build librsvg there (its
+  `python@3.15` dependency fails to compile with the Command Line Tools clang), so
+  the laptop's `rsvg-convert` for the app icon comes from MacPorts.
 - Builds now run on macOS 13 with its Command Line Tools instead of macOS 15 and
   Xcode. The llama.cpp wheel and voice engine already target macOS 13, so their
   deployment floor is unchanged; a newer SDK is no longer exercised.
@@ -69,5 +72,6 @@ The owner chose this over keeping the release-time Intel job hosted.
 
 Registered the checksum-verified official runner 2.338.2 (`osx-x64`) on macOS 13.6.6
 and started its LaunchAgent; GitHub lists it online with the `imprint-intel` label.
-Job execution evidence is recorded in the change report. Not verified: a full
+Native CI ran on it and passed ([run 40688628634](https://github.com/alexandruleca/imprint-memory-layer/actions/runs/40688628634)).
+MacPorts librsvg 2.58.5 renders through the linked `rsvg-convert`. Not verified: a full
 `build-release` or `llama-wheels` run on this runner.

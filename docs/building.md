@@ -234,6 +234,9 @@ registration uses GitHub's current macOS runner archive for the architecture
 --token <temporary-registration-token> --name <name> --labels <label> --work _work`,
 followed by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
 Xcode Command Line Tools, Homebrew, CMake, librsvg and Homebrew `python@3.12` are host prerequisites.
+Homebrew cannot build librsvg on `Narnia-intel`'s macOS 13, so its `rsvg-convert`
+comes from MacPorts (`port install librsvg`), linked into `/usr/local/bin`; the
+packaging job installs librsvg with Homebrew only when `rsvg-convert` is missing.
 Laptop jobs create a fresh Python virtual environment under runner temporary
 storage; workflow setup actions supply Go and Node 22. Hosted jobs retain
 `actions/setup-python`. Its prebuilt macOS interpreter requires `/Users/runner`,
