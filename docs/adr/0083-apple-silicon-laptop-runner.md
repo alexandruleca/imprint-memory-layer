@@ -3,9 +3,10 @@ title: ADR 0083 — Apple silicon laptop runner
 description: Route trusted Apple silicon jobs to the developer laptop while retaining hosted PR and Intel checks.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
 - Scope: Repository Apple silicon workflows and the Outland laptop
+- Amended by: [ADR 0105](0105-intel-mac-laptop-runner.md) — Intel jobs move to the owner's Intel laptop
 
 ## Context
 

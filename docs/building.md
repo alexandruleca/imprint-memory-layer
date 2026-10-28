@@ -198,50 +198,55 @@ uses a disposable cache, seeds only verified model weights and clears PATH to
 prove managed setup does not discover developer tools. See
 [ADR 0047](adr/0047-bundled-private-voice-engine.md).
 
-## Apple silicon laptop runner
+## macOS laptop runners
 
-Trusted push/manual jobs use `[self-hosted, macOS, ARM64, imprint-apple-silicon]`
-for native CI, universal Electron packaging, ARM64 installer packaging, voice
-engine builds and native voice checks. PR jobs use hosted macOS, including PRs
-from branches in this repository. Intel macOS remains hosted. See
-[ADR 0083](adr/0083-apple-silicon-laptop-runner.md).
+Trusted push/manual macOS jobs run on two of the owner's laptops instead of hosted
+macOS: native CI, bundled voice engines, native voice checks, macOS installer
+packaging and the llama.cpp wheels. PR jobs use hosted macOS (`macos-latest`,
+`macos-15-intel`), including PRs from branches in this repository.
 
-The repository runner is `Outland-apple-silicon`, installed outside the checkout at
-`~/.local/share/github-runners/imprint-apple-silicon`. Its credentials and work
-folder must never enter git or release archives. Go dependency/build caches stay local on the laptop; setup-go remote caching is
-disabled there to avoid uploading the owner’s shared caches and delaying cleanup.
-The macOS app artifact preserves symlinks while omitting AppleDouble and extended
-attribute metadata so Linux packaging receives only bundle files.
+| Runner | Labels | Directory | Also runs |
+|--------|--------|-----------|-----------|
+| `Outland-apple-silicon` | `[self-hosted, macOS, ARM64, imprint-apple-silicon]` | `~/.local/share/github-runners/imprint-apple-silicon` | universal Electron packaging |
+| `Narnia-intel` (macOS 13.6, Core i7) | `[self-hosted, macOS, X64, imprint-intel]` | `~/.local/share/github-runners/imprint-intel` | — |
 
-It runs one job at a time as a
-login LaunchAgent under the laptop owner. It starts at login, requires network
-access and an awake laptop, and does not prevent sleep. Jobs queue while it is
-offline; there is no automatic paid hosted fallback. Intel jobs still incur any
-applicable hosted charges.
+See [ADR 0083](adr/0083-apple-silicon-laptop-runner.md) and
+[ADR 0105](adr/0105-intel-mac-laptop-runner.md). Each runner is installed outside
+the checkout. Its credentials and work folder must never enter git or release
+archives. Go dependency/build caches stay local on the laptops; setup-go remote
+caching is disabled there to avoid uploading the owner's shared caches and delaying
+cleanup. The macOS app artifact preserves symlinks while omitting AppleDouble and
+extended attribute metadata so Linux packaging receives only bundle files.
 
-From that runner directory, use `./svc.sh status`, `./svc.sh stop` and
-`./svc.sh start`; logs are under `~/Library/Logs/actions.runner.*`. To retire it,
-stop/uninstall the service and remove the repository runner in GitHub Settings →
-Actions → Runners. A fresh registration uses GitHub's current macOS ARM64 runner
-archive and SHA256 from the runners/downloads API, then `./config.sh --unattended
---url https://github.com/alexandruleca/imprint-memory-layer --token <temporary-registration-token>
---name Outland-apple-silicon --labels imprint-apple-silicon --work _work`, followed
-by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
+Each runs one job at a time as a login LaunchAgent under the laptop owner. It
+starts at login, requires network access and an awake laptop, and does not prevent
+sleep. Jobs queue while it is offline; there is no automatic paid hosted fallback.
+
+From a runner directory, use `./svc.sh status`, `./svc.sh stop` and
+`./svc.sh start`; logs are under `~/Library/Logs/actions.runner.*`. The runner's
+`PATH` is the `.path` file in that directory, written at registration; edit it and
+restart the service to change the tools jobs see. `Narnia-intel`'s is trimmed to Homebrew and system
+directories so the owner's pyenv, nvm and gvm shims stay out of jobs. To retire a runner, stop/uninstall
+the service and remove it in GitHub Settings → Actions → Runners. A fresh
+registration uses GitHub's current macOS runner archive for the architecture
+(`osx-arm64` or `osx-x64`) and the SHA256 published in its release notes, then
+`./config.sh --unattended --url https://github.com/alexandruleca/imprint-memory-layer
+--token <temporary-registration-token> --name <name> --labels <label> --work _work`,
+followed by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
 Xcode Command Line Tools, Homebrew, CMake, librsvg and Homebrew `python@3.12` are host prerequisites.
 Laptop jobs create a fresh Python virtual environment under runner temporary
 storage; workflow setup actions supply Go and Node 22. Hosted jobs retain
 `actions/setup-python`. Its prebuilt macOS interpreter requires `/Users/runner`,
 so it is not used on the laptop.
 
-The laptop package check expands the pkg in runner temporary storage and validates
+The laptop package checks expand the pkg in runner temporary storage and validate
 the payload and compiled helper without installing it or running installer scripts.
-The hosted Intel job retains the full native installation/runtime check. A full
-ARM64 install/upgrade test still requires a disposable Mac; a developer laptop is
-not that fixture.
+No CI job installs the macOS package any more; a full install/upgrade test needs a
+disposable Mac, and a developer laptop is not that fixture.
 
-This public repository's runner executes with the owner's user permissions and
-is not a sandbox. Hosted PR routing reduces accidental exposure but cannot stop a
+This public repository's runners execute with the owner's user permissions and
+are not sandboxes. Hosted PR routing reduces accidental exposure but cannot stop a
 malicious PR from changing workflow routing itself. Do not approve untrusted
-workflow runs targeting this runner; restrict repository write access and review
+workflow runs targeting these runners; restrict repository write access and review
 workflow changes. GitHub recommends private repositories for self-hosted runners:
 [runner security guidance](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).

@@ -3,11 +3,12 @@ title: ADR 0090 — macOS installs llama.cpp wheels built by this repository
 description: A manually run workflow builds llama-cpp-python's macOS wheels from the hash-locked source and publishes them as a prerelease of this repository, and the locks pin them by URL and sha256, so no Mac needs a compiler.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-27
 - Amends:
   - [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) — macOS installs a prebuilt wheel instead of the source distribution
   - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — macOS no longer needs the Xcode Command Line Tools for the binding
+- Amended by: [ADR 0105](0105-intel-mac-laptop-runner.md) — the Intel wheel builds on the Intel laptop runner
 - Related: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md), [ADR 0085](0085-main-only-fast-forwards-to-dev.md)
 
 ## Context
