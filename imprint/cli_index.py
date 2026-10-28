@@ -10,6 +10,7 @@ Options:
 """
 
 import os
+import stat
 import sys
 import time
 
@@ -19,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs
 from imprint import extractors
 from imprint.progress import write_progress, clear_progress
-from imprint.source_state import (allowed_source, fingerprint, stamp_records, unchanged, missing_sources,
+from imprint.source_state import (allowed_source, secret_name, fingerprint, stamp_records, unchanged, missing_sources,
                                   extraction_profile, no_text_reason, known_no_text, remember_no_text)
 from imprint._cli_signals import install as _install_signals
 
@@ -312,12 +313,25 @@ def _git_tracked_files(dir_path: str) -> set[str] | None:
     return {os.fsdecode(name) for name in proc.stdout.split(b"\0") if name}
 
 
+def _is_link(entry: os.DirEntry) -> bool:
+    """A symbolic link, or a Windows junction. Both come from the directory
+    listing itself, so the check costs no filesystem call."""
+    if entry.is_symlink():
+        return True
+    return os.name == "nt" and entry.stat(follow_symlinks=False).st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT
+
+
 def scan_dir(dir_path, exclude_paths=None):
     """Walk a directory and return list of (rel_path, full_path) for indexable files.
 
+    The walk follows no links, so every file it lists lies under dir_path and
+    none is listed twice, without resolving a path: over \\\\wsl.localhost a
+    resolved path costs ~23 ms, a listed entry ~0.15 ms (ADR 0110).
+
     exclude_paths: optional list of directories to skip entirely (e.g. sub-project
     roots when scanning a root-fallback project so manifested children aren't
-    double-indexed).
+    double-indexed). They are spelled from the same root as dir_path, as
+    find_projects returns them.
     """
     if not os.path.isdir(dir_path):
         raise NotADirectoryError(f"Index root is not a readable directory: {dir_path}")
@@ -341,38 +355,35 @@ def scan_dir(dir_path, exclude_paths=None):
             while (name := name.rpartition("/")[0]) and name not in git_dirs:
                 git_dirs.add(name)
 
-    exclude_resolved = {os.path.realpath(p) for p in (exclude_paths or [])}
+    excluded = {os.path.relpath(p, dir_path).replace(os.sep, "/") for p in (exclude_paths or [])}
 
     files = []
-    for root, subdirs, fnames in os.walk(dir_path, onerror=lambda error: (_ for _ in ()).throw(error)):
-        rel_root = os.path.relpath(root, dir_path).replace(os.sep, "/")
-        prefix = "" if rel_root == "." else rel_root + "/"
-        subdirs[:] = [
-            d for d in subdirs
-            if d not in SKIP_DIRS
-            and not d.startswith('.')
-            and (git_dirs is None or prefix + d in git_dirs)
-            and os.path.realpath(os.path.join(root, d)) not in exclude_resolved
-        ]
-        for fname in fnames:
-            if fname in SKIP_FILES:
-                continue
-            # Any .env* file (.env, .env.local, .env.production, etc.) —
-            # may contain secrets, never index.
-            if fname == '.env' or fname.startswith('.env.'):
-                continue
-            ext = os.path.splitext(fname)[1].lower()
-            if ext in skip_exts or fname.endswith(('.min.js', '.min.css', '.d.ts')):
-                continue
-            if ext not in effective_exts:
-                continue
-            fpath = os.path.join(root, fname)
-            if not allowed_source(fpath, dir_path):
-                continue
-            rel = os.path.relpath(fpath, dir_path).replace(os.sep, "/")
-            if git_files is not None and rel.replace(os.sep, "/") not in git_files:
-                continue
-            files.append((rel, fpath))
+    pending = [(dir_path, "")]
+    while pending:
+        directory, prefix = pending.pop()
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if _is_link(entry):
+                    continue
+                name, rel = entry.name, prefix + entry.name
+                if entry.is_dir():
+                    if (name not in SKIP_DIRS
+                            and not name.startswith('.')
+                            and (git_dirs is None or rel in git_dirs)
+                            and rel not in excluded):
+                        pending.append((entry.path, rel + "/"))
+                    continue
+                # Known secret files (.env*, private keys) are never indexed.
+                if name in SKIP_FILES or secret_name(name):
+                    continue
+                ext = os.path.splitext(name)[1].lower()
+                if ext in skip_exts or name.endswith(('.min.js', '.min.css', '.d.ts')):
+                    continue
+                if ext not in effective_exts:
+                    continue
+                if git_files is not None and rel not in git_files:
+                    continue
+                files.append((rel, entry.path))
     return files
 
 

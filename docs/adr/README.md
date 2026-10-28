@@ -30,7 +30,7 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Storage and retrieval
 
-- [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) **Source lifecycle and hybrid retrieval.** Content provenance, safe source replacement and bounded hybrid ranking.
+- [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) **Source lifecycle and hybrid retrieval.** Content provenance, safe source replacement and bounded hybrid ranking. Amended by [ADR 0110](0110-the-scan-follows-no-links.md) (the scan follows no links).
 - [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) **Budgeted MCP evidence and selective expansion.** Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance.
 - [ADR 0022](0022-http-client-lifetime-during-model-work.md) **Retain HTTP clients during model work.** Keep HTTP Qdrant clients alive through cold model work; retire the embedded-lock idle timer.
 - [ADR 0036](0036-move-memories-between-projects.md) **Move memories between projects.** Projects place memories their writers named; workspace rules applied at every write keep moves through refresh, learning and sync, without changing source keys.
@@ -49,6 +49,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) **Learn from client stores by conversation ownership.** Learning reads the clients' own stores without an approved root; recorded working directories decide which workspace a conversation belongs to. Amended by [ADR 0037](0037-learn-every-integrated-client-store.md) (stores and Codex working directories), [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor folder names) and [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (project files). Amended by [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) (explicit directory-free inbox).
 - [ADR 0037](0037-learn-every-integrated-client-store.md) **Learn from every integrated client store.** Learning reads this computer's Claude Code and Codex profiles and every registered WSL profile, each in the path context its hooks use. Amended by [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) (Cursor stores), [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) (Cline stores) and [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) (Copilot stores).
 - [ADR 0107](0107-git-lists-a-repositorys-files-wsl-repositories-through-their-distribution.md) **Git lists a repository's files; WSL repositories through their distribution.** Inside a git repository the scan indexes only what git lists and never enters ignored directories; a WSL repository is listed by its distribution's git, and a repository git cannot list fails the scan.
+- [ADR 0110](0110-the-scan-follows-no-links.md) **The scan follows no links.** The directory scan lists no symbolic link or Windows junction, so it keeps files inside their root without resolving each one.
 - [ADR 0040](0040-documents-with-nothing-to-index.md) **Documents with nothing to index.** A document without extractable text is skipped with a reason, not failed, and retried only when its bytes or the extraction profile change. Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) (default bundled OCR and retryable tool failures).
 - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) **Learn Cursor conversations from their folder names.** A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target. Amended by [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) (explicit directory-free inbox).
 - [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) **Learn Cline sessions from their manifests.** A Cline session's manifest is its working-directory evidence; Cline's sessions directory is a learn store, setup registers where Cline 4 reads, and `cline` is a WSL registration target.
@@ -185,7 +186,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0002](0002-build-and-validate-before-publication.md) | 2026-10-23 | Amended by [ADR 0014](0014-main-only-release-packaging.md) | Validate releases before publication |
 | [0003](0003-local-mcp-and-portable-hooks.md) | 2026-10-23 | Accepted | Local MCP and portable hooks |
 | [0004](0004-runtime-dependencies-and-local-boundaries.md) | 2026-10-23 | Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) | Runtime dependencies and local boundaries |
-| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | 2026-10-23 | Accepted | Source lifecycle and hybrid retrieval |
+| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | 2026-10-23 | Amended by [ADR 0110](0110-the-scan-follows-no-links.md) | Source lifecycle and hybrid retrieval |
 | [0006](0006-durable-mcp-and-preserved-client-config.md) | 2026-10-23 | Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Durable MCP and preserved client configuration |
 | [0007](0007-verified-runtime-and-desktop-baseline.md) | 2026-10-23 | Accepted | Verified runtime and desktop baseline |
 | [0008](0008-dashboard-retrieval-and-accessibility.md) | 2026-10-23 | Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | Dashboard retrieval and accessibility |
@@ -291,6 +292,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0107](0107-git-lists-a-repositorys-files-wsl-repositories-through-their-distribution.md) | 2026-10-28 | Accepted | Git lists a repository's files; WSL repositories through their distribution |
 | [0108](0108-installations-opt-in-to-dev-builds-in-settings.md) | 2026-10-28 | Accepted | Installations opt in to dev builds in Settings |
 | [0109](0109-automatic-ocr-runtime-repair.md) | 2026-10-28 | Accepted | Automatic OCR runtime repair |
+| [0110](0110-the-scan-follows-no-links.md) | 2026-10-28 | Accepted | The scan follows no links |
 
 ## How to write and maintain ADRs
 

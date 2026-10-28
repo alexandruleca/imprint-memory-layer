@@ -3,8 +3,9 @@ title: ADR 0005 — Source lifecycle and hybrid retrieval
 description: Full-content chunk identities, byte provenance, safe source replacement and bounded rank fusion.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0110](0110-the-scan-follows-no-links.md) — the directory scan keeps files inside the selected root by following no links instead of resolving each file
 - Restructured: 2026-10-25
 
 ## Context

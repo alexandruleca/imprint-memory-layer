@@ -12,12 +12,16 @@ from . import device
 _SECRET_NAMES = {'.env', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'}
 
 
+def secret_name(name: str) -> bool:
+    name = name.lower()
+    return name in _SECRET_NAMES or name.startswith('.env.') or name.endswith(('.key', '.p12', '.pfx'))
+
+
 def allowed_source(path: str | Path, root: str | Path | None = None) -> bool:
     path = Path(path)
     resolved = path.resolve()
-    for name in (path.name.lower(), resolved.name.lower()):
-        if name in _SECRET_NAMES or name.startswith('.env.') or name.endswith(('.key', '.p12', '.pfx')):
-            return False
+    if secret_name(path.name) or secret_name(resolved.name):
+        return False
     return root is None or resolved.is_relative_to(Path(root).resolve())
 
 

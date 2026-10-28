@@ -68,6 +68,54 @@ class FingerprintTests(unittest.TestCase):
                 self.assertFalse(allowed_source(root / name))
             self.assertFalse(allowed_source(root.parent / 'outside.py', root))
 
+    def test_scan_follows_no_links_and_skips_secret_names(self):
+        from imprint.cli_index import scan_dir
+        with tempfile.TemporaryDirectory() as directory:
+            root, outside = Path(directory) / 'root', Path(directory) / 'outside'
+            (root / 'sub').mkdir(parents=True)
+            outside.mkdir()
+            (root / 'app.py').write_text('x = 1\n')
+            (root / 'sub' / 'lib.py').write_text('y = 2\n')
+            (outside / 'escaped.py').write_text('z = 3\n')
+            for name in ('.env.local', 'id_rsa', 'server.key'):
+                (root / name).write_text('secret\n')
+            try:
+                (root / 'alias.py').symlink_to(root / 'app.py')
+                (root / 'subalias').symlink_to(root / 'sub', target_is_directory=True)
+                (root / 'escape.py').symlink_to(outside / 'escaped.py')
+                (root / 'out').symlink_to(outside, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f'Symlinks unavailable: {error}')
+            self.assertEqual(sorted(scan_dir(str(root))), [('app.py', str(root / 'app.py')),
+                                                           ('sub/lib.py', str(root / 'sub' / 'lib.py'))])
+
+    @unittest.skipUnless(os.name == 'nt', 'junctions are a Windows directory link')
+    def test_scan_follows_no_junctions(self):
+        import _winapi
+        from imprint.cli_index import scan_dir
+        with tempfile.TemporaryDirectory() as directory:
+            root, outside = Path(directory) / 'root', Path(directory) / 'outside'
+            root.mkdir()
+            outside.mkdir()
+            (root / 'app.py').write_text('x = 1\n')
+            (outside / 'escaped.py').write_text('z = 3\n')
+            _winapi.CreateJunction(str(outside), str(root / 'out'))
+            self.assertEqual(scan_dir(str(root)), [('app.py', str(root / 'app.py'))])
+
+    def test_scan_resolves_no_path(self):
+        # Over \\wsl.localhost every resolved path is a ~23 ms round trip.
+        from imprint.cli_index import scan_dir
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'docs').mkdir()
+            (root / 'docs' / 'guide.md').write_text('# Guide\n')
+            (root / 'service').mkdir()
+            (root / 'service' / 'main.py').write_text('x = 1\n')
+            refuse = AssertionError('the scan resolved a path')
+            with patch('os.path.realpath', side_effect=refuse), patch.object(Path, 'resolve', side_effect=refuse):
+                files = scan_dir(str(root), exclude_paths=[str(root / 'service')])
+            self.assertEqual(files, [('docs/guide.md', str(root / 'docs' / 'guide.md'))])
+
     def test_scan_never_lists_git_ignored_directories(self):
         from imprint.cli_index import scan_dir
         with tempfile.TemporaryDirectory() as directory:
