@@ -14,7 +14,7 @@ from imprint import updates
 REPORT = {
     'current': 'v0.13.1', 'latest': 'v0.14.0', 'name': 'v0.14.0',
     'url': 'https://example.invalid/releases/v0.14.0', 'published_at': '2026-10-24T00:00:00Z',
-    'update_available': True, 'method': 'windows-setup',
+    'update_available': True, 'method': 'windows-setup', 'channel': 'stable', 'prerelease': False,
 }
 
 
@@ -30,6 +30,9 @@ class UpdateModuleTests(unittest.TestCase):
         patcher = patch.object(updates, 'log_path', return_value=log)
         patcher.start()
         self.addCleanup(patcher.stop)
+        channel = patch.dict(os.environ, {'IMPRINT_UPDATE_CHANNEL': 'stable'})
+        channel.start()
+        self.addCleanup(channel.stop)
         updates._report, updates._checked_at, updates._process = None, 0.0, None
         self.addCleanup(self._reset)
 
@@ -47,6 +50,17 @@ class UpdateModuleTests(unittest.TestCase):
             self.assertEqual(run.call_args.args[0][1:], ['update', '--check', '--json'])
             updates.check(refresh=True)
             self.assertEqual(run.call_count, 2)
+
+    def test_opting_in_to_dev_builds_checks_again_on_that_channel(self):
+        dev = {**REPORT, 'latest': 'v0.14.1-dev.2', 'channel': 'dev', 'prerelease': True}
+        reports = [completed(json.dumps(REPORT)), completed(json.dumps(dev))]
+        with patch.object(updates.subprocess, 'run', side_effect=reports) as run:
+            self.assertEqual(updates.check(), REPORT)
+            with patch.dict(os.environ, {'IMPRINT_UPDATE_CHANNEL': 'dev'}):
+                self.assertEqual(updates.check(), dev)
+                self.assertEqual(updates.check(), dev)
+        # The CLI reads the setting itself: the dashboard passes no channel.
+        self.assertEqual([call.args[0][1:] for call in run.call_args_list], [['update', '--check', '--json']] * 2)
 
     def test_a_failed_check_reports_the_cli_message_and_is_not_cached(self):
         failure = completed('[x] Could not resolve release: GET api.github.com: timeout\n', returncode=1)

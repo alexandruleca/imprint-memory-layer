@@ -3,11 +3,12 @@ title: ADR 0066 — Dev prereleases from the dev branch
 description: Pushes to dev publish prereleases of the next stable version through the same release pipeline, skipping commits main already holds; the dev channel installs the highest release version.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Amends:
   - [ADR 0014](0014-main-only-release-packaging.md) — restores automatic dev releases; release builds require main or dev
   - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) — releases are no longer main-only: dev publishes prereleases
+- Amended by: [ADR 0108](0108-installations-opt-in-to-dev-builds-in-settings.md) — the dashboard offers dev builds to installations that opt in
 - Related: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0023](0023-update-by-installation-type.md), [building and releases](../building.md#release-workflow), [installation](../installation.md#install-a-specific-version-or-channel)
 
 ## Context

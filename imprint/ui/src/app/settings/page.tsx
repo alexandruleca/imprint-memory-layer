@@ -3,8 +3,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
-  Bot, Boxes, Cpu, Database, FileInput, FolderTree, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search, Scissors,
-  ShieldCheck, SquareTerminal, Tags, type LucideIcon,
+  ArrowUpCircle, Bot, Boxes, Cpu, Database, FileInput, FolderTree, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
+  Scissors, ShieldCheck, SquareTerminal, Tags, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -37,6 +37,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
     desc: "A project's approved .imprint/workspace.json or roots choose an agent session's workspace; this covers the rest.",
     icon: FolderTree,
   },
+  update: { title: "Updates", desc: "The releases this installation is offered: stable, or dev builds as well.", icon: ArrowUpCircle },
   collection: { title: "Storage", desc: "Collection naming.", icon: Layers },
 };
 const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };

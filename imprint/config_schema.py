@@ -278,6 +278,14 @@ SETTINGS: list[Setting] = [
             "Workspace for agent sessions outside an assigned project, such as desktop app chats (empty: the active workspace)",
             choices=_workspaces),
 
+    # ── Updates (ADR 0108) ────────────────────────────────────
+    # Read by `imprint update` when no --stable/--dev is passed, so the
+    # dashboard's update check and the terminal follow the same channel.
+    Setting("update.channel", "IMPRINT_UPDATE_CHANNEL", "stable", str,
+            "Releases this installation updates to: stable, or dev for dev builds as well",
+            choices=(Choice("stable", "Stable", "Releases from main"),
+                     Choice("dev", "Dev", "Prereleases built from dev, and stable releases once they are newer"))),
+
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),
 ]

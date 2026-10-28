@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,7 +26,9 @@ import (
 // updateFlags holds the parsed CLI flags for `imprint update`.
 type updateFlags struct {
 	Version string
-	Dev     bool
+	// Channel is the one --stable or --dev names; empty follows the
+	// update.channel setting (ADR 0108).
+	Channel release.Channel
 	Yes     bool
 	Check   bool
 	JSON    bool
@@ -60,6 +63,9 @@ type updateReport struct {
 	PublishedAt     time.Time   `json:"published_at"`
 	UpdateAvailable bool        `json:"update_available"`
 	Method          installKind `json:"method,omitempty"`
+	// Channel is the channel Latest was resolved on; empty for a pinned --version.
+	Channel    release.Channel `json:"channel,omitempty"`
+	Prerelease bool            `json:"prerelease"`
 	// Unsupported says why this installation cannot update itself.
 	Unsupported string `json:"unsupported,omitempty"`
 }
@@ -69,9 +75,10 @@ type updateReport struct {
 // was set up: overlaying the archive (preserving data/ and .venv/), or
 // handing over to the platform installer.
 //
-//	imprint update                  # latest stable, interactive confirm
+//	imprint update                  # latest on the update.channel setting, interactive confirm
 //	imprint update --version vX.Y.Z # pinned release
-//	imprint update --dev            # latest dev build (ADR 0066)
+//	imprint update --stable         # latest stable, whatever the setting
+//	imprint update --dev            # latest dev build (ADR 0066), whatever the setting
 //	imprint update -y               # skip confirm
 //	imprint update --check [--json] # print current + latest and exit
 func Update(args []string, currentVersion string) {
@@ -83,15 +90,14 @@ func Update(args []string, currentVersion string) {
 
 	inst, instErr := resolveInstallation()
 
-	channel := release.Stable
-	if flags.Dev {
-		channel = release.Dev
-	}
 	var target *release.Release
-	switch {
-	case flags.Version != "":
+	var channel release.Channel
+	if flags.Version != "" {
 		target, err = release.ResolveTag(flags.Version)
-	default:
+	} else {
+		if channel, err = updateChannel(flags.Channel, channelSetting); err != nil {
+			output.Fail(err.Error())
+		}
 		target, err = release.ResolveLatest(channel)
 	}
 	if err != nil {
@@ -99,7 +105,7 @@ func Update(args []string, currentVersion string) {
 	}
 
 	if flags.Check {
-		printUpdateCheck(flags.JSON, currentVersion, target, inst, instErr)
+		printUpdateCheck(flags.JSON, currentVersion, target, channel, inst, instErr)
 		return
 	}
 	if instErr != nil {
@@ -129,7 +135,39 @@ func Update(args []string, currentVersion string) {
 	}
 }
 
-func printUpdateCheck(asJSON bool, currentVersion string, target *release.Release, inst installation, instErr error) {
+// updateChannel is the channel a flag names, else the update.channel setting.
+func updateChannel(flag release.Channel, setting func() (string, error)) (release.Channel, error) {
+	if flag != "" {
+		return flag, nil
+	}
+	value, err := setting()
+	if err != nil {
+		return "", fmt.Errorf("could not read the update.channel setting (%v): pass --stable or --dev", err)
+	}
+	switch channel := release.Channel(value); channel {
+	case release.Stable, release.Dev:
+		return channel, nil
+	}
+	return "", fmt.Errorf("update.channel is %q: set it to stable or dev", value)
+}
+
+// channelSetting reads update.channel the way `imprint config get` does:
+// its environment variable, then config.json, then the default.
+func channelSetting() (string, error) {
+	projectDir := platform.FindProjectDir()
+	cmd := runner.CommandWithEnv(platform.VenvPython(projectDir),
+		[]string{"-c", "from imprint.config_schema import resolve; print(resolve('update.channel')[0])"},
+		"PYTHONPATH="+projectDir, "IMPRINT_DATA_DIR="+platform.DataDir(projectDir))
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(exit.Stderr)), "\n")
+		return "", errors.New(lines[len(lines)-1])
+	}
+	return strings.TrimSpace(string(out)), err
+}
+
+func printUpdateCheck(asJSON bool, currentVersion string, target *release.Release, channel release.Channel, inst installation, instErr error) {
 	report := updateReport{
 		Current:         currentVersion,
 		Latest:          target.TagName,
@@ -138,6 +176,8 @@ func printUpdateCheck(asJSON bool, currentVersion string, target *release.Releas
 		PublishedAt:     target.PublishedAt,
 		UpdateAvailable: release.Newer(target.TagName, currentVersion),
 		Method:          inst.kind,
+		Channel:         channel,
+		Prerelease:      target.Prerelease,
 	}
 	if instErr != nil {
 		report.Unsupported = instErr.Error()
@@ -147,6 +187,9 @@ func printUpdateCheck(asJSON bool, currentVersion string, target *release.Releas
 		return
 	}
 	fmt.Printf("Current: %s\nLatest:  %s   (%s)\n", currentVersion, target.TagName, target.Name)
+	if channel != "" {
+		fmt.Println("Channel: " + string(channel))
+	}
 	if report.Unsupported != "" {
 		fmt.Println("Update:  not available here — " + report.Unsupported)
 	} else {
@@ -368,9 +411,9 @@ func parseUpdateFlags(args []string) (updateFlags, error) {
 		case strings.HasPrefix(a, "--version="):
 			f.Version = strings.TrimPrefix(a, "--version=")
 		case a == "--dev":
-			f.Dev = true
+			f.Channel = release.Dev
 		case a == "--stable":
-			f.Dev = false
+			f.Channel = release.Stable
 		case a == "-y" || a == "--yes":
 			f.Yes = true
 		case a == "--check":
@@ -384,7 +427,7 @@ func parseUpdateFlags(args []string) (updateFlags, error) {
 			return f, fmt.Errorf("unknown flag: %s", a)
 		}
 	}
-	if f.Version != "" && f.Dev {
+	if f.Version != "" && f.Channel == release.Dev {
 		return f, fmt.Errorf("--version and --dev are mutually exclusive")
 	}
 	if f.JSON && !f.Check {
@@ -397,8 +440,10 @@ func printUpdateHelp() {
 	fmt.Print(`imprint update — upgrade to a newer release
 
 Usage:
-  imprint update                   # latest stable (prompts for confirmation)
+  imprint update                   # latest release on the update.channel setting,
+                                   # stable unless set to dev (prompts for confirmation)
   imprint update --version vX.Y.Z  # pin a specific release tag
+  imprint update --stable          # latest stable release, whatever the setting
   imprint update --dev             # latest dev build: the newest dev prerelease,
                                    # or the stable release once it is newer
   imprint update --check           # show current + latest and exit

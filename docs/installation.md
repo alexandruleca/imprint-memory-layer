@@ -246,12 +246,18 @@ Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > defau
 
 ## Updating an existing install
 
-When a newer stable release exists, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reloads the dashboard once the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open. It never offers prereleases: an installation running a dev build is offered the stable release that follows it, and `imprint update --dev` moves it to newer dev builds.
+When a newer release exists on this installation's update channel, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reloads the dashboard once the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open, and again as soon as the channel changes.
 
-From a terminal:
+The channel is the `update.channel` setting, **Settings → Updates** in the dashboard ([ADR 0108](adr/0108-installations-opt-in-to-dev-builds-in-settings.md)):
+
+- **stable** (the default): only stable releases are offered. An installation running a dev build is offered the stable release that follows it.
+- **dev**: dev builds are offered too, as they are published, and stable releases once they are newer. Switching back to stable offers nothing until a stable release is newer than the build installed.
+
+The terminal follows the same setting, so `imprint update` and the dashboard always agree. `--stable` or `--dev` overrides it for one run:
 
 ```bash
-imprint update                 # latest stable (asks for confirmation)
+imprint update                 # latest release on the update channel (asks for confirmation)
+imprint update --stable        # latest stable, whatever the setting
 imprint update --dev           # latest dev build (a dev prerelease, or stable once it is newer)
 imprint update --version v0.3.1
 imprint update --check         # prints current + latest and exits

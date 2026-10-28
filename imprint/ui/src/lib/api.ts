@@ -161,6 +161,10 @@ export interface UpdateInfo {
   published_at?: string;
   update_available?: boolean;
   method?: UpdateMethod;
+  /** The update.channel setting the release was resolved on (ADR 0108). */
+  channel?: "stable" | "dev";
+  /** The release is a dev build. */
+  prerelease?: boolean;
   /** Why this installation cannot update itself (container, source checkout). */
   unsupported?: string;
   /** An update started by this server is still running. */

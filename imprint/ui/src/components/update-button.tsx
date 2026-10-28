@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUpCircle, ExternalLink } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -93,6 +94,7 @@ export function UpdateButton() {
               <span>
                 {info.current} → <span className="font-medium text-foreground">{target}</span>
               </span>
+              {info.prerelease && <Badge variant="outline">Dev build</Badge>}
               {info.url && (
                 <a href={info.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1">
                   Release notes <ExternalLink className="size-3" aria-hidden />

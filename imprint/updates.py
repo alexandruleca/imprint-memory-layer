@@ -39,10 +39,17 @@ def _env() -> dict[str, str]:
 
 
 def check(refresh: bool = False) -> dict:
-    """``imprint update --check --json``, cached so GitHub is asked rarely."""
+    """``imprint update --check --json``, cached so GitHub is asked rarely.
+
+    The CLI resolves the update.channel setting itself (ADR 0108); a report
+    for another channel than the one now set is checked again.
+    """
     global _report, _checked_at
+    from .config_schema import resolve
+    channel = resolve("update.channel")[0]
     with _lock:
-        if _report is not None and not refresh and time.time() - _checked_at < CHECK_TTL_SECONDS:
+        if (_report is not None and not refresh and _report.get("channel") == channel
+                and time.time() - _checked_at < CHECK_TTL_SECONDS):
             return _report
     result = subprocess.run(
         [job_queue.find_imprint_binary(), "update", "--check", "--json"],

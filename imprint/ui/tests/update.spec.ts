@@ -81,6 +81,22 @@ test('a failed updater shows its log and can be retried', async ({ page }) => {
   await expect.poll(() => state.posts).toBe(2);
 });
 
+test('a dev build offered on the dev channel is marked as one', async ({ page }) => {
+  await mockApi(page, { ...REPORT, latest: 'v0.14.0-dev.3', name: 'v0.14.0-dev.3', channel: 'dev', prerelease: true });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Update to v0.14.0-dev.3' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Update Imprint' });
+  await expect(dialog).toContainText('v0.13.1 → v0.14.0-dev.3');
+  await expect(dialog).toContainText('Dev build');
+});
+
+test('a stable release is not marked as a dev build', async ({ page }) => {
+  await mockApi(page, { ...REPORT, channel: 'dev', prerelease: false });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Update to v0.14.0' }).click();
+  await expect(page.getByRole('dialog', { name: 'Update Imprint' })).not.toContainText('Dev build');
+});
+
 test('a container explains how it updates instead of offering to', async ({ page }) => {
   await mockApi(page, { ...REPORT, method: '', unsupported: 'running in a container: pull the new image and recreate the container (the /data volume is kept)' });
   await page.goto('/');

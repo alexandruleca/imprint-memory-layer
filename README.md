@@ -103,7 +103,7 @@ Pin a specific version, pick the dev channel, or use prebuilt Docker images — 
 Once installed, use the built-in updater — no curl, no sudo. `data/` (workspaces, Qdrant storage, SQLite graphs, config, `profile.json`) and `.venv/` are always preserved; only the code tree is replaced.
 
 ```bash
-imprint update              # latest stable, asks for confirmation
+imprint update              # latest on the update channel (stable unless update.channel is dev), asks for confirmation
 imprint update --dev        # latest dev build (a dev prerelease, or stable once it is newer)
 imprint update --version v0.3.1
 imprint update --check      # show current + latest release and exit
@@ -135,7 +135,7 @@ To rehook or unhook clients without touching the runtime or its services, use `i
 ```bash
 imprint setup [target]     # install deps, register MCP, configure the chosen host tool
                            #   target: claude-code (default) | cursor | codex | copilot | cline | all
-imprint update [--version v0.3.1] [--dev] [-y] [--check]
+imprint update [--version v0.3.1] [--stable|--dev] [-y] [--check]
                            # install the latest release the way this install was set up; preserves data/ and .venv/
 imprint uninstall [-y] [--keep-data]
                            # disconnect clients, stop Imprint, remove runtime + memories (--keep-data keeps them)
@@ -237,7 +237,7 @@ Terms used across the docs.
 | **Relay server** | Stateless WebSocket forwarder (`imprint relay`) that brokers peer sync between two machines. Sessions are end-to-end encrypted with the one-time share code (SPAKE2 + AES-256-GCM), so the relay sees only room IDs, IP addresses and the sizes and timing of ciphertext — never the code's PIN, devices or memories. Synced records carry content, metadata and precomputed vectors, so both sides need the same embedding profile — see [docs/sync.md](docs/sync.md#end-to-end-encryption). |
 | **WAL** | Write-ahead log — append-only `wal.jsonl` per workspace, used for replay / recovery of memory operations. |
 | **Zero-shot tagging** | Classifying chunks by cosine similarity against pre-embedded label prototypes — no per-chunk LLM call. |
-| **Dev / stable channel** | Two release tracks from one pipeline. Dev = prerelease of the next stable version on each releasable `dev` push (`vX.Y.Z-dev.N`); `--dev` installs the highest version, prerelease or stable. Stable = conventional-commit release on `main` merges (`vX.Y.Z`). See [ADR 0066](docs/adr/0066-dev-prereleases-from-the-dev-branch.md). |
+| **Dev / stable channel** | Two release tracks from one pipeline. Dev = prerelease of the next stable version on each releasable `dev` push (`vX.Y.Z-dev.N`); `--dev` installs the highest version, prerelease or stable. Stable = conventional-commit release on `main` merges (`vX.Y.Z`). An installation opts in to dev builds with **Settings → Updates** (`update.channel`), which the dashboard and `imprint update` follow. See [ADR 0066](docs/adr/0066-dev-prereleases-from-the-dev-branch.md) and [ADR 0108](docs/adr/0108-installations-opt-in-to-dev-builds-in-settings.md). |
 
 ## Benchmarks
 

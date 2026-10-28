@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/hunter/imprint/internal/release"
 )
 
 func TestInstallKindOf(t *testing.T) {
@@ -67,5 +71,47 @@ func TestParseUpdateFlagsJSONNeedsCheck(t *testing.T) {
 	}
 	if _, err := parseUpdateFlags([]string{"--json"}); err == nil {
 		t.Fatal("--json without --check should be rejected")
+	}
+}
+
+func TestParseUpdateFlagsChannel(t *testing.T) {
+	for args, want := range map[string]release.Channel{"": "", "--dev": release.Dev, "--stable": release.Stable} {
+		f, err := parseUpdateFlags(strings.Fields(args))
+		if err != nil || f.Channel != want {
+			t.Errorf("%q: channel %q, %v; want %q", args, f.Channel, err, want)
+		}
+	}
+	if _, err := parseUpdateFlags([]string{"--version", "v0.24.0", "--dev"}); err == nil {
+		t.Error("--version with --dev should be rejected")
+	}
+}
+
+func TestUpdateChannelFlagBeatsTheSetting(t *testing.T) {
+	setting := func(value string, err error) func() (string, error) {
+		return func() (string, error) { return value, err }
+	}
+	broken := setting("", errors.New("no venv"))
+	cases := []struct {
+		flag    release.Channel
+		setting func() (string, error)
+		want    release.Channel
+	}{
+		{"", setting("stable", nil), release.Stable},
+		{"", setting("dev", nil), release.Dev},
+		{release.Stable, setting("dev", nil), release.Stable},
+		{release.Dev, setting("stable", nil), release.Dev},
+		// A flag does not need the setting at all.
+		{release.Stable, broken, release.Stable},
+	}
+	for _, c := range cases {
+		if got, err := updateChannel(c.flag, c.setting); err != nil || got != c.want {
+			t.Errorf("flag %q: %q, %v; want %q", c.flag, got, err, c.want)
+		}
+	}
+	if _, err := updateChannel("", broken); err == nil || !strings.Contains(err.Error(), "pass --stable or --dev") {
+		t.Errorf("an unreadable setting should fail and name the flags: %v", err)
+	}
+	if _, err := updateChannel("", setting("nightly", nil)); err == nil {
+		t.Error("an unknown channel should fail")
 	}
 }

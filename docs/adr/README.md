@@ -144,7 +144,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) (desktop profile).
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
 - [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) **Ad-hoc signed macOS desktop bundle.** The macOS desktop app is signed ad hoc as a bundle so privacy consent can read its microphone usage text; packaging rejects an unsigned bundle. Amended by [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) (enclosing installer app).
-- [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version.
+- [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) **Dev prereleases from the dev branch.** Releasable dev pushes publish `vX.Y.Z-dev.N` prereleases of the next stable version through the release pipeline, skipping commits main holds; `--dev` installs the highest release version. Amended by [ADR 0108](0108-installations-opt-in-to-dev-builds-in-settings.md) (installations opt in to dev builds).
+- [ADR 0108](0108-installations-opt-in-to-dev-builds-in-settings.md) **Installations opt in to dev builds in Settings.** `update.channel` (stable or dev) chooses the releases offered; `imprint update` resolves it unless `--stable` or `--dev` is passed, so the dashboard and the terminal follow the same channel.
 - [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) **Uninstall removes the shared desktop profile.** An uninstall that deletes data also deletes the desktop shell's Electron profile, which every installation on the account shares.
 
 - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
@@ -244,7 +245,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0063](0063-auto-spawned-local-qdrant-server.md) | 2026-04-13 | Accepted | Run Qdrant as an auto-spawned local server |
 | [0064](0064-single-slot-command-queue-and-shared-lock.md) | 2026-04-19 | Amended by [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0068](0068-merge-identical-waiting-jobs.md), [ADR 0077](0077-stop-hook-hands-turns-to-one-waiting-learner.md), [ADR 0089](0089-one-progress-record-for-the-running-job.md) | Serialize heavy commands with a single-slot queue and a shared lock file |
 | [0065](0065-qdrant-over-lancedb-as-the-vector-store.md) | 2026-04-13 | Accepted | Qdrant over LanceDB as the vector store |
-| [0066](0066-dev-prereleases-from-the-dev-branch.md) | 2026-10-25 | Accepted | Dev prereleases from the dev branch |
+| [0066](0066-dev-prereleases-from-the-dev-branch.md) | 2026-10-25 | Amended by [ADR 0108](0108-installations-opt-in-to-dev-builds-in-settings.md) | Dev prereleases from the dev branch |
 | [0067](0067-background-llm-tagging-that-yields-to-every-job.md) | 2026-10-25 | Accepted | Background LLM tagging that yields to every other job |
 | [0068](0068-merge-identical-waiting-jobs.md) | 2026-10-25 | Accepted | Merge identical waiting jobs |
 | [0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | 2026-10-25 | Accepted | Echo opens the microphone only on the user's intent, after an OS consent check |
@@ -287,6 +288,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0105](0105-project-analysis-continues-after-model-timeouts.md) | 2026-10-28 | Accepted | Project analysis continues after model timeouts |
 | [0106](0106-intel-mac-laptop-runner.md) | 2026-10-28 | Accepted | Intel Mac laptop runner |
 | [0107](0107-git-lists-a-repositorys-files-wsl-repositories-through-their-distribution.md) | 2026-10-28 | Accepted | Git lists a repository's files; WSL repositories through their distribution |
+| [0108](0108-installations-opt-in-to-dev-builds-in-settings.md) | 2026-10-28 | Accepted | Installations opt in to dev builds in Settings |
 
 ## How to write and maintain ADRs
 

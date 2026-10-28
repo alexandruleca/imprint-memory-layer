@@ -167,6 +167,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `recall.llm_timeout_sec` | `30` | Seconds one recall waits for the local model (planning and answering together) |
 | **Workspace selection** | | |
 | `workspace.unassigned` | — (the active workspace) | Workspace for agent sessions outside an assigned project, such as desktop app chats. Choices are this device's workspaces; deleting the chosen one resets it. Env `IMPRINT_UNASSIGNED_WORKSPACE`. See [workspace per project](workspaces.md#workspace-per-project) |
+| **Updates** | | |
+| `update.channel` | `stable` | Releases this installation updates to: `stable`, or `dev` for dev builds as well. The dashboard's update notice and `imprint update` follow it; `--stable` or `--dev` overrides it for one run. Env `IMPRINT_UPDATE_CHANNEL`. See [updating an existing install](installation.md#updating-an-existing-install) |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 
