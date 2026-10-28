@@ -3,7 +3,9 @@ package cmd
 import (
 	"net/http"
 	"os"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Setup restarts a running dashboard server before it replaces what the
@@ -15,9 +17,15 @@ func TestFreeRuntimeRestartsTheDashboardServer(t *testing.T) {
 	}
 	server, exited := startSleeper(t, self)
 	asked := 0
+	var killed atomic.Bool
 	dataDir := registeredServer(t, func(w http.ResponseWriter, r *http.Request) {
 		asked++
-		_ = server.Process.Kill() // The server exits for its launcher to start it again.
+		// The server answers, then exits for its launcher to start it again.
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			killed.Store(true)
+			_ = server.Process.Kill()
+		}()
 		_, _ = w.Write([]byte(`{"restarting": true}`))
 	})
 	st, _ := readUIState(dataDir)
@@ -31,9 +39,10 @@ func TestFreeRuntimeRestartsTheDashboardServer(t *testing.T) {
 	if asked != 1 {
 		t.Fatalf("asked the server to restart %d times, want once", asked)
 	}
-	select {
-	case <-exited:
-	default:
+	// Setup sees the server gone once it is dead; this test's own goroutine
+	// reaps it, possibly a moment later, so it cannot be the measure.
+	if !killed.Load() {
 		t.Fatal("setup went on before the dashboard server exited")
 	}
+	<-exited
 }
