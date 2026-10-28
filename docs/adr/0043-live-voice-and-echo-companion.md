@@ -10,6 +10,7 @@ description: Explicit speech runtime, same-chat reasoning, optional VAD and a fl
   - [ADR 0044](0044-native-desktop-voice-platforms.md) — native Windows and macOS workers, the dashboard toggle, borderless transparent treatment and software 3D rendering; the Linux-only rationale below records the original pilot scope
   - [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — the MediaPipe particle asset
   - [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) — once the user has chosen the microphone, a conversation turns it on when it is ready; it is no longer always a separate action
+  - [ADR 0092](0092-voice-generation-follows-playback.md) — pace streamed speech by playback progress and bound inactivity instead of total turn duration
 - Related: [ADR 0042](0042-lfm-audio-cpu-experiment.md), [ADR 0024](0024-enforce-local-service-boundaries.md), [ADR 0025](0025-desktop-owned-background-service.md)
 - Restructured: 2026-10-25
 

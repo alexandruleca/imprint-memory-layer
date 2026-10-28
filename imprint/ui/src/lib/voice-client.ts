@@ -170,6 +170,7 @@ export class VoiceClient {
   /** The session's voice effect, as the API reports it when the session is ready. */
   private effect: string | null = null;
   private outputSamples = 0;
+  private playedSamples = 0;
   constructor(private changed: (value: VoiceSnapshot) => void) {}
   private update(values: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...values };
@@ -329,7 +330,7 @@ export class VoiceClient {
     const pending = this.accepted > 0;
     this.accepted = 0; this.complete = 0;
     for (const source of this.sources) { source.onended = null; try { source.stop(); } catch {} source.disconnect(); }
-    this.sources.clear(); this.nextAudio = 0; this.level = 0; this.outputSamples = 0;
+    this.sources.clear(); this.nextAudio = 0; this.level = 0; this.outputSamples = 0; this.playedSamples = 0;
     if (this.snapshot.connected) {
       if (pending) this.send({ type: "cancel" });
       this.update({ phase: "ready", preparation: null, detail: this.snapshot.mode === "ptt" ? "Hold to talk" : "Listening for your voice" });
@@ -377,7 +378,14 @@ export class VoiceClient {
     }
     const source = context.createBufferSource(); source.buffer = buffer; source.connect(this.analyser);
     this.sources.add(source);
-    source.onended = () => { this.sources.delete(source); source.disconnect(); };
+    const id = this.accepted, completedSamples = this.outputSamples;
+    source.onended = () => {
+      this.sources.delete(source); source.disconnect();
+      if (id && id === this.accepted) {
+        this.playedSamples = Math.max(this.playedSamples, completedSamples);
+        this.send({ type: "playback", id, samples: this.playedSamples });
+      }
+    };
     const start = Math.max(context.currentTime + .025, this.nextAudio);
     source.start(start); this.nextAudio = start + buffer.duration;
     this.update({ phase: "speaking", detail: "Speaking · you can interrupt" });

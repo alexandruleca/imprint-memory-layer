@@ -27,8 +27,9 @@ router = APIRouter(prefix="/api/voice")
 MAX_MESSAGE = 2_000_000
 MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
 STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load.
-TURN_TIMEOUT = 120
+TURN_TIMEOUT = 120  # Inactivity, refreshed as an active reply makes progress.
 CHAT_SETUP_TIMEOUT = 1800  # A first-time model download is not a reply.
+PLAYBACK_AHEAD = 10 * 24000  # PCM samples; pause production until playback catches up.
 # Each of Echo's looks (the voice.avatar setting) speaks in its own voice
 # (ADR 0071): the speaker the native model is asked for, and an effect the
 # dashboard applies to reply audio.
@@ -342,6 +343,26 @@ async def chat_events(question: str, history: list, workspace: str, cancelled: t
             task.add_done_callback(lambda finished: finished.exception() if not finished.cancelled() else None)
 
 
+class PlaybackWindow:
+    """Per-turn audio credit, released only by completed client playback."""
+    def __init__(self):
+        self.sent = 0
+        self.played = 0
+        self.changed = asyncio.Event()
+
+    async def reserve(self, encoded: str) -> None:
+        while self.sent - self.played >= PLAYBACK_AHEAD:
+            self.changed.clear()
+            await self.changed.wait()
+        self.sent += len(base64.b64decode(encoded, validate=True)) // 2
+
+    def acknowledge(self, samples: object) -> None:
+        if type(samples) is not int or not self.played <= samples <= self.sent:
+            raise PrototypeError("Invalid voice playback progress.")
+        self.played = samples
+        self.changed.set()
+
+
 @router.websocket("/stream")
 async def stream(websocket: WebSocket):
     if not check_socket(websocket):
@@ -352,6 +373,7 @@ async def stream(websocket: WebSocket):
     turn_task: asyncio.Task | None = None
     cancel_flag = threading.Event()
     turn_id = 0
+    playback: PlaybackWindow | None = None
     send_lock = asyncio.Lock()
 
     async def send(event):
@@ -408,10 +430,18 @@ async def stream(websocket: WebSocket):
         await send({"type": "ready", "workspace": workspace, "engine": engine, "voice": lease["voice"], "effect": effect})
         deadline = time.monotonic() + 1800
 
-        async def turn(identifier: int, message: dict, flag: threading.Event):
+        async def turn(identifier: int, message: dict, flag: threading.Event, audio_window: PlaybackWindow):
+            turn_budget = None
+
             async def emit(event):
                 if not flag.is_set():
+                    if event["type"] == "audio":
+                        await audio_window.reserve(event["data"])
                     await send({**event, "id": identifier})
+                    # An active long reply is healthy. Bound stalls rather than
+                    # its total generation/playback time (ADR 0092).
+                    if turn_budget is not None and event["type"] != "provision":
+                        turn_budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
             try:
                 async with asyncio.timeout(TURN_TIMEOUT) as turn_budget:
                     question = message.get("text", "").strip()
@@ -496,6 +526,7 @@ async def stream(websocket: WebSocket):
             except asyncio.CancelledError:
                 raise
             except Exception:
+                turn_budget = None
                 await emit({"type": "error", "error": "Voice couldn't complete this turn. Try a shorter question or reconnect."})
                 await sessions.worker.stop()
 
@@ -521,6 +552,11 @@ async def stream(websocket: WebSocket):
                 item = awaiting.pop(message.get("id"), None)
                 if item:
                     history.extend([{"role": "user", "content": item[0]}, {"role": "assistant", "content": item[1]}])
+            elif kind == "playback":
+                # A cancelled turn's late acknowledgement cannot release the
+                # next turn's credit. Progress never commits reply history.
+                if message.get("id") == turn_id and playback is not None:
+                    playback.acknowledge(message.get("samples"))
             elif kind == "turn":
                 identifier = message.get("id")
                 if (type(identifier) is not int or identifier <= turn_id
@@ -533,7 +569,8 @@ async def stream(websocket: WebSocket):
                 awaiting.clear()
                 turn_id = identifier
                 cancel_flag = threading.Event()
-                turn_task = asyncio.create_task(turn(turn_id, message, cancel_flag))
+                playback = PlaybackWindow()
+                turn_task = asyncio.create_task(turn(turn_id, message, cancel_flag, playback))
             else:
                 raise PrototypeError("Unknown voice control.")
     except (WebSocketDisconnect, TimeoutError, RuntimeError):

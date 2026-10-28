@@ -186,8 +186,112 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertNotIn("PRIVATE", json.dumps(received))
         self.assertTrue(any(event["type"] == "audio" for event in received))
 
+    def test_long_reply_continues_with_playback_credit_and_an_inactivity_budget(self):
+        # 80 seconds of simulated audio, produced over more than one turn
+        # timeout. Playback reports release each window without saving history.
+        audio = base64.b64encode(bytes(24000 * 2 * 2)).decode()
+
+        async def native(*args):
+            for _ in range(40):
+                await asyncio.sleep(.01)
+                yield {"type": "audio", "data": audio, "sample_rate": 24000, "format": "pcm16"}
+
+        with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(chat, "stream_reply", return_value=iter([{"type": "token", "text": "A complete long reply."}])), \
+                patch.object(voice, "TURN_TIMEOUT", .3):
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="chat")}); ws.receive_json(); ws.receive_json()
+                ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
+                samples = 0
+                while True:
+                    event = ws.receive_json()
+                    self.assertNotEqual(event["type"], "error", event)
+                    if event["type"] == "done":
+                        break
+                    if event["type"] == "audio":
+                        samples += len(base64.b64decode(event["data"])) // 2
+                        ws.send_json({"type": "playback", "id": 1, "samples": samples})
+                self.assertEqual(samples, 80 * 24000)
+
+    def test_cancel_releases_generation_blocked_on_playback(self):
+        blocked = threading.Event()
+        audio = base64.b64encode(bytes(voice.PLAYBACK_AHEAD * 2)).decode()
+
+        async def native(*args):
+            yield {"type": "audio", "data": audio, "sample_rate": 24000, "format": "pcm16"}
+            blocked.set()
+            yield {"type": "audio", "data": audio, "sample_rate": 24000, "format": "pcm16"}
+
+        with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock) as stop, \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(voice, "memory_prompt", new_callable=AsyncMock, return_value="fixture"):
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="lfm")}); ws.receive_json(); ws.receive_json()
+                ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
+                while ws.receive_json()["type"] != "audio":
+                    pass
+                self.assertTrue(blocked.wait(2))
+                ws.send_json({"type": "cancel"})
+                self.assertEqual(ws.receive_json(), {"type": "cancelled", "id": 1})
+                stop.assert_awaited()
+                ws.send_json({"type": "turn", "id": 2, "text": "Again"})
+                # Even malformed credit for an old turn must be ignored.
+                ws.send_json({"type": "playback", "id": 1, "samples": -1})
+                while ws.receive_json()["type"] != "audio":
+                    pass
+                ws.send_json({"type": "cancel"})
+                self.assertEqual(ws.receive_json(), {"type": "cancelled", "id": 2})
+
+    def test_stalled_generation_still_times_out_and_stops_worker(self):
+        async def native(*args):
+            await asyncio.sleep(30)
+            yield {"type": "text", "text": "too late"}
+
+        with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock) as stop, \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(voice, "memory_prompt", new_callable=AsyncMock, return_value="fixture"), \
+                patch.object(voice, "TURN_TIMEOUT", .1):
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="lfm")}); ws.receive_json(); ws.receive_json()
+                ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
+                while ws.receive_json()["type"] != "error":
+                    pass
+                ws.send_json({"type": "cancel"})
+                self.assertEqual(ws.receive_json()["type"], "cancelled")
+                stop.assert_awaited()
+
 
 class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_audio_window_waits_for_playback_and_rejects_invented_progress(self):
+        window = voice.PlaybackWindow()
+        audio = base64.b64encode(bytes(voice.PLAYBACK_AHEAD * 2)).decode()
+        await window.reserve(audio)
+        pending = asyncio.create_task(window.reserve("AAAAAA=="))
+        await asyncio.sleep(0)
+        self.assertFalse(pending.done())
+        for invalid in (True, -1, window.sent + 1, "24000"):
+            with self.assertRaises(PrototypeError):
+                window.acknowledge(invalid)
+        window.acknowledge(window.sent)
+        await asyncio.wait_for(pending, 1)
+        self.assertEqual(window.sent - window.played, 2)
+        with self.assertRaises(PrototypeError):
+            window.acknowledge(0)
+
+    async def test_cancelling_audio_wait_drops_blocked_generation(self):
+        window = voice.PlaybackWindow()
+        window.sent = voice.PLAYBACK_AHEAD
+        pending = asyncio.create_task(window.reserve("AAAAAA=="))
+        await asyncio.sleep(0)
+        pending.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await pending
+        self.assertEqual(window.sent, voice.PLAYBACK_AHEAD)
+
     async def test_startup_budget_includes_asset_verification_before_launch(self):
         import time
         worker = voice.Worker()

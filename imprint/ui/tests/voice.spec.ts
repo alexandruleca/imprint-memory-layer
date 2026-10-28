@@ -2,7 +2,7 @@ import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 test.use({ launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] } });
 
 async function prepare(page: Page) {
-  const controls: { type?: string; id?: number; text?: string; audio?: string }[] = [];
+  const controls: { type?: string; id?: number; text?: string; audio?: string; samples?: number }[] = [];
   let socket: WebSocketRoute;
   await page.route('**/api/**', route => {
     const url = route.request().url();
@@ -80,6 +80,23 @@ test('interrupt flushes playback and ignores stale response chunks; stop release
   await page.getByRole('button', { name: 'Stop conversation and microphone' }).click();
   await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
   await expect(input).toBeEnabled(); // Typing again starts a new conversation.
+});
+
+test('completed Web Audio playback releases cumulative credit before the final history acknowledgement', async ({ page }) => {
+  const server = await prepare(page);
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('textbox', { name: 'Type a question' }).fill('Read this');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect.poll(() => server.controls.some(c => c.type === 'turn')).toBe(true);
+  const data = Buffer.alloc(2400 * 2).toString('base64');
+  server.send({ type: 'audio', id: 1, data });
+  server.send({ type: 'audio', id: 1, data });
+  await expect.poll(() => server.controls.filter(c => c.type === 'playback').at(-1)?.samples).toBe(4800);
+  expect(server.controls.some(c => c.type === 'played')).toBe(false);
+  server.send({ type: 'done', id: 1 });
+  await expect.poll(() => server.controls.some(c => c.type === 'played' && c.id === 1)).toBe(true);
+  expect(server.controls.some(c => c.type === 'cancel')).toBe(false);
 });
 
 test('compact companion hides dashboard chrome and exposes hands-free controls', async ({ page }) => {

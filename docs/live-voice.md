@@ -52,7 +52,8 @@ it never opens the microphone or starts a conversation automatically.
 The **Same local model as Chat** route may download the configured chat model
 on your first question. Voice shows its real download bytes and loading stages
 rather than a generic thinking state. This setup has a separate 30-minute
-budget; normal reply generation is bounded to two minutes once tokens begin.
+budget; normal reply generation times out after two minutes without progress.
+Active long replies continue within the session's 30-minute lifetime.
 Stopping voice clears playback and the voice request, while the existing chat
 provisioning job finishes safely and can be joined by a later question.
 Choosing **Small voice model · LFM 1.5B** avoids the additional chat model.
@@ -206,6 +207,21 @@ companion until the next attempt, and typing keeps working.
 records these choices.
 
 ## Talk and interrupt
+
+Chat replies are split into phrases of at most 240 characters and synthesized
+sequentially as text arrives. Playback reports completed PCM samples to the API;
+generation waits when it has sent ten seconds of unplayed audio (with at most
+one additional native chunk). This keeps preparing speech ahead of the listener
+without hitting the browser's defensive 30-second queued-audio limit. The same
+playback flow control applies to the small voice model's interleaved output.
+Reload the dashboard after updating so its playback reports match the API.
+[ADR 0092](adr/0092-voice-generation-follows-playback.md) records the protocol.
+
+This extends playback of generated replies; it does not extend the reasoner's
+context or output-token budget. The small voice model still has its existing
+512-token generation cap. Voice history remains bounded to three completed
+exchanges, with at most 3,000 characters retained per assistant reply.
+Typed voice questions retain their existing 2,000-character limit.
 
 **Push to talk** is the default. Enable the mic, then hold the button with a
 pointer or hold Space/Enter while the button is focused. Release sends the

@@ -111,7 +111,7 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0041](0041-personaplex-startup-memory-prototype.md) **PersonaPlex startup memory prototype.** Prepare a bounded read-only MCP memory snapshot and inject it into a pinned, isolated PersonaPlex runtime (experimental adapter).
 - [ADR 0042](0042-lfm-audio-cpu-experiment.md) **Small LFM audio experiment on CPU.** Small, verified native LFM2.5-Audio Q4 inference on Linux x64 CPU with read-only MCP snapshots (experimental offline turns).
-- [ADR 0043](0043-live-voice-and-echo-companion.md) **Local live voice and the Echo companion.** Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo companion (experimental live pilot). Amended by [ADR 0044](0044-native-desktop-voice-platforms.md) (native platforms), [ADR 0048](0048-anime-echo-and-desktop-recovery.md) (avatar asset) and [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) (microphone on Start).
+- [ADR 0043](0043-live-voice-and-echo-companion.md) **Local live voice and the Echo companion.** Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo companion (experimental live pilot). Amended by [ADR 0044](0044-native-desktop-voice-platforms.md) (native platforms), [ADR 0048](0048-anime-echo-and-desktop-recovery.md) (avatar asset), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) (microphone on Start) and [ADR 0092](0092-voice-generation-follows-playback.md) (playback pacing).
 - [ADR 0044](0044-native-desktop-voice-platforms.md) **Native Windows and macOS voice.** Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. Amended by [ADR 0046](0046-visible-echo-runtime-setup.md) (UI-driven setup), [ADR 0047](0047-bundled-private-voice-engine.md) (bundled engine), [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) (entitlements) and [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) (consent check).
 - [ADR 0046](0046-visible-echo-runtime-setup.md) **Visible first-time Echo setup.** Explicit first-time Echo download with real progress, persistent dashboard status, prerequisite checks and owned setup cancellation. Amended by [ADR 0047](0047-bundled-private-voice-engine.md) (release toolchain policy).
 - [ADR 0047](0047-bundled-private-voice-engine.md) **Bundle the private voice engine.** Native release engines remove the end-user compiler requirement while preserving explicit verified model downloads.
@@ -120,6 +120,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) **Echo opens the microphone only on the user's intent, after an OS consent check.** Enable microphone, or Start conversation once the user has chosen the microphone, asks the operating system for consent through scoped IPC before opening the device; the device remembers the choice, never the grant.
 - [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) **The floating companion moves with the launcher and keeps its options in settings.** While the dashboard is hidden the companion docks beside the launcher and either window drags both; only the head and header drag it; everything except talking sits in a settings panel.
 - [ADR 0071](0071-each-look-speaks-in-its-own-voice.md) **Each look speaks in its own voice.** The voice.avatar look also chooses Echo's voice, the native model's speaker on both reasoning routes plus a robotic effect for Echo; a session keeps the voice it started with.
+- [ADR 0092](0092-voice-generation-follows-playback.md) **Voice generation follows playback.** Completed audio releases bounded playback credit; active replies use an inactivity timeout instead of a fixed whole-turn limit.
 
 ### Runtime, installers and release
 
@@ -198,7 +199,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0040](0040-documents-with-nothing-to-index.md) | 2026-10-24 | Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | Documents with nothing to index |
 | [0041](0041-personaplex-startup-memory-prototype.md) | 2026-10-24 | Accepted | PersonaPlex startup memory prototype |
 | [0042](0042-lfm-audio-cpu-experiment.md) | 2026-10-24 | Accepted | Small LFM audio experiment on CPU |
-| [0043](0043-live-voice-and-echo-companion.md) | 2026-10-24 | Amended by [ADR 0044](0044-native-desktop-voice-platforms.md), [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | Local live voice and the Echo companion |
+| [0043](0043-live-voice-and-echo-companion.md) | 2026-10-24 | Amended by [ADR 0044](0044-native-desktop-voice-platforms.md), [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md), [ADR 0092](0092-voice-generation-follows-playback.md) | Local live voice and the Echo companion |
 | [0044](0044-native-desktop-voice-platforms.md) | 2026-10-24 | Amended by [ADR 0046](0046-visible-echo-runtime-setup.md), [ADR 0047](0047-bundled-private-voice-engine.md), [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) | Native Windows and macOS voice |
 | [0045](0045-setting-choices-and-gpu-auto-select.md) | 2026-10-24 | Amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md), [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) | Settings declare their choices; the GPU device defaults to auto |
 | [0046](0046-visible-echo-runtime-setup.md) | 2026-10-24 | Amended by [ADR 0047](0047-bundled-private-voice-engine.md) | Visible first-time Echo setup |
@@ -248,6 +249,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0089](0089-one-progress-record-for-the-running-job.md) | 2026-10-27 | Accepted | One progress record for the running job, read by every surface |
 | [0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | 2026-10-27 | Accepted | macOS installs llama.cpp wheels built by this repository |
 | [0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | 2026-10-27 | Accepted | WSL homes with a connected client get the imprint command |
+| [0092](0092-voice-generation-follows-playback.md) | 2026-10-28 | Accepted | Voice generation follows playback |
 
 ## How to write and maintain ADRs
 
