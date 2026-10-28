@@ -319,6 +319,7 @@ replies, and how intelligible the robotic effect is still need listening tests.
   About 200 neurons, wired by fibres, fill a sphere around a glowing nucleus. Signals cascade out from hub neurons,
   and each neuron lights as its signal arrives, faster while Echo thinks or speaks. The network turns slowly inside
   tilted orbits and a ring of ticks, the nucleus swells as Echo speaks, and a lens on the nucleus follows the pointer.
+  The brighter iris and the nucleus blink shut together; the glow stays behind the eye.
 - **Iris** ([glTF head](../imprint/ui/public/models/imprint-iris.glb)): a head-only adaptation of the CC0 beta
   **Victoria Rubin** model, with straight-cut bangs, indigo locks folded at the jaw, its ribbon and side tail removed,
   and a generated pale lavender iris without pupils.

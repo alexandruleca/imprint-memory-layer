@@ -5,6 +5,10 @@ description: Executed checks, installer defects addressed and the remaining nati
 
 ## Environment and limits
 
+Follow-up avatar assets, 2026-10-28, Linux/WSL: after the combined commit, the
+additional iris-brightness/core-blink edits and regenerated GLBs passed generator
+syntax/lint, the production dashboard build and all 32 Voice/setup browser tests.
+
 Combined change-set validation before publication, 2026-10-28, Linux/WSL:
 the full Python suite passed 681 tests (one real-model fixture skipped), all
 137 dashboard Playwright scenarios passed, and all 59 Electron/extension/site

@@ -455,10 +455,10 @@ function coreLook(add) {
   // Neurons fill a shell around the nucleus; spokes feed the hubs from it.
   const net = network(random, 210, 0.09, () => {
     const p = new THREE.Vector3(random() * 2 - 1, random() * 2 - 1, random() * 2 - 1);
-    return p.length() > 1 || p.length() < 0.42 ? null : p.multiplyScalar(0.86);
+    return p.length() > 1 || p.length() < 0.48 ? null : p.multiplyScalar(0.86);
   });
   for (const h of net.hubs) {
-    const root = net.neurons[h].clone().setLength(0.2);
+    const root = net.neurons[h].clone().setLength(0.22);
     net.fibres.push(net.axon(root, net.neurons[h], net.moment[h] - root.distanceTo(net.neurons[h]) / net.speed, 0.005));
   }
   addNetwork(add, random, net, [0.3, 0.8, 0.95], { spin: [0, 0.07, 0] });
@@ -473,17 +473,21 @@ function coreLook(add) {
       { spin: [0, 0, speed] }, { tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(...tilt.map((d) => d * DEG), "ZXY")).toArray() });
   }
   // The nucleus is an eyeball: a bright core with its glow behind it (back
-  // hemispheres, so nothing veils the eye) growing with the voice.
+  // hemispheres, so nothing veils the eye) growing with the voice. The core
+  // and iris blink shut to a line together.
   const behind = (radius) => new THREE.SphereGeometry(radius, 32, 12, Math.PI, Math.PI);
-  add("Echo_Core", new THREE.IcosahedronGeometry(0.19, 3), color("#d8f6ff", 1), { pulse: 0.1 });
-  add("Echo_Glow", behind(0.32), color("#4cc0ff", 0.75), { pulse: 0.3 });
-  add("Echo_Bloom", behind(0.56), color("#1e8fd0", 0.35), { pulse: 0.16 });
+  const shut = 0.95,
+    squash = (geometry) => Array.from(geometry.attributes.position.array, (v, i) => (i % 3 === 1 ? -shut * v : 0));
+  const core = new THREE.IcosahedronGeometry(0.2, 3);
+  add("Echo_Core", core, color("#d8f6ff", 1), { pulse: 0.1 }, { targets: { blink: squash(core) } });
+  add("Echo_Glow", behind(0.36), color("#4cc0ff", 0.75), { pulse: 0.3 });
+  add("Echo_Bloom", behind(0.6), color("#1e8fd0", 0.35), { pulse: 0.16 });
   // The eye turns about the nucleus's center toward the pointer. Its iris is
   // an opaque disc over the core, a shallow cone with the pupil set back. The
-  // pupil widens as Echo speaks ("jawOpen", the voice morph) and the eye
-  // blinks shut to a line. Gimbal rings turn around it.
+  // pupil widens as Echo speaks ("jawOpen", the voice morph). Gimbal rings
+  // turn around it.
   const eye = add("Echo_Eye", null, null, { gaze: [0.5, 0.4] });
-  const front = 0.235, iris = 0.2, pupil = 0.34, wide = 0.46, rings = [0, 0.17, pupil, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.96, 1];
+  const front = 0.26, iris = 0.23, pupil = 0.34, wide = 0.46, rings = [0, 0.17, pupil, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.96, 1];
   const depth = (r) => front - 0.03 * (1 - r);
   const dilated = (r) => (r < pupil ? (r * wide) / pupil : wide + ((r - pupil) * (1 - wide)) / (1 - pupil));
   const disc = { position: [], uv: [], normal: [], index: [], jawOpen: [], blink: [] };
@@ -498,7 +502,7 @@ function coreLook(add) {
       disc.uv.push(0.5 + x / (2 * iris), 0.5 - y / (2 * iris));
       disc.normal.push(0, 0, 1);
       disc.jawOpen.push(Math.cos(a) * (w - r) * iris, Math.sin(a) * (w - r) * iris, depth(w) - depth(r));
-      disc.blink.push(0, -0.95 * y, 0);
+      disc.blink.push(0, -shut * y, 0);
       if (k && j < segments) {
         const at = k * (segments + 1) + j,
           inner = at - (segments + 1);
@@ -511,9 +515,9 @@ function coreLook(add) {
   discGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(disc.uv, 2));
   discGeometry.setIndex(disc.index);
   add("Echo_Iris", discGeometry, [1, 1, 1, 1], {}, { parent: eye, texture: synapticIris(256), cutout: 0.5, targets: { jawOpen: disc.jawOpen, blink: disc.blink } });
-  add("Echo_EyeTicks", mergeGeometries([ring(0.208, 0.004, 0, 360), ticks(60, 0.226, 0.008, 5)]).translate(0, 0, front), glow, { spin: [0, 0, 0.15] }, { parent: eye });
-  const markers = [0, 120, 240].map((d) => new THREE.CircleGeometry(0.012, 3, Math.PI / 2).translate(0, 0.262, 0).rotateZ((d + 50) * DEG));
-  add("Echo_EyeArcs", mergeGeometries([arcs(0.25, 0.007, [[0, 100], [120, 220], [240, 340]]), ...markers]).translate(0, 0, front), arc, { spin: [0, 0, -0.35] }, { parent: eye });
+  add("Echo_EyeTicks", mergeGeometries([ring(0.239, 0.004, 0, 360), ticks(60, 0.258, 0.009, 5)]).translate(0, 0, front), glow, { spin: [0, 0, 0.15] }, { parent: eye });
+  const markers = [0, 120, 240].map((d) => new THREE.CircleGeometry(0.013, 3, Math.PI / 2).translate(0, 0.297, 0).rotateZ((d + 50) * DEG));
+  add("Echo_EyeArcs", mergeGeometries([arcs(0.284, 0.008, [[0, 100], [120, 220], [240, 340]]), ...markers]).translate(0, 0, front), arc, { spin: [0, 0, -0.35] }, { parent: eye });
 }
 // The heads' halo: a sparser network in a shell behind and beside the head,
 // turning slowly about the view axis so it never passes before the face.
@@ -747,19 +751,19 @@ function synapticIris(size) {
         const warp = a + 0.1 * (noise(x * 4 + 7, y * 4 + 7) - 0.5) * (1 + r),
           f = ((((warp / (2 * Math.PI)) * fibres) % fibres) + fibres) % fibres;
         const strand = strength[Math.floor(f)] * Math.sin(Math.PI * (f % 1)) ** 0.7;
-        light = 0.2 + 0.44 * strand * (0.6 + 0.4 * noise(x * 14, y * 14)) + 0.16 * (1 - ramp(0.34, 0.56, r));
+        light = 0.42 + 0.5 * strand * (0.6 + 0.4 * noise(x * 14, y * 14)) + 0.18 * (1 - ramp(0.34, 0.56, r));
         light += 0.45 * gauss(r - (0.56 + 0.022 * Math.sin(a * 13 + 3 * noise(x * 3, y * 3))), 0.013);
-        light *= 1 - 0.55 * ramp(0.66, 0.74, noise(x * 7 + 3, y * 7 + 11)) * ramp(0.58, 0.62, r) * (1 - ramp(0.86, 0.9, r));
+        light *= 1 - 0.3 * ramp(0.64, 0.74, noise(x * 9 + 3, y * 9 + 11)) * ramp(0.58, 0.62, r) * (1 - ramp(0.86, 0.9, r));
         for (const s of synapses) {
           const dx = x - s.x, dy = y - s.y, along = dx * s.ux + dy * s.uy, across = Math.abs(dx * s.uy - dy * s.ux);
           light += 0.85 * gauss(Math.hypot(dx, dy), 0.02) + (along > 0 && along < 0.08 ? 0.45 * gauss(across, 0.006) * (1 - along / 0.08) : 0);
         }
         light += 0.5 * gauss(r - 0.9, 0.006) * (Math.sin(a * 40) > -0.3 ? 1 : 0.2);
-        light = light * (1 - 0.65 * ramp(0.91, 0.94, r)) + 0.85 * gauss(r - 0.972, 0.007);
+        light = light * (1 - 0.6 * ramp(0.91, 0.94, r)) + 0.9 * gauss(r - 0.972, 0.007);
       }
       light += 0.9 * gauss(r - 0.352, 0.012);
-      light = Math.max(light, 0.95 * (1 - ramp(0.07, 0.13, Math.hypot(x + 0.36, (y - 0.4) / 0.8))), 0.8 * (1 - ramp(0.02, 0.04, Math.hypot(x - 0.3, y + 0.34))));
-      [0.8, 0.96, 1].forEach((tint, k) => (row[1 + px * 4 + k] = Math.round(Math.min(1, light * tint) * 255)));
+      light = Math.max(light, 1 - ramp(0.08, 0.11, Math.hypot(x + 0.38, (y - 0.42) / 0.75)), 0.85 * (1 - ramp(0.025, 0.04, Math.hypot(x - 0.3, y + 0.36))));
+      [0.62, 0.92, 1].forEach((tint, k) => (row[1 + px * 4 + k] = Math.round(Math.min(1, light * tint) * 255)));
       row[1 + px * 4 + 3] = Math.round(ramp(0.995, 0.983, r) * 255);
     }
     rows.push(row);
