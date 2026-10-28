@@ -49,6 +49,14 @@ class WSLPathTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 convert('/home/test', distro)
 
+    def test_distribution_namespace_paths_name_their_distribution_and_linux_path(self):
+        convert = wsl_paths.windows_to_linux
+        self.assertEqual(convert(r'\\wsl.localhost\Ubuntu\home\me\..\project'), ('Ubuntu', '/home/project'))
+        self.assertEqual(convert('\\\\WSL$\\Debian\\'), ('Debian', '/'))
+        self.assertEqual(convert('//wsl.localhost/Ubuntu/home/me'), ('Ubuntu', '/home/me'))
+        for other in (r'C:\Users\me', r'\\server\share\me', '/home/me', None):
+            self.assertIsNone(convert(other))
+
     def test_translation_only_applies_in_windows_bridge_context(self):
         with patch.dict(os.environ, {'IMPRINT_WSL_DISTRO': 'Ubuntu'}), patch.object(wsl_paths.sys, 'platform', 'win32'):
             native = wsl_paths.native_path('/home/test/project/file.py')

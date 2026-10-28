@@ -258,25 +258,55 @@ def _is_low_value(content: str, rel_path: str) -> bool:
     return False
 
 
+def _in_git_repository(dir_path: str) -> bool:
+    """Whether dir_path or a folder above it holds a .git entry (a directory,
+    or the file of a worktree or submodule), found without running git."""
+    path = os.path.abspath(dir_path)
+    while not os.path.lexists(os.path.join(path, ".git")):
+        parent = os.path.dirname(path)
+        if parent == path:
+            return False
+        path = parent
+    return True
+
+
 def _git_tracked_files(dir_path: str) -> set[str] | None:
     """Files git considers tracked or untracked-but-not-ignored, as POSIX
-    paths relative to dir_path. Returns None if dir_path isn't in a git repo
-    (or git isn't installed), so callers fall back to the hardcoded filters.
+    paths relative to dir_path. Returns None if dir_path isn't in a git repo,
+    so callers fall back to the hardcoded filters. Inside one, a listing git
+    cannot give raises: a walk without the repository's ignore rules would
+    index its build output and caches (ADR 0107).
 
     This defers .gitignore / .git/info/exclude / global excludesFile handling
-    to git itself — no in-repo gitignore reimplementation.
+    to git itself — no in-repo gitignore reimplementation. A repository in a
+    WSL distribution is listed by that distribution's git, which runs as the
+    files' owner where Windows git refuses them as dubious ownership.
     """
     import subprocess
+    from imprint.wsl_paths import windows_to_linux
+    if not _in_git_repository(dir_path):
+        return None
+    ls_files = ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]
+    command, options = ["git", "-C", dir_path, *ls_files], {}
+    if sys.platform == "win32":
+        # Output is captured; the windowless desktop service must not open
+        # a console for it (ADR 0026).
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+        if located := windows_to_linux(dir_path):
+            distribution, linux_path = located
+            command = ["wsl.exe", "-d", distribution, "--exec", "git", "-C", linux_path, *ls_files]
+            # wsl.exe's own errors in UTF-8 rather than UTF-16.
+            options["env"] = {**os.environ, "WSL_UTF8": "1"}
     try:
-        proc = subprocess.run(
-            ["git", "-C", dir_path, "ls-files",
-             "--cached", "--others", "--exclude-standard", "-z"],
-            capture_output=True, timeout=30, check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
+        proc = subprocess.run(command, capture_output=True, timeout=30, check=False, **options)
+    except FileNotFoundError:
+        raise OSError(f"{dir_path} is in a git repository and {command[0]} is not installed: "
+                      "install git so its ignore rules can be applied") from None
+    except subprocess.TimeoutExpired:
+        raise OSError(f"git did not list the files of {dir_path} within 30 seconds") from None
     if proc.returncode != 0:
-        return None
+        detail = proc.stderr.decode("utf-8", "replace").strip()
+        raise OSError(f"git could not list the files of {dir_path}: {detail}")
     # Names as the filesystem layer decodes them, not in the locale's
     # encoding (cp1252 on Windows cannot decode every UTF-8 path git prints).
     return {os.fsdecode(name) for name in proc.stdout.split(b"\0") if name}
@@ -302,15 +332,26 @@ def scan_dir(dir_path, exclude_paths=None):
     # (tracked or untracked-but-not-ignored). Skips gitignored dirs like data/
     # and benchmark/results/ without reimplementing gitignore semantics.
     git_files = _git_tracked_files(dir_path)
+    # The walk enters only directories holding a file git sees, so ignored
+    # trees (build caches, root-owned container volumes) are never listed.
+    git_dirs = None
+    if git_files is not None:
+        git_dirs = set()
+        for name in git_files:
+            while (name := name.rpartition("/")[0]) and name not in git_dirs:
+                git_dirs.add(name)
 
     exclude_resolved = {os.path.realpath(p) for p in (exclude_paths or [])}
 
     files = []
     for root, subdirs, fnames in os.walk(dir_path, onerror=lambda error: (_ for _ in ()).throw(error)):
+        rel_root = os.path.relpath(root, dir_path).replace(os.sep, "/")
+        prefix = "" if rel_root == "." else rel_root + "/"
         subdirs[:] = [
             d for d in subdirs
             if d not in SKIP_DIRS
             and not d.startswith('.')
+            and (git_dirs is None or prefix + d in git_dirs)
             and os.path.realpath(os.path.join(root, d)) not in exclude_resolved
         ]
         for fname in fnames:
@@ -716,7 +757,11 @@ def _main(command: str = "ingest"):
     for dir_path, project in pairs:
         meta = _project_meta.get(os.path.realpath(dir_path), {})
         excl = meta.get("exclude_paths", [])
-        files = scan_dir(dir_path, exclude_paths=excl)
+        try:
+            files = scan_dir(dir_path, exclude_paths=excl)
+        except OSError as error:
+            print(f"  {C_YELLOW}Cannot scan:{C_RESET} {error}", file=sys.stderr)
+            raise SystemExit(1)
         files = [(rel, path) for rel, path in files if not policy.is_excluded(
             path=path, source=f'{project}/{rel}', rules=exclusion_rules)]
         project_files[project] = files

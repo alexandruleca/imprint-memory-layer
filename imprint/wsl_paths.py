@@ -52,6 +52,18 @@ def linux_to_windows(value, distribution, mounts=''):
     return '\\\\wsl.localhost\\' + distribution + clean.replace('/', '\\')
 
 
+_NAMESPACE = re.compile(r'\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)(.*)', re.IGNORECASE | re.DOTALL)
+
+
+def windows_to_linux(value):
+    """(distribution, Linux path) of a path in a distribution's \\\\wsl.localhost
+    (or \\\\wsl$) namespace; None for any other path."""
+    match = _NAMESPACE.fullmatch(ntpath.normpath(value)) if isinstance(value, str) else None
+    if not match or not valid_distribution(match[1]):
+        return None
+    return match[1], posixpath.normpath('/' + match[2].replace('\\', '/').lstrip('/'))
+
+
 def native_path(value):
     distro = os.environ.get('IMPRINT_WSL_DISTRO')
     return linux_to_windows(value, distro, os.environ.get('IMPRINT_WSL_MOUNTS', '')) if sys.platform == 'win32' and distro else value
@@ -62,9 +74,9 @@ def client_path(value):
     distro = os.environ.get('IMPRINT_WSL_DISTRO')
     if sys.platform != 'win32' or not distro or not isinstance(value, str):
         return value
-    prefix = '\\\\wsl.localhost\\' + distro + '\\'
-    if value.lower().startswith(prefix.lower()):
-        return '/' + value[len(prefix):].replace('\\', '/')
+    located = windows_to_linux(value)
+    if located and located[0].lower() == distro.lower():
+        return located[1]
     for linux, windows in drive_mounts(os.environ.get('IMPRINT_WSL_MOUNTS', '')):
         normalized = ntpath.normcase(ntpath.normpath(value))
         base = ntpath.normcase(windows).rstrip('\\')

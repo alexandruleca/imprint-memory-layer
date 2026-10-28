@@ -9,6 +9,7 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 **Core:**
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
 - A working network connection on first run (so the bundled `uv` can fetch Python + wheels)
+- git, to index git repositories: `imprint ingest` and `refresh` take a repository's files from git so its ignore rules apply. On Windows, repositories inside a WSL distribution use the distribution's git; repositories on Windows drives need [Git for Windows](https://git-scm.com/download/win) ([ADR 0107](adr/0107-git-lists-a-repositorys-files-wsl-repositories-through-their-distribution.md))
 
 **Host Python is *not* required.** Every release archive now ships Astral's `uv` binary alongside `imprint`; on first run `uv` downloads a pinned Python 3.12 via python-build-standalone into the install dir's `.venv/`. Nothing is installed system-wide.
 

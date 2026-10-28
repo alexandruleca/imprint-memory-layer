@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -66,6 +67,59 @@ class FingerprintTests(unittest.TestCase):
             for name in ('.env', '.env.local', 'id_rsa', 'private.key'):
                 self.assertFalse(allowed_source(root / name))
             self.assertFalse(allowed_source(root.parent / 'outside.py', root))
+
+    def test_scan_never_lists_git_ignored_directories(self):
+        from imprint.cli_index import scan_dir
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'src').mkdir()
+            (root / 'src' / 'app.py').write_text('x = 1\n')
+            (root / 'var' / 'imports').mkdir(parents=True)
+            (root / 'var' / 'imports' / 'dump.py').write_text('y = 2\n')
+            listed = []
+            real_scandir = os.scandir
+
+            def scandir(path='.'):
+                if Path(path).name == 'imports':
+                    raise PermissionError(13, 'Permission denied', str(path))
+                listed.append(Path(path).name)
+                return real_scandir(path)
+
+            with patch('imprint.cli_index._git_tracked_files', return_value={'src/app.py'}), \
+                    patch('os.scandir', scandir):
+                files = scan_dir(str(root))
+            self.assertEqual(files, [('src/app.py', str(root / 'src' / 'app.py'))])
+            self.assertNotIn('var', listed)
+
+    def test_a_wsl_repository_is_listed_by_its_distributions_git(self):
+        from imprint import cli_index
+        listed = subprocess.CompletedProcess([], 0, b'src/app.py\0README.md\0', b'')
+        with patch.object(cli_index.sys, 'platform', 'win32'), \
+                patch('subprocess.CREATE_NO_WINDOW', 0x08000000, create=True), \
+                patch.object(cli_index, '_in_git_repository', return_value=True), \
+                patch('subprocess.run', return_value=listed) as run:
+            files = cli_index._git_tracked_files(r'\\wsl.localhost\Ubuntu\home\me\project')
+        self.assertEqual(files, {'src/app.py', 'README.md'})
+        self.assertEqual(run.call_args.args[0], ['wsl.exe', '-d', 'Ubuntu', '--exec', 'git', '-C', '/home/me/project',
+                                                 'ls-files', '--cached', '--others', '--exclude-standard', '-z'])
+        self.assertEqual(run.call_args.kwargs['env']['WSL_UTF8'], '1')
+
+    def test_a_repository_git_cannot_list_stops_the_scan(self):
+        from imprint import cli_index
+        with tempfile.TemporaryDirectory() as directory:
+            nested = Path(directory) / 'src'
+            nested.mkdir()
+            with patch('subprocess.run') as run:
+                self.assertIsNone(cli_index._git_tracked_files(str(nested)))
+            run.assert_not_called()
+            (Path(directory) / '.git').mkdir()
+            with patch('subprocess.run', side_effect=FileNotFoundError), \
+                    self.assertRaisesRegex(OSError, 'git is not installed'):
+                cli_index.scan_dir(str(nested))
+            refused = subprocess.CompletedProcess([], 128, b'', b'fatal: detected dubious ownership')
+            with patch('subprocess.run', return_value=refused), \
+                    self.assertRaisesRegex(OSError, 'dubious ownership'):
+                cli_index.scan_dir(str(nested))
 
 
 class StorageTests(unittest.TestCase):
@@ -210,6 +264,21 @@ class StorageTests(unittest.TestCase):
                 with patch('sys.argv', ['refresh', '--force', directory, directory + ':fixture']):
                     cli_index.main(command='refresh')
                 encode.assert_called_once()
+
+    def test_ingest_names_a_repository_git_cannot_list(self):
+        from imprint import cli_index
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / '.git').mkdir()
+            (Path(directory) / 'app.py').write_text('x = 1\n')
+            stderr = io.StringIO()
+            with patch('sys.argv', ['index', directory, directory + ':fixture']), \
+                 patch('subprocess.run', side_effect=FileNotFoundError), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr), \
+                 self.assertRaises(SystemExit) as stopped:
+                cli_index.main()
+            self.assertEqual(stopped.exception.code, 1)
+            self.assertIn('Cannot scan:', stderr.getvalue())
+            self.assertIn('git is not installed', stderr.getvalue())
 
     def test_replacement_preserves_old_source_on_embedding_failure(self):
         vs.replace_source(self.records(['old complete content']), 'project/app.py', 'project')
