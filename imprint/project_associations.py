@@ -19,7 +19,9 @@ from . import config
 def _db():
     path = config.get_data_dir() / 'project-associations.sqlite3'
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path, timeout=30) as conn:
+    # sqlite3's transaction context commits/rolls back but does not close the
+    # connection. Close explicitly so Windows can remove or wipe this file.
+    with contextlib.closing(sqlite3.connect(path, timeout=30)) as conn, conn:
         conn.row_factory = sqlite3.Row
         conn.execute('''CREATE TABLE IF NOT EXISTS links (
             workspace TEXT, origin TEXT, source TEXT, target TEXT, status TEXT,

@@ -5,6 +5,13 @@ description: Executed checks, installer defects addressed and the remaining nati
 
 ## Environment and limits
 
+Windows CI follow-up, 2026-10-28: the native suite exposed open handles on
+`project-associations.sqlite3` during temporary-source cleanup. SQLite's
+transaction context committed/rolled back without closing the connection.
+The association database now closes explicitly on success and exceptions;
+a regression checks closure and rollback separately. Native Windows revalidation
+is required before promotion to main.
+
 Follow-up avatar assets, 2026-10-28, Linux/WSL: after the combined commit, the
 additional iris-brightness/core-blink edits and regenerated GLBs passed generator
 syntax/lint, the production dashboard build and all 32 Voice/setup browser tests.

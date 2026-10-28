@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 from unittest.mock import patch
 
 from imprint import project_associations as pa, source_snapshots as ss, vectorstore as vs, workspace_policy as policy
@@ -8,6 +9,21 @@ from test_source_snapshots import SourceFixture
 
 
 class ProjectAssociationTests(SourceFixture):
+    def test_database_connections_close_after_commit_and_rollback(self):
+        with pa._db() as committed:
+            committed.execute('CREATE TABLE close_test (value TEXT)')
+            committed.execute("INSERT INTO close_test VALUES ('kept')")
+        with self.assertRaises(sqlite3.ProgrammingError):
+            committed.execute('SELECT 1')
+        with self.assertRaisesRegex(RuntimeError, 'rollback'):
+            with pa._db() as rolled_back:
+                rolled_back.execute("INSERT INTO close_test VALUES ('removed')")
+                raise RuntimeError('rollback')
+        with self.assertRaises(sqlite3.ProgrammingError):
+            rolled_back.execute('SELECT 1')
+        with pa._db() as check:
+            self.assertEqual([row[0] for row in check.execute('SELECT value FROM close_test')], ['kept'])
+
     def seed(self):
         self.store('first known repository', source='alpha/file', project='alpha-project')
         self.store('second known repository', source='beta/file', project='beta-project')
