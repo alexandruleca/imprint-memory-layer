@@ -22,7 +22,7 @@ Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant
 |---|---|
 | `data/queue.sqlite3` | FIFO queue + job history (see schema below) |
 | `data/queue.lock` | `fcntl` advisory flock + JSON body describing the current holder |
-| `data/queue_logs/{job_id}.log` | Full subprocess stdout+stderr per job (tailed by `/stream`) |
+| `data/queue_logs/{job_id}.log` | Full subprocess stdout+stderr per job (tailed by `/stream`); jobs run their Python unbuffered, so lines arrive as they are printed ([ADR 0064](adr/0064-single-slot-command-queue-and-shared-lock.md)) |
 | `data/progress.json` | The lock holder's progress: command, phase, processed of total and the unit it counts (files, conversations, chunks, memories, pages, steps). Python jobs, the Stop hook's learner and Go setup write it; `/api/queue` joins it into the active job, the top bar shows it on every page, the desktop app reads it while the dashboard server is down, and a waiting command prints it ([ADR 0089](adr/0089-one-progress-record-for-the-running-job.md)) |
 | `data/learn_slots/{hash}.lock` | Stop hook learners' waiting slots, one per conversation and workspace; removed when the waiting learner takes the queue lock |
 | `data/session_learn.log` | Stop hook learners' output; starts over past 1 MiB |

@@ -769,6 +769,10 @@ async def _run_job(job: dict, after_job=None) -> None:
         # its Python children run in UTF-8 mode. Decoding with the platform's
         # locale (cp1252 on Windows) failed on the first "═" of a header.
         env["PYTHONUTF8"] = "1"
+        # The log shows lines as they are printed. Writing to a pipe, Python
+        # holds its stdout back in blocks, so a scan's first lines appeared
+        # only after minutes of work.
+        env["PYTHONUNBUFFERED"] = "1"
 
         # A job has no terminal: a prompt reads end-of-file instead of
         # waiting for an answer nobody can give.
