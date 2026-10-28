@@ -736,7 +736,7 @@ no code signature, and its arm64 slice has only the linker's ad-hoc signature
 (identifier `Electron`, no Info.plist or resources binding, no entitlements, no
 hardened runtime). `NSMicrophoneUsageDescription` is in `Info.plist` but not
 sealed to the code. `imprint ui open` starts the app through `open -a`, so the
-app is its own TCC-responsible process. [ADR 0052](adr/0052-ad-hoc-signed-macos-desktop-bundle.md)
+app is its own TCC-responsible process. [ADR 0055](adr/0055-ad-hoc-signed-macos-desktop-bundle.md)
 signs it ad hoc as a bundle, and release validation now rejects this artifact.
 Pending on a Mac: a release built with the change, `codesign --verify --deep
 --strict` of the installed app, the TCC prompt itself, and the user's crash

@@ -1,42 +1,32 @@
 ---
 title: Engineering documentation
-description: Repository review, integration strategy, operational documentation and architecture decisions.
+description: How Imprint works, how to use, build and operate it, and the decisions and evidence behind it.
 ---
 
 This directory is the engineering source of truth. The documentation website reads it through `site/src/content/docs`, which is a symlink to this directory. Keep YAML front matter on new Markdown pages so the site can build them. Repository-relative documentation links remain readable on GitHub; the site maps them to Starlight routes (including custom slugs) and repository source links at build time.
 
-Start with the [repository assessment](repository-assessment.md), [integration strategy](integrations.md), [quality roadmap](quality-roadmap.md) and [platform validation](platform-validation.md). The assessment is dated 2026-10-23 and separates source findings, changes implemented, and work still requiring evidence.
+## How Imprint works
 
-Detailed follow-up: [audit remediation tracker](audit-remediation.md), [indexing and retrieval](indexing-retrieval.md), [UI/UX review](ui-ux-review.md), and [local model selection](local-model-selection.md) and [local helper setup](local-models.md).
+Start with the [architecture overview](architecture.md), then the subsystems: [indexing and retrieval](indexing-retrieval.md), [verifiable source memory](source-memory.md), [chunking](chunking.md), [tagging](tagging.md), [embeddings](embeddings.md), [workspaces](workspaces.md) (including [multi-project source links and the unassigned conversation inbox](workspaces.md#associate-one-source-with-several-projects)), the [queue](queue.md), [sync](sync.md), [devices and portable project paths](devices.md) and [secret redaction](redaction.md).
 
-Agent efficiency: [context budgets and cost experiments](context-budgets.md).
+## Using it
 
-Audio files: [multilingual audio ingestion](audio-ingestion.md), with local
-Romanian/English transcription, timestamped source reading and queued imports.
+[Installation](installation.md), the [dashboard](dashboard.md), [MCP tools](mcp.md), the [HTTP API](api.md), [client integrations](integrations.md), [configuration](configuration.md) and [local helper models](local-models.md). Audio files: [multilingual audio ingestion](audio-ingestion.md), with local Romanian/English transcription, timestamped source reading and queued imports. Voice: the [Echo voice companion](live-voice.md), a floating hologram with push-to-talk, optional hands-free listening, streamed local speech and the local chat model. Experimental browser capture: the [Chrome extension](browser-extension.md).
 
-Project organization: [reviewable multi-project source links and the unassigned
-conversation inbox](workspaces.md#associate-one-source-with-several-projects).
+## Building and operating
 
-Proposed voice interface: [voice assistant and floating avatar feasibility](voice-avatar-feasibility.md), including NVIDIA component choices, local chat routing, interruption handling and phased validation.
+[Building and releases](building.md), [Docker](docker.md) and [nightly security scanning](security-scanning.md).
 
-Experimental implementation: [PersonaPlex memory prototype](personaplex-prototype.md), with read-only MCP startup snapshots and a separate pinned voice runtime.
+## Evidence and measurement
 
-Primary smaller-model experiment: [LFM2.5-Audio local voice](lfm-audio-prototype.md), with verified native CPU artifacts, read-only memory snapshots and offline speech tests.
+[Platform validation](platform-validation.md) records what was executed, on which platform, and what remains unverified. The measurements behind retrieval and model choices are in the [benchmark assessment and methodology](benchmarks.md), [local model selection](local-model-selection.md) and [context budgets and cost experiments](context-budgets.md).
 
-Live implementation: [Echo voice companion](live-voice.md), with a modeled anime hologram, floating window, push-to-talk, optional hands-free VAD, streamed local speech and routing to the existing local chat model.
+## Research and experiments
 
-Cross-device context: [devices and portable project paths](devices.md).
-
-Experimental browser capture: [Chrome extension (WIP)](browser-extension.md).
-
-Measurement: [benchmark assessment and methodology](benchmarks.md), and [verifiable source memory and its paired coverage experiment](source-memory.md).
-
-Ongoing checks: [nightly security scanning](security-scanning.md).
-
-Existing subsystem references: [architecture](architecture.md), [configuration](configuration.md), [MCP](mcp.md), [HTTP API](api.md), [building and releases](building.md), [installation](installation.md), [workspaces](workspaces.md), [queue](queue.md), [sync](sync.md), [secret redaction](redaction.md), [embeddings](embeddings.md), [chunking](chunking.md), [tagging](tagging.md) and [Docker](docker.md).
+Explored designs, kept because decisions cite them. They describe what was tried, not current behavior: the [voice assistant and floating avatar feasibility](voice-avatar-feasibility.md) study, the [PersonaPlex memory prototype](personaplex-prototype.md) and the [LFM2.5-Audio local voice experiment](lfm-audio-prototype.md). The voice feature that shipped is the [Echo voice companion](live-voice.md).
 
 ## Decisions and upkeep
 
-Use the [ADR index and process](adr/README.md) for significant decisions. Update the relevant operational docs and ADR index in the same pull request. An implemented decision is recorded as accepted; an idea in the roadmap is not automatically an accepted commitment.
+Use the [ADR index and process](adr/README.md) for significant decisions. Update the relevant operational docs and ADR index in the same pull request. An implemented decision is recorded as accepted; a proposal is not current behavior.
 
 Validation results belong in the change description and, for release/platform milestones, in [platform validation](platform-validation.md). Never turn an unexecuted checklist into a passing result.

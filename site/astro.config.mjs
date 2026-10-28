@@ -68,7 +68,7 @@ const fontHead = [
 export default defineConfig({
   site: 'https://imprintmcp.alexandruleca.com',
   // The ADR index is docs/adr/README.md, so GitHub shows it in the folder.
-  redirects: { '/adr': '/adr/readme/' },
+  redirects: { '/adr': '/adr/readme/', '/ui-ux-review': '/dashboard/' },
   // Templates are written with HTML whitespace semantics; Astro 7's default
   // JSX rules would drop the spaces between inline elements and text.
   compressHTML: true,
@@ -93,6 +93,7 @@ export default defineConfig({
           label: 'Start',
           items: [
             { label: 'Installation', slug: 'installation' },
+            { label: 'Dashboard', slug: 'dashboard' },
             { label: 'Chrome extension (preview)', slug: 'browser-extension' },
             { label: 'MCP tools', slug: 'mcp' },
             { label: 'HTTP API', slug: 'api' },
@@ -115,16 +116,20 @@ export default defineConfig({
           label: 'Engineering',
           items: [
             { label: 'Documentation index', slug: 'readme' },
-            { label: 'Repository assessment', slug: 'repository-assessment' },
-            { label: 'Audit remediation', slug: 'audit-remediation' },
             { label: 'Indexing and retrieval', slug: 'indexing-retrieval' },
             { label: 'Local model selection', slug: 'local-model-selection' },
             { label: 'Local helper models', slug: 'local-models' },
-            { label: 'UI and UX review', slug: 'ui-ux-review' },
             { label: 'Integrations', slug: 'integrations' },
-            { label: 'Quality roadmap', slug: 'quality-roadmap' },
             { label: 'Platform validation', slug: 'platform-validation' },
             { label: 'Architecture decisions', slug: 'adr/readme' },
+          ],
+        },
+        {
+          label: 'Research and experiments',
+          items: [
+            { label: 'Voice and avatar feasibility', slug: 'voice-avatar-feasibility' },
+            { label: 'PersonaPlex prototype', slug: 'personaplex-prototype' },
+            { label: 'LFM2.5-Audio experiment', slug: 'lfm-audio-prototype' },
           ],
         },
         {

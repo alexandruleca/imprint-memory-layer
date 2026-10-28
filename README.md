@@ -273,4 +273,4 @@ Questions, feedback, or bug reports? Reach out:
 [![X / Twitter](https://img.shields.io/badge/X-@AlexandruLeca-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/AlexandruLeca)
 [![GitHub Issues](https://img.shields.io/badge/GitHub-Issues-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/alexandruleca/imprint-memory-layer/issues)
 
-Engineering documentation: [repository assessment](docs/repository-assessment.md), [integration strategy](docs/integrations.md), [quality roadmap](docs/quality-roadmap.md), [platform validation](docs/platform-validation.md), and [architecture decisions](docs/adr/README.md).
+Engineering documentation: [documentation index](docs/README.md), [architecture](docs/architecture.md), [integration strategy](docs/integrations.md), [platform validation](docs/platform-validation.md), and [architecture decisions](docs/adr/README.md).
