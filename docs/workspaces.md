@@ -57,6 +57,11 @@ tagging helper to be installed. Follow the job in Queue, then refresh suggestion
 The same command is available on Commands, or with the installed Python runtime:
 `python -m imprint.project_associations [--model]`.
 
+Project analysis continues after a local-helper timeout on one source, logging
+the incomplete analysis and saving identifier matches. Rerun to retry that
+source’s model analysis. Commands started from the dashboard continue in Queue
+when you navigate away; use Cancel to stop them.
+
 These are whole-source links. Supporting passages explain the link; they do not
 partition its membership. Topics stay independent shared themes. A model result
 always needs review. Settings can opt into automatic exact registered-path

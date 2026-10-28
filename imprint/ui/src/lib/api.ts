@@ -575,6 +575,7 @@ export function tailJobStream(
 /** Legacy helper — enqueues a command, streams its output, and returns an
  *  AbortController whose abort() **cancels the job** (SIGTERM→SIGKILL the
  *  whole process group, so any in-flight LLM tagger call dies with it).
+ *  Set cancelOnAbort=false to detach on navigation; cancel() still cancels.
  *  When the submission joined an identical waiting job, a `merged` event
  *  comes first; cancelling then cancels that shared job.
  */
@@ -582,8 +583,10 @@ export function streamCommand(
   command: string,
   body: Record<string, unknown>,
   onEvent: (ev: Record<string, unknown>) => void,
-): AbortController {
-  const ctrl = new AbortController();
+  cancelOnAbort = true,
+): AbortController & { cancel: () => void } {
+  const ctrl = Object.assign(new AbortController(), { cancel: () => {} });
+  let cancelled = false;
   let jobId: string | null = null;
   let tail: AbortController | null = null;
 
@@ -591,19 +594,25 @@ export function streamCommand(
     .then(({ job_id, position, merged }) => {
       jobId = job_id;
       if (ctrl.signal.aborted) {
-        cancelJob(job_id).catch(() => {});
+        if (cancelled) cancelJob(job_id).catch(() => {});
         return;
       }
       if (merged) onEvent({ type: "merged", job_id, position });
       tail = tailJobStream(job_id, onEvent);
     })
     .catch((err) => {
-      onEvent({ type: "error", error: String(err) });
+      if (!ctrl.signal.aborted) onEvent({ type: "error", error: String(err) });
     });
 
+  ctrl.cancel = () => {
+    if (cancelled) return;
+    cancelled = true;
+    ctrl.abort();
+    if (jobId) cancelJob(jobId).catch(() => {});
+  };
   ctrl.signal.addEventListener("abort", () => {
     tail?.abort();
-    if (jobId) cancelJob(jobId).catch(() => {});
+    if (cancelOnAbort && !cancelled) ctrl.cancel();
   });
   return ctrl;
 }

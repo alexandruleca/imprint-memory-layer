@@ -154,12 +154,34 @@ class ProjectAssociationTests(SourceFixture):
             pa.analyze(ss.get('shared', 'unassigned'), use_model=True, force=True)
         links = pa.review()['associations']
         self.assertEqual([(row['target'], row['status']) for row in links], [('alpha-project', 'suggested')])
+        with patch.object(pa, '_model_matches', side_effect=TimeoutError), patch('builtins.print'):
+            pa.analyze(ss.get('shared', 'unassigned'), use_model=True, force=True)
+        self.assertEqual([(r['target'], r['method']) for r in pa.review()['associations']],
+                         [('alpha-project', 'local-model')])
         # A metadata/unchanged-source refresh must not discard an expensive
         # model suggestion. Changed source text must invalidate it.
         self.store('A discussion about domain-specific inventory rules.', source='shared', project='unassigned')
         self.assertEqual(len(pa.review()['associations']), 1)
         self.store('A different discussion.', source='shared', project='unassigned')
         self.assertEqual(pa.review()['associations'], [])
+
+    def test_model_timeout_keeps_identifiers_and_scan_continues_without_caching_failure(self):
+        self.seed()
+        self.store('Discuss alpha-project here.', source='shared', project='unassigned')
+        self.store('Discuss beta-project next.', source='later', project='unassigned')
+        with patch.object(pa, '_model_matches', side_effect=TimeoutError('local model time limit reached')) as model, \
+             patch('builtins.print') as output:
+            pa.scan(use_model=True)
+        self.assertEqual(model.call_count, len(ss.list_metadata()))
+        self.assertTrue(any('timed out for shared' in str(call) for call in output.call_args_list))
+        links = pa.review()['associations']
+        self.assertIn(('shared', 'alpha-project'), {(r['source'], r['target']) for r in links})
+        self.assertIn(('later', 'beta-project'), {(r['source'], r['target']) for r in links})
+        with pa._db() as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM scans').fetchone()[0], 0)
+        with patch.object(pa, '_model_matches', return_value={}) as retry:
+            pa.analyze(ss.get('shared', 'unassigned'), use_model=True)
+        retry.assert_called_once()
 
     def test_api_requires_workspace_and_reads_linked_sources_as_canonical(self):
         import asyncio

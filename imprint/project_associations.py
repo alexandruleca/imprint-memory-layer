@@ -204,14 +204,22 @@ def analyze(snapshot, workspace=None, *, use_model=False, candidates=None, force
     if prior and prior[0] == fingerprint and not force:
         return
     matches = _matches(snapshot, candidates)
+    model_complete = True
     if use_model:
-        for target, evidence in _model_matches(snapshot, candidates).items():
+        try:
+            model_matches = _model_matches(snapshot, candidates)
+        except TimeoutError:
+            model_complete = False
+            model_matches = {}
+            print(f'Local project analysis timed out for {meta["source"]}; '
+                  'keeping identifier matches and continuing. Rerun to retry model analysis.', flush=True)
+        for target, evidence in model_matches.items():
             matches.setdefault(target, evidence)
     auto = config._get('associations.auto_accept_paths')
     with _db() as conn:
         # Inference is disposable; accepted and rejected user decisions survive.
         conn.execute('DELETE FROM links WHERE workspace=? AND origin=? AND source=? AND manual=0 '
-                     "AND (version<>? OR method<>'local-model' OR ?)", (*key, meta['version'], int(use_model)))
+                     "AND (version<>? OR method<>'local-model' OR ?)", (*key, meta['version'], int(use_model and model_complete)))
         for target, evidence in matches.items():
             if target == meta['project']:
                 continue
@@ -220,7 +228,10 @@ def analyze(snapshot, workspace=None, *, use_model=False, candidates=None, force
             conn.execute('DELETE FROM links WHERE workspace=? AND origin=? AND source=? AND target=? AND manual=0', (*key, target))
             conn.execute('INSERT OR IGNORE INTO links VALUES (?,?,?,?,?,?,?,?,?)',
                          (*key, target, status, 0, 'path' if strong else evidence[0]['method'], meta['version'], json.dumps(evidence)))
-        conn.execute('INSERT OR REPLACE INTO scans VALUES (?,?,?,?)', (*key, fingerprint))
+        if model_complete:
+            conn.execute('INSERT OR REPLACE INTO scans VALUES (?,?,?,?)', (*key, fingerprint))
+        else:
+            conn.execute('DELETE FROM scans WHERE workspace=? AND origin=? AND source=?', key)
     # Also clears inferred memberships invalidated by a changed source.
     materialize(meta, ws)
 
@@ -296,14 +307,19 @@ def decide(source, project, target, status, workspace=None):
 
 
 def scan(workspace=None, *, use_model=False):
-    from . import source_snapshots as ss
+    from . import source_snapshots as ss, progress
     ws = _workspace(workspace)
     candidates = catalog(ws)
     heads = ss.list_metadata(ws)
+    started = time.time()
+    progress.write_progress('associate-projects', 0, len(heads), 0, 0, started, [],
+                            phase='project analysis', unit='sources')
     for index, meta in enumerate(heads):
         snapshot = ss.get(meta['source'], meta['project'], ws)
         if snapshot:
             analyze(snapshot, ws, use_model=use_model, candidates=candidates, force=True)
+        progress.write_progress('associate-projects', index + 1, len(heads), 0, 0, started, [],
+                                phase='project analysis', unit='sources')
         print(f'Project analysis {index + 1}/{len(heads)}: {meta["source"]}', flush=True)
 
 
@@ -320,7 +336,7 @@ def forget(metadata, workspace=None):
 
 def main():
     import argparse
-    from . import queue_lock
+    from . import queue_lock, progress
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', action='store_true')
     args = parser.parse_args()
@@ -328,6 +344,7 @@ def main():
     try:
         scan(use_model=args.model)
     finally:
+        progress.clear_progress()
         if fd is not None:
             queue_lock.release(fd)
 

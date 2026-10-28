@@ -35,6 +35,10 @@ takes the shared queue lock. It scans existing canonical snapshots for known
 project identifiers; optional `model: true` adds local section analysis with an
 installed helper. It does not move sources. Review suggestions after the job
 finishes; a cancelled scan retains completed source decisions and can be rerun.
+A source that exhausts the helper’s 120-second budget logs a warning, saves
+identifier matches and continues with the next source. It is not cached as a
+completed model analysis; rerunning retries it ([ADR 0105](adr/0105-project-analysis-continues-after-model-timeouts.md)).
+The running scan reports source counts through the shared progress record.
 See [project association review](workspaces.md#associate-one-source-with-several-projects).
 
 ```sql
@@ -111,7 +115,7 @@ The same catalog names queued jobs: `commands.describe` gives each job in `/api/
 - **`/queue`** — **Running**: the running job, or background tagging while it runs, as one card ([`RunningJob`](../imprint/ui/src/components/ingestion-progress.tsx)): its name and arguments, phase, progress of total with percent, time so far and time left, Cancel, the newest output line and the whole output on request. **Up next**: waiting jobs in order (removing one is the row's X; a merged job shows how many requests it answers). **Background tagging**: one line with its state, the memories waiting and **Resume now** after a cancel or failure. **History**: finished jobs with their result, run time and when they ended. Any job opens a side sheet with its arguments, workspace, times, process, error, a Cancel or Remove action while it can run, and its output. Background runs raise no job toasts.
 - **Dashboard** — [`IngestionProgress`](../imprint/ui/src/components/ingestion-progress.tsx) shows the same running-job card and how many jobs wait, linking to the queue. **Add to memory** queues a folder, a document, a web page or conversations; refreshing, retagging and the rest are on the Commands page.
 - **Top bar** — [`ActivityIndicator`](../imprint/ui/src/components/activity-indicator.tsx) shows the running job, or background tagging while it runs, on every page and links to the queue. It and the other queue views share one poll ([`lib/queue.ts`](../imprint/ui/src/lib/queue.ts)); the offline banner shows the record the desktop app reads while the server is down ([ADR 0089](adr/0089-one-progress-record-for-the-running-job.md)).
-- **`QuickIngest` / `CommandsPage`** — the Commands page loads its commands from `GET /api/commands` and reloads them when a job finishes, so client connection states stay current. Both continue to use `streamCommand()` from [`lib/api.ts`](../imprint/ui/src/lib/api.ts). The helper now enqueues first, then SSE-tails `/api/jobs/{id}/stream`. `AbortController.abort()` cancels the job server-side (not just the fetch).
+- **`QuickIngest` / `CommandsPage`** — both enqueue server-owned jobs. The Commands page follows the stored output; leaving it detaches the stream and keeps the job running in Queue. Its Cancel button explicitly cancels the job, including when submission is still pending. The page reloads the command catalog when a job finishes, so client connection states stay current. Legacy `streamCommand()` callers retain cancel-on-abort behavior unless they opt into detaching.
 
 ## Verification
 

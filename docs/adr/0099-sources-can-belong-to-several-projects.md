@@ -3,8 +3,9 @@ title: ADR 0099 — Sources can belong to several projects
 description: Reviewable local project associations add retrieval membership while preserving canonical source identity and primary placement.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
+- Amended by: [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md) — continue scans after a per-source model timeout
 - Related: [ADR 0036](0036-move-memories-between-projects.md), [ADR 0081](0081-verifiable-redacted-source-snapshots.md), [ADR 0094](0094-the-dashboard-reads-whole-sources-from-their-snapshots.md)
 
 ## Context

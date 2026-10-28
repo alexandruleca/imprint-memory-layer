@@ -153,7 +153,8 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) **Setup frees the runtime before replacing its files.** Setup holds the queue and runtime locks while it changes the venv; before it replaces or removes packages it restarts the dashboard server and, on Windows, stops every other process running from the runtime. Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (Settings starts no bootstrap).
 
-- [ADR 0099](0099-sources-can-belong-to-several-projects.md) **Sources can belong to several projects.** Reviewable local links add retrieval membership while preserving the canonical source.
+- [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md) **Project analysis continues after model timeouts.** Preserve identifier suggestions, warn and retry incomplete model analysis.
+- [ADR 0099](0099-sources-can-belong-to-several-projects.md) **Sources can belong to several projects.** Reviewable local links add retrieval membership while preserving the canonical source. Amended by [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md) (per-source timeout recovery).
 - [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) **Explicit unassigned inbox.** One opted-in workspace may learn conversations without directory evidence; conflicting evidence still rejects them.
 
 - [ADR 0101](0101-chat-research-always-reserves-an-answer.md) **Chat research always reserves an answer.** Tool rounds are bounded; exhaustion, repeating reads or a full research context transition to tools-free synthesis and preserved evidence. Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) (evidence novelty and resource budgets).
@@ -275,12 +276,13 @@ Every record in number order. *Date* is when the decision was made.
 | [0096](0096-cpu-whisper-runtime-for-audio-imports.md) | 2026-10-28 | Accepted | CPU Whisper runtime for audio imports |
 | [0097](0097-echo-looks-fire-like-synapses.md) | 2026-10-28 | Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | Echo's looks fire like synapses |
 | [0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) | 2026-10-28 | Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | Head surfaces take light; generated parts glow |
-| [0099](0099-sources-can-belong-to-several-projects.md) | 2026-10-28 | Accepted | Sources can belong to several projects |
+| [0099](0099-sources-can-belong-to-several-projects.md) | 2026-10-28 | Amended by [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md) | Sources can belong to several projects |
 | [0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) | 2026-10-28 | Accepted | Explicit workspace inbox for unassigned conversations |
 | [0101](0101-chat-research-always-reserves-an-answer.md) | 2026-10-28 | Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) | Chat research always reserves an answer |
 | [0102](0102-chat-research-follows-progress-and-resource-budgets.md) | 2026-10-28 | Accepted | Chat research follows progress and resource budgets |
 | [0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | 2026-10-28 | Accepted | Echo has a generated eye with shared morph controls |
 | [0104](0104-bundle-uv-with-conditional-hash-lock-support.md) | 2026-10-28 | Accepted | Bundle uv with conditional hash-lock support |
+| [0105](0105-project-analysis-continues-after-model-timeouts.md) | 2026-10-28 | Accepted | Project analysis continues after model timeouts |
 
 ## How to write and maintain ADRs
 

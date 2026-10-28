@@ -116,3 +116,72 @@ test('a catalog that cannot load says why and retries', async ({ page }) => {
   await expect(alert).toHaveCount(0);
   await expect(nav(page).getByRole('button', { name: /Connect clients/ })).toBeVisible();
 });
+
+for (const action of ['navigate', 'cancel'] as const) {
+  test(`running project analysis ${action === 'navigate' ? 'survives navigation' : 'can be explicitly cancelled'}`, async ({ page }) => {
+    await mockApi(page);
+    await page.route('**/api/commands', route => route.fulfill({ json: {
+      commands: [{ name: 'associate-projects', label: 'Find project associations', group: 'Index', description: 'Analyze sources', fields: [] }], clients,
+    } }));
+    await page.route('**/api/queue*', route => route.fulfill({ json: { active: null, queued: [], recent: [] } }));
+    await page.route('**/api/jobs/j1/stream', route => route.fulfill({
+      headers: { 'content-type': 'text/event-stream' },
+      body: 'data: {"type":"output","text":"Project analysis 1/173"}\n\n',
+    }));
+    const cancellations: string[] = [];
+    await page.route('**/api/jobs/j1/cancel', route => {
+      cancellations.push(route.request().url());
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.goto('/commands/');
+    await page.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(page.getByText('Project analysis 1/173')).toBeVisible();
+    if (action === 'navigate') {
+      await page.getByRole('button', { name: 'Open queue' }).click();
+      await expect(page).toHaveURL(/\/queue\//);
+      expect(cancellations).toEqual([]);
+    } else {
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect.poll(() => cancellations.length).toBe(1);
+      await expect(page.getByText('Cancelled', { exact: true })).toBeVisible();
+    }
+  });
+}
+
+for (const action of ['navigate', 'cancel'] as const) {
+  test(`${action} while queue submission is pending`, async ({ page }) => {
+    await mockApi(page);
+    await mockCatalog(page);
+    await page.route('**/api/queue*', route => route.fulfill({ json: { active: null, queued: [], recent: [] } }));
+    let release!: () => void;
+    const submitted = new Promise<void>(resolve => { release = resolve; });
+    let received = false;
+    await page.route('**/api/commands/learn', async route => {
+      received = true;
+      await submitted;
+      await route.fulfill({ json: { job_id: 'j1', position: 0 } });
+    });
+    const cancellations: string[] = [];
+    await page.route('**/api/jobs/j1/cancel', route => {
+      cancellations.push(route.request().url());
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.goto('/commands/');
+    await page.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect.poll(() => received).toBe(true);
+    if (action === 'navigate') {
+      await page.getByRole('button', { name: 'Open queue' }).click();
+      await expect(page).toHaveURL(/\/queue\//);
+    } else {
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    }
+    const response = page.waitForResponse('**/api/commands/learn');
+    release();
+    await response;
+    if (action === 'cancel') await expect.poll(() => cancellations.length).toBe(1);
+    else {
+      await page.waitForLoadState('networkidle');
+      expect(cancellations).toEqual([]);
+    }
+  });
+}

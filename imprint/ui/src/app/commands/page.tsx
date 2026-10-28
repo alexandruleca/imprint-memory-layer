@@ -77,7 +77,7 @@ export default function CommandsPage() {
   const [browsing, setBrowsing] = useState<Extract<CommandField, { kind: "path" }> | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
-  const controller = useRef<AbortController | null>(null);
+  const controller = useRef<ReturnType<typeof streamCommand> | null>(null);
   const running = run.state === "running";
 
   // A failed reload keeps the catalog already shown; only a first load fails the page.
@@ -141,11 +141,11 @@ export default function CommandsPage() {
         setOutput((prev) => `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}ERROR: ${ev.error}\n`);
         setRun({ state: "error" });
       }
-    });
+    }, false);
   }
 
   function cancel() {
-    controller.current?.abort();
+    controller.current?.cancel();
     setRun({ state: "cancelled" });
   }
 
