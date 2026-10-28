@@ -5,6 +5,14 @@ description: Source lifecycle, freshness, ranking, migration, evaluation and kno
 
 ## Source lifecycle
 
+Full snapshot publication also suggests project associations. Accepted links
+extend project read filters to `related_projects` without changing primary IDs
+or copying vectors. Every writer, including sync, recomputes that payload from
+device-local workspace decisions. Manual decisions survive refresh; inferred
+links are reconsidered on source changes. Moves and purge retain primary-owner
+semantics. See [project organization](workspaces.md#associate-one-source-with-several-projects)
+and [ADR 0099](adr/0099-sources-can-belong-to-several-projects.md).
+
 Filesystem ingestion is restricted to approved workspace roots; overlapping roots require explicit sharing confirmation. Purged files/directories are excluded from refresh until restored, and storage/import checks reject their reintroduction. Workspace selection remains fixed through source replacement even when another window switches the active workspace. See [workspace roots and purge](workspaces.md) and ADR 0015.
 
 `imprint ingest <dir>` and `imprint refresh <dir>` use the same pipeline. Scan selected roots, respect git tracked/ignore boundaries, filter generated/secret filenames and reject symlinks escaping a root. Git filenames use NUL delimiters. Non-git walking propagates scan errors. Known secret names are a conservative exclusion. Inside indexed content, credentials in known formats are replaced with placeholders before storage ([secret redaction](redaction.md)); review selected sources before indexing all the same.
@@ -22,6 +30,14 @@ The public ID hashes complete stripped content, project, source and optional chu
 `--force` on ingest/refresh bypasses both fingerprint skipping and existing-vector dedup within a compatible profile. After changing embedding identity, rebuild in a fresh workspace; see [embeddings](embeddings.md). Indexing failures propagate nonzero through the Go CLI.
 
 Complete redacted readable text and span manifests are stored beside modern chunks, after successful replacement. `read_source` provides version-pinned pages and detects incomplete index coverage. Modern skip checks also verify the source profile and manifest ID set; missing chunks trigger repair. Legacy files need `refresh --force` once to acquire a full-source view. See [source memory](source-memory.md) for content boundaries, deletion, sync and measured costs ([ADR 0081](adr/0081-verifiable-redacted-source-snapshots.md)).
+
+## Audio sources
+
+Audio recordings use this same source lifecycle, with their own size/duration
+limits. The multilingual CPU recognizer emits timestamped neutral-speaker
+conversation events. Completed source snapshots cache transcripts by file hash
+and transcription profile, inside the workspace; `--force` retranscribes.
+See [audio ingestion](audio-ingestion.md) and [ADR 0095](adr/0095-audio-files-enter-the-source-ingestion-pipeline.md).
 
 ## Ranking contract
 

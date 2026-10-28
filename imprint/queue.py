@@ -915,6 +915,8 @@ def find_imprint_binary(root: Path = INSTALL_ROOT) -> str:
 
 
 def _build_argv(command: str, body: dict, *, job_id: str | None = None) -> list[str]:
+    if command == 'associate-projects':
+        return [sys.executable, '-m', 'imprint.project_associations', *build_command_args(command, body)]
     if command in ('browser-capture', BACKGROUND):
         if not job_id or not re.fullmatch(r'[a-f0-9]{32}', job_id):
             raise ValueError(f'{command} requires a queue job ID')
@@ -938,7 +940,10 @@ def build_command_args(command: str, body: dict) -> list[str]:
         return [str(x) for x in passthrough]
 
     args: list[str] = []
-    if command in ("ingest", "refresh"):
+    if command == 'associate-projects':
+        if body.get('model'):
+            args.append('--model')
+    elif command in ("ingest", "refresh"):
         if body.get("dir"):
             args.append(body["dir"])
         if body.get("force"):

@@ -30,6 +30,10 @@ import subprocess
 import sys
 
 CATALOG: tuple[dict, ...] = (
+    {'name': 'associate-projects', 'label': 'Find project associations', 'group': 'Index',
+     'description': 'Review existing source snapshots for links to known projects without moving or duplicating them',
+     'fields': [{'key': 'model', 'label': 'Use installed local helper', 'kind': 'switch',
+                 'hint': 'Analyze ambiguous passages too; local only, with no automatic project assignment'}]},
     {'name': 'learn', 'label': 'Learn conversations', 'group': 'Index',
      'description': 'Index coding-assistant conversations and memory files',
      'fields': [

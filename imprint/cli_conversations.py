@@ -148,7 +148,30 @@ def derive_project(cwd: str) -> str:
     """
     folder = re.sub(r"[^A-Za-z0-9]", "-", cwd)
     if not _HOME_FOLDER.match(folder) or "code-" not in folder:
-        return ""
+        # Keep established names stable. For other layouts use approved project
+        # mappings first, then the nearest actual project manifest, not a home
+        # directory or an arbitrary host cwd.
+        if not cwd:
+            return ''
+        from . import workspace_policy as policy
+        from .wsl_paths import native_path
+        from .projects import MANIFESTS, _extract_name
+        path = Path(native_path(cwd))
+        if not path.is_absolute() or not path.is_dir():
+            return ''
+        path = path.resolve()
+        with policy._db() as conn:
+            mappings = list(conn.execute('SELECT project, path FROM project_roots WHERE workspace=?', (policy.workspace_name(),)))
+        for name, root in sorted(mappings, key=lambda row: -len(row[1])):
+            if path == Path(root) or Path(root) in path.parents:
+                return name
+        for parent in [path, *list(path.parents)[:8]]:
+            if parent == Path.home() or parent == Path(parent.anchor):
+                break
+            for manifest in MANIFESTS:
+                if (parent / manifest).is_file():
+                    return _extract_name(parent / manifest, manifest, parent)
+        return ''
     remainder = folder[folder.index("code-") + 5:]
     # Skip known group prefixes (org dirs, language dirs, etc.) up to the
     # first segment that starts the project name.
@@ -255,6 +278,14 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
     source, project = identify(transcript_path)
     if not owned(transcript_path) or is_excluded(path=transcript_path, source=source):
         return 0, 0
+    from . import source_snapshots
+    # Retain existing origin identity when improved detection names an old
+    # source differently; avoid leaving its old IDs behind.
+    old = [meta for meta in source_snapshots.list_metadata() if meta['source'] == source]
+    if len(old) == 1:
+        project = old[0].get('provenance', {}).get('origin_project', old[0]['project'])
+    elif not project and not any(transcripts.cwds(transcript_path)):
+        project = 'unassigned'
     from . import conversation_source, source_memory
     from .source_state import fingerprint
     before = fingerprint(transcript_path)

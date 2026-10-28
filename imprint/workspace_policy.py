@@ -155,7 +155,8 @@ def transcript_allowed(path, workspace=None):
     project for the one workspace it names; otherwise every workspace whose
     roots contain the cwd claims it. A conversation about a project another
     workspace claimed stays there; one no workspace claimed is learned by the
-    workspace that learns it. Without cwd evidence it belongs nowhere.
+    workspace that learns it. Without cwd evidence only an explicitly selected
+    associations.unassigned_workspace may ingest it (ADR 0100).
     """
     from .transcripts import cwds
     ws = workspace_name(workspace)
@@ -175,7 +176,7 @@ def transcript_allowed(path, workspace=None):
         claimants = place(canonical(cwd), claims, git=False).claimants
         if claimants and ws not in claimants:
             return False
-    return bool(checked)
+    return bool(checked) or config._get('associations.unassigned_workspace') == ws
 
 
 # ── Which workspace a directory belongs to (ADR 0072) ──────────────────────
@@ -467,6 +468,8 @@ def remove_workspace(workspace):
     # Sessions outside an assigned project fall back to the active workspace.
     if config_schema.resolve('workspace.unassigned') == (workspace, 'config'):
         config_schema.reset_value('workspace.unassigned')
+    if config_schema.resolve('associations.unassigned_workspace') == (workspace, 'config'):
+        config_schema.reset_value('associations.unassigned_workspace')
 
 
 def map_project(project, path, workspace=None):

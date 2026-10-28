@@ -124,6 +124,15 @@ def publish(snapshot: dict, workspace=None, *, imported=False):
         conn.execute('INSERT OR REPLACE INTO heads VALUES (?, ?, ?, ?, ?, ?, ?)',
                      (ws, meta['project'], meta['source'], meta['version'], meta['updated_at'],
                       json.dumps(meta, ensure_ascii=False), zlib.compress(text.encode('utf-8'), 6)))
+    if config._get('associations.enabled'):
+        # Classification is derived state. An unavailable helper/index must not
+        # turn a durably published source into a failed import.
+        try:
+            from .project_associations import analyze
+            analyze({'metadata': meta, 'text': text}, ws)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('Project suggestions deferred; run project analysis to retry')
     return True
 
 
@@ -224,7 +233,7 @@ _titles: list = [None, {}]
 
 
 def conversation_titles(workspace=None) -> dict[str, str]:
-    """Each conversation snapshot's first question, by source key.
+    """Each conversation's first question or audio filename, by source key.
 
     Only the start of each compressed body is read: a title never needs the
     whole conversation. A conversation whose start holds no question has none.
@@ -242,11 +251,15 @@ def conversation_titles(workspace=None) -> dict[str, str]:
         return _titles[1]
     from .conversation_source import title
     with _db() as conn:
-        rows = conn.execute("SELECT source, substr(body, 1, ?) AS head FROM heads WHERE workspace=? "
+        rows = conn.execute("SELECT source, substr(body, 1, ?) AS head, metadata FROM heads WHERE workspace=? "
                             "AND json_extract(metadata, '$.kind')='conversation'",
                             (HEAD_BYTES, ws)).fetchall()
     titles = {}
     for row in rows:
+        details = json.loads(row['metadata']).get('details', {})
+        if details.get('media') == 'audio' and details.get('title'):
+            titles.setdefault(row['source'], details['title'])
+            continue
         try:
             head = zlib.decompressobj().decompress(row['head'], HEAD_CHARS)
         except zlib.error:
@@ -266,7 +279,7 @@ def list_metadata(workspace=None):
             'SELECT metadata FROM heads WHERE workspace=? ORDER BY project, source', (_workspace(workspace),))]
 
 
-def remove(source: str | None = None, project: str | None = None, workspace=None):
+def remove(source: str | None = None, project: str | None = None, workspace=None, *, preserve_associations=False):
     if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
         return
     clauses, args = ['workspace=?'], [_workspace(workspace)]
@@ -274,7 +287,12 @@ def remove(source: str | None = None, project: str | None = None, workspace=None
         if value is not None:
             clauses.append(key + '=?'); args.append(value)
     with _db() as conn:
+        metadata = [json.loads(row['metadata']) for row in conn.execute(
+            'SELECT metadata FROM heads WHERE ' + ' AND '.join(clauses), args)]
         conn.execute('DELETE FROM heads WHERE ' + ' AND '.join(clauses), args)
+    if not preserve_associations:
+        from .project_associations import forget
+        forget(metadata, workspace)
 
 
 def integrity(snapshot: dict, workspace=None) -> dict:

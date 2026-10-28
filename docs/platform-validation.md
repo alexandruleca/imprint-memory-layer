@@ -5,6 +5,46 @@ description: Executed checks, installer defects addressed and the remaining nati
 
 ## Environment and limits
 
+Combined change-set validation before publication, 2026-10-28, Linux/WSL:
+the full Python suite passed 681 tests (one real-model fixture skipped), all
+137 dashboard Playwright scenarios passed, and all 59 Electron/extension/site
+Node tests passed. Full dashboard lint, Go tests and vet, dependency consistency
+and release-versioning regressions passed. The disposable runtime smoke verified
+native audio imports, stdio MCP discovery, dashboard origin checks and a native
+Qdrant download/startup/write/read. The production dashboard was rebuilt from
+source. These local results do not establish native Windows/macOS behavior;
+the branch CI and release jobs perform those checks on their native runners.
+
+Progress-aware Chat research, 2026-10-28, Linux/WSL: 108 Python tests passed
+across research budgets, local/remote chat protocols, section analysis, tool
+formats, voice and ADR structure. Twenty-one Chat/Settings browser tests passed,
+including all three research controls and the normal completion notice. The
+production dashboard build, TypeScript and targeted ESLint checks passed.
+Tests use fake model/provider responses and clocks to cover research beyond
+12 rounds, alternating cycles, changing errors, worker token charging, time
+overruns, skipped pending mutations and reserved synthesis. Native answer
+quality and live provider billing were not measured. See
+[ADR 0102](adr/0102-chat-research-follows-progress-and-resource-budgets.md).
+
+Chat research completion, 2026-10-28, Linux/WSL: local/remote stub-provider,
+section-analysis, tool-format and voice tests passed, with additional temporary
+workspace tests covering the distinct conversation-inbox environment override.
+Twenty-one Chat/Settings browser tests passed, including the research-completion
+notice with a visible final answer and editing the numeric research budget.
+The production dashboard build, TypeScript and targeted ESLint checks passed.
+Native model answer quality and live cloud-provider calls were not tested for
+this change. See [ADR 0101](adr/0101-chat-research-always-reserves-an-answer.md).
+
+Project association validation, 2026-10-28, Linux/WSL: 93 targeted Python tests
+passed across associations, canonical sources, moves, workspace ownership,
+purge, queue dispatch/deduplication, audio ingestion and ADR structure. Nineteen
+browser tests passed across association review, projects, settings and source
+reading. The production dashboard build, targeted ESLint checks and Go command
+tests passed. Local model responses were stubbed for evidence-validation tests;
+native project-classification quality and Windows/macOS execution remain
+unverified. See [ADR 0099](adr/0099-sources-can-belong-to-several-projects.md)
+and [ADR 0100](adr/0100-explicit-workspace-inbox-for-unassigned-conversations.md).
+
 Recorded 2026-10-23. Local host: Linux x64 under WSL2, Node 25.9.0; Go 1.25.0 and uv 0.5.11 were downloaded into a temporary tools directory for verification. A managed Python 3.12.15 environment was created separately. No release was published and no contributor client profile was used as a setup test.
 
 The initial GitHub history showed successful recent release jobs and the expected `v0.8.0` assets. Historical failed-run logs were expired. Source review and executable tests below establish the findings; they do not reconstruct the user's exact historical macOS/Windows error.
@@ -791,3 +831,39 @@ See [ADR 0091](adr/0091-wsl-homes-with-a-connected-client-get-the-imprint-comman
 | Regression: ownership by reading the file | Reproduced | A build that checks with `os.ReadFile` alone replaced a Linux installation's `~/.local/bin/imprint` link with the bridge command; this change kept it and warned. |
 
 Not run: an Inno Setup compile of the WSL page's new description, the GUI installer, dashboard enrollment, and distributions other than Ubuntu.
+
+
+## Audio ingestion — 2026-10-28
+
+Implemented local file transcription with faster-whisper 1.2.1, CTranslate2 4.8.4
+CPU/int8 and native PyAV decoding. The default model is revision-pinned Large v3
+Turbo; multilingual Small is an explicit lighter choice. See [audio ingestion](audio-ingestion.md)
+and [ADR 0096](adr/0096-cpu-whisper-runtime-for-audio-imports.md).
+
+Executed on Linux x64 / WSL with Python 3.12:
+
+- Checksum-verified model download/load and real English speech transcription
+  using whisper.cpp's public JFK WAV fixture.
+- Real Romanian speech from Google FLEURS `ro_ro` test file
+  `10014289053103326436.wav`, with automatic `ro` detection and segment timestamps.
+- Both model choices executed. Large v3 Turbo improved the Romanian sentence,
+  but still misrecognized a numeral. This is functional evidence, not an
+  accuracy benchmark or a claim of exact transcription.
+- A synthetic recording joining the English fixture and Romanian fixture across
+  the 30-second window boundary retained both languages and relative timestamps,
+  using `scripts/smoke-audio-ingest.py` and a disposable data directory.
+- Native bounded WAV, MP3, M4A and FLAC codec tests, including stereo 48 kHz to
+  mono 16 kHz resampling; fixture storage tests for
+  snapshot caching, failed replacement, forced retranscription and workspace
+  isolation. The profile-refresh regression reuses vectors while updating
+  transcription metadata when two models produce identical text.
+- 79 targeted Python checks, 20 Chromium checks, dashboard production build,
+  type checking, lint, runtime smoke and Go setup/runtime tests passed.
+
+The CPU overlay's CPython 3.12 wheel metadata covers existing Linux x64/arm64,
+Windows x64 and Mac Intel/ARM targets. Native Windows/macOS/Linux ARM execution
+and installer updates with this overlay have **not** been executed here. PyAV
+15.1.0 retains a macOS 13 ARM wheel; that compatibility pin does not itself
+establish native execution. Mixed speech within one window, room noise,
+speaker diarization, multi-hour performance and video ingestion remain unvalidated
+or unimplemented as described in the audio guide.

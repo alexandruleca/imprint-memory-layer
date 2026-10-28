@@ -3,9 +3,10 @@ title: ADR 0054 — Echo's looks declare their motion and follow the pointer
 description: Each look's glTF node extras declare gaze, spin and pulse; the heads' eyes turn at the source eye bones; Echo follows the pointer across the window, or the screen in the desktop app.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Amends: [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — replaces the adapted anime head with a generated core as Echo's look; the desktop controls are unchanged; linked on restructuring, confirmed by the owner on 2026-10-25
+- Amended by: [ADR 0097](0097-echo-looks-fire-like-synapses.md) — adds the `flow` extra and replaces the parts of Echo's generated core with a synaptic network
 - Restructured: 2026-10-25
 
 ## Context

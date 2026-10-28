@@ -314,6 +314,22 @@ class LocalProtocolTests(unittest.TestCase):
         ])
 
 
+    def test_local_budget_finishes_with_no_schemas_and_suppresses_further_calls(self):
+        run = Mock(return_value='Source project.md: the project uses local storage.')
+        write = Mock()
+        model = LocalModel(['<tool_call><function=status></function></tool_call>'],
+                           ['<tool_call><function=store><parameter=content>blocked</parameter></function></tool_call>'])
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '1025'}), patch.object(chat, '_prompt_tokens', return_value=1):
+            events = self._reply(model, tools={**tool('status', run), **tool('store', write)})
+        run.assert_called_once()
+        write.assert_not_called()
+        self.assertIsNone(model.requests[-1]['tools'])
+        self.assertNotIn('error', [event['type'] for event in events])
+        output = ''.join(event['text'] for event in events if event['type'] == 'token')
+        self.assertNotIn('<tool_call>', output)
+        self.assertIn('project.md', output)
+
+
 class RemoteProtocolTests(unittest.TestCase):
     def _reply(self, *turns, tools=None, prior=()):
         client, patches = remote_provider(*turns)
@@ -367,6 +383,169 @@ class RemoteProtocolTests(unittest.TestCase):
             {'role': 'tool', 'tool_call_id': 'hist00001', 'content': 'Alex'},
         ])
 
+    def test_budget_reserves_a_tools_free_answer_with_the_last_results(self):
+        search = Mock(side_effect=['first source', 'last source evidence'])
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '2050'}), patch.object(chat, '_prompt_tokens', return_value=1):
+            events, requests = self._reply(
+                [call_chunk(0, 'search', '{"query":"one"}', id='a')],
+                [call_chunk(0, 'search', '{"query":"two"}', id='b')],
+                [text_chunk('The sources establish the project history.')], tools=tool('search', search))
+        self.assertEqual(search.call_count, 2)
+        self.assertEqual(len(requests), 3)
+        self.assertIsNone(requests[-1]['tools'])
+        self.assertIn('last source evidence', str(requests[-1]['messages']))
+        self.assertIn('Answer the original user question', requests[-1]['messages'][0]['content'])
+        self.assertNotIn('error', [event['type'] for event in events])
+        self.assertEqual(events[-2]['text'], 'The sources establish the project history.')
+        self.assertEqual(events[-1], {'type': 'done'})
+
+    def test_new_evidence_continues_beyond_twelve_rounds_and_ignores_legacy_round_cap(self):
+        status = Mock(return_value='project overview')
+        turns = [[call_chunk(0, 'search', json.dumps({'query': f'part {n}'}), id=f'c{n}'),
+                  call_chunk(1, 'status', '{}', id=f's{n}')] for n in range(16)]
+        with patch.dict(os.environ, {'IMPRINT_CHAT_MAX_TOOL_ITERS': '6'}), patch.object(chat, '_prompt_tokens', return_value=1):
+            events, requests = self._reply(*turns, [text_chunk('Complete project overview.')],
+                tools={**tool('search', Mock(side_effect=[f'New source evidence number {n}' for n in range(16)])), **tool('status', status)})
+        self.assertEqual(status.call_count, 16)
+        self.assertEqual(len([event for event in events if event['type'] == 'tool_call']), 32)
+        self.assertEqual(len(requests), 17)
+        self.assertIsNotNone(requests[-1]['tools'])
+        self.assertEqual(events[-2]['text'], 'Complete project overview.')
+
+    def test_identical_read_only_rounds_finish_early_but_writes_do_not(self):
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_PATIENCE': '2'}):
+            events, requests = self._reply(
+                *[[call_chunk(0, 'status', '{}', id=f'c{n}')] for n in range(3)],
+                [text_chunk('Here is the overview.')], tools=tool('status', Mock(return_value='same evidence')))
+            self.assertEqual(len(requests), 4)
+            self.assertTrue(any('no longer adding new evidence' in event.get('text', '') for event in events))
+            write = Mock(return_value='stored')
+            _, requests = self._reply(
+                *[[call_chunk(0, 'store', '{"content":"note"}', id=f'c{n}')] for n in range(4)],
+                [text_chunk('Saved.')], tools=tool('store', write))
+        self.assertEqual(write.call_count, 4)
+        self.assertEqual(len(requests), 5)
+        self.assertIsNotNone(requests[-1]['tools'])
+
+    def test_ignored_no_tools_request_never_executes_more_calls(self):
+        write = Mock()
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '1025'}), patch.object(chat, '_prompt_tokens', return_value=1):
+            events, _ = self._reply([call_chunk(0, 'status', '{}', id='a')],
+                [call_chunk(0, 'store', '{"content":"must not save"}', id='b')],
+                tools={**tool('status', Mock(return_value='verified project notes')), **tool('store', write)})
+        write.assert_not_called()
+        self.assertEqual(len([event for event in events if event['type'] == 'tool_call']), 1)
+        self.assertNotIn('error', [event['type'] for event in events])
+        self.assertIn('verified project notes', events[-2]['text'])
+        self.assertIn('incomplete, without synthesis', events[-2]['text'])
+
+    def test_final_provider_failure_preserves_evidence_and_completes(self):
+        client, patches = remote_provider([call_chunk(0, 'status', '{}', id='a')])
+        client.chat.completions.create.side_effect = [client.streams[0], RuntimeError('provider disconnected')]
+        with patches[0], patches[1], patches[2], patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '1025'}), patch.object(chat, '_prompt_tokens', return_value=1), \
+             patch.dict(chat.TOOLS, tool('status', Mock(return_value='project: inventory, source: meeting.txt'))):
+            events = list(chat.stream_reply([], 'What is this project?'))
+        self.assertNotIn('error', [event['type'] for event in events])
+        self.assertIn('meeting.txt', events[-2]['text'])
+        self.assertEqual(events[-1], {'type': 'done'})
+
+    def test_partial_final_answer_is_preserved_when_its_stream_disconnects(self):
+        def interrupted():
+            yield text_chunk('The project has a local database. ')
+            raise RuntimeError('connection lost')
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '1025'}), patch.object(chat, '_prompt_tokens', return_value=1):
+            events, _ = self._reply([call_chunk(0, 'status', '{}', id='a')], interrupted(),
+                tools=tool('status', Mock(return_value='Source architecture.md: SQLite storage.')))
+        answer = events[-2]['text']
+        self.assertTrue(answer.startswith('The project has a local database.'))
+        self.assertIn('architecture.md', answer)
+        self.assertNotIn('error', [event['type'] for event in events])
+
+    def test_context_exhaustion_after_tools_still_gets_a_tools_free_answer(self):
+        from imprint.chat_analysis import SectionAnalysis
+        prepare = SectionAnalysis.prepare
+        def full_after_first(analysis, messages, offered):
+            if offered() and any(message['role'] == 'tool' for message in messages):
+                raise ValueError('section reply limit reached')
+            return (yield from prepare(analysis, messages, offered))
+        with patch.object(SectionAnalysis, 'prepare', full_after_first):
+            events, requests = self._reply([call_chunk(0, 'status', '{}', id='a')],
+                [text_chunk('The evidence supports this overview.')], tools=tool('status', Mock(return_value='source notes')))
+        self.assertEqual(len(requests), 2)
+        self.assertIsNone(requests[-1]['tools'])
+        self.assertNotIn('error', [event['type'] for event in events])
+        self.assertTrue(any('context is full' in event.get('text', '') for event in events))
+
+    def test_final_context_preparation_failure_returns_evidence_without_more_generation(self):
+        from imprint.chat_analysis import SectionAnalysis
+        prepare = SectionAnalysis.prepare
+        def no_more_context(analysis, messages, offered):
+            if any(message['role'] == 'tool' for message in messages):
+                raise ValueError('section reply limit reached')
+            return (yield from prepare(analysis, messages, offered))
+        with patch.object(SectionAnalysis, 'prepare', no_more_context):
+            events, requests = self._reply([call_chunk(0, 'status', '{}', id='a')],
+                tools=tool('status', Mock(return_value='Source project-plan.txt: important evidence.')))
+        self.assertEqual(len(requests), 1)
+        self.assertIn('project-plan.txt', events[-2]['text'])
+        self.assertNotIn('error', [event['type'] for event in events])
+
+    def test_cancellation_at_research_notice_does_not_start_final_generation(self):
+        cancel = threading.Event()
+        client, patches = remote_provider([call_chunk(0, 'status', '{}', id='a')])
+        with patches[0], patches[1], patches[2], patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '1025'}), patch.object(chat, '_prompt_tokens', return_value=1), \
+             patch.dict(chat.TOOLS, tool('status', Mock(return_value='source notes'))):
+            events = []
+            for event in chat.stream_reply([], 'question', cancel_event=cancel):
+                events.append(event)
+                if event['type'] == 'notice':
+                    cancel.set()
+        self.assertEqual(client.chat.completions.create.call_count, 1)
+        self.assertNotIn('assistant_message', [event['type'] for event in events])
+
+    def test_time_budget_skips_pending_calls_and_reserves_final_answer(self):
+        import time
+        from imprint.chat_research import ResearchBudget
+        clock = [time.monotonic()]
+        def factory(**kwargs):
+            return ResearchBudget(**kwargs, clock=lambda: clock[0])
+        def slow_read(**kwargs):
+            clock[0] += 301
+            return 'Source architecture.md: local database.'
+        write = Mock()
+        with patch.object(chat, 'ResearchBudget', side_effect=factory):
+            events, requests = self._reply(
+                [call_chunk(0, 'status', '{}', id='a'), call_chunk(1, 'store', '{"content":"must not run"}', id='b')],
+                [text_chunk('The project uses a local database.')],
+                tools={**tool('status', Mock(side_effect=slow_read)), **tool('store', write)})
+        write.assert_not_called()
+        self.assertEqual(len(requests), 2)
+        self.assertIsNone(requests[-1]['tools'])
+        self.assertTrue(any('was not executed' in event.get('result', '') for event in events))
+        self.assertIn('architecture.md', str(requests[-1]['messages']))
+        self.assertTrue(any('time budget is complete' in event.get('text', '') for event in events))
+
+    def test_alternating_read_cycles_stop_even_with_different_queries(self):
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_PATIENCE': '3'}):
+            events, requests = self._reply(
+                *[[call_chunk(0, 'search', json.dumps({'query': f'different {n}'}), id=f'c{n}')] for n in range(5)],
+                [text_chunk('These are the two relevant sources.')],
+                tools=tool('search', Mock(side_effect=['Evidence source alpha', 'Evidence source beta',
+                                                       'Evidence source alpha', 'Evidence source beta', 'Evidence source alpha'])))
+        self.assertEqual(len(requests), 6)
+        self.assertIsNone(requests[-1]['tools'])
+        self.assertTrue(any('no longer adding new evidence' in event.get('text', '') for event in events))
+
+    def test_different_tool_errors_do_not_keep_research_running(self):
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_PATIENCE': '2'}):
+            events, requests = self._reply(
+                [call_chunk(0, 'search', '{}', id='a')],
+                [call_chunk(0, 'file_chunks', '{}', id='b')],
+                [text_chunk('I could not retrieve enough evidence to answer.')])
+        self.assertEqual(len(requests), 3)
+        self.assertIsNone(requests[-1]['tools'])
+        self.assertNotIn('error', [event['type'] for event in events])
+
 
 class ApiRecordingTests(unittest.TestCase):
     def test_stopped_reply_keeps_what_was_streamed(self):
@@ -388,6 +567,42 @@ class ApiRecordingTests(unittest.TestCase):
              patch.object(api.chat_store, 'append_message') as append:
             list(api._chat_events('s1', [], 'hi', 'default'))
         append.assert_called_once_with('s1', role='assistant', content='Done')
+
+    def test_research_completion_records_the_answer_and_keeps_the_tool_evidence(self):
+        from imprint import api
+        client, patches = remote_provider([call_chunk(0, 'status', '{}', id='a')], [text_chunk('Project summary.')])
+        with patches[0], patches[1], patches[2], patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '1025'}), patch.object(chat, '_prompt_tokens', return_value=1), \
+             patch.dict(chat.TOOLS, tool('status', Mock(return_value='project evidence'))), \
+             patch.object(api.chat_store, 'append_message') as append:
+            events = list(api._chat_events('s1', [], 'Tell me about this project', 'default'))
+        self.assertFalse(any('"type": "error"' in event for event in events))
+        self.assertEqual([call.kwargs['role'] for call in append.call_args_list], ['tool', 'assistant'])
+        self.assertEqual(append.call_args_list[-1].kwargs['content'], 'Project summary.')
+
+
+class ToolBudgetSettingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resource_settings_are_numeric_bounded_and_persistent(self):
+        import httpx
+        from imprint import config_schema
+        from imprint.api import app
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'IMPRINT_DATA_DIR': directory}):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1:8420') as client:
+                settings = {row['key']: row for row in (await client.get('/api/config')).json()['settings']}
+                self.assertNotIn('chat.max_tool_iters', settings)
+                for key, default, changed, invalid in (
+                    ('chat.research_timeout_sec', 300, 600, ('0', '9', '3601', '2.5', 'true')),
+                    ('chat.research_token_budget', 65536, 131072, ('0', '1023', '2000001', '2.5', 'true')),
+                    ('chat.research_no_progress_rounds', 4, 6, ('0', '1', '21', '2.5', 'true')),
+                ):
+                    self.assertEqual((settings[key]['value'], settings[key]['type']), (default, 'int'))
+                    for value in invalid:
+                        self.assertEqual((await client.put('/api/config/' + key, json={'value': value})).status_code, 400)
+                    self.assertEqual((await client.put('/api/config/' + key, json={'value': str(changed)})).status_code, 200)
+                    self.assertEqual(config_schema.resolve(key), (changed, 'config'))
+                    self.assertEqual((await client.delete('/api/config/' + key)).status_code, 200)
+                    self.assertEqual(config_schema.resolve(key), (default, 'default'))
+                with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '32768'}):
+                    self.assertEqual(config_schema.resolve('chat.research_token_budget'), (32768, 'env'))
 
 
 if __name__ == '__main__':

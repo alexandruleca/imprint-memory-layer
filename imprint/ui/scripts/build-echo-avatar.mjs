@@ -1,7 +1,8 @@
 // Rebuild Echo's bundled looks. No network or model download occurs at runtime.
-// Echo's own look, a holographic core, is generated here. The anime heads adapt
+// Echo's own look, a synaptic core, is generated here. The anime heads adapt
 // CC0 VRoid beta samples, explicitly confirmed by pixiv's original release
-// page; the build refuses any other license.
+// page; the build refuses any other license. Each head gets a generated
+// synaptic halo.
 //   node scripts/build-echo-avatar.mjs [echo|iris|kai] [local.vrm]
 // Without an id it rebuilds every look, fetching head sources from the pinned
 // mirror. The optional local file makes rebuilding a head independent of it.
@@ -11,7 +12,7 @@ import zlib from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const revision = "e16eb187100149a315ad92c3c9968f1d5baa6c7d";
 const SKIN = [0.87, 0.96, 1, 1];
@@ -21,9 +22,9 @@ const SKIN = [0.87, 0.96, 1, 1];
 const AVATARS = {
   echo: {
     node: "Imprint_Echo",
-    version: 5,
-    artwork: "Echo holographic core",
-    generator: "Imprint Echo core generator v1",
+    version: 6,
+    artwork: "Echo synaptic core",
+    generator: "Imprint Echo core generator v2",
     look: coreLook,
   },
   iris: {
@@ -31,9 +32,9 @@ const AVATARS = {
     sha256: "b1372131bdbf233f46320146d565f342a7e4f6f4b8f2aefb301f1a283ec07e1e",
     title: "Victoria Rubin",
     node: "Imprint_Iris",
-    version: 3,
+    version: 4,
     artwork: "Iris anime hologram",
-    generator: "Imprint Echo anime-head pipeline v4",
+    generator: "Imprint Echo anime-head pipeline v5",
     // Straight-cut bangs stay as modeled; the locks fold just below the jaw.
     center: 1.57,
     hairBelow: 1.44,
@@ -54,9 +55,9 @@ const AVATARS = {
     sha256: "7aeca142dabbc26ba0f5b9c998c8f3cb6df341287d67788427ac837223785a3f",
     title: "HairSample_Male",
     node: "Imprint_Kai",
-    version: 2,
+    version: 3,
     artwork: "Kai anime hologram",
-    generator: "Imprint Echo anime-head pipeline v4",
+    generator: "Imprint Echo anime-head pipeline v5",
     // The spiky short cut stays as modeled.
     center: 1.63,
     hairBelow: null,
@@ -99,7 +100,6 @@ for (const id of wanted) {
 function gltf(avatar, copyright, extras) {
 const result = {
   asset: { version: "2.0", generator: avatar.generator, copyright },
-  extensionsUsed: ["KHR_materials_unlit"],
   scene: 0,
   scenes: [{ nodes: [0] }],
   nodes: [{ name: avatar.node, children: [], extras: { version: avatar.version, artwork: avatar.artwork, ...extras } }],
@@ -128,7 +128,7 @@ function view(bytes) {
 }
 function accessor(values, size = 3, type = 5126) {
   const bytes =
-    type === 5126 ? new Float32Array(values) : new Uint32Array(values);
+    type === 5126 ? new Float32Array(values) : type === 5123 ? new Uint16Array(values) : new Uint32Array(values);
   const a = {
     bufferView: view(new Uint8Array(bytes.buffer)),
     componentType: type,
@@ -150,7 +150,14 @@ function accessor(values, size = 3, type = 5126) {
   result.accessors.push(a);
   return result.accessors.length - 1;
 }
+// Triangle indices, in 16 bits when they fit.
+function indexAccessor(values) {
+  return accessor(values, 1, values.every((v) => v < 65536) ? 5123 : 5125);
+}
 function glb() {
+  if (result.materials.some((m) => m.extensions?.KHR_materials_unlit)) result.extensionsUsed = ["KHR_materials_unlit"];
+  // glTF arrays, when present, hold at least one item.
+  for (const key of ["textures", "images", "samplers"]) if (!result[key]?.length) delete result[key];
   result.buffers = [{ byteLength: offset }];
   const body = Buffer.concat(chunks);
   const json = Buffer.from(JSON.stringify(result));
@@ -167,7 +174,7 @@ function glb() {
   bh.write("BIN\0", 4);
   return Buffer.concat([header, padded, bh, body]);
 }
-return { result, view, accessor, glb };
+return { result, view, accessor, indexAccessor, glb };
 }
 
 function head(avatar, data) {
@@ -178,7 +185,7 @@ const jsonLength = data.readUInt32LE(12),
 const binary = data.subarray(28 + jsonLength);
 if (source.extensions.VRM.meta.licenseName !== "CC0")
   throw Error("Expected a CC0 beta model");
-const { result, view, accessor, glb } = gltf(avatar, `pixiv ${avatar.title}: CC0-1.0; Imprint adaptations: Apache-2.0`, {
+const { result, view, accessor, indexAccessor, glb } = gltf(avatar, `pixiv ${avatar.title}: CC0-1.0; Imprint adaptations: Apache-2.0`, {
   source: `${avatar.title} / pixiv / CC0`,
   license: "CC0-1.0 source; Apache-2.0 adaptations",
   morphs: "jawOpen, blink",
@@ -243,6 +250,7 @@ function material(id) {
     ti = result.textures.push({ sampler: t.sampler, source: image }) - 1;
     imageMap.set(t.source, ti);
   }
+  // Head surfaces take the renderer's light; generated parts are light themselves.
   const i =
     result.materials.push({
       name: s.name,
@@ -255,7 +263,6 @@ function material(id) {
       alphaMode: s.alphaMode,
       alphaCutoff: s.alphaCutoff,
       doubleSided: s.doubleSided,
-      extensions: { KHR_materials_unlit: {} },
     }) - 1;
   materialMap.set(id, i);
   return i;
@@ -356,7 +363,7 @@ function eyePrimitive(p, eye, triangles) {
       NORMAL: accessor(pick(values(p.attributes.NORMAL, "normal"), 3, false)),
       TEXCOORD_0: accessor(pick(values(p.attributes.TEXCOORD_0, "uv"), 2, false), 2),
     },
-    indices: accessor(triangles.map((v) => order.get(v)), 1, 5125),
+    indices: indexAccessor(triangles.map((v) => order.get(v))),
     material: material(p.material),
     targets: faceTargets(p).map((id) => ({ POSITION: accessor(pick(values(id, "delta"), 3, false)) })),
   };
@@ -393,7 +400,7 @@ for (const mi of [0, 2]) {
         : undefined;
     primitives.push({
       attributes,
-      indices: accessor(indices, 1, 5125),
+      indices: indexAccessor(indices),
       material: material(p.material),
       ...(targets ? { targets } : {}),
     });
@@ -413,81 +420,263 @@ for (const eye of eyes) {
   result.nodes[0].children.push(result.nodes.length);
   result.nodes.push({ name: eye.name, mesh, translation: eye.pivot, extras: { gaze } });
 }
+haloLook(parts(result, view, accessor, indexAccessor));
 return glb();
 }
 
-// Echo's own look: a holographic core in the screen plane. Its motion is data
-// on the nodes, for the renderer: "spin" turns a node (radians per second about
-// x, y, z), "pulse" grows it with Echo's voice and "gaze" aims it at the pointer
-// within yaw and pitch limits (radians).
+// Echo's own look: a synaptic core. Neurons fill a sphere around a bright
+// nucleus, wired by curved axons, inside tilted orbits and a ring of ticks.
+// Its motion is data on the nodes, for the renderer: "spin" turns a node
+// (radians per second about x, y, z), "pulse" grows it with Echo's voice,
+// "gaze" aims it at the pointer within yaw and pitch limits (radians) and
+// "flow" sends light through it: [cycles per second, afterglow in cycles,
+// swelling], passing each vertex at the moment in its first texture coordinate.
 function coreLook(add) {
-  const DEG = Math.PI / 180,
-    color = (hex, alpha) => [...new THREE.Color(hex).toArray(), alpha];
+  const DEG = Math.PI / 180;
   const line = color("#0b79ad", 0.9),
     arc = color("#1ea6e3", 0.88),
     glow = color("#6fd3ff", 0.92);
+  const random = seeded(0xec40);
   const ring = (radius, width, from, to) =>
     new THREE.RingGeometry(radius - width / 2, radius + width / 2, Math.max(4, Math.round(((to - from) / 360) * 160)), 1, from * DEG, (to - from) * DEG);
   const arcs = (radius, width, spans) => mergeGeometries(spans.map(([from, to]) => ring(radius, width, from, to)));
-  const ticks = mergeGeometries(
-    Array.from({ length: 120 }, (_, i) => {
-      const length = i % 10 ? 0.04 : 0.09,
-        tick = new THREE.PlaneGeometry(0.008, length);
-      tick.translate(0, 1.3 - length / 2, 0);
-      return tick.rotateZ(i * 3 * DEG);
-    }),
-  );
-  add("Echo_Ticks", ticks, line, { spin: [0, 0, 0.04] });
-  add("Echo_RingOuter", arcs(1.17, 0.03, [[8, 64], [80, 150], [166, 250], [262, 300], [312, 352]]), arc, { spin: [0, 0, -0.12] });
-  add("Echo_Circle", ring(1.05, 0.008, 0, 360), line);
-  add("Echo_RingDash", arcs(0.93, 0.06, Array.from({ length: 36 }, (_, i) => [i * 10, i * 10 + 6])), arc, { spin: [0, 0, 0.25] });
-  add("Echo_RingInner", arcs(0.78, 0.018, [[0, 100], [120, 220], [240, 340]]), glow, { spin: [0, 0, -0.4], pulse: 0.06 });
-  // Two orbits, tilted back and then turned apart about the view axis: open
-  // arcs that each carry a bead, giving depth as Echo turns.
-  for (const [name, tilt, speed] of [["Echo_OrbitA", [64, 0, 28], 0.7], ["Echo_OrbitB", [64, 0, -38], -0.5]]) {
-    const bead = new THREE.SphereGeometry(0.03, 12, 8).translate(0.6, 0, 0);
-    add(name, mergeGeometries([new THREE.TorusGeometry(0.6, 0.006, 6, 96, 300 * DEG), bead]), arc,
-      { spin: [0, 0, speed] }, new THREE.Quaternion().setFromEuler(new THREE.Euler(...tilt.map((d) => d * DEG), "ZXY")).toArray());
+  // Ticks around a radius, every `major`-th longer, pointing at the center.
+  const ticks = (count, radius, length, major) =>
+    mergeGeometries(Array.from({ length: count }, (_, i) => {
+      const long = i % major ? length : length * 2.2;
+      return new THREE.PlaneGeometry(radius * 0.006, long).translate(0, radius - long / 2, 0).rotateZ((i * 2 * Math.PI) / count);
+    }));
+  // The frame: ticks with four inward chevrons, segmented arcs and a ring of dots.
+  const chevrons = [0, 1, 2, 3].map((k) => new THREE.CircleGeometry(0.028, 3, -Math.PI / 2).translate(0, 1.345, 0).rotateZ(k * 90 * DEG));
+  add("Echo_Ticks", mergeGeometries([ticks(120, 1.3, 0.04, 10), ...chevrons]), line, { spin: [0, 0, 0.04] });
+  add("Echo_RingOuter", arcs(1.19, 0.026, [[8, 64], [80, 150], [166, 250], [262, 300], [312, 352]]), arc, { spin: [0, 0, -0.12] });
+  add("Echo_Dots", mergeGeometries(Array.from({ length: 90 }, (_, i) => new THREE.CircleGeometry(i % 15 ? 0.005 : 0.011, 6).translate(0, 1.11, 0).rotateZ(i * 4 * DEG))),
+    glow, { spin: [0, 0, -0.05] });
+  // Neurons fill a shell around the nucleus; spokes feed the hubs from it.
+  const net = network(random, 210, 0.09, () => {
+    const p = new THREE.Vector3(random() * 2 - 1, random() * 2 - 1, random() * 2 - 1);
+    return p.length() > 1 || p.length() < 0.42 ? null : p.multiplyScalar(0.86);
+  });
+  for (const h of net.hubs) {
+    const root = net.neurons[h].clone().setLength(0.2);
+    net.fibres.push(net.axon(root, net.neurons[h], net.moment[h] - root.distanceTo(net.neurons[h]) / net.speed, 0.005));
   }
-  add("Echo_Core", new THREE.IcosahedronGeometry(0.34, 3), color("#1490d0", 0.35), { pulse: 0.14 });
-  add("Echo_Shell", new THREE.IcosahedronGeometry(0.42, 1), color("#7fd8ff", 0.14), { spin: [0.05, 0.11, 0] });
-  // The lens rests on the core's face; its node pivots at the core's center.
-  const lens = mergeGeometries([new THREE.CircleGeometry(0.1, 32), ring(0.14, 0.02, 0, 360)]).translate(0, 0, 0.36);
-  add("Echo_Eye", lens, glow, { gaze: [0.5, 0.4] });
+  addNetwork(add, random, net, [0.3, 0.8, 0.95], { spin: [0, 0.07, 0] });
+  // Motes drift just outside the network, each twinkling at its own moment.
+  const motes = Array.from({ length: 80 }, () =>
+    ball(new THREE.OctahedronGeometry(0.004 + random() * 0.006), new THREE.Vector3(random() - 0.5, random() - 0.5, random() - 0.5).setLength(0.92 + random() * 0.2), random()));
+  add("Echo_Motes", mergeGeometries(motes), color("#c4f1ff", 0.7), { spin: [0, -0.05, 0], flow: [0.2, 0.08, 0.006] });
+  // Three orbits, tilted and turned apart: open arcs that each carry a bead.
+  for (const [name, radius, tilt, speed] of [["Echo_OrbitA", 0.98, [66, 0, 28], 0.45], ["Echo_OrbitB", 1.05, [70, 0, -40], -0.32], ["Echo_OrbitC", 0.93, [12, 0, 84], 0.26]]) {
+    const bead = new THREE.SphereGeometry(0.026, 10, 6).translate(radius, 0, 0);
+    add(name, mergeGeometries([new THREE.TorusGeometry(radius, 0.005, 4, 120, 300 * DEG), bead]), arc,
+      { spin: [0, 0, speed] }, { tilt: new THREE.Quaternion().setFromEuler(new THREE.Euler(...tilt.map((d) => d * DEG), "ZXY")).toArray() });
+  }
+  // The nucleus is an eyeball: a bright core with its glow behind it (back
+  // hemispheres, so nothing veils the eye) growing with the voice.
+  const behind = (radius) => new THREE.SphereGeometry(radius, 32, 12, Math.PI, Math.PI);
+  add("Echo_Core", new THREE.IcosahedronGeometry(0.19, 3), color("#d8f6ff", 1), { pulse: 0.1 });
+  add("Echo_Glow", behind(0.32), color("#4cc0ff", 0.75), { pulse: 0.3 });
+  add("Echo_Bloom", behind(0.56), color("#1e8fd0", 0.35), { pulse: 0.16 });
+  // The eye turns about the nucleus's center toward the pointer. Its iris is
+  // an opaque disc over the core, a shallow cone with the pupil set back. The
+  // pupil widens as Echo speaks ("jawOpen", the voice morph) and the eye
+  // blinks shut to a line. Gimbal rings turn around it.
+  const eye = add("Echo_Eye", null, null, { gaze: [0.5, 0.4] });
+  const front = 0.235, iris = 0.2, pupil = 0.34, wide = 0.46, rings = [0, 0.17, pupil, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.96, 1];
+  const depth = (r) => front - 0.03 * (1 - r);
+  const dilated = (r) => (r < pupil ? (r * wide) / pupil : wide + ((r - pupil) * (1 - wide)) / (1 - pupil));
+  const disc = { position: [], uv: [], normal: [], index: [], jawOpen: [], blink: [] };
+  const segments = 72;
+  rings.forEach((r, k) => {
+    for (let j = 0; j <= segments; j++) {
+      const a = (j / segments) * 2 * Math.PI,
+        x = Math.cos(a) * r * iris,
+        y = Math.sin(a) * r * iris,
+        w = dilated(r);
+      disc.position.push(x, y, depth(r));
+      disc.uv.push(0.5 + x / (2 * iris), 0.5 - y / (2 * iris));
+      disc.normal.push(0, 0, 1);
+      disc.jawOpen.push(Math.cos(a) * (w - r) * iris, Math.sin(a) * (w - r) * iris, depth(w) - depth(r));
+      disc.blink.push(0, -0.95 * y, 0);
+      if (k && j < segments) {
+        const at = k * (segments + 1) + j,
+          inner = at - (segments + 1);
+        disc.index.push(inner, at, inner + 1, inner + 1, at, at + 1);
+      }
+    }
+  });
+  const discGeometry = new THREE.BufferGeometry();
+  for (const name of ["position", "normal"]) discGeometry.setAttribute(name, new THREE.Float32BufferAttribute(disc[name], 3));
+  discGeometry.setAttribute("uv", new THREE.Float32BufferAttribute(disc.uv, 2));
+  discGeometry.setIndex(disc.index);
+  add("Echo_Iris", discGeometry, [1, 1, 1, 1], {}, { parent: eye, texture: synapticIris(256), cutout: 0.5, targets: { jawOpen: disc.jawOpen, blink: disc.blink } });
+  add("Echo_EyeTicks", mergeGeometries([ring(0.208, 0.004, 0, 360), ticks(60, 0.226, 0.008, 5)]).translate(0, 0, front), glow, { spin: [0, 0, 0.15] }, { parent: eye });
+  const markers = [0, 120, 240].map((d) => new THREE.CircleGeometry(0.012, 3, Math.PI / 2).translate(0, 0.262, 0).rotateZ((d + 50) * DEG));
+  add("Echo_EyeArcs", mergeGeometries([arcs(0.25, 0.007, [[0, 100], [120, 220], [240, 340]]), ...markers]).translate(0, 0, front), arc, { spin: [0, 0, -0.35] }, { parent: eye });
+}
+// The heads' halo: a sparser network in a shell behind and beside the head,
+// turning slowly about the view axis so it never passes before the face.
+function haloLook(add) {
+  const random = seeded(0x4a10);
+  const net = network(random, 120, 0.13, () => {
+    const d = new THREE.Vector3(random() * 2 - 1, random() * 2 - 1, random() * 2 - 1);
+    if (d.length() > 1 || d.length() < 0.1) return null;
+    d.normalize();
+    return d.z > 0.15 ? null : d.multiplyScalar(1.1 + random() * 0.25);
+  });
+  addNetwork(add, random, net, [0.22, 0.6, 0.85], { spin: [0, 0, 0.03] });
+}
+// A synaptic network: `count` neurons from `place` (a point, or null to draw
+// again), no two closer than `spacing`. Each joins its three nearest
+// neighbours and sprouts two short dendrites. The hubs, spread as far apart
+// as they can be, start the cascades.
+function network(random, count, spacing, place) {
+  const neurons = [];
+  for (let tries = 0; neurons.length < count && tries < 1e5; tries++) {
+    const p = place();
+    if (p && neurons.every((n) => n.distanceTo(p) >= spacing)) neurons.push(p);
+  }
+  const hubs = [0];
+  while (hubs.length < 9) {
+    const spread = (i) => Math.min(...hubs.map((h) => neurons[h].distanceTo(neurons[i])));
+    hubs.push(neurons.reduce((best, _, i) => (spread(i) > spread(best) ? i : best), 0));
+  }
+  const links = new Map();
+  neurons.forEach((p, i) =>
+    neurons.map((q, j) => [p.distanceTo(q), j]).filter(([, j]) => j !== i).sort((a, b) => a[0] - b[0]).slice(0, 3)
+      .forEach(([, j]) => links.set(`${Math.min(i, j)}:${Math.max(i, j)}`, [i, j])),
+  );
+  // A signal leaves each hub in turn and spreads at a fixed speed: a neuron
+  // fires at the moment (a fraction of the cycle) the earliest signal reaches it.
+  const speed = 1.5,
+    moment = neurons.map(() => Infinity);
+  hubs.forEach((h, k) => (moment[h] = k / hubs.length));
+  for (const done = new Set(); done.size < neurons.length; ) {
+    const i = moment.reduce((best, m, j) => (!done.has(j) && (best < 0 || m < moment[best]) ? j : best), -1);
+    if (moment[i] === Infinity) throw Error("Every neuron must be reachable from a hub");
+    done.add(i);
+    for (const [a, b] of links.values()) {
+      const j = a === i ? b : b === i ? a : -1;
+      if (j >= 0) moment[j] = Math.min(moment[j], moment[i] + neurons[i].distanceTo(neurons[j]) / speed);
+    }
+  }
+  // An axon carries light from `from` toward `to`, bowed aside like a nerve
+  // fibre; each vertex's texture coordinate is when the light passes it.
+  const axon = (from, to, start, radius) => {
+    const length = from.distanceTo(to),
+      bow = new THREE.Vector3(random() - 0.5, random() - 0.5, random() - 0.5).cross(to.clone().sub(from)).setLength(length * 0.14);
+    const tube = new THREE.TubeGeometry(
+      new THREE.QuadraticBezierCurve3(from, from.clone().lerp(to, 0.5).add(bow), to), Math.max(1, Math.round(length / 0.05)), radius, 3);
+    const uv = tube.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, start + (uv.getX(i) * length) / speed, 0);
+    return tube;
+  };
+  const fibres = [...links.values()].map(([a, b]) => {
+    const [from, to] = moment[a] <= moment[b] ? [a, b] : [b, a];
+    return axon(neurons[from], neurons[to], moment[from], 0.0034);
+  });
+  const tips = [];
+  neurons.forEach((p, i) => {
+    for (let k = 0; k < 2; k++) {
+      const tip = new THREE.Vector3(random() - 0.5, random() - 0.5, random() - 0.5).setLength(0.04 + random() * 0.05).add(p);
+      fibres.push(axon(p, tip, moment[i], 0.0022));
+      tips.push({ at: tip, when: moment[i] + tip.distanceTo(p) / speed });
+    }
+  });
+  return { neurons, hubs, moment, speed, axon, fibres, tips };
+}
+// A network's fibres, neurons (with the small bulbs at its dendrites' tips)
+// and hubs as three nodes, each lighting as its signal passes; `alpha` gives
+// their resting opacities.
+function addNetwork(add, random, net, alpha, extras) {
+  // Each tube's seam repeats its first vertex; texture v is unused, so they merge.
+  add("Echo_Synapses", mergeVertices(mergeGeometries(net.fibres)), color("#2d9fd8", alpha[0]), { ...extras, flow: [0.13, 0.025, 0.005] });
+  const neurons = net.neurons.flatMap((p, i) => (net.hubs.includes(i) ? [] : [ball(new THREE.IcosahedronGeometry(0.007 + random() ** 2 * 0.016), p, net.moment[i])]));
+  const bulbs = net.tips.map(({ at, when }) => ball(new THREE.OctahedronGeometry(0.0055), at, when));
+  add("Echo_Neurons", mergeGeometries([...neurons, ...bulbs]), color("#79d8ff", alpha[1]), { ...extras, flow: [0.13, 0.05, 0.008] });
+  add("Echo_Hubs", mergeGeometries(net.hubs.map((h) => ball(new THREE.IcosahedronGeometry(0.03, 1), net.neurons[h], net.moment[h]))), color("#c4f1ff", alpha[2]),
+    { ...extras, flow: [0.13, 0.07, 0.012] });
+}
+// A small smooth ball from a polyhedron, lit at moment `when` by "flow".
+function ball(polyhedron, at, when) {
+  const geometry = mergeVertices(polyhedron.deleteAttribute("normal").deleteAttribute("uv"));
+  geometry.computeVertexNormals();
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(Array.from({ length: geometry.attributes.position.count }, () => [when, 0]).flat(), 2));
+  return geometry.translate(at.x, at.y, at.z);
+}
+function color(hex, alpha) {
+  return [...new THREE.Color(hex).toArray(), alpha];
+}
+// A small deterministic generator (mulberry32), so every build is identical.
+function seeded(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function core(avatar) {
-  const { result, accessor, glb } = gltf(avatar, "Imprint: Apache-2.0", { license: "Apache-2.0" });
-  // A mesh node; with a tilt (a quaternion) it hangs under a tilted parent, so
-  // its own spin turns it within the tilted plane.
-  avatar.look((name, geometry, color, extras = {}, tilt = null) => {
-    const material = result.materials.push({
-      name,
-      pbrMetallicRoughness: { baseColorFactor: color, metallicFactor: 0, roughnessFactor: 1 },
-      alphaMode: "BLEND",
-      doubleSided: true,
-      extensions: { KHR_materials_unlit: {} },
-    }) - 1;
-    const mesh = result.meshes.push({
-      name,
-      primitives: [{
-        attributes: {
-          POSITION: accessor(Array.from(geometry.attributes.position.array)),
-          NORMAL: accessor(Array.from(geometry.attributes.normal.array)),
-        },
-        ...(geometry.index ? { indices: accessor(Array.from(geometry.index.array), 1, 5125) } : {}),
-        material,
-      }],
-    }) - 1;
-    let parent = result.nodes[0];
-    if (tilt) {
-      parent.children.push(result.nodes.length);
-      parent = result.nodes[result.nodes.push({ name: `${name}Tilt`, rotation: tilt, children: [] }) - 1];
-    }
-    parent.children.push(result.nodes.length);
-    result.nodes.push({ name, mesh, ...(Object.keys(extras).length ? { extras } : {}) });
-  });
+  const { result, view, accessor, indexAccessor, glb } = gltf(avatar, "Imprint: Apache-2.0", { license: "Apache-2.0" });
+  avatar.look(parts(result, view, accessor, indexAccessor));
   return glb();
+}
+
+// Adds generated parts, which are light: unlit, blended and double-sided.
+// add(name, geometry, color, extras, options) returns the new node; without a
+// geometry the node is an empty group. Options:
+// - parent: the node to hang under (the root by default);
+// - tilt: a quaternion for a tilted node in between, so the part's own spin
+//   turns it within the tilted plane;
+// - texture: PNG bytes for its color, mapped by its texture coordinates;
+// - cutout: an alpha cutoff, making it an opaque cut-out that hides what is behind;
+// - targets: morph targets by name, as position deltas.
+function parts(result, view, accessor, indexAccessor) {
+  return (name, geometry, color, extras = {}, { parent = 0, tilt = null, texture = null, cutout = null, targets = null } = {}) => {
+    let at = result.nodes[parent];
+    if (tilt) {
+      at.children.push(result.nodes.length);
+      at = result.nodes[result.nodes.push({ name: `${name}Tilt`, rotation: tilt, children: [] }) - 1];
+    }
+    const node = { name, ...(Object.keys(extras).length ? { extras } : {}) };
+    if (!geometry) node.children = [];
+    else {
+      let baseColorTexture;
+      if (texture) {
+        result.samplers ??= [];
+        const sampler = result.samplers.push({ magFilter: 9729, minFilter: 9987, wrapS: 33071, wrapT: 33071 }) - 1;
+        const source = result.images.push({ bufferView: view(texture), mimeType: "image/png" }) - 1;
+        baseColorTexture = { index: result.textures.push({ sampler, source }) - 1 };
+      }
+      const material = result.materials.push({
+        name,
+        pbrMetallicRoughness: { baseColorFactor: color, ...(texture ? { baseColorTexture } : {}), metallicFactor: 0, roughnessFactor: 1 },
+        alphaMode: cutout ? "MASK" : "BLEND",
+        ...(cutout ? { alphaCutoff: cutout } : {}),
+        doubleSided: true,
+        extensions: { KHR_materials_unlit: {} },
+      }) - 1;
+      node.mesh = result.meshes.push({
+        name,
+        primitives: [{
+          attributes: {
+            POSITION: accessor(Array.from(geometry.attributes.position.array)),
+            NORMAL: accessor(Array.from(geometry.attributes.normal.array)),
+            // Texture coordinates for a texture or for "flow" moments only.
+            ...(texture || extras.flow ? { TEXCOORD_0: accessor(Array.from(geometry.attributes.uv.array), 2) } : {}),
+          },
+          ...(geometry.index ? { indices: indexAccessor(Array.from(geometry.index.array)) } : {}),
+          material,
+          ...(targets ? { targets: Object.values(targets).map((deltas) => ({ POSITION: accessor(deltas) })) } : {}),
+        }],
+        ...(targets ? { weights: Object.keys(targets).map(() => 0), extras: { targetNames: Object.keys(targets) } } : {}),
+      }) - 1;
+    }
+    at.children.push(result.nodes.length);
+    return result.nodes.push(node) - 1;
+  };
 }
 
 // A pale, pupil-less iris sheet: lavender that deepens toward a thin ring,
@@ -521,6 +710,61 @@ function paleIris() {
     rows.push(row);
   }
   return encodePng(width, height, 3, rows);
+}
+// Echo's iris, `size` pixels square, RGBA, transparent outside the disc: a
+// dark pupil with a bright rim and a faint lens ring; radial fibres that wave
+// and brighten toward a zigzag collarette; dark crypts; synapses (bright nodes
+// trailing a streak toward the pupil); a dashed ring; a dark limbal band with
+// a bright edge; and a catchlight at the upper left.
+function synapticIris(size) {
+  const random = seeded(0x1215);
+  const lattice = 32,
+    grid = Array.from({ length: lattice * lattice }, () => random());
+  // Smooth value noise, repeating every `lattice` units.
+  const noise = (x, y) => {
+    const fx = Math.floor(x), fy = Math.floor(y), sx = (x - fx) ** 2 * (3 - 2 * (x - fx)), sy = (y - fy) ** 2 * (3 - 2 * (y - fy));
+    const at = (i, j) => grid[(((fy + j) % lattice) + lattice) % lattice * lattice + ((((fx + i) % lattice) + lattice) % lattice)];
+    return (at(0, 0) * (1 - sx) + at(1, 0) * sx) * (1 - sy) + (at(0, 1) * (1 - sx) + at(1, 1) * sx) * sy;
+  };
+  const gauss = (d, width) => Math.exp(-((d / width) ** 2));
+  const ramp = (from, to, v) => Math.min(1, Math.max(0, (v - from) / (to - from)));
+  const fibres = 128,
+    strength = Array.from({ length: fibres }, () => 0.35 + 0.65 * random());
+  const synapses = Array.from({ length: 26 }, () => {
+    const a = random() * 2 * Math.PI, r = 0.62 + random() * 0.24;
+    return { x: Math.cos(a) * r, y: Math.sin(a) * r, ux: -Math.cos(a), uy: -Math.sin(a) };
+  });
+  const rows = [];
+  for (let py = 0; py < size; py++) {
+    const row = Buffer.alloc(1 + size * 4);
+    for (let px = 0; px < size; px++) {
+      const x = ((px + 0.5) / size) * 2 - 1,
+        y = 1 - ((py + 0.5) / size) * 2,
+        r = Math.hypot(x, y),
+        a = Math.atan2(y, x);
+      let light = 0.05 + 0.22 * gauss(r - 0.17, 0.01);
+      if (r >= 0.34) {
+        const warp = a + 0.1 * (noise(x * 4 + 7, y * 4 + 7) - 0.5) * (1 + r),
+          f = ((((warp / (2 * Math.PI)) * fibres) % fibres) + fibres) % fibres;
+        const strand = strength[Math.floor(f)] * Math.sin(Math.PI * (f % 1)) ** 0.7;
+        light = 0.2 + 0.44 * strand * (0.6 + 0.4 * noise(x * 14, y * 14)) + 0.16 * (1 - ramp(0.34, 0.56, r));
+        light += 0.45 * gauss(r - (0.56 + 0.022 * Math.sin(a * 13 + 3 * noise(x * 3, y * 3))), 0.013);
+        light *= 1 - 0.55 * ramp(0.66, 0.74, noise(x * 7 + 3, y * 7 + 11)) * ramp(0.58, 0.62, r) * (1 - ramp(0.86, 0.9, r));
+        for (const s of synapses) {
+          const dx = x - s.x, dy = y - s.y, along = dx * s.ux + dy * s.uy, across = Math.abs(dx * s.uy - dy * s.ux);
+          light += 0.85 * gauss(Math.hypot(dx, dy), 0.02) + (along > 0 && along < 0.08 ? 0.45 * gauss(across, 0.006) * (1 - along / 0.08) : 0);
+        }
+        light += 0.5 * gauss(r - 0.9, 0.006) * (Math.sin(a * 40) > -0.3 ? 1 : 0.2);
+        light = light * (1 - 0.65 * ramp(0.91, 0.94, r)) + 0.85 * gauss(r - 0.972, 0.007);
+      }
+      light += 0.9 * gauss(r - 0.352, 0.012);
+      light = Math.max(light, 0.95 * (1 - ramp(0.07, 0.13, Math.hypot(x + 0.36, (y - 0.4) / 0.8))), 0.8 * (1 - ramp(0.02, 0.04, Math.hypot(x - 0.3, y + 0.34))));
+      [0.8, 0.96, 1].forEach((tint, k) => (row[1 + px * 4 + k] = Math.round(Math.min(1, light * tint) * 255)));
+      row[1 + px * 4 + 3] = Math.round(ramp(0.995, 0.983, r) * 255);
+    }
+    rows.push(row);
+  }
+  return encodePng(size, size, 4, rows);
 }
 // 8-bit RGB (3) or RGBA (4) rows, each led by its filter byte.
 function encodePng(width, height, channels, rows) {

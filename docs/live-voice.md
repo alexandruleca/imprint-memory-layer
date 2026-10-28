@@ -315,9 +315,10 @@ voice sounds, whether the small model keeps the speaker through interleaved
 replies, and how intelligible the robotic effect is still need listening tests.
 [ADR 0071](adr/0071-each-look-speaks-in-its-own-voice.md) records this.
 
-- **Echo** ([glTF model](../imprint/ui/public/models/imprint-echo.glb)), the default: an original holographic core.
-  Segmented rings turn at their own speeds, faster while Echo thinks; the core swells as it speaks; and a lens on the
-  core's face follows the pointer.
+- **Echo** ([glTF model](../imprint/ui/public/models/imprint-echo.glb)), the default: an original synaptic core.
+  About 200 neurons, wired by fibres, fill a sphere around a glowing nucleus. Signals cascade out from hub neurons,
+  and each neuron lights as its signal arrives, faster while Echo thinks or speaks. The network turns slowly inside
+  tilted orbits and a ring of ticks, the nucleus swells as Echo speaks, and a lens on the nucleus follows the pointer.
 - **Iris** ([glTF head](../imprint/ui/public/models/imprint-iris.glb)): a head-only adaptation of the CC0 beta
   **Victoria Rubin** model, with straight-cut bangs, indigo locks folded at the jaw, its ribbon and side tail removed,
   and a generated pale lavender iris without pupils.
@@ -325,10 +326,14 @@ replies, and how intelligible the robotic effect is still need listening tests.
   **HairSample_Male** model, with its spiky hair and eyes recolored orange and warm brown and its angry
   expression partly applied to the brows and eyes.
 
+Both heads take light from the upper left, so their faces and hair show their modelled form, and each has a
+fainter synaptic halo behind and beside it that fires like Echo's network.
+
 Echo looks at the pointer anywhere in the window, and anywhere on screen in the desktop app. Its eyes
 turn first and its head follows more slowly. Each look declares this motion in its glTF node extras:
-`gaze` nodes aim at the pointer within yaw and pitch limits, `spin` nodes turn, and `pulse` nodes grow
-with Echo's voice. The heads' eyes turn where the source models' eye bones turn them, within the
+`gaze` nodes aim at the pointer within yaw and pitch limits, `spin` nodes turn, `pulse` nodes grow
+with Echo's voice, and `flow` nodes carry light that passes each vertex at a moment stored in its texture
+coordinates. Lit materials (the heads) take the renderer's light; unlit ones (everything generated) glow. The heads' eyes turn where the source models' eye bones turn them, within the
 look-at range those models declare.
 
 The renderer uses a locally bundled Three.js module. Both heads keep modeled eyes/eyelids/lips and
@@ -341,7 +346,7 @@ release and attribution accompany the models. Rebuild with
 without arguments it rebuilds all three. Echo's core is generated and needs no source.
 The authoring command may fetch the pinned source; the app loads only local files.
 No camera, face tracking, external avatar service or NVIDIA Audio2Face is needed.
-[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls; [ADR 0054](adr/0054-echo-looks-declare-their-motion.md) the looks' motion and pointer follow.
+[ADR 0048](adr/0048-anime-echo-and-desktop-recovery.md) records the design and controls; [ADR 0054](adr/0054-echo-looks-declare-their-motion.md) the looks' motion and pointer follow; [ADR 0097](adr/0097-echo-looks-fire-like-synapses.md) the synaptic networks; and [ADR 0098](adr/0098-head-surfaces-take-light-and-generated-parts-glow.md) how the looks are lit.
 
 Closing or minimizing the dashboard hides it to the tray and leaves a small
 transparent floating Imprint icon. Drag it anywhere, click it to restore the

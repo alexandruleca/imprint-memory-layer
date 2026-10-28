@@ -201,11 +201,15 @@ def place(records: list[dict], workspace: str | None = None) -> list[dict]:
     ws = policy.workspace_name(workspace)
     with policy._db() as conn:
         rules = _placement_rules(conn, ws)
+    from .project_associations import accepted
+    associations = accepted(ws)
     placed = []
     for record in records:
         origin = origin_project(record)
         project = placement(origin, record.get("source", ""), rules)
         moved = {**record, "project": project, "origin_project": origin}
+        # Local decisions are authoritative, including when a peer sends links.
+        moved['related_projects'] = sorted(set(associations.get((origin, record.get('source', '')), [])) - {project})
         if record.get("id") and project != record.get("project", ""):
             from .vectorstore import relabeled_id
             moved["id"] = relabeled_id(record["id"], record, project=project)
@@ -296,6 +300,8 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
         conn.execute("DELETE FROM placements WHERE workspace=?", (ws,))
         conn.executemany("INSERT INTO placements VALUES (?, ?, ?, ?)",
                          [(ws, origin, source, value) for (origin, source), value in rules.items()])
+    from .project_associations import accepted
+    associations = accepted(ws)
     for points in scan(with_payload=True, with_vectors=True):
         rewritten, retired = [], []
         for point in points:
@@ -305,7 +311,8 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
             memory_id = vs.relabeled_id(payload.get("_mid") or "", payload, project=placed)
             vector = point.vector if isinstance(point.vector, dict) else {config.QDRANT_VECTOR_NAME: point.vector}
             rewritten.append(qm.PointStruct(id=vs._point_uuid(memory_id), vector=vector, payload={
-                **payload, "_mid": memory_id, "project": placed, "origin_project": origin}))
+                **payload, "_mid": memory_id, "project": placed, "origin_project": origin,
+                "related_projects": sorted(set(associations.get((origin, payload.get('source', '')), [])) - {placed})}))
             retired.append(point.id)
         if not rewritten:
             continue
@@ -320,7 +327,7 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
         if metadata['project'] == project and (sources is None or metadata['source'] in sources):
             snapshot = source_snapshots.get(metadata['source'], project, ws)
             source_snapshots.publish(source_snapshots.rehome(snapshot, target), ws)
-            source_snapshots.remove(metadata['source'], project, ws)
+            source_snapshots.remove(metadata['source'], project, ws, preserve_associations=True)
     vs._wal_log("move", workspace=ws, project=project, target=target, chunks=chunks,
                 sources=len(moved_sources))
     return result

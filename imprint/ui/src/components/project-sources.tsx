@@ -32,7 +32,8 @@ export function ProjectSources({ sources, selected, onSelectedChange, onRead }: 
       </Empty>
     );
   }
-  const all = sources.length > 0 && sources.every((s) => selected.has(s.source));
+  const movable = sources.filter((s) => !s.linked);
+  const all = movable.length > 0 && movable.every((s) => selected.has(s.source));
   const some = !all && sources.some((s) => selected.has(s.source));
 
   function toggle(source: string, checked: boolean) {
@@ -47,7 +48,7 @@ export function ProjectSources({ sources, selected, onSelectedChange, onRead }: 
         <TableRow>
           <TableHead className="w-8">
             <Checkbox aria-label="Select all sources" checked={all} indeterminate={some}
-              onCheckedChange={(checked) => onSelectedChange(checked ? new Set(sources.map((s) => s.source)) : new Set())} />
+              disabled={!movable.length} onCheckedChange={(checked) => onSelectedChange(checked ? new Set(movable.map((s) => s.source)) : new Set())} />
           </TableHead>
           <TableHead>Source</TableHead>
           <TableHead className="w-20 text-right">Chunks</TableHead>
@@ -58,10 +59,11 @@ export function ProjectSources({ sources, selected, onSelectedChange, onRead }: 
         {sources.map((s) => (
           <TableRow key={s.source} data-state={selected.has(s.source) ? "selected" : undefined}>
             <TableCell>
-              <Checkbox aria-label={`Select ${s.source}`} checked={selected.has(s.source)}
+              <Checkbox aria-label={`Select ${s.source}`} checked={selected.has(s.source)} disabled={s.linked}
                 onCheckedChange={(checked) => toggle(s.source, checked)} />
             </TableCell>
             <TableCell className="max-w-0" title={s.title ? `${s.title}\n${s.source}` : s.source}>
+              {s.linked && <span className="block text-xs text-muted-foreground">Linked from {s.project || "Unassigned"}</span>}
               {s.title ? (
                 <>
                   <span className="block truncate text-sm">{s.title}</span>

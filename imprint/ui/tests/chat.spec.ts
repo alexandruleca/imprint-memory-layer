@@ -7,6 +7,29 @@ const LOCAL = { enabled: true, provider: 'local', model_path: '', model_file: 'Q
 
 const sse = (...events: object[]) => events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
 
+test('a research limit finishes with an answer and a status notice instead of a failed reply', async ({ page }) => {
+  await mockChat(page, {
+    sessions: [{ id: 'chat1', title: 'Project research', created_at: now, updated_at: now }],
+    replies: [sse(
+      { type: 'tool_call', name: 'search', args: { query: 'project history' } },
+      { type: 'tool_result', name: 'search', result: 'Source meeting.txt: the project tracks inventory.' },
+      { type: 'notice', title: 'Finishing the answer', code: 'research_complete', text: 'The research token budget is complete. Answering with the information gathered so far.' },
+      { type: 'token', text: 'The project tracks inventory, according to meeting.txt.' },
+      { type: 'assistant_message', text: 'The project tracks inventory, according to meeting.txt.' },
+      { type: 'done' },
+    )],
+  });
+  await page.goto('/chat/');
+  await expect(page.getByRole('heading', { name: 'Project research', exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Message' }).fill('Tell me about the project');
+  await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+  await expect(page.getByRole('status').filter({ hasText: 'Finishing the answer' })).toContainText('The research token budget is complete');
+  await expect(page.getByText('The project tracks inventory, according to meeting.txt.', { exact: true })).toBeVisible();
+  await expect(page.getByText('The reply failed')).toHaveCount(0);
+  await expect(page.getByText('Chatting without tools')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Copy reply' })).toBeVisible();
+});
+
 test('section analysis shows progress while worker findings stay out of the answer', async ({ page }) => {
   await mockChat(page, {});
   await page.addInitScript(() => {

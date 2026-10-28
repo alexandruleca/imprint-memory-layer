@@ -218,7 +218,8 @@ def wake_up(workspace: str = "") -> str:
         lines.append("")
 
     # ── Section 1: Project overview (facet-based, no scan) ──
-    project_facets = vs.facet_counts("project", limit=20, workspace=ws)
+    from .project_associations import project_counts
+    project_facets = project_counts(ws, limit=20)
     if project_facets:
         lines.append("Projects in memory:")
         for name, count in project_facets:
@@ -711,7 +712,8 @@ def read_source(source: Annotated[str, Field(min_length=1, max_length=4096)], pr
         return 'Error: version is required for source continuation'
     from . import source_snapshots
     try:
-        snapshot = source_snapshots.get(source, project, ws, version)
+        from .project_associations import resolve
+        snapshot = resolve(source, project, ws, version)
         if snapshot is None:
             return json.dumps({'error': 'No full-source snapshot is available. Learn the conversation or refresh the file with --force; legacy chunks cannot prove reconstruction.',
                                'source': source, 'snapshot_available': False})

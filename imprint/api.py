@@ -331,8 +331,18 @@ def api_sources(
         project=project, lang=lang, layer=layer, limit=limit,
     )
     titles = source_snapshots.conversation_titles()
+    from .project_associations import accepted, origin
+    memberships = accepted()
+    heads = source_snapshots.list_metadata()
+    def entry(source, count):
+        owners = [meta['project'] for meta in heads if meta['source'] == source and
+                  (not project or project == meta['project'] or
+                   project in memberships.get((origin(meta), source), []))]
+        canonical = owners[0] if len(owners) == 1 else None
+        return {'source': source, 'chunks': count, 'title': titles.get(source, ''),
+                'project': canonical, 'linked': bool(project and canonical is not None and canonical != project)}
     return {
-        "sources": [{"source": s, "chunks": c, "title": titles.get(s, "")} for s, c in sources],
+        "sources": [entry(s, c) for s, c in sources],
         "total": len(sources),
     }
 
@@ -508,6 +518,32 @@ async def api_projects_move(request: Request):
             raise ValueError('sources must be a list of source keys, or left out to move the whole project')
         return await asyncio.to_thread(run_move, body.get('project'), body.get('target'), sources,
                                        workspace=body.get('workspace'), apply=body.get('apply', False))
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.get('/api/projects/associations')
+def api_project_associations(source: str | None = None, project: str | None = None,
+                             limit: int = Query(200, ge=1, le=1000)):
+    from .project_associations import review
+    return review(source=source, project=project, limit=limit)
+
+
+@app.post('/api/projects/associations')
+async def api_decide_project_association(request: Request):
+    from .project_associations import decide
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A project-association object is required')
+        if not body.get('workspace'):
+            raise ValueError('An explicit workspace from the association review is required')
+        if not isinstance(body.get('source'), str) or not isinstance(body.get('project'), str):
+            raise ValueError('source and canonical project are required')
+        result = await asyncio.to_thread(decide, body['source'], body['project'], body.get('target'),
+                                         body.get('status'), body['workspace'])
+        reset_cache()
+        return result
     except ValueError as error:
         return JSONResponse({'error': str(error)}, status_code=400)
 
@@ -922,7 +958,7 @@ def api_config():
             "value": display_value(s, val),
             "source": source,
             "default": s.default,
-            "type": s.type.__name__,
+            "type": "int" if isinstance(s.default, int) and not isinstance(s.default, bool) else s.type.__name__,
             "env": s.env,
             "desc": s.desc,
             "secret": s.secret,

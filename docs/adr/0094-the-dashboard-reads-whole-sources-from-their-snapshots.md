@@ -3,9 +3,10 @@ title: ADR 0094 — The dashboard reads whole sources from their snapshots
 description: Topics, the graph, sources and search open a conversation or file whole, read from its stored redacted snapshot, with a topic's passages marked.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
 - Scope: the dashboard's Topics, Graph, Projects, Sources and Search pages and the API they read
+- Amended by: [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) — neutral-speaker audio events and recording filenames
 - Related: [ADR 0081](0081-verifiable-redacted-source-snapshots.md) (snapshots and `read_source`), [ADR 0082](0082-retain-readable-conversation-evidence.md) (what a conversation snapshot holds), [source memory](../source-memory.md)
 
 ## Context

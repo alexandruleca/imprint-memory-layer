@@ -32,6 +32,25 @@ export function moveProject(body: { project: string; target: string; sources?: s
   return fetchAPI<ProjectMove>("/api/projects/move", { method: "POST", body: JSON.stringify(body) });
 }
 
+export type ProjectAssociation = {
+  source: string; project: string; origin: string; target: string;
+  status: "suggested" | "accepted" | "rejected"; method: string; manual: boolean; stale: boolean;
+  evidence: { start: number; end: number; text: string; method: string }[];
+};
+export type AssociationReview = {
+  workspace: string; associations: ProjectAssociation[]; projects: string[];
+  sources: { source: string; project: string; title: string }[];
+};
+export function getProjectAssociations(source?: string, project?: string) {
+  const qs = new URLSearchParams({ limit: "1000" });
+  if (source !== undefined) qs.set("source", source);
+  if (project !== undefined) qs.set("project", project);
+  return fetchAPI<AssociationReview>(`/api/projects/associations?${qs}`);
+}
+export function decideProjectAssociation(body: { workspace: string; source: string; project: string; target: string; status: "accepted" | "rejected" }) {
+  return fetchAPI<AssociationReview>("/api/projects/associations", { method: "POST", body: JSON.stringify(body) });
+}
+
 async function fetchAPI<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,

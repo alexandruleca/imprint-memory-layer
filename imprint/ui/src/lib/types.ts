@@ -104,12 +104,16 @@ export interface SourceBlock {
   match: boolean;
   // Conversation events only (imprint/conversation_source.py).
   event?: number;
-  role?: "user" | "assistant" | "system" | "developer" | "tool" | "context";
+  role?: "user" | "assistant" | "system" | "developer" | "tool" | "context" | "speaker";
   kind?: "message" | "analysis" | "tool_call" | "tool_output" | "client_context" | "attachment";
   turn?: number;
   timestamp?: string | number;
   tool?: string;
   call_id?: string;
+  audio_start?: number;
+  audio_end?: number;
+  language?: string;
+  speaker?: string | null;
 }
 
 export interface SourceRead {
@@ -122,7 +126,7 @@ export interface SourceRead {
   total_chars: number;
   chunk_count: number;
   updated_at?: number;
-  details: { event_count?: number; omissions?: Record<string, number> };
+  details: { event_count?: number; omissions?: Record<string, number>; media?: string };
   blocks: SourceBlock[];
 }
 
@@ -143,6 +147,9 @@ export interface StatsData {
 }
 
 export interface SourceEntry {
+  /** Canonical owner when known; linked sources cannot be moved from the related project. */
+  project?: string | null;
+  linked?: boolean;
   source: string;
   chunks: number;
   /** A conversation's first question; "" for files. */
@@ -224,7 +231,7 @@ export type ChatEvent =
   | { type: "download_progress"; downloaded: number; total: number }
   | { type: "download_complete"; path: string }
   | { type: "load_start" }
-  | { type: "notice"; text: string }
+  | { type: "notice"; text: string; title?: string; code?: string }
   | { type: "analysis"; text: string }
   | { type: "token"; text: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }

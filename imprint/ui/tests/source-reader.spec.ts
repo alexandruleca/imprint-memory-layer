@@ -86,6 +86,26 @@ test('a file without a snapshot says how to keep one', async ({ page }) => {
   await expect(page.getByRole('dialog')).toContainText('Learn the conversation again or refresh the file with --force');
 });
 
+test('audio conversations show timestamped unidentified speech without chat roles', async ({ page }) => {
+  await mockApi(page);
+  await page.route('**/api/sources/read?**', route => route.fulfill({ json: {
+    ...conversation, title: 'meeting.m4a', details: { event_count: 2, media: 'audio' },
+    blocks: [
+      at(0, { role: 'speaker', kind: 'message', text: 'Bună ziua, discutăm despre proiect.', audio_start: 1.2, audio_end: 8.5, language: 'ro' }),
+      at(1, { role: 'speaker', kind: 'message', text: 'Let us review the design.', audio_start: 30.2, audio_end: 35.5, language: 'en' }),
+    ],
+  } }));
+  await page.goto('/topics/?topic=layout');
+  await page.getByRole('list', { name: 'Sources' }).getByRole('button', { name: 'Read conversation' }).click();
+  const reader = page.getByRole('dialog', { name: 'meeting.m4a' });
+  await expect(reader.getByText('Machine transcript · speakers unidentified')).toBeVisible();
+  await expect(reader.getByText('Bună ziua, discutăm despre proiect.')).toBeVisible();
+  await expect(reader.getByText('Let us review the design.')).toBeVisible();
+  await expect(reader.getByText('Unidentified speaker · 00:00:01–00:00:08 · ro')).toBeVisible();
+  await expect(reader.getByText('Unidentified speaker · 00:00:30–00:00:35 · en')).toBeVisible();
+  await expect(reader.getByText(/context note/)).toHaveCount(0);
+});
+
 test('the graph opens a topic\'s conversations in the reader', async ({ page }) => {
   await mockApi(page);
   await page.route('**/api/graph?**', route => route.fulfill({ json: {

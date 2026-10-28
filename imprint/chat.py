@@ -27,6 +27,7 @@ from . import config
 from . import config_schema
 from . import server as _mcp_server
 from . import tool_formats
+from .chat_research import ResearchBudget, ResearchExhausted
 
 
 # ── Optional deps ────────────────────────────────────────────
@@ -576,19 +577,35 @@ def _local_format(llm: Any) -> tuple[tool_formats.Format | None, str | None]:
 
 
 def _local_turn(llm: Any, messages: list[dict], tools: list[dict] | None, fmt: tool_formats.Format | None,
-                max_tokens: int, temperature: float) -> Generator[str, None, list[dict]]:
+                max_tokens: int, temperature: float, *, deadline=None, cancelled=lambda: False) -> Generator[str, None, list[dict]]:
     """One assistant turn of the local model. Yields reply text and returns
     the tool calls. Tool-call markup is never yielded: the stream holds text
     back from a call marker on, and a trailing partial marker until it resolves."""
     from .local_llm import INFERENCE_LOCK, generate
     buffer, shown = "", 0
-    with INFERENCE_LOCK:
-        for piece in generate(llm, messages, max_tokens, temperature, tools=tools):
-            buffer += piece
-            end = tool_formats.shown(fmt, buffer) if fmt else len(buffer)
-            if end > shown:
-                yield buffer[shown:end]
-                shown = end
+    from .chat_analysis import AnalysisCancelled
+    while not INFERENCE_LOCK.acquire(timeout=.1):
+        if cancelled():
+            raise AnalysisCancelled()
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError('Local model wait exceeded the research deadline')
+    try:
+        if cancelled():
+            raise AnalysisCancelled()
+        generation = generate(llm, messages, max_tokens, temperature, tools=tools, deadline=deadline)
+        try:
+            for piece in generation:
+                if cancelled():
+                    raise AnalysisCancelled()
+                buffer += piece
+                end = tool_formats.shown(fmt, buffer) if fmt else len(buffer)
+                if end > shown:
+                    yield buffer[shown:end]
+                    shown = end
+        finally:
+            generation.close()
+    finally:
+        INFERENCE_LOCK.release()
     calls = fmt.parse(buffer[shown:]) if fmt else []
     if not calls and len(buffer) > shown:
         yield buffer[shown:]  # held back, but not a tool call
@@ -634,7 +651,8 @@ def _wire_message(message: dict) -> dict:
 
 
 def _remote_turn(messages: list[dict], tools: list[dict] | None, max_tokens: int,
-                 temperature: float, *, timeout: float | None = None) -> Generator[str, None, list[dict]]:
+                 temperature: float, *, timeout: float | None = None, deadline=None,
+                 cancelled=lambda: False) -> Generator[str, None, list[dict]]:
     """One assistant turn of the remote provider. Yields reply text and
     returns the tool calls assembled from the streamed tool_call deltas."""
     parts: dict[int, dict] = {}
@@ -648,6 +666,11 @@ def _remote_turn(messages: list[dict], tools: list[dict] | None, max_tokens: int
         **({"timeout": timeout} if timeout is not None else {}),
     ) as stream:
         for chunk in stream:
+            if cancelled():
+                from .chat_analysis import AnalysisCancelled
+                raise AnalysisCancelled()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError('Model stream exceeded its deadline')
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
@@ -673,6 +696,14 @@ def _remote_turn(messages: list[dict], tools: list[dict] | None, max_tokens: int
 
 # ── Streaming tool loop ──────────────────────────────────────
 
+def _prompt_tokens(llm, items, tools, remote):
+    if remote:
+        return (len(json.dumps({'messages': items, 'tools': tools}, ensure_ascii=False).encode()) + 2) // 3 + 512
+    from .local_llm import INFERENCE_LOCK
+    with INFERENCE_LOCK:
+        prompt = llm._imprint_formatter(messages=items, tools=tools).prompt
+        return len(llm.tokenize(prompt.encode(), add_bos=False, special=True))
+
 def _history(prior_messages: list[dict]) -> list[dict]:
     """Stored conversation as native messages. A stored tool exchange is an
     assistant tool call followed by its tool-role result."""
@@ -690,6 +721,29 @@ def _history(prior_messages: list[dict]) -> list[dict]:
     return messages
 
 
+def _research_fallback(messages: list[dict], *, spoken=False) -> str:
+    """Keep retrieved evidence useful if the tools-free answer is unavailable.
+
+    This is explicitly evidence, not an invented synthesis. Bound the excerpt
+    size and use only this reply's results, after its last user message.
+    """
+    anchor = max(i for i, message in enumerate(messages) if message['role'] == 'user')
+    evidence = [message['content'].strip() for message in messages[anchor + 1:]
+                if message['role'] == 'tool' and message.get('content', '').strip()
+                and not message['content'].startswith('[tool error]')]
+    if spoken:
+        return ("I reached the research limit and couldn't finish summarizing the results. "
+                "Please ask a narrower follow-up so I can complete the answer.")
+    intro = "I couldn't finish a complete answer from this research."
+    if not evidence:
+        return intro + " I don't have usable retrieved evidence to support an answer yet."
+    excerpts = []
+    for result in evidence[-3:]:
+        excerpt = result[:1200] + ('\n[Excerpt shortened]' if len(result) > 1200 else '')
+        excerpts.append('\n'.join('> ' + line for line in excerpt.splitlines()))
+    return intro + " Retrieved evidence excerpts (incomplete, without synthesis):\n\n" + '\n\n'.join(excerpts)
+
+
 def stream_reply(
     prior_messages: list[dict],
     user_message: str,
@@ -704,7 +758,7 @@ def stream_reply(
       {"type": "download_start", "file", "repo", "path"} / {"type": "download_progress", "downloaded", "total"}
       {"type": "download_complete", "path": str}
       {"type": "load_start"}                         # loading the local model into memory
-      {"type": "notice", "text": str}                # first reply only: the local model runs without tools
+      {"type": "notice", "text": str, "title"?: str}  # model capability or normal research completion
       {"type": "analysis", "text": str}              # section-worker progress; never worker findings
       {"type": "token", "text": str}
       {"type": "tool_call", "name": str, "args": dict}
@@ -779,30 +833,29 @@ def stream_reply(
     messages += _history(prior_messages)
     messages.append({"role": "user", "content": user_message})
 
-    max_iters = int(_cfg("chat.max_tool_iters"))
     max_tokens = int(_cfg("chat.max_tokens"))
     temperature = float(_cfg("chat.temperature"))
 
     from .chat_analysis import AnalysisCancelled, SectionAnalysis, WORKER_TIMEOUT
     from .local_llm import INFERENCE_LOCK, generate
+    budget = ResearchBudget(seconds=int(_cfg('chat.research_timeout_sec')),
+                            tokens=int(_cfg('chat.research_token_budget')),
+                            patience=int(_cfg('chat.research_no_progress_rounds')))
 
     def measure(items, offered):
-        if remote:
-            # No remote tokenizer is guaranteed. Use a conservative estimate;
-            # chat.n_ctx is the analysis budget, not a provider capability claim.
-            return (len(json.dumps({"messages": items, "tools": offered}, ensure_ascii=False).encode()) + 2) // 3 + 512
-        with INFERENCE_LOCK:
-            prompt = llm._imprint_formatter(messages=items, tools=offered).prompt
-            return len(llm.tokenize(prompt.encode(), add_bos=False, special=True))
+        return _prompt_tokens(llm, items, offered, remote)
 
     def worker_generate(items, output_tokens):
-        deadline = time.monotonic() + WORKER_TIMEOUT
+        budget.reserve(measure(items, None), output_tokens)
+        deadline = min(time.monotonic() + WORKER_TIMEOUT, budget.deadline)
         if remote:
-            generation = _remote_turn(items, None, output_tokens, 0.1, timeout=WORKER_TIMEOUT)
+            generation = _remote_turn(items, None, output_tokens, 0.1,
+                                      timeout=min(WORKER_TIMEOUT, budget.remaining()), deadline=deadline, cancelled=cancelled)
             try:
                 for piece in generation:
                     if cancelled():
                         raise AnalysisCancelled()
+                    budget.check_time()
                     if time.monotonic() >= deadline:
                         raise TimeoutError("Section worker time limit reached")
                     yield piece
@@ -842,23 +895,78 @@ def stream_reply(
         return _tool_schemas(read_only, extra_tools()) if tools is not None else None
 
     final_assistant_chunks: list[str] = []
+    finish_reason = None
+    completed_rounds = 0
 
-    for _iter in range(max_iters):
+    # Tool rounds and answer generation have separate budgets. In particular,
+    # the last batch of results must reach an answer turn (ADRs 0101, 0102).
+    while True:
         if cancelled():
             return
+        finish_reason = finish_reason or budget.reason()
+        finalizing = finish_reason is not None
+        if finalizing:
+            explanation = {
+                'no_progress': 'Recent lookups are no longer adding new evidence.',
+                'context': 'The research context is full.',
+                'time': 'The research time budget is complete.',
+                'tokens': 'The research token budget is complete.',
+            }[finish_reason]
+            yield {'type': 'notice', 'code': 'research_complete', 'title': 'Finishing the answer',
+                   'text': explanation + ' Answering with the information gathered so far.'}
+            messages[0] = {**messages[0], 'content': messages[0]['content'].replace(TOOL_STRATEGY, '') +
+                '\n\n# Finish the answer\nThe research budget is complete and no tools are available. '
+                'Answer the original user question now using the evidence already gathered. '
+                'Cite available sources, state uncertainties and clearly distinguish missing information. '
+                'Do not request or emit tool calls, promise more research, or claim actions not confirmed by tool results.'}
+        active_offers = (lambda: None) if finalizing else offered_tools
         try:
-            messages = yield from analysis.prepare(messages, offered_tools)
+            messages = yield from analysis.prepare(messages, active_offers)
         except AnalysisCancelled:
             return
+        except ResearchExhausted as error:
+            if not finalizing:
+                finish_reason = error.reason
+                continue
+            fallback = _research_fallback(messages, spoken=read_only)
+            yield {'type': 'token', 'text': fallback}
+            final_assistant_chunks.append(fallback)
+            break
         except Exception as e:
+            if finalizing:
+                fallback = _research_fallback(messages, spoken=read_only)
+                yield {'type': 'token', 'text': fallback}
+                final_assistant_chunks.append(fallback)
+                break
+            if not budget.remaining():
+                finish_reason = 'time'
+                continue
+            if completed_rounds:
+                # A source/section limit reached during research should still
+                # leave room to answer with the evidence already obtained.
+                finish_reason = 'context'
+                continue
             yield {"type": "error", "error": f"section analysis failed: {e}"}
             yield {"type": "done"}
             return
-        active_tools = offered_tools()
+        if cancelled():
+            return
+        active_tools = active_offers()
+        if not finalizing:
+            try:
+                budget.reserve(measure(messages, active_tools), max_tokens)
+            except ResearchExhausted as error:
+                finish_reason = error.reason
+                continue
+        # A reserved answer has its own bounded time and output allowance.
+        deadline = time.monotonic() + WORKER_TIMEOUT if finalizing else budget.deadline
         if remote:
-            turn = _remote_turn(messages, active_tools, max_tokens, temperature)
+            turn = _remote_turn(messages, active_tools, max_tokens, temperature,
+                                timeout=WORKER_TIMEOUT if finalizing else budget.remaining(),
+                                deadline=deadline, cancelled=cancelled)
         else:
-            turn = _local_turn(llm, messages, active_tools, fmt, max_tokens, temperature)
+            turn = _local_turn(llm, messages, active_tools, fmt, max_tokens, temperature,
+                               deadline=deadline, cancelled=cancelled)
         text = ""
         try:
             while True:
@@ -870,12 +978,36 @@ def stream_reply(
         except StopIteration as end:
             calls = end.value
         except Exception as e:
+            if cancelled():
+                return
+            if not finalizing and (isinstance(e, ResearchExhausted) or not budget.remaining()):
+                if text.strip():
+                    final_assistant_chunks.append(text.strip() + '\n')
+                    messages.append({'role': 'assistant', 'content': text})
+                finish_reason = 'time'
+                continue
+            if finalizing:
+                # Preserve any streamed answer and add an honest evidence
+                # fallback. A bounded research stop is never a failed reply.
+                fallback = ('\n\n' if text.strip() else '') + _research_fallback(messages, spoken=read_only)
+                yield {'type': 'token', 'text': fallback}
+                final_assistant_chunks.append(text + fallback)
+                break
             yield {"type": "error", "error": f"generation failed: {e}"}
             yield {"type": "done"}
             return
         finally:
             turn.close()
 
+        if finalizing:
+            # Keep parsing local markup so models that ignore the no-tools
+            # instruction cannot leak calls or execute a final mutation.
+            if not text.strip() or calls:
+                fallback = ('\n\n' if text.strip() else '') + _research_fallback(messages, spoken=read_only)
+                yield {'type': 'token', 'text': fallback}
+                text += fallback
+            final_assistant_chunks.append(text)
+            break
         if not calls:
             final_assistant_chunks.append(text)
             break
@@ -889,20 +1021,25 @@ def stream_reply(
             {"id": call["id"], "type": "function", "function": {"name": call["name"], "arguments": call["args"]}}
             for call in calls
         ]})
+        round_results = []
         for call in calls:
             if cancelled():
                 return
             yield {"type": "tool_call", "name": call["name"], "args": call["args"]}
-            result = _run_tool(call["name"], call["args"], workspace, read_only, extra_tools())
+            if budget.remaining():
+                result = _run_tool(call["name"], call["args"], workspace, read_only, extra_tools())
+            else:
+                # Complete the provider protocol for pending calls without
+                # starting more work or mutations after a deadline.
+                result = '[research stopped] This call was not executed because the time budget ended.'
             if not analysis.workers:
                 result = _trim_tool_result(result)
             yield {"type": "tool_result", "name": call["name"], "result": result}
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
-    else:
-        yield {
-            "type": "error",
-            "error": f"max tool iterations ({max_iters}) reached",
-        }
+            entry = extra_tools().get(call['name']) or TOOLS.get(call['name'])
+            round_results.append((result, bool(entry and entry.writes)))
+        completed_rounds += 1
+        budget.observe(round_results)
 
     final_text = "".join(final_assistant_chunks).strip()
     if final_text:

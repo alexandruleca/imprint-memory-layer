@@ -5,7 +5,9 @@ description: Dashboard chat keeps one registry of tool JSON schemas; the local m
 
 - Status: Amended
 - Date: 2026-10-25
-- Amended by: [ADR 0061](0061-local-tool-call-formats.md) — local tool-call parsing by model family
+- Amended by:
+  - [ADR 0061](0061-local-tool-call-formats.md) — local tool-call parsing by model family
+  - [ADR 0101](0101-chat-research-always-reserves-an-answer.md) — tool research ends with a reserved answer instead of an iteration-limit error
 - Related: [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) (stream withholds tool-call markup, unchanged), [ADR 0043](0043-live-voice-and-echo-companion.md) (voice is read-only and keeps the session workspace, unchanged), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md), [local model selection](../local-model-selection.md)
 - Restructured: 2026-10-25
 

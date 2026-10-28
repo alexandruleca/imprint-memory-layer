@@ -44,6 +44,10 @@ def stamp_records(records: list[dict], path: str, before: dict) -> list[dict]:
 
 def unchanged(current: dict, stored: dict | None) -> bool:
     from .source_memory import profile
+    from .audio_ingest import AUDIO_EXTENSIONS, profile as audio_profile
+    if (stored and Path(current.get('source_path', '')).suffix.lower() in AUDIO_EXTENSIONS
+            and stored.get('doc_metadata', {}).get('audio_profile') != audio_profile()):
+        return False
     if stored and stored.get('source_format') and stored.get('source_profile') != profile():
         return False
     return bool(stored and device.local_source(stored) and stored.get('source_hash') == current['source_hash']
@@ -74,9 +78,13 @@ def missing_sources(states: dict[str, dict], roots: list[str]) -> list[str]:
 # workspace: refresh reads a document again only once the file or the profile
 # changed, or with --force (ADR 0040).
 
-def extraction_profile() -> dict:
+def extraction_profile(path: str | Path | None = None) -> dict:
     """What decides whether a document without a text layer can yield text."""
     from .config_schema import resolve
+    if path is not None:
+        from .audio_ingest import AUDIO_EXTENSIONS, profile as audio_profile
+        if Path(path).suffix.lower() in AUDIO_EXTENSIONS:
+            return {'audio': audio_profile()}
     ocr = bool(resolve('ingest.ocr_enabled')[0])
     profile = {'ocr': ocr, 'kreuzberg': bool(resolve('ingest.use_kreuzberg')[0])}
     if ocr:
@@ -89,6 +97,8 @@ def extraction_profile() -> dict:
 
 def no_text_reason(path: str | Path, profile: dict) -> str:
     """Why ``path`` has nothing to index, and what can change that."""
+    if 'audio' in profile:
+        return 'no speech recognized; check the recording and audio.language'
     if Path(path).suffix.lower() != '.pdf':
         return 'no extractable text'
     if not profile['ocr']:

@@ -67,7 +67,7 @@ function Reply({ turn, last, onRetry }: { turn: AssistantTurn; last: boolean; on
       {turn.notice && (
         <Alert role="status">
           <Info />
-          <AlertTitle>Chatting without tools</AlertTitle>
+          <AlertTitle>{turn.noticeTitle ?? "Chatting without tools"}</AlertTitle>
           <AlertDescription>
             {turn.notice} <Link href="/settings/#settings-chat" className="underline underline-offset-2">Open chat settings</Link>
           </AlertDescription>

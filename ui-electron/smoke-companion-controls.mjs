@@ -17,7 +17,7 @@ const bundle = path.resolve(process.argv[2] || path.join(root, '../imprint/ui/ou
 const output = process.argv[3];
 const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'imprint-companion-controls-'));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.glb': 'model/gltf-binary', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
-const looks = [{ value: 'echo', label: 'Echo', detail: 'Holographic core', unavailable: '' },
+const looks = [{ value: 'echo', label: 'Echo', detail: 'Synaptic core', unavailable: '' },
   { value: 'iris', label: 'Iris', detail: 'Indigo straight cut', unavailable: '' },
   { value: 'kai', label: 'Kai', detail: 'Spiky orange hair', unavailable: '' }];
 let look = 'echo';

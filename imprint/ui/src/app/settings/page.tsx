@@ -27,6 +27,8 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   redact: { title: "Redaction", desc: "Secrets replaced with placeholders before memories are stored.", icon: ShieldCheck },
   ingest: { title: "Ingestion", desc: "Documents, OCR and URL fetching.", icon: FileInput },
   voice: { title: "Voice", desc: "The native live voice runtime.", icon: Mic },
+  audio: { title: "Audio ingestion", desc: "Multilingual transcripts from audio files.", icon: Mic },
+  associations: { title: "Project associations", desc: "Suggestions, automatic path links and the inbox for conversations without a directory.", icon: FolderTree },
   chat: { title: "Chat", desc: "The dashboard chat assistant.", icon: MessageSquare },
   summarizer: { title: "Session summaries", desc: "LLM summaries written when a session ends.", icon: ScrollText },
   recall: { title: "Recall", desc: "The MCP recall tool's optional local model.", icon: Search },

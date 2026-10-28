@@ -3,6 +3,14 @@ title: Verifiable source memory
 description: What full-source snapshots preserve, how to read and verify them, how they are removed and what the paired coverage experiment establishes.
 ---
 
+Project associations preserve the canonical snapshot and its primary ownership.
+Accepted links make a whole source retrievable through additional projects,
+without duplicating chunks. Supporting evidence refers to versioned spans in
+this same snapshot; changed sources hide old excerpts while retaining manual
+decisions. See [project association review](workspaces.md#associate-one-source-with-several-projects)
+and [ADR 0099](adr/0099-sources-can-belong-to-several-projects.md).
+
+
 New file ingestion, conversation learning, URL ingestion and replacement of inline content store both searchable chunks and a complete redacted readable source. The source is compressed in `data/source-snapshots.sqlite3`, scoped by workspace, project and source key. [ADR 0081](adr/0081-verifiable-redacted-source-snapshots.md) and [ADR 0082](adr/0082-retain-readable-conversation-evidence.md) describe the decisions.
 
 ## Read and verify
@@ -38,3 +46,19 @@ The [paired experiment](../benchmark/source-memory/README.md) on native macOS ar
 The same run reconstructed all **171 readable conversation representations and 594 supported repository code/text files** exactly from their spans. This does not mean every historical JSON field was ingested, or prove the old index had large byte gaps. The earlier device audit found all 1,561 expected old chunks in 169 up-to-date conversations; the omissions were mainly in reading transcripts before chunking.
 
 The cost is visible: local conversations grew from **1,580 to 3,586 chunks** and **2.65 to 19.12 million indexed characters**, with **3.88 MB** of compressed source bodies. Repository files used **2,295 to 1,562 chunks**, with **1.74 MB** of compressed source bodies. SQLite/manifests/vectors add further overhead. Local preparation plus synthetic cases took 9.4 s before and 15.2 s after; these single-run timings are order/cache dependent. Only the synthetic corpus was embedded during the experiment. General relevance, answer correctness, large-corpus latency and actual full-corpus embedding time remain unmeasured. Windows/Linux runtime, installers and real paired-device end-to-end behavior remain unverified for this change.
+
+
+## Audio transcript sources
+
+[Audio ingestion](audio-ingestion.md) writes timestamped ASR segments using the
+existing conversation snapshot format. Neutral `speaker` events carry language
+and relative `audio_start`/`audio_end` seconds; no human/assistant identities are
+inferred. The canonical text is the redacted **recognized transcript**, not an
+exact representation of the recording. Coverage/integrity checks establish that
+all canonical transcript text is indexed, not that every spoken word was
+recognized correctly.
+
+Completed snapshots also serve as the audio transcript cache, scoped by workspace,
+file hash and transcription profile. Source deletion/purge removes its snapshot
+and reuse path; raw media is not copied into snapshots or sync. See
+[ADR 0095](adr/0095-audio-files-enter-the-source-ingestion-pipeline.md).

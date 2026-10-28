@@ -3,11 +3,12 @@ title: ADR 0052 — Learn Cursor conversations from their folder names
 description: A Cursor folder name counts as a conversation's working directory when exactly one existing directory has it; Cursor's profile is a learn store and a WSL registration target.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Amends:
   - [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — evidence: a Cursor folder name counts as a recorded cwd when exactly one existing directory has it
   - [ADR 0037](0037-learn-every-integrated-client-store.md) — stores: Cursor profiles; and project names for macOS and Windows home directories
+- Amended by: [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) — an explicit optional inbox for directory-free conversations
 - Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md)
 - Restructured: 2026-10-25
 

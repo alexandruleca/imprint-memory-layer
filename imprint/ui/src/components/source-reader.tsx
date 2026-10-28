@@ -57,7 +57,7 @@ function arrange(data: SourceRead): Item[] {
   const calls = new Map<string, { step: Step; group: Extract<Item, { type: "activity" }> }>();
   let group: Extract<Item, { type: "activity" }> | null = null;
   for (const block of data.blocks) {
-    if (block.kind === "message" && (block.role === "user" || block.role === "assistant")) {
+    if (block.kind === "message" && ["user", "assistant", "speaker"].includes(block.role ?? "")) {
       group = null;
       items.push({ type: "message", key: `e${block.event}`, block, match: block.match, chunks: block.chunks });
       continue;
@@ -164,6 +164,7 @@ function Reader({ target }: { target: ReaderTarget }) {
             </DialogDescription>
           </div>
         </div>
+        {data?.details.media === "audio" && <p className="text-xs text-muted-foreground">Machine transcript · speakers unidentified</p>}
         {target.topic && data && (
           <div className="flex flex-wrap items-center gap-2 text-xs" role="status">
             <span className="size-2.5 rounded-sm bg-amber-200 ring-1 ring-amber-400" aria-hidden />
@@ -245,6 +246,23 @@ function Message({ block }: { block: SourceBlock }) {
   const [all, setAll] = useState(false);
   const long = block.text.length > LONG;
   const text = long && !all ? `${block.text.slice(0, LONG)}…` : block.text;
+  if (block.role === "speaker") {
+    const position = (seconds: number) => {
+      const whole = Math.floor(seconds);
+      return `${Math.floor(whole / 3600).toString().padStart(2, "0")}:${Math.floor(whole / 60 % 60).toString().padStart(2, "0")}:${(whole % 60).toString().padStart(2, "0")}`;
+    };
+    return (
+      <div className="space-y-1 text-sm">
+        <p className="text-xs text-muted-foreground">
+          {block.speaker || "Unidentified speaker"}
+          {block.audio_start !== undefined && block.audio_end !== undefined && <> · {position(block.audio_start)}–{position(block.audio_end)}</>}
+          {block.language && <> · {block.language}</>}
+        </p>
+        <p className="whitespace-pre-wrap break-words">{text}</p>
+        {long && <ShowAll all={all} onToggle={() => setAll((value) => !value)} />}
+      </div>
+    );
+  }
   if (block.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">

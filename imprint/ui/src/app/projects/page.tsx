@@ -15,6 +15,7 @@ import { FacetBars, PageHeader, PaneCount, PaneFilter, PaneItem, SplitPage } fro
 import { MigrateDialog } from "@/components/migrate-dialog";
 import { ProjectMoveDialog } from "@/components/project-move-dialog";
 import { ProjectSources } from "@/components/project-sources";
+import { ProjectAssociations } from "@/components/project-associations";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import type { OverviewData, Project, SourceEntry } from "@/lib/types";
 import type { ProjectMove } from "@/lib/api";
@@ -42,6 +43,7 @@ export default function ProjectsPage() {
   // What the move dialog moves: some sources, or (null) the whole project.
   const [moving, setMoving] = useState<{ sources: string[] | null } | null>(null);
   const [migrateOpen, setMigrateOpen] = useState(false);
+  const [associationsOpen, setAssociationsOpen] = useState(false);
   const [reading, setReading] = useState<ReaderTarget | null>(null);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
@@ -135,6 +137,8 @@ export default function ProjectsPage() {
       }
     >
       {errorAlert}
+      <div className="flex justify-end"><Button variant="outline" onClick={() => setAssociationsOpen(true)}>Review project associations</Button></div>
+      {associationsOpen && <ProjectAssociations onClose={() => setAssociationsOpen(false)} onChanged={() => { refresh().catch((e) => setError(String(e))); }} />}
       {selected ? (
         <>
           <Card>
@@ -186,7 +190,7 @@ export default function ProjectsPage() {
             </CardHeader>
             <CardContent>
               <ProjectSources sources={sources} selected={checked} onSelectedChange={setChecked}
-                onRead={(s: SourceEntry) => setReading({ source: s.source, project: selected, title: s.title })} />
+                onRead={(s: SourceEntry) => setReading({ source: s.source, project: s.project ?? selected, title: s.title })} />
             </CardContent>
           </Card>
         </>

@@ -41,7 +41,7 @@ EXTENSIONS = {
 }
 # Document formats are gated by `ingest.doc_formats` config; the scanner
 # merges them into the effective allow-list at walk time. Set the config
-# key to an empty string to index only code + prose.
+# key to an empty string to exclude documents. Images/audio have separate gates.
 
 
 def _enabled_doc_formats() -> set[str]:
@@ -70,6 +70,12 @@ def _ocr_image_exts() -> set[str]:
     except Exception:
         pass
     return set()
+
+
+def _audio_exts() -> set[str]:
+    from .config_schema import resolve
+    from .audio_ingest import AUDIO_EXTENSIONS
+    return AUDIO_EXTENSIONS if resolve('audio.enabled')[0] else set()
 
 
 # Skip these — low value for memory context.
@@ -288,7 +294,7 @@ def scan_dir(dir_path, exclude_paths=None):
     # Resolve doc/image gates once per scan — avoids reloading config per file.
     doc_exts = _enabled_doc_formats()
     ocr_imgs = _ocr_image_exts()
-    effective_exts = EXTENSIONS | doc_exts | ocr_imgs
+    effective_exts = EXTENSIONS | doc_exts | ocr_imgs | _audio_exts()
     # Image exts are in SKIP_EXTENSIONS by default; lift that gate when OCR on.
     skip_exts = SKIP_EXTENSIONS - ocr_imgs
 
@@ -521,7 +527,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
     from . import source_memory
     mtime = os.path.getmtime(file_path)
     source_key = f"{project}/{rel}"
-    profile = extraction_profile()
+    profile = extraction_profile(file_path)
     reason = None
 
     if is_doc:
@@ -530,7 +536,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
         doc_list = []
         try:
             if reason is None:
-                doc_list = extractors.dispatch_by_ext(file_path)
+                doc_list = extractors.dispatch_by_ext(file_path, **({'force': True} if force else {}))
         except extractors.ExtractorUnavailable as e:
             print(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
             sys.exit(1)
@@ -565,7 +571,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
                     "type": "architecture",
                     "tags": tags,
                     "source": source_key,
-                    "source_type": "file",
+                    "source_type": "audio" if doc_meta.get('audio') else "file",
                     "doc_metadata": doc_meta,
                     "chunk_index": len(records),
                     "source_mtime": mtime,
@@ -751,7 +757,7 @@ def _main(command: str = "ingest"):
 
     def _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode):
         """Convert a list of (chunk_text, chunk_idx) into record dicts."""
-        source_type = "file" if not doc_meta.get("ocr") else "ocr"
+        source_type = "audio" if doc_meta.get('audio') else ("file" if not doc_meta.get("ocr") else "ocr")
         records = []
         for i, (chunk_text, chunk_idx) in enumerate(chunks):
             prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
@@ -804,7 +810,7 @@ def _main(command: str = "ingest"):
 
             if is_doc:
                 try:
-                    doc_list = extractors.dispatch_by_ext(fpath)
+                    doc_list = extractors.dispatch_by_ext(fpath, **({'force': True} if force else {}))
                 except extractors.ExtractorUnavailable as e:
                     raise RuntimeError(str(e)) from e
                 except extractors.ExtractionError as e:
@@ -830,8 +836,9 @@ def _main(command: str = "ingest"):
                             record["chunk_index"] = index
                 if not all_records:
                     stamp_records([], fpath, snapshot)
-                    reason = no_text_reason(fpath, profile)
-                    remember_no_text(snapshot["source_hash"], profile, reason)
+                    file_profile = extraction_profile(fpath)
+                    reason = no_text_reason(fpath, file_profile)
+                    remember_no_text(snapshot["source_hash"], file_profile, reason)
                     return [], reason
                 all_records[0]['_source_document'] = source_document
                 return stamp_records(all_records, fpath, snapshot), ""
@@ -883,7 +890,7 @@ def _main(command: str = "ingest"):
         if not force and unchanged(current, known_states.get(source_key)):
             pre_skipped += 1
         elif (not force and extractors.is_doc_extension(os.path.splitext(rel)[1])
-              and known_no_text(current["source_hash"], profile)):
+              and known_no_text(current["source_hash"], extraction_profile(fpath))):
             known_no_text_count += 1
         else:
             filtered.append((project, rel, fpath))

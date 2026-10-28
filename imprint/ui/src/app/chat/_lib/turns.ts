@@ -17,6 +17,7 @@ export type AssistantTurn = {
   setup?: Setup;
   /** Why this reply runs differently, e.g. a local model without tools. */
   notice?: string;
+  noticeTitle?: string;
   analysis?: string;
   error?: string;
   stopped?: boolean;
@@ -69,7 +70,7 @@ export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
     case "load_start":
       return { ...turn, setup: { ...setup, load: { done: false } } };
     case "notice":
-      return { ...turn, notice: ev.text, setup: loaded(turn.setup) };
+      return { ...turn, notice: ev.text, noticeTitle: ev.title, setup: loaded(turn.setup) };
     case "analysis":
       return { ...turn, analysis: ev.text, setup: loaded(turn.setup) };
     case "token": {

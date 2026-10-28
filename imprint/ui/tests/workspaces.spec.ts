@@ -106,6 +106,18 @@ test('ingest document queues a single-file ingest', async ({ page }) => {
   expect(posts.commands).toEqual([{ command: 'ingest', body: { dir: '/home/me/report.pdf' } }]);
 });
 
+test('audio import uses the existing cancellable ingestion queue', async ({ page }) => {
+  const { posts } = await mockApi(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^Audio/ }).click();
+  await expect(page.getByText(/first import downloads/)).toContainText('1.51 GiB');
+  await expect(page.getByRole('link', { name: 'Audio ingestion settings' })).toHaveAttribute('href', '/settings/#settings-audio');
+  await page.getByLabel('Audio file', { exact: true }).fill('/home/me/meeting.m4a');
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByText('Started now.')).toBeVisible();
+  expect(posts.commands).toEqual([{ command: 'ingest', body: { dir: '/home/me/meeting.m4a' } }]);
+});
+
 test('a Windows server offers its WSL distributions as picker roots', async ({ page }) => {
   const { posts } = await mockApi(page);
   const share = '\\\\wsl.localhost\\Ubuntu\\';

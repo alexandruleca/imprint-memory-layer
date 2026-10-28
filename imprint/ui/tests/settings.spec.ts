@@ -3,6 +3,69 @@ import { test, expect, type Page } from '@playwright/test';
 const TOKEN = 'hf_storedtoken0000wxyz';
 const DESC = 'Hugging Face access token for model downloads';
 
+test('chat research token budget has a clear label and saves its numeric budget', async ({ page }) => {
+  const writes: unknown[] = [];
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'chat.research_token_budget', value: 65536, default: 65536, type: 'int', source: 'default', env: 'IMPRINT_CHAT_RESEARCH_TOKENS',
+      desc: 'Research token reservations including prompts and section workers', choices: [] },
+    { key: 'chat.research_timeout_sec', value: 300, default: 300, type: 'int', source: 'default', env: 'IMPRINT_CHAT_RESEARCH_TIMEOUT',
+      desc: 'Research time budget', choices: [] },
+    { key: 'chat.research_no_progress_rounds', value: 4, default: 4, type: 'int', source: 'default', env: 'IMPRINT_CHAT_RESEARCH_PATIENCE',
+      desc: 'Read rounds without new evidence', choices: [] },
+  ] } }));
+  await page.route('**/api/config/chat.research_token_budget', async route => {
+    writes.push(route.request().postDataJSON()); await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/settings/#settings-chat');
+  const input = page.getByRole('textbox', { name: 'Research token budget', exact: true });
+  await expect(page.getByRole('textbox', { name: 'Research time budget (seconds)', exact: true })).toHaveValue('300');
+  await expect(page.getByRole('textbox', { name: 'Rounds without new evidence', exact: true })).toHaveValue('4');
+  await expect(page.getByRole('textbox', { name: 'Tool research rounds', exact: true })).toHaveCount(0);
+  await expect(input).toHaveValue('65536');
+  await input.fill('131072');
+  await input.press('Enter');
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toEqual({ value: '131072' });
+});
+
+test('audio ingestion offers model and language choices in Settings', async ({ page }) => {
+  const state: Record<string, string> = { 'audio.model': 'large-v3-turbo', 'audio.language': 'auto' };
+  const writes: unknown[] = [];
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'audio.model', value: state['audio.model'], default: 'large-v3-turbo', type: 'str', source: 'default', env: 'IMPRINT_AUDIO_MODEL',
+      desc: 'Multilingual transcription model; both run locally on CPU', custom: false, choices: [
+        { value: 'large-v3-turbo', label: 'Large v3 Turbo', detail: 'About 1.51 GiB', unavailable: '' },
+        { value: 'small', label: 'Small', detail: 'About 464 MiB', unavailable: '' },
+      ] },
+    { key: 'audio.language', value: state['audio.language'], default: 'auto', type: 'str', source: 'default', env: 'IMPRINT_AUDIO_LANGUAGE',
+      desc: 'Transcription language', custom: false, choices: [
+        { value: 'auto', label: 'Auto', detail: '', unavailable: '' },
+        { value: 'ro', label: 'Romanian', detail: '', unavailable: '' },
+        { value: 'en', label: 'English', detail: '', unavailable: '' },
+      ] },
+  ] } }));
+  await page.route('**/api/config/audio.*', async route => {
+    const key = new URL(route.request().url()).pathname.split('/').at(-1)!;
+    const body = route.request().postDataJSON(); writes.push({ key, ...body }); state[key] = body.value;
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/settings/#settings-audio');
+  const language = page.getByRole('combobox', { name: 'Language', exact: true });
+  await language.click();
+  await page.getByRole('option', { name: 'Romanian', exact: true }).click();
+  await expect(language).toContainText('Romanian');
+  const model = page.getByRole('combobox', { name: 'Model', exact: true });
+  await expect(model).toContainText('Large v3 Turbo');
+  await model.click();
+  await page.getByRole('option', { name: /^Small/ }).click();
+  await expect(model).toContainText('Small');
+  expect(writes).toEqual([{ key: 'audio.language', value: 'ro' }, { key: 'audio.model', value: 'small' }]);
+});
+
 test('chat section analysis defaults to two sequential workers and can be changed and reset', async ({ page }) => {
   const state = { value: 2, source: 'default', writes: [] as unknown[] };
   await page.route('**/api/**', route => route.fulfill({ json: {} }));

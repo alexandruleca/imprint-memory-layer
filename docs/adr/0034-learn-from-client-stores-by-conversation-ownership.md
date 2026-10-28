@@ -7,6 +7,7 @@ description: Learning reads the clients' own stores without an approved root; re
 - Date: 2026-10-24
 - Amends: [ADR 0015](0015-workspace-roots-and-source-purge.md) — supersedes its conversation-learning and desktop-export rules
 - Amended by:
+  - [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) — an explicit optional inbox owns conversations without directory evidence
   - [ADR 0037](0037-learn-every-integrated-client-store.md) — more stores (`CLAUDE_CONFIG_DIR`, Codex sessions, registered WSL profiles) and Codex's session and turn working directories as recorded cwds
   - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) — a Cursor folder name counts as a recorded cwd when exactly one existing directory has it
   - [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) — an approved project file assigns its project's conversations to the workspace it names; the Stop hook learns in the session's workspace

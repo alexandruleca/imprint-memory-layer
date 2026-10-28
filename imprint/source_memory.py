@@ -193,6 +193,8 @@ def tighten(doc: dict, rows: list[dict]) -> tuple[dict, list[dict]]:
 
 def extracted_documents(items):
     """One canonical extracted-text source, retaining each document's range."""
+    if items and all(item.metadata.get('audio') for item in items):
+        return audio_documents(items)
     raw, boundaries = '', [0]
     for item in items:
         raw += ('\n\n' if raw else '') + item.text
@@ -205,6 +207,37 @@ def extracted_documents(items):
         segments.append((start, doc['text'][start:end]))
         doc['metadata']['parts'].append({'start': start, 'end': end, 'metadata': item.metadata or {}})
     return doc, segments
+
+
+def audio_documents(items):
+    """ASR is a conversation with unknown speakers, never invented chat roles."""
+    parts = ['Imprint audio transcript — machine transcription; speakers unidentified\n']
+    boundaries = [0]
+    events = []
+    offset = len(parts[0])
+    for index, item in enumerate(items):
+        meta = item.metadata
+        event = {'event': index, 'role': 'speaker', 'kind': 'message', 'turn': index + 1,
+                 'audio_start': meta['audio_start'], 'audio_end': meta['audio_end'],
+                 'language': meta.get('language', ''), 'speaker': None}
+        header = '\n--- ' + json.dumps(event, ensure_ascii=False, separators=(',', ':')) + ' ---\n'
+        start = offset
+        parts.extend((header, item.text, '\n'))
+        offset += len(header) + len(item.text) + 1
+        boundaries.append(offset)
+        events.append({**event, 'start': start, 'end': offset})
+    raw = ''.join(parts)
+    first = items[0].metadata
+    doc = document(raw, kind='conversation', metadata={
+        'media': 'audio', 'audio_profile': first['audio_profile'], 'title': first.get('title', ''),
+        'transcription_model': first.get('transcription_model', ''), 'model_revision': first.get('model_revision', ''),
+        'event_count': len(events), 'speaker_diarization': False, 'raw_transcript_exact': False,
+    })
+    edits = redaction_edits(doc['text'], raw)
+    doc['events'] = [{**event, 'start': remap(event['start'], edits),
+                      'end': remap(event['end'], edits, right=True)} for event in events]
+    boundaries = [remap(value, edits) for value in boundaries]
+    return doc, [(start, doc['text'][start:end]) for start, end in zip(boundaries, boundaries[1:])]
 
 
 def profile() -> str:

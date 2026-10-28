@@ -29,6 +29,14 @@ Ingest, refresh, retag, and ingest-url all load the embedding model, scan Qdrant
 
 ### Schema
 
+`associate-projects` is a foreground maintenance job invoked from Projects or
+Commands. The dispatcher launches `python -m imprint.project_associations`, which
+takes the shared queue lock. It scans existing canonical snapshots for known
+project identifiers; optional `model: true` adds local section analysis with an
+installed helper. It does not move sources. Review suggestions after the job
+finishes; a cancelled scan retains completed source decisions and can be rerun.
+See [project association review](workspaces.md#associate-one-source-with-several-projects).
+
 ```sql
 CREATE TABLE jobs (
     id          TEXT PRIMARY KEY,   -- uuid4 hex

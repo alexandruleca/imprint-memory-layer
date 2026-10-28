@@ -156,6 +156,7 @@ def _ensure_collection(workspace: str | None = None) -> tuple[QdrantClient, str]
     # create_payload_index is idempotent in Qdrant, safe to call every init.
     for field, kind in [
         ("project", qm.PayloadSchemaType.KEYWORD),
+        ("related_projects", qm.PayloadSchemaType.KEYWORD),
         ("type", qm.PayloadSchemaType.KEYWORD),
         ("source", qm.PayloadSchemaType.KEYWORD),
         ("source_type", qm.PayloadSchemaType.KEYWORD),
@@ -454,6 +455,7 @@ def store(
         "content": content,
         "project": project,
         "origin_project": placed["origin_project"],
+        "related_projects": placed['related_projects'],
         "type": type,
         "tags": _normalize_tags(tags),
         "source": source,
@@ -599,6 +601,7 @@ def _store_redacted(records: list[dict], workspace: str | None, *, force: bool =
             "_mid": r["_mid"],
             "content": r["content"],
             "project": r.get("project", ""),
+            "related_projects": r.get("related_projects", []),
             "type": r.get("type", ""),
             "tags": tags,
             "source": r.get("source", ""),
@@ -692,7 +695,8 @@ def replace_source(records: list[dict], source: str, project: str,
             operations = [qm.SetPayloadOperation(set_payload=qm.SetPayload(
                 # Logical IDs normalize outer whitespace. Keep the exact
                 # current slice even when a whitespace-only edit reuses its ID.
-                payload={'content': row['content'], **{key: row[key] for key in SPAN_FIELDS if key in row}},
+                payload={'content': row['content'], **{key: row[key] for key in
+                         (*SPAN_FIELDS, 'doc_metadata', 'source_type', 'related_projects') if key in row}},
                 points=[_point_uuid(_make_id(row['content'], project, source, row.get('chunk_index')))]))
                 for row in records[start:start + 256]]
             client.batch_update_points(collection_name=coll, update_operations=operations, wait=True)
@@ -805,6 +809,7 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "_mid": r["_mid"],
             "content": r["content"],
             "project": r.get("project", ""),
+            "related_projects": r.get("related_projects", []),
             "type": r.get("type", ""),
             "tags": _normalize_tags(r.get("tags")),
             "source": r.get("source", ""),
@@ -869,7 +874,8 @@ def _build_filter(
 ) -> qm.Filter | None:
     must: list[qm.FieldCondition] = []
     if project:
-        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+        from .project_associations import project_filter
+        must.append(project_filter(project))
     if type:
         must.append(qm.FieldCondition(key="type", match=qm.MatchValue(value=type)))
     if tag_filters:
@@ -961,6 +967,11 @@ def delete(memory_id: str, workspace: str | None = None) -> bool:
             payload = point.payload or {}
             if payload.get('source'):
                 source_snapshots.remove(payload['source'], payload.get('project', ''), workspace)
+                # Removing a chunk invalidates its complete-source snapshot and
+                # associated decisions. Clear memberships on surviving chunks.
+                client.set_payload(coll, {'related_projects': []}, points=qm.Filter(must=[
+                    qm.FieldCondition(key='source', match=qm.MatchValue(value=payload['source'])),
+                    qm.FieldCondition(key='project', match=qm.MatchValue(value=payload.get('project', '')))]))
         _wal_log("delete", workspace=workspace, id=memory_id)
         client.delete(
             collection_name=coll,
@@ -1020,7 +1031,7 @@ def _scroll_all(fields: list[str], workspace: str | None = None, with_vectors: b
 def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     """Fail visibly if provenance cannot be read; never infer an empty index."""
     states = {}
-    fields = ["_mid", "source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type", "source_device", "source_path_local", "source_relative_path", 'source_version', 'source_format', 'source_profile']
+    fields = ["_mid", "source", "project", "source_hash", "source_size", "source_path", "source_mtime", "source_type", "doc_metadata", "source_device", "source_path_local", "source_relative_path", 'source_version', 'source_format', 'source_profile']
     from . import source_snapshots
     metadata = source_snapshots.list_metadata(workspace)
     heads = {(row['project'], row['source']): row['version'] for row in metadata}
@@ -1028,12 +1039,15 @@ def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     for payload in _scroll_all(fields, workspace=workspace):
         key = (payload.get('project', ''), payload.get('source', ''))
         seen.setdefault(key, set()).add(payload.get('_mid'))
-        if payload.get("source") and payload.get("source_type") in ("file", "ocr"):
+        if payload.get("source") and payload.get("source_type") in ("file", "ocr", "audio"):
             source = payload["source"]
             previous = states.get(source)
             if previous and previous.get("source_hash") != payload.get("source_hash"):
                 # Incomplete replacement: force a repair rather than calling it unchanged.
                 payload = {**payload, "source_hash": ""}
+            if (previous and payload.get('source_type') == 'audio'
+                    and previous.get('doc_metadata', {}).get('audio_profile') != payload.get('doc_metadata', {}).get('audio_profile')):
+                payload = {**payload, 'source_hash': ''}
             if payload.get('source_format') and heads.get((payload.get('project', ''), source)) != payload.get('source_version'):
                 payload = {**payload, 'source_hash': ''}
             states[source] = payload
@@ -1161,7 +1175,8 @@ def get_source_summary(
     client, coll = _ensure_collection(workspace)
     must = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
     if project:
-        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+        from .project_associations import project_filter
+        must.append(project_filter(project))
     flt = qm.Filter(must=must)
 
     all_points = []
@@ -1258,7 +1273,8 @@ def get_chunks_by_source(
     client, coll = _ensure_collection(workspace)
     must = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
     if project:
-        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+        from .project_associations import project_filter
+        must.append(project_filter(project))
     flt = qm.Filter(must=must)
 
     all_points = []
@@ -1357,7 +1373,8 @@ def status(workspace: str | None = None) -> dict:
 
     by_project: dict[str, int] = {}
     if total:
-        facets = facet_counts("project", limit=50, workspace=workspace)
+        from .project_associations import project_counts
+        facets = project_counts(workspace, limit=50)
         if facets:
             by_project = {v: c for v, c in facets}
         else:

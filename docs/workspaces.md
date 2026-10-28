@@ -38,6 +38,44 @@ Projects are identified by **canonical name** from the manifest, not the file pa
 
 Files outside any manifest go into a fallback project named after the ingested folder: ingesting `~/Desktop` creates a project `Desktop`.
 
+## Associate one source with several projects
+
+On **Projects → Review project associations**, inspect suggested project links
+and the source passages supporting them. Accept a link to make the conversation
+or file appear in that project's sources and retrieval results. Reject a
+suggestion to keep it out. Select any source to add an existing or new project
+manually, or remove an accepted link. Manual decisions survive re-ingestion.
+The source's primary project, IDs, vectors and provenance stay unchanged.
+Linked sources are readable in the related project; move them from their primary
+project. Project counts can overlap, while the total memory count remains unique.
+
+Name and registered-path suggestions run automatically after a full snapshot is
+published. **Analyze existing sources** queues a retroactive pass, useful after
+adding a project. Optionally enable **Use installed local helper** for ambiguous
+passages. It runs locally, without tools or model downloads, and requires the
+tagging helper to be installed. Follow the job in Queue, then refresh suggestions.
+The same command is available on Commands, or with the installed Python runtime:
+`python -m imprint.project_associations [--model]`.
+
+These are whole-source links. Supporting passages explain the link; they do not
+partition its membership. Topics stay independent shared themes. A model result
+always needs review. Settings can opt into automatic exact registered-path
+matches. Associations are local to a device and workspace, are not synced, and
+never decide workspace ownership. Existing sources without snapshots must be
+refreshed or learned before analysis. See [ADR 0099](adr/0099-sources-can-belong-to-several-projects.md).
+
+### Conversations without a directory
+
+In **Settings → Project associations → Unassigned workspace**, choose an explicit
+inbox workspace to include directory-free client conversations on the next
+learning run. The default is **Off**. This covers unresolved Cursor folders and
+other known client transcripts with no cwd evidence. New imports enter the
+`unassigned` primary project. Existing identity is preserved on refresh.
+Conflicting or relative cwd evidence is still rejected. This setting does not
+approve filesystem roots, run ingestion, move prior imports or follow the active
+workspace. Changing the inbox changes future imports; it does not erase sources
+already imported into the previous workspace. See [ADR 0100](adr/0100-explicit-workspace-inbox-for-unassigned-conversations.md).
+
 ## Move memories between projects
 
 A catch-all project such as `Desktop` can be sorted afterwards. On the dashboard's **Projects** page, pick a project, select sources and choose **Move selected…**. Use **Move or merge…** to move the whole project; moving into an existing project merges into it. Either way you review what moves before confirming. From the CLI:

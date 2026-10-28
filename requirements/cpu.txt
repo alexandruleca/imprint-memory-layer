@@ -5,5 +5,12 @@
 #
 # ONNX Runtime 1.24+ no longer publishes Intel macOS wheels. Keep the last
 # supported wheel line there; other native targets use the current runtime.
-onnxruntime>=1.20.0; sys_platform != 'darwin' or platform_machine != 'x86_64'
+onnxruntime==1.31.0; sys_platform != 'darwin' or platform_machine != 'x86_64'
 onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'
+
+# Multilingual audio ingestion shares this CPU ONNX build (VAD), never CUDA.
+faster-whisper==1.2.1
+ctranslate2==4.8.4
+# PyAV 16+ Apple Silicon wheels require macOS 14; retain the macOS 13 wheel.
+av==15.1.0; sys_platform == 'darwin' and platform_machine == 'arm64'
+av==19.0.2; sys_platform != 'darwin' or platform_machine != 'arm64'

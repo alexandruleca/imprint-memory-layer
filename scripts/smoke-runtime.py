@@ -30,6 +30,11 @@ def main():
         from fastmcp.client.transports import StdioTransport
         import imprint
         from imprint.api import app, mount_static
+        import av
+        import ctranslate2
+        import faster_whisper
+        assert 'int8' in ctranslate2.get_supported_compute_types('cpu')
+        print(f'Native audio runtime imports passed (PyAV {av.__version__}, faster-whisper {faster_whisper.__version__})')
 
         async def discover():
             transport = StdioTransport(command=sys.executable, args=['-m', 'imprint'],

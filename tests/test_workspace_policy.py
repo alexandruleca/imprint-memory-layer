@@ -119,7 +119,9 @@ class WorkspacePolicyTests(unittest.TestCase):
             config.switch_workspace('beta')
             self.assertEqual(config.get_active_workspace(), 'alpha')
             self.assertEqual(server._validate_ws('beta'), ('beta', None))
-        with patch.object(server.mcp, 'run', side_effect=serve):
+        # run_module starts a session as well as pinning its environment. Keep
+        # its first-tool notice out of later in-process MCP reader tests.
+        with patch.object(server.mcp, 'run', side_effect=serve), patch.dict(server._session, {}, clear=True):
             runpy.run_module('imprint', run_name='__main__')
 
     def test_queue_preserves_explicit_cli_workspace_after_global_switch(self):

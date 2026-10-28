@@ -3,12 +3,13 @@ title: ADR 0072 — Projects name their workspace and each device approves it
 description: A project's .imprint/workspace.json proposes its workspace and this device's approved roots decide; one resolution serves MCP sessions, hooks, CLI ingestion and learning, sessions ask once, and use_workspace assigns a project without a restart.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
 - Amends:
   - [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) — each MCP session binds to its project's workspace, the per-project binding 0006 left open
   - [ADR 0015](0015-workspace-roots-and-source-purge.md) — the MCP startup pin follows the session's directory instead of the global selection, `ingest` and `refresh` use their target directory's workspace, and a root also approves the project files inside it
   - [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md) — a project file this device approved assigns its project's conversations to the one workspace it names, and the Stop hook learns in the session's workspace
+- Amended by: [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) — an explicit optional inbox for directory-free conversations
 - Related: [ADR 0016](0016-sync-direction-and-workspace-sharing.md), [ADR 0026](0026-windows-installer-wsl-client-bridge.md), [ADR 0045](0045-setting-choices-and-gpu-auto-select.md), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md), [workspaces](../workspaces.md)
 
 ## Context

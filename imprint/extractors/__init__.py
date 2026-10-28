@@ -78,6 +78,8 @@ DOC_EXTENSIONS: set[str] = {
     ".json",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
 }
+from ..audio_ingest import AUDIO_EXTENSIONS
+DOC_EXTENSIONS |= AUDIO_EXTENSIONS
 
 
 def is_doc_extension(ext: str) -> bool:
@@ -91,7 +93,7 @@ def _normalize_result(result: ExtractorResult) -> list[ExtractedDoc]:
     return [result]
 
 
-def dispatch_by_ext(path: str) -> list[ExtractedDoc]:
+def dispatch_by_ext(path: str, *, force: bool = False) -> list[ExtractedDoc]:
     """Route a file path to the matching extractor. Raises
     ExtractorUnavailable if the extractor's optional dep is missing.
 
@@ -102,7 +104,7 @@ def dispatch_by_ext(path: str) -> list[ExtractedDoc]:
     fn = _BY_EXT.get(ext)
     if fn is None:
         raise ExtractorUnavailable(f"no extractor registered for {ext!r}")
-    return _normalize_result(fn(path))
+    return _normalize_result(fn(path, force=force) if ext in AUDIO_EXTENSIONS else fn(path))
 
 
 def dispatch_by_mime(mime: str, data: bytes, source_url: str = "") -> list[ExtractedDoc]:
@@ -170,6 +172,7 @@ from . import html as _html     # noqa: E402,F401
 from . import email as _email   # noqa: E402,F401
 from . import image as _image   # noqa: E402,F401
 from . import json_doc as _json_doc  # noqa: E402,F401
+from . import audio as _audio    # noqa: E402,F401
 
 # url extractor is callable directly, not via by-ext dispatch.
 # extract_links_bs4 lives in url.py (avoids circular import) and is re-exported here.

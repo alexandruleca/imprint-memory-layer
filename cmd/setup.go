@@ -743,6 +743,7 @@ checks = [
     ('rtf',  'striprtf',    '.rtf'),
     ('html', 'trafilatura', '.html/.htm'),
     ('url',  'httpx',       '<url>'),
+    ('audio', 'faster_whisper', '.wav/.mp3/.m4a/.flac and more'),
 ]
 ok, missing = [], []
 for name, mod, ext in checks:

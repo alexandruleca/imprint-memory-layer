@@ -12,7 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Spinner } from "@/components/loaders";
 import { enqueueCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
-import { ArrowRight, Globe, FileText, FolderOpen, GraduationCap, X, Play, CheckCircle2, CircleAlert } from "lucide-react";
+import { ArrowRight, Globe, FileText, FolderOpen, GraduationCap, Mic, X, Play, CheckCircle2, CircleAlert } from "lucide-react";
 
 type Command = "ingest-url" | "ingest" | "learn";
 
@@ -59,6 +59,15 @@ const ACTIONS: Action[] = [
     fields: [
       { key: "dir", label: "Document", placeholder: "/home/user/Documents/report.pdf", browse: "file" },
     ],
+    required: ["dir"],
+  },
+  {
+    id: "ingest-audio",
+    command: "ingest",
+    label: "Audio",
+    desc: "Romanian, English or detected language",
+    icon: Mic,
+    fields: [{ key: "dir", label: "Audio file", placeholder: "/home/user/Recordings/meeting.m4a", browse: "file" }],
     required: ["dir"],
   },
   {
@@ -187,6 +196,11 @@ export function QuickIngest() {
 
         {activeAction && (
           <div className="space-y-3 pt-2 border-t">
+            {activeAction.id === "ingest-audio" && <p className="text-xs text-muted-foreground">
+              Import a WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF or WMA file. The first import downloads
+              the selected model (about 1.51 GiB by default); transcription runs locally.
+              Choose a lighter model or language under <Link href="/settings/#settings-audio" className="underline">Audio ingestion settings</Link>.
+            </p>}
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
                 <code className="bg-muted px-1.5 py-0.5 rounded">imprint {activeAction.command}</code>
@@ -295,7 +309,7 @@ export function QuickIngest() {
       <PathBrowserDialog
         open={browsing !== null}
         mode={browsing?.browse ?? "dir"}
-        title={browsing?.browse === "file" ? "Pick a document" : "Pick a folder"}
+        title={browsing?.browse === "file" ? activeAction?.id === "ingest-audio" ? "Pick an audio file" : "Pick a document" : "Pick a folder"}
         initialPath={browsing ? (params[browsing.key] as string) || "" : ""}
         onCancel={() => setBrowsing(null)}
         onSelect={(abs) => {

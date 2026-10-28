@@ -6,6 +6,18 @@ All settings can be persisted via `imprint config` instead of setting environmen
 
 **Precedence:** env var > config.json > hardcoded default. Environment variables always win, so you can override config.json for one-off runs.
 
+Project association settings (also in **Settings → Project associations**):
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `associations.enabled` | `true` | Suggest links after a full snapshot is published; existing manual links remain active when disabled. |
+| `associations.auto_accept_paths` | `false` | Accept exact registered-project-path matches automatically. Name and local-model matches still need review. |
+| `associations.unassigned_workspace` | empty / Off | Explicit known workspace for client conversations without cwd evidence. Never overrides conflicting directory ownership. |
+
+Environment overrides are `IMPRINT_ASSOCIATIONS_ENABLED`,
+`IMPRINT_ASSOCIATIONS_AUTO_PATHS` and `IMPRINT_CONVERSATION_INBOX_WORKSPACE`.
+See [project organization](workspaces.md#associate-one-source-with-several-projects).
+
 ```bash
 # Select the supported Qwen default (then rebuild; see embeddings.md)
 imprint config set model.name Qwen/Qwen3-Embedding-0.6B-GGUF
@@ -108,6 +120,13 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ingest.ocr_enabled` | `true` | Local OCR for scanned PDFs and images. Setup installs RapidOCR (including its small Chinese/English models), Pillow and the PDFium renderer; no system tools are required. Explicit saved `false` stays off. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md). |
 | `ingest.ocr_lang` | `eng` | `eng` or `auto` uses the bundled Chinese/English recognizer. Other Tesseract codes (e.g. `eng+fra`) use the compatibility backend and require system Tesseract plus the selected language data. |
 | `ingest.max_doc_size_mb` | `25` | Per-file byte cap for document extraction |
+| **Audio ingestion** | | |
+| `audio.enabled` | `true` | Include audio files in ingestion/refresh; the selected model downloads only on first uncached use |
+| `audio.model` | `large-v3-turbo` | Multilingual CPU model: `large-v3-turbo` (~1.51 GiB) or `small` (~464 MiB) |
+| `audio.language` | `auto` | Detect each window's language, or pin `ro` / `en`; output is transcribed, not translated |
+| `audio.max_file_size_mb` | `1024` | Positive per-audio-file size limit in MiB, independent of document limits |
+| `audio.max_duration_minutes` | `120` | Positive decoded-audio duration limit in minutes |
+| **URL ingestion** | | |
 | `ingest.url_timeout_sec` | `30` | HTTP connect timeout for URL fetch |
 | `ingest.url_read_timeout_sec` | `300` | Per-chunk read timeout for URL fetch (raise for very large files) |
 | `ingest.url_user_agent` | `imprint/1.0` | HTTP User-Agent header |
@@ -118,7 +137,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ingest.url_follow_depth` | `1` | Max link-follow depth (`1` = links on seed pages only) |
 | `ingest.url_follow_max` | `20` | Max discovered URLs to queue per ingest run |
 | **Chat (dashboard panel)** | | |
-| `voice.avatar` | `echo` | Echo's look and voice: `echo` (a holographic core whose rings turn and pulse as it speaks; a robotic voice), `iris` (indigo straight cut, pale lavender eyes; a female voice) or `kai` (spiky orange hair, a determined frown; a male voice). Also chosen on the Voice page and in Companion settings. See [Echo voice](live-voice.md). |
+| `voice.avatar` | `echo` | Echo's look and voice: `echo` (a synaptic core whose neurons fire as it thinks and whose nucleus pulses as it speaks; a robotic voice), `iris` (indigo straight cut, pale lavender eyes; a female voice) or `kai` (spiky orange hair, a determined frown; a male voice). Also chosen on the Voice page and in Companion settings. See [Echo voice](live-voice.md). |
 | `voice.runtime_dir` | — | Explicit external cache containing the built native live speech worker for Windows x64, macOS Intel/Apple Silicon or Linux x64; `IMPRINT_VOICE_RUNTIME_DIR` overrides it. See [Echo voice](live-voice.md). |
 | `chat.enabled` | `true` | Enable the dashboard chat panel |
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
@@ -131,7 +150,9 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chat.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
 | `chat.max_tokens` | `1024` | Max tokens per chat response |
 | `chat.temperature` | `0.3` | Chat sampling temperature |
-| `chat.max_tool_iters` | `6` | Max model turns that call tools per chat reply; a turn may call several tools |
+| `chat.research_timeout_sec` | `300` | Research time budget in seconds (10–3600), excluding setup and the reserved final answer. Env: `IMPRINT_CHAT_RESEARCH_TIMEOUT`. |
+| `chat.research_token_budget` | `65536` | Prompt + maximum output reservations for all research coordinator/worker requests (1024–2000000). Env: `IMPRINT_CHAT_RESEARCH_TOKENS`. |
+| `chat.research_no_progress_rounds` | `4` | Consecutive read rounds without new evidence before synthesis (2–20). Env: `IMPRINT_CHAT_RESEARCH_PATIENCE`. |
 | `chat.analysis_workers` | `2` | Logical workers for oversized chat questions/evidence, executed sequentially. `1`–`8` keep separate rolling notes; `0` disables section analysis. Settings → Chat → Sequential analysis workers. Env: `IMPRINT_CHAT_ANALYSIS_WORKERS`. See [local helper models](local-models.md#large-chat-questions-and-evidence). |
 | `chat.tool_format` | `auto` | Tool-call format of the local model: `auto` (detected from the GGUF's chat template), `qwen-xml`, `hermes`, `llama3`, `mistral`, or `none` (chat without tools). Remote providers ignore it. See [local helper models](local-models.md). |
 | **Session summarizer (opt-in, Stop hook)** | | |
@@ -148,6 +169,26 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `workspace.unassigned` | — (the active workspace) | Workspace for agent sessions outside an assigned project, such as desktop app chats. Choices are this device's workspaces; deleting the chosen one resets it. Env `IMPRINT_UNASSIGNED_WORKSPACE`. See [workspace per project](workspaces.md#workspace-per-project) |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
+
+Research has no fixed tool-round cutoff. It continues while new evidence appears
+within the time and token budgets, then reserves a tools-free final answer.
+Repeated evidence across different queries, alternating cycles, empty reads and
+recurring errors can stop research earlier. Writes are excluded from the
+stagnation heuristic. Settings → Chat exposes **Research time budget (seconds)**,
+**Research token budget** and **Rounds without new evidence**.
+
+Token accounting conservatively reserves each formatted prompt plus its maximum
+output, including section workers and repeated prompt processing. Local prompt
+counts use the model tokenizer; remote prompts use an estimate. Unused output
+reservations are not refunded; this is not a provider billing or monetary cap.
+Time checks are cooperative: an already-running blocking tool or native prompt
+prefill may finish after the deadline. Pending calls are then skipped explicitly.
+The final answer has separate `chat.max_tokens` space and a 120-second deadline.
+If it cannot be synthesized, labelled evidence excerpts are preserved.
+
+The old `chat.max_tool_iters` key and `IMPRINT_CHAT_MAX_TOOL_ITERS` are ignored;
+old config entries stay on disk but do not appear in Settings or cut research
+off at six or twelve rounds. See [ADR 0102](adr/0102-chat-research-follows-progress-and-resource-budgets.md).
 
 Each setting also has an env var, `IMPRINT_*` except `HF_TOKEN` (shown via `imprint config get <key>`). Env vars still work and take priority over config.json.
 

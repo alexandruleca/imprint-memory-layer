@@ -68,6 +68,27 @@ def analysis_worker_count(raw: Any) -> int:
     return count
 
 
+def _bounded_integer(raw: Any, low: int, high: int) -> int:
+    if isinstance(raw, (bool, float)):
+        raise ValueError(f"expected a whole number from {low} to {high}")
+    count = int(raw)
+    if not low <= count <= high:
+        raise ValueError(f"expected a whole number from {low} to {high}")
+    return count
+
+
+def research_seconds(raw):
+    return _bounded_integer(raw, 10, 3600)
+
+
+def research_tokens(raw):
+    return _bounded_integer(raw, 1024, 2_000_000)
+
+
+def research_patience(raw):
+    return _bounded_integer(raw, 2, 20)
+
+
 def _gpus():
     """The GPUs llama.cpp offloads to; none when the binding cannot load."""
     try:
@@ -97,6 +118,12 @@ def _workspaces() -> tuple[Choice, ...]:
     """This device's workspaces, after following the active one (ADR 0072)."""
     from . import config
     return (Choice("", "Active workspace", "Follow the workspace the CLI and dashboard select"),
+            *(Choice(name, name) for name in config.get_known_workspaces()))
+
+
+def _inbox_workspaces() -> tuple[Choice, ...]:
+    from . import config
+    return (Choice('', 'Off', 'Skip client conversations without directory evidence'),
             *(Choice(name, name) for name in config.get_known_workspaces()))
 
 
@@ -187,10 +214,23 @@ SETTINGS: list[Setting] = [
     Setting("ingest.url_follow_depth", "IMPRINT_INGEST_URL_FOLLOW_DEPTH", 1,     int,  "Max link-follow depth (1 = links on seed pages only)"),
     Setting("ingest.url_follow_max",   "IMPRINT_INGEST_URL_FOLLOW_MAX",   20,    int,  "Max discovered URLs to queue per ingest run"),
 
+    # Audio files use the ordinary ingestion queue; models load only on use.
+    Setting("associations.enabled", "IMPRINT_ASSOCIATIONS_ENABLED", True, bool, "Suggest project links after source ingestion; existing manual links remain active"),
+    Setting("associations.auto_accept_paths", "IMPRINT_ASSOCIATIONS_AUTO_PATHS", False, bool, "Automatically accept exact registered project-path matches; names and model results always need review"),
+    Setting("associations.unassigned_workspace", "IMPRINT_CONVERSATION_INBOX_WORKSPACE", "", str, "Explicit inbox workspace for client conversations without directory evidence; never overrides conflicting directories", choices=_inbox_workspaces),
+    Setting("audio.enabled", "IMPRINT_AUDIO_ENABLED", True, bool, "Transcribe audio files during ingestion; the selected multilingual model downloads on first use"),
+    Setting("audio.model", "IMPRINT_AUDIO_MODEL", "large-v3-turbo", str, "Multilingual transcription model; both run locally on CPU",
+            choices=(Choice("large-v3-turbo", "Large v3 Turbo", "Larger multilingual model · about 1.51 GiB download"),
+                     Choice("small", "Small", "Smaller multilingual model · about 464 MiB download"))),
+    Setting("audio.language", "IMPRINT_AUDIO_LANGUAGE", "auto", str, "Transcription language; Auto detects each audio window and preserves the spoken language",
+            choices=(Choice("auto", "Auto"), Choice("ro", "Romanian"), Choice("en", "English"))),
+    Setting("audio.max_file_size_mb", "IMPRINT_AUDIO_MAX_FILE_MB", 1024, int, "Maximum audio file size in MiB"),
+    Setting("audio.max_duration_minutes", "IMPRINT_AUDIO_MAX_MINUTES", 120, int, "Maximum decoded audio duration in minutes"),
+
     # ── Chat (optional local helper in dashboard) ───────────────
     Setting("voice.runtime_dir",   "IMPRINT_VOICE_RUNTIME_DIR",   "",                               str,   "Explicit external cache with the built native live voice runtime"),
     Setting("voice.avatar",        "IMPRINT_VOICE_AVATAR",        "echo",                           str,   "How Echo looks and sounds; change it anytime",
-            choices=(Choice("echo", "Echo", "Holographic core, rings that turn and pulse as it speaks; robotic voice"),
+            choices=(Choice("echo", "Echo", "Synaptic core that fires as it thinks and pulses as it speaks; robotic voice"),
                      Choice("iris", "Iris", "Indigo straight cut, pale lavender eyes; female voice"),
                      Choice("kai", "Kai", "Spiky orange hair, a determined frown; male voice"))),
     Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),
@@ -205,7 +245,9 @@ SETTINGS: list[Setting] = [
     Setting("chat.n_gpu_layers",   "IMPRINT_CHAT_N_GPU_LAYERS",   -1,                               int,   "GPU layers to offload (-1 = all)", choices=GPU_LAYERS, custom=True),
     Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
-    Setting("chat.max_tool_iters", "IMPRINT_CHAT_MAX_TOOL_ITERS", 6,                                int,   "Max tool-call iterations per chat turn"),
+    Setting("chat.research_timeout_sec", "IMPRINT_CHAT_RESEARCH_TIMEOUT", 300, research_seconds, "Research time budget in seconds (10–3600), excluding model setup and the reserved final answer"),
+    Setting("chat.research_token_budget", "IMPRINT_CHAT_RESEARCH_TOKENS", 65536, research_tokens, "Research model-token reservations: prompt plus maximum output for every coordinator and section-worker request; remote prompts are estimated"),
+    Setting("chat.research_no_progress_rounds", "IMPRINT_CHAT_RESEARCH_PATIENCE", 4, research_patience, "Consecutive read rounds without new evidence before synthesis (2–20); detects cycles, repeated evidence and recurring errors"),
     Setting("chat.analysis_workers", "IMPRINT_CHAT_ANALYSIS_WORKERS", 2, analysis_worker_count,
             "Sequential workers for oversized questions and evidence; more workers keep separate notes. 0 disables section analysis.",
             choices=(Choice(0, "Off"), *(Choice(n, str(n)) for n in range(1, 9)))),

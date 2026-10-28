@@ -149,6 +149,24 @@ Pull requests target `dev`; `main` only fast-forwards to a tested `dev` commit, 
 `scripts/test-wsl-uninstall.py --windows-cli <WSL-path-to-imprint.exe> --windows-python <Windows-venv-python-path>` copies the CLI and bridge to a private Windows tree, connects disposable WSL profiles, and exercises actual native disable/uninstall, failure retry, `--keep-data` and default data removal. It never disables the supplied installation or edits real client profiles.
 
 
+## Audio transcription runtime
+
+The hashed CPU overlay also installs faster-whisper/CTranslate2 and PyAV for
+[audio ingestion](audio-ingestion.md). It keeps the existing single CPU ONNX
+build for VAD. Transcription explicitly uses CPU/int8; no NVIDIA libraries,
+PyTorch or external FFmpeg executable are required. PyAV 15.1.0 is pinned on
+Apple Silicon macOS because its wheel retains the macOS 13 baseline; other
+targets use 19.0.2. See [ADR 0096](adr/0096-cpu-whisper-runtime-for-audio-imports.md).
+
+Model files are not distribution artifacts: an uncached audio import downloads
+and verifies the chosen revision/size/SHA256-pinned assets into the data
+model cache. Runtime installation, ordinary text ingestion and opening Settings
+never download speech weights. The default download is about 1.51 GiB; the Small
+option is about 464 MiB. `scripts/smoke-runtime.py` checks native package imports
+and CPU int8 availability without downloading weights. Native multilingual
+execution uses `scripts/smoke-audio-ingest.py` with disposable data and supplied
+fixtures; run it on each target before declaring platform execution validated.
+
 ## Bundled Echo speech engine
 
 Release packaging requires native `voice-engine-*` artifacts from the reusable

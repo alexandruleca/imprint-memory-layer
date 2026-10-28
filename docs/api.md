@@ -3,6 +3,27 @@ title: HTTP API
 description: Reference for the Imprint dashboard HTTP API, with a downloadable Postman collection and auto-generated OpenAPI schema.
 ---
 
+Project association review:
+
+- `GET /api/projects/associations?source=…&project=…&limit=200` returns the explicit
+  workspace, known projects, canonical sources and versioned evidence for
+  suggested/accepted/rejected links. Optional source and primary-project filters
+  narrow the review; `limit` is 1–1,000.
+- `POST /api/projects/associations` accepts `{workspace, source, project, target,
+  status}` with an explicit review workspace and status `accepted` or `rejected`.
+  `project` is the canonical primary owner, including an empty string for legacy
+  unassigned sources. Decisions share the ingestion lock and update related
+  retrieval membership without changing IDs or duplicating points.
+- `POST /api/commands/associate-projects` queues a scan of existing snapshots.
+  Optional `{model: true}` uses the installed local helper for section analysis;
+  it never sends content to a remote provider or downloads a model. Follow the
+  ordinary queue status/log endpoints for completion or errors.
+
+`GET /api/sources` now includes optional canonical `project` and `linked` fields
+on entries. Linked sources can be read through the related project; readers
+return the canonical owner. Destructive operations still target primary owners.
+See [project organization](workspaces.md#associate-one-source-with-several-projects).
+
 Experimental voice routes are documented in [Echo voice companion](live-voice.md):
 `GET /api/voice/status`, `POST /api/voice/sessions` and `WS /api/voice/stream`.
 Voice requires exact same-origin loopback access and a one-use session capability;
@@ -238,6 +259,20 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
   -d '{"value": true}'
 ```
 
+### Audio file ingestion
+
+The dashboard's Audio action uses `POST /api/commands/ingest` with the ordinary
+`{"dir": "/server/path/meeting.m4a"}` body. The existing queue pins its workspace,
+reports model preparation/download bytes and transcription seconds, and cancels
+its owned process group. There is no raw media upload, media-serving endpoint or
+new microphone permission. Settings are exposed through `/api/config` under
+`audio.*`; see [audio ingestion](audio-ingestion.md).
+
+Completed audio is read from `/api/sources/read` as `kind="conversation"` with
+`details.media="audio"`. Segment blocks have `role="speaker"`, `kind="message"`,
+`audio_start`/`audio_end` seconds, `language` and `speaker=null`. These are ASR
+estimates; they do not imply a recognized speaker or an exact recording transcript.
+
 ### Chat
 
 | Method | Path | Purpose |
@@ -257,7 +292,13 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 - `load_start`: the local model is being loaded into memory.
 - `analysis` (`text`): transient section-worker/synthesis progress for oversized
   questions or evidence. Worker findings are not streamed as assistant text.
-- `notice` (`text`): on a conversation's first reply, the local model has no
+- `notice` (`text`, optional `title` and `code`): an informational status, not a
+  failed reply. Research completion uses `title="Finishing the answer"` and
+  `code="research_complete"`, followed by final answer generation without tools.
+  Research now ends on resource budgets or evidence stagnation, with no fixed
+  tool-round cutoff; the notice text names the reason. See
+  [ADR 0102](adr/0102-chat-research-follows-progress-and-resource-budgets.md).
+  On a conversation's first reply, the local model may have no
   tool-call format (`chat.tool_format` is `auto` and its template matches none),
   so the reply runs without tools
   ([ADR 0061](adr/0061-local-tool-call-formats.md)).

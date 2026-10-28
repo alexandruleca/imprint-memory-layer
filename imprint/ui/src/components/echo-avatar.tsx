@@ -56,6 +56,11 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
       const camera = new THREE.PerspectiveCamera(31, 1, .1, 30);
       camera.position.set(0, .04, compact ? 6.0 : 5.7);
       const group = new THREE.Group(); scene.add(group);
+      // Lit materials (the heads' skin, hair and eyes) take a soft sky and a
+      // key light from the upper left; unlit ones are light themselves.
+      scene.add(new THREE.HemisphereLight("#e6f6ff", "#123247", 1.5));
+      const key = new THREE.DirectionalLight("#ffffff", 2.7);
+      key.position.set(-1.5, 2, 3); scene.add(key);
       const resize = new ResizeObserver(() => {
         const { width, height } = container.getBoundingClientRect();
         renderer.setSize(width, height); hasDrawn = false; camera.aspect = width / Math.max(height, 1); camera.updateProjectionMatrix();
@@ -66,6 +71,8 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
       const unsubscribe = !compact ? window.electronAPI?.onCompanionState?.(state => { companionShowing = state.open; }) : undefined;
       if (!compact) void window.electronAPI?.getCompanionState?.().then(state => { if (state) companionShowing = state.open; });
       const hologramTime = { value: 0 };
+      // Light runs through "flow" nodes on this clock, faster while Echo is busy.
+      const flowTime = { value: 0 };
       const reduced = matchMedia("(prefers-reduced-motion: reduce)");
       // Echo looks at the pointer anywhere in the window, or anywhere on screen
       // in the desktop app. The eyes turn first, the head after them, more slowly.
@@ -77,7 +84,8 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
       const gaze = { headYaw: REST_YAW, headPitch: 0, eyeYaw: 0, eyePitch: 0 };
       // A look animates through its node extras: "gaze" nodes aim at the pointer
       // within [yaw, pitch] limits, "spin" nodes turn (radians per second about
-      // x, y, z), faster while Echo is busy, and "pulse" nodes grow with its voice.
+      // x, y, z), faster while Echo is busy, "pulse" nodes grow with its voice
+      // and "flow" nodes carry light (see the hologram shading below).
       const eyes: import("three").Object3D[] = [], spinners: import("three").Object3D[] = [], pulses: import("three").Object3D[] = [];
       let reach = [0, 0];
       let lastFrame = 0;
@@ -114,6 +122,7 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
           eye.rotation.set(clamp(gaze.eyePitch, pitchLimit), clamp(gaze.eyeYaw, yawLimit), 0);
         }
         const activity = reduced.matches ? 0 : busy ? 2.4 : active === "speaking" ? 1.5 : 1;
+        flowTime.value += step * activity;
         for (const node of spinners) {
           const [x, y, z] = node.userData.spin as number[];
           node.rotation.set(node.rotation.x + x * step * activity, node.rotation.y + y * step * activity, node.rotation.z + z * step * activity);
@@ -122,9 +131,11 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
         group.position.y = reduced.matches ? 0 : Math.sin(t * .75) * .035;
         group.traverse(object => {
           if (object instanceof THREE.Points || object instanceof THREE.Line || object instanceof THREE.Mesh) {
-            if (object.morphTargetInfluences) {
-              object.morphTargetInfluences[0] = jaw;
-              object.morphTargetInfluences[1] = blink;
+            // Named morphs: "jawOpen" follows the voice and "blink" blinks.
+            const morphs = object.morphTargetDictionary, influences = object.morphTargetInfluences;
+            if (morphs && influences) {
+              if (morphs.jawOpen !== undefined) influences[morphs.jawOpen] = jaw;
+              if (morphs.blink !== undefined) influences[morphs.blink] = blink;
             }
             if (object instanceof THREE.Points) {
               const material = object.material as import("three").PointsMaterial;
@@ -169,22 +180,49 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
         for (const object of surfaces) {
           const material = object.material as import("three").MeshBasicMaterial;
           if (!software) {
+            // Every surface is tinted toward the projection's blue, dims with
+            // depth behind its node and carries faint scan lines. Lit surfaces
+            // glow at their rims; unlit ones are light seen through a volume,
+            // fading toward their silhouettes. A "flow" node [cycles per second,
+            // afterglow in cycles, swelling] lights each vertex, and swells it,
+            // as the cycle passes the moment in its first texture coordinate.
+            const flow = object.userData.flow as number[] | undefined;
+            const emissive = material instanceof THREE.MeshBasicMaterial;
+            const spark = "uniform float echoFlow; uniform vec3 echoFlowShape;\n" +
+              "float echoSpark(float moment) { return exp(-fract(echoFlow * echoFlowShape.x - moment) / echoFlowShape.y); }\n" +
+              "varying vec3 echoPosition; varying vec3 echoNormal; varying vec3 echoView; varying float echoDepth; varying float echoMoment;\n";
+            material.defines = { ...material.defines, ...(flow ? { ECHO_FLOW: "" } : {}), ...(emissive ? { ECHO_EMISSIVE: "" } : {}) };
             material.onBeforeCompile = shader => {
               shader.uniforms.echoTime = hologramTime;
-              shader.vertexShader = "varying vec3 echoPosition; varying vec3 echoNormal; varying vec3 echoView;\n" + shader.vertexShader;
-              shader.vertexShader = shader.vertexShader.replace("#include <project_vertex>",
-                "#include <project_vertex>\nechoPosition = transformed; echoNormal = normalize(normalMatrix * normal); echoView = -mvPosition.xyz;");
-              shader.fragmentShader = "uniform float echoTime; varying vec3 echoPosition; varying vec3 echoNormal; varying vec3 echoView;\n" + shader.fragmentShader;
-              shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", `#include <opaque_fragment>
+              shader.uniforms.echoFlow = flowTime;
+              shader.uniforms.echoFlowShape = { value: new THREE.Vector3(...(flow ?? [0, 1, 0])) };
+              shader.vertexShader = spark + shader.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
+                #ifdef ECHO_FLOW
+                  transformed += normal * echoSpark(uv.x) * echoFlowShape.z;
+                #endif`).replace("#include <project_vertex>", `#include <project_vertex>
+                echoPosition = transformed; echoNormal = normalize(normalMatrix * normal); echoView = -mvPosition.xyz;
+                echoDepth = modelViewMatrix[3].z - mvPosition.z; echoMoment = uv.x;`);
+              shader.fragmentShader = "uniform float echoTime;\n" + spark + shader.fragmentShader.replace("#include <opaque_fragment>", `#include <opaque_fragment>
                 float lightness = dot(gl_FragColor.rgb, vec3(.2126,.7152,.0722));
                 vec3 projectionColor = vec3(.20,.69,.96) * (.16 + lightness * .95);
                 gl_FragColor.rgb = mix(gl_FragColor.rgb, projectionColor, .62);
-                float rim = pow(1.0 - abs(dot(normalize(echoNormal), normalize(echoView))), 3.0);
-                gl_FragColor.rgb += rim * vec3(.12,.36,.48);
+                float facing = abs(dot(normalize(echoNormal), normalize(echoView)));
+                #ifndef ECHO_EMISSIVE
+                  gl_FragColor.rgb += pow(1.0 - facing, 3.0) * vec3(.12,.36,.48);
+                #endif
+                gl_FragColor.rgb *= 1.0 - .45 * clamp(echoDepth, -.3, 1.0);
                 gl_FragColor.rgb *= .965 + .035 * sin(echoPosition.y * 240.0 + echoTime * 1.3);
+                #ifdef ECHO_FLOW
+                  float echoLight = echoSpark(echoMoment);
+                  gl_FragColor.rgb += echoLight * vec3(.7, .95, 1.0);
+                  gl_FragColor.a = min(1.0, gl_FragColor.a + echoLight);
+                #endif
+                #ifdef ECHO_EMISSIVE
+                  gl_FragColor.a *= facing;
+                #endif
               `);
             };
-            material.customProgramCacheKey = () => "echo-hologram-v3";
+            material.customProgramCacheKey = () => `echo-hologram-v4${flow ? "-flow" : ""}${emissive ? "-emissive" : ""}`;
             // Shared geometry keeps eyelids/lips and their fine wire overlay aligned.
             if (/SKIN|_HAIR/.test(material.name)) {
               const wire = new THREE.Mesh(object.geometry, new THREE.MeshBasicMaterial({ color: "#8bdeff",
@@ -214,7 +252,7 @@ export default function EchoAvatar({ phase, energy, model, compact = false }: {
     });
     return () => { cancelled = true; release?.(); };
   }, [compact, model]);
-  return <div ref={host} className="echo-canvas" role="img" aria-label="Echo, an anime holographic head with luminous contours">
+  return <div ref={host} className="echo-canvas" role="img" aria-label="Echo, a holographic companion">
     {failed && <div className="echo-fallback"><span>✧</span><p>Echo</p><small>3D preview unavailable. Voice controls are still available.</small></div>}
   </div>;
 }

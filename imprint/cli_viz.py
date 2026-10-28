@@ -31,6 +31,9 @@ from qdrant_client import models as qm
 
 DEFAULT_PORT = 8420
 
+from imprint.project_associations import project_filter
+
+
 PROJECT_COLORS = [
     "#ff6b6b", "#4ecdc4", "#60a5fa", "#a78bfa", "#fbbf24",
     "#f472b6", "#34d399", "#ff8c42", "#818cf8", "#fb923c",
@@ -69,6 +72,9 @@ def _facet(
     """Facet counts with optional filter. Index-based, no scan."""
     client, coll = vs._ensure_collection(workspace)
     try:
+        if key == "project":
+            from imprint.project_associations import project_counts
+            return project_counts(workspace, filt, limit)
         resp = client.facet(
             collection_name=coll,
             key=key,
@@ -108,7 +114,7 @@ def build_overview(filters: dict | None = None) -> dict:
     for name, count in project_facets:
         if not name:
             continue
-        proj_must = [qm.FieldCondition(key="project", match=qm.MatchValue(value=name))]
+        proj_must = [project_filter(name)]
         if global_filter and global_filter.must:
             proj_must.extend(global_filter.must)
         proj_filter = qm.Filter(must=proj_must)
@@ -160,7 +166,7 @@ def _build_global_filter(filters: dict) -> qm.Filter | None:
 
 def build_project_detail(project_name: str, filters: dict | None = None) -> dict:
     """Type, domain, language and topic breakdown for one project."""
-    proj_must = [qm.FieldCondition(key="project", match=qm.MatchValue(value=project_name))]
+    proj_must = [project_filter(project_name)]
     if filters:
         gf = _build_global_filter(filters)
         if gf and gf.must:
@@ -192,7 +198,7 @@ def build_node_page(project: str = "", type_: str = "", domain: str = "",
 
     must = []
     if project:
-        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+        must.append(project_filter(project))
     if type_:
         must.append(qm.FieldCondition(key="type", match=qm.MatchValue(value=type_)))
     if domain:
@@ -425,7 +431,7 @@ def _cross_project_similarity(sample_per_project: int, k: int) -> dict:
             pts, _ = client.scroll(
                 coll,
                 scroll_filter=qm.Filter(must=[
-                    qm.FieldCondition(key="project", match=qm.MatchValue(value=proj_name))
+                    project_filter(proj_name)
                 ]),
                 limit=sample_per_project,
                 with_vectors=True,
@@ -484,7 +490,7 @@ def build_timeline(project: str = "", limit: int = 500) -> dict:
     client, coll = vs._ensure_collection()
     filters = []
     if project:
-        filters.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+        filters.append(project_filter(project))
 
     scroll_filter = qm.Filter(must=filters) if filters else None
     points, _next = client.scroll(
@@ -662,7 +668,7 @@ def build_topic_detail(topic_name: str, project: str | None = None) -> dict:
     client, coll = vs._ensure_collection()
     must = [qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic_name))]
     if project is not None:
-        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+        must.append(project_filter(project))
     filt = qm.Filter(must=must)
     points, offset = [], None
     while True:
@@ -716,7 +722,8 @@ def build_source_read(source: str, project: str | None = None, topic: str = "",
     snapshots has none to read (ADR 0081).
     """
     from imprint import source_snapshots
-    snapshot = source_snapshots.get(source, project, workspace)
+    from imprint.project_associations import resolve
+    snapshot = resolve(source, project, workspace)
     if snapshot is None:
         return {"source": source, "project": project, "available": False}
     meta, text = snapshot["metadata"], snapshot["text"]
@@ -740,7 +747,7 @@ def build_source_read(source: str, project: str | None = None, topic: str = "",
     if meta["kind"] == "conversation":
         from imprint.conversation_source import read, title as conversation_title
         blocks = read(text)
-        title = conversation_title(text)
+        title = meta.get('details', {}).get('title', '') if meta.get('details', {}).get('media') == 'audio' else conversation_title(text)
     else:
         blocks, cursor = [], 0
         for row in manifest + [{"end": len(text)}]:
@@ -866,8 +873,7 @@ def build_graph_scope(
                 edge(f"proj:{pname}", f"topic:{tname}", pcount, "relates")
 
     elif kind == "project" and val:
-        pfilt = qm.Filter(must=[qm.FieldCondition(
-            key="project", match=qm.MatchValue(value=val))])
+        pfilt = qm.Filter(must=[project_filter(val)])
         total = sum(c for _, c in _facet("type", 20, pfilt, workspace=ws))
         add(f"proj:{val}", {
             "id": f"proj:{val}",
@@ -897,7 +903,8 @@ def build_graph_scope(
     elif kind == "topic" and val:
         tfilt = qm.Filter(must=[qm.FieldCondition(
             key="tags.topics", match=qm.MatchValue(value=val))])
-        total = sum(c for _, c in _facet("project", 50, tfilt, workspace=ws))
+        # Memberships overlap across projects; the topic still counts points.
+        total = client.count(coll, count_filter=tfilt, exact=True).count
         add(f"topic:{val}", {
             "id": f"topic:{val}",
             "kind": "topic",

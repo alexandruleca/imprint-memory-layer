@@ -186,8 +186,15 @@ class WorkerSettingAPITests(unittest.IsolatedAsyncioTestCase):
 class AnalysisChatIntegrationTests(unittest.TestCase):
     def test_remote_large_tool_result_uses_same_provider_and_keeps_tail_evidence(self):
         from unittest.mock import MagicMock
+        from imprint.chat_research import ResearchBudget
         client = MagicMock()
         requests = []
+        budgets = []
+        def budget_factory(**kwargs):
+            budget = ResearchBudget(**kwargs)
+            budget.reserve = MagicMock(wraps=budget.reserve)
+            budgets.append(budget)
+            return budget
 
         def response(**kwargs):
             requests.append(kwargs)
@@ -205,6 +212,7 @@ class AnalysisChatIntegrationTests(unittest.TestCase):
         with patch.object(chat, "_is_remote_provider", return_value=True), \
                 patch.object(chat, "_get_chat_provider", return_value="ollama"), \
                 patch.object(chat, "_get_openai_client", return_value=client), \
+                patch.object(chat, "ResearchBudget", side_effect=budget_factory), \
                 patch.dict(chat.TOOLS, tool("file_chunks", run)), \
                 patch.dict(os.environ, {"IMPRINT_CHAT_ANALYSIS_WORKERS": "2", "IMPRINT_CHAT_N_CTX": "8192"}):
             events = list(chat.stream_reply([], "Find the tail fact", workspace="alpha"))
@@ -213,6 +221,10 @@ class AnalysisChatIntegrationTests(unittest.TestCase):
         workers = [request for request in requests if request["tools"] is None]
         self.assertGreater(len(workers), 1)
         self.assertTrue(all(request["timeout"] == 120 for request in workers))
+        # Every model request, including section workers, reserves its prompt
+        # and output allowance. No worker can silently evade the reply budget.
+        self.assertEqual(budgets[0].reserve.call_count, len(requests))
+        self.assertEqual(budgets[0].reserved, sum(sum(call.args) for call in budgets[0].reserve.call_args_list))
         self.assertEqual(events[-2], {"type": "assistant_message", "text": "Synthesized tail evidence."})
 
     def test_local_coordinator_can_reread_original_after_tool_free_workers(self):
