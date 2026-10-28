@@ -7,6 +7,7 @@ human questions. All text is redacted before offsets or chunks are derived.
 from __future__ import annotations
 
 import json
+import re
 
 from . import transcripts
 from .source_memory import document
@@ -169,3 +170,54 @@ def prepare(path: str) -> dict:
     result['events'] = [{**meta, 'start': remap(meta['start'], edits),
                          'end': remap(meta['end'], edits, right=True)} for meta in event_meta]
     return result
+
+
+_HEADER = re.compile(r'\n--- (\{[^\n]*\}) ---\n')
+
+
+def read(text: str) -> list[dict]:
+    """The events of a conversation snapshot, as prepare() wrote them.
+
+    Each event carries its metadata, its text and the span of that text in the
+    snapshot. A header line counts only when it carries the next event number,
+    so an event whose text quotes a header keeps it as text. A cut-off text
+    (the start of a snapshot) ends with a partial last event.
+    """
+    events = []
+    for match in _HEADER.finditer(text):
+        try:
+            meta = json.loads(match.group(1))
+        except ValueError:
+            continue
+        if not isinstance(meta, dict) or meta.get('event') != len(events):
+            continue
+        if events:
+            # prepare() ends every event's text with a newline before the next header.
+            events[-1]['end'] = match.start() - 1
+        events.append({**meta, 'start': match.end()})
+    if events:
+        events[-1]['end'] = len(text) - 1 if text.endswith('\n') else len(text)
+    for event in events:
+        event['text'] = text[event['start']:event['end']]
+    return events
+
+
+_WRAPPED = re.compile(r'<([A-Za-z][\w-]*)[^>]*>.*?</\1>', re.S)
+_TAG_LINE = re.compile(r'</?[A-Za-z][\w-]*[^>]*>')
+
+
+def title(text: str) -> str:
+    """The first line of the conversation's first question; '' when it has none.
+
+    Clients wrap what they attach (an editor selection, pasted text) in tags,
+    beside or around the words the user typed; those words name the
+    conversation, and an attachment does only when no message holds any.
+    """
+    asked = [event['text'] for event in read(text) if event.get('role') == 'user' and event.get('kind') == 'message']
+    for bodies in ([_WRAPPED.sub('', body) for body in asked], asked):
+        for body in bodies:
+            lines = (line.strip() for line in body.splitlines())
+            line = next((line for line in lines if line and not _TAG_LINE.fullmatch(line)), '')
+            if line:
+                return line[:160]
+    return ''

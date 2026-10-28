@@ -64,10 +64,10 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 | Method | Path | Body | Response |
 |---|---|---|---|
 | `POST` | `/api/commands/{command}` | `{...flags}` | `{job_id, position, merged}` — position is `0` if it started immediately, otherwise its 1-based slot; `merged` is true when an identical job was already waiting and `job_id` is that job |
-| `GET` | `/api/queue?recent_limit=20` | — | `{active, queued[], recent[], background}`; `active` is enriched with live progress fields (phase, processed, total, percent, eta_seconds). Background tagging runs appear only in `background`: `{enabled, pending, state, job, resume_at}`, where `state` is `off`, `running`, `yielded`, `waiting`, `paused` (after a cancel), `failed` (retried at `resume_at`) or `idle`, `pending` counts marked memories across workspaces and `job` is the running or latest run |
+| `GET` | `/api/queue?recent_limit=20` | — | `{active, queued[], recent[], background}`; `active` is enriched with live progress fields (phase, processed, total, percent, eta_seconds). Background tagging runs appear only in `background`: `{enabled, pending, state, job, resume_at}`, where `state` is `off`, `running`, `yielded`, `waiting`, `paused` (after a cancel), `failed` (retried at `resume_at`) or `idle`, `pending` counts marked memories across workspaces and `job` is the running or latest run. Every job also carries `label`, `params` and `workspace` (below) |
 | `POST` | `/api/queue/background/resume` | — | The `background` object; starts background tagging again after a cancel or failure as soon as the queue is idle |
 | `GET` | `/api/jobs` | — | Back-compat — `{jobs: [active]}` (empty array when nothing is running) |
-| `GET` | `/api/jobs/{id}` | — | Full row, with progress when running |
+| `GET` | `/api/jobs/{id}` | — | Full row with `label`, `params` and `workspace`, and progress when running |
 | `GET` | `/api/jobs/{id}/stream` | — | SSE — replays the stored log then tails new lines; emits a final `{type:"done", exit_code, status}` |
 | `POST` | `/api/jobs/{id}/cancel` | — | `{ok, was_running}`. Queued → marked `cancelled`; running → SIGTERM → SIGKILL (3 s) |
 | `GET` | `/api/commands` | — | `{commands, clients}`: the Commands page catalog and the CLI's clients (see below); 502 when `imprint clients` fails |
@@ -75,6 +75,8 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 ### Allowed commands
 
 [`imprint/commands.py`](../imprint/commands.py) holds the catalog the Commands page renders: each command's label, description, group, fields (`path`, `text`, `switch`, `project`, `client`) and, for a command that removes something, the confirmation the page asks first. `POST /api/commands/{command}` accepts the catalog's commands plus `wipe`, `migrate` and `workspace`, which the workspace dialogs queue, and `wsl` (`setup` or `remove` of one distribution's client profile), which Settings → WSL profiles queues. [`queue.build_command_args`](../imprint/queue.py) maps each field to the CLI's arguments; a test checks that every catalog field reaches them. A `client` field offers the clients `imprint clients --json` reports, from the CLI's client table, with whether each is connected.
+
+The same catalog names queued jobs: `commands.describe` gives each job in `/api/queue` and `/api/jobs/{id}` its command's `label`, its arguments as `params` in the words of the command's fields (a switch by its label alone, a value as `{label, value}`, a CLI-enqueued job's verbatim `args` as one entry) and the `workspace` it was queued for. Jobs outside the catalog (`tag-backlog`, the workspace and WSL dialogs' jobs) have fixed names there. The Queue page and the top bar show these names instead of command names and raw bodies.
 
 | Group | Commands |
 |---|---|
@@ -98,8 +100,8 @@ All endpoints live on the Imprint dashboard server (default `http://127.0.0.1:84
 
 ## UI
 
-- **`/queue`** — active job card (with live progress bar + cancel), queued list (cancel removes the row; a merged job shows how many requests it answers), background tagging (state, memories waiting, progress, the current or latest run with its log, cancel, and **Resume now** after a cancel or failure), recent history (exit code, duration, expandable log viewer). Background runs raise no job toasts.
-- **Dashboard sidebar** — [`IngestionProgress`](../imprint/ui/src/components/ingestion-progress.tsx) now shows the active card plus a compact queued list with per-row cancel X.
+- **`/queue`** — **Running**: the running job, or background tagging while it runs, as one card ([`RunningJob`](../imprint/ui/src/components/ingestion-progress.tsx)): its name and arguments, phase, progress of total with percent, time so far and time left, Cancel, the newest output line and the whole output on request. **Up next**: waiting jobs in order (removing one is the row's X; a merged job shows how many requests it answers). **Background tagging**: one line with its state, the memories waiting and **Resume now** after a cancel or failure. **History**: finished jobs with their result, run time and when they ended. Any job opens a side sheet with its arguments, workspace, times, process, error, a Cancel or Remove action while it can run, and its output. Background runs raise no job toasts.
+- **Dashboard** — [`IngestionProgress`](../imprint/ui/src/components/ingestion-progress.tsx) shows the same running-job card and how many jobs wait, linking to the queue. **Add to memory** queues a folder, a document, a web page or conversations; refreshing, retagging and the rest are on the Commands page.
 - **Top bar** — [`ActivityIndicator`](../imprint/ui/src/components/activity-indicator.tsx) shows the running job, or background tagging while it runs, on every page and links to the queue. It and the other queue views share one poll ([`lib/queue.ts`](../imprint/ui/src/lib/queue.ts)); the offline banner shows the record the desktop app reads while the server is down ([ADR 0089](adr/0089-one-progress-record-for-the-running-job.md)).
 - **`QuickIngest` / `CommandsPage`** — the Commands page loads its commands from `GET /api/commands` and reloads them when a job finishes, so client connection states stay current. Both continue to use `streamCommand()` from [`lib/api.ts`](../imprint/ui/src/lib/api.ts). The helper now enqueues first, then SSE-tails `/api/jobs/{id}/stream`. `AbortController.abort()` cancels the job server-side (not just the fetch).
 

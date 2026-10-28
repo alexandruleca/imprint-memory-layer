@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { searchMemories, getMemory } from "@/lib/api";
 import { CardGridSkeleton, Spinner } from "@/components/loaders";
 import { ChunkDialog } from "@/components/chunk-dialog";
+import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import type { MemoryNode } from "@/lib/types";
 
 // "All types" is no type filter; Base UI keeps null for "nothing selected".
@@ -37,6 +38,7 @@ export default function SearchPage() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<MemoryNode | null>(null);
   const [chunk, setChunk] = useState<MemoryNode | null>(null);
+  const [reading, setReading] = useState<ReaderTarget | null>(null);
   const [opening, setOpening] = useState(false);
   const request = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
@@ -172,7 +174,9 @@ export default function SearchPage() {
           </CardContent></Card>}
         </section>
       </div>
-      <ChunkDialog chunk={chunk} onClose={() => setChunk(null)} />
+      <ChunkDialog chunk={chunk} onClose={() => setChunk(null)}
+        onReadSource={(c) => { setChunk(null); setReading({ source: c.source!, project: c.project, chunk: c.chunk_index }); }} />
+      <SourceReader target={reading} onClose={() => setReading(null)} />
     </div>
   );
 }

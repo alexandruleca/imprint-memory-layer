@@ -1,6 +1,8 @@
 "use client";
 
+import { BookOpenText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DeviceProvenance } from "./device-provenance";
 import type { DeviceIdentity, PathContext } from "@/lib/types";
@@ -11,6 +13,7 @@ export type ChunkPreview = {
   label?: string;
   source?: string;
   project?: string;
+  chunk_index?: number;
   type?: string;
   tags?: { lang?: string; topics?: string[] };
   content: string;
@@ -19,9 +22,11 @@ export type ChunkPreview = {
 type Props = {
   chunk: ChunkPreview | null;
   onClose: () => void;
+  /** Offered when given: read the whole source this chunk came from, at this chunk. */
+  onReadSource?: (chunk: ChunkPreview) => void;
 };
 
-export function ChunkDialog({ chunk, onClose }: Props) {
+export function ChunkDialog({ chunk, onClose, onReadSource }: Props) {
   if (!chunk) return null;
 
   return (
@@ -41,6 +46,11 @@ export function ChunkDialog({ chunk, onClose }: Props) {
               <Badge key={t} className="text-xs">{t}</Badge>
             ))}
           </div>
+          {onReadSource && chunk.source && (
+            <Button size="sm" variant="secondary" className="self-start" onClick={() => onReadSource(chunk)}>
+              <BookOpenText aria-hidden /> Read in context
+            </Button>
+          )}
         </DialogHeader>
         <div className="overflow-y-auto p-4 flex-1">
           <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">

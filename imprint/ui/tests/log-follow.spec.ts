@@ -45,12 +45,12 @@ test('a job log follows its output without moving the page and pauses while scro
     active: null, queued: [], recent: Array.from({ length: 30 }, (_, i) => job(i, 'done')),
   } }));
   await page.goto('/queue/');
-  // The reader has scrolled down the page to a job and opens its log.
-  const show = page.getByRole('button', { name: 'Show log' }).nth(15);
+  // The reader has scrolled down the page to a job and opens its output.
+  const show = page.getByRole('button', { name: /Show details$/ }).nth(15);
   await show.evaluate(el => el.scrollIntoView({ block: 'start' }));
   await show.click();
-  const log = page.locator('[data-slot="scroll-area-viewport"]');
-  await expect(log).toContainText('(no output)');
+  const log = page.getByRole('dialog').locator('[data-slot="scroll-area-viewport"]');
+  await expect(log).toContainText('No output.');
   const top = await mainTop(page);
   expect(top).toBeGreaterThan(0);
 
@@ -86,7 +86,7 @@ test('command output follows without moving the page', async ({ page }) => {
   // Opening the page does not jump to the output panel further down.
   expect(await mainTop(page)).toBe(0);
   await run.click();
-  const log = page.locator('[data-slot="scroll-area-viewport"]');
+  const log = page.locator('[data-slot="scroll-area-viewport"]', { has: page.locator('pre[aria-live]') });
   await expect(log).toContainText('Waiting for output…');
   const top = await mainTop(page);
   expect(await page.evaluate(() => { const main = document.getElementById('main-content')!; return main.scrollHeight - main.clientHeight; }))

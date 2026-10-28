@@ -1,23 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, FileCode } from "lucide-react";
+import Link from "next/link";
+import { BookOpenText, ChevronRight, FileCode, FileText, MessagesSquare } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { listSources, getSourceSummary, getSourceLineage } from "@/lib/api";
-import { CardGridSkeleton, ListSkeleton } from "@/components/loaders";
+import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { MasterDetail } from "@/components/master-detail";
+import { PageHeader, PaneCount, PaneFilter, PaneItem, SplitPage } from "@/components/split-page";
 import { MigrateDialog } from "@/components/migrate-dialog";
 import { ChunkDialog } from "@/components/chunk-dialog";
+import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import { WorkspaceSources } from "@/components/workspace-sources";
 import { DeviceProvenance } from "@/components/device-provenance";
 import type { SourceEntry, SourceSummary, SourceLineage, MemoryNode } from "@/lib/types";
+
+const DESCRIPTION = "Every conversation and file indexed in this workspace. Read one whole, inspect its chunks, or clean up what was indexed.";
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<SourceEntry[]>([]);
@@ -28,6 +31,7 @@ export default function SourcesPage() {
   const [lineage, setLineage] = useState<SourceLineage | null>(null);
   const [expandedChunk, setExpandedChunk] = useState<string | null>(null);
   const [chunkDialog, setChunkDialog] = useState<MemoryNode | null>(null);
+  const [reading, setReading] = useState<ReaderTarget | null>(null);
   const [migrateOpen, setMigrateOpen] = useState(false);
   const [error, setError] = useState("");
   const [opening, setOpening] = useState(false);
@@ -43,7 +47,9 @@ export default function SourcesPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = sources.filter((source) => source.source.toLowerCase().includes(filter.trim().toLowerCase()));
+  const q = filter.trim().toLowerCase();
+  const filtered = q ? sources.filter((s) => `${s.title ?? ""} ${s.source}`.toLowerCase().includes(q)) : sources;
+  const titled = sources.find((s) => s.source === selected)?.title;
 
   async function selectSource(sourceKey: string) {
     requested.current = sourceKey;
@@ -69,21 +75,50 @@ export default function SourcesPage() {
     }
   }
 
-  if (loading)
-    return (
-      <div className="p-8 space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <MasterDetail list={<ListSkeleton count={16} />}>
-          <Skeleton className="h-64 w-full rounded-xl" />
-        </MasterDetail>
-      </div>
-    );
+  const header = <PageHeader title="Sources" count={loading ? undefined : sources.length} description={DESCRIPTION} />;
+
+  if (loading) return (
+    <SplitPage header={header} list={<ListSkeleton count={16} />} listWidth="22rem">
+      <Skeleton className="h-64 w-full rounded-xl" />
+    </SplitPage>
+  );
+
+  const conversation = summary?.source_type === "conversation";
+  const read = (chunk?: number) => summary && setReading({ source: summary.source, project: summary.project, chunk, title: titled });
 
   return (
-    <div className="p-8 space-y-4">
-      <h2 className="text-2xl font-bold">
-        Sources ({sources.length.toLocaleString()} files)
-      </h2>
+    <SplitPage
+      header={header}
+      listWidth="22rem"
+      filter={<PaneFilter label="Filter sources" value={filter} onChange={setFilter} />}
+      list={
+        <nav aria-label="Sources" className="space-y-0.5">
+          {filtered.map((s) => (
+            <PaneItem key={s.source} selected={selected === s.source} onClick={() => selectSource(s.source)} title={s.source}>
+              {s.title ? (
+                <span className="min-w-0">
+                  <span className="block truncate">{s.title}</span>
+                  <span className="block truncate font-mono text-[11px] font-normal text-muted-foreground">{s.source}</span>
+                </span>
+              ) : <span className="min-w-0 truncate font-mono text-xs">{s.source}</span>}
+              <PaneCount value={s.chunks} />
+            </PaneItem>
+          ))}
+          {filtered.length === 0 && (
+            <Empty className="py-8">
+              <EmptyHeader>
+                <EmptyMedia variant="icon"><FileCode aria-hidden /></EmptyMedia>
+                <EmptyDescription>
+                  {sources.length === 0
+                    ? <>Nothing is indexed yet. Ingest a project or learn conversations from <Link href="/commands/">Commands</Link>.</>
+                    : "No source matches the filter."}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </nav>
+      }
+    >
       {error && <p role="alert" className="text-sm text-destructive">Sources could not load: {error}</p>}
       <WorkspaceSources selectedSource={selected} onPurged={async () => {
         requested.current = null; setOpening(false);
@@ -92,188 +127,98 @@ export default function SourcesPage() {
         setSources(data.sources);
       }} />
 
-      <MasterDetail
-        filter={
-          <Input
-            aria-label="Filter sources"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter sources..."
-            className="text-sm"
-          />
-        }
-        list={
-          <div className="space-y-0.5 pr-4">
-            {filtered.map((s) => (
-              <Button
-                key={s.source}
-                variant="ghost"
-                aria-pressed={selected === s.source}
-                className={`h-auto w-full justify-between gap-2 p-2 font-normal ${
-                  selected === s.source ? "bg-primary/20 border border-primary hover:bg-primary/20" : ""
-                }`}
-                onClick={() => selectSource(s.source)}
-              >
-                <span className="font-mono text-xs truncate flex-1 text-left">
-                  {s.source}
+      {opening ? (
+        <div className="space-y-4" aria-busy="true">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+      ) : summary ? (
+        <>
+          <Card>
+            <CardHeader>
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                  {conversation ? <MessagesSquare className="size-4" aria-hidden /> : <FileText className="size-4" aria-hidden />}
                 </span>
-                <Badge variant="secondary" className="shrink-0">
-                  {s.chunks}
-                </Badge>
-              </Button>
-            ))}
-            {filtered.length === 0 && (
-              <Empty className="py-8">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon"><FileCode aria-hidden /></EmptyMedia>
-                  <EmptyDescription>
-                    {sources.length === 0
-                      ? "No indexed sources. Run 'imprint ingest' to index a project."
-                      : "No sources match filter."}
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </div>
-        }
-      >
-        {opening ? (
-          <div className="space-y-4" aria-busy="true">
-            <Skeleton className="h-40 w-full rounded-xl" />
-            <CardGridSkeleton count={4} />
-          </div>
-        ) : summary ? (
-          <div className="space-y-4">
-            {/* Summary card */}
-            <Card>
-              <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
-                <CardTitle className="text-sm font-mono truncate">
-                  {summary.source}
-                </CardTitle>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setMigrateOpen(true)}
-                  className="shrink-0"
-                >
-                  Migrate…
+                <div className="min-w-0 space-y-0.5">
+                  <CardTitle className={titled ? "line-clamp-2 leading-snug" : "font-mono text-sm break-all"}>{titled || summary.source}</CardTitle>
+                  <CardDescription className="flex flex-wrap gap-x-1.5 text-xs">
+                    {titled && <span className="font-mono">{summary.source}</span>}
+                    <span>{titled && "· "}{summary.project || "No project"}</span>
+                    <span>· {summary.chunk_count.toLocaleString()} chunks</span>
+                    {summary.source_mtime > 0 && <span>· modified {new Date(summary.source_mtime * 1000).toLocaleString()}</span>}
+                  </CardDescription>
+                </div>
+              </div>
+              <CardAction className="flex flex-wrap justify-end gap-2">
+                <Button size="sm" onClick={() => read()}>
+                  <BookOpenText aria-hidden /> Read {conversation ? "conversation" : "source"}
                 </Button>
+                <Button size="sm" variant="outline" onClick={() => setMigrateOpen(true)}>Migrate…</Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <DeviceProvenance origin={summary.recorded_device} paths={summary.path_context} />
+              <div className="flex flex-wrap gap-1">
+                {[summary.tags?.lang, summary.tags?.layer, summary.tags?.kind].filter(Boolean).map((t) => (
+                  <Badge key={t} variant="outline">{t}</Badge>
+                ))}
+                {summary.tags?.domain?.map((d: string) => <Badge key={d} variant="secondary">{d}</Badge>)}
+                {summary.tags?.topics?.map((t: string) => (
+                  <Badge key={t} variant="secondary" render={<Link href={`/topics/?topic=${encodeURIComponent(t)}`} />}>{t}</Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {lineage && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Chunks</CardTitle>
+                <CardDescription>{lineage.total.toLocaleString()} pieces this source was split into for search.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <DeviceProvenance origin={summary.recorded_device} paths={summary.path_context} />
-                <div className="flex gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Project: </span>
-                    <span className="font-medium">{summary.project || "—"}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Chunks: </span>
-                    <span className="font-medium">{summary.chunk_count}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Modified: </span>
-                    <span className="font-medium">
-                      {summary.source_mtime
-                        ? new Date(summary.source_mtime * 1000).toLocaleString()
-                        : "—"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex gap-1 flex-wrap">
-                  {summary.tags?.lang && (
-                    <Badge variant="outline">{summary.tags.lang}</Badge>
-                  )}
-                  {summary.tags?.layer && (
-                    <Badge variant="outline">{summary.tags.layer}</Badge>
-                  )}
-                  {summary.tags?.kind && (
-                    <Badge variant="outline">{summary.tags.kind}</Badge>
-                  )}
-                  {summary.tags?.domain?.map((d: string) => (
-                    <Badge key={d}>{d}</Badge>
-                  ))}
-                  {summary.tags?.topics?.map((t: string) => (
-                    <Badge key={t} variant="secondary">
-                      {t}
-                    </Badge>
-                  ))}
-                </div>
-
-                {summary.first_chunk_preview && (
-                  <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-24 overflow-auto">
-                    {summary.first_chunk_preview}
-                  </pre>
-                )}
+              <CardContent className="space-y-1">
+                {lineage.chunks.map((chunk: MemoryNode) => (
+                  <Collapsible
+                    key={chunk.id}
+                    open={expandedChunk === chunk.id}
+                    onOpenChange={(open) => setExpandedChunk(open ? chunk.id : null)}
+                    className="rounded-lg transition-colors data-[open]:bg-muted/50"
+                  >
+                    <CollapsibleTrigger className="group/chunk flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50">
+                      <ChevronRight className="size-3 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/chunk:rotate-90" aria-hidden />
+                      <span className="w-8 shrink-0 font-mono text-xs text-muted-foreground">#{chunk.chunk_index}</span>
+                      <span className="flex-1 truncate text-xs">{chunk.label}</span>
+                      <span className="flex shrink-0 gap-1">
+                        {chunk.tags?.topics?.slice(0, 2).map((t: string) => (
+                          <Badge key={t} variant="secondary" className="px-1 py-0 text-[10px]">{t}</Badge>
+                        ))}
+                      </span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-2 px-2 pb-2">
+                      <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-background p-3 text-xs whitespace-pre-wrap">
+                        {chunk.content}
+                      </pre>
+                      <div className="flex gap-2">
+                        <Button variant="secondary" size="xs" onClick={() => read(chunk.chunk_index)}>Read in context</Button>
+                        <Button variant="ghost" size="xs" onClick={() => setChunkDialog(chunk)}>View chunk</Button>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ))}
               </CardContent>
             </Card>
-
-            {/* Chunks list */}
-            {lineage && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">
-                    Chunks ({lineage.total})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-1.5">
-                    {lineage.chunks.map((chunk: MemoryNode) => (
-                      <Collapsible
-                        key={chunk.id}
-                        open={expandedChunk === chunk.id}
-                        onOpenChange={(open) => setExpandedChunk(open ? chunk.id : null)}
-                        className={`rounded border transition-colors ${
-                          expandedChunk === chunk.id
-                            ? "border-primary bg-primary/5"
-                            : "border-transparent hover:bg-muted"
-                        }`}
-                      >
-                        <CollapsibleTrigger className="group/chunk flex w-full items-center gap-2 rounded p-2 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                          <ChevronRight className="size-3 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/chunk:rotate-90" aria-hidden />
-                          <span className="text-xs text-muted-foreground font-mono w-8 shrink-0">
-                            #{chunk.chunk_index}
-                          </span>
-                          <span className="text-xs truncate flex-1">
-                            {chunk.label}
-                          </span>
-                          <span className="flex gap-1 shrink-0">
-                            {chunk.tags?.topics
-                              ?.slice(0, 2)
-                              .map((t: string) => (
-                                <Badge
-                                  key={t}
-                                  variant="secondary"
-                                  className="text-[10px] px-1 py-0"
-                                >
-                                  {t}
-                                </Badge>
-                              ))}
-                          </span>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="mx-2 mb-2 space-y-1.5">
-                          <pre className="text-xs bg-muted p-3 rounded whitespace-pre-wrap max-h-80 overflow-auto">
-                            {chunk.content}
-                          </pre>
-                          <Button variant="secondary" size="xs" onClick={() => setChunkDialog(chunk)}>
-                            View full
-                          </Button>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        ) : (
-          <Empty className="h-full">
-            <EmptyHeader>
-              <EmptyTitle>Select a source file to view details and chunks</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        )}
-      </MasterDetail>
+          )}
+        </>
+      ) : (
+        <Empty className="min-h-64 border border-dashed">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><FileText aria-hidden /></EmptyMedia>
+            <EmptyTitle>Select a source</EmptyTitle>
+            <EmptyDescription>Read it whole, see where it came from and the chunks it was split into.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
 
       {summary && (
         <MigrateDialog
@@ -284,6 +229,7 @@ export default function SourcesPage() {
         />
       )}
       <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
-    </div>
+      <SourceReader target={reading} onClose={() => setReading(null)} />
+    </SplitPage>
   );
 }

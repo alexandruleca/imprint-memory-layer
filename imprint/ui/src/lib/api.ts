@@ -189,8 +189,18 @@ export async function getTopics(filters?: Record<string, string[]>): Promise<Top
   return fetchAPI(`/api/topics${qs ? `?${qs}` : ""}`);
 }
 
-export async function getTopicDetail(name: string): Promise<TopicDetailData> {
-  return fetchAPI(`/api/topic/${encodeURIComponent(name)}`);
+/** A topic's memories grouped by source; `project` limits them to one project. */
+export async function getTopicDetail(name: string, project?: string | null): Promise<TopicDetailData> {
+  const q = project == null ? "" : `?project=${encodeURIComponent(project)}`;
+  return fetchAPI(`/api/topic/${encodeURIComponent(name)}${q}`);
+}
+
+/** A source's full snapshot in readable blocks, marked where `topic` applies. */
+export async function readSource(params: { source: string; project?: string | null; topic?: string }, signal?: AbortSignal) {
+  const q = new URLSearchParams({ source: params.source });
+  if (params.project != null) q.set("project", params.project);
+  if (params.topic) q.set("topic", params.topic);
+  return fetchAPI<import("./types").SourceRead>(`/api/sources/read?${q}`, { signal });
 }
 
 export async function getGraphScope(scope: string = "root", depth = 1): Promise<GraphScopeData> {

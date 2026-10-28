@@ -4,7 +4,7 @@ import { test, expect, type Page } from '@playwright/test';
 // projects.move (imprint/projects.py).
 const project = (name: string, count: number) => ({ id: `proj_${name}`, name, count, types: {}, color: '#4ecdc4', topDomains: [], topLangs: [] });
 const overview = (...projects: ReturnType<typeof project>[]) => ({ projects, total: projects.reduce((n, p) => n + p.count, 0), version: 1, facets: {} });
-const detail = (name: string, count: number) => ({ project: name, count, color: '#4ecdc4', types: [], domains: [], langs: [], sampleNodes: [] });
+const detail = (name: string, count: number) => ({ project: name, count, color: '#4ecdc4', types: [], domains: [], langs: [], topics: [] });
 const sources: Record<string, { source: string; chunks: number }[]> = {
   Desktop: [{ source: 'Desktop/Naming Questionnaire.pdf', chunks: 2 }, { source: 'Desktop/editor.pdf', chunks: 5 }],
   Documents: [{ source: 'Documents/handbook.md', chunks: 3 }],
@@ -43,10 +43,10 @@ test('a project created by a finished job appears without a reload', async ({ pa
     await route.fulfill({ contentType: 'text/event-stream', body: 'event: update\ndata: {"version":1}\n\n' });
   });
   await page.goto('/projects/');
-  await expect(page.getByRole('heading', { name: 'Projects (1)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Projects 1', exact: true })).toBeVisible();
   changed = true;
   announce();
-  await expect(page.getByRole('heading', { name: 'Projects (2)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Projects 2', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Projects' }).getByRole('button', { name: /fresh/ })).toBeVisible();
 });
 
@@ -104,6 +104,6 @@ test('a whole project merges into an existing one and the page follows it', asyn
   await expect(dialog.getByRole('status')).toContainText('to Documents, an existing project.');
   await expect(dialog.getByRole('status')).toContainText('Memories saved as Desktop later');
   await dialog.getByRole('button', { name: 'Move 7 chunks' }).click();
-  await expect(page.getByRole('heading', { name: 'Projects (1)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Projects 1', exact: true })).toBeVisible();
   await expect(page.getByText('Documents/handbook.md')).toBeVisible();
 });

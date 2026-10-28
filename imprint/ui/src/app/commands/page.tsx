@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
+import { PageHeader, PaneHeading, PaneItem, SplitPage } from "@/components/split-page";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
 import {
   getCommandCatalog, getStats, streamCommand,
@@ -155,21 +156,45 @@ export default function CommandsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold">Commands</h1>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            Run Imprint CLI commands on this device, and connect or disconnect your AI clients. Jobs run one at a
-            time through the queue.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/queue/" />}>
-          <ListOrdered />
-          Open queue
-        </Button>
-      </header>
-
+    <SplitPage
+      fill
+      header={
+        <PageHeader
+          title="Commands"
+          description="Run Imprint's CLI commands on this device, and connect or disconnect your AI clients. Jobs run one at a time through the queue."
+          actions={
+            <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/queue/" />}>
+              <ListOrdered />
+              Open queue
+            </Button>
+          }
+        />
+      }
+      list={
+        <nav aria-label="Commands" aria-busy={!catalog && !catalogError}>
+          {!catalog && !catalogError && Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="m-1 h-12" />)}
+          {groups.map((group) => (
+            <div key={group}>
+              <PaneHeading>{group}</PaneHeading>
+              <div className="space-y-0.5">
+                {commands.filter((c) => c.group === group).map((c) => {
+                  const active = c.name === selected?.name;
+                  return (
+                    <PaneItem key={c.name} selected={active} disabled={running && !active} onClick={() => choose(c)} className="items-start">
+                      <CommandIcon name={c.name} className={cn("mt-0.5 size-4 shrink-0", active ? "text-foreground" : "text-muted-foreground")} />
+                      <span className="min-w-0">
+                        <span className="block">{c.label}</span>
+                        <span className="block text-xs font-normal text-muted-foreground">{c.description}</span>
+                      </span>
+                    </PaneItem>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+      }
+    >
       {!catalog && catalogError && (
         <Alert variant="destructive">
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
@@ -182,117 +207,80 @@ export default function CommandsPage() {
         </Alert>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <nav aria-label="Commands" aria-busy={!catalog && !catalogError} className="space-y-4">
-          {!catalog && !catalogError && Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
-          {groups.map((group) => (
-            <div key={group} className="space-y-1">
-              <p className="px-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">{group}</p>
-              <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
-                {commands.filter((c) => c.group === group).map((c) => {
-                  const active = c.name === selected?.name;
-                  return (
-                    <button
-                      key={c.name}
-                      type="button"
-                      aria-pressed={active}
-                      disabled={running && !active}
-                      onClick={() => choose(c)}
-                      className={cn(
-                        "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50",
-                        active ? "border-primary/40 bg-primary/5" : "border-transparent hover:bg-muted",
-                      )}
-                    >
-                      <CommandIcon name={c.name} className={cn("mt-0.5 size-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium">{c.label}</span>
-                        <span className="block text-xs text-muted-foreground">{c.description}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+      {selected ? (
+        <Card className="shrink-0">
+          <CardHeader className="flex items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+              <CommandIcon name={selected.name} className="size-4" />
+            </span>
+            <div className="min-w-0 space-y-1">
+              <CardTitle>{selected.label}</CardTitle>
+              <CardDescription>{selected.description}</CardDescription>
+              <code className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                imprint {[selected.name, ...Object.values(selected.fixed ?? {})].join(" ")}
+              </code>
             </div>
-          ))}
-        </nav>
-
-        <div className="min-w-0 space-y-4">
-          {selected ? (
-            <Card>
-              <CardHeader className="flex items-start gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <CommandIcon name={selected.name} className="size-4" />
-                </span>
-                <div className="min-w-0 space-y-1">
-                  <CardTitle>{selected.label}</CardTitle>
-                  <CardDescription>{selected.description}</CardDescription>
-                  <code className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                    imprint {[selected.name, ...Object.values(selected.fixed ?? {})].join(" ")}
-                  </code>
-                </div>
-              </CardHeader>
-              {selected.fields.length > 0 && (
-                <CardContent className="space-y-4">
-                  {selected.fields.map((f) => (
-                    <FieldInput
-                      key={`${selected.name}-${f.key}`}
-                      id={`command-${selected.name}-${f.key}`}
-                      field={f}
-                      value={params[f.key]}
-                      projects={projects}
-                      clients={clients}
-                      disabled={running}
-                      onChange={(value) => setParams((p) => ({ ...p, [f.key]: value }))}
-                      onBrowse={() => f.kind === "path" && setBrowsing(f)}
-                      onSubmit={start}
-                    />
-                  ))}
-                </CardContent>
-              )}
-              <CardFooter className="justify-end gap-2 border-t">
-                {running ? (
-                  <Button variant="outline" onClick={cancel}>
-                    <Square />
-                    Cancel
-                  </Button>
-                ) : (
-                  <Button variant={selected.confirm ? "destructive" : "default"} onClick={start} disabled={missing}>
-                    <Play />
-                    Run
-                  </Button>
-                )}
-              </CardFooter>
-            </Card>
-          ) : (
-            !catalogError && <Skeleton className="h-40 w-full" />
+          </CardHeader>
+          {selected.fields.length > 0 && (
+            <CardContent className="space-y-4">
+              {selected.fields.map((f) => (
+                <FieldInput
+                  key={`${selected.name}-${f.key}`}
+                  id={`command-${selected.name}-${f.key}`}
+                  field={f}
+                  value={params[f.key]}
+                  projects={projects}
+                  clients={clients}
+                  disabled={running}
+                  onChange={(value) => setParams((p) => ({ ...p, [f.key]: value }))}
+                  onBrowse={() => f.kind === "path" && setBrowsing(f)}
+                  onSubmit={start}
+                />
+              ))}
+            </CardContent>
           )}
+          <CardFooter className="justify-end gap-2 border-t">
+            {running ? (
+              <Button variant="outline" onClick={cancel}>
+                <Square />
+                Cancel
+              </Button>
+            ) : (
+              <Button variant={selected.confirm ? "destructive" : "default"} onClick={start} disabled={missing}>
+                <Play />
+                Run
+              </Button>
+            )}
+          </CardFooter>
+        </Card>
+      ) : (
+        !catalogError && <Skeleton className="h-40 w-full shrink-0" />
+      )}
 
-          <Card className="gap-0 py-0">
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-              <span className="text-sm font-medium">Output</span>
-              <RunBadge run={run} />
-              <div className="ml-auto flex items-center gap-1">
-                <Hint label={copied ? "Copied" : "Copy output"}>
-                  <Button variant="ghost" size="icon-sm" aria-label="Copy output" disabled={!output} onClick={copy}>
-                    {copied ? <Check /> : <Copy />}
-                  </Button>
-                </Hint>
-                <Hint label="Clear">
-                  <Button variant="ghost" size="icon-sm" aria-label="Clear output" disabled={!output || running}
-                    onClick={() => { setOutput(""); setRun({ state: "idle" }); }}>
-                    <Eraser />
-                  </Button>
-                </Hint>
-              </div>
-            </div>
-            <ScrollArea className="h-80 bg-muted/30" viewportRef={log}>
-              <pre aria-live="polite" className="min-h-80 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
-                {output || <span className="text-muted-foreground">{running ? "Waiting for output…" : "Run a command to see its output here."}</span>}
-              </pre>
-            </ScrollArea>
-          </Card>
+      <Card className="h-96 shrink-0 gap-0 py-0 lg:h-auto lg:min-h-64 lg:shrink lg:flex-1">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+          <span className="text-sm font-medium">Output</span>
+          <RunBadge run={run} />
+          <div className="ml-auto flex items-center gap-1">
+            <Hint label={copied ? "Copied" : "Copy output"}>
+              <Button variant="ghost" size="icon-sm" aria-label="Copy output" disabled={!output} onClick={copy}>
+                {copied ? <Check /> : <Copy />}
+              </Button>
+            </Hint>
+            <Hint label="Clear">
+              <Button variant="ghost" size="icon-sm" aria-label="Clear output" disabled={!output || running}
+                onClick={() => { setOutput(""); setRun({ state: "idle" }); }}>
+                <Eraser />
+              </Button>
+            </Hint>
+          </div>
         </div>
-      </div>
+        <ScrollArea className="min-h-0 flex-1 bg-muted/30" viewportRef={log}>
+          <pre aria-live="polite" className="p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
+            {output || <span className="text-muted-foreground">{running ? "Waiting for output…" : "Run a command to see its output here."}</span>}
+          </pre>
+        </ScrollArea>
+      </Card>
 
       <PathBrowserDialog
         open={browsing !== null}
@@ -330,7 +318,7 @@ export default function CommandsPage() {
           </AlertDialogContent>
         )}
       </AlertDialog>
-    </div>
+    </SplitPage>
   );
 }
 

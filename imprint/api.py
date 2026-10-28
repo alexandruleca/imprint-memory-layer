@@ -54,6 +54,7 @@ from .cli_viz import (
     build_source_lineage,
     build_topic_overview,
     build_topic_detail,
+    build_source_read,
     build_graph_scope,
     get_neighbors,
     get_memory,
@@ -323,14 +324,30 @@ def api_sources(
     layer: str = "",
     limit: int = 100,
 ):
-    """List all indexed source files with chunk counts."""
+    """List all indexed source files with chunk counts; conversations carry
+    the first question as their title."""
+    from . import source_snapshots
     sources = vs.list_sources(
         project=project, lang=lang, layer=layer, limit=limit,
     )
+    titles = source_snapshots.conversation_titles()
     return {
-        "sources": [{"source": s, "chunks": c} for s, c in sources],
+        "sources": [{"source": s, "chunks": c, "title": titles.get(s, "")} for s, c in sources],
         "total": len(sources),
     }
+
+
+@app.get("/api/sources/read")
+def api_source_read(source: str, project: str | None = None, topic: str = ""):
+    """A source's full redacted snapshot in readable blocks, marked where
+    ``topic`` applies. A source in several projects needs ``project``."""
+    try:
+        data = build_source_read(source, project, topic)
+    except ValueError as error:
+        return JSONResponse({"error": str(error), "source": source}, status_code=409)
+    return data if data["available"] else JSONResponse({
+        **data, "error": "This source has no full snapshot. Learn the conversation again or refresh the file with --force to keep one.",
+    }, status_code=404)
 
 
 @app.get("/api/sources/summary/{source_key:path}")
@@ -361,8 +378,8 @@ def api_topics(
 
 
 @app.get("/api/topic/{name:path}")
-def api_topic(name: str):
-    return build_topic_detail(unquote(name))
+def api_topic(name: str, project: str | None = None):
+    return build_topic_detail(unquote(name), project)
 
 
 @app.get("/api/graph")
@@ -761,12 +778,21 @@ def api_jobs():
     return {"jobs": [active] if active else []}
 
 
+def _described(job: dict | None) -> dict | None:
+    """A job with the names the dashboard shows for it (commands.describe)."""
+    return job and {**job, **commands.describe(job.get("command", ""), job.get("body"))}
+
+
 @app.get("/api/queue")
 def api_queue(recent_limit: int = 20):
     data = job_queue.list_queue(recent_limit=recent_limit)
-    data["active"] = _active_from_any_source()
-    data["background"] = _background_state()
-    return data
+    background = _background_state()
+    return {
+        "active": _described(_active_from_any_source()),
+        "queued": [_described(job) for job in data["queued"]],
+        "recent": [_described(job) for job in data["recent"]],
+        "background": {**background, "job": _described(background["job"])},
+    }
 
 
 def _background_state() -> dict:
@@ -793,7 +819,7 @@ def api_job_detail(job_id: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     if job.get("status") == "running":
         job = _attach_progress(job)
-    return job
+    return _described(job)
 
 
 @app.get("/api/jobs/{job_id}/stream")

@@ -70,7 +70,7 @@ export function WorkspaceSources({ selectedSource, onPurged }: { selectedSource:
     finally { setBusy(false); }
   }
 
-  return <Collapsible className="rounded-lg border p-4">
+  return <Collapsible className="rounded-xl bg-card px-4 py-3 text-sm ring-1 ring-foreground/10">
     <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-left font-medium">
       <ChevronRight className="size-4 transition-transform group-data-[panel-open]:rotate-90" aria-hidden />
       Workspace roots and cleanup{scope ? ` · ${scope.workspace}` : ""}

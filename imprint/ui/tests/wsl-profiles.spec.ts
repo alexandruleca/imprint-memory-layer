@@ -46,7 +46,7 @@ const section = (page: Page) => page.locator('#wsl');
 
 test('distributions are probed only when asked, with every target the CLI reports', async ({ page }) => {
   const state = await mockApi(page, listing(false));
-  await page.goto('/settings/');
+  await page.goto('/settings/#wsl');
   await expect(section(page)).toContainText('starts any that are stopped');
   await page.waitForTimeout(300);
   expect(state.probes).toBe(0);
@@ -64,7 +64,7 @@ test('distributions are probed only when asked, with every target the CLI report
 test('enrolling queues wsl setup and shows the new state', async ({ page }) => {
   let enrolled = false;
   const state = await mockApi(page, () => listing(enrolled));
-  await page.goto('/settings/');
+  await page.goto('/settings/#wsl');
   await section(page).getByRole('button', { name: 'Check distributions' }).click();
   enrolled = true;
   await page.getByRole('button', { name: 'Enroll Cursor in Ubuntu' }).click();
@@ -77,7 +77,7 @@ test('enrolling queues wsl setup and shows the new state', async ({ page }) => {
 
 test('removing asks first', async ({ page }) => {
   const state = await mockApi(page, listing(false));
-  await page.goto('/settings/');
+  await page.goto('/settings/#wsl');
   await section(page).getByRole('button', { name: 'Check distributions' }).click();
   const remove = page.getByRole('button', { name: 'Remove Claude Code in Ubuntu' });
 
@@ -96,7 +96,7 @@ test('removing asks first', async ({ page }) => {
 
 test('a runtime that is not Windows says where WSL profiles are enrolled', async ({ page }) => {
   await mockApi(page, { supported: false, platform: 'Linux' });
-  await page.goto('/settings/');
+  await page.goto('/settings/#wsl');
   await section(page).getByRole('button', { name: 'Check distributions' }).click();
   await expect(section(page)).toContainText('enrolled from a Windows installation of Imprint; this one runs on Linux');
 });

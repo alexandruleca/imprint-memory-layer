@@ -1,9 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// The shell is a fixed frame and <main> is the one page scroller
-// (dashboard-shell.tsx). The document itself never scrolls, in either axis,
-// and the only other scrollers are deliberate fixed-size panels: a log, a
-// capped side list. Each page gets enough data here to overflow.
+// The shell is a fixed frame and <main> is the page scroller
+// (dashboard-shell.tsx); the document itself never scrolls, in either axis.
+// List-and-details pages (split-page.tsx) fill the window from lg up: there
+// <main> stays put and the list and the details scroll on their own between
+// the same edges. Narrower, <main> scrolls the page around a capped list. The
+// only other scrollers are deliberate fixed-size panels, such as a job's
+// output. Each page gets enough data here to overflow.
 
 const now = Date.now() / 1000;
 const job = (i: number, status: string) => ({
@@ -45,10 +48,11 @@ function scrollers(page: Page) {
 }
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1000 }, { width: 390, height: 844 }]) {
+  const wide = viewport.width >= 1024;
   test.describe(`at ${viewport.width}x${viewport.height}`, () => {
     test.use({ viewport });
 
-    test('the queue scrolls as one page around its log panel', async ({ page }) => {
+    test('the queue scrolls as one page; a job\'s output scrolls in its panel', async ({ page }) => {
       await mockApi(page);
       await page.route('**/api/queue**', route => route.fulfill({ json: {
         active: job(0, 'running'),
@@ -60,24 +64,28 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1000
         contentType: 'text/event-stream', body: lines.map(text => `data: ${JSON.stringify({ type: 'output', text })}\n\n`).join(''),
       }));
       await page.goto('/queue/');
-      await page.getByRole('button', { name: 'Show log' }).first().click();
-      await expect(page.getByText('[299] stored batch 299')).toBeAttached();
+      await page.getByRole('button', { name: /Show details$/ }).last().click();
+      await expect(page.getByRole('dialog').getByText('[299] stored batch 299')).toBeAttached();
       await expect.poll(() => scrollers(page)).toEqual(['main', 'scroll-area-viewport']);
     });
 
-    test('topics scroll as one page beside a capped topic list', async ({ page }) => {
+    test('topics scroll their list and their details apart', async ({ page }) => {
       await mockApi(page);
       await page.route('**/api/topics', route => route.fulfill({ json: {
         topics: Array.from({ length: 60 }, (_, i) => ({ id: `t${i}`, name: `topic-${i}`, count: 300 - i, topProjects: [], topLangs: [], color: '#000' })),
         total: 60, facets: {},
       } }));
       await page.route('**/api/topic/*', route => route.fulfill({ json: {
-        topic: 'topic-1', total: 40, nodes: Array.from({ length: 40 }, (_, i) => memory(i)), projects: [['imprint', 40]],
+        topic: 'topic-1', project: null, total: 40, projects: [['imprint', 40]],
+        sources: Array.from({ length: 8 }, (_, s) => ({
+          source: `conversation/${s}`, project: 'imprint', source_type: 'conversation', title: `Question ${s}`,
+          chunks: Array.from({ length: 5 }, (_, i) => memory(s * 5 + i)),
+        })),
       } }));
       await page.goto('/topics/');
       await page.getByRole('button', { name: /^topic-1\b/ }).click();
-      await expect(page.getByText('topic-1 (40 memories)')).toBeVisible();
-      await expect.poll(() => scrollers(page)).toEqual(['main', 'scroll-area-viewport']);
+      await expect(page.getByText('40 memories from 8 sources')).toBeVisible();
+      await expect.poll(() => scrollers(page)).toEqual(wide ? ['scroll-area-viewport', 'scroll-area-viewport'] : ['main', 'scroll-area-viewport']);
     });
 
     test('search results scroll with the page', async ({ page }) => {
@@ -91,15 +99,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1000
       await expect.poll(() => scrollers(page)).toEqual(['main']);
     });
 
-    test('settings scroll as one page', async ({ page }) => {
+    test('settings scroll their sections apart from the section list', async ({ page }) => {
       await mockApi(page);
       await page.route('**/api/config', route => route.fulfill({ json: { settings: Array.from({ length: 30 }, (_, i) => ({
         key: `section${i % 5}.setting_${i}`, value: `value-${i}`, source: 'default', default: `value-${i}`, type: 'str',
         env: `IMPRINT_SETTING_${i}`, desc: `What setting ${i} changes, in a sentence of prose.`,
       })) } }));
       await page.goto('/settings/');
-      await expect(page.getByText('section0.setting_0')).toBeVisible();
-      await expect.poll(() => scrollers(page)).toEqual(['main']);
+      await page.getByLabel('Filter settings').fill('setting');
+      await expect(page.getByText('section4.setting_29')).toBeVisible();
+      await expect.poll(() => scrollers(page)).toEqual(wide ? ['scroll-area-viewport'] : ['main', 'scroll-area-viewport']);
     });
   });
 }

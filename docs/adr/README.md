@@ -107,6 +107,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0025](0025-desktop-owned-background-service.md) **Desktop-owned background service.** Open the splash before Python startup, hide the dashboard independently and stop its owned API on explicit Quit. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (service registration).
 - [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) **shadcn overlays and desktop drag handles.** Dashboard overlays and controls use the vendored shadcn (Base UI) components; the frameless window's drag handles stand down while an overlay is open.
 - [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) **Registered dashboard server and supervised restart.** The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) (launchers wait while setup changes the runtime; setup restarts the server).
+- [ADR 0094](0094-the-dashboard-reads-whole-sources-from-their-snapshots.md) **The dashboard reads whole sources from their snapshots.** Topics group their memories by conversation or file, named by a conversation's first question; any source opens whole from its stored redacted snapshot, events read back from the snapshot's headers, with a topic's passages marked. A source without a snapshot is not rebuilt from chunks.
 
 ### Voice and Echo
 
@@ -252,6 +253,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | 2026-10-27 | Accepted | WSL homes with a connected client get the imprint command |
 | [0092](0092-voice-generation-follows-playback.md) | 2026-10-28 | Accepted | Voice generation follows playback |
 | [0093](0093-sequential-chat-section-analysis.md) | 2026-10-28 | Accepted | Sequential chat section analysis |
+| [0094](0094-the-dashboard-reads-whole-sources-from-their-snapshots.md) | 2026-10-28 | Accepted | The dashboard reads whole sources from their snapshots |
 
 ## How to write and maintain ADRs
 

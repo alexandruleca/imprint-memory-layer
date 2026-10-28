@@ -159,9 +159,7 @@ def _build_global_filter(filters: dict) -> qm.Filter | None:
 
 
 def build_project_detail(project_name: str, filters: dict | None = None) -> dict:
-    """Type/domain breakdown + sample nodes for one project."""
-    client, coll = vs._ensure_collection()
-
+    """Type, domain, language and topic breakdown for one project."""
     proj_must = [qm.FieldCondition(key="project", match=qm.MatchValue(value=project_name))]
     if filters:
         gf = _build_global_filter(filters)
@@ -172,30 +170,7 @@ def build_project_detail(project_name: str, filters: dict | None = None) -> dict
     type_facets = _facet("type", 20, proj_filter)
     domain_facets = _facet("tags.domain", 30, proj_filter)
     lang_facets = _facet("tags.lang", 20, proj_filter)
-
-    # Sample nodes
-    try:
-        sample_pts, _ = client.scroll(
-            collection_name=coll,
-            scroll_filter=proj_filter,
-            limit=200,
-            with_payload=["_mid", "content", "type", "source", "tags", "timestamp"],
-            with_vectors=False,
-        )
-    except Exception:
-        sample_pts = []
-
-    sample_nodes = []
-    for p in sample_pts:
-        pl = p.payload or {}
-        sample_nodes.append({
-            "id": pl.get("_mid", ""),
-            "label": _extract_label(pl.get("content", ""), pl.get("source", "")),
-            "type": pl.get("type", ""),
-            "source": pl.get("source", ""),
-            "tags": pl.get("tags", {}),
-            "content": (pl.get("content", "") or "")[:500],
-        })
+    topic_facets = _facet("tags.topics", 40, proj_filter)
 
     total_count = sum(c for _, c in type_facets)
 
@@ -206,7 +181,7 @@ def build_project_detail(project_name: str, filters: dict | None = None) -> dict
         "types": [{"name": v, "count": c} for v, c in type_facets if v],
         "domains": [{"name": v, "count": c} for v, c in domain_facets if v],
         "langs": [{"name": v, "count": c} for v, c in lang_facets if v],
-        "sampleNodes": sample_nodes,
+        "topics": [{"name": v, "count": c} for v, c in topic_facets if v],
     }
 
 
@@ -679,39 +654,123 @@ def build_topic_overview(filters: dict | None = None) -> dict:
     return {"topics": topics, "total": total, "facets": facets}
 
 
-def build_topic_detail(topic_name: str) -> dict:
-    """Chunks within a topic, grouped/colored by project."""
+def build_topic_detail(topic_name: str, project: str | None = None) -> dict:
+    """A topic's memories grouped by the source they came from, largest group
+    first, optionally within one project. Conversations are named by their
+    first question."""
+    from imprint import source_snapshots
     client, coll = vs._ensure_collection()
-    filt = qm.Filter(must=[
-        qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic_name)),
-    ])
-    points, _ = client.scroll(
-        coll, scroll_filter=filt, limit=200,
-        with_payload=True, with_vectors=False,
-    )
-    nodes = []
+    must = [qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic_name))]
+    if project is not None:
+        must.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+    filt = qm.Filter(must=must)
+    points, offset = [], None
+    while True:
+        batch, offset = client.scroll(
+            coll, scroll_filter=filt, limit=256, offset=offset,
+            with_payload=["_mid", "content", "project", "type", "source", "source_type", "chunk_index", "tags"],
+            with_vectors=False,
+        )
+        points.extend(batch)
+        if offset is None:
+            break
+    titles = source_snapshots.conversation_titles()
+    groups: dict[tuple[str, str], dict] = {}
     for p in points:
         pay = p.payload or {}
-        tags = pay.get("tags", {})
-        mid = pay.get("_mid", str(p.id))
-        nodes.append({
-            "id": mid,
-            "label": _extract_label(pay.get("content", ""), pay.get("source", "")),
+        source = pay.get("source", "")
+        group = groups.setdefault((pay.get("project", ""), source), {
+            "source": source,
             "project": pay.get("project", ""),
-            "type": pay.get("type", ""),
-            "source": pay.get("source", ""),
-            "chunk_index": pay.get("chunk_index", 0),
-            "tags": tags,
-            "content": (pay.get("content") or "")[:500],
+            "source_type": pay.get("source_type", ""),
+            "title": titles.get(source, ""),
+            "chunks": [],
         })
-
-    # Project distribution within this topic
-    proj_facets = _facet("project", 20, filt)
+        group["chunks"].append({
+            "id": pay.get("_mid", str(p.id)),
+            "label": _extract_label(pay.get("content", ""), source),
+            "type": pay.get("type", ""),
+            "chunk_index": pay.get("chunk_index", 0),
+            "tags": pay.get("tags", {}),
+            "content": (pay.get("content") or "")[:300],
+        })
+    sources = sorted(groups.values(), key=lambda g: (-len(g["chunks"]), g["source"]))
+    for group in sources:
+        group["chunks"].sort(key=lambda c: c["chunk_index"])
     return {
         "topic": topic_name,
-        "total": len(nodes),
-        "nodes": nodes,
-        "projects": proj_facets,
+        "project": project,
+        "total": len(points),
+        "projects": _facet("project", 20, filt),
+        "sources": sources,
+    }
+
+
+def build_source_read(source: str, project: str | None = None, topic: str = "",
+                      workspace: str | None = None) -> dict:
+    """A source's full redacted snapshot, ready to read.
+
+    The text arrives in blocks: a conversation's events, or a file cut where
+    its chunks end. Each block lists the chunks that cover it and is marked
+    when one of them carries ``topic``. A source stored before Imprint kept
+    snapshots has none to read (ADR 0081).
+    """
+    from imprint import source_snapshots
+    snapshot = source_snapshots.get(source, project, workspace)
+    if snapshot is None:
+        return {"source": source, "project": project, "available": False}
+    meta, text = snapshot["metadata"], snapshot["text"]
+    manifest = sorted(meta["manifest"], key=lambda row: row["start"])
+    tagged: set[int] = set()
+    if topic:
+        client, coll = vs._ensure_collection(workspace)
+        filt = qm.Filter(must=[
+            qm.FieldCondition(key="source", match=qm.MatchValue(value=source)),
+            qm.FieldCondition(key="project", match=qm.MatchValue(value=meta["project"])),
+            qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic)),
+        ])
+        offset = None
+        while True:
+            batch, offset = client.scroll(coll, scroll_filter=filt, limit=256, offset=offset,
+                                          with_payload=["chunk_index"], with_vectors=False)
+            tagged.update((p.payload or {}).get("chunk_index", -1) for p in batch)
+            if offset is None:
+                break
+    title = ""
+    if meta["kind"] == "conversation":
+        from imprint.conversation_source import read, title as conversation_title
+        blocks = read(text)
+        title = conversation_title(text)
+    else:
+        blocks, cursor = [], 0
+        for row in manifest + [{"end": len(text)}]:
+            if row["end"] > cursor:
+                blocks.append({"start": cursor, "end": row["end"], "text": text[cursor:row["end"]]})
+                cursor = row["end"]
+    # Blocks and chunks both advance through the text, so one pass pairs them.
+    first = 0
+    for block in blocks:
+        while first < len(manifest) and manifest[first]["end"] <= block["start"]:
+            first += 1
+        covering = []
+        for row in manifest[first:]:
+            if row["start"] >= block["end"]:
+                break
+            covering.append(row["index"])
+        block["chunks"] = covering
+        block["match"] = any(index in tagged for index in covering)
+    return {
+        "source": source,
+        "project": meta["project"],
+        "kind": meta["kind"],
+        "available": True,
+        "title": title,
+        "topic": topic,
+        "total_chars": len(text),
+        "chunk_count": len(manifest),
+        "updated_at": meta.get("updated_at"),
+        "details": meta.get("details", {}),
+        "blocks": blocks,
     }
 
 
@@ -724,6 +783,19 @@ def _topic_color(name: str) -> str:
     h = int(hashlib.md5(("topic:" + name).encode()).hexdigest(), 16)
     palette = ["#a78bfa", "#f472b6", "#e879f9", "#fb7185", "#c084fc", "#818cf8"]
     return palette[h % len(palette)]
+
+
+def _source_node(name: str, count: int, titles: dict[str, str], **extra) -> dict:
+    """A source in the graph, named by its conversation's first question when it has one."""
+    return {
+        "id": f"src:{name}",
+        "kind": "source",
+        "label": titles.get(name) or name.rsplit("/", 1)[-1],
+        "fullPath": name,
+        "count": count,
+        "color": SOURCE_COLOR,
+        **extra,
+    }
 
 
 def build_graph_scope(
@@ -759,6 +831,8 @@ def build_graph_scope(
 
     topic_cap = 20 + (depth - 1) * 10
     source_cap = 15 + (depth - 1) * 10
+    from imprint import source_snapshots
+    titles = source_snapshots.conversation_titles(ws)
 
     if kind == "root":
         proj_facets = _facet("project", 50, workspace=ws)
@@ -817,14 +891,7 @@ def build_graph_scope(
         for sname, scount in _facet("source", source_cap, pfilt, workspace=ws):
             if not sname:
                 continue
-            add(f"src:{sname}", {
-                "id": f"src:{sname}",
-                "kind": "source",
-                "label": sname.rsplit("/", 1)[-1],
-                "fullPath": sname,
-                "count": scount,
-                "color": SOURCE_COLOR,
-            })
+            add(f"src:{sname}", _source_node(sname, scount, titles, project=val))
             edge(f"proj:{val}", f"src:{sname}", scount, "contains")
 
     elif kind == "topic" and val:
@@ -853,29 +920,14 @@ def build_graph_scope(
         for sname, scount in _facet("source", source_cap, tfilt, workspace=ws):
             if not sname:
                 continue
-            add(f"src:{sname}", {
-                "id": f"src:{sname}",
-                "kind": "source",
-                "label": sname.rsplit("/", 1)[-1],
-                "fullPath": sname,
-                "count": scount,
-                "color": SOURCE_COLOR,
-            })
+            add(f"src:{sname}", _source_node(sname, scount, titles))
             edge(f"src:{sname}", f"topic:{val}", scount, "relates")
 
     elif kind == "source" and val:
         lineage = build_source_lineage(val, workspace=ws)
         chunks = lineage.get("chunks", [])[: 40 + (depth - 1) * 20]
         proj_of_source = chunks[0]["project"] if chunks else ""
-        add(f"src:{val}", {
-            "id": f"src:{val}",
-            "kind": "source",
-            "label": val.rsplit("/", 1)[-1],
-            "fullPath": val,
-            "count": lineage.get("total", 0),
-            "color": SOURCE_COLOR,
-            "focus": True,
-        })
+        add(f"src:{val}", _source_node(val, lineage.get("total", 0), titles, project=proj_of_source, focus=True))
         if proj_of_source:
             add(f"proj:{proj_of_source}", {
                 "id": f"proj:{proj_of_source}",
@@ -932,14 +984,7 @@ def build_graph_scope(
             })
             src = mem.get("source", "")
             if src:
-                add(f"src:{src}", {
-                    "id": f"src:{src}",
-                    "kind": "source",
-                    "label": src.rsplit("/", 1)[-1],
-                    "fullPath": src,
-                    "count": 0,
-                    "color": SOURCE_COLOR,
-                })
+                add(f"src:{src}", _source_node(src, 0, titles, project=mem.get("project", "")))
                 edge(f"src:{src}", f"chunk:{val}", 1, "contains")
             proj = mem.get("project", "")
             if proj:

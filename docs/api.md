@@ -97,7 +97,8 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/sources` | All indexed files with chunk counts. |
+| GET | `/api/sources` | All indexed sources with chunk counts; a conversation's `title` is its first question. |
+| GET | `/api/sources/read` | A source's full redacted snapshot in readable blocks: a conversation's events, or a file cut where its chunks end. `?source=&project=&topic=`; each block lists the chunks covering it and is marked `match` where one carries `topic`. 404 when the source has no snapshot; 409 when `project` is needed. See [ADR 0094](adr/0094-the-dashboard-reads-whole-sources-from-their-snapshots.md). |
 | GET | `/api/sources/summary/{source_key}` | Summary metadata for one source. |
 | GET | `/api/source/{source_key}` | Chunks + tags + neighbors for one source. |
 
@@ -105,10 +106,10 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/project/{name}` | Stats + top sources + top topics per project. |
+| GET | `/api/project/{name}` | Counts by type, domain, language and topic for one project. |
 | POST | `/api/projects/move` | Preview, or apply, moving a project's memories (`sources: [keys]`, or all of them) to `target`. Apply needs `apply: true` and the `workspace` the preview returned. See [ADR 0036](adr/0036-move-memories-between-projects.md). |
 | GET | `/api/topics` | Topic facet counts. |
-| GET | `/api/topic/{name}` | Projects + memories tagged with one topic. |
+| GET | `/api/topic/{name}` | Every memory tagged with one topic, grouped by the source it came from (titled, largest group first), and its projects. `?project=` limits it to one project. |
 | GET | `/api/graph` | Graph walk. `?scope=root\|project:X\|topic:X\|source:X\|chunk:X&depth=1..3`. |
 
 ### Knowledge graph
@@ -144,9 +145,9 @@ already waiting: `job_id` is that job and nothing new is queued
 | GET | `/api/wsl` | WSL distributions and, per WSL target, the client's default-user profile and whether it is enrolled (`imprint wsl list --json`). Probing can start stopped distributions. On a runtime that is not Windows: `{"supported": false, "platform"}` without probing. 502 when the CLI fails. |
 | GET | `/api/commands` | The Commands page catalog (`imprint/commands.py`): each command's label, group, fields and confirmation, plus `clients` from `imprint clients --json`. 502 when the CLI cannot list them. |
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
-| GET | `/api/queue` | Active + queued + recent jobs, and `background`: background LLM tagging's state, the memories waiting for it and its running or latest run ([queue](queue.md#http-api)). |
+| GET | `/api/queue` | Active + queued + recent jobs, and `background`: background LLM tagging's state, the memories waiting for it and its running or latest run ([queue](queue.md#http-api)). Each job carries `label`, `params` and `workspace`: its name and arguments in the command catalog's words (`commands.describe`). |
 | POST | `/api/queue/background/resume` | Start background tagging again after a cancel or a failure. |
-| GET | `/api/jobs/{id}` | Job status + exit code. |
+| GET | `/api/jobs/{id}` | Job status + exit code, named like the queue's jobs. |
 | GET | `/api/jobs/{id}/stream` | SSE stream of live stdout/stderr. |
 | POST | `/api/jobs/{id}/cancel` | SIGTERM the job (SIGKILL after 3 s). |
 

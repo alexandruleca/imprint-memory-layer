@@ -218,6 +218,46 @@ def get(source: str, project: str | None = None, workspace=None, version: str = 
     return {'metadata': meta, 'text': text}
 
 
+HEAD_BYTES = 16 * 1024
+HEAD_CHARS = 64 * 1024
+_titles: list = [None, {}]
+
+
+def conversation_titles(workspace=None) -> dict[str, str]:
+    """Each conversation snapshot's first question, by source key.
+
+    Only the start of each compressed body is read: a title never needs the
+    whole conversation. A conversation whose start holds no question has none.
+    """
+    path = config.get_data_dir() / 'source-snapshots.sqlite3'
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return {}
+    ws = _workspace(workspace)
+    # Every graph, topic and source listing names its conversations; the
+    # titles change only when the snapshot database does.
+    key = (str(path), ws, stat.st_mtime_ns, stat.st_size)
+    if _titles[0] == key:
+        return _titles[1]
+    from .conversation_source import title
+    with _db() as conn:
+        rows = conn.execute("SELECT source, substr(body, 1, ?) AS head FROM heads WHERE workspace=? "
+                            "AND json_extract(metadata, '$.kind')='conversation'",
+                            (HEAD_BYTES, ws)).fetchall()
+    titles = {}
+    for row in rows:
+        try:
+            head = zlib.decompressobj().decompress(row['head'], HEAD_CHARS)
+        except zlib.error:
+            continue
+        name = title(head.decode('utf-8', 'ignore'))
+        if name:
+            titles.setdefault(row['source'], name)
+    _titles[:] = [key, titles]
+    return titles
+
+
 def list_metadata(workspace=None):
     if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
         return []

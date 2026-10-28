@@ -1,39 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Check, Copy, Network, X } from "lucide-react";
+import { ArrowRight, BookOpenText, Check, Copy, FileText, MessagesSquare, Network, X } from "lucide-react";
 import { toast } from "sonner";
 import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
 import { Button } from "@/components/ui/button";
-import type { GraphNode, MemoryNode } from "@/lib/types";
+import type { ReaderTarget } from "@/components/source-reader";
+import type { GraphNode, TopicSource } from "@/lib/types";
 import { KIND_ORDER, KINDS, nodeColor } from "./graph-style";
 
 const SHOWN_PER_KIND = 6;
+const SOURCES_SHOWN = 8;
 
 export function NodeDetails({
   node,
   neighbors,
-  topicChunks,
+  topicSources,
   topicContext,
   neighborhood,
   onClose,
   onOpen,
   onSelect,
-  onReadChunk,
+  onRead,
   onNeighborhood,
 }: {
   node: GraphNode;
   neighbors: GraphNode[];
-  /** For a topic: its chunks (null while loading). */
-  topicChunks: MemoryNode[] | null;
-  /** Project the topic's chunks are limited to, if any. */
+  /** For a topic: the conversations and files it comes from (null while loading). */
+  topicSources: TopicSource[] | null;
+  /** Project the topic's memories are limited to, if any. */
   topicContext: string | null;
   neighborhood: boolean;
   onClose: () => void;
   onOpen: (node: GraphNode) => void;
   onSelect: (id: string) => void;
-  onReadChunk: (chunk: MemoryNode) => void;
+  onRead: (target: ReaderTarget) => void;
   onNeighborhood: () => void;
 }) {
   const kind = KINDS[node.kind];
@@ -68,36 +70,15 @@ export function NodeDetails({
           <p className="line-clamp-6 whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-foreground/85">{node.content}</p>
         )}
 
+        {node.kind === "source" && node.fullPath && (
+          <Button variant="secondary" size="sm" className="w-full"
+            onClick={() => onRead({ source: node.fullPath!, project: node.project, title: node.label })}>
+            <BookOpenText aria-hidden /> Read in full
+          </Button>
+        )}
+
         {node.kind === "topic" && (
-          <section>
-            <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {topicContext ? `Chunks in ${topicContext}` : "Chunks"}
-              {topicChunks && ` · ${topicChunks.length}`}
-            </h4>
-            {topicChunks === null ? (
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Spinner className="size-3" /> Loading…</p>
-            ) : topicChunks.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No chunks found.</p>
-            ) : (
-              <ul className="max-h-48 overflow-y-auto rounded-lg border border-border">
-                {topicChunks.map((chunk) => (
-                  <li key={chunk.id} className="border-b border-border/60 last:border-0">
-                    <Button
-                      variant="ghost"
-                      onClick={() => onReadChunk(chunk)}
-                      title={chunk.label}
-                      className="h-auto w-full justify-start rounded-none px-2.5 py-1.5 text-left text-xs font-normal"
-                    >
-                      <span className="truncate">
-                        <span className="mr-1.5 font-mono text-muted-foreground">#{chunk.chunk_index}</span>
-                        {chunk.label}
-                      </span>
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          <TopicSources topic={node.label} sources={topicSources} context={topicContext} onRead={onRead} />
         )}
 
         {groups.length > 0 && (
@@ -121,6 +102,60 @@ export function NodeDetails({
         </Button>
       </div>
     </aside>
+  );
+}
+
+/** The conversations and files a topic comes from, each opened whole with the topic marked. */
+function TopicSources({ topic, sources, context, onRead }: {
+  topic: string;
+  sources: TopicSource[] | null;
+  context: string | null;
+  onRead: (target: ReaderTarget) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const shown = sources && (all ? sources : sources.slice(0, SOURCES_SHOWN));
+  return (
+    <section>
+      <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {context ? `From ${context}` : "Where it comes from"}
+        {sources && ` · ${sources.length}`}
+      </h4>
+      {sources === null ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Spinner className="size-3" /> Loading…</p>
+      ) : sources.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No memories found.</p>
+      ) : (
+        <ul className="divide-y divide-border/60 rounded-lg border border-border">
+          {shown!.map((s) => {
+            const Icon = s.source_type === "conversation" ? MessagesSquare : FileText;
+            const name = s.title || s.source || "Saved without a source";
+            return (
+              <li key={`${s.project}\u0000${s.source}`}>
+                <button
+                  type="button"
+                  disabled={!s.source}
+                  onClick={() => onRead({ source: s.source, project: s.project, topic, title: s.title })}
+                  title={s.title ? `${s.title}\n${s.source}` : s.source}
+                  className="flex w-full items-start gap-2 px-2.5 py-2 text-left text-xs outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none"
+                >
+                  <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 leading-snug">{name}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{s.project || "No project"}</span>
+                  </span>
+                  <span className="shrink-0 text-muted-foreground tabular-nums">{s.chunks.length}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {sources && sources.length > SOURCES_SHOWN && (
+        <Button variant="ghost" size="xs" className="mt-1 font-normal text-muted-foreground" onClick={() => setAll((v) => !v)}>
+          {all ? "Show fewer" : `+${sources.length - SOURCES_SHOWN} more`}
+        </Button>
+      )}
+    </section>
   );
 }
 

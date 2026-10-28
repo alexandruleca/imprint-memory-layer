@@ -3,6 +3,40 @@ import { test, expect, type Page } from '@playwright/test';
 const TOKEN = 'hf_storedtoken0000wxyz';
 const DESC = 'Hugging Face access token for model downloads';
 
+test('chat section analysis defaults to two sequential workers and can be changed and reset', async ({ page }) => {
+  const state = { value: 2, source: 'default', writes: [] as unknown[] };
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [{
+    key: 'chat.analysis_workers', value: state.value, default: 2, source: state.source, type: 'analysis_worker_count',
+    env: 'IMPRINT_CHAT_ANALYSIS_WORKERS', desc: 'Sequential workers for oversized questions and evidence.', custom: false,
+    choices: Array.from({ length: 9 }, (_, n) => ({ value: n, label: n ? String(n) : 'Off', detail: '', unavailable: '' })),
+  }] } }));
+  await page.route('**/api/config/chat.analysis_workers', async route => {
+    if (route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON();
+      state.writes.push(body);
+      state.value = Number(body.value); state.source = 'config';
+    } else {
+      state.value = 2; state.source = 'default';
+    }
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/settings/#settings-chat');
+  const count = page.getByRole('combobox', { name: 'Sequential analysis workers' });
+  await expect(count).toContainText('2');
+  await count.click();
+  await page.getByRole('option', { name: '3', exact: true }).click();
+  await expect(count).toContainText('3');
+  expect(state.writes).toEqual([{ value: '3' }]);
+  await expect(page.getByText('Changed', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await expect(count).toContainText('2');
+  await count.click();
+  await page.getByRole('option', { name: 'Off', exact: true }).click();
+  await expect(count).toContainText('Off');
+});
+
 // Mirrors imprint/api.py: secret values only ever leave the API masked.
 async function mockApi(page: Page, initial: { value: string; source: string }) {
   const state = { ...initial, puts: [] as unknown[], deletes: 0 };
@@ -215,4 +249,32 @@ test('desktop app chats and unassigned folders get a workspace picked from this 
   await page.getByRole('option', { name: /Active workspace/ }).click();
   await expect.poll(() => state.puts).toEqual([{ value: 'personal' }, { value: '' }]);
   await expect(trigger).toHaveText(/Active workspace/);
+});
+
+test('one section shows at a time; its link, a deep link and the filter reach the others', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'model.device', value: 'auto', source: 'default', default: 'auto', type: 'str', env: 'IMPRINT_DEVICE', desc: 'Compute device' },
+    { key: 'chat.provider', value: 'local', source: 'config', default: 'local', type: 'str', env: 'IMPRINT_CHAT_PROVIDER', desc: 'Chat model provider' },
+  ] } }));
+  const sections = page.getByRole('navigation', { name: 'Settings sections' });
+  await page.goto('/settings/');
+  await expect(page.getByText('model.device')).toBeVisible();
+  await expect(page.getByText('chat.provider')).toHaveCount(0);
+  await expect(sections.getByRole('link', { name: /Embeddings/ })).toHaveAttribute('aria-current', 'page');
+
+  await sections.getByRole('link', { name: /Chat/ }).click();
+  await expect(page).toHaveURL(/#settings-chat$/);
+  await expect(page.getByText('chat.provider')).toBeVisible();
+  await expect(page.getByText('model.device')).toHaveCount(0);
+
+  await page.getByLabel('Filter settings').fill('provider device');
+  await expect(page.getByText('Nothing matches')).toBeVisible();
+  await page.getByLabel('Filter settings').fill('model');
+  await expect(page.getByText('model.device')).toBeVisible();
+  await page.getByLabel('Filter settings').fill('');
+
+  await page.goto('/settings/#workspaces');
+  await expect(sections.getByRole('link', { name: 'Workspaces' })).toHaveAttribute('aria-current', 'page');
 });

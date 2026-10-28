@@ -36,8 +36,8 @@ async function mockApi(page: Page, overlaps: string[] = []) {
 
 async function ingestDirectory(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Ingest Directory/ }).click();
-  await page.getByLabel('Directory', { exact: true }).fill(`${ROOT}/src`);
+  await page.getByRole('button', { name: /^Folder/ }).click();
+  await page.getByLabel('Folder', { exact: true }).fill(`${ROOT}/src`);
   await page.getByRole('button', { name: 'Run' }).click();
 }
 

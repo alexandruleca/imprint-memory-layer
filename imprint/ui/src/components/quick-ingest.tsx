@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -12,9 +12,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Spinner } from "@/components/loaders";
 import { enqueueCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
-import { Globe, FileText, FolderOpen, RefreshCw, Tags, GraduationCap, X, Play, CheckCircle2, CircleAlert } from "lucide-react";
+import { ArrowRight, Globe, FileText, FolderOpen, GraduationCap, X, Play, CheckCircle2, CircleAlert } from "lucide-react";
 
-type Command = "ingest-url" | "ingest" | "refresh" | "retag" | "learn";
+type Command = "ingest-url" | "ingest" | "learn";
 
 type Field = {
   key: string;
@@ -36,27 +36,25 @@ type Action = {
   required?: string[];
 };
 
+// What can be added to memory from here. Keeping memory current (refresh,
+// retag, scrub) and clients live on the Commands page.
 const ACTIONS: Action[] = [
   {
-    id: "ingest-url",
-    command: "ingest-url",
-    label: "Ingest URL",
-    desc: "Fetch and index a web page, PDF, or document URL",
-    icon: Globe,
+    id: "ingest-directory",
+    command: "ingest",
+    label: "Folder",
+    desc: "Every supported file in a project or folder",
+    icon: FolderOpen,
     fields: [
-      { key: "url", label: "URL", placeholder: "https://example.com/page.html" },
-      { key: "project", label: "Project (optional)", placeholder: "my-project" },
-      { key: "force", label: "Force re-ingest", type: "checkbox" },
-      { key: "follow", label: "Follow links", type: "checkbox" },
-      { key: "follow_depth", label: "Follow depth", placeholder: "1", showWhen: { key: "follow", value: true } },
+      { key: "dir", label: "Folder", placeholder: "/home/user/my-project", browse: "dir" },
     ],
-    required: ["url"],
+    required: ["dir"],
   },
   {
     id: "ingest-document",
     command: "ingest",
-    label: "Ingest Document",
-    desc: "Index one PDF, Word, EPUB, or other document file",
+    label: "Document",
+    desc: "One PDF, Word, EPUB or text file",
     icon: FileText,
     fields: [
       { key: "dir", label: "Document", placeholder: "/home/user/Documents/report.pdf", browse: "file" },
@@ -64,43 +62,25 @@ const ACTIONS: Action[] = [
     required: ["dir"],
   },
   {
-    id: "ingest-directory",
-    command: "ingest",
-    label: "Ingest Directory",
-    desc: "Index every supported file in a directory",
-    icon: FolderOpen,
+    id: "ingest-url",
+    command: "ingest-url",
+    label: "Web page",
+    desc: "A page, PDF or document at a URL",
+    icon: Globe,
     fields: [
-      { key: "dir", label: "Directory", placeholder: "/home/user/my-project", browse: "dir" },
+      { key: "url", label: "URL", placeholder: "https://example.com/page.html" },
+      { key: "project", label: "Project (optional)", placeholder: "my-project" },
+      { key: "force", label: "Fetch again", type: "checkbox" },
+      { key: "follow", label: "Follow links", type: "checkbox" },
+      { key: "follow_depth", label: "Follow depth", placeholder: "1", showWhen: { key: "follow", value: true } },
     ],
-    required: ["dir"],
-  },
-  {
-    id: "refresh",
-    command: "refresh",
-    label: "Refresh",
-    desc: "Re-index only files changed since last ingest",
-    icon: RefreshCw,
-    fields: [
-      { key: "dir", label: "Directory (optional)", placeholder: "/home/user/my-project", browse: "dir" },
-    ],
-  },
-  {
-    id: "retag",
-    command: "retag",
-    label: "Retag",
-    desc: "Re-classify existing memories with the LLM tagger",
-    icon: Tags,
-    fields: [
-      { key: "project", label: "Project filter (optional)", placeholder: "my-project" },
-      { key: "all", label: "Include already-tagged (--all)", type: "checkbox" },
-      { key: "dry_run", label: "Dry run", type: "checkbox" },
-    ],
+    required: ["url"],
   },
   {
     id: "learn",
     command: "learn",
-    label: "Learn",
-    desc: "Index coding-assistant conversations (including WSL profiles) and memory files",
+    label: "Conversations",
+    desc: "Your coding assistants' chats and memory files",
     icon: GraduationCap,
     fields: [],
   },
@@ -167,13 +147,22 @@ export function QuickIngest() {
 
   return (
     <Card>
-      <CardContent className="p-4 space-y-3">
+      <CardHeader>
+        <CardTitle>Add to memory</CardTitle>
+        <CardDescription>Index something new. It runs in the queue, one job at a time.</CardDescription>
+        <CardAction>
+          <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/commands/" />} className="text-muted-foreground">
+            Refresh, retag and more <ArrowRight aria-hidden />
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
         <ToggleGroup
-          aria-label="Quick actions"
+          aria-label="Add to memory"
           spacing={2}
           value={active ? [active] : []}
           onValueChange={(value) => selectAction(value[0])}
-          className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 2xl:grid-cols-6"
+          className="grid w-full grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
         >
           {ACTIONS.map((a) => {
             const Icon = a.icon;

@@ -97,7 +97,7 @@ test('manage dialog edits roots and guards deletion', async ({ page }) => {
 test('ingest document queues a single-file ingest', async ({ page }) => {
   const { posts } = await mockApi(page);
   await page.goto('/');
-  await page.getByRole('button', { name: /Ingest Document/ }).click();
+  await page.getByRole('button', { name: /^Document/ }).click();
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(page.getByText('Document is required')).toBeVisible();
   await page.getByLabel('Document').fill('/home/me/report.pdf');

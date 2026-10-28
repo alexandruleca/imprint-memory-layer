@@ -11,6 +11,8 @@ Search returns bounded excerpts. `get_memory` expands one chunk and includes spa
 
 This tool reads stored text only. It never opens a path from a memory, including a foreign device's path. A version identifies the current head; older versions are not retained. Snapshot publication is atomic within SQLite and occurs after vector writes and cleanup succeed. The two stores do not share a transaction: readers may observe a mismatch during replacement, or after interruption. The next learning/refresh repairs it; the integrity result exposes it.
 
+The dashboard reads the same snapshots ([ADR 0094](adr/0094-the-dashboard-reads-whole-sources-from-their-snapshots.md)). `GET /api/sources/read` returns one in blocks: a conversation's events, read back from the snapshot's event headers by `conversation_source.read`, or a file's text cut where its chunks end, each marked where a chunk tagged with the requested topic covers it. Conversations are listed by their first typed question, read from the start of each snapshot. A source without a snapshot is reported, not rebuilt from its chunks.
+
 ## What survives
 
 UTF-8 source files retain their complete redacted text, including CRLF, whitespace and files shorter than 100 characters. Derived filename prefixes and overlapping slices can be removed using the manifest to rebuild that text exactly. Extracted documents and URLs retain extracted readable text, not their original binary/HTML container. Inline append mode (`replace=False`) and individual `store` notes have no full-source snapshot.

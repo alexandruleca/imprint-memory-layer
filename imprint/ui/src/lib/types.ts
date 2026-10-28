@@ -71,11 +71,59 @@ export interface TopicOverviewData {
   facets: Facets;
 }
 
+/** A topic's memories from one source, in source order. */
+export interface TopicSource {
+  source: string;
+  project: string;
+  /** How it was stored: "conversation", "file", "url", …; "" for older memories. */
+  source_type: string;
+  /** A conversation's first question; "" for files. */
+  title: string;
+  chunks: Pick<MemoryNode, "id" | "label" | "type" | "chunk_index" | "tags" | "content">[];
+}
+
 export interface TopicDetailData {
   topic: string;
+  /** The project the detail is limited to, if any. */
+  project: string | null;
   total: number;
-  nodes: MemoryNode[];
   projects: [string, number][];
+  /** Largest group first. */
+  sources: TopicSource[];
+}
+
+/** One readable piece of a source: a conversation event, or a run of a file
+ * between chunk boundaries (GET /api/sources/read). */
+export interface SourceBlock {
+  text: string;
+  start: number;
+  end: number;
+  /** Chunk indexes that cover this block. */
+  chunks: number[];
+  /** A chunk covering it carries the topic the reader was opened for. */
+  match: boolean;
+  // Conversation events only (imprint/conversation_source.py).
+  event?: number;
+  role?: "user" | "assistant" | "system" | "developer" | "tool" | "context";
+  kind?: "message" | "analysis" | "tool_call" | "tool_output" | "client_context" | "attachment";
+  turn?: number;
+  timestamp?: string | number;
+  tool?: string;
+  call_id?: string;
+}
+
+export interface SourceRead {
+  source: string;
+  project: string;
+  kind: string;
+  available: true;
+  title: string;
+  topic: string;
+  total_chars: number;
+  chunk_count: number;
+  updated_at?: number;
+  details: { event_count?: number; omissions?: Record<string, number> };
+  blocks: SourceBlock[];
 }
 
 export interface SourceLineage {
@@ -97,6 +145,8 @@ export interface StatsData {
 export interface SourceEntry {
   source: string;
   chunks: number;
+  /** A conversation's first question; "" for files. */
+  title?: string;
 }
 
 export interface SourcesData {
@@ -207,6 +257,11 @@ export interface QueueJob {
   id: string;
   command: string;
   body: Record<string, unknown>;
+  /** What the dashboard calls the job and what it was asked to do (imprint/commands.py describe). */
+  label?: string;
+  params?: { label: string; value: string }[];
+  /** The workspace it was queued for. */
+  workspace?: string | null;
   status: QueueJobStatus;
   pid: number | null;
   pgid: number | null;

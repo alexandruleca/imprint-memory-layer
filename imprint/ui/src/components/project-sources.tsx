@@ -1,5 +1,7 @@
 "use client";
 
+import { BookOpenText } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,10 +13,11 @@ type Props = {
   sources: SourceEntry[] | null;
   selected: Set<string>;
   onSelectedChange: (selected: Set<string>) => void;
+  onRead: (source: SourceEntry) => void;
 };
 
-/** A project's sources with chunk counts, selectable for a move. */
-export function ProjectSources({ sources, selected, onSelectedChange }: Props) {
+/** A project's sources with chunk counts, selectable for a move and readable whole. */
+export function ProjectSources({ sources, selected, onSelectedChange, onRead }: Props) {
   if (!sources) {
     return (
       <div className="space-y-2" aria-busy="true">
@@ -48,6 +51,7 @@ export function ProjectSources({ sources, selected, onSelectedChange }: Props) {
           </TableHead>
           <TableHead>Source</TableHead>
           <TableHead className="w-20 text-right">Chunks</TableHead>
+          <TableHead className="w-10"><span className="sr-only">Read</span></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -57,8 +61,20 @@ export function ProjectSources({ sources, selected, onSelectedChange }: Props) {
               <Checkbox aria-label={`Select ${s.source}`} checked={selected.has(s.source)}
                 onCheckedChange={(checked) => toggle(s.source, checked)} />
             </TableCell>
-            <TableCell className="max-w-0 truncate font-mono text-xs" title={s.source}>{s.source}</TableCell>
+            <TableCell className="max-w-0" title={s.title ? `${s.title}\n${s.source}` : s.source}>
+              {s.title ? (
+                <>
+                  <span className="block truncate text-sm">{s.title}</span>
+                  <span className="block truncate font-mono text-[11px] text-muted-foreground">{s.source}</span>
+                </>
+              ) : <span className="block truncate font-mono text-xs">{s.source}</span>}
+            </TableCell>
             <TableCell className="text-right tabular-nums">{s.chunks.toLocaleString()}</TableCell>
+            <TableCell>
+              <Button variant="ghost" size="icon-sm" aria-label={`Read ${s.title || s.source}`} onClick={() => onRead(s)}>
+                <BookOpenText aria-hidden />
+              </Button>
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>

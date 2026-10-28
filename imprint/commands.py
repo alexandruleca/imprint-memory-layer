@@ -105,6 +105,30 @@ DIALOG_FLOWS = frozenset({'wipe', 'migrate', 'workspace', 'wsl'})
 
 ALLOWED = frozenset(command['name'] for command in CATALOG) | DIALOG_FLOWS
 
+# Names for the queued jobs the Commands page does not offer.
+OTHER_LABELS = {'tag-backlog': 'Background tagging', 'wipe': 'Wipe workspace', 'migrate': 'Copy or move memories',
+                'workspace': 'Change workspaces', 'wsl': 'WSL profile'}
+
+
+def describe(command: str, body: dict | None) -> dict:
+    """A job as the dashboard names it: its command's label, what it was
+    asked to do in the words of the command's fields, and the workspace it
+    was queued for."""
+    entry = next((c for c in CATALOG if c['name'] == command), {})
+    fields = {field['key']: field for field in entry.get('fields', [])}
+    params = []
+    for key, value in (body or {}).items():
+        if key.startswith('_') or key in entry.get('fixed', {}) or value in (None, '', False):
+            continue
+        field = fields.get(key, {})
+        if key == 'args' and isinstance(value, list):
+            params.append({'label': 'Arguments', 'value': ' '.join(map(str, value))})
+        else:
+            params.append({'label': field.get('label') or key.replace('_', ' ').capitalize(),
+                           'value': '' if value is True else str(value)})
+    return {'label': entry.get('label') or OTHER_LABELS.get(command, command), 'params': params,
+            'workspace': (body or {}).get('_workspace') or None}
+
 
 def clients() -> list[dict]:
     """The CLI's clients, each ``{name, label, connected}``."""

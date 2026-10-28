@@ -1,114 +1,52 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { toast } from "sonner";
+import { Ban, CheckCircle2, ChevronRight, Clock, PauseCircle, RotateCw, Sparkles, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
+import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Hint } from "@/components/hint";
 import { Spinner } from "@/components/loaders";
-import { CancelButton } from "@/components/ingestion-progress";
-import { getQueue, resumeBackgroundTagging, tailJobStream } from "@/lib/api";
+import { PageHeader } from "@/components/split-page";
+import { CancelButton, JobName, RunningJob } from "@/components/ingestion-progress";
+import { resumeBackgroundTagging, tailJobStream } from "@/lib/api";
+import { ago, formatDuration, runTime, useQueue } from "@/lib/queue";
 import { useFollowOutput } from "@/lib/use-follow-output";
-import {
-  CheckCircle2,
-  XCircle,
-  Ban,
-  Clock,
-  PlayCircle,
-  PauseCircle,
-  ChevronRight,
-  ChevronDown,
-  RotateCw,
-  Sparkles,
-} from "lucide-react";
-import type {
-  BackgroundTagging,
-  BackgroundTaggingState,
-  QueueJob,
-  QueueJobStatus,
-  QueueResponse,
-} from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type { BackgroundTagging, BackgroundTaggingState, QueueJob, QueueJobStatus } from "@/lib/types";
 
-function formatDuration(seconds: number): string {
-  if (seconds < 1) return "<1s";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  if (m < 60) return `${m}m ${s}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
-}
+const DESCRIPTION = "Imprint runs one job at a time, in the order they were asked for. Background tagging fills the time in between and steps aside for anything else.";
 
-function formatTime(ts: number | null | undefined): string {
-  if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleTimeString();
-}
+const STATUS: Record<QueueJobStatus, { label: string; icon: React.ElementType; className: string }> = {
+  running: { label: "Running", icon: Spinner, className: "text-foreground" },
+  queued: { label: "Waiting", icon: Clock, className: "text-muted-foreground" },
+  done: { label: "Done", icon: CheckCircle2, className: "text-emerald-600" },
+  failed: { label: "Failed", icon: XCircle, className: "text-destructive" },
+  cancelled: { label: "Cancelled", icon: Ban, className: "text-muted-foreground" },
+  yielded: { label: "Stepped aside", icon: PauseCircle, className: "text-muted-foreground" },
+};
 
-function jobDuration(j: QueueJob): number | null {
-  if (j.started_at && j.ended_at) return j.ended_at - j.started_at;
-  if (j.started_at && j.status === "running") return Date.now() / 1000 - j.started_at;
-  return null;
-}
-
-function summarizeBody(body: Record<string, unknown>): string {
-  const parts: string[] = [];
-  for (const [k, v] of Object.entries(body ?? {})) {
-    if (k === "_merged") continue; // shown as a badge
-    if (v === undefined || v === null || v === "" || v === false) continue;
-    if (v === true) parts.push(`--${k}`);
-    else parts.push(`${k}=${String(v)}`);
-  }
-  return parts.join(" ") || "—";
-}
-
-/** One line of a job list that has nothing in it. */
-function EmptyList({ children }: { children: React.ReactNode }) {
-  return (
-    <Empty className="items-start p-0 text-left">
-      <EmptyDescription className="text-xs">{children}</EmptyDescription>
-    </Empty>
-  );
+function result(job: QueueJob) {
+  const status = STATUS[job.status];
+  return job.status === "failed" && job.exit_code != null ? `${status.label} · exit ${job.exit_code}` : status.label;
 }
 
 function StatusIcon({ status }: { status: QueueJobStatus }) {
-  switch (status) {
-    case "running":
-      return <Spinner className="w-3.5 h-3.5 text-amber-600" />;
-    case "queued":
-      return <Clock className="w-3.5 h-3.5 text-muted-foreground" />;
-    case "done":
-      return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
-    case "failed":
-      return <XCircle className="w-3.5 h-3.5 text-red-500" />;
-    case "cancelled":
-      return <Ban className="w-3.5 h-3.5 text-muted-foreground" />;
-    case "yielded":
-      return <PauseCircle className="w-3.5 h-3.5 text-muted-foreground" />;
-  }
+  const { icon: Icon, className } = STATUS[status];
+  return <Icon className={cn("size-4 shrink-0", className)} aria-hidden />;
 }
 
 const memories = (n: number) => `${n.toLocaleString()} ${n === 1 ? "memory" : "memories"}`;
 
 const STATE_LABEL: Record<BackgroundTaggingState, string> = {
-  off: "Off",
-  running: "Running",
-  yielded: "Yielded",
-  waiting: "Waiting",
-  paused: "Paused",
-  failed: "Failed",
-  idle: "Idle",
+  off: "Off", running: "Running", yielded: "Stepped aside", waiting: "Waiting", paused: "Paused", failed: "Failed", idle: "Up to date",
 };
 
-function describe(bg: BackgroundTagging): string {
+function explain(bg: BackgroundTagging): string {
   const waiting = bg.pending != null ? memories(bg.pending) : "Memories";
   switch (bg.state) {
     case "off":
@@ -116,34 +54,135 @@ function describe(bg: BackgroundTagging): string {
         ? `${waiting} wait for LLM tagging. Turn on LLM tagging (tagger.llm) in Settings to tag them here.`
         : "LLM tagging (tagger.llm) is off. Memories keep their keyword and zero-shot tags.";
     case "running":
-      return `Tagging, newest first: ${waiting} to go. Every other job runs first; this one steps aside between memories.`;
+      return "Tagging the newest memories first. It steps aside between memories whenever another job is waiting.";
     case "yielded":
-      return `Stepped aside for another job. ${waiting} wait; tagging resumes when the queue is idle.`;
+      return "Stepped aside for another job; it resumes when the queue is idle.";
     case "waiting":
-      return `${waiting} wait for LLM tagging. It starts when no other job runs or waits.`;
+      return "Starts when no other job runs or waits.";
     case "paused":
       return `Cancelled with ${waiting.toLowerCase()} waiting. It resumes when more memories wait.`;
     case "failed":
-      return `The last run failed; see its log. ${waiting} wait${bg.resume_at ? `; it retries at ${formatTime(bg.resume_at)}` : ""}.`;
+      return `The last run failed; see its output in History.${bg.resume_at ? ` It retries at ${new Date(bg.resume_at * 1000).toLocaleTimeString()}.` : ""}`;
     case "idle":
       return "Every memory stored with LLM tagging on has its LLM tags.";
   }
 }
 
+export default function QueuePage() {
+  const data = useQueue();
+  const [open, setOpen] = useState<QueueJob | null>(null);
+
+  if (!data) return (
+    <div className="mx-auto max-w-5xl">
+      <PageHeader title="Queue" description={DESCRIPTION} />
+      <div className="space-y-4 px-4 sm:px-8" aria-busy="true">
+        <Skeleton className="h-28 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
+    </div>
+  );
+
+  const { active, queued, recent, background } = data;
+  const running = active ?? (background?.state === "running" ? background.job : null);
+  // The sheet follows the job as the queue moves it along.
+  const shown = open && ([running, ...queued, ...recent].find((j) => j?.id === open.id) ?? open);
+
+  return (
+    <div className="mx-auto max-w-5xl pb-8">
+      <PageHeader title="Queue" description={DESCRIPTION} />
+      <div className="space-y-8 px-4 sm:px-8">
+        <Section title="Running">
+          {running ? (
+            <RunningJob job={running}><LiveOutput key={running.id} job={running} /></RunningJob>
+          ) : <Nothing>Nothing is running.</Nothing>}
+        </Section>
+
+        <Section title="Up next" count={queued.length}>
+          {queued.length ? (
+            <Card size="sm" className="gap-0 py-0">
+              <ol className="divide-y divide-border">
+                {queued.map((job, i) => (
+                  <li key={job.id} className="flex items-center gap-1 pr-2">
+                    <button type="button" onClick={() => setOpen(job)} aria-label={`${job.label ?? job.command}, position ${i + 1}. Show details`}
+                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left text-sm outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset">
+                      <span className="w-5 shrink-0 text-xs text-muted-foreground tabular-nums">{i + 1}</span>
+                      <JobName job={job} className="min-w-0 flex-1" />
+                      <Merged job={job} />
+                      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">asked {ago(job.created_at)}</span>
+                    </button>
+                    <CancelButton job={job} label="Remove from queue" className="text-muted-foreground hover:text-destructive" iconClassName="size-4" />
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          ) : <Nothing>Nothing is waiting.</Nothing>}
+        </Section>
+
+        {background && <Background bg={background} onOpen={setOpen} />}
+
+        <Section title="History">
+          {recent.length ? (
+            <Card size="sm" className="gap-0 py-0">
+              <ul className="divide-y divide-border">
+                {recent.map((job) => {
+                  const took = runTime(job);
+                  return (
+                    <li key={job.id}>
+                      <button type="button" onClick={() => setOpen(job)} aria-label={`${job.label ?? job.command}, ${result(job)}. Show details`}
+                        className="flex w-full min-w-0 items-center gap-3 px-4 py-2.5 text-left text-sm outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset">
+                        <StatusIcon status={job.status} />
+                        <JobName job={job} className="min-w-0 flex-1" />
+                        <Merged job={job} />
+                        <span className={cn("hidden shrink-0 text-xs sm:inline", job.status === "failed" ? "text-destructive" : "text-muted-foreground")}>{result(job)}</span>
+                        <span className="hidden w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums md:inline">{took !== null ? formatDuration(took) : ""}</span>
+                        <span className="w-20 shrink-0 text-right text-xs text-muted-foreground">{job.ended_at ? ago(job.ended_at) : ""}</span>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          ) : <Nothing>No job has finished yet.</Nothing>}
+        </Section>
+      </div>
+
+      <JobSheet job={shown} onClose={() => setOpen(null)} />
+    </div>
+  );
+}
+
+function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="flex items-baseline gap-2 text-sm font-semibold">
+        {title}
+        {count !== undefined && count > 0 && <span className="font-normal text-muted-foreground tabular-nums">{count}</span>}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function Nothing({ children }: { children: React.ReactNode }) {
+  return <p className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">{children}</p>;
+}
+
+/** Identical submissions joined this job (ADR 0068). */
+function Merged({ job }: { job: QueueJob }) {
+  const merged = Number(job.body?._merged ?? 0);
+  if (merged <= 0) return null;
+  return (
+    <Hint label="Identical requests joined this job; it runs once for all of them">
+      <Badge variant="secondary" className="shrink-0 text-[10px]">{merged + 1} requests</Badge>
+    </Hint>
+  );
+}
+
 /** Background LLM tagging (ADR 0067): learn and ingest leave LLM tags to it,
- * and it gives way to every other job. */
-function BackgroundCard({
-  bg,
-  expandedId,
-  onToggleLog,
-}: {
-  bg: BackgroundTagging;
-  expandedId: string | null;
-  onToggleLog: (id: string) => void;
-}) {
+ * and it gives way to every other job. A running pass shows under Running. */
+function Background({ bg, onOpen }: { bg: BackgroundTagging; onOpen: (job: QueueJob) => void }) {
   const [resuming, setResuming] = useState(false);
-  const job = bg.job;
-  const running = bg.state === "running" && job;
 
   async function resume() {
     setResuming(true);
@@ -157,315 +196,120 @@ function BackgroundCard({
   }
 
   return (
-    <Card role="region" aria-labelledby="background-tagging-title">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex flex-wrap items-center gap-2">
-          <Sparkles className="w-4 h-4 text-muted-foreground" aria-hidden />
-          <span id="background-tagging-title">Background tagging</span>
-          <Badge variant={bg.state === "failed" ? "destructive" : "secondary"} className="text-[10px]">
-            {STATE_LABEL[bg.state]}
-          </Badge>
-          {bg.pending != null && bg.pending > 0 && (
-            <span className="ml-auto whitespace-nowrap text-xs font-normal tabular-nums text-muted-foreground">
-              {memories(bg.pending)} waiting
-            </span>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="flex-1 text-xs text-muted-foreground">{describe(bg)}</p>
-          {(bg.state === "paused" || bg.state === "failed") && (
-            <Button variant="outline" size="sm" onClick={resume} disabled={resuming}>
-              {resuming ? <Spinner /> : <RotateCw />}
-              Resume now
-            </Button>
-          )}
-        </div>
-        {running && job.percent !== undefined && (
-          <Progress value={Math.min(job.percent, 100)} aria-label="Background tagging progress"
-            className="[&_[data-slot=progress-track]]:h-2" />
-        )}
-        {job && (
-          <JobRow
-            job={job}
-            expandedId={expandedId}
-            onToggleLog={onToggleLog}
-            cancellable={!!running}
-          />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export default function QueuePage() {
-  const [data, setData] = useState<QueueResponse | null>(null);
-  const [openLog, setOpenLog] = useState<string | null>(null);
-
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function poll() {
-      try {
-        const q = await getQueue(50);
-        if (!cancelled) {
-          setData(q);
-          setError(null);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
-          setData({ active: null, queued: [], recent: [] });
-        }
-      }
-    }
-    poll();
-    const t = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, []);
-
-  if (!data) {
-    return (
-      <div className="p-8">
-        <h2 className="text-2xl font-bold">Queue</h2>
-        <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading…</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-8 space-y-2">
-        <h2 className="text-2xl font-bold">Queue</h2>
-        <p role="alert" className="text-sm text-destructive">
-          Can&apos;t reach the queue API: {error}. Restart the dashboard
-          (<code>imprint ui restart</code>) to pick up the new endpoints.
+    <section role="region" aria-labelledby="background-tagging-title" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
+      <Sparkles className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="flex flex-wrap items-center gap-2 text-sm">
+          <span id="background-tagging-title" className="font-medium">Background tagging</span>
+          <Badge variant={bg.state === "failed" ? "destructive" : "secondary"} className="text-[10px]">{STATE_LABEL[bg.state]}</Badge>
+          {bg.pending != null && bg.pending > 0 && <span className="text-xs text-muted-foreground tabular-nums">{memories(bg.pending)} waiting</span>}
         </p>
+        <p className="text-xs text-muted-foreground">{explain(bg)}</p>
       </div>
-    );
+      {(bg.state === "paused" || bg.state === "failed") && (
+        <Button variant="outline" size="sm" onClick={resume} disabled={resuming}>
+          {resuming ? <Spinner /> : <RotateCw />} Resume now
+        </Button>
+      )}
+      {bg.job && bg.state !== "running" && (
+        <Button variant="ghost" size="sm" onClick={() => onOpen(bg.job!)}>Last run</Button>
+      )}
+    </section>
+  );
+}
+
+/** The running job's newest line, and its whole output on request. */
+function LiveOutput({ job }: { job: QueueJob }) {
+  const lines = useJobOutput(job.id);
+  const [show, setShow] = useState(false);
+  let last = "";
+  for (let i = lines.length - 1; i >= 0 && !last; i--) {
+    last = lines[i].split("\n").map((line) => line.trim()).filter(Boolean).pop() ?? "";
   }
-
-  const { active, queued, recent, background } = data;
-  const toggleLog = (id: string) => setOpenLog(openLog === id ? null : id);
-
   return (
-    <div className="p-8 space-y-6 max-w-5xl">
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Queue</h2>
-          <p className="text-sm text-muted-foreground">
-            One ingest/refresh/retag runs at a time; background tagging runs
-            only when nothing else waits. Cancel sends SIGTERM → SIGKILL (3s)
-            to the whole process group, so any in-flight LLM tagger call dies
-            with it.
-          </p>
-        </div>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={last}>{last || "Waiting for output…"}</p>
+        <Button variant="ghost" size="xs" aria-expanded={show} onClick={() => setShow((v) => !v)}>
+          {show ? "Hide output" : "Show output"}
+        </Button>
       </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <PlayCircle className="w-4 h-4 text-amber-600" />
-            Active
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {active ? (
-            <JobRow
-              job={active}
-              expandedId={openLog}
-              onToggleLog={(id) => setOpenLog(openLog === id ? null : id)}
-              cancellable
-            />
-          ) : (
-            <EmptyList>Nothing running.</EmptyList>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Clock className="w-4 h-4 text-muted-foreground" />
-            Queued ({queued.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {queued.length === 0 ? (
-            <EmptyList>Queue is empty.</EmptyList>
-          ) : (
-            <div className="space-y-2">
-              {queued.map((j, i) => (
-                <JobRow
-                  key={j.id}
-                  job={j}
-                  indexLabel={`${i + 1}.`}
-                  expandedId={openLog}
-                  onToggleLog={(id) => setOpenLog(openLog === id ? null : id)}
-                  cancellable
-                />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {background && (
-        <BackgroundCard bg={background} expandedId={openLog} onToggleLog={toggleLog} />
-      )}
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Recent</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recent.length === 0 ? (
-            <EmptyList>No history yet.</EmptyList>
-          ) : (
-            <div className="space-y-2">
-              {recent.map((j) => (
-                <JobRow
-                  key={j.id}
-                  job={j}
-                  expandedId={openLog}
-                  onToggleLog={(id) => setOpenLog(openLog === id ? null : id)}
-                />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {show && <Output lines={lines} live className="h-72 rounded-lg border border-border bg-muted/40" />}
     </div>
   );
 }
 
-function JobRow({
-  job,
-  indexLabel,
-  cancellable = false,
-  expandedId,
-  onToggleLog,
-}: {
-  job: QueueJob;
-  indexLabel?: string;
-  cancellable?: boolean;
-  expandedId: string | null;
-  onToggleLog: (id: string) => void;
-}) {
-  const dur = jobDuration(job);
-  const durStr = dur !== null ? formatDuration(dur) : null;
-  const expanded = expandedId === job.id;
-  const merged = Number(job.body?._merged ?? 0);
-
-  return (
-    <div className="rounded-md border border-border bg-card/40">
-      <div className="flex items-center gap-2 px-3 py-2">
-        {indexLabel && (
-          <span className="tabular-nums text-xs text-muted-foreground w-6">
-            {indexLabel}
-          </span>
-        )}
-        <StatusIcon status={job.status} />
-        <span className="sr-only">{job.status}</span>
-        <Badge variant="outline" className="text-[10px] uppercase shrink-0">
-          {job.command}
-        </Badge>
-        {merged > 0 && (
-          <Hint label="Identical requests joined this job; it runs once for all of them">
-            <Badge variant="secondary" className="text-[10px] shrink-0">
-              {merged + 1} requests
-            </Badge>
-          </Hint>
-        )}
-        <span className="text-xs text-muted-foreground truncate flex-1">
-          {summarizeBody(job.body)}
-        </span>
-        {job.status === "running" && job.percent !== undefined && (
-          <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
-            {Math.round(job.percent)}% · {job.processed ?? 0}/{job.total ?? 0}
-          </span>
-        )}
-        {durStr && (
-          <span className="text-[11px] tabular-nums text-muted-foreground shrink-0">
-            {durStr}
-          </span>
-        )}
-        {job.exit_code != null && job.status !== "running" && (
-          <Badge
-            variant="secondary"
-            className={`text-[10px] shrink-0 ${
-              job.status === "failed" ? "text-red-600" : ""
-            }`}
-          >
-            exit {job.exit_code}
-          </Badge>
-        )}
-        <Hint label={expanded ? "Hide log" : "Show log"}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
-            onClick={() => onToggleLog(job.id)}
-            aria-label={expanded ? "Hide log" : "Show log"}
-            aria-expanded={expanded}
-          >
-            {expanded ? (
-              <ChevronDown className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronRight className="w-3.5 h-3.5" />
-            )}
-          </Button>
-        </Hint>
-        {cancellable && (job.status === "queued" || job.status === "running") && (
-          <CancelButton
-            job={job}
-            label={job.status === "running" ? "Cancel job" : "Remove from queue"}
-            className="h-7 px-2 text-muted-foreground hover:text-red-600"
-            iconClassName="w-3.5 h-3.5"
-          />
-        )}
-      </div>
-      {expanded && (
-        <div className="border-t border-border px-3 py-2 space-y-1.5">
-          <div className="flex gap-3 text-[11px] text-muted-foreground tabular-nums">
-            <span>created {formatTime(job.created_at)}</span>
-            <span>started {formatTime(job.started_at)}</span>
-            <span>ended {formatTime(job.ended_at)}</span>
-            {job.pid != null && <span>pid {job.pid}</span>}
-          </div>
-          {job.error && (
-            <p className="text-[11px] text-destructive font-mono">{job.error}</p>
-          )}
-          <JobLog key={job.id} jobId={job.id} live={job.status === "running"} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function JobLog({ jobId, live }: { jobId: string; live: boolean }) {
+/** A job's output so far, then as it arrives. Callers are keyed by job. */
+function useJobOutput(jobId: string) {
   const [lines, setLines] = useState<string[]>([]);
-  const scroller = useFollowOutput(lines);
-
   useEffect(() => {
     const ctrl = tailJobStream(jobId, (ev) => {
-      if (ev.type === "output") {
-        setLines((prev) => [...prev, ev.text as string]);
-      }
+      if (ev.type === "output") setLines((prev) => [...prev, ev.text as string]);
     });
     return () => ctrl.abort();
   }, [jobId]);
+  return lines;
+}
 
+function Output({ lines, live, className }: { lines: string[]; live?: boolean; className?: string }) {
+  const scroller = useFollowOutput(lines);
   return (
-    <ScrollArea className="h-40" viewportRef={scroller}>
-      <pre className="text-[10.5px] font-mono whitespace-pre-wrap break-words bg-muted rounded p-2">
-        {lines.join("") || (live ? "waiting for output…" : "(no output)")}
+    <ScrollArea className={className} viewportRef={scroller}>
+      <pre className="p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+        {lines.join("") || <span className="text-muted-foreground">{live ? "Waiting for output…" : "No output."}</span>}
       </pre>
     </ScrollArea>
+  );
+}
+
+/** Everything about one job: what it was asked to do, when it ran, how it
+ * ended, and its output. */
+function JobSheet({ job, onClose }: { job: QueueJob | null; onClose: () => void }) {
+  return (
+    <Sheet open={!!job} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent className="w-full gap-0 sm:max-w-xl">
+        {job && <JobDetails key={job.id} job={job} />}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function JobDetails({ job }: { job: QueueJob }) {
+  const lines = useJobOutput(job.id);
+  const took = runTime(job);
+  const time = (ts: number | null) => (ts ? new Date(ts * 1000).toLocaleString() : "—");
+  return (
+    <>
+      <SheetHeader className="gap-1 border-b border-border pr-12">
+        <SheetTitle className="flex items-center gap-2"><StatusIcon status={job.status} />{job.label ?? job.command}</SheetTitle>
+        <SheetDescription>{result(job)}{took !== null && ` · ${formatDuration(took)}`}</SheetDescription>
+      </SheetHeader>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+          {(job.params ?? []).map((p) => (
+            <div key={p.label} className="contents">
+              <dt className="text-muted-foreground">{p.label}</dt>
+              <dd className="font-mono text-xs leading-5 break-all">{p.value || "Yes"}</dd>
+            </div>
+          ))}
+          {job.workspace && <><dt className="text-muted-foreground">Workspace</dt><dd>{job.workspace}</dd></>}
+          <dt className="text-muted-foreground">Asked</dt><dd className="tabular-nums">{time(job.created_at)}</dd>
+          <dt className="text-muted-foreground">Started</dt><dd className="tabular-nums">{time(job.started_at)}</dd>
+          <dt className="text-muted-foreground">Ended</dt><dd className="tabular-nums">{time(job.ended_at)}</dd>
+          {job.pid != null && <><dt className="text-muted-foreground">Process</dt><dd className="tabular-nums">{job.pid}</dd></>}
+          <dt className="text-muted-foreground">Command</dt><dd className="font-mono text-xs leading-5">imprint {job.command}</dd>
+        </dl>
+        {job.error && <p role="alert" className="rounded-lg bg-destructive/5 px-3 py-2 font-mono text-xs text-destructive">{job.error}</p>}
+        {(job.status === "queued" || job.status === "running") && (
+          <CancelButton job={job} label={job.status === "running" ? "Cancel job" : "Remove from queue"} className="self-start" iconClassName="size-4">
+            {job.status === "running" ? "Cancel job" : "Remove from queue"}
+          </CancelButton>
+        )}
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+          <h3 className="text-xs font-medium text-muted-foreground">Output</h3>
+          <Output lines={lines} live={job.status === "running"} className="min-h-40 flex-1 rounded-lg border border-border bg-muted/40" />
+        </div>
+      </div>
+    </>
   );
 }

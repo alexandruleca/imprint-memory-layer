@@ -9,6 +9,7 @@ import { ApiError, getStats, getOverview } from "@/lib/api";
 import { DashboardSkeleton } from "@/components/loaders";
 import { IngestionProgress } from "@/components/ingestion-progress";
 import { QuickIngest } from "@/components/quick-ingest";
+import { PageHeader } from "@/components/split-page";
 import { Database, FolderOpen, Code, Tags } from "lucide-react";
 import type { StatsData, OverviewData } from "@/lib/types";
 
@@ -136,71 +137,69 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-        <p className="text-sm text-muted-foreground mt-1">Overview of your AI memory store</p>
+    <div className="pb-8">
+      <PageHeader title="Dashboard" description="What your AI tools remember, and where it came from." />
+      <div className="space-y-6 px-4 sm:px-8">
+        {stats.total === 0 && <Empty className="border bg-card">
+          <EmptyHeader className="max-w-xl">
+            <EmptyMedia variant="icon"><Database aria-hidden /></EmptyMedia>
+            <EmptyTitle><h2 className="font-semibold">Build your first memory</h2></EmptyTitle>
+            <EmptyDescription>1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</EmptyDescription>
+            <EmptyDescription className="text-xs">Only selected sources are indexed. Secrets and files outside a selected folder are excluded.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
+        <QuickIngest />
+        <IngestionProgress />
+
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-5">
+          <StatCard label="Total Memories" value={stats.total} icon={Database} />
+          <StatCard label="Projects" value={overview.projects.length} icon={FolderOpen} />
+          <StatCard label="Languages" value={stats.langs?.length || 0} icon={Code} />
+          <StatCard label="Topics" value={stats.topics?.length || 0} icon={Tags} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium">Projects</CardTitle></CardHeader>
+            <CardContent>
+              <BarList items={stats.projects || []} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium">Languages</CardTitle></CardHeader>
+            <CardContent>
+              <BarList items={stats.langs || []} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium">Domains</CardTitle></CardHeader>
+            <CardContent>
+              <BarList items={stats.domains || []} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-medium">Types</CardTitle></CardHeader>
+            <CardContent>
+              <BarList items={stats.types || []} />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader><CardTitle className="text-sm font-medium">Top Projects</CardTitle></CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {overview.projects.slice(0, 20).map((p) => (
+              <Badge
+                key={p.id}
+                variant="secondary"
+                style={{ borderColor: p.color, borderWidth: 1 }}
+              >
+                {p.name} ({p.count.toLocaleString()})
+              </Badge>
+            ))}
+          </CardContent>
+        </Card>
       </div>
-
-      {stats.total === 0 && <Empty className="border bg-card">
-        <EmptyHeader className="max-w-xl">
-          <EmptyMedia variant="icon"><Database aria-hidden /></EmptyMedia>
-          <EmptyTitle><h2 className="font-semibold">Build your first memory</h2></EmptyTitle>
-          <EmptyDescription>1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</EmptyDescription>
-          <EmptyDescription className="text-xs">Only selected sources are indexed. Secrets and files outside a selected folder are excluded.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>}
-      <QuickIngest />
-      <IngestionProgress />
-
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-5">
-        <StatCard label="Total Memories" value={stats.total} icon={Database} />
-        <StatCard label="Projects" value={overview.projects.length} icon={FolderOpen} />
-        <StatCard label="Languages" value={stats.langs?.length || 0} icon={Code} />
-        <StatCard label="Topics" value={stats.topics?.length || 0} icon={Tags} />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader><CardTitle className="text-sm font-medium">Projects</CardTitle></CardHeader>
-          <CardContent>
-            <BarList items={stats.projects || []} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm font-medium">Languages</CardTitle></CardHeader>
-          <CardContent>
-            <BarList items={stats.langs || []} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm font-medium">Domains</CardTitle></CardHeader>
-          <CardContent>
-            <BarList items={stats.domains || []} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm font-medium">Types</CardTitle></CardHeader>
-          <CardContent>
-            <BarList items={stats.types || []} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader><CardTitle className="text-sm font-medium">Top Projects</CardTitle></CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {overview.projects.slice(0, 20).map((p) => (
-            <Badge
-              key={p.id}
-              variant="secondary"
-              style={{ borderColor: p.color, borderWidth: 1 }}
-            >
-              {p.name} ({p.count.toLocaleString()})
-            </Badge>
-          ))}
-        </CardContent>
-      </Card>
     </div>
   );
 }

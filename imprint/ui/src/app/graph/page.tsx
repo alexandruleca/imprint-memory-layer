@@ -5,13 +5,14 @@ import Link from "next/link";
 import { ChevronDown, ChevronUp, Network, RotateCw, Search as SearchIcon, X } from "lucide-react";
 import { getGraphScope, getMemory, getTopicDetail } from "@/lib/api";
 import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
+import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import { GraphSkeleton, Spinner } from "@/components/loaders";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Kbd } from "@/components/ui/kbd";
-import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeKind, GraphScopeData, MemoryNode } from "@/lib/types";
+import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeKind, GraphScopeData, TopicSource } from "@/lib/types";
 import { GraphBreadcrumbs, scopeKind, type ScopeCrumb } from "./_components/breadcrumbs";
 import { GraphCanvas, type GraphCanvasHandle, type GraphForces } from "./_components/graph-canvas";
 import { GraphLegend } from "./_components/graph-legend";
@@ -91,7 +92,8 @@ function GraphPageContent() {
   const [matchIndex, setMatchIndex] = useState(-1);
   const [chunkDialog, setChunkDialog] = useState<ChunkPreview | null>(null);
   const [openingChunk, setOpeningChunk] = useState(false);
-  const [topicResult, setTopicResult] = useState<{ key: string; nodes: MemoryNode[] }>({ key: "", nodes: [] });
+  const [topicResult, setTopicResult] = useState<{ key: string; sources: TopicSource[] }>({ key: "", sources: [] });
+  const [reading, setReading] = useState<ReaderTarget | null>(null);
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, hidden: [...hidden] })); } catch {}
@@ -183,13 +185,13 @@ function GraphPageContent() {
     return crumb ? crumb.scope.slice("project:".length) : null;
   }, [trail]);
   const topicKey = selected?.kind === "topic" ? `${currentProject}:${selected.id}` : "";
-  const topicChunks = topicKey && topicResult.key === topicKey ? topicResult.nodes : null;
+  const topicSources = topicKey && topicResult.key === topicKey ? topicResult.sources : null;
   useEffect(() => {
     if (!selected || selected.kind !== "topic") return;
     let cancelled = false;
-    getTopicDetail(selected.label).then((result) => {
-      if (!cancelled) setTopicResult({ key: topicKey, nodes: currentProject ? result.nodes.filter((n) => n.project === currentProject) : result.nodes });
-    }).catch(() => { if (!cancelled) setTopicResult({ key: topicKey, nodes: [] }); });
+    getTopicDetail(selected.label, currentProject).then((result) => {
+      if (!cancelled) setTopicResult({ key: topicKey, sources: result.sources });
+    }).catch(() => { if (!cancelled) setTopicResult({ key: topicKey, sources: [] }); });
     return () => { cancelled = true; };
   }, [selected, currentProject, topicKey]);
 
@@ -197,7 +199,7 @@ function GraphPageContent() {
     const fallback = { label: node.label, source: node.fullPath, project: node.project, content: node.content || "" };
     setOpeningChunk(true);
     getMemory(node.id.replace(/^chunk:/, ""))
-      .then((m) => setChunkDialog({ ...fallback, content: m.content || fallback.content }))
+      .then((m) => setChunkDialog({ ...m, label: node.label, content: m.content || fallback.content }))
       .catch(() => setChunkDialog(fallback))
       .finally(() => setOpeningChunk(false));
   }, []);
@@ -227,7 +229,7 @@ function GraphPageContent() {
   // "/" finds, Escape clears the query, then the selection.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (chunkDialog) return;
+      if (chunkDialog || reading) return;
       const typing = event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]");
       if (event.key === "/" && !typing) {
         event.preventDefault();
@@ -238,7 +240,7 @@ function GraphPageContent() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chunkDialog, query, selectedId]);
+  }, [chunkDialog, reading, query, selectedId]);
 
   const centerNode = data?.nodes.find((n) => n.id === data.center);
   const crumbs = trail.map((c, i) => (i === trail.length - 1 && centerNode && !loading ? { ...c, label: centerNode.label } : c));
@@ -347,7 +349,7 @@ function GraphPageContent() {
           </div>
         )}
 
-        <div className={`absolute bottom-3 right-3 z-10 ${!data?.nodes.length ? "hidden" : selected ? "hidden sm:block sm:right-[21.75rem]" : ""}`}>
+        <div className={`absolute bottom-3 right-3 z-10 ${!data?.nodes.length ? "hidden" : selected ? "hidden sm:block sm:right-[25.75rem]" : ""}`}>
           <GraphToolbar
             settings={settings}
             onSettings={setSettings}
@@ -360,24 +362,26 @@ function GraphPageContent() {
         </div>
 
         {selected && (
-          <div className="absolute inset-x-2 bottom-2 z-20 max-h-[55%] sm:inset-x-auto sm:bottom-3 sm:right-3 sm:top-3 sm:max-h-none sm:w-80">
+          <div className="absolute inset-x-2 bottom-2 z-20 max-h-[55%] sm:inset-x-auto sm:bottom-3 sm:right-3 sm:top-3 sm:max-h-none sm:w-96">
             <NodeDetails
               node={selected}
               neighbors={neighbors}
-              topicChunks={topicChunks}
+              topicSources={topicSources}
               topicContext={currentProject}
               neighborhood={neighborhood}
               onClose={() => setSelectedId(null)}
               onOpen={open}
               onSelect={select}
-              onReadChunk={(chunk) => setChunkDialog(chunk)}
+              onRead={setReading}
               onNeighborhood={() => setNeighborhood((v) => !v)}
             />
           </div>
         )}
       </div>
 
-      <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)} />
+      <ChunkDialog chunk={chunkDialog} onClose={() => setChunkDialog(null)}
+        onReadSource={(c) => { setChunkDialog(null); setReading({ source: c.source!, project: c.project, chunk: c.chunk_index }); }} />
+      <SourceReader target={reading} onClose={() => setReading(null)} />
     </div>
   );
 }
