@@ -41,7 +41,7 @@ def _scan_memories(client, coll: str, workspace: str, progress) -> tuple[list[tu
     found, redacted, scanned, offset = [], Counter(), 0, None
     while True:
         points, offset = client.scroll(collection_name=coll, limit=_BATCH, offset=offset, with_vectors=False,
-                                       with_payload=["content", "project", "source", "chunk_index"])
+                                       with_payload=["content", "project", "source", "chunk_index", "source_prefix"])
         before = [(point.payload or {}).get("content", "") for point in points]
         after = [record["content"] for record in vs._redacted([point.payload or {} for point in points], workspace)]
         found.extend((point.id, new) for point, old, new in zip(points, before, after) if new != old)

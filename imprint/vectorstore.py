@@ -236,9 +236,13 @@ def _redacted(records: list[dict], workspace: str) -> list[dict]:
     """Records with their secrets replaced, before anything derives from
     their content (ADR 0060). A record takes the content of the most redacted
     version of itself this workspace holds or receives with it, so a stricter
-    device's redaction wins here too and a looser copy is never stored."""
+    device's redaction wins here too and a looser copy is never stored. A
+    source chunk's prefix is derived context, not source text (ADR 0081):
+    only the text after it is redacted."""
     from .redaction import kinds, redact_all, redacted, supersedes
-    records = [{**r, "content": text} for r, text in zip(records, redact_all([r["content"] for r in records]))]
+    prefixes = [r.get("source_prefix", "") for r in records]
+    records = [{**r, "content": prefix + text} for r, prefix, text in
+               zip(records, prefixes, redact_all([r["content"][len(prefix):] for r, prefix in zip(records, prefixes)]))]
     client, coll = _ensure_collection(workspace)
     versions = {position: [(p.payload or {}).get("content", "") for p in points] for position, points in
                 _stored_versions(client, coll, records, redacted_only=True).items()}

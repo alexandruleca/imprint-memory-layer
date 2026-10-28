@@ -527,6 +527,21 @@ class WritePathTests(unittest.TestCase):
                 vs.replace_source(self.records(["chunk"]), "project/app.py", "project")
         self.assertEqual(self.contents(), [])
 
+    def test_a_file_path_is_not_redacted_in_its_chunks(self):
+        """The [path] prefix is derived context, not source text (ADR 0081): the
+        Privacy Filter reading a chunk never redacts it, so its source still rebuilds."""
+        from imprint import source_memory, source_snapshots
+        source, prefix = "project/SECRET/app.py", "[SECRET/app.py]\n"
+        with patch.dict(os.environ, {"IMPRINT_REDACT_PRIVACY_FILTER": "1"}), \
+             patch.object(privacy_filter, "_load", return_value=(FakeSession(), FakeTokenizer())):
+            doc = source_memory.document("print('hello')\n")
+            records = [{**row, 'project': 'project', 'source': source, 'source_type': 'file'}
+                       for row in source_memory.records(doc, prefix=prefix)]
+            records[0]['_source_document'] = doc
+            vs.replace_source(records, source, "project")
+        self.assertEqual(self.contents(), [prefix + "print('hello')\n"])
+        self.assertEqual(source_snapshots.get(source, "project")['text'], "print('hello')\n")
+
 
 class PropagationTests(unittest.TestCase):
     """Workspaces default, team and third stand in for devices A, B and C
