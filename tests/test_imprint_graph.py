@@ -49,6 +49,8 @@ class FactIdTests(unittest.TestCase):
              patch.object(config, 'get_data_dir', return_value=Path(directory)), \
              patch.dict(kg._conns, clear=True), \
              patch.object(server, '_validate_ws', return_value=('default', None)), \
+             patch('imprint.project_associations.project_counts', return_value=[]), \
+             patch.object(server.vs, '_ensure_collection', side_effect=AssertionError('Fact formatting must not start Qdrant')), \
              patch.object(server.vs, 'facet_counts', return_value=[]), \
              patch.object(server.vs, 'recent_ordered', return_value=[]):
             try:

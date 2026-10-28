@@ -12,6 +12,12 @@ The association database now closes explicitly on success and exceptions;
 a regression checks closure and rollback separately. Native Windows revalidation
 is required before promotion to main.
 
+The next Windows run cleared those 46 database-handle errors and exposed one
+remaining test-isolation issue: the fact-formatting test mocked the old project
+facet reader, so the new association-aware reader started a real temporary
+Qdrant process. That test now mocks the current reader and explicitly fails if
+it attempts to open Qdrant. Native storage remains covered by the runtime smoke.
+
 Follow-up avatar assets, 2026-10-28, Linux/WSL: after the combined commit, the
 additional iris-brightness/core-blink edits and regenerated GLBs passed generator
 syntax/lint, the production dashboard build and all 32 Voice/setup browser tests.
