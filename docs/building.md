@@ -226,7 +226,10 @@ From a runner directory, use `./svc.sh status`, `./svc.sh stop` and
 `./svc.sh start`; logs are under `~/Library/Logs/actions.runner.*`. The runner's
 `PATH` is the `.path` file in that directory, written at registration; edit it and
 restart the service to change the tools jobs see. `Narnia-intel`'s is trimmed to Homebrew and system
-directories so the owner's pyenv, nvm and gvm shims stay out of jobs. To retire a runner, stop/uninstall
+directories so the owner's pyenv, nvm and gvm shims stay out of jobs, behind the
+runner's own `python-bin`, where `python3`, `python` and `pip3` link to Homebrew
+`python@3.12`. Steps that call bare `python3`, such as the package payload check,
+need 3.11 or later; Homebrew's default `python3` there is 3.10 and macOS's is 3.9. To retire a runner, stop/uninstall
 the service and remove it in GitHub Settings → Actions → Runners. A fresh
 registration uses GitHub's current macOS runner archive for the architecture
 (`osx-arm64` or `osx-x64`) and the SHA256 published in its release notes, then

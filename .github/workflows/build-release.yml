@@ -403,13 +403,6 @@ jobs:
             --out    "$OUT"
           ls -la "$OUT"
 
-      # The validator imports imprint modules, which need Python 3.11+; the
-      # Intel laptop's macOS 13 python3 is the Command Line Tools' 3.9.
-      - uses: actions/setup-python@v5
-        if: runner.environment == 'self-hosted'
-        with:
-          python-version: '3.12'
-
       - name: Validate package payload without installing on the laptop
         if: runner.environment == 'self-hosted'
         env:
@@ -422,7 +415,10 @@ jobs:
           APP=$(find "$EXPANDED" -type d -name Imprint.app -print -quit)
           test -n "$APP"
           test -x "$APP/Contents/MacOS/imprint-setup-helper"
-          python3 scripts/validate-release.py "$APP/Contents/Resources/imprint" "darwin/$ARCH"
+          # The validator imports imprint modules, which need Python 3.11+. The
+          # laptops' Homebrew python@3.12 is a host prerequisite; setup-python's
+          # macOS build needs /Users/runner, and the Intel laptop's python3 is older.
+          python3.12 scripts/validate-release.py "$APP/Contents/Resources/imprint" "darwin/$ARCH"
 
       - name: Smoke test native package and writable runtime
         if: runner.environment == 'github-hosted'
