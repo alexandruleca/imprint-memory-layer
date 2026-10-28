@@ -59,6 +59,15 @@ def device_index(raw: Any) -> str:
     return value if value == "auto" else str(int(value))
 
 
+def analysis_worker_count(raw: Any) -> int:
+    if isinstance(raw, (bool, float)):
+        raise ValueError("expected a whole number from 0 to 8")
+    count = int(raw)
+    if not 0 <= count <= 8:
+        raise ValueError("expected a whole number from 0 to 8")
+    return count
+
+
 def _gpus():
     """The GPUs llama.cpp offloads to; none when the binding cannot load."""
     try:
@@ -197,6 +206,9 @@ SETTINGS: list[Setting] = [
     Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
     Setting("chat.max_tool_iters", "IMPRINT_CHAT_MAX_TOOL_ITERS", 6,                                int,   "Max tool-call iterations per chat turn"),
+    Setting("chat.analysis_workers", "IMPRINT_CHAT_ANALYSIS_WORKERS", 2, analysis_worker_count,
+            "Sequential workers for oversized questions and evidence; more workers keep separate notes. 0 disables section analysis.",
+            choices=(Choice(0, "Off"), *(Choice(n, str(n)) for n in range(1, 9)))),
     Setting("chat.tool_format",    "IMPRINT_CHAT_TOOL_FORMAT",    "auto",                           str,   "Tool-call format of the local model's chat template (local provider)",
             choices=TOOL_FORMATS),
 

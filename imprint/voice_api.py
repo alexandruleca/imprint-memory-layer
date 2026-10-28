@@ -505,6 +505,8 @@ async def stream(websocket: WebSocket):
                                     await synthesize(phrase)
                             elif kind == "tool_call":
                                 await emit({"type": "tool", "name": event["name"]})
+                            elif kind == "analysis":
+                                await emit({"type": "state", "state": "analyzing", "text": event["text"]})
                             elif kind in {"download_start", "download_progress", "download_complete", "load_start"}:
                                 if kind == "download_start" and not provisioning:
                                     turn_budget.reschedule(asyncio.get_running_loop().time() + CHAT_SETUP_TIMEOUT)

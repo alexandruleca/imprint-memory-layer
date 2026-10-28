@@ -17,6 +17,7 @@ export type AssistantTurn = {
   setup?: Setup;
   /** Why this reply runs differently, e.g. a local model without tools. */
   notice?: string;
+  analysis?: string;
   error?: string;
   stopped?: boolean;
   streaming: boolean;
@@ -69,15 +70,17 @@ export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
       return { ...turn, setup: { ...setup, load: { done: false } } };
     case "notice":
       return { ...turn, notice: ev.text, setup: loaded(turn.setup) };
+    case "analysis":
+      return { ...turn, analysis: ev.text, setup: loaded(turn.setup) };
     case "token": {
       const steps = [...turn.steps];
       const last = steps[steps.length - 1];
       if (last?.kind === "text") steps[steps.length - 1] = { kind: "text", text: last.text + ev.text };
       else steps.push({ kind: "text", text: ev.text });
-      return { ...turn, steps, setup: loaded(turn.setup) };
+      return { ...turn, steps, analysis: undefined, setup: loaded(turn.setup) };
     }
     case "tool_call":
-      return { ...turn, steps: [...turn.steps, { kind: "tool", name: ev.name, args: ev.args }], setup: loaded(turn.setup) };
+      return { ...turn, steps: [...turn.steps, { kind: "tool", name: ev.name, args: ev.args }], analysis: undefined, setup: loaded(turn.setup) };
     case "tool_result": {
       const index = turn.steps.findLastIndex((step) => step.kind === "tool" && step.name === ev.name && step.result === undefined);
       if (index < 0) return turn;
@@ -86,9 +89,9 @@ export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
       return { ...turn, steps };
     }
     case "error":
-      return { ...turn, error: ev.error };
+      return { ...turn, error: ev.error, analysis: undefined };
     case "done":
-      return { ...turn, streaming: false };
+      return { ...turn, streaming: false, analysis: undefined };
     default:
       return turn;
   }

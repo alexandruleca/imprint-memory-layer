@@ -221,7 +221,10 @@ This extends playback of generated replies; it does not extend the reasoner's
 context or output-token budget. The small voice model still has its existing
 512-token generation cap. Voice history remains bounded to three completed
 exchanges, with at most 3,000 characters retained per assistant reply.
-Typed voice questions retain their existing 2,000-character limit.
+The same-chat route shares Chat's [sequential section analysis](local-models.md#large-chat-questions-and-evidence)
+for oversized retrieved evidence and shows its progress while it works; its
+worker count is configured under Settings → Chat. Typed voice questions retain
+their existing 2,000-character limit.
 
 **Push to talk** is the default. Enable the mic, then hold the button with a
 pointer or hold Space/Enter while the button is focused. Release sends the

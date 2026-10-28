@@ -356,7 +356,8 @@ export class VoiceClient {
       return;
     }
     if (event.type === "text") this.update({ answer: this.snapshot.answer + event.text, preparation: null });
-    if (event.type === "state") this.update({ detail: event.state === "transcribing" ? "Hearing your question…" : "Thinking…" });
+    if (event.type === "state") this.update({ detail: event.state === "transcribing" ? "Hearing your question…"
+      : event.state === "analyzing" ? event.text || "Reading sections…" : "Thinking…" });
     if (event.type === "tool") this.update({ detail: `Checking memory · ${event.name}`, preparation: null });
     if (event.type === "audio" && event.data) this.play(event.data);
     if (event.type === "done") { this.complete = event.id; this.update({ preparation: null }); }

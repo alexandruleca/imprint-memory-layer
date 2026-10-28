@@ -254,6 +254,8 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 - `download_start` (`file`, `repo`, `path`), `download_progress`
   (`downloaded`, `total` bytes), `download_complete`: the model download.
 - `load_start`: the local model is being loaded into memory.
+- `analysis` (`text`): transient section-worker/synthesis progress for oversized
+  questions or evidence. Worker findings are not streamed as assistant text.
 - `notice` (`text`): on a conversation's first reply, the local model has no
   tool-call format (`chat.tool_format` is `auto` and its template matches none),
   so the reply runs without tools
@@ -269,6 +271,14 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 
 Closing the stream early stops the reply; the text already streamed is
 stored in the session as the assistant's message.
+
+`chat.analysis_workers` is exposed through the ordinary config endpoints, with
+default `2` and choices `0` (off) through `8`. Section workers run sequentially.
+When analysis captures a source, tool-capable chat replies may call the
+reply-local `read_chat_section(source_id, start=0, max_chars=2000)` function;
+`max_chars` is limited to 1–4,000 and offsets are characters. Originals and IDs
+are scoped to that reply, with no filesystem or cross-workspace read authority.
+See [large chat questions and evidence](local-models.md#large-chat-questions-and-evidence).
 
 ## Streams & long-polling
 

@@ -7,6 +7,32 @@ const LOCAL = { enabled: true, provider: 'local', model_path: '', model_file: 'Q
 
 const sse = (...events: object[]) => events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
 
+test('section analysis shows progress while worker findings stay out of the answer', async ({ page }) => {
+  await mockChat(page, {});
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (!String(input).endsWith('/api/chat')) return original(input, init);
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({ start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"analysis","text":"Reading section 3 · worker 1 of 2"}\n\n'));
+        (window as unknown as { finishSectionReply: () => void }).finishSectionReply = () => {
+          controller.enqueue(encoder.encode('data: {"type":"token","text":"The combined answer."}\n\ndata: {"type":"done"}\n\n'));
+          controller.close();
+        };
+      } });
+      return Promise.resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    };
+  });
+  await page.goto('/chat/');
+  await page.getByRole('textbox', { name: 'Message' }).fill('Analyze these sections');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Reading section 3 · worker 1 of 2' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { finishSectionReply: () => void }).finishSectionReply());
+  await expect(page.getByText('The combined answer.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Reading section 3 · worker 1 of 2')).toHaveCount(0);
+});
+
 async function mockChat(page: Page, options: {
   sessions?: Session[];
   messages?: Record<string, object[]>;

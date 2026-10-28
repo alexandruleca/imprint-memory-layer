@@ -78,7 +78,8 @@ function Reply({ turn, last, onRetry }: { turn: AssistantTurn; last: boolean; on
           ? <Markdown key={i} text={step.text} className="leading-relaxed break-words" />
           : <ToolStepRow key={i} step={step} />,
       )}
-      {thinking && <ThinkingIndicator />}
+      {turn.streaming && turn.analysis && <p role="status" className="text-xs text-muted-foreground">{turn.analysis}</p>}
+      {thinking && !turn.analysis && <ThinkingIndicator />}
       {turn.stopped && <p className="text-xs text-muted-foreground">Stopped</p>}
       {turn.error && (
         <Alert variant="destructive">

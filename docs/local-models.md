@@ -43,7 +43,58 @@ Chat calls tools through each model's native protocol ([ADR 0059](adr/0059-chat-
 
 `auto` asks the template itself: it renders a probe tool call the way its model was trained to write calls, and the format whose parser reads that back is chosen. A template that renders no call any format reads (no tools support, or an unknown grammar) chats without tools, and the conversation's first reply shows a notice naming the setting; choose a format there if the model can call tools. Each parser accepts only its family's documented shape. Arguments are then typed by each tool's schema, for every format and for remote providers: a string given for a number or boolean parameter is read as JSON, and string values stay verbatim, multi-line included. A value of the wrong type is returned to the model as a tool error. Generation decodes special tokens as text, because markers such as Mistral's `[TOOL_CALLS]` are special tokens. A template that takes tools other than through the standard `tools` variable, such as Phi-4-mini's, is not supported, and neither is a model whose tool template is stored separately (`tokenizer.chat_template.tool_use`, as in Hermes 3). Remote providers use their API's function calling: `tools`, streamed `tool_calls` and `tool` messages. A vLLM server must run with `--enable-auto-tool-choice` and a `--tool-call-parser` for its model. The Anthropic provider uses its OpenAI-compatible endpoint `https://api.anthropic.com/v1/`.
 
-Chat checks actual formatted prompt tokens, tool schemas included (about 1,700 tokens with Qwen3.5-4B's template), and drops oldest conversation history to fit; an oversized current input fails clearly. Summaries keep a 5000-token estimated transcript budget, then cap actual transcript tokens to the local context while preserving instructions and recent transcript content. Ordinary classification has a bounded input and rejects context overflow. `chat.max_tool_iters` bounds model turns that call tools; voice mode offers only the read tools. Dashboard search forwards source/mode/offset filters and uses the workspace-specific wake state.
+Chat checks actual formatted prompt tokens, tool schemas included (about 1,700 tokens with Qwen3.5-4B's template), and drops oldest conversation history to fit. Oversized current questions and evidence use the sequential section analysis below. Summaries keep a 5000-token estimated transcript budget, then cap actual transcript tokens to the local context while preserving instructions and recent transcript content. Ordinary classification has a bounded input and rejects context overflow. `chat.max_tool_iters` bounds model turns that call tools; voice mode offers only the read tools. Dashboard search forwards source/mode/offset filters and uses the workspace-specific wake state.
+
+## Large chat questions and evidence
+
+`chat.analysis_workers` defaults to **2**. Change it under **Settings → Chat →
+Sequential analysis workers**, with the CLI (`imprint config set
+chat.analysis_workers 3`), or through `IMPRINT_CHAT_ANALYSIS_WORKERS`. Values
+**1–8** select logical workers, always run **one at a time**. **0 / Off** disables
+section analysis and restores the 4,000-character tool-result clipping policy;
+an oversized current question then fails with a context error.
+
+Short questions follow the ordinary chat path. Once current input or tool
+evidence exceeds the coordinator's budget, workers take turns reviewing sections
+and updating their own bounded notes. Each worker uses a fresh prompt with a
+short question excerpt, its previous notes and the next section. Section sizes
+include all prompt overhead and output space, with a maximum 4,096-token worker
+context and 64 characters of overlap. Splits prefer newline or word boundaries.
+All sections must be processed before synthesis; the worker count is not a cap
+on the number of sections. The coordinator gets the reports and synthesizes the
+answer through its existing tool loop. [ADR 0093](adr/0093-sequential-chat-section-analysis.md)
+records the decision.
+
+Workers use the same selected model/provider as Chat, without tools or additional
+model downloads. Locally, prompts are measured with the loaded model's actual
+tokenizer/template. Remote chat uses `chat.n_ctx` as an analysis budget and a
+UTF-8-byte-based token estimate; it cannot verify the remote tokenizer or actual
+server context limit. Set `chat.n_ctx` for that provider if the budget needs to
+change. Both routes reserve the configured `chat.max_tokens` for synthesis.
+
+When section analysis has captured an original, a tool-capable coordinator also
+gets **read_chat_section**. It reads bounded exact character ranges using the
+reply's unique source IDs. Those originals exist only during that reply and are
+never exposed as MCP/global tools or file access. With section analysis enabled,
+new tool results are no longer blindly clipped at 4,000 characters: they are
+passed whole if they fit, or analyzed across their sections. Existing chat
+transcript storage still records original user messages and tool results;
+worker notes and progress are transient.
+
+Chat and the same-chat voice route show section progress. Workers have a
+120-second generation budget, at most 384 output tokens per set of rolling
+notes, and a shared 64-section limit per reply. A source is capped at 1,000,000
+characters. A worker failure, exhausted section budget or findings that cannot
+fit the coordinator produces an explicit error instead of silently dropping
+unread sections. Cancellation closes the current token stream before another
+section starts; native prefill and model calls already holding the inference
+lock retain their existing interruption limits.
+
+This is lossy analysis and adds inference time; it does not enlarge the final
+model's context or establish answer accuracy. The coordinator is directed to
+preserve uncertainty and reread originals for exact details. Models without a
+supported tool format can use analysis but cannot call the reread tool. The
+small LFM voice route does not use this chat pipeline.
 
 Remote provider configuration remains supported. Non-thinking template control here applies to the in-process runtime; configure thinking controls separately at remote servers. An external model is not automatically equivalent to the pinned GGUF.
 

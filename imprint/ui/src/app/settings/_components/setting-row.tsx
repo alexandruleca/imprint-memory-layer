@@ -21,6 +21,7 @@ const WORDS: Record<string, string> = {
 
 /** "tagger.local.n_gpu_layers" → "GPU layers" */
 export function settingTitle(key: string) {
+  if (key === "chat.analysis_workers") return "Sequential analysis workers";
   const words = key.split(".").pop()!.split("_");
   if (words[0] === "n" && words.length > 1) words.shift();
   const text = words.map((w) => WORDS[w] ?? w).join(" ");

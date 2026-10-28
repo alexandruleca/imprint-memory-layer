@@ -132,6 +132,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chat.max_tokens` | `1024` | Max tokens per chat response |
 | `chat.temperature` | `0.3` | Chat sampling temperature |
 | `chat.max_tool_iters` | `6` | Max model turns that call tools per chat reply; a turn may call several tools |
+| `chat.analysis_workers` | `2` | Logical workers for oversized chat questions/evidence, executed sequentially. `1`–`8` keep separate rolling notes; `0` disables section analysis. Settings → Chat → Sequential analysis workers. Env: `IMPRINT_CHAT_ANALYSIS_WORKERS`. See [local helper models](local-models.md#large-chat-questions-and-evidence). |
 | `chat.tool_format` | `auto` | Tool-call format of the local model: `auto` (detected from the GGUF's chat template), `qwen-xml`, `hermes`, `llama3`, `mistral`, or `none` (chat without tools). Remote providers ignore it. See [local helper models](local-models.md). |
 | **Session summarizer (opt-in, Stop hook)** | | |
 | `summarizer.enabled` | `false` | Enable the LLM-based session summarizer |

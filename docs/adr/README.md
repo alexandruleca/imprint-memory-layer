@@ -73,6 +73,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) **llama.cpp runs each model on one GPU.** Embeddings and the local LLM load whole onto `model.gpu_device`, by default the discrete GPU with the most memory, instead of llama.cpp's split across every GPU.
 - [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) **macOS installs llama.cpp wheels built by this repository.** A manually run workflow builds the binding's macOS wheels, Metal on both architectures, from the hash-locked source and publishes them as the prerelease `llama-cpp-python-v<version>`; the locks pin them, so no Mac needs a compiler.
 - [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) **Keep Qwen3.5-4B as the local tagger.** Qwen3.5-2B tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on; putting the prompt's fixed text first gains nothing on Qwen3.5's architecture.
+- [ADR 0093](0093-sequential-chat-section-analysis.md) **Sequential chat section analysis.** Two configurable logical workers analyze oversized questions and evidence sequentially, with bounded notes and reply-local exact rereads.
 
 ### Sync and device provenance
 
@@ -250,6 +251,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | 2026-10-27 | Accepted | macOS installs llama.cpp wheels built by this repository |
 | [0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | 2026-10-27 | Accepted | WSL homes with a connected client get the imprint command |
 | [0092](0092-voice-generation-follows-playback.md) | 2026-10-28 | Accepted | Voice generation follows playback |
+| [0093](0093-sequential-chat-section-analysis.md) | 2026-10-28 | Accepted | Sequential chat section analysis |
 
 ## How to write and maintain ADRs
 

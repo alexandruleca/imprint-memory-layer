@@ -248,13 +248,13 @@ TOOLS: dict[str, Tool] = {
 }
 
 
-def _tool_schemas(read_only: bool) -> list[dict]:
+def _tool_schemas(read_only: bool, extra: dict[str, Tool] | None = None) -> list[dict]:
     """The offered tools in the function-tool shape that OpenAI-compatible
     APIs and Hugging Face chat templates both take."""
     return [{"type": "function", "function": {
         "name": name, "description": tool.description,
         "parameters": {"type": "object", "properties": tool.params, "required": list(tool.required)},
-    }} for name, tool in TOOLS.items() if not (read_only and tool.writes)]
+    }} for name, tool in (TOOLS | (extra or {})).items() if not (read_only and tool.writes)]
 
 
 _JSON_TYPES: dict[str, tuple[type, ...]] = {
@@ -274,9 +274,10 @@ def _typed(value: Any, schema: dict) -> Any:
     return value
 
 
-def _typed_args(name: str, args: dict) -> dict:
+def _typed_args(name: str, args: dict, extra: dict[str, Tool] | None = None) -> dict:
     """A call's arguments typed by its tool's schema; others stay as written."""
-    params = TOOLS[name].params if name in TOOLS else {}
+    entry = (extra or {}).get(name) or TOOLS.get(name)
+    params = entry.params if entry else {}
     return {key: _typed(value, params[key]) if key in params else value for key, value in args.items()}
 
 
@@ -284,10 +285,10 @@ def _is(value: Any, kind: str) -> bool:
     return isinstance(value, _JSON_TYPES[kind]) and (kind in ("boolean", "string") or not isinstance(value, bool))
 
 
-def _run_tool(name: str, args: dict, workspace: str, read_only: bool) -> str:
+def _run_tool(name: str, args: dict, workspace: str, read_only: bool, extra: dict[str, Tool] | None = None) -> str:
     """Run one call, its arguments typed (_typed_args). Every failure becomes
     the result the model reads."""
-    tool = TOOLS.get(name)
+    tool = (extra or {}).get(name) or TOOLS.get(name)
     if tool is None:
         return f"[tool error] unknown tool: {name}"
     if read_only and tool.writes:
@@ -632,8 +633,8 @@ def _wire_message(message: dict) -> dict:
     ]}
 
 
-def _remote_turn(messages: list[dict], tools: list[dict], max_tokens: int,
-                 temperature: float) -> Generator[str, None, list[dict]]:
+def _remote_turn(messages: list[dict], tools: list[dict] | None, max_tokens: int,
+                 temperature: float, *, timeout: float | None = None) -> Generator[str, None, list[dict]]:
     """One assistant turn of the remote provider. Yields reply text and
     returns the tool calls assembled from the streamed tool_call deltas."""
     parts: dict[int, dict] = {}
@@ -644,6 +645,7 @@ def _remote_turn(messages: list[dict], tools: list[dict], max_tokens: int,
         stream=True,
         max_tokens=max_tokens,
         temperature=temperature,
+        **({"timeout": timeout} if timeout is not None else {}),
     ) as stream:
         for chunk in stream:
             if not chunk.choices:
@@ -703,6 +705,7 @@ def stream_reply(
       {"type": "download_complete", "path": str}
       {"type": "load_start"}                         # loading the local model into memory
       {"type": "notice", "text": str}                # first reply only: the local model runs without tools
+      {"type": "analysis", "text": str}              # section-worker progress; never worker findings
       {"type": "token", "text": str}
       {"type": "tool_call", "name": str, "args": dict}
       {"type": "tool_result", "name": str, "result": str}
@@ -780,15 +783,82 @@ def stream_reply(
     max_tokens = int(_cfg("chat.max_tokens"))
     temperature = float(_cfg("chat.temperature"))
 
+    from .chat_analysis import AnalysisCancelled, SectionAnalysis, WORKER_TIMEOUT
+    from .local_llm import INFERENCE_LOCK, generate
+
+    def measure(items, offered):
+        if remote:
+            # No remote tokenizer is guaranteed. Use a conservative estimate;
+            # chat.n_ctx is the analysis budget, not a provider capability claim.
+            return (len(json.dumps({"messages": items, "tools": offered}, ensure_ascii=False).encode()) + 2) // 3 + 512
+        with INFERENCE_LOCK:
+            prompt = llm._imprint_formatter(messages=items, tools=offered).prompt
+            return len(llm.tokenize(prompt.encode(), add_bos=False, special=True))
+
+    def worker_generate(items, output_tokens):
+        deadline = time.monotonic() + WORKER_TIMEOUT
+        if remote:
+            generation = _remote_turn(items, None, output_tokens, 0.1, timeout=WORKER_TIMEOUT)
+            try:
+                for piece in generation:
+                    if cancelled():
+                        raise AnalysisCancelled()
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Section worker time limit reached")
+                    yield piece
+            finally:
+                generation.close()
+        else:
+            while not INFERENCE_LOCK.acquire(timeout=.1):
+                if cancelled():
+                    raise AnalysisCancelled()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Section worker waited too long for the local model")
+            try:
+                if cancelled():
+                    raise AnalysisCancelled()
+                generation = generate(llm, items, output_tokens, 0.1, deadline=deadline)
+                try:
+                    yield from generation
+                finally:
+                    generation.close()
+            finally:
+                INFERENCE_LOCK.release()
+
+    analysis = SectionAnalysis(context=int(_cfg("chat.n_ctx")) if remote else llm.n_ctx(),
+                               workers=int(_cfg("chat.analysis_workers")), max_tokens=max_tokens,
+                               measure=measure, generate=worker_generate, cancelled=cancelled)
+    reread = Tool(analysis.read, "Reread an original passage from section analysis in this reply. "
+                  "Use source_id and character offsets from worker reports to verify exact details.", {
+                      "source_id": _param("string", "Reply-local source ID exactly as section analysis shows it"),
+                      "start": _param("integer", "Starting character offset (default 0)"),
+                      "max_chars": _param("integer", "Characters to read, 1–4000 (default 2000)"),
+                  }, required=("source_id",))
+
+    def extra_tools():
+        return {"read_chat_section": reread} if analysis.sources else {}
+
+    def offered_tools():
+        return _tool_schemas(read_only, extra_tools()) if tools is not None else None
+
     final_assistant_chunks: list[str] = []
 
     for _iter in range(max_iters):
         if cancelled():
             return
+        try:
+            messages = yield from analysis.prepare(messages, offered_tools)
+        except AnalysisCancelled:
+            return
+        except Exception as e:
+            yield {"type": "error", "error": f"section analysis failed: {e}"}
+            yield {"type": "done"}
+            return
+        active_tools = offered_tools()
         if remote:
-            turn = _remote_turn(messages, tools, max_tokens, temperature)
+            turn = _remote_turn(messages, active_tools, max_tokens, temperature)
         else:
-            turn = _local_turn(llm, messages, tools, fmt, max_tokens, temperature)
+            turn = _local_turn(llm, messages, active_tools, fmt, max_tokens, temperature)
         text = ""
         try:
             while True:
@@ -809,7 +879,7 @@ def stream_reply(
         if not calls:
             final_assistant_chunks.append(text)
             break
-        calls = [{**call, "args": _typed_args(call["name"], call["args"])} for call in calls]
+        calls = [{**call, "args": _typed_args(call["name"], call["args"], extra_tools())} for call in calls]
 
         if text.strip():
             final_assistant_chunks.append(text.strip() + "\n")
@@ -823,7 +893,9 @@ def stream_reply(
             if cancelled():
                 return
             yield {"type": "tool_call", "name": call["name"], "args": call["args"]}
-            result = _trim_tool_result(_run_tool(call["name"], call["args"], workspace, read_only))
+            result = _run_tool(call["name"], call["args"], workspace, read_only, extra_tools())
+            if not analysis.workers:
+                result = _trim_tool_result(result)
             yield {"type": "tool_result", "name": call["name"], "result": result}
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
     else:
