@@ -20,8 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
-    # PR code stays on hosted machines, including same-repository PRs.
-    runs-on: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os }}
+    # PR code stays on hosted machines, including same-repository PRs; trusted
+    # Apple silicon and Intel macOS jobs use the owner's laptops (ADRs 0083, 0106).
+    runs-on: ${{ github.event_name != 'pull_request' && (matrix.os == 'macos-latest' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os == 'macos-15-intel' && fromJSON('["self-hosted", "macOS", "X64", "imprint-intel"]')) || matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

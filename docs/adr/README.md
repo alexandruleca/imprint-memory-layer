@@ -19,7 +19,8 @@ Records 0001 to 0062 were brought to this structure on 2026-10-25 (*Restructured
 
 The records in force, by area. An amended record is listed with the records that changed it; read them together.
 
-- [ADR 0083](0083-apple-silicon-laptop-runner.md) **Apple silicon laptop runner.** Trusted ARM64 jobs use the laptop; PR and Intel checks remain hosted.
+- [ADR 0083](0083-apple-silicon-laptop-runner.md) **Apple silicon laptop runner.** Trusted ARM64 jobs use the laptop; PR checks remain hosted. Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) (Intel jobs on the Intel laptop).
+- [ADR 0106](0106-intel-mac-laptop-runner.md) **Intel Mac laptop runner.** Trusted Intel macOS jobs use the owner's Intel laptop and validate the package payload; no CI job installs a macOS package.
 
 ### Process and evidence
 
@@ -73,7 +74,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0061](0061-local-tool-call-formats.md) **Local tool-call formats by model family.** Local chat parses tool calls in the model family's format (Qwen XML, Hermes JSON, Llama 3, Mistral), detected by rendering a probe call through the template or chosen with `chat.tool_format`; other models chat without tools and say so.
 - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) **Embeddings run on llama.cpp, without CUDA.** Qwen's Q8_0 GGUF of Qwen3-Embedding-0.6B runs on llama.cpp: the Vulkan or Metal build on any GPU it finds, the CPU build elsewhere. The CUDA runtime and the int8 ONNX export are gone, and the binding is part of every installation. Amended by [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) (macOS installs prebuilt wheels).
 - [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) **llama.cpp runs each model on one GPU.** Embeddings and the local LLM load whole onto `model.gpu_device`, by default the discrete GPU with the most memory, instead of llama.cpp's split across every GPU.
-- [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) **macOS installs llama.cpp wheels built by this repository.** A manually run workflow builds the binding's macOS wheels, Metal on both architectures, from the hash-locked source and publishes them as the prerelease `llama-cpp-python-v<version>`; the locks pin them, so no Mac needs a compiler.
+- [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) **macOS installs llama.cpp wheels built by this repository.** A manually run workflow builds the binding's macOS wheels, Metal on both architectures, from the hash-locked source and publishes them as the prerelease `llama-cpp-python-v<version>`; the locks pin them, so no Mac needs a compiler. Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) (Intel wheel built on the laptop runner).
 - [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) **Keep Qwen3.5-4B as the local tagger.** Qwen3.5-2B tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on; putting the prompt's fixed text first gains nothing on Qwen3.5's architecture.
 - [ADR 0093](0093-sequential-chat-section-analysis.md) **Sequential chat section analysis.** Two configurable logical workers analyze oversized questions and evidence sequentially, with bounded notes and reply-local exact rereads.
 
@@ -260,14 +261,14 @@ Every record in number order. *Date* is when the decision was made.
 | [0081](0081-verifiable-redacted-source-snapshots.md) | 2026-10-26 | Accepted | Verifiable redacted source snapshots |
 | [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Amended by [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) | Retain readable conversation evidence |
 
-| [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Accepted | Apple silicon laptop runner |
+| [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) | Apple silicon laptop runner |
 | [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Setup frees the runtime before replacing its files |
 | [0085](0085-main-only-fast-forwards-to-dev.md) | 2026-10-27 | Accepted | Main only fast-forwards to dev |
 | [0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | 2026-10-27 | Amended by [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | Embeddings run on llama.cpp, without CUDA |
 | [0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) | 2026-10-27 | Accepted | llama.cpp runs each model on one GPU |
 | [0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) | 2026-10-27 | Accepted | Bytes a crash never wrote are counted omissions |
 | [0089](0089-one-progress-record-for-the-running-job.md) | 2026-10-27 | Accepted | One progress record for the running job, read by every surface |
-| [0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | 2026-10-27 | Accepted | macOS installs llama.cpp wheels built by this repository |
+| [0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | 2026-10-27 | Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) | macOS installs llama.cpp wheels built by this repository |
 | [0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | 2026-10-27 | Accepted | WSL homes with a connected client get the imprint command |
 | [0092](0092-voice-generation-follows-playback.md) | 2026-10-28 | Accepted | Voice generation follows playback |
 | [0093](0093-sequential-chat-section-analysis.md) | 2026-10-28 | Accepted | Sequential chat section analysis |
@@ -283,6 +284,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | 2026-10-28 | Accepted | Echo has a generated eye with shared morph controls |
 | [0104](0104-bundle-uv-with-conditional-hash-lock-support.md) | 2026-10-28 | Accepted | Bundle uv with conditional hash-lock support |
 | [0105](0105-project-analysis-continues-after-model-timeouts.md) | 2026-10-28 | Accepted | Project analysis continues after model timeouts |
+| [0106](0106-intel-mac-laptop-runner.md) | 2026-10-28 | Accepted | Intel Mac laptop runner |
 
 ## How to write and maintain ADRs
 

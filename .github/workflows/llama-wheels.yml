@@ -30,7 +30,7 @@ jobs:
           - target: macos-arm64
             runner: '["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]'
           - target: macos-x64
-            runner: '"macos-15-intel"'
+            runner: '["self-hosted", "macOS", "X64", "imprint-intel"]'
     runs-on: ${{ fromJSON(matrix.runner) }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
