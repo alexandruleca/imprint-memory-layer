@@ -6,7 +6,8 @@ After=docker.service network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/bin/sh -c 'IFS=:; set -- %i; exec %h/.local/share/imprint-runners/jit-runners.sh "$1" "$(echo "$2" | tr - /)" "$3"'
+# systemd expands $VAR itself, so the shell's own variables are written $$.
+ExecStart=/bin/sh -c 'i=%i; IFS=:; set -- $$i; exec %h/.local/share/imprint-runners/jit-runners.sh "$$1" "$$(echo "$$2" | tr - /)" "$$3"'
 Restart=always
 RestartSec=10
 KillMode=mixed

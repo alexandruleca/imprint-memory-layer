@@ -59,9 +59,10 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_chrome_extension_package.py' -v
       - run: node --test extensions/chrome/tests/*.test.js
       - run: npm ci --prefix imprint/ui
-      - run: npx playwright install chromium
+      # Self-hosted images lack Chromium's runtime libraries (ADR 0112).
+      - run: npx playwright install --with-deps chromium
         working-directory: imprint/ui
-        timeout-minutes: 5
+        timeout-minutes: 10
       - run: python scripts/package_chrome_extension.py
       - run: node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
       - uses: actions/upload-artifact@v4

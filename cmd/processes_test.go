@@ -78,7 +78,8 @@ func TestStopOwnedProcessesEndsOnlyThisInstallation(t *testing.T) {
 	bin := filepath.Join(root, "bin")
 	copyFile(t, self, filepath.Join(bin, "sleeper"+filepath.Ext(self)))
 
-	_, fromInstall := startSleeper(t, filepath.Join(bin, "sleeper"+filepath.Ext(self)))
+	installed, fromInstall := startSleeper(t, filepath.Join(bin, "sleeper"+filepath.Ext(self)))
+	skipUnderEmulation(t, installed.Process.Pid)
 	_, shell := startSleeper(t, self, "--project-dir="+root)
 	_, unrelated := startSleeper(t, self, "--project-dir="+root+"-other")
 	waitUntil(t, func() bool { return countOwned(t, bin, root) == 2 })
@@ -111,6 +112,7 @@ func TestStopOwnedProcessesSparesTheRestartedServer(t *testing.T) {
 	sleeper := filepath.Join(bin, "sleeper"+filepath.Ext(self))
 	copyFile(t, self, sleeper)
 	server, serverDone := startSleeper(t, sleeper)
+	skipUnderEmulation(t, server.Process.Pid)
 	other, otherDone := startSleeper(t, sleeper)
 	waitUntil(t, func() bool { return countOwned(t, bin, "") == 2 })
 
@@ -152,6 +154,28 @@ func startSleeper(t *testing.T, binary string, extra ...string) (*exec.Cmd, chan
 	go func() { _ = cmd.Wait(); close(done) }()
 	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
 	return cmd, done
+}
+
+// skipUnderEmulation skips a test whose processes run under qemu-user, as
+// CI's emulated arm64 runner does (ADR 0112): there /proc/<pid>/exe names
+// the interpreter, not the program, so no process looks like the install's.
+func skipUnderEmulation(t *testing.T, pid int) {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		procs, err := listProcesses()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range procs {
+			if p.PID == pid && p.Exe != "" {
+				if strings.HasPrefix(filepath.Base(p.Exe), "qemu-") {
+					t.Skipf("process %d runs under emulation: its exe is %s", pid, p.Exe)
+				}
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func countOwned(t *testing.T, bin, project string) int {

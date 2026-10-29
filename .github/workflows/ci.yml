@@ -93,10 +93,10 @@ jobs:
       - run: make dashboard-build
       - run: npm run lint
         working-directory: imprint/ui
-      # Hosted Ubuntu already supplies Chromium's runtime libraries. Avoid
-      # upgrading unrelated OS/font packages through a slow apt mirror.
-      - run: npx playwright install chromium
-        timeout-minutes: 5
+      # The self-hosted runner images lack Chromium's runtime libraries
+      # (libnspr4 and others), which hosted Ubuntu preinstalled (ADR 0112).
+      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
         working-directory: imprint/ui
       - run: node extensions/chrome/tests/browser-smoke.mjs
       - run: npm run test:e2e

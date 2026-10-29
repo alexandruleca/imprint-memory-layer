@@ -56,11 +56,18 @@ jobs:
       - name: Build Linux on the glibc 2.28 baseline
         if: runner.os == 'Linux'
         shell: bash
+        # The runner drives the host's Docker, where its workspace path does
+        # not exist, so the tree is copied in and the bundle out (ADR 0112).
         run: |
-          docker run --rm -v "$PWD:/work" -w /work quay.io/pypa/manylinux_2_28_x86_64 bash -euc '
+          cid=$(docker create -w /work quay.io/pypa/manylinux_2_28_x86_64 bash -euc '
             /opt/python/cp312-cp312/bin/python -m pip install --require-hashes -r build-voice-requirements.txt
             /opt/python/cp312-cp312/bin/python -m imprint.voice_bundle --build-root /tmp/voice-build --output build/voice/voice-engine-linux-x64 --jobs 4
-          '
+          ')
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          docker cp . "$cid:/work"
+          docker start -a "$cid"
+          mkdir -p build/voice
+          docker cp "$cid:/work/build/voice/voice-engine-linux-x64" build/voice/
       - name: Build native Mac or Windows engine
         if: runner.os != 'Linux'
         shell: bash

@@ -53,5 +53,6 @@ The repository is public. A pull request's workflow files decide what its jobs r
 ## Known gaps
 
 - Emulated arm64 jobs are several times slower than native ones.
-- The runner images are not GitHub's hosted images. A job that relies on a preinstalled tool needs a setup step or the tool added to the image.
+- The runner images are not GitHub's hosted images. A job that relies on a preinstalled tool needs a setup step or the tool added to the image. Chromium's system libraries, for example, come from `npx playwright install --with-deps`.
+- The trusted runners use the host's Docker through its socket, so a path inside the job's workspace does not exist for `docker run -v`. Copy files in and out with `docker cp`, as the Linux voice-engine build does.
 - A Windows or macOS regression in a pull request shows up only after merge, or on a push to a branch of this repository.
