@@ -3,7 +3,7 @@ name: Build llama.cpp wheels for macOS
 # PyPI publishes llama-cpp-python only as source, and upstream's Metal wheel
 # fails its CRC checks (ADR 0035), so macOS installs compile the binding.
 # Every installation needs it for embeddings (ADR 0086). This builds the
-# pinned version's macOS wheels once, from the hash-locked source, and
+# pinned version's Apple silicon wheel once, from the hash-locked source, and
 # publishes them on a release of this repository; requirements/llm.txt and
 # llm-gpu.txt then pin them by URL and sha256 like upstream's other wheels.
 on:
@@ -22,15 +22,13 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # The binding builds Metal, its library embedded, on both architectures,
-      # whatever CMAKE_ARGS say, and leaves out AVX on Intel. GGML_NATIVE=OFF
-      # keeps the build machine's CPU features out of the wheel.
+      # The binding builds Metal, its library embedded, whatever CMAKE_ARGS
+      # say. GGML_NATIVE=OFF keeps the build machine's CPU features out of the
+      # wheel. Apple silicon only: Intel Macs are not supported (ADR 0111).
       matrix:
         include:
           - target: macos-arm64
             runner: '["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]'
-          - target: macos-x64
-            runner: '["self-hosted", "macOS", "X64", "imprint-intel"]'
     runs-on: ${{ fromJSON(matrix.runner) }}
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
@@ -38,12 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Isolated Python on the laptop
-        if: runner.environment == 'self-hosted'
+        if: runner.os == 'macOS'
         run: |
           python3.12 -m venv "$RUNNER_TEMP/llama-python"
           echo "$RUNNER_TEMP/llama-python/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-python@v5
-        if: runner.environment == 'github-hosted'
+        if: runner.os != 'macOS'
         with:
           python-version: '3.12'
       - name: Take the source pin from the lock
@@ -85,7 +83,7 @@ jobs:
 
   publish:
     needs: wheel
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write
     env:

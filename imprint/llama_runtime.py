@@ -31,6 +31,7 @@ import atexit
 import contextlib
 import ctypes
 import io
+import json
 import sys
 import threading
 import weakref
@@ -83,6 +84,16 @@ def gpus() -> list[Gpu]:
             name = devices.ggml_backend_dev_description(device).decode("utf-8", "replace")
             found[kind].append((name, total.value >> 20))
     return [Gpu(index, name, memory) for index, (name, memory) in enumerate(found[_GPU] or found[_IGPU])]
+
+
+def cpu_profile() -> bool:
+    """Whether setup installed llama.cpp's CPU build because the install
+    profile is cpu (data/profile.json), so no GPU was looked for."""
+    from . import config
+    try:
+        return json.loads((config.get_data_dir() / "profile.json").read_text()).get("profile") == "cpu"
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def choose(setting: str, available: list[Gpu]) -> Gpu | None:

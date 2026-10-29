@@ -1,6 +1,6 @@
 # Native installers
 
-Windows x64 uses Inno Setup; macOS Intel/ARM use pkgbuild/productbuild. Both consume a validated staged release tree from `make package` or `make package-local`. See [building](../docs/building.md), [platform validation](../docs/platform-validation.md) and [ADR 0002](../docs/adr/0002-build-and-validate-before-publication.md).
+Windows x64 uses Inno Setup; macOS (Apple silicon only; Intel Macs are not supported, [ADR 0111](../docs/adr/0111-intel-macs-are-not-supported.md)) uses pkgbuild/productbuild. Both consume a validated staged release tree from `make package` or `make package-local`. See [building](../docs/building.md), [platform validation](../docs/platform-validation.md) and [ADR 0002](../docs/adr/0002-build-and-validate-before-publication.md).
 
 Windows installs per user under `%LOCALAPPDATA%\Programs\Imprint`. Its wizard runs the bundled uv/bootstrap path and client registration, displaying the log. The final `.setup-result` reports completion; `.first-run.done` alone does not. Silent installs run the setup script explicitly. The wizard's profile page pre-selects GPU, which keeps llama.cpp's GPU build only when it finds a GPU; a fresh silent install uses `cpu`. The Repair shortcut reuses saved profile choices and shows setup's output in its console window. Uninstall stops Imprint's processes and removes everything, data included, unless you choose to keep the data (`/KEEPDATA` when silent); see [ADR 0028](../docs/adr/0028-complete-uninstall.md).
 

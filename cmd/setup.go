@@ -28,9 +28,13 @@ import (
 const bundledPythonVersion = "3.12"
 
 // profileState is persisted at data/profile.json so re-running
-// `imprint setup` without flags picks up the last explicit choice.
+// `imprint setup` without flags picks up the last explicit choice. Chosen
+// marks a profile the user picked (flag, env, `imprint profile set`); a
+// profile recorded without it, as installers before it recorded their
+// non-interactive cpu default, is re-resolved as auto.
 type profileState struct {
-	Profile string `json:"profile"` // cpu | gpu | auto
+	Profile string `json:"profile"`          // cpu | gpu | auto
+	Chosen  bool   `json:"chosen,omitempty"` // picked by the user, not a default
 }
 
 func loadProfile(projectDir string) profileState {
@@ -339,23 +343,28 @@ func scopeUv(projectDir string) {
 }
 
 // resolveInstallProfile picks the install profile.
-// Priority: explicit CLI flag > env var > persisted profile.json > auto.
-func resolveInstallProfile(stored profileState) string {
+// Priority: explicit CLI flag > env var > profile.json the user chose > auto.
+// A stored profile nobody chose is a default, so setup tries the GPU again.
+func resolveInstallProfile(stored profileState) profileState {
 	profile := strings.ToLower(strings.TrimSpace(installProfile))
 	if profile == "" {
 		profile = strings.ToLower(strings.TrimSpace(os.Getenv("IMPRINT_PROFILE")))
 	}
-	if profile == "" {
-		profile = stored.Profile
+	chosen := profile != ""
+	if !chosen && stored.Chosen {
+		profile, chosen = stored.Profile, true
+	}
+	if !chosen && stored.Profile == "cpu" {
+		output.Info("The cpu profile was an installer default — trying llama.cpp's GPU build (imprint profile set cpu keeps the CPU)")
 	}
 	if profile == "" {
 		profile = "auto"
 	}
 	if profile != "cpu" && profile != "gpu" && profile != "auto" {
 		output.Warn("Unknown profile '" + profile + "' — falling back to auto")
-		profile = "auto"
+		profile, chosen = "auto", false
 	}
-	return profile
+	return profileState{Profile: profile, Chosen: chosen}
 }
 
 // installLlamaBuild installs one build of the binding (llm or llm-gpu) on top
@@ -491,7 +500,8 @@ func setupBackend() backendPaths {
 	scopeUv(projectDir)
 
 	// ── Resolve install profile ────────────────────────────────
-	profile := resolveInstallProfile(loadProfile(projectDir))
+	resolved := resolveInstallProfile(loadProfile(projectDir))
+	profile := resolved.Profile
 
 	output.Info("Detected platform: " + platform.OSName())
 	output.Info("Install profile: " + profile)
@@ -543,7 +553,7 @@ func setupBackend() backendPaths {
 	// consistent. Skip when we fell back to the legacy path — that run
 	// didn't exercise uv, so we'd rather not lock the user in.
 	if !usedLegacyFallback {
-		saveProfile(projectDir, profileState{Profile: profile})
+		saveProfile(projectDir, resolved)
 	}
 
 	// Native installer entry points mark first-run completion only after
@@ -581,6 +591,7 @@ func setupBackend() backendPaths {
 	} else {
 		output.Warn("Dashboard UI not found at imprint/ui/out/ — run `cd imprint/ui && npm install && npm run build` to rebuild")
 	}
+	prepareDesktopApp(projectDir)
 
 	preparedBackend = &backendPaths{
 		ProjectDir: projectDir,

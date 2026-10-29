@@ -39,8 +39,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
-    runs-on: ${{ github.event_name != 'pull_request' && (matrix.os == 'macos-latest' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os == 'macos-15-intel' && fromJSON('["self-hosted", "macOS", "X64", "imprint-intel"]')) || matrix.os }}
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    # Every job runs on the owner's machines (ADR 0112).
+    runs-on: >-
+      ${{ fromJSON('{"ubuntu-latest": ["self-hosted", "linux", "x64"], "ubuntu-24.04-arm": ["imprint-arm64"], "windows-latest": ["self-hosted", "windows", "x64", "imprint-windows"], "macos-latest": ["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]}')[matrix.os] }}
     env:
       PYTHONPATH: .
     steps:
@@ -49,14 +51,14 @@ jobs:
         shell: bash
         run: echo "VOICE_CACHE=$RUNNER_TEMP/imprint-voice" >> "$GITHUB_ENV"
       - name: Isolated Python on the laptop
-        if: runner.environment == 'self-hosted'
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           python3.12 -m venv "$RUNNER_TEMP/imprint-python"
           echo "$RUNNER_TEMP/imprint-python/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$RUNNER_TEMP/imprint-python" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
-        if: runner.environment == 'github-hosted'
+        if: runner.os != 'macOS'
         with:
           python-version: '3.12'
           cache: pip

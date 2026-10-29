@@ -70,6 +70,35 @@ func runtimeProject(t *testing.T) string {
 	return project
 }
 
+func TestResolveInstallProfile(t *testing.T) {
+	cases := []struct {
+		name   string
+		flag   string
+		env    string
+		stored profileState
+		want   profileState
+	}{
+		{"fresh install", "", "", profileState{}, profileState{Profile: "auto"}},
+		// Installers before the chosen mark recorded their non-interactive
+		// cpu default; setup tries the GPU for it.
+		{"cpu the installer defaulted to", "", "", profileState{Profile: "cpu"}, profileState{Profile: "auto"}},
+		{"cpu the user chose", "", "", profileState{Profile: "cpu", Chosen: true}, profileState{Profile: "cpu", Chosen: true}},
+		{"flag over the stored choice", "GPU", "", profileState{Profile: "cpu", Chosen: true}, profileState{Profile: "gpu", Chosen: true}},
+		{"env", "", "cpu", profileState{}, profileState{Profile: "cpu", Chosen: true}},
+		{"unknown flag", "cuda", "", profileState{Profile: "cpu", Chosen: true}, profileState{Profile: "auto"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			SetInstallProfile(c.flag)
+			t.Cleanup(func() { SetInstallProfile("") })
+			t.Setenv("IMPRINT_PROFILE", c.env)
+			if got := resolveInstallProfile(c.stored); got != c.want {
+				t.Errorf("resolveInstallProfile(%+v) = %+v, want %+v", c.stored, got, c.want)
+			}
+		})
+	}
+}
+
 func TestInstallCoreRuntime(t *testing.T) {
 	cpuVenv := []string{"numpy", "onnxruntime", "sympy"}
 	cases := []struct {

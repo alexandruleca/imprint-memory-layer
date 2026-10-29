@@ -34,7 +34,7 @@ jobs:
     # triggers have no workflow_run context so `conclusion` is empty and
     # the expression short-circuits to true.
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

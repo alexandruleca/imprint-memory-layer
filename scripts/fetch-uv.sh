@@ -5,7 +5,7 @@
 #
 # Usage: scripts/fetch-uv.sh <os> <arch> <dest_dir>
 #   os:   linux | darwin | windows
-#   arch: amd64 | arm64
+#   arch: amd64 | arm64 (darwin: arm64 only; Intel Macs are not supported, ADR 0111)
 #   dest_dir: where the staged install tree already lives (we write into
 #             $dest_dir/bin/uv[.exe])
 #
@@ -21,7 +21,6 @@ DEST_DIR="${3:?dest_dir required}"
 case "$OS-$ARCH" in
     linux-amd64)   TARGET="x86_64-unknown-linux-gnu";   ARCHIVE_EXT="tar.gz"; BIN_NAME="uv" ;;
     linux-arm64)   TARGET="aarch64-unknown-linux-gnu";  ARCHIVE_EXT="tar.gz"; BIN_NAME="uv" ;;
-    darwin-amd64)  TARGET="x86_64-apple-darwin";        ARCHIVE_EXT="tar.gz"; BIN_NAME="uv" ;;
     darwin-arm64)  TARGET="aarch64-apple-darwin";       ARCHIVE_EXT="tar.gz"; BIN_NAME="uv" ;;
     windows-amd64) TARGET="x86_64-pc-windows-msvc";     ARCHIVE_EXT="zip";    BIN_NAME="uv.exe" ;;
     windows-arm64) TARGET="aarch64-pc-windows-msvc";    ARCHIVE_EXT="zip";    BIN_NAME="uv.exe" ;;

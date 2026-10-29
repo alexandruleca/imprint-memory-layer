@@ -33,11 +33,10 @@ const MAX_RELEASES = 100;
 const TIMEOUT_MS = 8000;
 const IMPRINT_TAG = /^v\d+\.\d+\.\d+(-dev\.\d+)?$/;
 
+// macOS is Apple silicon only: older releases' Intel assets are not offered (ADR 0111).
 const PLATFORM_MATCHERS = [
   { os: 'macos', arch: 'arm64',   kind: 'installer', rx: /darwin.*arm64.*\.(pkg|dmg)$/i },
-  { os: 'macos', arch: 'amd64',   kind: 'installer', rx: /darwin.*(amd64|x86_64).*\.(pkg|dmg)$/i },
   { os: 'macos', arch: 'arm64',   kind: 'archive',   rx: /darwin.*arm64.*\.tar\.gz$/i },
-  { os: 'macos', arch: 'amd64',   kind: 'archive',   rx: /darwin.*(amd64|x86_64).*\.tar\.gz$/i },
   { os: 'windows', arch: 'amd64', kind: 'installer', rx: /windows.*(amd64|x86_64).*\.(exe|msi)$/i },
   { os: 'windows', arch: 'amd64', kind: 'archive',   rx: /windows.*(amd64|x86_64).*\.zip$/i },
   { os: 'linux', arch: 'arm64',   kind: 'archive',   rx: /linux.*arm64.*\.tar\.gz$/i },
@@ -47,7 +46,7 @@ const PLATFORM_MATCHERS = [
 const OS_LABEL = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
 // Apple's names on macOS; the plain names elsewhere.
 const ARCH_LABEL = {
-  macos: { amd64: 'Intel', arm64: 'Apple Silicon' },
+  macos: { arm64: 'Apple Silicon' },
   default: { amd64: 'x64', arm64: 'ARM64' },
 };
 const archLabel = (os, arch) => (ARCH_LABEL[os] ?? ARCH_LABEL.default)[arch] ?? '';

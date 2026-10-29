@@ -108,10 +108,12 @@ def _embedding_devices() -> tuple[Choice, ...]:
     """What each ``model.device`` value does on this device (ADR 0086)."""
     from . import config, llama_runtime
     gpu = llama_runtime.choose(str(config.GPU_DEVICE), _gpus())
-    here = gpu.name if gpu else "CPU here: llama.cpp found no GPU it can use"
+    why = ("the cpu install profile installed llama.cpp's CPU build (imprint profile set auto)"
+           if llama_runtime.cpu_profile() else "llama.cpp found no GPU it can use")
+    here = gpu.name if gpu else "CPU here: " + why
     return (Choice("auto", "Auto", here),
             Choice("cpu", "CPU"),
-            Choice("gpu", "GPU", here if gpu else "", "" if gpu else "llama.cpp found no GPU it can use"))
+            Choice("gpu", "GPU", here if gpu else "", "" if gpu else why))
 
 
 def _workspaces() -> tuple[Choice, ...]:

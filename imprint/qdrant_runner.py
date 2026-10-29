@@ -113,10 +113,10 @@ def _platform_asset() -> str:
         if machine in ("aarch64", "arm64"):
             return f"qdrant-aarch64-unknown-linux-musl.tar.gz"
     elif sysname == "darwin":
-        if machine in ("x86_64", "amd64"):
-            return f"qdrant-x86_64-apple-darwin.tar.gz"
         if machine in ("arm64", "aarch64"):
             return f"qdrant-aarch64-apple-darwin.tar.gz"
+        if machine in ("x86_64", "amd64"):
+            raise RuntimeError("Intel Macs are not supported (ADR 0111); Imprint runs on Apple silicon Macs")
     elif sysname == "windows":
         return f"qdrant-x86_64-pc-windows-msvc.zip"
 

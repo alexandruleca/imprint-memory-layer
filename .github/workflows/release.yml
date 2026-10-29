@@ -26,7 +26,7 @@ permissions:
 jobs:
   analyze:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     outputs:
       version: ${{ steps.compute.outputs.version }}
       bump: ${{ steps.compute.outputs.bump }}

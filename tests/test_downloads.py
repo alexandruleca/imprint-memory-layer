@@ -18,7 +18,7 @@ class DownloadTests(unittest.TestCase):
             self.assertIn(version, (root / name).read_text(), name)
         for target, suffix in (
             ('x86_64-unknown-linux-gnu', 'tar.gz'), ('aarch64-unknown-linux-gnu', 'tar.gz'),
-            ('x86_64-apple-darwin', 'tar.gz'), ('aarch64-apple-darwin', 'tar.gz'),
+            ('aarch64-apple-darwin', 'tar.gz'),
             ('x86_64-pc-windows-msvc', 'zip'), ('aarch64-pc-windows-msvc', 'zip'),
         ):
             digest = expected_digest('uv', version, f'uv-{target}.{suffix}')
@@ -41,4 +41,13 @@ class DownloadTests(unittest.TestCase):
         with patch('platform.system', return_value='Linux'), patch('platform.machine', return_value='aarch64'):
             asset = qdrant_runner._platform_asset()
         self.assertIn('musl', asset)
+        self.assertEqual(len(expected_digest('qdrant', qdrant_runner.QDRANT_VERSION, asset)), 64)
+
+    def test_intel_mac_has_no_qdrant_asset(self):
+        # Intel Macs are not supported (ADR 0111).
+        with patch('platform.system', return_value='Darwin'), patch('platform.machine', return_value='x86_64'):
+            with self.assertRaisesRegex(RuntimeError, 'Intel Macs are not supported'):
+                qdrant_runner._platform_asset()
+        with patch('platform.system', return_value='Darwin'), patch('platform.machine', return_value='arm64'):
+            asset = qdrant_runner._platform_asset()
         self.assertEqual(len(expected_digest('qdrant', qdrant_runner.QDRANT_VERSION, asset)), 64)

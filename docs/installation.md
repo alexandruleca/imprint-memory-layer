@@ -4,7 +4,7 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 ---
 ## Requirements
 
-**Desktop platform target:** macOS 13+ for the Electron app/pkg; Windows x64 and Linux x64/ARM artifacts have separate native validation gates. Native Windows/macOS execution of the current fixes is pending; see [platform validation](platform-validation.md).
+**Desktop platform target:** macOS 13+ on Apple silicon for the Electron app/pkg; Intel Macs are not supported, and `install.sh` and `imprint update` stop with a message on one ([ADR 0111](adr/0111-intel-macs-are-not-supported.md)); Windows x64 and Linux x64/ARM artifacts have separate native validation gates. Native Windows/macOS execution of the current fixes is pending; see [platform validation](platform-validation.md).
 
 **Core:**
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
@@ -274,6 +274,8 @@ Every download is verified against the release's `SHA256SUMS` before anything is
 | macOS `.pkg` | Opens the new `.pkg` in Installer, which asks for your password, then restarts the running dashboard server. |
 | Docker | Pull the new image and recreate the container; the `/data` volume is kept. |
 | Source checkout | `git pull` and rebuild. |
+
+Intel Macs get no new releases ([ADR 0111](adr/0111-intel-macs-are-not-supported.md)). An Intel build of this version or later refuses to update with "Intel Macs are no longer supported"; one running under Rosetta on an Apple silicon Mac is told to install the Apple silicon build instead. Earlier Intel builds stop when the release has no `imprint-darwin-amd64` asset, without changing anything.
 
 **What's preserved:** `data/` (workspaces, Qdrant storage, SQLite graphs, `config.json`, `workspace.json`, `profile.json`) and `.venv/` (Python virtual environment). An in-place update overwrites the release's files and leaves files that newer releases dropped. Installations from before ADR 0023 update once by the old route (installer, install script or `imprint update`) before the dashboard can update them.
 

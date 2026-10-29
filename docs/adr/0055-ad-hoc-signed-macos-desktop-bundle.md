@@ -6,7 +6,9 @@ description: The macOS desktop app is signed ad hoc as a bundle, so macOS privac
 - Status: Amended
 - Date: 2026-10-25
 - Amends: [ADR 0044](0044-native-desktop-voice-platforms.md) — its statement that the app includes microphone/JIT entitlements
-- Amended by: [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) — the enclosing installer app also requires microphone usage text
+- Amended by:
+  - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) — the enclosing installer app also requires microphone usage text
+  - [ADR 0111](0111-intel-macs-are-not-supported.md) — the desktop app is built for arm64 only, not as a universal binary
 - Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) (Developer ID signing and notarization still need maintainer credentials)
 - Restructured: 2026-10-25
 

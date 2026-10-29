@@ -6,7 +6,10 @@ description: Route trusted Apple silicon jobs to the developer laptop while reta
 - Status: Amended
 - Date: 2026-10-26
 - Scope: Repository Apple silicon workflows and the Outland laptop
-- Amended by: [ADR 0106](0106-intel-mac-laptop-runner.md) — Intel jobs move to the owner's Intel laptop
+- Amended by:
+  - [ADR 0106](0106-intel-mac-laptop-runner.md) — Intel jobs move to the owner's Intel laptop
+  - [ADR 0111](0111-intel-macs-are-not-supported.md) — no Intel macOS jobs remain, hosted or self-hosted
+  - [ADR 0112](0112-ci-runs-on-the-owners-machines.md) — PR jobs leave hosted machines: Linux PRs run in throwaway containers, macOS jobs skip PRs
 
 ## Context
 

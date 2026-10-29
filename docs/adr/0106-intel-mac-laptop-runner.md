@@ -3,9 +3,10 @@ title: ADR 0106 — Intel Mac laptop runner
 description: Route trusted Intel macOS jobs to the owner's Intel laptop, as ADR 0083 did for Apple silicon, and validate the Intel package payload there instead of installing it.
 ---
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-10-28
 - Scope: Repository Intel macOS workflows and the Narnia laptop
+- Superseded by: [ADR 0111](0111-intel-macs-are-not-supported.md)
 - Amends:
   - [ADR 0083](0083-apple-silicon-laptop-runner.md) — Intel jobs no longer stay hosted, and the hosted Intel install check is gone
   - [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) — the Intel wheel is built on the laptop runner instead of GitHub's hosted Intel runner

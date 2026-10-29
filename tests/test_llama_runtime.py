@@ -2,8 +2,10 @@ import contextlib
 import gc
 import io
 import sys
+import tempfile
 import unittest
 import weakref
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import llama_cpp
@@ -24,6 +26,17 @@ class ChooseTests(unittest.TestCase):
         self.assertEqual(llama_runtime.choose('0', GPUS).index, 0)
         self.assertIsNone(llama_runtime.choose('2', GPUS))
         self.assertIsNone(llama_runtime.choose('auto', []))
+
+
+class CpuProfileTests(unittest.TestCase):
+    def test_only_the_cpu_install_profile_explains_a_cpu_build(self):
+        with tempfile.TemporaryDirectory() as data, patch.object(config, 'get_data_dir', return_value=Path(data)):
+            self.assertFalse(llama_runtime.cpu_profile())
+            for profile, expected in (('cpu', True), ('auto', False), ('gpu', False)):
+                (Path(data) / 'profile.json').write_text(f'{{"profile": "{profile}"}}')
+                self.assertEqual(llama_runtime.cpu_profile(), expected, profile)
+            (Path(data) / 'profile.json').write_text('not json')
+            self.assertFalse(llama_runtime.cpu_profile())
 
 
 class PlacementTests(unittest.TestCase):

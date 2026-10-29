@@ -8,7 +8,9 @@ description: The gpu and auto profiles install llama-cpp-python's hash-locked Vu
 - Amends:
   - [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) — drops the JSON-schema grammar for local classification
   - [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) — replaces the GPU profile's nvcc CUDA rebuild with hash-locked Vulkan wheels
-- Amended by: [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) — a model no longer splits across GPUs
+- Amended by:
+  - [ADR 0087](0087-llama-cpp-runs-each-model-on-one-gpu.md) — a model no longer splits across GPUs
+  - [ADR 0113](0113-unchosen-install-profiles-try-the-gpu.md) — a stored profile nobody chose resolves to auto
 - Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md), [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
 - Restructured: 2026-10-25
 

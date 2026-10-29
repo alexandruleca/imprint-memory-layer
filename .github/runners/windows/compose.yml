@@ -1,0 +1,45 @@
+# Two Windows 11 runner VMs on KVM through dockur/windows (docs/ci-runners.md).
+# Windows installs unattended on the first start, then oem/install.bat sets up
+# the build tools and the runner, which waits for the registration token that
+# register-windows.sh drops into the VM's shared folder.
+#
+#   docker compose -f .github/runners/windows/compose.yml up -d
+#
+# Disks live under $IMPRINT_VM_DIR (default /mnt/internal/vm). The web console
+# of each VM listens on localhost only: 127.0.0.1:8006 and :8007.
+x-windows: &windows
+  image: dockurr/windows:6.06
+  devices:
+    - /dev/kvm
+    - /dev/net/tun
+  cap_add:
+    - NET_ADMIN
+  environment: &env
+    VERSION: "11"
+    RAM_SIZE: "8G"
+    CPU_CORES: "4"
+    DISK_SIZE: "96G"
+    USERNAME: "runner"
+    PASSWORD: "${IMPRINT_WINDOWS_PASSWORD:?set IMPRINT_WINDOWS_PASSWORD in .env}"
+  restart: unless-stopped
+  stop_grace_period: 2m
+
+services:
+  win1:
+    <<: *windows
+    container_name: imprint-win1
+    ports:
+      - 127.0.0.1:8006:8006
+    volumes:
+      - ${IMPRINT_VM_DIR:-/mnt/internal/vm}/imprint-win1:/storage
+      - ./oem:/oem:ro
+      - ./shared/win1:/shared
+  win2:
+    <<: *windows
+    container_name: imprint-win2
+    ports:
+      - 127.0.0.1:8007:8006
+    volumes:
+      - ${IMPRINT_VM_DIR:-/mnt/internal/vm}/imprint-win2:/storage
+      - ./oem:/oem:ro
+      - ./shared/win2:/shared

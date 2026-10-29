@@ -69,6 +69,17 @@ case "$ARCH" in
     *)             fail "Unsupported architecture: $ARCH" ;;
 esac
 
+# Intel Macs are not supported (ADR 0111): no release ships darwin/amd64.
+# A shell under Rosetta on Apple silicon also reports x86_64; that Mac gets
+# the Apple silicon build.
+if [ "$PLATFORM" = "darwin" ] && [ "$ARCH" = "amd64" ]; then
+    if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then
+        ARCH="arm64"
+    else
+        fail "Intel Macs are no longer supported. Imprint runs on Apple silicon Macs, Linux and Windows."
+    fi
+fi
+
 info "Detected platform: ${PLATFORM}/${ARCH}"
 
 # --- Resolve target tag ---
@@ -213,6 +224,8 @@ success "Bundled uv: $("$UV_BIN" --version 2>/dev/null || echo unknown)"
 # The profile is llama.cpp's build, which runs embeddings and the local LLM.
 # "gpu" keeps the GPU build (Vulkan, any vendor) only when llama.cpp finds a
 # GPU and installs the CPU build otherwise, so it is the interactive default.
+# Without a prompt (`curl | bash`) or on an update, no profile is passed:
+# bootstrap keeps the one the user chose, else picks auto (try the GPU).
 
 # tty-detect: interactive only when stdin IS a tty. `curl | bash` never is.
 INTERACTIVE=0
@@ -220,28 +233,25 @@ if [ -t 0 ] && [ "$NON_INTERACTIVE" != "1" ]; then
     INTERACTIVE=1
 fi
 
-if [ -z "$PROFILE" ]; then
-    if [ "$INTERACTIVE" = "1" ]; then
-        default="gpu"
-        printf "\033[0;36m[?]\033[0m Install profile [cpu/gpu] (default: %s, the CPU when no GPU is found): " "$default"
-        read -r reply
-        case "$(echo "${reply:-$default}" | tr '[:upper:]' '[:lower:]')" in
-            gpu) PROFILE="gpu" ;;
-            cpu|"") PROFILE="cpu" ;;
-            *) PROFILE="$default"; info "Unknown choice — using $default" ;;
-        esac
-    else
-        PROFILE="cpu"
-    fi
+if [ -z "$PROFILE" ] && [ "$INTERACTIVE" = "1" ] && [ "$EXISTING_INSTALL" = "0" ]; then
+    default="gpu"
+    printf "\033[0;36m[?]\033[0m Install profile [cpu/gpu] (default: %s, the CPU when no GPU is found): " "$default"
+    read -r reply
+    case "$(echo "${reply:-$default}" | tr '[:upper:]' '[:lower:]')" in
+        gpu) PROFILE="gpu" ;;
+        cpu) PROFILE="cpu" ;;
+        *) PROFILE="$default"; info "Unknown choice — using $default" ;;
+    esac
 fi
 
-info "Profile: $PROFILE"
+info "Profile: ${PROFILE:-auto (or the one chosen before)}"
 
 # --- Run imprint bootstrap (uv-powered venv + deps) ---
 info "Running imprint bootstrap (uv downloads its own Python — no host install required)..."
-BOOTSTRAP_ARGS=("--profile" "$PROFILE")
+BOOTSTRAP_ARGS=()
+[ -n "$PROFILE" ] && BOOTSTRAP_ARGS+=("--profile" "$PROFILE")
 [ "$NON_INTERACTIVE" = "1" ] && BOOTSTRAP_ARGS+=("--non-interactive")
-"$IMPRINT_BIN" bootstrap "${BOOTSTRAP_ARGS[@]}" || fail "imprint bootstrap failed"
+"$IMPRINT_BIN" bootstrap ${BOOTSTRAP_ARGS[@]+"${BOOTSTRAP_ARGS[@]}"} || fail "imprint bootstrap failed"
 
 # --- Register with Claude Code and other AI tools ---
 info "Running imprint setup (MCP registration)..."

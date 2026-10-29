@@ -31,8 +31,6 @@ trafilatura>=1.10          # readability-style html extraction
 # rapidocr includes its small ONNX models and uses our one runtime overlay.
 # PDFium wheels include the renderer; no system Tesseract/Poppler required.
 rapidocr==3.10.0
-# Newer OpenCV Intel Mac wheels require macOS 14; our baseline is 13.
-opencv-python-headless==4.11.0.86; sys_platform == 'darwin' and platform_machine == 'x86_64'
 pypdfium2>=5.0
 pillow>=10
 pytesseract>=0.3           # optional custom-language Tesseract backend

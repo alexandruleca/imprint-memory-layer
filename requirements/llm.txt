@@ -6,13 +6,12 @@
 # PyPI publishes llama-cpp-python only as source, which needs a C/C++
 # toolchain that Windows machines usually lack. Where upstream publishes a
 # prebuilt CPU wheel for the platform, install that release asset instead
-# (ADR 0035). macOS installs the wheels this repository builds from the same
-# version's hash-locked source, with Metal on both architectures
+# (ADR 0035). Apple silicon installs the wheel this repository builds from the
+# same version's hash-locked source, with Metal
 # (.github/workflows/llama-wheels.yml, ADR 0090). Other platforms build from
-# source.
+# source; Intel Macs are not supported (ADR 0110).
 llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-win_amd64.whl ; sys_platform == "win32" and platform_machine == "AMD64"
 llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"
 llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl ; sys_platform == "linux" and platform_machine == "aarch64"
 llama-cpp-python @ https://github.com/alexandruleca/imprint-memory-layer/releases/download/llama-cpp-python-v0.3.36/llama_cpp_python-0.3.36-py3-none-macosx_13_0_arm64.whl ; sys_platform == "darwin" and platform_machine == "arm64"
-llama-cpp-python @ https://github.com/alexandruleca/imprint-memory-layer/releases/download/llama-cpp-python-v0.3.36/llama_cpp_python-0.3.36-py3-none-macosx_13_0_x86_64.whl ; sys_platform == "darwin" and platform_machine == "x86_64"
-llama-cpp-python==0.3.36 ; (sys_platform != "win32" or platform_machine != "AMD64") and (sys_platform != "linux" or (platform_machine != "x86_64" and platform_machine != "aarch64")) and (sys_platform != "darwin" or (platform_machine != "arm64" and platform_machine != "x86_64"))
+llama-cpp-python==0.3.36 ; (sys_platform != "win32" or platform_machine != "AMD64") and (sys_platform != "linux" or (platform_machine != "x86_64" and platform_machine != "aarch64")) and (sys_platform != "darwin" or platform_machine != "arm64")

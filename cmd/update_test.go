@@ -33,6 +33,22 @@ func TestInstallKindOf(t *testing.T) {
 	}
 }
 
+func TestUnsupportedPlatformRefusesIntelMacs(t *testing.T) {
+	no := func() bool { return false }
+	yes := func() bool { return true }
+	for _, p := range [][2]string{{"darwin", "arm64"}, {"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}} {
+		if err := unsupportedPlatform(p[0], p[1], no); err != nil {
+			t.Errorf("%s/%s: %v", p[0], p[1], err)
+		}
+	}
+	if err := unsupportedPlatform("darwin", "amd64", no); err == nil || !strings.Contains(err.Error(), "Intel Macs are no longer supported") {
+		t.Errorf("darwin/amd64 = %v, want the Intel Mac refusal", err)
+	}
+	if err := unsupportedPlatform("darwin", "amd64", yes); err == nil || !strings.Contains(err.Error(), "Apple silicon build") {
+		t.Errorf("darwin/amd64 under Rosetta = %v, want a pointer to the Apple silicon build", err)
+	}
+}
+
 func TestMoveBinariesAsideKeepsOneBackupOfEachFile(t *testing.T) {
 	bin := t.TempDir()
 	write := func(name, body string) {

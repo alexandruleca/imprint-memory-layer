@@ -1,0 +1,37 @@
+# The trusted Linux x64 runners: the Swarm stack `imprint-runner` on bedrock
+# (docs/ci-runners.md). Each replica takes one job and restarts as a new
+# runner. They hold the registration token and the Docker socket, which is
+# root on the host, so only pushes, releases and manual runs reach them: pull
+# requests run in the throwaway containers of jit-runners.sh (ADR 0112).
+#
+# Host networking makes 127.0.0.1 the host's, as on a hosted runner: jobs that
+# publish a container port and curl it (ci.yml `container`) need that.
+#
+# Deploy through Portainer (stack imprint-runner) or:
+#   ACCESS_TOKEN=... docker stack deploy -c .github/runners/linux-trusted.stack.yml imprint-runner
+services:
+  runner:
+    image: myoung34/github-runner:2.338.2-ubuntu-noble
+    environment:
+      ACCESS_TOKEN: ${ACCESS_TOKEN:?a token with admin rights on the repository}
+      REPO_URL: https://github.com/alexandruleca/imprint-memory-layer
+      RUNNER_SCOPE: repo
+      RUNNER_NAME_PREFIX: imprint
+      LABELS: self-hosted,linux,x64
+      EPHEMERAL: "true"
+      DISABLE_AUTO_UPDATE: "true"
+      RUNNER_WORKDIR: /tmp/runner/work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - host
+    deploy:
+      replicas: 5
+      restart_policy:
+        condition: any
+        delay: 5s
+
+networks:
+  host:
+    external: true
+    name: host

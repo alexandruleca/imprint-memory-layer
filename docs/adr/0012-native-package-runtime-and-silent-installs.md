@@ -5,7 +5,9 @@ description: Restore Intel macOS wheel compatibility and keep Windows silent ins
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — silent installs choose only the profile; the local LLM binding is no longer optional
+- Amended by:
+  - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — silent installs choose only the profile; the local LLM binding is no longer optional
+  - [ADR 0111](0111-intel-macs-are-not-supported.md) — the Intel macOS ONNX Runtime 1.23.2 pin is gone
 - Related: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0007](0007-verified-runtime-and-desktop-baseline.md)
 - Restructured: 2026-10-25
 

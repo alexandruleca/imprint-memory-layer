@@ -7,11 +7,11 @@ description: Build the CLI, dashboard, desktop shell and native installers, with
 
 ```bash
 make build                         # current platform CLI
-make all                           # five Go targets
+make all                           # four Go targets (no Intel macOS, ADR 0111)
 make dashboard-build               # Next.js static export into imprint/ui/out (Node 22+; not tracked, CI and releases build it)
 make chrome-extension-zip           # allowlisted manual-install Chrome ZIP + checksum
 make ui-dist-linux ARCH=amd64       # native shell; arm64 is a separate build
-make ui-dist-mac                    # universal macOS app, on macOS
+make ui-dist-mac                    # Apple silicon macOS app, on macOS
 make ui-dist-win                    # Windows x64 portable app
 make package-local PLAT=linux/amd64 # stage + archive one platform
 make package                       # stage + archive all prebuilt targets
@@ -39,7 +39,7 @@ The experimental [PersonaPlex adapter](personaplex-prototype.md) uses a separate
 The smaller [LFM audio experiment](lfm-audio-prototype.md) uses explicitly downloaded native CPU artifacts, with model/runner SHA256 digests in `runtime-manifest.json` (ADR 0042). It adds no Python profile dependencies, implicit model download or supported installer target. Keep its runtime cache and private speech exports outside release sources.
 
 The [live Echo companion](live-voice.md) has a separate explicit source-build
-command for Windows x64, macOS Intel/Apple Silicon (13+) and Linux x64. It shares
+command for Windows x64, macOS on Apple silicon (13+) and Linux x64. It shares
 portable GGUF weights and verifies the patched native worker, without downloading
 the historical Linux CLI on other operating systems. Windows builds need CMake
 and Visual Studio C++ Build Tools; Macs need CMake and Xcode Command Line Tools.
@@ -81,7 +81,7 @@ the nested Electron signature missed a TCC crash in an installed v0.25.0 bundle.
 See [ADR 0075](adr/0075-microphone-purpose-in-the-macos-installer-wrapper.md);
 interactive consent with the corrected installer still needs validation.
 
-Intel macOS uses ONNX Runtime 1.23.2 through platform markers because newer releases no longer publish its CPython 3.12 wheel. Other CPU targets retain the current runtime. Windows silent installation skips interactive wizard pages and has a 15-minute CI deadline with process-tree cleanup and retained installer/bootstrap logs. Native package jobs and runtime checks have explicit timeouts; see [ADR 0012](adr/0012-native-package-runtime-and-silent-installs.md).
+Intel Macs are not supported ([ADR 0111](adr/0111-intel-macs-are-not-supported.md)): no release target, package, wheel or dependency pin exists for darwin/amd64, and every target installs the current ONNX Runtime. Windows silent installation skips interactive wizard pages and has a 15-minute CI deadline with process-tree cleanup and retained installer/bootstrap logs. Native package jobs and runtime checks have explicit timeouts; see [ADR 0012](adr/0012-native-package-runtime-and-silent-installs.md).
 
 The Windows setup helper logs ordinary native stderr as progress and uses the global native exit code to detect failure; Windows PowerShell 5.1 must not turn bootstrap's stderr banner into a terminating error or shadow the updated exit code with a local variable. The helper decodes native output as UTF-8 and sets `NO_COLOR`, so `first-run.log` is plain UTF-8 text. Each line also goes to the console, so the Start menu's **Repair Imprint** shortcut shows setup's progress in its window. The helper reopens the log for every line, so the installer wizard polls it with `LoadStringsFromLockedFile` (read/write sharing); a share-read poll makes an append fail and aborts setup. The Windows native CI job runs `scripts/test-windows-setup.ps1` against both successful stderr output and a real nonzero exit before runtime provisioning, with a concurrent poller using the wizard's sharing mode and checks for UTF-8 decoding and absent ANSI escapes.
 
@@ -112,11 +112,11 @@ asset set and covered by `SHA256SUMS`. Branch CI exercises packaging in temporar
 test directories; it does not publish extension releases. The local packager also
 writes a `.zip.sha256` sidecar. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
-Use the **Build release artifacts** manual workflow on main or dev for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on hosted Linux x64/ARM, macOS Intel and Windows x64 runners, with trusted Apple silicon jobs on the repository laptop runner; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
+Use the **Build release artifacts** manual workflow on main or dev for a build-only validation run. It does not publish. A branch-policy job rejects any other source ref before packaging starts. Native checks run on the owner's runners ([CI runners](ci-runners.md)): Linux x64 and emulated ARM64 and the Windows VMs on bedrock, and Apple silicon jobs on the laptop; local verification results and outstanding platform checks are in [platform validation](platform-validation.md).
 
 Branch push and PR CI run Go checks, Python dependency/unit/runtime checks on five native targets, dashboard lint/production build/Playwright, Electron navigation/service/lifecycle tests and workflow linting. Electron packaging/archive-content checks belong to the release workflow on main and dev; container builds/smoke run only on main. Superseded compile/test runs are cancelled per branch. Signing/notarization and interactive GUI/tray checks remain separate release requirements; see [installer limitations](../installers/README.md).
 
-CI jobs have explicit deadlines (20 minutes for native/container, 15 for frontend and 10 for workflow lint). On hosted Ubuntu, Playwright downloads Chromium with a five-minute deadline and uses the runner's existing runtime libraries; it does not upgrade unrelated OS/font packages through apt. Browser tests still launch Chromium and fail if required runtime libraries are missing.
+CI jobs have explicit deadlines (20 minutes for native/container, 15 for frontend and 10 for workflow lint). On the Linux runners, Playwright downloads Chromium with a five-minute deadline and uses the runner's existing runtime libraries; it does not upgrade unrelated OS/font packages through apt. Browser tests still launch Chromium and fail if required runtime libraries are missing.
 
 The separate [nightly Trivy security scan](security-scanning.md) checks source, dependency locks, configuration and secrets daily at 01:23 UTC, publishes reports and fails on high/critical findings. It also has a manual trigger.
 
@@ -147,7 +147,7 @@ The native desktop-launch fixture publishes its captured arguments by a same-dir
 
 Desktop service ownership is defined in [ADR 0025](adr/0025-desktop-owned-background-service.md). `node --test ui-electron/*.test.js` exercises navigation, hidden spawning, splash ordering, hide/reopen, retry and explicit Quit. Native Python tests start the actual API with a lifetime pipe and verify shutdown. Windows CI additionally runs `scripts/test-windows-launcher.ps1` against a disposable ready installation; the fixture checks the direct GUI target and argument quoting without touching client profiles. Release ASAR checks require the startup assets and service module. These automated checks do not replace interactive console/tray/Dock validation.
 
-WSL client registration is covered by Go profile-preservation fixtures and Python path/hook policy tests on the native CI matrix. The Windows setup regression also verifies replay of saved WSL selections. For a real interoperability check, run `scripts/test-wsl-interop.py --windows-cli <WSL-path-to-imprint.exe> --windows-python <Windows-venv-python-path>` with the base Python dependencies inside WSL. It creates disposable Claude/Codex homes and Windows data, exercises setup/idempotence, hooks, the `imprint` command (root approval, refusal, a Linux installation's link kept), actual MCP discovery/context and removal, then cleans its successful fixture. It reuses the supplied interpreter read-only; it never provisions or edits real client profiles. Hosted Windows CI does not imply that a WSL distribution is available. See [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md).
+WSL client registration is covered by Go profile-preservation fixtures and Python path/hook policy tests on the native CI matrix. The Windows setup regression also verifies replay of saved WSL selections. For a real interoperability check, run `scripts/test-wsl-interop.py --windows-cli <WSL-path-to-imprint.exe> --windows-python <Windows-venv-python-path>` with the base Python dependencies inside WSL. It creates disposable Claude/Codex homes and Windows data, exercises setup/idempotence, hooks, the `imprint` command (root approval, refusal, a Linux installation's link kept), actual MCP discovery/context and removal, then cleans its successful fixture. It reuses the supplied interpreter read-only; it never provisions or edits real client profiles. Windows CI does not imply that a WSL distribution is available. See [ADR 0026](adr/0026-windows-installer-wsl-client-bridge.md).
 
 Uninstall cleanup is shared with `imprint disable` and, per client, `imprint disconnect` (ADR 0053). Native CI runs configuration-preservation, retry-journal and foreign-runtime fixtures on every Go target; Windows also runs `scripts/test-windows-uninstall.ps1` with successful stderr, nonzero exit and missing CLI cases. Native Inno uninstall must complete cleanup before files are removed. The Windows release job also uninstalls its disposable real installation and verifies that a process running from its venv is stopped, the install folder is gone, and MCP/hook/rule cleanup ran. Process ownership and stopping are covered by Go tests on every target. Integration journals and their backups are private installation state and are rejected by release validation. See [ADR 0027](adr/0027-symmetric-uninstall-and-branch-sync.md) and [ADR 0028](adr/0028-complete-uninstall.md).
 
@@ -177,7 +177,7 @@ fixtures; run it on each target before declaring platform execution validated.
 ## Bundled Echo speech engine
 
 Release packaging requires native `voice-engine-*` artifacts from the reusable
-`voice-engine.yml` workflow for Linux x64, Windows x64 and both Mac architectures.
+`voice-engine.yml` workflow for Linux x64, Windows x64 and Apple silicon macOS.
 Linux builds run in manylinux_2_28 and link the C++/GCC runtime statically. Model
 weights are excluded; engine source, integrity metadata and notices are included.
 Archive staging verifies target architecture, fingerprints and executability.
@@ -200,59 +200,54 @@ prove managed setup does not discover developer tools. See
 
 ## macOS laptop runners
 
-Trusted push/manual macOS jobs run on two of the owner's laptops instead of hosted
-macOS: native CI, bundled voice engines, native voice checks, macOS installer
-packaging and the llama.cpp wheels. PR jobs use hosted macOS (`macos-latest`,
-`macos-15-intel`), including PRs from branches in this repository.
+Trusted push/manual macOS jobs run on the owner's Apple silicon laptop instead of
+hosted macOS: native CI, bundled voice engines, native voice checks, macOS installer
+packaging, Electron packaging and the llama.cpp wheel. Pull requests run no macOS
+jobs ([ADR 0112](adr/0112-ci-runs-on-the-owners-machines.md)); the other runners are
+described in [CI runners](ci-runners.md). There are no Intel
+macOS jobs ([ADR 0111](adr/0111-intel-macs-are-not-supported.md)).
 
-| Runner | Labels | Directory | Also runs |
-|--------|--------|-----------|-----------|
-| `Outland-apple-silicon` | `[self-hosted, macOS, ARM64, imprint-apple-silicon]` | `~/.local/share/github-runners/imprint-apple-silicon` | universal Electron packaging |
-| `Narnia-intel` (macOS 13.6, Core i7) | `[self-hosted, macOS, X64, imprint-intel]` | `~/.local/share/github-runners/imprint-intel` | — |
+| Runner | Labels | Directory |
+|--------|--------|-----------|
+| `Outland-apple-silicon` | `[self-hosted, macOS, ARM64, imprint-apple-silicon]` | `~/.local/share/github-runners/imprint-apple-silicon` |
 
-See [ADR 0083](adr/0083-apple-silicon-laptop-runner.md) and
-[ADR 0106](adr/0106-intel-mac-laptop-runner.md). Each runner is installed outside
+See [ADR 0083](adr/0083-apple-silicon-laptop-runner.md). The runner is installed outside
 the checkout. Its credentials and work folder must never enter git or release
-archives. Go dependency/build caches stay local on the laptops; setup-go remote
+archives. Go dependency/build caches stay local on the laptop; setup-go remote
 caching is disabled there to avoid uploading the owner's shared caches and delaying
 cleanup. The macOS app artifact preserves symlinks while omitting AppleDouble and
 extended attribute metadata so Linux packaging receives only bundle files.
 
-Each runs one job at a time as a login LaunchAgent under the laptop owner. It
+It runs one job at a time as a login LaunchAgent under the laptop owner. It
 starts at login, requires network access and an awake laptop, and does not prevent
 sleep. Jobs queue while it is offline; there is no automatic paid hosted fallback.
 
-From a runner directory, use `./svc.sh status`, `./svc.sh stop` and
+From the runner directory, use `./svc.sh status`, `./svc.sh stop` and
 `./svc.sh start`; logs are under `~/Library/Logs/actions.runner.*`. The runner's
 `PATH` is the `.path` file in that directory, written at registration; edit it and
-restart the service to change the tools jobs see. `Narnia-intel`'s is trimmed to Homebrew and system
-directories so the owner's pyenv, nvm and gvm shims stay out of jobs, behind the
-runner's own `python-bin`, where `python3`, `python` and `pip3` link to Homebrew
-`python@3.12`. Steps that call bare `python3`, such as the package payload check,
-need 3.11 or later; Homebrew's default `python3` there is 3.10 and macOS's is 3.9. To retire a runner, stop/uninstall
+restart the service to change the tools jobs see. To retire a runner, stop/uninstall
 the service and remove it in GitHub Settings → Actions → Runners. A fresh
 registration uses GitHub's current macOS runner archive for the architecture
-(`osx-arm64` or `osx-x64`) and the SHA256 published in its release notes, then
+(`osx-arm64`) and the SHA256 published in its release notes, then
 `./config.sh --unattended --url https://github.com/alexandruleca/imprint-memory-layer
 --token <temporary-registration-token> --name <name> --labels <label> --work _work`,
 followed by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
 Xcode Command Line Tools, Homebrew, CMake, librsvg and Homebrew `python@3.12` are host prerequisites.
-Homebrew cannot build librsvg on `Narnia-intel`'s macOS 13, so its `rsvg-convert`
-comes from MacPorts (`port install librsvg`), linked into `/usr/local/bin`; the
-packaging job installs librsvg with Homebrew only when `rsvg-convert` is missing.
+The packaging job installs librsvg with Homebrew only when `rsvg-convert` is missing.
 Laptop jobs create a fresh Python virtual environment under runner temporary
 storage; workflow setup actions supply Go and Node 22. Hosted jobs retain
 `actions/setup-python`. Its prebuilt macOS interpreter requires `/Users/runner`,
 so it is not used on the laptop.
 
-The laptop package checks expand the pkg in runner temporary storage and validate
+The laptop package check expands the pkg in runner temporary storage and validate
 the payload and compiled helper without installing it or running installer scripts.
 No CI job installs the macOS package any more; a full install/upgrade test needs a
 disposable Mac, and a developer laptop is not that fixture.
 
 This public repository's runners execute with the owner's user permissions and
-are not sandboxes. Hosted PR routing reduces accidental exposure but cannot stop a
-malicious PR from changing workflow routing itself. Do not approve untrusted
+are not sandboxes. Sending pull requests to throwaway containers reduces accidental
+exposure but cannot stop a malicious PR from changing workflow routing itself (see
+[CI runners](ci-runners.md#security)). Do not approve untrusted
 workflow runs targeting these runners; restrict repository write access and review
 workflow changes. GitHub recommends private repositories for self-hosted runners:
 [runner security guidance](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).

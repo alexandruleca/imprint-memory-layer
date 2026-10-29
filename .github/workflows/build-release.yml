@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   branch-policy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 2
     steps:
       - name: Require main or dev for release packaging
@@ -46,7 +46,7 @@ jobs:
 
   chrome-extension:
     needs: branch-policy
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
 
   dashboard:
     needs: branch-policy
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -90,7 +90,7 @@ jobs:
     strategy:
       matrix:
         arch: [amd64, arm64]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -127,7 +127,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build macOS universal app
+      - name: Build macOS Apple silicon app
         run: make ui-dist-mac
       - name: Archive .app bundle (tar preserves symlinks)
         # Do not serialize AppleDouble/xattrs into the Linux packaging job.
@@ -139,7 +139,7 @@ jobs:
 
   electron-windows:
     needs: branch-policy
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64, imprint-windows]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -161,7 +161,7 @@ jobs:
 
   archives:
     needs: [dashboard, electron-linux, electron-macos, electron-windows, chrome-extension, voice-engines]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -230,7 +230,7 @@ jobs:
 
   package-windows:
     needs: archives
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows, x64, imprint-windows]
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -366,9 +366,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Apple silicon only: Intel Macs are not supported (ADR 0111).
         include:
-          - arch: amd64
-            runner: [self-hosted, macOS, X64, imprint-intel]
           - arch: arm64
             runner: [self-hosted, macOS, ARM64, imprint-apple-silicon]
     steps:
@@ -385,7 +384,6 @@ jobs:
         run: tar -xzf "dist/imprint-darwin-${ARCH}.tar.gz" -C dist
 
       - name: Install librsvg (for icon rendering)
-        # The Intel laptop's rsvg-convert comes from MacPorts (ADR 0106).
         run: command -v rsvg-convert >/dev/null || brew install librsvg
 
       - name: Build .pkg
@@ -404,7 +402,7 @@ jobs:
           ls -la "$OUT"
 
       - name: Validate package payload without installing on the laptop
-        if: runner.environment == 'self-hosted'
+        if: runner.os == 'macOS'
         env:
           ARCH: ${{ matrix.arch }}
         run: |
@@ -416,12 +414,12 @@ jobs:
           test -n "$APP"
           test -x "$APP/Contents/MacOS/imprint-setup-helper"
           # The validator imports imprint modules, which need Python 3.11+. The
-          # laptops' Homebrew python@3.12 is a host prerequisite; setup-python's
-          # macOS build needs /Users/runner, and the Intel laptop's python3 is older.
+          # laptop's Homebrew python@3.12 is a host prerequisite; setup-python's
+          # macOS build needs /Users/runner.
           python3.12 scripts/validate-release.py "$APP/Contents/Resources/imprint" "darwin/$ARCH"
 
       - name: Smoke test native package and writable runtime
-        if: runner.environment == 'github-hosted'
+        if: runner.os != 'macOS'
         timeout-minutes: 15
         env:
           ARCH: ${{ matrix.arch }}
@@ -445,9 +443,9 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-latest
+            runner: [self-hosted, linux, x64]
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: [imprint-arm64]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
@@ -470,7 +468,7 @@ jobs:
   publish:
     needs: [archives, package-windows, package-macos, smoke-linux, chrome-extension]
     if: inputs.publish
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     permissions:
       contents: write
     steps:
@@ -494,9 +492,9 @@ jobs:
         run: |
           set -euo pipefail
           for asset in imprint-linux-amd64.tar.gz imprint-linux-arm64.tar.gz \
-            imprint-darwin-amd64.tar.gz imprint-darwin-arm64.tar.gz \
+            imprint-darwin-arm64.tar.gz \
             imprint-windows-amd64.zip imprint-windows-amd64-setup.exe \
-            imprint-darwin-amd64.pkg imprint-darwin-arm64.pkg \
+            imprint-darwin-arm64.pkg \
             imprint-chrome-extension.zip; do
             test -s "$asset"
           done

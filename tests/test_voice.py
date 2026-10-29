@@ -423,17 +423,21 @@ class LiveRuntimeIntegrityTests(unittest.TestCase):
                     voice_runtime.install(Path("unused"))
             download.assert_not_called()
 
-    def test_native_targets_include_windows_and_both_mac_architectures(self):
+    def test_native_targets_include_windows_and_apple_silicon(self):
         for system, machine, expected in [("Windows", "AMD64", "windows-x64"), ("Darwin", "arm64", "macos-arm64"),
-                                          ("Darwin", "x86_64", "macos-x64"), ("Linux", "x86_64", "linux-x64")]:
+                                          ("Linux", "x86_64", "linux-x64")]:
             with patch.object(voice_runtime.platform, "system", return_value=system), \
                     patch.object(voice_runtime.platform, "machine", return_value=machine):
                 self.assertEqual(voice_runtime.target(), expected)
                 self.assertTrue(voice_runtime.supported())
                 self.assertEqual(voice_runtime.native_binary(Path("cache")).suffix, ".exe" if system == "Windows" else "")
-        with patch.object(voice_runtime.platform, "system", return_value="Windows"), \
-                patch.object(voice_runtime.platform, "machine", return_value="arm64"):
-            self.assertFalse(voice_runtime.supported())
+        # Intel Macs are not supported (ADR 0111).
+        for system, machine in [("Windows", "arm64"), ("Darwin", "x86_64")]:
+            with patch.object(voice_runtime.platform, "system", return_value=system), \
+                    patch.object(voice_runtime.platform, "machine", return_value=machine):
+                self.assertFalse(voice_runtime.supported())
+        with self.assertRaises(PrototypeError):
+            voice_runtime.native_binary(Path("cache"), "macos-x64")
 
 
 class VoiceLookTests(unittest.TestCase):

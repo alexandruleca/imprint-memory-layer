@@ -1,0 +1,16 @@
+# One throwaway-runner slot; install-host.sh installs it as a user unit.
+# The instance is <slot>:<platform>:<labels>, e.g. pr-x64-1:linux-amd64:imprint-pr
+[Unit]
+Description=Imprint throwaway GitHub Actions runner %i
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/bin/sh -c 'IFS=:; set -- %i; exec %h/.local/share/imprint-runners/jit-runners.sh "$1" "$(echo "$2" | tr - /)" "$3"'
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

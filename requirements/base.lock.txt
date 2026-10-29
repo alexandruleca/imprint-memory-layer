@@ -1367,9 +1367,7 @@ opencv-python-headless==4.11.0.86 \
     --hash=sha256:996eb282ca4b43ec6a3972414de0e2331f5d9cda2b41091a49739c19fb843798 \
     --hash=sha256:a66c1b286a9de872c343ee7c3553b084244299714ebb50fbdcd76f07ebbe6c81 \
     --hash=sha256:f447d8acbb0b6f2808da71fddd29c1cdd448d2bc98f72d9bb78a7a898fc9621b
-    # via
-    #   -r requirements/base.txt
-    #   rapidocr
+    # via rapidocr
 openpyxl==3.1.5 \
     --hash=sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2 \
     --hash=sha256:cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050

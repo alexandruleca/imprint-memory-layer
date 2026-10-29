@@ -899,3 +899,17 @@ and installer updates with this overlay have **not** been executed here. PyAV
 establish native execution. Mixed speech within one window, room noise,
 speaker diarization, multi-hour performance and video ingestion remain unvalidated
 or unimplemented as described in the audio guide.
+
+## Intel macOS removed (2026-10-29)
+
+Intel Macs are no longer a supported platform
+([ADR 0111](adr/0111-intel-macs-are-not-supported.md)). Earlier sections that
+record Intel macOS results are kept as history; they no longer describe a target.
+Releases, packages, voice engines, llama.cpp wheels, dependency pins and CI jobs
+for darwin/amd64 are gone, and `install.sh` and `imprint update` refuse an Intel
+Mac.
+
+Executed on Linux x64: `go vet ./...`, `go test ./...` and the touched Python
+tests (release validation, voice targets, downloads, ADR records). Not executed:
+`install.sh` on an Intel Mac or under Rosetta, the arm64-only Electron build and
+`.pkg` on the Apple silicon runner, and a full release run without the Intel jobs.

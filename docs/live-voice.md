@@ -77,7 +77,8 @@ provisioning policy. The CLI path below remains available for advanced setup.
 ## Build the optional speech runtime manually
 
 Platform follow-up ([ADR 0044](adr/0044-native-desktop-voice-platforms.md)) adds
-native source builds for Windows x64 and macOS Intel/Apple Silicon. The developer source
+native source builds for Windows x64 and macOS on Apple silicon (Intel Macs are not
+supported, [ADR 0111](adr/0111-intel-macs-are-not-supported.md)). The developer source
 installer downloads portable weights without the Linux CLI archive, builds
 per-target executables and verifies their target/source/build fingerprints.
 Release installations use the prebuilt engine described above.
@@ -89,8 +90,8 @@ and Xcode Command Line Tools, with macOS 13 or later. Run the same command below
 using the native Python executable. Windows paths such as `C:\imprint-voice`
 can avoid excessively long build paths. CPU builds do not require CUDA or Metal.
 
-The live speech worker has native CPU targets for **Windows x64, macOS Intel and
-Apple Silicon (13+), and Linux x64 including WSL2**. Platform validation records
+The live speech worker has native CPU targets for **Windows x64, macOS on Apple
+silicon (13+), and Linux x64 including WSL2**. Platform validation records
 executed results separately from enabled targets.
 There is no PyTorch dependency and no implicit model download on Start conversation. Install a
 C++ compiler and CMake, then from the repository root run:
@@ -453,7 +454,7 @@ transparent screenshot pixels, separate window, pin and dashboard on/off session
 cleanup. Its reproducible driver is
 `ui-electron/smoke-voice.mjs`; `scripts/smoke-voice-desktop.py` supplies a disposable
 API/profile and checks PNG transparency. Native CI combines speech and graphical
-checks on Windows x64, macOS Intel/Apple Silicon and Linux x64. Linux automation
+checks on Windows x64, Apple silicon macOS and Linux x64. Linux automation
 uses `--no-sandbox`; it does not establish packaged sandbox behavior.
 macOS automation uses a typed session rather than bypassing production
 TCC policy for a fake mic; interactive consent remains a manual gate. Optional

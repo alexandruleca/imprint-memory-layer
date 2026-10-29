@@ -5,7 +5,8 @@ PLATFORM="${1:?usage: package-platform.sh os/arch}"
 OS="${PLATFORM%/*}"
 ARCH="${PLATFORM#*/}"
 case "$PLATFORM" in
-    linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64) ;;
+    linux/amd64|linux/arm64|darwin/arm64|windows/amd64) ;;
+    # Intel macOS (darwin/amd64) is not supported (ADR 0111).
     *) echo "Unsupported release platform: $PLATFORM" >&2; exit 1 ;;
 esac
 EXT=""
@@ -27,7 +28,6 @@ VOICE_TARGET=""
 case "$PLATFORM" in
     linux/amd64) VOICE_TARGET=linux-x64 ;;
     windows/amd64) VOICE_TARGET=windows-x64 ;;
-    darwin/amd64) VOICE_TARGET=macos-x64 ;;
     darwin/arm64) VOICE_TARGET=macos-arm64 ;;
 esac
 if [ -n "$VOICE_TARGET" ]; then

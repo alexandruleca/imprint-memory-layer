@@ -115,7 +115,7 @@ def require_signed_bundle(bundle: Path, arch: str) -> None:
 def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
     os_name, arch = platform.split('/')
     ext = '.exe' if os_name == 'windows' else ''
-    targets = {'linux/amd64': 'linux-x64', 'windows/amd64': 'windows-x64', 'darwin/amd64': 'macos-x64', 'darwin/arm64': 'macos-arm64'}
+    targets = {'linux/amd64': 'linux-x64', 'windows/amd64': 'windows-x64', 'darwin/arm64': 'macos-arm64'}
     engine = root / 'imprint' / 'voice-engine'
     if engine.exists() or (require_voice and platform in targets):
         if platform not in targets:

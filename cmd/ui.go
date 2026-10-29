@@ -526,8 +526,12 @@ func launchElectron(rt desktopRuntime, url string) bool {
 			suffix = ".exe"
 		}
 		candidate := filepath.Join(dir, "imprint-ui"+suffix)
+		// Linux: the AppImage setup unpacked, which runs without FUSE.
+		if unpacked := unpackedDesktopApp(candidate); unpacked != "" && platform.FileExists(unpacked) {
+			candidate = unpacked
+		}
 		if platform.FileExists(candidate) {
-			return spawnDetached(candidate, electronArgs)
+			return startDesktopApp(candidate, electronArgs, filepath.Join(rt.DataDir, "desktop-app.log"))
 		}
 	}
 
@@ -564,6 +568,43 @@ func launchChromeFallback(projectDir, dataDir, url string) {
 		return
 	}
 	go func() { _ = cmd.Wait() }()
+}
+
+// desktopAppStartup is how long a desktop app that fails at startup (no
+// FUSE for an AppImage, a sandbox the kernel denies) takes to exit.
+const desktopAppStartup = 3 * time.Second
+
+// startDesktopApp starts the packaged app detached, its output in logPath,
+// and reports whether it is still running, or exited cleanly (a second
+// instance hands its arguments to the first and exits 0), after
+// desktopAppStartup. A failure says why.
+func startDesktopApp(bin string, args []string, logPath string) bool {
+	log, err := os.Create(logPath)
+	if err != nil {
+		return spawnDetached(bin, args)
+	}
+	defer log.Close()
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout, cmd.Stderr = log, log
+	cmd.SysProcAttr = detachAttrs()
+	if err := cmd.Start(); err != nil {
+		output.Warn("The desktop app did not start: " + err.Error())
+		return false
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		if err == nil {
+			return true
+		}
+		logged, _ := os.ReadFile(logPath)
+		output.Warn("The desktop app exited at startup (" + err.Error() + "): " + lastNonBlankLines(string(logged), 2) +
+			"\n  Run imprint setup to prepare it; opening the browser instead")
+		return false
+	case <-time.After(desktopAppStartup):
+		return true
+	}
 }
 
 func spawnDetached(bin string, args []string) bool {

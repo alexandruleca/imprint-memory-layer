@@ -138,7 +138,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ingest.url_follow_max` | `20` | Max discovered URLs to queue per ingest run |
 | **Chat (dashboard panel)** | | |
 | `voice.avatar` | `echo` | Echo's look and voice: `echo` (a synaptic core whose neurons fire as it thinks, around an eye that follows the pointer; a robotic voice), `iris` (indigo straight cut, pale lavender eyes; a female voice) or `kai` (spiky orange hair, a determined frown; a male voice). Also chosen on the Voice page and in Companion settings. See [Echo voice](live-voice.md). |
-| `voice.runtime_dir` | — | Explicit external cache containing the built native live speech worker for Windows x64, macOS Intel/Apple Silicon or Linux x64; `IMPRINT_VOICE_RUNTIME_DIR` overrides it. See [Echo voice](live-voice.md). |
+| `voice.runtime_dir` | — | Explicit external cache containing the built native live speech worker for Windows x64, Apple silicon macOS or Linux x64; `IMPRINT_VOICE_RUNTIME_DIR` overrides it. See [Echo voice](live-voice.md). |
 | `chat.enabled` | `true` | Enable the dashboard chat panel |
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
 | `chat.model` | — | Model name for remote providers (default per provider) |

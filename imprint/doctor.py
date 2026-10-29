@@ -45,10 +45,14 @@ def _embedding_device_check() -> tuple[str, bool, str, str]:
         return 'runtime:embedding-device', True, 'CPU (model.device cpu)', ''
     if gpu:
         return 'runtime:embedding-device', True, f'GPU: {gpu.name}', ''
-    detail = 'CPU: llama.cpp found no GPU it can use'
+    if llama_runtime.cpu_profile():
+        detail = "CPU: the cpu install profile installed llama.cpp's CPU build"
+        action = 'Run imprint profile set auto to use a GPU when llama.cpp finds one.'
+    else:
+        detail = 'CPU: llama.cpp found no GPU it can use'
+        action = 'Update the GPU driver (Vulkan on Windows and Linux) and run imprint setup, or set model.device to auto.'
     if config.DEVICE == 'gpu':
-        return ('runtime:embedding-device', False, detail,
-                'Update the GPU driver (Vulkan on Windows and Linux) and run imprint setup, or set model.device to auto.')
+        return 'runtime:embedding-device', False, detail, action
     return 'runtime:embedding-device', True, detail, ''
 
 

@@ -1,4 +1,6 @@
 self-hosted-runner:
   labels:
     - imprint-apple-silicon
-    - imprint-intel
+    - imprint-windows
+    - imprint-pr
+    - imprint-arm64

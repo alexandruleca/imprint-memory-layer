@@ -6,7 +6,9 @@ description: Enable OCR by default and install its models and PDF renderer with 
 - Status: Amended
 - Date: 2026-10-26
 - Amends: [ADR 0040](0040-documents-with-nothing-to-index.md) — OCR defaults, tool detection and runtime error handling
-- Amended by: [ADR 0109](0109-automatic-ocr-runtime-repair.md) — automatically repair missing bundled OCR dependencies
+- Amended by:
+  - [ADR 0109](0109-automatic-ocr-runtime-repair.md) — automatically repair missing bundled OCR dependencies
+  - [ADR 0111](0111-intel-macs-are-not-supported.md) — the Intel macOS OpenCV 4.11 pin is gone
 
 ## Context
 

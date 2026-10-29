@@ -1,7 +1,8 @@
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 UV_VERSION ?= 0.13.6
 LDFLAGS    := -s -w -X main.version=$(VERSION)
-PLATFORMS  := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+# No darwin/amd64: Intel Macs are not supported (ADR 0111).
+PLATFORMS  := linux/amd64 linux/arm64 darwin/arm64 windows/amd64
 
 UI_DIR     := ui-electron
 
@@ -40,11 +41,12 @@ package:
 	done
 
 # Build the macOS .pkg installer for the current host arch.
-# Usage: make installer-macos [ARCH=arm64|amd64]
+# Usage: make installer-macos  (Apple silicon only, ADR 0111)
 # Requires: macOS host and a staged tree from make package[-local].
 installer-macos:
 	@[ "$$(uname)" = "Darwin" ] || { echo "installer-macos requires macOS (pkgbuild/productbuild)"; exit 1; }
 	@ARCH=$${ARCH:-$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}; \
+	[ "$$ARCH" = arm64 ] || { echo "installer-macos builds Apple silicon (arm64) only; Intel Macs are not supported (ADR 0111)"; exit 1; }; \
 	VER=$$(echo "$(VERSION)" | sed 's/^v//'); \
 	SRC="dist/imprint-darwin-$$ARCH"; \
 	OUT="dist/imprint-darwin-$$ARCH.pkg"; \
@@ -128,11 +130,11 @@ ui-dist-linux: $(UI_DIR)/node_modules
 	@chmod +x build/electron/linux-$(ARCH)/imprint-ui
 
 ui-dist-mac: $(UI_DIR)/node_modules
-	cd $(UI_DIR) && npx electron-builder --mac dir --universal --publish never
+	cd $(UI_DIR) && npx electron-builder --mac dir --arm64 --publish never
 	@mkdir -p build/electron
 	@rm -rf build/electron/imprint-ui.app
-	@test -d dist/electron/mac-universal/Imprint.app
-	@cp -R dist/electron/mac-universal/Imprint.app build/electron/imprint-ui.app
+	@test -d dist/electron/mac-arm64/Imprint.app
+	@cp -R dist/electron/mac-arm64/Imprint.app build/electron/imprint-ui.app
 	@echo "[+] build/electron/imprint-ui.app"
 
 ui-dist-win: $(UI_DIR)/node_modules

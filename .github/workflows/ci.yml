@@ -19,26 +19,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest]
-    # PR code stays on hosted machines, including same-repository PRs; trusted
-    # Apple silicon and Intel macOS jobs use the owner's laptops (ADRs 0083, 0106).
-    runs-on: ${{ github.event_name != 'pull_request' && (matrix.os == 'macos-latest' && fromJSON('["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]') || matrix.os == 'macos-15-intel' && fromJSON('["self-hosted", "macOS", "X64", "imprint-intel"]')) || matrix.os }}
+        # PR code runs only in throwaway containers, so pull requests skip the
+        # Windows VMs and the laptop (ADR 0112). Intel macOS is not supported
+        # (ADR 0111).
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest", "ubuntu-24.04-arm"]' || '["ubuntu-latest", "ubuntu-24.04-arm", "macos-latest", "windows-latest"]') }}
+    runs-on: >-
+      ${{ fromJSON(github.event_name == 'pull_request' && '{"ubuntu-latest": ["imprint-pr"], "ubuntu-24.04-arm": ["imprint-arm64"]}' || '{"ubuntu-latest": ["self-hosted", "linux", "x64"], "ubuntu-24.04-arm": ["imprint-arm64"], "windows-latest": ["self-hosted", "windows", "x64", "imprint-windows"], "macos-latest": ["self-hosted", "macOS", "ARM64", "imprint-apple-silicon"]}')[matrix.os] }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           # The persistent laptop already has a local Go cache.
-          cache: ${{ runner.environment == 'github-hosted' }}
+          cache: ${{ runner.os != 'macOS' }}
       - name: Isolated Python on the laptop
-        if: runner.environment == 'self-hosted'
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           python3.12 -m venv "$RUNNER_TEMP/imprint-python"
           echo "$RUNNER_TEMP/imprint-python/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$RUNNER_TEMP/imprint-python" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
-        if: runner.environment == 'github-hosted'
+        if: runner.os != 'macOS'
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
@@ -77,7 +79,7 @@ jobs:
         run: python scripts/smoke-runtime.py --with-storage
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["imprint-pr"]' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +104,7 @@ jobs:
 
   container:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -119,7 +121,7 @@ jobs:
       - run: bash scripts/smoke-container.sh imprint-ci:local
 
   workflows:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["imprint-pr"]' || '["self-hosted", "linux", "x64"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

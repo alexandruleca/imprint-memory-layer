@@ -10,7 +10,7 @@ jinja2==3.1.6 \
     # via
     #   -c requirements/base.lock.txt
     #   llama-cpp-python
-llama-cpp-python==0.3.36 ; (platform_machine != 'arm64' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (platform_machine != 'AMD64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32') \
+llama-cpp-python==0.3.36 ; (platform_machine != 'AMD64' and platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'x86_64') or (platform_machine == 'AMD64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'darwin') or (platform_machine == 'AMD64' and sys_platform == 'linux') or (platform_machine == 'arm64' and sys_platform == 'linux') or (platform_machine == 'aarch64' and sys_platform == 'win32') or (platform_machine == 'arm64' and sys_platform == 'win32') or (platform_machine == 'x86_64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32') \
     --hash=sha256:832db0699007f1be95a7e41ef12e88926b02ba836461e36a36372db2760c1a2e
     # via -r requirements/llm-gpu.txt
 llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-vulkan/llama_cpp_python-0.3.36-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl ; platform_machine == 'x86_64' and sys_platform == 'linux' \
@@ -24,9 +24,6 @@ llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download
     # via -r requirements/llm-gpu.txt
 llama-cpp-python @ https://github.com/alexandruleca/imprint-memory-layer/releases/download/llama-cpp-python-v0.3.36/llama_cpp_python-0.3.36-py3-none-macosx_13_0_arm64.whl ; platform_machine == 'arm64' and sys_platform == 'darwin' \
     --hash=sha256:ac70c14058b7324d12287e9e6591561318d54a625baa09c5c6995973757b36ec
-    # via -r requirements/llm-gpu.txt
-llama-cpp-python @ https://github.com/alexandruleca/imprint-memory-layer/releases/download/llama-cpp-python-v0.3.36/llama_cpp_python-0.3.36-py3-none-macosx_13_0_x86_64.whl ; platform_machine == 'x86_64' and sys_platform == 'darwin' \
-    --hash=sha256:8364da5786a2e1c1308544774117a10a31439755081260b49d8d706f1de89ec6
     # via -r requirements/llm-gpu.txt
 markupsafe==3.0.4 \
     --hash=sha256:007e1ffd9bf65bb6ee96df7b258fc632a4868dd5566037986c64781f35a36e98 \

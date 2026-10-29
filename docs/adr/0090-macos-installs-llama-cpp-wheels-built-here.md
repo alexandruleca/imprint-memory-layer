@@ -8,7 +8,9 @@ description: A manually run workflow builds llama-cpp-python's macOS wheels from
 - Amends:
   - [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md) — macOS installs a prebuilt wheel instead of the source distribution
   - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — macOS no longer needs the Xcode Command Line Tools for the binding
-- Amended by: [ADR 0106](0106-intel-mac-laptop-runner.md) — the Intel wheel builds on the Intel laptop runner
+- Amended by:
+  - [ADR 0106](0106-intel-mac-laptop-runner.md) — the Intel wheel builds on the Intel laptop runner
+  - [ADR 0111](0111-intel-macs-are-not-supported.md) — only the Apple silicon wheel is built and pinned
 - Related: [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md), [ADR 0085](0085-main-only-fast-forwards-to-dev.md)
 
 ## Context

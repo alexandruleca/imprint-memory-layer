@@ -27,8 +27,8 @@ BUILD_VERSION = 3
 def target() -> str:
     system, machine = platform.system(), platform.machine().lower()
     arch = {"amd64": "x64", "x86_64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
-    if (system, arch) not in {("Linux", "x64"), ("Windows", "x64"), ("Darwin", "x64"), ("Darwin", "arm64")}:
-        raise PrototypeError("Voice supports Linux x64, Windows x64, and macOS Intel/Apple Silicon.")
+    if (system, arch) not in {("Linux", "x64"), ("Windows", "x64"), ("Darwin", "arm64")}:
+        raise PrototypeError("Voice supports Linux x64, Windows x64, and macOS on Apple silicon.")
     return {"Linux": "linux", "Windows": "windows", "Darwin": "macos"}[system] + "-" + arch
 
 
@@ -42,7 +42,7 @@ def supported() -> bool:
 
 def native_binary(root: Path, expected_target: str | None = None) -> Path:
     current = expected_target or target()
-    if current not in {"linux-x64", "windows-x64", "macos-x64", "macos-arm64"}:
+    if current not in {"linux-x64", "windows-x64", "macos-arm64"}:
         raise PrototypeError("Unsupported voice engine target")
     return root / "live-native" / current / (SERVER + (".exe" if current == "windows-x64" else ""))
 
@@ -181,11 +181,9 @@ def build_engine(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=No
             options += ["-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"]
         if current == "windows-x64":
             options += ["-A", "x64", "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
-        elif current.startswith("macos-"):
-            options += ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0", "-DCMAKE_OSX_ARCHITECTURES=" +
-                        ("arm64" if current.endswith("arm64") else "x86_64")]
-            if current.endswith("arm64"):
-                options += ["-DGGML_CPU_ARM_ARCH=armv8.2-a+fp16+dotprod"]
+        elif current == "macos-arm64":
+            options += ["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0", "-DCMAKE_OSX_ARCHITECTURES=arm64",
+                        "-DGGML_CPU_ARM_ARCH=armv8.2-a+fp16+dotprod"]
         report("building")
         # Browser progress contains stages, never raw compiler output or paths.
         output = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if progress else {}

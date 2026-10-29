@@ -469,6 +469,9 @@ are never touched.
 // it was installed. Containers and source checkouts are not installations
 // that can replace themselves.
 func resolveInstallation() (installation, error) {
+	if err := unsupportedPlatform(runtime.GOOS, runtime.GOARCH, rosettaTranslated); err != nil {
+		return installation{}, err
+	}
 	if platform.FileExists("/.dockerenv") || platform.FileExists("/run/.containerenv") {
 		return installation{}, errors.New("running in a container: pull the new image and recreate the container (the /data volume is kept)")
 	}
@@ -480,6 +483,27 @@ func resolveInstallation() (installation, error) {
 		return installation{}, fmt.Errorf("%s is a source checkout: update it with git pull and rebuild", dir)
 	}
 	return installation{dir: dir, kind: installKindOf(dir, runtime.GOOS)}, nil
+}
+
+// unsupportedPlatform refuses platforms no release ships: Intel Macs
+// (darwin/amd64) are not supported (ADR 0111). An Intel build running under
+// Rosetta on Apple silicon is told to install the Apple silicon build, which
+// an in-place update cannot switch to.
+func unsupportedPlatform(goos, goarch string, translated func() bool) error {
+	if goos != "darwin" || goarch != "amd64" {
+		return nil
+	}
+	if translated() {
+		return errors.New("this is the Intel build running under Rosetta, and Intel Macs are no longer supported: " +
+			"install the Apple silicon build from https://github.com/" + release.Repo + "/releases (your data is kept)")
+	}
+	return errors.New("Intel Macs are no longer supported: Imprint runs on Apple silicon Macs, Linux and Windows")
+}
+
+// rosettaTranslated reports whether this process runs under Rosetta 2.
+func rosettaTranslated() bool {
+	out, err := exec.Command("sysctl", "-n", "sysctl.proc_translated").Output()
+	return err == nil && strings.TrimSpace(string(out)) == "1"
 }
 
 // installKindOf tells an installer-managed tree from an install.sh /

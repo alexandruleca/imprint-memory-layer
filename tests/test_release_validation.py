@@ -43,7 +43,7 @@ def fat(*slices):
     return bytes(data) + b''.join(image for _, image in slices)
 
 
-AMD64, ARM64 = 0x01000007, 0x0100000C
+ARM64 = 0x0100000C
 
 
 MICROPHONE = 'Imprint uses your microphone for conversations with your local voice companion when you enable it.'
@@ -59,7 +59,7 @@ def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False, mic
     info = plistlib.dumps(keys)
     (contents / 'Info.plist').write_bytes(info)
     if not signed:  # What electron-builder ships when it skips signing: a linker signature only.
-        (contents / 'MacOS/Imprint').write_bytes(fat((AMD64, macho(AMD64)), (ARM64, macho(ARM64, 'Electron'))))
+        (contents / 'MacOS/Imprint').write_bytes(fat((ARM64, macho(ARM64, 'Electron'))))
         return
     resources = contents / '_CodeSignature/CodeResources'
     resources.parent.mkdir()
@@ -67,7 +67,7 @@ def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False, mic
     sealed_plist = hashlib.sha256(info + (b' ' if stale_plist else b'')).digest()
     specials = (sealed_plist, b'\0' * 32, hashlib.sha256(resources.read_bytes()).digest())
     name = signer or identifier
-    (contents / 'MacOS/Imprint').write_bytes(fat((AMD64, macho(AMD64, name, specials)), (ARM64, macho(ARM64, name, specials))))
+    (contents / 'MacOS/Imprint').write_bytes(fat((ARM64, macho(ARM64, name, specials))))
 
 
 class ReleaseValidationTests(unittest.TestCase):
@@ -80,7 +80,7 @@ class ReleaseValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Development state.*personaplex-test'):
                     VALIDATOR.validate(root, 'linux/amd64')
 
-    def tree(self, root):
+    def tree(self, root, machine=62):
         for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/cpu.txt', 'requirements/cpu.lock.txt',
                     'requirements/llm.txt', 'requirements/llm.lock.txt',
                     'requirements/llm-gpu.txt', 'requirements/llm-gpu.lock.txt',
@@ -92,7 +92,7 @@ class ReleaseValidationTests(unittest.TestCase):
         for rel in ('bin/imprint', 'bin/uv'):
             path = root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(executable(62))
+            path.write_bytes(executable(machine))
             path.chmod(0o755)
 
     def test_required_payload_and_architecture(self):
@@ -141,15 +141,15 @@ class ReleaseValidationTests(unittest.TestCase):
         for name, (options, error) in cases.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                self.tree(root)
+                self.tree(root, machine=183)
                 app = root / 'bin/imprint-ui.app'
                 bundle(app, 'tech.brightspaces.imprint', **options)
                 bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'tech.brightspaces.imprint.helper')
                 if error is None:
-                    VALIDATOR.validate(root, 'darwin/amd64')
+                    VALIDATOR.validate(root, 'darwin/arm64')
                 else:
                     with self.assertRaisesRegex(ValueError, error):
-                        VALIDATOR.validate(root, 'darwin/amd64')
+                        VALIDATOR.validate(root, 'darwin/arm64')
 
     def test_desktop_build_declares_the_microphone_usage_text(self):
         # electron-builder writes extendInfo into the app's Info.plist before signing it.
@@ -159,12 +159,12 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_unsigned_macos_helper_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.tree(root)
+            self.tree(root, machine=183)
             app = root / 'bin/imprint-ui.app'
             bundle(app, 'tech.brightspaces.imprint')
             bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'tech.brightspaces.imprint.helper', signed=False)
             with self.assertRaisesRegex(ValueError, 'Unsigned macOS bundle.*Imprint Helper'):
-                VALIDATOR.validate(root, 'darwin/amd64')
+                VALIDATOR.validate(root, 'darwin/arm64')
 
     def test_wsl_bridge_and_private_selections(self):
         with tempfile.TemporaryDirectory() as directory:
