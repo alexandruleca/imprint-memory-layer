@@ -251,7 +251,8 @@ bundle files.
 The package job validates the expanded payload and compiled helper, then installs
 the pkg with `sudo installer`, bootstraps it and smokes the installed runtime. The
 install step refuses to run on a self-hosted runner whose environment lacks
-`IMPRINT_DISPOSABLE_RUNNER=1`, which only the VM image sets.
+`IMPRINT_DISPOSABLE_RUNNER=1`, which only the VM image sets. If it refuses on a
+VM runner, the golden VM lacks the runner's `.env`; re-run `prepare-image.sh`.
 
 Guests run on Tart's default NAT network and can reach the host and LAN. Tart's
 `softnet` isolation would block that but needs a one-time privileged setup and is

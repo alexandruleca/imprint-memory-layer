@@ -35,7 +35,9 @@ The golden VM is baked by [`prepare-image.sh`](../../.github/runners/macos/prepa
 from Cirrus Labs' `macos-tahoe-base` pinned by digest, adding Homebrew `cmake`,
 `librsvg` and `python@3.12` and the latest GitHub Actions runner verified against
 the SHA256 in its release notes. Its runner environment sets
-`IMPRINT_DISPOSABLE_RUNNER=1`.
+`IMPRINT_DISPOSABLE_RUNNER=1`. The bake flushes the guest and shuts it down
+before the image replaces the previous one: a VM stopped seconds after the runner
+install lost it, and jobs then ran the base image's own runner without the flag.
 
 The VM runner keeps the labels `[self-hosted, macOS, ARM64, imprint-apple-silicon]`,
 so every macOS workflow moves to it unchanged, and the bare-metal

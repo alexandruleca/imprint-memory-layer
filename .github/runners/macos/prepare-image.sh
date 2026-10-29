@@ -22,6 +22,7 @@ log "pulling $BASE_IMAGE"
 "$TART" set "$work_vm" --cpu "$VM_CPU" --memory "$VM_MEMORY_MB" --disk-size "$VM_DISK_GB"
 
 "$TART" run --no-graphics --no-audio "$work_vm" >/dev/null 2>&1 &
+vm_pid=$!
 wait_for_guest "$work_vm"
 
 guest() { "$TART" exec "$work_vm" /bin/bash -c "$1"; }
@@ -60,9 +61,22 @@ guest "rm -rf '$GUEST_RUNNER_DIR' && mkdir -p '$GUEST_RUNNER_DIR'"
 guest "cd '$GUEST_RUNNER_DIR'
   printf '%s\n' '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin' >.path
   printf '%s\n' 'LANG=en_US.UTF-8' 'IMPRINT_DISPOSABLE_RUNNER=1' >.env
+  grep -qx IMPRINT_DISPOSABLE_RUNNER=1 .env
   ./bin/Runner.Listener --version"
 
-"$TART" stop "$work_vm"
+# Writes the guest has not flushed are lost when `tart stop` ends the VM: an
+# image stopped seconds after this step kept the base image's runner and had no
+# .env. Flush, shut the guest down and wait for the VM to exit.
+log "shutting the guest down"
+guest 'sync; sudo /sbin/shutdown -h now' || true
+for _ in $(seq 1 60); do
+  kill -0 "$vm_pid" 2>/dev/null || break
+  sleep 2
+done
+if kill -0 "$vm_pid" 2>/dev/null; then
+  log "the guest did not shut down"
+  exit 1
+fi
 "$TART" delete "$GOLDEN_VM" >/dev/null 2>&1 || true
 "$TART" rename "$work_vm" "$GOLDEN_VM"
 log "golden VM $GOLDEN_VM ready with runner $version"
