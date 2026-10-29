@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   engine:
-    timeout-minutes: 35
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

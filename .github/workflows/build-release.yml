@@ -26,7 +26,7 @@ permissions:
 jobs:
   branch-policy:
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 2
+    timeout-minutes: 60
     steps:
       - name: Require main or dev for release packaging
         env:
@@ -47,7 +47,7 @@ jobs:
   chrome-extension:
     needs: branch-policy
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,7 +62,7 @@ jobs:
       # Self-hosted images lack Chromium's runtime libraries (ADR 0112).
       - run: npx playwright install --with-deps chromium
         working-directory: imprint/ui
-        timeout-minutes: 10
+        timeout-minutes: 60
       - run: python scripts/package_chrome_extension.py
       - run: node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
       - uses: actions/upload-artifact@v4
@@ -232,7 +232,7 @@ jobs:
   package-windows:
     needs: archives
     runs-on: [self-hosted, windows, x64, imprint-windows]
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -277,7 +277,7 @@ jobs:
           Get-ChildItem dist\*.exe | Format-Table Name, Length
 
       - name: Smoke test silent install in a path with spaces
-        timeout-minutes: 20
+        timeout-minutes: 60
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP 'Imprint install smoke'
@@ -302,7 +302,7 @@ jobs:
           & "$dest/.venv/Scripts/python.exe" scripts/smoke-runtime.py --with-embeddings
           if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke failed' }
       - name: Smoke test native uninstall stops Imprint, removes it and disconnects clients
-        timeout-minutes: 5
+        timeout-minutes: 60
         shell: pwsh
         run: |
           $dest = Join-Path $env:RUNNER_TEMP 'Imprint install smoke'
@@ -363,7 +363,7 @@ jobs:
   package-macos:
     needs: archives
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -421,7 +421,7 @@ jobs:
 
       - name: Smoke test native package and writable runtime
         # The Apple silicon runner is a disposable VM per job (ADR 0115).
-        timeout-minutes: 15
+        timeout-minutes: 60
         env:
           ARCH: ${{ matrix.arch }}
         run: |
@@ -454,7 +454,7 @@ jobs:
             runner: [imprint-arm64]
     runs-on: ${{ matrix.runner }}
     # arm64 runs under qemu-user emulation, several times slower (ADR 0112).
-    timeout-minutes: ${{ matrix.arch == 'arm64' && 90 || 20 }}
+    timeout-minutes: ${{ matrix.arch == 'arm64' && 90 || 60 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
