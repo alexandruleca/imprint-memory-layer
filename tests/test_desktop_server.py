@@ -16,6 +16,8 @@ from urllib.request import Request, urlopen
 
 from imprint.desktop_server import watch_parent
 
+from emulation import REASON as EMULATED, emulated
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -78,6 +80,8 @@ class ParentWatchTests(unittest.TestCase):
 
     def serve(self, data, log):
         """Start the real desktop service; return it and its port once it answers."""
+        if emulated():
+            self.skipTest(EMULATED)
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]

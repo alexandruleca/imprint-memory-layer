@@ -35,9 +35,11 @@ foreach ($dir in 'C:\Program Files\Git\bin', 'C:\Program Files\Git\usr\bin') {
 [Environment]::SetEnvironmentVariable('Path', $path, 'Machine')
 # Long paths: node_modules and Electron's output nest deeply.
 Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1
-# Defender scanning every extracted wheel and node module triples build times;
-# the VM only runs this repository's jobs.
-Add-MpPreference -ExclusionPath $Runner, 'C:\hostedtoolcache'
+# Defender scanning every extracted wheel and node module triples build times,
+# and tests that build and run fresh executables in %TEMP% time out; hosted
+# images turn real-time scanning off. The VM only runs this repository's jobs.
+# This runs as the account the runner service uses, so $env:TEMP is the jobs'.
+Add-MpPreference -ExclusionPath $Runner, 'C:\hostedtoolcache', $env:TEMP, 'C:\Windows\Temp'
 
 New-Item -ItemType Directory -Force $Runner | Out-Null
 $zip = "$env:TEMP\actions-runner.zip"

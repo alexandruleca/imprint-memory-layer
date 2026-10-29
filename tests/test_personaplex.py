@@ -10,6 +10,8 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+from emulation import REASON as EMULATED, emulated
+
 from imprint import personaplex as voice
 from imprint import _personaplex_runtime as runtime
 
@@ -151,6 +153,7 @@ class MCPBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("first", session["text_prompt"])
         self.assertNotIn("second", session["text_prompt"])
 
+    @unittest.skipIf(emulated(), EMULATED)
     async def test_explicit_prepare_uses_real_stdio_mcp_with_disposable_storage(self):
         from fastmcp.client.transports import StdioTransport
         fixture = self.root / "fixture.py"

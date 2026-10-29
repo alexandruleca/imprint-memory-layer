@@ -14,6 +14,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from emulation import REASON as EMULATED, emulated
+
 ROOT = Path(__file__).resolve().parents[1]
 
 CASES = [
@@ -65,6 +67,7 @@ def powershell():
 
 class InstallPs1DevChannelTests(unittest.TestCase):
     @unittest.skipUnless(powershell(), 'needs PowerShell')
+    @unittest.skipIf(emulated(), EMULATED)
     def test_selects_the_highest_version(self):
         select = function(ROOT / 'install.ps1', r'^function Select-LatestDev \{\n.*?^\}\n')
         for name, tags, expected in CASES:
