@@ -10,7 +10,7 @@
 # The trusted x64 runners stay the Docker Swarm stack `imprint-runner`.
 #
 # Slots: IMPRINT_PR_SLOTS (default 2) x64 PR runners, IMPRINT_ARM64_SLOTS
-# (default 1) arm64 runners.
+# (default 2) arm64 runners.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -53,7 +53,7 @@ systemctl --user daemon-reload
 for i in $(seq "${IMPRINT_PR_SLOTS:-2}"); do
     systemctl --user enable --now "imprint-jit-runner@pr-x64-$i:linux-amd64:imprint-pr.service"
 done
-for i in $(seq "${IMPRINT_ARM64_SLOTS:-1}"); do
+for i in $(seq "${IMPRINT_ARM64_SLOTS:-2}"); do
     systemctl --user enable --now "imprint-jit-runner@arm64-$i:linux-arm64:imprint-arm64.service"
 done
 

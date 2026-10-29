@@ -56,7 +56,7 @@ class ClientLifecycleTests(unittest.TestCase):
             env = {**os.environ, 'PYTHONPATH': str(root), 'IMPRINT_DATA_DIR': directory,
                    'IMPRINT_WORKSPACE': 'default', 'IMPRINT_ZERO_SHOT_TAGS': '0'}
             result = subprocess.run([sys.executable, '-c', source], cwd=root, env=env,
-                                    capture_output=True, text=True, timeout=30)
+                                    capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 

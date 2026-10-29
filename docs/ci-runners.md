@@ -9,7 +9,7 @@ Every workflow job runs on the owner's machines ([ADR 0112](adr/0112-ci-runs-on-
 | --- | --- | --- | --- |
 | `self-hosted, linux, x64` | trusted only | bedrock, Swarm stack `imprint-runner`: 5 ephemeral containers with the Docker socket, host network | Linux jobs of pushes, releases, manual and scheduled runs |
 | `imprint-pr` | pull requests | bedrock, throwaway containers from `jit-runners.sh` (2 slots) | Linux x64 jobs of `ci.yml` on pull requests |
-| `imprint-arm64` | both | bedrock, throwaway arm64 containers under qemu-user (1 slot) | Linux arm64 jobs |
+| `imprint-arm64` | both | bedrock, throwaway arm64 containers under qemu-user (2 slots) | Linux arm64 jobs |
 | `self-hosted, windows, x64, imprint-windows` | trusted only | bedrock, Windows 11 VMs `win1` and `win2` (dockur/windows on KVM) | Windows jobs |
 | `self-hosted, macOS, ARM64, imprint-apple-silicon` | trusted only | the Apple silicon laptop, a disposable Tart VM per job ([ADR 0115](adr/0115-apple-silicon-jobs-run-in-disposable-tart-vms.md)) | macOS jobs |
 

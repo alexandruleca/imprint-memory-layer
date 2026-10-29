@@ -63,7 +63,8 @@ def main():
             from qdrant_client import QdrantClient, models
             try:
                 qdrant_runner.ensure_running()
-                store = QdrantClient(host='127.0.0.1', port=int(os.environ['IMPRINT_QDRANT_PORT']))
+                # The client's default 5 s read timeout fails a fresh Qdrant on a busy CI host.
+                store = QdrantClient(host='127.0.0.1', port=int(os.environ['IMPRINT_QDRANT_PORT']), timeout=60)
                 store.create_collection('smoke', vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))
                 store.upsert('smoke', points=[models.PointStruct(id=1, vector=[1., 0., 0.], payload={'text': 'smoke'})], wait=True)
                 assert store.retrieve('smoke', ids=[1])[0].payload['text'] == 'smoke'
