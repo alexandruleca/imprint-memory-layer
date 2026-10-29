@@ -24,8 +24,39 @@ permissions:
   contents: write
 
 jobs:
+  # A push builds a release only once CI has passed on the same commit, so a
+  # failing commit is never released and the two workflows do not load the
+  # runners at once. Release stays its own run because Image and Pages follow
+  # it through workflow_run. A manual dispatch is not gated.
+  ci:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 180
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for CI to pass on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&head_sha=$GITHUB_SHA"
+          while true; do
+            # Newest first; a rerun keeps its run and updates its status.
+            state=$(gh api "$runs" --jq '.workflow_runs[0] // {} | "\(.status // "missing") \(.conclusion // "")"')
+            case "$state" in
+              "completed success") echo "CI passed on $GITHUB_SHA"; exit 0 ;;
+              completed*)
+                echo "::error::CI ${state#completed } on $GITHUB_SHA; rerun this job once CI passes"
+                exit 1 ;;
+            esac
+            echo "CI: $state"
+            sleep 60
+          done
+
   analyze:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+    needs: ci
+    if: ${{ !cancelled() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
     runs-on: [self-hosted, linux, x64]
     outputs:
       version: ${{ steps.compute.outputs.version }}

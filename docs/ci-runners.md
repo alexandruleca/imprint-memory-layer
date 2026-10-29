@@ -62,6 +62,7 @@ macOS jobs run in throwaway Tart VMs that a LaunchAgent starts one per job; see
   ```powershell
   powershell -NoProfile -ExecutionPolicy Bypass -File \\host.lan\Data\install.ps1 *> \\host.lan\Data\install.log
   ```
+- A push to `main` or `dev` runs CI first: Release's `ci` job waits for CI to pass on the same commit before anything is built, so a failing commit is never released and the two do not load the runners at once. If CI fails, fix or rerun it, then rerun Release's failed jobs. A manual Release dispatch skips the wait.
 - After a reboot everything starts by itself: the Swarm stack, the slot units through lingering, and the VMs through `restart: unless-stopped`, whose runner services start a few minutes after Windows boots. Jobs that were running are lost; rerun them with `gh run rerun --failed <id>`. A slot's runner name stays taken until GitHub gives up on its lost job, so `imprint-arm64` can take about 10 minutes to come back.
 - The Windows runner's PATH is fixed in `C:\actions-runner\.env` at setup. A tool installed into a VM later needs its folder added there, then `Restart-Service actions.runner.*`.
 - A VM showing "Installing Windows" after a restart has lost its install: check that `/mnt/internal/vm/imprint-<vm>/windows.boot` exists. The marker can be added by hand to a VM that is installed: `docker exec imprint-<vm> touch /storage/windows.boot`.
