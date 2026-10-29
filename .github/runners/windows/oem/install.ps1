@@ -17,9 +17,22 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 }
 # Git Bash (shell: bash), PowerShell 7 (shell: pwsh), Inno Setup
 # (package-windows), MSVC and CMake (voice engine builds).
-choco install -y --no-progress git powershell-core 7zip innosetup cmake jq
+# A download from the community feed can fail; one retry covers it.
+foreach ($attempt in 1, 2) {
+    choco install -y --no-progress git powershell-core 7zip innosetup cmake jq
+    if ($LASTEXITCODE -eq 0) { break }
+}
 choco install -y --no-progress visualstudio2022buildtools `
     --package-parameters '--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive'
+# As on hosted images: scripts may run (actions such as setup-python run
+# .ps1 files), and Git's bin holds bash for `shell: bash`; Chocolatey's git
+# puts only Git\cmd on the PATH.
+Set-ExecutionPolicy Unrestricted -Scope LocalMachine -Force
+$path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+foreach ($dir in 'C:\Program Files\Git\bin', 'C:\Program Files\Git\usr\bin') {
+    if ($path -notlike "*$dir*") { $path += ";$dir" }
+}
+[Environment]::SetEnvironmentVariable('Path', $path, 'Machine')
 # Long paths: node_modules and Electron's output nest deeply.
 Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1
 # Defender scanning every extracted wheel and node module triples build times;
@@ -46,4 +59,7 @@ Remove-Item "$Shared\runner.token", "$Shared\runner-password"
     --labels imprint-windows --work _work --replace `
     --runasservice --windowslogonaccount ".\$user" --windowslogonpassword $password
 if ($LASTEXITCODE -ne 0) { throw "Runner registration failed with $LASTEXITCODE" }
-Write-Output "Runner $name is registered and running"
+# Services keep the PATH Windows booted with, so the runner would not see the
+# tools installed above until a restart. It starts again as a service.
+Write-Output "Runner $name is registered; restarting so its service sees the new PATH"
+Restart-Computer -Force

@@ -48,6 +48,10 @@ The repository is public. A pull request's workflow files decide what its jobs r
 - Slots: `systemctl --user list-units 'imprint-jit-runner@*'`, and their logs with `journalctl --user -u 'imprint-jit-runner@*'`. Add one with `systemctl --user enable --now imprint-jit-runner@pr-x64-3:linux-amd64:imprint-pr`.
 - Registered runners: `gh api repos/alexandruleca/imprint-memory-layer/actions/runners --jq '.runners[] | [.name, .status, .busy] | @tsv'`.
 - Windows: `docker compose -f .github/runners/windows/compose.yml stop|start`. Windows 11 runs unactivated, and Windows Update runs inside the VMs.
+- A VM whose `install.log` never appears installed Windows without the OEM files. dockur adds them only while installing, and a bind mount whose host folder was deleted and recreated, for example by `git stash -u`, shows the container an empty `/oem`. Instead of reinstalling, copy `oem/install.ps1` into `shared/<vm>/`, open the VM's screen, and in an administrator PowerShell run:
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File \\host.lan\Data\install.ps1 *> \\host.lan\Data\install.log
+  ```
 - Image updates: bump `2.338.2` in `jit-runners.sh`, `install-host.sh`, `linux-trusted.stack.yml` and `oem/install.ps1` together. The runners are set not to update themselves.
 
 ## Known gaps
