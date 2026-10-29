@@ -11,16 +11,16 @@ Every workflow job runs on the owner's machines ([ADR 0112](adr/0112-ci-runs-on-
 | `imprint-pr` | pull requests | bedrock, throwaway containers from `jit-runners.sh` (2 slots) | Linux x64 jobs of `ci.yml` on pull requests |
 | `imprint-arm64` | both | bedrock, throwaway arm64 containers under qemu-user (1 slot) | Linux arm64 jobs |
 | `self-hosted, windows, x64, imprint-windows` | trusted only | bedrock, Windows 11 VMs `win1` and `win2` (dockur/windows on KVM) | Windows jobs |
-| `self-hosted, macOS, ARM64, imprint-apple-silicon` | trusted only | the Apple silicon laptop ([ADR 0083](adr/0083-apple-silicon-laptop-runner.md)) | macOS jobs |
+| `self-hosted, macOS, ARM64, imprint-apple-silicon` | trusted only | the Apple silicon laptop, a disposable Tart VM per job ([ADR 0115](adr/0115-apple-silicon-jobs-run-in-disposable-tart-vms.md)) | macOS jobs |
 
-Pull requests run no Windows or macOS jobs. Those machines persist between jobs, so PR code never reaches them.
+Pull requests run no Windows or macOS jobs. The Windows VMs persist between jobs, and the macOS VMs, though discarded after each job, can reach the laptop's network, so PR code never reaches them.
 
 ## Security
 
 The repository is public. A pull request's workflow files decide what its jobs run, and a fork can name any label, including the trusted ones. Labels are no boundary:
 
 - The throwaway runners (`imprint-pr`, `imprint-arm64`) are the only ones built for untrusted code. Each container takes one job with a single-use just-in-time config. It gets no token, no Docker socket and no host mounts, and it is deleted afterwards.
-- The trusted Swarm runners hold an admin token in their environment and mount the Docker socket, which is root on bedrock. The Windows VMs and the laptop keep state between jobs.
+- The trusted Swarm runners hold an admin token in their environment and mount the Docker socket, which is root on bedrock. The Windows VMs keep state between jobs. The macOS VMs are deleted after each job but sit on the laptop's NAT network, with access to the laptop and the LAN.
 - So set **Settings → Actions → General → Approval for running fork pull request workflows** to *Require approval for all external contributors*. Before approving, read the PR's changes to `.github/`: a PR that edits a workflow can target the trusted runners.
 
 ## Setting up bedrock
@@ -43,9 +43,20 @@ The repository is public. A pull request's workflow files decide what its jobs r
      ```
    The disks live under `/mnt/internal/vm` (96 GB each, allocated as used).
 
+## Setting up the laptop
+
+macOS jobs run in throwaway Tart VMs that a LaunchAgent starts one per job; see
+[macOS laptop runners](building.md#macos-laptop-runners) for the prerequisites. Then:
+
+```bash
+.github/runners/macos/prepare-image.sh   # bake the golden VM (about 30 GB)
+.github/runners/macos/install.sh         # start the supervisor LaunchAgent
+```
+
 ## Operating
 
 - Slots: `systemctl --user list-units 'imprint-jit-runner@*'`, and their logs with `journalctl --user -u 'imprint-jit-runner@*'`. Add one with `systemctl --user enable --now imprint-jit-runner@pr-x64-3:linux-amd64:imprint-pr`.
+- macOS: `tail -f ~/Library/Logs/tech.imprint.vm-runner/supervise.log`, and `tart list` for the VMs. Re-run `prepare-image.sh` after GitHub deprecates the baked runner.
 - Registered runners: `gh api repos/alexandruleca/imprint-memory-layer/actions/runners --jq '.runners[] | [.name, .status, .busy] | @tsv'`.
 - Windows: `docker compose -f .github/runners/windows/compose.yml stop|start`. Windows 11 runs unactivated, and Windows Update runs inside the VMs.
 - A VM whose `install.log` never appears installed Windows without the OEM files. dockur adds them only while installing, and a bind mount whose host folder was deleted and recreated, for example by `git stash -u`, shows the container an empty `/oem`. Instead of reinstalling, copy `oem/install.ps1` into `shared/<vm>/`, open the VM's screen, and in an administrator PowerShell run:

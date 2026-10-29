@@ -3,10 +3,11 @@ title: ADR 0112 — CI runs on the owner's machines
 description: Every workflow job runs on self-hosted runners on bedrock and the Apple silicon laptop; pull-request code runs only in throwaway containers.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-29
 - Amends:
   - [ADR 0083](0083-apple-silicon-laptop-runner.md) — pull-request jobs no longer run on hosted machines; Linux PR jobs run in throwaway containers on bedrock, macOS and Windows jobs skip pull requests
+- Amended by: [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) — the macOS runner no longer persists between jobs
 - Related: [ADR 0111](0111-intel-macs-are-not-supported.md), [docs/ci-runners.md](../ci-runners.md)
 
 ## Context

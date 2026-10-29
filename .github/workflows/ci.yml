@@ -31,8 +31,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          # The persistent laptop already has a local Go cache.
-          cache: ${{ runner.os != 'macOS' }}
+          # The macOS runner is a fresh VM every job (ADR 0115), so it caches too.
       - name: Isolated Python on the laptop
         if: runner.os == 'macOS'
         shell: bash

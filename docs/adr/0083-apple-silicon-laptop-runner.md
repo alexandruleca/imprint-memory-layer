@@ -10,6 +10,7 @@ description: Route trusted Apple silicon jobs to the developer laptop while reta
   - [ADR 0106](0106-intel-mac-laptop-runner.md) — Intel jobs move to the owner's Intel laptop
   - [ADR 0111](0111-intel-macs-are-not-supported.md) — no Intel macOS jobs remain, hosted or self-hosted
   - [ADR 0112](0112-ci-runs-on-the-owners-machines.md) — PR jobs leave hosted machines: Linux PRs run in throwaway containers, macOS jobs skip PRs
+  - [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) — macOS jobs run in disposable Tart VMs, and the package is installed again
 
 ## Context
 

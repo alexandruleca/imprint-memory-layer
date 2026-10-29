@@ -19,8 +19,9 @@ Records 0001 to 0062 were brought to this structure on 2026-10-25 (*Restructured
 
 The records in force, by area. An amended record is listed with the records that changed it; read them together.
 
-- [ADR 0083](0083-apple-silicon-laptop-runner.md) **Apple silicon laptop runner.** Trusted ARM64 jobs use the laptop; PR checks remain hosted. Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) (Intel jobs on the Intel laptop, since superseded) and [ADR 0111](0111-intel-macs-are-not-supported.md) (no Intel macOS jobs) and [ADR 0112](0112-ci-runs-on-the-owners-machines.md) (no hosted PR jobs).
-- [ADR 0112](0112-ci-runs-on-the-owners-machines.md) **CI runs on the owner's machines.** Trusted jobs use bedrock's Swarm runners, Windows VMs and the Apple silicon laptop; Linux PR jobs run in throwaway just-in-time containers with no token or Docker socket; arm64 runs emulated; Windows and macOS jobs skip pull requests.
+- [ADR 0083](0083-apple-silicon-laptop-runner.md) **Apple silicon laptop runner.** Trusted ARM64 jobs use the laptop; PR checks remain hosted. Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) (Intel jobs on the Intel laptop, since superseded) and [ADR 0111](0111-intel-macs-are-not-supported.md) (no Intel macOS jobs) and [ADR 0112](0112-ci-runs-on-the-owners-machines.md) (no hosted PR jobs) and [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) (disposable VMs).
+- [ADR 0112](0112-ci-runs-on-the-owners-machines.md) **CI runs on the owner's machines.** Trusted jobs use bedrock's Swarm runners, Windows VMs and the Apple silicon laptop; Linux PR jobs run in throwaway just-in-time containers with no token or Docker socket; arm64 runs emulated; Windows and macOS jobs skip pull requests. Amended by [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) (macOS jobs in disposable VMs).
+- [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) **Apple silicon jobs run in disposable Tart VMs.** A laptop supervisor clones a golden macOS VM per queued job with a single-use JIT runner and deletes it afterwards; the macOS package job installs and smokes the package.
 
 ### Process and evidence
 
@@ -268,7 +269,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0081](0081-verifiable-redacted-source-snapshots.md) | 2026-10-26 | Accepted | Verifiable redacted source snapshots |
 | [0082](0082-retain-readable-conversation-evidence.md) | 2026-10-26 | Amended by [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) | Retain readable conversation evidence |
 
-| [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Amended by [ADR 0106](0106-intel-mac-laptop-runner.md), [ADR 0111](0111-intel-macs-are-not-supported.md), [ADR 0112](0112-ci-runs-on-the-owners-machines.md) | Apple silicon laptop runner |
+| [0083](0083-apple-silicon-laptop-runner.md) | 2026-10-26 | Amended by [ADR 0106](0106-intel-mac-laptop-runner.md), [ADR 0111](0111-intel-macs-are-not-supported.md), [ADR 0112](0112-ci-runs-on-the-owners-machines.md), [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | Apple silicon laptop runner |
 | [0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) | 2026-10-26 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Setup frees the runtime before replacing its files |
 | [0085](0085-main-only-fast-forwards-to-dev.md) | 2026-10-27 | Accepted | Main only fast-forwards to dev |
 | [0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | 2026-10-27 | Amended by [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | Embeddings run on llama.cpp, without CUDA |
@@ -297,9 +298,10 @@ Every record in number order. *Date* is when the decision was made.
 | [0109](0109-automatic-ocr-runtime-repair.md) | 2026-10-28 | Accepted | Automatic OCR runtime repair |
 | [0110](0110-the-scan-follows-no-links.md) | 2026-10-28 | Accepted | The scan follows no links |
 | [0111](0111-intel-macs-are-not-supported.md) | 2026-10-29 | Accepted | Intel Macs are not supported |
-| [0112](0112-ci-runs-on-the-owners-machines.md) | 2026-10-29 | Accepted | CI runs on the owner's machines |
+| [0112](0112-ci-runs-on-the-owners-machines.md) | 2026-10-29 | Amended by [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | CI runs on the owner's machines |
 | [0113](0113-unchosen-install-profiles-try-the-gpu.md) | 2026-10-29 | Accepted | Unchosen install profiles try the GPU |
 | [0114](0114-linux-desktop-app-runs-unpacked-with-an-apparmor-profile.md) | 2026-10-29 | Accepted | Linux desktop app runs unpacked with an AppArmor profile |
+| [0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | 2026-10-29 | Accepted | Apple silicon jobs run in disposable Tart VMs |
 
 ## How to write and maintain ADRs
 

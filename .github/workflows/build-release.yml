@@ -402,7 +402,7 @@ jobs:
             --out    "$OUT"
           ls -la "$OUT"
 
-      - name: Validate package payload without installing on the laptop
+      - name: Validate package payload
         if: runner.os == 'macOS'
         env:
           ARCH: ${{ matrix.arch }}
@@ -415,17 +415,22 @@ jobs:
           test -n "$APP"
           test -x "$APP/Contents/MacOS/imprint-setup-helper"
           # The validator imports imprint modules, which need Python 3.11+. The
-          # laptop's Homebrew python@3.12 is a host prerequisite; setup-python's
+          # runner VM's Homebrew python@3.12 is baked into its image; setup-python's
           # macOS build needs /Users/runner.
           python3.12 scripts/validate-release.py "$APP/Contents/Resources/imprint" "darwin/$ARCH"
 
       - name: Smoke test native package and writable runtime
-        if: runner.os != 'macOS'
+        # The Apple silicon runner is a disposable VM per job (ADR 0115).
         timeout-minutes: 15
         env:
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
+          # Never install into a persistent machine's /Applications.
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ] && [ "${IMPRINT_DISPOSABLE_RUNNER:-}" != 1 ]; then
+            echo "::error::refusing to install the package on a persistent self-hosted runner"
+            exit 1
+          fi
           sudo installer -pkg "dist/imprint-darwin-${ARCH}.pkg" -target /
           ROOT=/Applications/Imprint.app/Contents/Resources/imprint
           "$ROOT/bin/imprint" bootstrap --profile cpu --non-interactive

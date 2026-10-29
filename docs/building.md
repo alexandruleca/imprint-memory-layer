@@ -202,52 +202,61 @@ prove managed setup does not discover developer tools. See
 
 Trusted push/manual macOS jobs run on the owner's Apple silicon laptop instead of
 hosted macOS: native CI, bundled voice engines, native voice checks, macOS installer
-packaging, Electron packaging and the llama.cpp wheel. Pull requests run no macOS
-jobs ([ADR 0112](adr/0112-ci-runs-on-the-owners-machines.md)); the other runners are
-described in [CI runners](ci-runners.md). There are no Intel
+packaging, Electron packaging and the llama.cpp wheel. Each job runs in its own
+disposable Tart VM ([ADR 0115](adr/0115-apple-silicon-jobs-run-in-disposable-tart-vms.md)).
+Pull requests run no macOS jobs ([ADR 0112](adr/0112-ci-runs-on-the-owners-machines.md));
+the other runners are described in [CI runners](ci-runners.md). There are no Intel
 macOS jobs ([ADR 0111](adr/0111-intel-macs-are-not-supported.md)).
 
-| Runner | Labels | Directory |
+| Runner | Labels | Supervisor |
 |--------|--------|-----------|
-| `Outland-apple-silicon` | `[self-hosted, macOS, ARM64, imprint-apple-silicon]` | `~/.local/share/github-runners/imprint-apple-silicon` |
+| `Outland-vm-<timestamp>`, one per job | `[self-hosted, macOS, ARM64, imprint-apple-silicon]` | `~/.local/share/github-runners/imprint-vm` |
 
-See [ADR 0083](adr/0083-apple-silicon-laptop-runner.md). The runner is installed outside
-the checkout. Its credentials and work folder must never enter git or release
-archives. Go dependency/build caches stay local on the laptop; setup-go remote
-caching is disabled there to avoid uploading the owner's shared caches and delaying
-cleanup. The macOS app artifact preserves symlinks while omitting AppleDouble and
-extended attribute metadata so Linux packaging receives only bundle files.
+The LaunchAgent `tech.imprint.vm-runner` runs
+[`.github/runners/macos/supervise.sh`](../.github/runners/macos/supervise.sh). Every
+30 seconds it asks GitHub for queued jobs labelled `imprint-apple-silicon`. For
+each, it clones the golden VM `imprint-runner-golden`, boots it headless, mints a
+just-in-time runner configuration on the host and hands it to the guest over
+`tart exec` stdin. The guest runner takes exactly one job; the supervisor then
+deletes the VM and the registration. A VM whose runner gets no job within ten
+minutes is discarded. One VM (6 CPUs, 8 GB) runs at a time; the supervisor keeps
+the laptop from idle-sleeping only while a job runs. Jobs queue while the laptop
+sleeps or is offline; there is no automatic paid hosted fallback.
 
-It runs one job at a time as a login LaunchAgent under the laptop owner. It
-starts at login, requires network access and an awake laptop, and does not prevent
-sleep. Jobs queue while it is offline; there is no automatic paid hosted fallback.
+Host prerequisites: Tart (installed from its notarized GitHub release into
+`~/.local/opt`, linked as `~/.local/bin/tart`; the Homebrew tap's formula fails on
+current Homebrew), `gh` logged in with `repo` scope, and `jq`. The supervisor uses
+a fine-grained token with *Administration: write* on this repository when one is
+stored in the keychain item `imprint-vm-runner`
+(`security add-generic-password -s imprint-vm-runner -a "$USER" -w`), else the `gh` login.
 
-From the runner directory, use `./svc.sh status`, `./svc.sh stop` and
-`./svc.sh start`; logs are under `~/Library/Logs/actions.runner.*`. The runner's
-`PATH` is the `.path` file in that directory, written at registration; edit it and
-restart the service to change the tools jobs see. To retire a runner, stop/uninstall
-the service and remove it in GitHub Settings → Actions → Runners. A fresh
-registration uses GitHub's current macOS runner archive for the architecture
-(`osx-arm64`) and the SHA256 published in its release notes, then
-`./config.sh --unattended --url https://github.com/alexandruleca/imprint-memory-layer
---token <temporary-registration-token> --name <name> --labels <label> --work _work`,
-followed by `./svc.sh install` and `./svc.sh start`. Keep tokens out of shell history.
-Xcode Command Line Tools, Homebrew, CMake, librsvg and Homebrew `python@3.12` are host prerequisites.
-The packaging job installs librsvg with Homebrew only when `rsvg-convert` is missing.
-Laptop jobs create a fresh Python virtual environment under runner temporary
-storage; workflow setup actions supply Go and Node 22. Hosted jobs retain
-`actions/setup-python`. Its prebuilt macOS interpreter requires `/Users/runner`,
-so it is not used on the laptop.
+- Bake or refresh the golden VM: `.github/runners/macos/prepare-image.sh`. It
+  clones the base image pinned by digest in
+  [`common.sh`](../.github/runners/macos/common.sh), grows its disk to 100 GB,
+  installs Homebrew `cmake`, `librsvg` and `python@3.12`, and installs the latest
+  Actions runner checked against the SHA256 in its release notes. Re-run it when
+  GitHub deprecates the baked runner version, and bump the digest to move the
+  guest to a newer macOS.
+- Install or update the supervisor: `.github/runners/macos/install.sh` (copies the
+  scripts to `~/.local/share/github-runners/imprint-vm`; `--uninstall` removes it).
+  Its log is `~/Library/Logs/tech.imprint.vm-runner/supervise.log`.
 
-The laptop package check expands the pkg in runner temporary storage and validate
-the payload and compiled helper without installing it or running installer scripts.
-No CI job installs the macOS package any more; a full install/upgrade test needs a
-disposable Mac, and a developer laptop is not that fixture.
+Jobs create a fresh Python virtual environment from the image's `python3.12` under
+runner temporary storage; workflow setup actions supply Go and Node 22.
+`actions/setup-python`'s prebuilt macOS interpreter requires `/Users/runner`, so
+macOS jobs do not use it. The macOS app artifact preserves symlinks while omitting
+AppleDouble and extended attribute metadata so Linux packaging receives only
+bundle files.
 
-This public repository's runners execute with the owner's user permissions and
-are not sandboxes. Sending pull requests to throwaway containers reduces accidental
-exposure but cannot stop a malicious PR from changing workflow routing itself (see
-[CI runners](ci-runners.md#security)). Do not approve untrusted
-workflow runs targeting these runners; restrict repository write access and review
-workflow changes. GitHub recommends private repositories for self-hosted runners:
+The package job validates the expanded payload and compiled helper, then installs
+the pkg with `sudo installer`, bootstraps it and smokes the installed runtime. The
+install step refuses to run on a self-hosted runner whose environment lacks
+`IMPRINT_DISPOSABLE_RUNNER=1`, which only the VM image sets.
+
+Guests run on Tart's default NAT network and can reach the host and LAN. Tart's
+`softnet` isolation would block that but needs a one-time privileged setup and is
+not enabled, so the VMs are not a boundary for untrusted code (see
+[CI runners](ci-runners.md#security)). Do not approve untrusted workflow runs
+targeting these runners; restrict repository write access and review workflow
+changes. GitHub recommends private repositories for self-hosted runners:
 [runner security guidance](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners).
