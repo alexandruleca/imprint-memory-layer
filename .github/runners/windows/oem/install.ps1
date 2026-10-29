@@ -27,7 +27,13 @@ choco install -y --no-progress visualstudio2022buildtools `
 # As on hosted images: scripts may run (actions such as setup-python run
 # .ps1 files), and Git's bin holds bash for `shell: bash`; Chocolatey's git
 # puts only Git\cmd on the PATH.
-Set-ExecutionPolicy Unrestricted -Scope LocalMachine -Force
+# The policy is saved even when PowerShell reports that this script's own
+# Process-scope Bypass overrides it, which it raises as an error.
+try {
+    Set-ExecutionPolicy Unrestricted -Scope LocalMachine -Force
+} catch [System.Security.SecurityException] {
+    if ($_.FullyQualifiedErrorId -notlike 'ExecutionPolicyOverride,*') { throw }
+}
 $path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 foreach ($dir in 'C:\Program Files\Git\bin', 'C:\Program Files\Git\usr\bin') {
     if ($path -notlike "*$dir*") { $path += ";$dir" }
@@ -45,9 +51,19 @@ New-Item -ItemType Directory -Force $Runner | Out-Null
 $zip = "$env:TEMP\actions-runner.zip"
 Invoke-WebRequest "https://github.com/actions/runner/releases/download/v$RunnerVersion/actions-runner-win-x64-$RunnerVersion.zip" -OutFile $zip
 Expand-Archive $zip -DestinationPath $Runner -Force
+# Services keep the PATH Windows booted with, so the runner service would not
+# see the tools installed above until a restart. The runner sets what its
+# .env holds when it starts, so it gets the new PATH from there. A restart
+# after registering would instead drop any job the runner took meanwhile.
+$path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+    [Environment]::GetEnvironmentVariable('Path', 'User')
+Set-Content -Encoding ascii "$Runner\.env" "PATH=$path"
 
+# register-windows.sh mints the token when it sees this marker.
 Write-Output "Waiting for $Shared\runner.token (run .github/runners/windows/register-windows.sh on the host)"
+Set-Content -Encoding ascii "$Shared\waiting-for-token" ''
 while (-not (Test-Path "$Shared\runner.token")) { Start-Sleep 15 }
+Remove-Item "$Shared\waiting-for-token"
 $token = (Get-Content "$Shared\runner.token" -Raw).Trim()
 $name = (Get-Content "$Shared\runner-name" -Raw).Trim()
 $url = (Get-Content "$Shared\runner-url" -Raw).Trim()
@@ -61,7 +77,4 @@ Remove-Item "$Shared\runner.token", "$Shared\runner-password"
     --labels imprint-windows --work _work --replace `
     --runasservice --windowslogonaccount ".\$user" --windowslogonpassword $password
 if ($LASTEXITCODE -ne 0) { throw "Runner registration failed with $LASTEXITCODE" }
-# Services keep the PATH Windows booted with, so the runner would not see the
-# tools installed above until a restart. It starts again as a service.
-Write-Output "Runner $name is registered; restarting so its service sees the new PATH"
-Restart-Computer -Force
+Write-Output "Runner $name is registered and running"

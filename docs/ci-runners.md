@@ -34,14 +34,13 @@ The repository is public. A pull request's workflow files decide what its jobs r
 3. **Windows VMs.** `install-host.sh` writes `.github/runners/windows/.env` with a generated password. Then:
    ```bash
    docker compose -f .github/runners/windows/compose.yml up -d
+   .github/runners/windows/register-windows.sh
    ```
    - Windows installs unattended, which takes about 20–40 minutes. Follow it on <http://127.0.0.1:8006> and <http://127.0.0.1:8007>.
-   - `oem/install.ps1` then installs Chocolatey, Git, PowerShell 7, Inno Setup, CMake, jq and the MSVC Build Tools, plus the runner. It logs to `windows/shared/<vm>/install.log`.
-   - When the log says it is waiting for `runner.token`, run:
-     ```bash
-     .github/runners/windows/register-windows.sh
-     ```
-   The disks live under `/mnt/internal/vm` (96 GB each, allocated as used).
+   - `oem/install.ps1` then installs Chocolatey, Git, PowerShell 7, Inno Setup, CMake, jq and the MSVC Build Tools (another 20–30 minutes), plus the runner. It logs to `windows/shared/<vm>/install.log` (UTF-16).
+   - `register-windows.sh` waits for each VM to get that far, mints its registration token (valid for an hour), and waits for the VM to take it. The runner then registers as a service and starts; no restart follows, since it reads the new PATH from `C:\actions-runner\.env`.
+   - It then marks the VM installed and deletes its installation ISO (8 GB). Without that marker, dockur treats a VM that was not stopped cleanly as unfinished: after a crash or power loss it wipes the disk and installs Windows again.
+   The disks live under `/mnt/internal/vm` (96 GB each, allocated as used). Docker waits for that mount at boot (the drop-in from `install-host.sh`), so the VMs never start on an empty folder on the root disk.
 
 ## Setting up the laptop
 
@@ -63,6 +62,9 @@ macOS jobs run in throwaway Tart VMs that a LaunchAgent starts one per job; see
   ```powershell
   powershell -NoProfile -ExecutionPolicy Bypass -File \\host.lan\Data\install.ps1 *> \\host.lan\Data\install.log
   ```
+- After a reboot everything starts by itself: the Swarm stack, the slot units through lingering, and the VMs through `restart: unless-stopped`, whose runner services start a few minutes after Windows boots. Jobs that were running are lost; rerun them with `gh run rerun --failed <id>`. A slot's runner name stays taken until GitHub gives up on its lost job, so `imprint-arm64` can take about 10 minutes to come back.
+- The Windows runner's PATH is fixed in `C:\actions-runner\.env` at setup. A tool installed into a VM later needs its folder added there, then `Restart-Service actions.runner.*`.
+- A VM showing "Installing Windows" after a restart has lost its install: check that `/mnt/internal/vm/imprint-<vm>/windows.boot` exists. The marker can be added by hand to a VM that is installed: `docker exec imprint-<vm> touch /storage/windows.boot`.
 - Image updates: bump `2.338.2` in `jit-runners.sh`, `install-host.sh`, `linux-trusted.stack.yml` and `oem/install.ps1` together. The runners are set not to update themselves.
 
 ## Known gaps

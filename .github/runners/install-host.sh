@@ -3,6 +3,7 @@
 # (docs/ci-runners.md):
 #   - qemu-user binfmt handlers, so arm64 containers run here (sudo, once)
 #   - lingering for this user, so the runner units run without a login
+#   - Docker waiting for the VM disk and stopping the VMs cleanly (sudo, once)
 #   - throwaway runner slots as systemd user units: PR jobs on x64, and
 #     arm64 jobs under emulation
 #   - the Windows VMs' .env with a generated password, if missing
@@ -21,6 +22,22 @@ if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
     sudo apt-get install -y qemu-user-static binfmt-support
 fi
 loginctl show-user "$USER" --property=Linger | grep -q yes || sudo loginctl enable-linger "$USER"
+# Docker waits for the disk that holds the Windows VMs: /mnt/internal is
+# mounted nofail, and started without it, the VMs would install afresh onto
+# the root disk. A shutdown gives the VMs their stop_grace_period of 2
+# minutes; systemd's default of 90 seconds would kill Windows mid-shutdown.
+DROPIN=/etc/systemd/system/docker.service.d/imprint-runners.conf
+if [ ! -f "$DROPIN" ]; then
+    echo "Making Docker wait for ${IMPRINT_VM_DIR:-/mnt/internal/vm} and stop slowly enough for the VMs (sudo)..."
+    sudo install -Dm644 /dev/stdin "$DROPIN" <<EOF
+[Unit]
+RequiresMountsFor=${IMPRINT_VM_DIR:-/mnt/internal/vm}
+
+[Service]
+TimeoutStopSec=180
+EOF
+    sudo systemctl daemon-reload
+fi
 
 gh auth status >/dev/null 2>&1 || [ -r "$HOME/.config/imprint-runners/token" ] || {
     echo "Log in with gh auth login, or put a token in ~/.config/imprint-runners/token" >&2
