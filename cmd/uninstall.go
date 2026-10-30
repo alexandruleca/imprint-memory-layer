@@ -65,6 +65,9 @@ func Uninstall(args []string) {
 	if err := removeOwnedSymlink(filepath.Join(home, ".local", "bin", "imprint"), project); err != nil {
 		output.Fail(err.Error())
 	}
+	if err := removeLauncher(project); err != nil {
+		output.Fail("Could not remove the app launcher: " + err.Error())
+	}
 	for _, dir := range []string{platform.VenvDir(project), platform.UvPythonInstallDir(project), platform.UvCacheDir(project)} {
 		if err := os.RemoveAll(dir); err != nil {
 			output.Fail("Could not remove runtime: " + err.Error())

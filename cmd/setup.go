@@ -580,6 +580,7 @@ func setupBackend() backendPaths {
 		imprintBin, _ = filepath.Abs(imprintBin)
 	}
 	setupShellAlias("imprint", imprintBin)
+	installLauncher(projectDir, imprintBin)
 
 	// ── Dashboard UI (pre-built static export) ─────────────────
 	// The Next.js dashboard is pre-built and shipped as static HTML/CSS/JS
