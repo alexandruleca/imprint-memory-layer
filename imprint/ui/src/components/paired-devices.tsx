@@ -20,7 +20,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/loaders";
 import { getPairedDevices, controlPairedDevice, type PairedDevice, type PairedDeviceAction } from "@/lib/sync-api";
 
@@ -37,6 +38,69 @@ function ago(ts: number): string {
   if (s < 3600) return `${Math.floor(s / 60)} min ago`;
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   return new Date(ts * 1000).toLocaleDateString();
+}
+
+/** What a running automatic sync is doing, in words. */
+const STAGE = {
+  connecting: (host: string) => `Waiting for ${host} to connect`,
+  comparing: (host: string) => `Comparing workspaces with ${host}`,
+  sending: (host: string) => `Sending to ${host}`,
+  receiving: (host: string) => `Receiving from ${host}`,
+  storing: () => "Storing what arrived",
+} as const;
+
+const count = new Intl.NumberFormat();
+
+/** "120 memories, 3 facts": the nonzero counts of a sync's datasets. */
+function moved(counts: Record<string, number> | undefined): string {
+  return Object.entries(counts ?? {}).filter(([, n]) => n > 0).map(([dataset, n]) => `${count.format(n)} ${dataset}`).join(", ");
+}
+
+function elapsed(since: number): string {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - since));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)} min ${s % 60}s`;
+}
+
+/** The running attempt: its stage and, while records move, how far it is. */
+function SyncProgress({ peer }: { peer: PairedDevice }) {
+  const activity = peer.activity;
+  if (!activity) return null;
+  const host = peer.peer.hostname;
+  const counted = typeof activity.done === "number" && typeof activity.total === "number" && activity.total > 0;
+  const percent = counted ? Math.min(100, Math.round((activity.done! / activity.total!) * 100)) : null;
+  const label = (STAGE[activity.stage] ?? STAGE.comparing)(host);
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5" role="status" aria-live="polite"
+      aria-label={`Sync with ${host}`}>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <Spinner className="size-3" />
+        <span className="font-medium">{label}</span>
+        {counted && (
+          <span className="text-muted-foreground">
+            · {activity.dataset} {count.format(activity.done!)} of {count.format(activity.total!)}
+          </span>
+        )}
+        <span className="ml-auto tabular-nums text-muted-foreground">{elapsed(activity.since)}</span>
+      </p>
+      {percent !== null && <Progress value={percent} aria-label={`${activity.dataset} ${percent}%`} />}
+    </div>
+  );
+}
+
+/** When the devices last synced or compared, and what the last sync moved. */
+function syncSummary(peer: PairedDevice): string {
+  const parts: string[] = [];
+  if (peer.last_sync) {
+    const received = moved(peer.last_result?.received);
+    const sent = moved(peer.last_result?.sent);
+    parts.push(`last sync ${ago(peer.last_sync)}`
+      + (received ? `: received ${received}` : "") + (sent ? `${received ? ";" : ":"} sent ${sent}` : ""));
+  }
+  if (peer.last_checked && (!peer.last_sync || peer.last_checked > peer.last_sync + 1)) {
+    parts.push(`up to date, checked ${ago(peer.last_checked)}`);
+  }
+  if (!parts.length && !peer.activity) parts.push("not synced yet");
+  return parts.map((part) => ` · ${part}`).join("");
 }
 
 /** A paired device not reached for this long may be gone for good. */
@@ -80,7 +144,7 @@ function State({ peer }: { peer: PairedDevice }) {
   );
 }
 
-export function PairedDevices() {
+export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
   const [peers, setPeers] = useState<PairedDevice[]>([]);
   // Whether the list was ever read: a failed read says nothing about pairings.
   const [loaded, setLoaded] = useState(false);
@@ -97,6 +161,9 @@ export function PairedDevices() {
     setConfirm({ peer, action }); setConfirmOpen(true);
   }
 
+  // Faster while a sync runs, so its progress moves on screen.
+  const syncing = peers.some((peer) => peer.activity);
+
   useEffect(() => {
     let cancelled = false;
     async function refresh() {
@@ -108,9 +175,9 @@ export function PairedDevices() {
       }
     }
     void refresh();
-    const timer = setInterval(refresh, 5000);
+    const timer = setInterval(refresh, syncing ? 2000 : 5000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, []);
+  }, [syncing]);
 
   async function change(peer: PairedDevice, action: PairedDeviceAction) {
     setPending({ id: peer.id, action }); setError("");
@@ -156,6 +223,11 @@ export function PairedDevices() {
               To pair, turn on &ldquo;Enable automatic sync with this device&rdquo; on both devices during a live sync.
             </EmptyDescription>
           </EmptyHeader>
+          {onPair && (
+            <EmptyContent>
+              <Button variant="outline" size="sm" onClick={onPair}><Link2 /> Pair a device</Button>
+            </EmptyContent>
+          )}
         </Empty>
       ) : (
         <ul className="divide-y divide-border">
@@ -193,8 +265,9 @@ export function PairedDevices() {
                     {removing
                       ? "Revoked locally. Remote removal pending: keep Imprint running on both devices until they reconnect."
                       : peer.enabled ? "Automatic sync enabled" : "Automatic sync paused on this device"}
-                    {peer.last_sync ? ` · last sync ${ago(peer.last_sync)}` : ""}
+                    {!removing && syncSummary(peer)}
                   </p>
+                  <SyncProgress peer={peer} />
                   {peer.last_error && <p className="text-xs text-muted-foreground">Last connection: {peer.last_error}</p>}
                   {gone && (
                     <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">

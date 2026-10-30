@@ -278,6 +278,47 @@ def cancel_peer(fingerprint):
             task.cancel()
 
 
+# What a running attempt is doing, by session event: the stage the paired-device
+# list shows, with done/total while records move.
+_STAGES = {'waiting': 'connecting', 'connected': 'connecting', 'handshake_sent': 'connecting',
+           'comparing': 'comparing', 'reconciling': 'comparing'}
+_PHASES = {'send': 'sending', 'push': 'sending', 'pull': 'receiving', 'receive': 'receiving', 'store': 'storing'}
+
+
+class _Activity:
+    """An attempt's progress, kept on its pair record so any process's
+    dashboard can show it; written at most once a second unless the stage
+    changes."""
+
+    def __init__(self, pair_id):
+        self.pair_id, self.started, self.written, self.stage = pair_id, time.time(), 0.0, ''
+        self.sent: dict[str, int] = {}
+        self.received: dict[str, int] = {}
+
+    def event(self, event):
+        kind = event['type']
+        if kind == 'status' and event.get('status') in _STAGES:
+            self.write(_STAGES[event['status']])
+        elif kind == 'progress' and event.get('phase') in _PHASES:
+            stage = _PHASES[event['phase']]
+            if stage == 'sending':
+                self.sent[event['dataset']] = event['done']
+            self.write(stage, dataset=event['dataset'], done=event['done'], total=event['total'])
+        elif kind in ('pull_complete', 'push_complete') and isinstance(event.get('stats'), dict):
+            for dataset, counts in event['stats'].items():
+                if isinstance(counts, dict):
+                    self.received[dataset] = self.received.get(dataset, 0) + sum(
+                        v for v in counts.values() if isinstance(v, int))
+
+    def write(self, stage, **detail):
+        now = time.time()
+        if stage == self.stage and now - self.written < 1:
+            return
+        self.stage, self.written = stage, now
+        with contextlib.suppress(ValueError):
+            update(self.pair_id, activity={'stage': stage, 'since': self.started, 'at': now, **detail})
+
+
 async def _attempt(pair):
     from . import sync_ws
     identity = sync_ws.get_device_identity()
@@ -290,10 +331,16 @@ async def _attempt(pair):
                sync_ws.receive_session(relay, pair['room'], pair['secret'], pair['workspace'], policy, pairing=pair))
     errors, unanswered = [], False
     loop = asyncio.get_running_loop()
+    activity = _Activity(pair['id'])
+    activity.write('connecting')
     try:
         async with asyncio.timeout(ATTEMPT_LIMIT) as limit:
             async for event in session:
                 limit.reschedule(loop.time() + ATTEMPT_LIMIT)
+                activity.event(event)
+                if event['type'] == 'idle':
+                    with contextlib.suppress(ValueError):
+                        update(pair['id'], last_checked=time.time())
                 if event['type'] in ('error', 'warning'):
                     errors.append(event.get('message', 'Sync failed'))
                     # The joining side gives up on an unanswered key exchange.
@@ -303,7 +350,9 @@ async def _attempt(pair):
                     if fresh['state'] == 'active' and fresh['enabled']:
                         # Values captured BEFORE the transfer avoid hiding concurrent
                         # writes. Imports may cause one extra deduplicating next pass.
-                        update(pair['id'], last_sync=time.time(), last_error='',
+                        now = time.time()
+                        update(pair['id'], last_sync=now, last_checked=now, last_error='',
+                               last_result={'received': activity.received, 'sent': activity.sent},
                                local_digest=pair.get('_local_digest'), remote_digest=pair.get('_remote_digest'))
     except TimeoutError:
         # The authenticated exchange records last_seen. Before it, only the
@@ -312,6 +361,9 @@ async def _attempt(pair):
             raise _unanswered(pair) from None
         raise AttemptFailed(f'The sync made no progress for {ATTEMPT_LIMIT // 60} minutes; '
                             'it runs again shortly and continues where it stopped') from None
+    finally:
+        with contextlib.suppress(ValueError):
+            update(pair['id'], activity=None)
     if unanswered:
         raise _unanswered(pair)
     if errors:
@@ -329,6 +381,10 @@ async def watch(*, interval=60, tick=2):
     with owner() as acquired:
         if not acquired:
             return
+        for stale in pairs():
+            if stale.get('activity'):
+                with contextlib.suppress(ValueError):
+                    update(stale['id'], activity=None)
         due, versions = {}, {}
         try:
             while True:

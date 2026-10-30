@@ -664,5 +664,44 @@ class PairedSyncTests(unittest.TestCase):
         self.scenario(scenario)
 
 
+    def test_each_side_shows_what_an_attempt_does_and_what_it_moved(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            seen = []
+            importer = sync_ws.process_import_buffer.side_effect
+
+            def storing(*args, **kwargs):
+                seen.append((self.side.get(), sync_pairs.pairs()[0].get('activity')))
+                return importer(*args, **kwargs)
+
+            with patch.object(sync_ws, 'process_import_buffer', side_effect=storing):
+                await self.repeat()
+            # b stores a's records while the devices reconcile; a stores b's after sending its own.
+            self.assertEqual([(side, activity['stage']) for side, activity in seen], [('b', 'comparing'), ('a', 'sending')])
+            for _, activity in seen:
+                self.assertLessEqual(activity['since'], activity['at'])
+            for side in 'ab':
+                record = self.record(side)
+                self.assertIsNone(record['activity'])
+                self.assertEqual(record['last_result'], {'received': {'memories': 1, 'facts': 0},
+                                                         'sent': {'memories': 1}})
+                self.assertEqual(record['last_checked'], record['last_sync'])
+            synced = self.record('a')['last_sync']
+            await self.repeat()  # unchanged: checked, not synced
+            self.assertEqual(self.record('a')['last_sync'], synced)
+            self.assertGreater(self.record('a')['last_checked'], synced)
+            self.assertIsNone(self.record('a')['activity'])
+        self.scenario(scenario)
+
+    def test_a_worker_clears_progress_a_stopped_process_left(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            pair = sync_pairs.pairs()[0]
+            sync_pairs.update(pair['id'], activity={'stage': 'receiving', 'since': 1.0, 'at': 2.0})
+            await self.worker_until(lambda: sync_pairs.pairs()[0].get('activity') is None)
+            self.assertIsNone(sync_pairs.pairs()[0]['activity'])
+        self.scenario(scenario)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1001,6 +1001,7 @@ async def serve_session(
 
             if pairing:
                 from . import sync_pairs
+                yield {"type": "status", "status": "comparing"}
                 exchange = await sync_pairs.exchange(channel, pairing, peer_info, provider=True)
                 if not exchange:
                     yield {'type': 'idle'}
@@ -1213,6 +1214,7 @@ async def receive_session(
 
             if pairing:
                 from . import sync_pairs
+                yield {"type": "status", "status": "comparing"}
                 # Identity in the sealed grant is verified below as well. The
                 # paired high-entropy secret authenticates this control phase.
                 exchange = await sync_pairs.exchange(channel, pairing, pairing['peer'], provider=False)

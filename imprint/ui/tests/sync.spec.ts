@@ -161,7 +161,7 @@ test('automatic sync is an explicit checkbox on both serve and receive', async (
     requested = route.request().postDataJSON();
     await route.fulfill(stream([{ type: 'paired', hostname: 'workstation' }, { type: 'done' }]));
   });
-  await page.goto('/sync/');
+  await page.goto('/sync/#live');
   const checkbox = page.getByRole('checkbox', { name: /Enable automatic sync with this device/ });
   await expect(checkbox).not.toBeChecked();
   await checkbox.check();
@@ -190,8 +190,8 @@ test('serve a chosen workspace send-only, with policy-aware approval and refusal
     ]));
   });
   await page.route('**/api/sync/cancel', route => route.fulfill({ json: { ok: true } }));
-  await page.goto('/sync/');
-  const panel = page.getByRole('tabpanel');
+  await page.goto('/sync/#live');
+  const panel = page.getByRole('tabpanel', { name: /^(Serve|Receive)$/ });
   const served = panel.getByRole('combobox', { name: 'Workspace to serve' });
   await expect(served).toContainText('default (active)');
   await served.click();
@@ -222,8 +222,8 @@ test('the share code is one string, with the relay address on a custom relay', a
     { type: 'status', status: 'waiting' },
   ])));
   await page.route('**/api/sync/cancel', route => route.fulfill({ json: { ok: true } }));
-  await page.goto('/sync/');
-  const panel = page.getByRole('tabpanel');
+  await page.goto('/sync/#live');
+  const panel = page.getByRole('tabpanel', { name: /^(Serve|Receive)$/ });
   await panel.getByLabel(/^Relay/).fill('sync.example.com');
   await panel.getByRole('button', { name: 'Start Serving' }).click();
   await expect(panel.getByText('wss://sync.example.com/a1b2c3d4-Ab3xY9Kq', { exact: true })).toBeVisible();
@@ -244,9 +244,9 @@ test('receive one way into a new workspace and show the negotiated plan', async 
       { type: 'done', pull_stats: stats, push_stats: null },
     ]));
   });
-  await page.goto('/sync/');
+  await page.goto('/sync/#live');
   await page.getByRole('tab', { name: /Receive/ }).click();
-  const panel = page.getByRole('tabpanel');
+  const panel = page.getByRole('tabpanel', { name: /^(Serve|Receive)$/ });
   await expect(panel.getByRole('radio', { name: /^Receive only/ })).toBeChecked();
   await panel.getByLabel('Code', { exact: true }).fill('a1b2c3d4-Ab3xY9Kq');
   const workspace = panel.getByLabel('Workspace on this device');
@@ -285,9 +285,9 @@ test('a two-way join names the receiving device and asks before sending', async 
     decision = route.request().postDataJSON();
     await route.fulfill({ json: { ok: true } });
   });
-  await page.goto('/sync/');
+  await page.goto('/sync/#live');
   await page.getByRole('tab', { name: /Receive/ }).click();
-  const panel = page.getByRole('tabpanel');
+  const panel = page.getByRole('tabpanel', { name: /^(Serve|Receive)$/ });
   await panel.getByRole('radio', { name: /^Two-way/ }).check();
   await panel.getByLabel('Code', { exact: true }).fill('a1b2c3d4-Ab3xY9Kq');
   await panel.getByRole('button', { name: 'Connect' }).click();
@@ -318,4 +318,43 @@ test('migrate dialog copies by default', async ({ page }) => {
   await page.getByRole('button', { name: 'Copy', exact: true }).click();
   await expect(page.getByText('source unchanged')).toBeVisible();
   expect(body).toMatchObject({ from: 'default', to: 'team', project: 'shared', copy: true });
+});
+
+test('the page opens on paired devices; each section has a tab the address keeps', async ({ page }) => {
+  await page.goto('/sync/');
+  await expect(page.getByRole('tab', { name: 'Paired devices' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Pair a device' }).click();
+  await expect(page).toHaveURL(/#live$/);
+  await expect(page.getByRole('button', { name: 'Start Serving' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Snapshots' }).click();
+  await expect(page.getByRole('heading', { name: 'Snapshots' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Snapshots' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('button', { name: 'Start Serving' })).toHaveCount(0);
+});
+
+test('a running automatic sync shows its stage and counts, then what it moved', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const base = {
+    id: 'pair-1', peer: { hostname: 'workstation', fingerprint: 'bbbbbbbb', user: 'bob', os: 'darwin' },
+    workspace: 'default', remote_workspace: 'default', relay: 'wss://sync.example.com', direction: 'both',
+    enabled: true, state: 'active', created_at: now - 86400, last_seen: now, last_error: '',
+  };
+  let peer: Record<string, unknown> = {
+    ...base, last_sync: null, last_checked: null, last_result: null,
+    activity: { stage: 'receiving', since: now - 75, at: now, dataset: 'memories', done: 1200, total: 50214 },
+  };
+  await page.route('**/api/sync/peers', route => route.fulfill({ json: { peers: [peer] } }));
+  await page.goto('/sync/');
+  const progress = page.getByRole('status', { name: 'Sync with workstation' });
+  await expect(progress).toContainText('Receiving from workstation');
+  await expect(progress).toContainText('memories 1,200 of 50,214');
+  await expect(progress.getByRole('progressbar')).toBeVisible();
+
+  peer = { ...base, activity: null, last_sync: now - 180, last_checked: now - 60,
+    last_result: { received: { memories: 50214, facts: 12 }, sent: { memories: 4 } } };
+  await expect(progress).toHaveCount(0, { timeout: 5000 });  // refreshed every 2 s while syncing
+  const row = page.getByRole('listitem').filter({ hasText: 'workstation' });
+  await expect(row).toContainText('last sync 3 min ago: received 50,214 memories, 12 facts; sent 4 memories');
+  await expect(row).toContainText('up to date, checked 1 min ago');
 });

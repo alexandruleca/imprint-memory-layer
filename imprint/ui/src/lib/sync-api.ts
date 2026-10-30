@@ -156,6 +156,23 @@ export interface PairedDevice {
   last_seen: number | null;
   last_sync: number | null;
   last_error: string;
+  /** What the running automatic sync is doing; absent between attempts. */
+  activity?: PairedSyncActivity | null;
+  /** What the last completed sync moved, by dataset: records received and sent. */
+  last_result?: { received: Record<string, number>; sent: Record<string, number> } | null;
+  /** When the devices last compared, whether or not anything changed. */
+  last_checked?: number | null;
+}
+
+export interface PairedSyncActivity {
+  stage: "connecting" | "comparing" | "sending" | "receiving" | "storing";
+  /** When the attempt started and when this was written (seconds). */
+  since: number;
+  at: number;
+  /** While records move: which kind, and how many of how many. */
+  dataset?: string;
+  done?: number;
+  total?: number;
 }
 
 export async function getPairedDevices(): Promise<PairedDevice[]> {

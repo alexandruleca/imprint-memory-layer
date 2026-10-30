@@ -100,7 +100,14 @@ network outages or an unavailable relay delay sync. `watch` is a foreground
 service command; pairing does not silently install a system startup service.
 
 **Sync → Paired devices** shows the relay, local/remote workspace, direction,
-last completed sync and the last connection problem. Each device's actions
+last completed sync with what it received and sent, when the devices last found
+nothing to change, and the last connection problem. While an attempt runs, the
+device shows what it is doing: waiting for the other device, comparing the
+workspaces, then sending, receiving or storing records, with how many of how
+many and a progress bar. Any process's worker keeps this on the pairing record,
+so the dashboard shows it whether the dashboard or `imprint sync watch` runs the
+sync. The Sync page has a tab each for paired devices, live sync and snapshots;
+the address keeps the open one (`/sync/#live`). Each device's actions
 menu (**⋯**) holds **Pause automatic sync**, which stops workspace transfers
 from either side, **Resume automatic sync**, which needs no new code, **Forget
 on both devices…** and **Remove from this device…**. CLI equivalents:

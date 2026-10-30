@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,8 @@ import {
   Inbox,
   FileArchive,
   X,
+  Archive,
+  Link2,
 } from "lucide-react";
 import { useEffect } from "react";
 
@@ -1177,8 +1179,24 @@ function DesktopExportsCard() {
 
 // ── Page ───────────────────────────────────────────────────────
 
+/** The page's sections, one tab each; the address keeps the open one. */
+const SECTIONS = ["paired", "live", "snapshots"] as const;
+type Section = (typeof SECTIONS)[number];
+
+function onHashChange(changed: () => void) {
+  window.addEventListener("hashchange", changed);
+  return () => window.removeEventListener("hashchange", changed);
+}
+
+function linkedSection(): Section {
+  const hash = window.location.hash.slice(1);
+  return (SECTIONS as readonly string[]).includes(hash) ? (hash as Section) : "paired";
+}
+
 export default function SyncPage() {
   const [workspaces, setWorkspaces] = useState<Workspaces>({ active: "", workspaces: [] });
+  // The static page renders the first tab; the browser then opens the linked one.
+  const section = useSyncExternalStore(onHashChange, linkedSection, () => "paired" as Section);
 
   useEffect(() => {
     let cancelled = false;
@@ -1188,8 +1206,13 @@ export default function SyncPage() {
     return () => { cancelled = true; };
   }, []);
 
+  function open(next: Section) {
+    window.history.replaceState(null, "", `#${next}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+
   return (
-    <div className="mx-auto max-w-4xl space-y-8 px-6 py-8 sm:px-10">
+    <div className="mx-auto max-w-4xl space-y-6 px-6 py-8 sm:px-10">
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Sync</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
@@ -1198,47 +1221,66 @@ export default function SyncPage() {
         </p>
       </header>
 
-      <section aria-labelledby="live-sync-title" className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <Tabs defaultValue="serve" className="gap-0">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
+      <Tabs value={section} onValueChange={(value) => open(value as Section)} className="gap-6">
+        <TabsList variant="line" className="w-full justify-start border-b border-border">
+          <TabsTrigger value="paired" className="flex-none px-3">
+            <Link2 className="size-3.5" /> Paired devices
+          </TabsTrigger>
+          <TabsTrigger value="live" className="flex-none px-3">
+            <Radio className="size-3.5" /> Live sync
+          </TabsTrigger>
+          <TabsTrigger value="snapshots" className="flex-none px-3">
+            <Archive className="size-3.5" /> Snapshots
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="paired">
+          <PairedDevices onPair={() => open("live")} />
+        </TabsContent>
+
+        <TabsContent value="live">
+          <section aria-labelledby="live-sync-title" className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <Tabs defaultValue="serve" className="gap-0">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
+                <div>
+                  <h3 id="live-sync-title" className="font-semibold">Live sync</h3>
+                  <p className="text-xs text-muted-foreground">One workspace per session, one way or both.</p>
+                </div>
+                <TabsList>
+                  <TabsTrigger value="serve" className="px-3">
+                    <Radio className="size-3.5" /> Serve
+                  </TabsTrigger>
+                  <TabsTrigger value="receive" className="px-3">
+                    <Plug className="size-3.5" /> Receive
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="serve">
+                <ServePanel workspaces={workspaces} />
+              </TabsContent>
+              <TabsContent value="receive">
+                <ReceivePanel workspaces={workspaces} />
+              </TabsContent>
+            </Tabs>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="snapshots" className="space-y-6">
+          <section aria-labelledby="snapshots-title" className="space-y-3">
             <div>
-              <h3 id="live-sync-title" className="font-semibold">Live sync</h3>
-              <p className="text-xs text-muted-foreground">One workspace per session, one way or both.</p>
+              <h3 id="snapshots-title" className="font-semibold">Snapshots</h3>
+              <p className="text-sm text-muted-foreground">
+                Move memory without a network: export a zip here and import it on the other machine.
+              </p>
             </div>
-            <TabsList>
-              <TabsTrigger value="serve" className="px-3">
-                <Radio className="size-3.5" /> Serve
-              </TabsTrigger>
-              <TabsTrigger value="receive" className="px-3">
-                <Plug className="size-3.5" /> Receive
-              </TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="serve">
-            <ServePanel workspaces={workspaces} />
-          </TabsContent>
-          <TabsContent value="receive">
-            <ReceivePanel workspaces={workspaces} />
-          </TabsContent>
-        </Tabs>
-      </section>
-
-      <PairedDevices />
-
-      <section aria-labelledby="snapshots-title" className="space-y-3">
-        <div>
-          <h3 id="snapshots-title" className="font-semibold">Snapshots</h3>
-          <p className="text-sm text-muted-foreground">
-            Move memory without a network: export a zip here and import it on the other machine.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ExportCard />
-          <ImportCard />
-        </div>
-      </section>
-
-      <DesktopExportsCard />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ExportCard />
+              <ImportCard />
+            </div>
+          </section>
+          <DesktopExportsCard />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
