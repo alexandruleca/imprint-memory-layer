@@ -99,6 +99,9 @@ jobs:
         timeout-minutes: 60
         working-directory: imprint/ui
       - run: node extensions/chrome/tests/browser-smoke.mjs
+      # Trusted runners share the host's network: serve the dashboard on a
+      # free port, not one another job may hold.
+      - run: echo "PLAYWRIGHT_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
       - run: npm run test:e2e
         working-directory: imprint/ui
 
