@@ -182,6 +182,9 @@ export interface ConfigSetting {
   type: string;
   env: string;
   desc: string;
+  /** What the setting is for and when to change it, and a value with its situation. */
+  help?: string;
+  example?: string;
   /** Credential: `value` is masked ("****" + last 4 characters, or empty when unset). */
   secret?: boolean;
   /** Known values; some, such as GPUs, are read from this device. */

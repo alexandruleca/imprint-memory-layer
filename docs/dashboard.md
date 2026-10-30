@@ -93,6 +93,8 @@ The CLI's commands as forms, grouped as the CLI lists them. The catalog comes fr
 
 One section at a time, chosen from a list; `#settings-chat`, `#wsl` and the other section ids link to a section. The filter searches every section and counts the matches in each.
 
+Each setting has a one-line description and, under **What is this for?**, what it controls, what changing it does (speed, memory, what leaves the machine, what has to be reindexed) and a worked example. The text lives in [`imprint/config_help.py`](../imprint/config_help.py), which a test keeps complete for every setting; the filter searches it too. Settings that currently have no effect say so.
+
 - **Configuration** edits the same values as `imprint config`, in this device's `config.json` ([configuration](configuration.md)). A value set by an environment variable is read-only. Reset (Remove, for a secret) deletes the `config.json` override. Running servers apply changes when they restart.
 - **This device:** **Workspaces** creates, switches, edits the roots of, wipes and deletes workspaces, and copies or moves memories between them; wiping and deleting are confirmed by typing, and the default and active workspaces cannot be deleted. **WSL profiles** appears only on a Windows installation; macOS and Linux omit it from navigation and settings search and ignore its deep link. On Windows it checks each distribution's clients (checking starts stopped distributions) and enrolls or removes them through the queue.
 

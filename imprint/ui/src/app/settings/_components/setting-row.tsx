@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, RotateCcw, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Lightbulb, RotateCcw, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,6 +95,7 @@ export function SettingRow({ setting: s, onSave, onReset }: Props) {
         </div>
         <p className="text-xs text-muted-foreground">{s.desc}</p>
         <p className="font-mono text-[11px] text-muted-foreground/70">{s.key}</p>
+        {(s.help || s.example) && <Explanation id={`${id}-help`} help={s.help} example={s.example} />}
       </div>
       <div className="min-w-0 space-y-1.5 @2xl:w-[22rem]">
         <div className="flex items-start gap-1.5 @2xl:justify-end">
@@ -125,6 +126,31 @@ export function SettingRow({ setting: s, onSave, onReset }: Props) {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** What the setting is for, folded under its description so the list stays scannable. */
+function Explanation({ id, help, example }: { id: string; help?: string; example?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="pt-1">
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 rounded text-xs font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+        <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} aria-hidden />
+        What is this for?
+      </button>
+      {open && (
+        <div id={id} className="mt-1.5 max-w-prose space-y-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-xs leading-relaxed">
+          {help && <p>{help}</p>}
+          {example && (
+            <p className="flex items-start gap-1.5 text-muted-foreground">
+              <Lightbulb className="mt-px size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+              <span><span className="font-medium text-foreground">Example:</span> {example}</span>
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

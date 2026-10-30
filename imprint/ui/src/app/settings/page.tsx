@@ -19,26 +19,26 @@ import { SettingRow, settingTitle } from "./_components/setting-row";
 import type { ConfigSetting } from "@/lib/types";
 
 const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> = {
-  model: { title: "Embeddings", desc: "The embedding model and the hardware it runs on.", icon: Cpu },
-  huggingface: { title: "Hugging Face", desc: "Access for gated or private model downloads.", icon: KeyRound },
-  qdrant: { title: "Vector store", desc: "The local Qdrant server that holds memories.", icon: Database },
-  chunker: { title: "Chunking", desc: "How files are split before embedding.", icon: Scissors },
-  tagger: { title: "Tagging", desc: "Topic tags added to every chunk.", icon: Tags },
-  redact: { title: "Redaction", desc: "Secrets replaced with placeholders before memories are stored.", icon: ShieldCheck },
-  ingest: { title: "Ingestion", desc: "Documents, OCR and URL fetching.", icon: FileInput },
-  voice: { title: "Voice", desc: "The native live voice runtime.", icon: Mic },
-  audio: { title: "Audio ingestion", desc: "Multilingual transcripts from audio files.", icon: Mic },
-  associations: { title: "Project associations", desc: "Suggestions, automatic path links and the inbox for conversations without a directory.", icon: FolderTree },
-  chat: { title: "Chat", desc: "The dashboard chat assistant.", icon: MessageSquare },
-  summarizer: { title: "Session summaries", desc: "LLM summaries written when a session ends.", icon: ScrollText },
-  recall: { title: "Recall", desc: "The MCP recall tool's optional local model.", icon: Search },
+  model: { title: "Embeddings", desc: "The local model that turns text into the vectors search compares, and the hardware it runs on. Changing the model, its file, revision, dimension, token cap, pooling or query instruction needs a new workspace and a reindex; device, GPU, thread and batch settings only change speed.", icon: Cpu },
+  huggingface: { title: "Hugging Face", desc: "Credentials for downloading models from the Hugging Face Hub, needed only for gated or private models or when anonymous downloads are rate-limited.", icon: KeyRound },
+  qdrant: { title: "Vector store", desc: "Where the Qdrant vector database runs and how Imprint reaches it. By default Imprint downloads and manages a local Qdrant; these settings point it at your own server instead.", icon: Database },
+  chunker: { title: "Chunking", desc: "How files and conversations are split into chunks before they are embedded. Changes apply when sources are next indexed or refreshed and keep existing workspaces working.", icon: Scissors },
+  tagger: { title: "Tagging", desc: "How memories are labeled with topics, domains and types for filtering and browsing: cheap built-in zero-shot tagging by default, LLM tagging optionally. The local settings configure the on-device helper model, which local recall, summaries and project analysis use too.", icon: Tags },
+  redact: { title: "Redaction", desc: "Removing secrets before anything is stored or sent to a model. Rules for known credential formats always run; this adds optional model-based detection.", icon: ShieldCheck },
+  ingest: { title: "Ingestion", desc: "How files, documents, images and web pages become memories: size limits, document types, local OCR, alternative extractors, and how URLs are fetched and crawled.", icon: FileInput },
+  voice: { title: "Voice", desc: "Echo, the local voice companion: where its voice runtime is installed and how it looks and sounds.", icon: Mic },
+  audio: { title: "Audio ingestion", desc: "Local, on-CPU transcription of audio files during ingestion: the speech model, the language, and limits on size and length. Changes re-transcribe audio when it is next indexed.", icon: Mic },
+  associations: { title: "Project associations", desc: "Linking a source to other projects it mentions, so its memories show up in their searches too, and where conversations without a known project folder go.", icon: FolderTree },
+  chat: { title: "Chat", desc: "The dashboard's chat, where a model answers questions by searching your memory: which model, where it runs (on this computer or a remote provider), and how long and how much it may research per answer.", icon: MessageSquare },
+  summarizer: { title: "Session summaries", desc: "An optional step that, after each agent session, has a model write a recap and save the session's decisions, bug causes, patterns and facts as memories. Off by default, and local unless you choose a remote provider.", icon: ScrollText },
+  recall: { title: "Recall", desc: "The recall tool lets agents run several memory lookups in one call; optionally, a model on this computer plans those lookups and answers with citations.", icon: Search },
   workspace: {
     title: "Workspace selection",
     desc: "A project's approved .imprint/workspace.json or roots choose an agent session's workspace; this covers the rest.",
     icon: FolderTree,
   },
-  update: { title: "Updates", desc: "The releases this installation is offered: stable, or dev builds as well.", icon: ArrowUpCircle },
-  collection: { title: "Storage", desc: "Collection naming.", icon: Layers },
+  update: { title: "Updates", desc: "Which releases this installation is offered: stable, or dev builds as well.", icon: ArrowUpCircle },
+  collection: { title: "Storage", desc: "The Qdrant collection the default workspace uses; other workspaces get their own automatically.", icon: Layers },
 };
 const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };
 
@@ -61,7 +61,7 @@ const DEVICE_SECTIONS = [
 ];
 
 function matches(s: ConfigSetting, query: string) {
-  const text = `${s.key} ${s.desc} ${settingTitle(s.key)} ${GROUPS[groupOf(s.key)]?.title ?? ""}`.toLowerCase();
+  const text = `${s.key} ${s.desc} ${s.help ?? ""} ${settingTitle(s.key)} ${GROUPS[groupOf(s.key)]?.title ?? ""}`.toLowerCase();
   return query.split(/\s+/).every((word) => text.includes(word));
 }
 

@@ -969,9 +969,11 @@ def api_config():
     # Secret values never leave the process; display_value masks them.
     from dataclasses import asdict
     from .config_schema import SETTINGS, display_value, resolve
+    from .config_help import HELP
     settings = []
     for s in SETTINGS:
         val, source = resolve(s.key)
+        explained = HELP.get(s.key, {})
         settings.append({
             "key": s.key,
             "value": display_value(s, val),
@@ -980,6 +982,8 @@ def api_config():
             "type": "int" if isinstance(s.default, int) and not isinstance(s.default, bool) else s.type.__name__,
             "env": s.env,
             "desc": s.desc,
+            "help": explained.get("help", ""),
+            "example": explained.get("example", ""),
             "secret": s.secret,
             "choices": [asdict(c) for c in s.options()],
             "custom": s.custom,

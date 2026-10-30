@@ -341,3 +341,28 @@ test('one section shows at a time; its link, a deep link and the filter reach th
   await page.goto('/settings/#workspaces');
   await expect(sections.getByRole('link', { name: 'Workspaces' })).toHaveAttribute('aria-current', 'page');
 });
+
+test('a setting explains what it is for, with an example, and is found by words from that explanation', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    { key: 'model.device', value: 'auto', default: 'auto', type: 'str', source: 'default', env: 'IMPRINT_DEVICE',
+      desc: 'Compute device: auto / cpu / gpu', custom: false, choices: [],
+      help: 'Where embeddings are computed. "auto" uses a GPU when llama.cpp finds one and the CPU otherwise.',
+      example: '"cpu": on a laptop without a supported GPU, or to keep the GPU free for games.' },
+    { key: 'chunker.overlap', value: 400, default: 400, type: 'int', source: 'default', env: 'IMPRINT_CHUNK_OVERLAP',
+      desc: 'Sliding overlap chars between chunks', choices: [],
+      help: 'How many characters each chunk repeats from the previous one.', example: '200: on a very large repository.' },
+  ] } }));
+  await page.goto('/settings/');
+  const toggle = page.getByRole('button', { name: 'What is this for?' }).first();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByText('Where embeddings are computed.', { exact: false })).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByText(/Where embeddings are computed/)).toBeVisible();
+  await expect(page.getByText(/on a laptop without a supported GPU/)).toBeVisible();
+
+  // "computed" appears only in model.device's explanation.
+  await page.getByRole('textbox', { name: 'Filter settings' }).fill('computed');
+  await expect(page.getByText('model.device', { exact: true })).toBeVisible();
+  await expect(page.getByText('chunker.overlap', { exact: true })).toHaveCount(0);
+});
