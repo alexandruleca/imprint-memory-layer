@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 
 from . import config, sync_ws, vectorstore
+from .progress import Task
 
 
 def _snapshots_dir() -> Path:
@@ -44,58 +45,65 @@ def export_snapshot(
     """
     client, coll = vectorstore._ensure_collection(workspace)
 
-    # Qdrant snapshot
-    print("  Creating Qdrant collection snapshot …", file=sys.stderr, flush=True)
-    snap_info = client.create_snapshot(collection_name=coll, wait=True)
-    if not snap_info:
-        raise RuntimeError("Qdrant snapshot creation returned None")
+    # Export runs without the queue lock: its steps show here, and it writes
+    # no progress record (ADR 0089).
+    with Task("sync-export", phase="snapshotting", unit="steps", total=4, record=False) as task:
+        # Qdrant snapshot
+        snap_info = client.create_snapshot(collection_name=coll, wait=True)
+        if not snap_info:
+            raise RuntimeError("Qdrant snapshot creation returned None")
 
-    snap_name = snap_info.name
-    snap_source = _snapshots_dir() / coll / snap_name
+        snap_name = snap_info.name
+        snap_source = _snapshots_dir() / coll / snap_name
 
-    # Bundle directory
-    ts = time.strftime("%Y%m%d-%H%M%S")
-    ws_label = workspace or config.get_active_workspace()
-    bundle_name = f"imprint-export-{ws_label}-{ts}"
-    if output_dir is None:
-        output_dir = config.get_data_dir() / "exports"
-    bundle = output_dir / bundle_name
-    bundle.mkdir(parents=True, exist_ok=True)
+        # Bundle directory
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        ws_label = workspace or config.get_active_workspace()
+        bundle_name = f"imprint-export-{ws_label}-{ts}"
+        if output_dir is None:
+            output_dir = config.get_data_dir() / "exports"
+        bundle = output_dir / bundle_name
+        bundle.mkdir(parents=True, exist_ok=True)
 
-    # Copy Qdrant snapshot into bundle
-    qdrant_dst = bundle / "qdrant.snapshot"
-    if snap_source.exists():
-        shutil.copy2(snap_source, qdrant_dst)
-    else:
-        # Some Qdrant versions put snapshots at a different path —
-        # try downloading via HTTP API as fallback.
-        _download_snapshot_http(coll, snap_name, qdrant_dst)
+        # Copy Qdrant snapshot into bundle
+        task.update(1, phase="copying_snapshot")
+        qdrant_dst = bundle / "qdrant.snapshot"
+        if snap_source.exists():
+            shutil.copy2(snap_source, qdrant_dst)
+        else:
+            # Some Qdrant versions put snapshots at a different path —
+            # try downloading via HTTP API as fallback.
+            _download_snapshot_http(coll, snap_name, qdrant_dst)
 
-    # Copy SQLite graph DB
-    graph_src = config.graph_db_path(workspace)
-    if graph_src.exists():
-        shutil.copy2(graph_src, bundle / "imprint_graph.sqlite3")
+        # Copy SQLite graph DB
+        task.update(2, phase="knowledge_graph")
+        graph_src = config.graph_db_path(workspace)
+        if graph_src.exists():
+            shutil.copy2(graph_src, bundle / "imprint_graph.sqlite3")
 
-    from . import source_snapshots
-    with (bundle / 'source-snapshots.jsonl').open('w', encoding='utf-8') as stream:
-        for frame in source_snapshots.export_parts(ws_label):
-            stream.write(json.dumps(frame, ensure_ascii=False) + '\n')
+        task.update(3, phase="source_snapshots")
+        from . import source_snapshots
+        with (bundle / 'source-snapshots.jsonl').open('w', encoding='utf-8') as stream:
+            for count, frame in enumerate(source_snapshots.export_parts(ws_label), 1):
+                stream.write(json.dumps(frame, ensure_ascii=False) + '\n')
+                task.update(detail=f"{count:,} parts")
 
-    # Metadata
-    meta = {
-        "workspace": ws_label,
-        "collection": coll,
-        "snapshot": snap_name,
-        "timestamp": time.time(),
-        "point_count": _count_points(client, coll),
-        "embedding_identity": config.embedding_identity(),
-    }
-    from .device import current
-    meta['exported_from_device'] = current()
-    (bundle / "manifest.json").write_text(json.dumps(meta, indent=2))
+        # Metadata
+        meta = {
+            "workspace": ws_label,
+            "collection": coll,
+            "snapshot": snap_name,
+            "timestamp": time.time(),
+            "point_count": _count_points(client, coll),
+            "embedding_identity": config.embedding_identity(),
+        }
+        from .device import current
+        meta['exported_from_device'] = current()
+        (bundle / "manifest.json").write_text(json.dumps(meta, indent=2))
 
-    size_mb = sum(f.stat().st_size for f in bundle.rglob("*") if f.is_file()) / (1024 * 1024)
-    print(f"  Export complete: {bundle}", file=sys.stderr)
+        size_mb = sum(f.stat().st_size for f in bundle.rglob("*") if f.is_file()) / (1024 * 1024)
+        task.update(4, detail="")
+        task.finish(f"Export complete: {bundle}")
     print(f"  Size: {size_mb:.1f} MB  ({meta['point_count']} points)", file=sys.stderr)
     return bundle
 
@@ -103,8 +111,12 @@ def export_snapshot(
 def import_snapshot(
     bundle_path: Path,
     workspace: str | None = None,
+    record: bool = False,
 ) -> None:
-    """Restore a snapshot bundle, then redact any secrets it brought."""
+    """Restore a snapshot bundle, then redact any secrets it brought.
+
+    ``record`` writes the progress record; only ``imprint sync import``,
+    which holds the queue lock, passes it (ADR 0089)."""
     bundle = Path(bundle_path)
     if not bundle.is_dir():
         raise FileNotFoundError(f"Bundle not found: {bundle}")
@@ -131,34 +143,39 @@ def import_snapshot(
     if not snap_file.exists():
         raise FileNotFoundError(f"No qdrant.snapshot in {bundle}")
 
-    print("  Restoring Qdrant collection …", file=sys.stderr, flush=True)
-    # recover_snapshot expects a file:// URI or HTTP URL for local files
-    client.recover_snapshot(
-        collection_name=coll,
-        location=f"file://{snap_file.resolve()}",
-    )
-    from qdrant_client import models as qm
-    client.set_payload(collection_name=coll, payload={'source_path_local': False}, points=qm.Filter(), wait=True)
+    # The scrub that ends it reports its own phases.
+    with Task("sync-import", phase="restoring_memories", unit="steps", total=4, record=record) as task:
+        # recover_snapshot expects a file:// URI or HTTP URL for local files
+        client.recover_snapshot(
+            collection_name=coll,
+            location=f"file://{snap_file.resolve()}",
+        )
+        from qdrant_client import models as qm
+        client.set_payload(collection_name=coll, payload={'source_path_local': False}, points=qm.Filter(), wait=True)
 
-    # Restore SQLite graph DB
-    graph_file = bundle / "imprint_graph.sqlite3"
-    if graph_file.exists():
-        dst = config.graph_db_path(workspace)
-        print("  Restoring knowledge graph …", file=sys.stderr, flush=True)
-        shutil.copy2(graph_file, dst)
+        # Restore SQLite graph DB
+        task.update(1, phase="knowledge_graph")
+        graph_file = bundle / "imprint_graph.sqlite3"
+        if graph_file.exists():
+            dst = config.graph_db_path(workspace)
+            shutil.copy2(graph_file, dst)
 
-    from . import source_snapshots
-    source_snapshots.remove(workspace=workspace)
-    archive_file = bundle / 'source-snapshots.jsonl'
-    if archive_file.exists():
-        importer = source_snapshots.Importer(workspace or config.get_active_workspace())
-        with archive_file.open(encoding='utf-8') as stream:
-            for line in stream:
-                importer.feed(json.loads(line))
-        importer.finish()
-    from .cli_scrub import scrub, summary
-    print(summary(scrub(workspace, apply=True)), file=sys.stderr)
-    print("  Import complete.", file=sys.stderr)
+        task.update(2, phase="source_snapshots")
+        from . import source_snapshots
+        source_snapshots.remove(workspace=workspace)
+        archive_file = bundle / 'source-snapshots.jsonl'
+        if archive_file.exists():
+            importer = source_snapshots.Importer(workspace or config.get_active_workspace())
+            with archive_file.open(encoding='utf-8') as stream:
+                for count, line in enumerate(stream, 1):
+                    importer.feed(json.loads(line))
+                    task.update(detail=f"{count:,} parts")
+            importer.finish()
+        task.update(3, phase="scrubbing", detail="")
+        from .cli_scrub import scrub, summary
+        print(summary(scrub(workspace, apply=True, record=record)), file=sys.stderr)
+        task.update(4)
+        task.finish("Import complete.")
 
 
 def _count_points(client, coll: str) -> int:
@@ -565,7 +582,8 @@ def main():
     elif args.action == "export":
         export_snapshot(output_dir=args.output, workspace=args.workspace)
     elif args.action == "import":
-        import_snapshot(bundle_path=args.bundle, workspace=args.workspace)
+        # The CLI holds the queue lock (cmd/sync.go), so it writes the record.
+        import_snapshot(bundle_path=args.bundle, workspace=args.workspace, record=True)
     elif args.action == 'watch':
         from .sync_pairs import run
         _info('Automatic sync is running. Ctrl+C stops it; the dashboard also runs this worker.')

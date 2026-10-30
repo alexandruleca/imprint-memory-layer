@@ -165,7 +165,7 @@ class AudioIndexTests(SourceFixture):
     def ingest(self, path, *, force=False):
         from imprint import cli_index
         with patch('imprint.tagger.build_payload_tags', return_value={}), \
-                patch.object(cli_index, 'write_progress'), patch.object(cli_index, 'clear_progress'), \
+                patch('imprint.progress.write_progress'), patch('imprint.progress.clear_progress'), \
                 contextlib.redirect_stdout(io.StringIO()):
             cli_index.ingest_single_file(str(path), 'recordings', force=force)
 

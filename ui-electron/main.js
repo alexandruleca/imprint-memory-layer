@@ -356,16 +356,39 @@ ipcMain.on('launcher-drag-end', event => {
   saveCompanionBounds(launcherWin, 'launcher-window.json');
 });
 
-function createTray() {
-  const icon = trayImage(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray-icon.png')), process.platform);
-  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-  tray.setToolTip('Imprint');
-  tray.setContextMenu(Menu.buildFromTemplate([
+// The tray says what the running job is doing (ADR 0089): in its tooltip, as
+// the first line of its menu, which Linux trays show when they skip tooltips,
+// and on macOS as the percentage beside the menu bar icon.
+let trayActivity = null;
+
+function trayMenu(activity) {
+  return Menu.buildFromTemplate([
+    ...(activity ? [{ label: activity, enabled: false }, { type: 'separator' }] : []),
     { label: 'Open Dashboard', click: showWindow },
     { label: 'Float Echo', accelerator: SHORTCUT, click: recoverCompanion },
     { type: 'separator' },
     { label: 'Quit Imprint', click: () => app.quit() },
-  ]));
+  ]);
+}
+
+function refreshTray() {
+  if (!tray) return;
+  const record = readActivity(dataDir);
+  const activity = record ? describeActivity(record) : '';
+  if (activity === trayActivity) return;
+  trayActivity = activity;
+  tray.setToolTip(activity ? `Imprint · ${activity}` : 'Imprint');
+  tray.setContextMenu(trayMenu(activity));
+  if (process.platform === 'darwin') {
+    tray.setTitle(record?.total > 0 ? ` ${Math.floor((100 * Math.min(record.processed, record.total)) / record.total)}%` : '');
+  }
+}
+
+function createTray() {
+  const icon = trayImage(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray-icon.png')), process.platform);
+  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
+  refreshTray();
+  setInterval(refreshTray, 2000);
   tray.on('double-click', showWindow);
 }
 

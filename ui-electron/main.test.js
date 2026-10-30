@@ -81,7 +81,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   }
   class Tray extends EventEmitter {
     constructor() { super(); if (!trayAvailable) throw new Error('No tray'); }
-    setToolTip() {}
+    setToolTip(text) { calls.tooltip = text; }
+    setTitle(text) { calls.title = text; }
     setContextMenu(menu) { calls.menu = menu; }
   }
   const electron = {
@@ -117,7 +118,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     'node:fs': { readFileSync: () => { if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
     './companion': require('./companion'),
     './navigation': require('./navigation'), './service': { DesktopService: Service },
-    './activity': { readActivity: dir => { calls.push(['activity', dir]); return activity; },
+    './activity': { readActivity: dir => { calls.push(['activity', dir]); return typeof activity === 'function' ? activity() : activity; },
       describeActivity: require('./activity').describeActivity },
     './voice-permissions': require('./voice-permissions') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
@@ -157,7 +158,7 @@ test('while setup holds the service back the splash says what it does', async ()
   const h = harness({ activity: SETUP, servicePending: true });
   await new Promise(resolve => setTimeout(resolve, 400));
   assert.deepEqual(h.calls.find(call => call[0] === 'activity'), ['activity', '/data']);
-  assert.equal(h.invoke('startup-state', h.windows[0]).message, 'Waiting for setup: installing llama.cpp (1 of 3 steps)…');
+  assert.equal(h.invoke('startup-state', h.windows[0]).message, 'Waiting for setup: installing llama.cpp (1 of 3 steps, 33%)…');
   assert.equal(h.invoke('startup-state', h.windows[0]).phase, 'starting');
   h.app.quit();
 });
@@ -279,6 +280,23 @@ test('Echo stays off the taskbar like the launcher', async () => {
   h.emit('win-close', dashboard);
   await settle();
   assert.equal(h.windows.find(w => w.options.title === 'Imprint launcher').options.skipTaskbar, true);
+});
+
+test('the tray shows the running job: tooltip, first menu line and, on macOS, the percentage', async () => {
+  let record = { pid: 42, command: 'retag', phase: 'llm_tagging', processed: 340, total: 1200, unit: 'memories' };
+  const h = harness({ activity: () => record });
+  await settle();
+  h.tick();
+  const line = 'retag: llm tagging (340 of 1,200 memories, 28%)';
+  assert.equal(h.calls.tooltip, `Imprint · ${line}`);
+  assert.equal(h.calls.menu[0].label, line);
+  assert.equal(h.calls.menu[0].enabled, false);
+  assert.equal(h.calls.title, ' 28%');
+  record = null;
+  h.tick();
+  assert.equal(h.calls.tooltip, 'Imprint');
+  assert.equal(h.calls.menu[0].label, 'Open Dashboard');
+  assert.equal(h.calls.title, '');
 });
 
 test('without a system tray, the floating launcher keeps a hidden dashboard accessible', async () => {
@@ -442,16 +460,17 @@ test('a watching voice page gets the cursor in its own coordinates until it stop
   echo.webContents.send = (name, value) => { if (name === 'voice-cursor') sent.push(value); };
   echo.setBounds({ x: 1500, y: 300, width: 400, height: 640 });
   h.emit('voice-cursor-watch', h.windows[1], true);
-  assert.equal(h.intervals.size, 0, 'the dashboard root is not a voice page');
+  const always = h.intervals.size; // the tray's own refresh
+  assert.equal(h.intervals.size, always, 'the dashboard root is not a voice page');
   h.emit('voice-cursor-watch', echo, true); h.emit('voice-cursor-watch', echo, true);
   h.tick(); h.tick();
   assert.deepEqual(sent, [{ x: -700, y: 100 }]);
   echo.webContents.getZoomFactor = () => 2; echo.setPosition(0, 0);
   h.tick(); assert.deepEqual(sent.at(-1), { x: 400, y: 200 });
-  h.emit('voice-cursor-watch', echo, false); assert.equal(h.intervals.size, 1);
-  h.emit('voice-cursor-watch', echo, false); assert.equal(h.intervals.size, 0);
+  h.emit('voice-cursor-watch', echo, false); assert.equal(h.intervals.size, always + 1);
+  h.emit('voice-cursor-watch', echo, false); assert.equal(h.intervals.size, always);
   h.emit('voice-cursor-watch', echo, true); echo.webContents.emit('did-navigate');
-  assert.equal(h.intervals.size, 0);
+  assert.equal(h.intervals.size, always);
 });
 
 test('normal open restores the saved monitor; recall moves Echo to the cursor display', async () => {

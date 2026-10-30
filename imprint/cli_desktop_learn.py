@@ -29,6 +29,7 @@ be inside the workspace's approved roots (ADR 0034).
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -44,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import config, extractors, tagger, vectorstore as vs
 from imprint.chunker import chunk_file
 from imprint.config_schema import resolve
+from imprint.progress import Task
 from imprint._cli_signals import install as _install_signals
 
 _install_signals()
@@ -249,8 +251,9 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
     return inserted
 
 
-def _process_zip(zip_path: Path, origin: str) -> int:
-    """Extract + index one export zip. Returns chunks inserted."""
+def _process_zip(zip_path: Path, origin: str, note=print) -> int:
+    """Extract + index one export zip. Returns chunks inserted. ``note``
+    prints a line (the scan's progress task passes its own)."""
     from .workspace_policy import is_excluded
     if is_excluded(path=str(zip_path)):
         return 0
@@ -266,11 +269,11 @@ def _process_zip(zip_path: Path, origin: str) -> int:
             with zipfile.ZipFile(zip_path) as z:
                 z.extractall(tmp_dir)
         except zipfile.BadZipFile:
-            print(f"  {C_YELLOW}Not a valid zip, skipping{C_RESET}")
+            note(f"  {C_YELLOW}Not a valid zip, skipping{C_RESET}")
             return 0
 
         for json_path in tmp_dir.rglob("conversations.json"):
-            print(f"  {C_DIM}→ {json_path.relative_to(tmp_dir)}{C_RESET}")
+            note(f"  {C_DIM}→ {json_path.relative_to(tmp_dir)}{C_RESET}")
             total += _ingest_json_file(json_path, project, str(zip_path.resolve()))
     return total
 
@@ -307,7 +310,7 @@ def _scan_once(extra_paths: list[str], *, verbose: bool = True) -> dict:
         print()
         print(f"  {C_CYAN}Scanning{C_RESET} {len(roots)} folder(s) for conversation exports")
         for r in roots:
-            print(f"    {C_DIM}- {r}{C_RESET}")
+            print(f"    {C_DIM}- {r}{C_RESET}", flush=True)
 
     tracker = _load_tracker()
     seen: dict = tracker.get("seen", {})
@@ -320,31 +323,43 @@ def _scan_once(extra_paths: list[str], *, verbose: bool = True) -> dict:
         "indexed": [],
     }
 
-    for zip_path in _iter_candidate_zips(roots):
-        result["scanned"] += 1
-        digest = _sha256(zip_path)
-        if digest in seen:
-            result["skipped_seen"] += 1
-            continue
-        origin = _zip_has_conversations_json(zip_path)
-        if not origin:
-            continue
-        if verbose:
-            print()
-            print(f"  {C_CYAN}Indexing{C_RESET} {zip_path.name} ({origin})")
-        inserted = _process_zip(zip_path, origin)
-        entry = {
-            "path": str(zip_path),
-            "origin": origin,
-            "indexed_at": int(time.time()),
-            "chunks": inserted,
-        }
-        seen[digest] = entry
-        result["indexed"].append(entry)
-        result["indexed_zips"] += 1
-        result["inserted_chunks"] += inserted
-        if verbose:
-            print(f"  {C_GREEN}+ {inserted} chunks{C_RESET}")
+    # The command (under the learn job's queue lock) shows progress and writes
+    # the record; the dashboard's silent scan runs without the lock and does neither.
+    candidates = list(_iter_candidate_zips(roots))
+    stream = None if verbose else io.StringIO()
+    with Task("learn", phase="desktop_exports", unit="archives", total=len(candidates),
+              record=verbose, stream=stream) as task:
+        for zip_path in candidates:
+            result["scanned"] += 1
+            task.update(detail=zip_path.name)
+            digest = _sha256(zip_path)
+            if digest in seen:
+                result["skipped_seen"] += 1
+                task.advance(skipped=1)
+                continue
+            origin = _zip_has_conversations_json(zip_path)
+            if not origin:
+                task.advance(skipped=1)
+                continue
+            if verbose:
+                task.note(f"\n  {C_CYAN}Indexing{C_RESET} {zip_path.name} ({origin})")
+            inserted = _process_zip(zip_path, origin, note=task.note if verbose else print)
+            entry = {
+                "path": str(zip_path),
+                "origin": origin,
+                "indexed_at": int(time.time()),
+                "chunks": inserted,
+            }
+            seen[digest] = entry
+            result["indexed"].append(entry)
+            result["indexed_zips"] += 1
+            result["inserted_chunks"] += inserted
+            task.advance(stored=inserted)
+            if verbose:
+                task.note(f"  {C_GREEN}+ {inserted} chunks{C_RESET}")
+        if result["indexed_zips"]:
+            task.update(detail="")
+            task.finish(f"Indexed {result['indexed_zips']} export(s), {result['inserted_chunks']} chunks")
 
     tracker["seen"] = seen
     _save_tracker(tracker)

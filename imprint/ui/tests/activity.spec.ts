@@ -47,6 +47,6 @@ test('while the service is down the desktop app says which job holds it', async 
   });
   await page.route('**/api/**', route => route.fulfill({ status: 503, json: {} }));
   await page.goto('/search/');
-  await expect(page.getByRole('status').filter({ hasText: 'Imprint is busy: setup · installing llama.cpp · 1/3 steps.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Imprint is busy: setup · installing llama.cpp · 1/3 steps · 33%.' })).toBeVisible();
   await expect(page.getByText('Local service is unavailable.')).toHaveCount(0);
 });

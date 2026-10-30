@@ -307,20 +307,22 @@ def decide(source, project, target, status, workspace=None):
 
 
 def scan(workspace=None, *, use_model=False):
-    from . import source_snapshots as ss, progress
+    from . import source_snapshots as ss
+    from .progress import Task
     ws = _workspace(workspace)
     candidates = catalog(ws)
     heads = ss.list_metadata(ws)
-    started = time.time()
-    progress.write_progress('associate-projects', 0, len(heads), 0, 0, started, [],
-                            phase='project analysis', unit='sources')
-    for index, meta in enumerate(heads):
-        snapshot = ss.get(meta['source'], meta['project'], ws)
-        if snapshot:
-            analyze(snapshot, ws, use_model=use_model, candidates=candidates, force=True)
-        progress.write_progress('associate-projects', index + 1, len(heads), 0, 0, started, [],
-                                phase='project analysis', unit='sources')
-        print(f'Project analysis {index + 1}/{len(heads)}: {meta["source"]}', flush=True)
+    # The source being analyzed is the line's detail; the queue's log gets a
+    # line every tenth of the way rather than one per source.
+    with Task('associate-projects', phase='project_analysis', unit='sources', total=len(heads)) as task:
+        for meta in heads:
+            task.update(detail=meta['source'])
+            snapshot = ss.get(meta['source'], meta['project'], ws)
+            if snapshot:
+                analyze(snapshot, ws, use_model=use_model, candidates=candidates, force=True)
+            task.advance()
+        task.update(detail='')
+        task.finish(f'Project analysis: {len(heads):,} sources analyzed')
 
 
 def forget(metadata, workspace=None):
@@ -336,7 +338,7 @@ def forget(metadata, workspace=None):
 
 def main():
     import argparse
-    from . import queue_lock, progress
+    from . import queue_lock
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', action='store_true')
     args = parser.parse_args()
@@ -344,7 +346,6 @@ def main():
     try:
         scan(use_model=args.model)
     finally:
-        progress.clear_progress()
         if fd is not None:
             queue_lock.release(fd)
 

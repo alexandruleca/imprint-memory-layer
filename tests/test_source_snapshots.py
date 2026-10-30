@@ -227,11 +227,29 @@ class SourceSnapshotTests(SourceFixture):
         path = self.root / 'tiny.py'
         for text in ('x = 1\r\n', '  \r\n', ''):
             path.write_bytes(text.encode())
-            with patch('imprint.cli_index.write_progress'), patch('imprint.cli_index.clear_progress'):
+            with patch('imprint.progress.write_progress'), patch('imprint.progress.clear_progress'):
                 cli_index.ingest_single_file(str(path), 'fixture')
             snapshot = ss.get('fixture/tiny.py', 'fixture')
             self.assertEqual(snapshot['text'], text)
             self.assertTrue(ss.integrity(snapshot)['complete'])
+
+    def test_single_file_ingest_reports_reading_chunking_and_embedding(self):
+        from imprint import cli_index, progress, workspace_policy
+        workspace_policy.add_root(str(self.root))
+        path = self.root / 'notes.md'
+        path.write_text('\n\n'.join(f'Paragraph {i} about the release plan. ' * 20 for i in range(60)))
+        output = io.StringIO()
+        with patch('imprint.progress.write_progress', wraps=progress.write_progress) as record, \
+                patch('sys.stdout', io.StringIO()), patch('sys.stderr', output):
+            cli_index.ingest_single_file(str(path), 'fixture', batch_size=2)
+        phases = [call.kwargs['phase'] for call in record.call_args_list]
+        self.assertEqual(list(dict.fromkeys(phases)), ['reading', 'chunking', 'embedding'])
+        embedding = record.call_args_list[-1]
+        self.assertEqual(embedding.kwargs['unit'], 'chunks')
+        self.assertGreater(embedding.args[2], 1)  # Its total is the number of chunks.
+        self.assertIn('ingest: embedding', output.getvalue())
+        self.assertIn('Indexing Complete', output.getvalue())
+        self.assertIsNone(progress.read_progress())  # The record is dropped at the end.
 
     def test_trailing_whitespace_only_edit_updates_exact_reused_chunk(self):
         for text in ('x = 1\n', 'x = 1\r\n\r\n'):

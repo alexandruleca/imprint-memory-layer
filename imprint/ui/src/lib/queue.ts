@@ -41,11 +41,15 @@ export function phaseName(phase: string) {
   return phase.replace(/_/g, " ").replace(/\bllm\b/gi, "LLM");
 }
 
-/** A job's progress in a line: "Learn conversations · embedding · 3/112 conversations". */
+/** A job's progress in a line: "Learn conversations · embedding · 3/112 conversations · 2%". */
 export function describeJob(job: { command: string; label?: string; phase?: string; processed?: number; total?: number; unit?: string }) {
   const parts = [job.label ?? job.command];
   if (job.phase) parts.push(phaseName(job.phase));
-  if (job.total) parts.push(`${(job.processed ?? 0).toLocaleString()}/${job.total.toLocaleString()} ${job.unit ?? "files"}`);
+  if (job.total) {
+    const done = Math.min(job.processed ?? 0, job.total);
+    parts.push(`${(job.processed ?? 0).toLocaleString()}/${job.total.toLocaleString()} ${job.unit ?? "files"}`);
+    parts.push(`${Math.floor((100 * done) / job.total)}%`);
+  }
   return parts.join(" · ");
 }
 

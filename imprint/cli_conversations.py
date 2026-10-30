@@ -23,7 +23,6 @@ import argparse
 import os
 import re
 import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -393,70 +392,46 @@ def learn(stores: list[tuple[str, str]]) -> int:
     print()
     print(f"  {C_CYAN}Found {len(found)} conversations"
           f" ({pre_skipped} unchanged, {not_owned} not this workspace's, {len(filtered)} to index){C_RESET}")
-    print()
+    print(flush=True)
 
     total_stored = 0
     total_skipped = 0
     reindexed = 0
-    t_start = time.time()
 
-    try:
-        cols = os.get_terminal_size().columns
-    except (ValueError, OSError):
-        cols = 80
-
-    from .progress import write_progress, clear_progress
+    from .progress import Task
     errors = 0
     cancelled = False
     completed = 0
-    for idx, (path, source, fmtime, stale) in enumerate(filtered):
-        pct = idx / len(filtered) if filtered else 1
-        elapsed = time.time() - t_start
-        eta = elapsed / pct * (1 - pct) if 0 < pct < 1 else 0
-        stats = f" {int(pct*100):3d}% {idx+1}/{len(filtered)} eta {int(eta)}s"
-        bar_width = max(10, cols - len(stats) - 3)
-        filled = int(bar_width * pct)
-        bar = "█" * filled + "░" * (bar_width - filled)
-        line = f"  {bar}{stats}"
-        print(f"\r{line[:cols]}", flush=True)
-        print(f"  Reading {idx+1}/{len(filtered)}: {source}", flush=True)
-        write_progress("learn", idx, len(filtered), total_stored, total_skipped, t_start, [], phase="reading",
-                       unit="conversations")
+    # Reading counts conversations; embedding counts one conversation's chunks.
+    with Task("learn", phase="reading", unit="conversations", total=len(filtered)) as task:
+        for idx, (path, source, fmtime, stale) in enumerate(filtered):
+            where = f"{idx + 1}/{len(filtered)} {source}"
+            task.update(idx, total=len(filtered), phase="reading", unit="conversations",
+                        stored=total_stored, skipped=total_skipped, detail=where)
 
-        def batch_progress(done, total):
-            print(f"  {source}: {done}/{total} chunks stored", flush=True)
-            write_progress("learn", idx, len(filtered), total_stored + done,
-                           total_skipped, t_start, [], phase=f"embedding {done}/{total} chunks", unit="conversations")
+            def batch_progress(done, total):
+                task.update(done, total=total, phase="embedding", unit="chunks", stored=total_stored + done)
 
-        try:
-            # A modified transcript's chunks are replaced by index_transcript.
-            reindexed += stale
-            stored, skipped = index_transcript(path, source_mtime=fmtime, progress=batch_progress)
-            total_stored += stored
-            total_skipped += skipped
-            completed += 1
-        except KeyboardInterrupt:
-            print()
-            print()
-            print(f"  {C_YELLOW}Cancelled{C_RESET} — progress saved. Re-run to continue.")
-            cancelled = True
-            break
-        except Exception as error:
-            errors += 1
-            print(f"  {C_YELLOW}Failed {source}: {type(error).__name__}: {error}{C_RESET}", flush=True)
+            try:
+                # A modified transcript's chunks are replaced by index_transcript.
+                reindexed += stale
+                stored, skipped = index_transcript(path, source_mtime=fmtime, progress=batch_progress)
+                total_stored += stored
+                total_skipped += skipped
+                completed += 1
+            except KeyboardInterrupt:
+                task.note(f"\n  {C_YELLOW}Cancelled{C_RESET} — progress saved. Re-run to continue.")
+                cancelled = True
+                break
+            except Exception as error:
+                errors += 1
+                task.note(f"  {C_YELLOW}Failed {source}: {type(error).__name__}: {error}{C_RESET}")
 
-    clear_progress()
+        task.update(completed, total=len(filtered), phase="reading", unit="conversations",
+                    stored=total_stored, skipped=total_skipped, detail="")
+        print(flush=True)
+        task.finish(f"{C_GREEN}═══ Conversations Indexed ═══{C_RESET} {completed}/{len(filtered)} completed")
 
-    # Final bar
-    elapsed = time.time() - t_start
-    stats = f" {completed}/{len(filtered)} completed {elapsed:.1f}s"
-    bar_width = max(10, cols - len(stats) - 3)
-    filled = int(bar_width * completed / len(filtered)) if filtered else bar_width
-    bar = "█" * filled + "░" * (bar_width - filled)
-    print(f"\r  {bar}{stats}{' ' * 10}")
-
-    print()
-    print(f"  {C_GREEN}═══ Conversations Indexed ═══{C_RESET}")
     print(f"  Stored:   {total_stored} chunks")
     if memory_files:
         print(f"  Memory:   {memory_files} auto-memory files")
@@ -467,7 +442,6 @@ def learn(stores: list[tuple[str, str]]) -> int:
     print(f"  Skipped:  {total_skipped}")
     if errors:
         print(f"  Errors:   {errors} transcripts (re-run to retry)")
-    print(f"  Time:     {elapsed:.1f}s")
     from .tag_backlog import report
     report(total_stored)
     for label in unreadable:

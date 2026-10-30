@@ -20,6 +20,8 @@ test('no data directory, no record or a damaged one is no activity', () => {
 });
 
 test('a description says the step and, when known, how far', () => {
-  assert.equal(describeActivity(setup), 'setup: installing llama.cpp (1 of 3 steps)');
+  assert.equal(describeActivity(setup), 'setup: installing llama.cpp (1 of 3 steps, 33%)');
+  assert.equal(describeActivity({ command: 'retag', phase: 'llm_tagging', processed: 340, total: 1200, unit: 'memories' }),
+    'retag: llm tagging (340 of 1,200 memories, 28%)');
   assert.equal(describeActivity({ command: 'learn', phase: 'extracting', processed: 0, total: 0, unit: 'chunks' }), 'learn: extracting');
 });

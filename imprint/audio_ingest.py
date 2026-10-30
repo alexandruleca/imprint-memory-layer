@@ -5,6 +5,7 @@ are the transcript cache; no second database or raw transcript cache exists.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 from importlib.metadata import PackageNotFoundError, version
 import itertools
@@ -80,7 +81,29 @@ def profile(options=None) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
+_task = None  # The running command's progress.Task, while it shows these phases.
+
+
+@contextmanager
+def reporting(task):
+    """Show transcription phases on ``task`` (a progress.Task) while a file is
+    extracted, so the terminal shows them as well as the record; afterwards
+    the task returns to what it showed."""
+    global _task
+    saved = (task.processed, task.total, task.phase, task.unit)
+    previous, _task = _task, task
+    try:
+        yield
+    finally:
+        _task = previous
+        processed, total, phase, unit = saved
+        task.update(processed, total=total, phase=phase, unit=unit)
+
+
 def report(phase, done=0, total=0, unit="seconds"):
+    if _task is not None:
+        _task.update(int(done), total=int(total), phase=phase, unit=unit)
+        return
     from .progress import write_progress, read_progress
     current = read_progress() or {}
     write_progress(current.get("command", "ingest"), int(done), int(total),

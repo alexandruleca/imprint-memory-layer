@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 from collections import Counter
 
 from qdrant_client import models as qm
 
 from . import config, embeddings, imprint_graph as kg, vectorstore as vs
 from ._cli_signals import install as _install_signals
-from .progress import clear_progress, write_progress
+from .progress import Task
 from .redaction import kinds, redact_all
 
 _BATCH = 64
@@ -52,10 +51,10 @@ def _scan_memories(client, coll: str, workspace: str, progress) -> tuple[list[tu
             return found, redacted, scanned
 
 
-def _rewrite_memories(client, coll: str, found: list[tuple], workspace: str) -> None:
+def _rewrite_memories(client, coll: str, found: list[tuple], workspace: str, progress=None) -> None:
     """Store each memory under its redacted content, unless that version is
     already stored, then drop the old point. Interrupted, the old point stays
-    and the next scrub finishes it."""
+    and the next scrub finishes it. ``progress(done)`` follows each batch."""
     for start in range(0, len(found), _BATCH):
         contents = dict(found[start:start + _BATCH])
         points = client.retrieve(collection_name=coll, ids=list(contents), with_payload=True, with_vectors=False)
@@ -73,6 +72,8 @@ def _rewrite_memories(client, coll: str, found: list[tuple], workspace: str) -> 
         kept = {vs._point_uuid(target) for target in targets.values()}
         client.delete(collection_name=coll, wait=True, points_selector=qm.PointIdsList(
             points=[point.id for point in points if point.id not in kept]))
+        if progress:
+            progress(min(start + _BATCH, len(found)))
 
 
 def _scrub_facts(workspace: str, apply: bool) -> tuple[int, int, Counter]:
@@ -88,38 +89,40 @@ def _scrub_facts(workspace: str, apply: bool) -> tuple[int, int, Counter]:
     return len(rows), len(changed), _added(before, after)
 
 
-def scrub(workspace: str | None = None, apply: bool = False) -> dict:
-    """Count, and with ``apply`` redact, the secrets stored in ``workspace``."""
+def scrub(workspace: str | None = None, apply: bool = False, record: bool = True) -> dict:
+    """Count, and with ``apply`` redact, the secrets stored in ``workspace``.
+    ``record`` is off for a caller without the queue lock (ADR 0089)."""
     from .workspace_policy import workspace_name
     ws = workspace_name(workspace)
     client, coll = vs._ensure_collection(ws)
     total = client.count(collection_name=coll, exact=False).count
-    started = last = time.time()
 
-    def progress(scanned: int, found: int) -> None:
-        nonlocal last
-        if time.time() - last >= 1.0 or scanned >= total:
-            last = time.time()
-            write_progress("scrub", scanned, max(total, scanned), found, 0, started, [], phase="scanning", unit="memories")
-
-    try:
-        found, memory_kinds, scanned = _scan_memories(client, coll, ws, progress)
+    # Phases: scanning memories, embedding the redacted ones again (with
+    # --apply), then facts and source snapshots.
+    with Task("scrub", phase="scanning", unit="memories", total=total, record=record) as task:
+        found, memory_kinds, scanned = _scan_memories(
+            client, coll, ws, lambda done, hits: task.update(done, total=max(total, done), stored=hits))
         if apply and found:
-            write_progress("scrub", scanned, scanned, len(found), 0, started, [], phase="embedding", unit="memories")
-            _rewrite_memories(client, coll, found, ws)
+            task.update(0, total=len(found), phase="embedding")
+            _rewrite_memories(client, coll, found, ws, progress=task.update)
+        task.update(0, total=0, phase="facts", unit="facts")
         facts, changed_facts, fact_kinds = _scrub_facts(ws, apply)
+        task.update(facts, stored=changed_facts)
         from . import source_snapshots
         source_scanned = source_changed = 0
-        for meta in source_snapshots.list_metadata(ws):
+        sources = source_snapshots.list_metadata(ws)
+        task.update(0, total=len(sources), phase="sources", unit="sources", stored=0)
+        for meta in sources:
             source_scanned += 1
             original = source_snapshots.get(meta['source'], meta['project'], ws)
             clean = source_snapshots.sanitize(original)
-            if clean['text'] != original['text'] or clean['metadata']['details'] != original['metadata']['details']:
+            changed = clean['text'] != original['text'] or clean['metadata']['details'] != original['metadata']['details']
+            if changed:
                 source_changed += 1
                 if apply:
                     source_snapshots.publish(clean, ws)
-    finally:
-        clear_progress()
+            task.advance(stored=int(changed), detail=meta['source'])
+        task.finish(f"Scrub checked {scanned:,} memories, {facts:,} facts and {source_scanned:,} source snapshots")
     if apply:
         with vs._cache_lock:
             vs._id_caches.pop(coll, None)

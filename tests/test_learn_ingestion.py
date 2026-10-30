@@ -78,7 +78,8 @@ class ConversationIngestionTests(unittest.TestCase):
                     patch.object(learner, 'owned', return_value=True), \
                     patch.object(vs, 'get_source_mtimes', return_value={}), \
                     patch.object(learner, 'index_transcript', side_effect=error), \
-                    patch('imprint.tag_backlog.report'), contextlib.redirect_stdout(io.StringIO()) as output:
+                    patch('imprint.tag_backlog.report'), contextlib.redirect_stdout(io.StringIO()) as output, \
+                    contextlib.redirect_stderr(output):
                 self.assertEqual(learner.learn([('cursor', data)]), expected)
                 self.assertNotIn('100%', output.getvalue())
                 if expected == 1:

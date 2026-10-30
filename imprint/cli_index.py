@@ -9,6 +9,8 @@ Options:
                       on int8 model; drop to 8-16 if RAM tight.
 """
 
+import contextlib
+import io
 import os
 import stat
 import sys
@@ -19,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from imprint import tagger, vectorstore as vs
 from imprint import extractors
-from imprint.progress import write_progress, clear_progress
+from imprint.progress import Task
 from imprint.source_state import (allowed_source, secret_name, fingerprint, stamp_records, unchanged, missing_sources,
                                   extraction_profile, no_text_reason, known_no_text, remember_no_text)
 from imprint._cli_signals import install as _install_signals
@@ -450,35 +452,6 @@ def print_tree(target, project_files):
             print(f"  {prefix}└── {C_DIM}... {len(subdirs) - 8} more{C_RESET}")
 
 
-def _term_width():
-    try:
-        return os.get_terminal_size().columns
-    except (ValueError, OSError):
-        return 80
-
-
-def print_bar(processed, total, elapsed, current_file=""):
-    """Print an in-place progress bar that fits the terminal width."""
-    cols = _term_width()
-    pct = processed / total if total else 1
-
-    if processed > 0 and pct < 1:
-        eta = elapsed / pct * (1 - pct)
-        time_str = f"eta {int(eta)}s"
-    else:
-        time_str = f"{elapsed:.1f}s"
-
-    stats = f" {int(pct * 100):3d}% {processed}/{total} {time_str}"
-    # Reserve space: 2 indent + bar + stats + 1 margin
-    bar_width = max(10, cols - len(stats) - 3)
-    filled = int(bar_width * pct)
-    bar = "█" * filled + "░" * (bar_width - filled)
-
-    line = f"  {bar}{stats}"
-    # Pad to terminal width to clear previous content, but never exceed
-    print(f"\r{line[:cols]}", end="", flush=True)
-
-
 def _parse_batch_size(argv: list[str], default: int) -> tuple[int, list[str]]:
     """Strip --batch-size N / --batch-size=N from argv. Returns (value, remaining argv)."""
     batch_size = default
@@ -543,9 +516,6 @@ def _parse_file_flags(argv: list[str]) -> tuple[str | None, str | None, list[str
 
 def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, force: bool = False):
     """Index a single file into the vector store."""
-    from imprint.chunker import chunk_file
-    from imprint.config_schema import resolve
-
     if not os.path.isfile(file_path):
         print(f"  {C_YELLOW}File not found:{C_RESET} {file_path}")
         sys.exit(1)
@@ -558,25 +528,33 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
 
     if not allowed_source(file_path):
         raise ValueError("Secret-bearing files cannot be indexed")
-    snapshot = fingerprint(file_path)
     rel = os.path.basename(file_path)
     print()
-    print(f"  {C_CYAN}Indexing{C_RESET} {rel} → project={project}")
+    print(f"  {C_CYAN}Indexing{C_RESET} {rel} → project={project}", flush=True)
     print()
-    write_progress("ingest", 0, 1, 0, 0, time.time(), [project])
+    # Phases as they happen: extracting a document (or reading text),
+    # chunking it, then embedding its chunks batch by batch.
+    ext = os.path.splitext(rel)[1].lower()
+    is_doc = extractors.is_doc_extension(ext)
+    with Task("ingest", phase="extracting" if is_doc else "reading", unit="files", total=1,
+              projects=[project]) as task:
+        task.update(detail=rel)
+        _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force)
 
+
+def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force):
+    from imprint.chunker import chunk_file
+    from imprint.config_schema import resolve
+
+    snapshot = fingerprint(file_path)
     # LLM tagging is left to the background backlog (ADR 0067).
     from imprint.tag_backlog import deferring, report
     pending = deferring()
     enable_zero_shot = resolve("tagger.zero_shot")[0]
 
-    ext = os.path.splitext(rel)[1].lower()
-    is_doc = extractors.is_doc_extension(ext)
-    t_start = time.time()
-
     records = []
     source_document = None
-    from . import source_memory
+    from . import source_memory, audio_ingest
     mtime = os.path.getmtime(file_path)
     source_key = f"{project}/{rel}"
     profile = extraction_profile(file_path)
@@ -588,16 +566,19 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
         doc_list = []
         try:
             if reason is None:
-                doc_list = extractors.dispatch_by_ext(file_path, **({'force': True} if force else {}))
+                with audio_ingest.reporting(task):
+                    doc_list = extractors.dispatch_by_ext(file_path, **({'force': True} if force else {}))
         except extractors.ExtractorUnavailable as e:
-            print(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
+            task.note(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
             sys.exit(1)
         except extractors.ExtractionError as e:
-            print(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
+            task.note(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
             sys.exit(1)
 
         doc_list = [item for item in doc_list if item.text.strip()]
         source_document, segments = source_memory.extracted_documents(doc_list)
+        # The number of chunks is known one extracted part at a time.
+        task.update(0, total=0, phase="chunking", unit="chunks")
         for extracted, (base, content) in zip(doc_list, segments):
             part_start = len(records)
             if not content.strip():
@@ -629,6 +610,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
                     "source_mtime": mtime,
                     "tag_pending": pending,
                 })
+                task.advance()
             _attach_source_part({'text': content}, records[part_start:], rel, base=base, code=chunk_mode == 'code')
     else:
         max_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
@@ -644,12 +626,12 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
             if held:
                 vs.delete_by_source(source_key, project=held["project"])
             _empty_snapshot(source_document, source_key, project, snapshot)
-            clear_progress()
-            print("  Empty file: source snapshot saved; prior chunks cleared")
+            task.finish("Empty file: source snapshot saved; prior chunks cleared")
             return
         chunks = chunk_file(content, rel, chunk_mode=None)
         if not chunks:
             raise ValueError("Chunker produced no chunks for nonempty text; prior chunks retained")
+        task.update(0, total=len(chunks), phase="chunking", unit="chunks")
         for i, (chunk_text, chunk_idx) in enumerate(chunks):
             prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
             next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
@@ -672,6 +654,7 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
                 "source_mtime": mtime,
                 "tag_pending": pending,
             })
+            task.advance()
         from .chunker import _CODE_LANG
         _attach_source_part(source_document, records, rel, code=os.path.splitext(rel)[1].lower() in _CODE_LANG)
 
@@ -681,24 +664,24 @@ def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, fo
         stamp_records([], file_path, snapshot)
         reason = reason or no_text_reason(file_path, profile)
         remember_no_text(snapshot["source_hash"], profile, reason)
-        clear_progress()
         held = vs.get_source_summary(source_key)
         kept = f"; kept {held['chunk_count']} chunks of an earlier version" if held else ""
-        print(f"  {C_YELLOW}Nothing to index:{C_RESET} {rel}: {reason}{kept}")
+        task.finish(f"{C_YELLOW}Nothing to index:{C_RESET} {rel}: {reason}{kept}")
         print()
         return
 
     # Replace any existing chunks for this source
     records = stamp_records(records, file_path, snapshot)
     records[0]['_source_document'] = source_document
-    inserted, _ = vs.replace_source(records, source_key, project, **({"force": True} if force else {}))
+    task.update(0, total=len(records), phase="embedding", unit="chunks")
+    inserted, _ = vs.replace_source(records, source_key, project, batch_size=batch_size,
+                                    progress=lambda done, total: task.update(done, total=total, stored=done),
+                                    **({"force": True} if force else {}))
 
-    clear_progress()
-    elapsed = time.time() - t_start
-    print(f"  {C_GREEN}═══ Indexing Complete ═══{C_RESET}")
+    task.update(stored=inserted)
+    task.finish(f"{C_GREEN}═══ Indexing Complete ═══{C_RESET}")
     print(f"  Stored:   {inserted} chunks")
     print(f"  Project:  {project}")
-    print(f"  Time:     {elapsed:.1f}s")
     report(inserted)
     print()
 
@@ -760,309 +743,306 @@ def _main(command: str = "ingest"):
 
     # ── Phase 1: Scan ──────────────────────────────────────────
     print()
-    print(f"  {C_CYAN}Scanning{C_RESET} {target} ...")
+    print(f"  {C_CYAN}Scanning{C_RESET} {target} ...", flush=True)
     print()
 
-    project_files = {}
-    grand_total = 0
-    for dir_path, project in pairs:
-        meta = _project_meta.get(os.path.realpath(dir_path), {})
-        excl = meta.get("exclude_paths", [])
-        try:
-            files = scan_dir(dir_path, exclude_paths=excl)
-        except OSError as error:
-            print(f"  {C_YELLOW}Cannot scan:{C_RESET} {error}", file=sys.stderr)
-            raise SystemExit(1)
-        files = [(rel, path) for rel, path in files if not policy.is_excluded(
-            path=path, source=f'{project}/{rel}', rules=exclusion_rules)]
-        project_files[project] = files
-        grand_total += len(files)
+    # One progress line and record through every phase: scanning the
+    # folders, comparing fingerprints, then indexing (reading, chunking and
+    # embedding in one loop), with the current file as its detail.
+    with Task(command, phase="scanning", unit="files", projects=[project for _, project in pairs]) as task:
+        project_files = {}
+        grand_total = 0
+        for dir_path, project in pairs:
+            meta = _project_meta.get(os.path.realpath(dir_path), {})
+            excl = meta.get("exclude_paths", [])
+            task.update(detail=project)
+            try:
+                files = scan_dir(dir_path, exclude_paths=excl)
+            except OSError as error:
+                task.note(f"  {C_YELLOW}Cannot scan:{C_RESET} {error}")
+                raise SystemExit(1)
+            files = [(rel, path) for rel, path in files if not policy.is_excluded(
+                path=path, source=f'{project}/{rel}', rules=exclusion_rules)]
+            project_files[project] = files
+            grand_total += len(files)
+            task.update(grand_total)
 
-    # ── Phase 2: Tree ──────────────────────────────────────────
-    print_tree(target, project_files)
-    print()
-    print(f"  {C_BOLD}{grand_total}{C_RESET} files across {C_BOLD}{len(pairs)}{C_RESET} projects")
-    print()
+        # ── Phase 2: Tree ──────────────────────────────────────────
+        # Printed above the progress line, which stays on screen below it.
+        tree = io.StringIO()
+        with contextlib.redirect_stdout(tree):
+            print_tree(target, project_files)
+            print()
+            print(f"  {C_BOLD}{grand_total}{C_RESET} files across {C_BOLD}{len(pairs)}{C_RESET} projects")
+        task.note(tree.getvalue())
 
-    _progress_projects = list(project_files.keys())
-    write_progress(command, 0, grand_total, 0, 0, time.time(), _progress_projects)
-    _last_progress_write = time.time()
+        # Dependency manifests are indexed through the same source lifecycle as files.
 
-    # Dependency manifests are indexed through the same source lifecycle as files.
+        # ── Phase 3: Read + chunk files (sequential) ────────────────
+        # NOTE: parallel file reading via ThreadPoolExecutor was tried and
+        # was *slower* in practice than sequential — the embed step holds the
+        # GIL and dominates wall time, so parallel readers just queue up behind
+        # it and add overhead. Keep this sequential.
+        from imprint.chunker import chunk_file
 
-    # ── Phase 3: Read + chunk files (sequential) ────────────────
-    # NOTE: parallel file reading via ThreadPoolExecutor was tried and
-    # was *slower* in practice than sequential — the embed step holds the
-    # GIL and dominates wall time, so parallel readers just queue up behind
-    # it and add overhead. Keep this sequential.
-    from imprint.chunker import chunk_file
+        # Conservative batch size to avoid OOM on WSL2 / low-RAM systems.
+        # Override via --batch-size N; higher = faster but more peak memory.
+        BATCH_SIZE = batch_size
 
-    # Conservative batch size to avoid OOM on WSL2 / low-RAM systems.
-    # Override via --batch-size N; higher = faster but more peak memory.
-    BATCH_SIZE = batch_size
+        # Zero-shot on by default, resolved through config (env > config.json >
+        # default). LLM tagging is not run here: with tagger.llm on, each memory
+        # is marked for the background tagging backlog instead (ADR 0067).
+        from imprint.config_schema import resolve
+        from imprint.tag_backlog import deferring, report
+        pending = deferring()
+        enable_zero_shot = resolve("tagger.zero_shot")[0]
+        max_file_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
+        failures = []
 
-    # Zero-shot on by default, resolved through config (env > config.json >
-    # default). LLM tagging is not run here: with tagger.llm on, each memory
-    # is marked for the background tagging backlog instead (ADR 0067).
-    from imprint.config_schema import resolve
-    from imprint.tag_backlog import deferring, report
-    pending = deferring()
-    enable_zero_shot = resolve("tagger.zero_shot")[0]
-    max_file_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
-    failures = []
+        def _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode):
+            """Convert a list of (chunk_text, chunk_idx) into record dicts."""
+            source_type = "audio" if doc_meta.get('audio') else ("file" if not doc_meta.get("ocr") else "ocr")
+            records = []
+            for i, (chunk_text, chunk_idx) in enumerate(chunks):
+                prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
+                next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
+                neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
+                tags = tagger.build_payload_tags(
+                    chunk_text,
+                    rel_path=rel,
+                    llm=False,
+                    zero_shot=enable_zero_shot,
+                    neighbor_context=neighbor_ctx,
+                    project_hint=project,
+                )
+                tags.pop("_llm_type", None)
+                records.append({
+                    "content": chunk_text,
+                    "project": project,
+                    "type": "architecture",
+                    "tags": tags,
+                    "source": source_key,
+                    "source_type": source_type,
+                    "doc_metadata": doc_meta,
+                    "chunk_index": chunk_idx,
+                    "source_mtime": mtime,
+                    "tag_pending": pending,
+                })
+            return records
 
-    def _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode):
-        """Convert a list of (chunk_text, chunk_idx) into record dicts."""
-        source_type = "audio" if doc_meta.get('audio') else ("file" if not doc_meta.get("ocr") else "ocr")
-        records = []
-        for i, (chunk_text, chunk_idx) in enumerate(chunks):
-            prev_text = chunks[i - 1][0][-200:] if i > 0 else ""
-            next_text = chunks[i + 1][0][:200] if i < len(chunks) - 1 else ""
-            neighbor_ctx = prev_text + ("\n...\n" if prev_text and next_text else "") + next_text
-            tags = tagger.build_payload_tags(
-                chunk_text,
-                rel_path=rel,
-                llm=False,
-                zero_shot=enable_zero_shot,
-                neighbor_context=neighbor_ctx,
-                project_hint=project,
-            )
-            tags.pop("_llm_type", None)
-            records.append({
-                "content": chunk_text,
-                "project": project,
-                "type": "architecture",
-                "tags": tags,
-                "source": source_key,
-                "source_type": source_type,
-                "doc_metadata": doc_meta,
-                "chunk_index": chunk_idx,
-                "source_mtime": mtime,
-                "tag_pending": pending,
-            })
-        return records
+        prepared_documents = {}
 
-    prepared_documents = {}
+        def read_and_chunk(args):
+            """Read a file and chunk it. Returns (records, no_text_reason), or None
+            when reading failed. A file with nothing to index returns no records:
+            an empty text file with no reason, a document without text with one.
 
-    def read_and_chunk(args):
-        """Read a file and chunk it. Returns (records, no_text_reason), or None
-        when reading failed. A file with nothing to index returns no records:
-        an empty text file with no reason, a document without text with one.
+            Each chunk gets its own structured tag payload derived by the tagger
+            (deterministic lang/layer/kind + keyword-matched domain tags).
 
-        Each chunk gets its own structured tag payload derived by the tagger
-        (deterministic lang/layer/kind + keyword-matched domain tags).
+            Documents (pdf/docx/etc) route through imprint.extractors; the
+            extractor returns extracted plain text + metadata, then we chunk
+            the text via the standard pipeline. Extractors may return multiple
+            docs (e.g. one per conversation in a ChatGPT export) — each is
+            chunked independently.
+            """
+            project, rel, fpath = args
+            try:
+                snapshot = fingerprint(fpath)
+                ext = os.path.splitext(rel)[1].lower()
+                is_doc = extractors.is_doc_extension(ext)
 
-        Documents (pdf/docx/etc) route through imprint.extractors; the
-        extractor returns extracted plain text + metadata, then we chunk
-        the text via the standard pipeline. Extractors may return multiple
-        docs (e.g. one per conversation in a ChatGPT export) — each is
-        chunked independently.
-        """
-        project, rel, fpath = args
-        try:
-            snapshot = fingerprint(fpath)
-            ext = os.path.splitext(rel)[1].lower()
-            is_doc = extractors.is_doc_extension(ext)
+                if is_doc:
+                    try:
+                        from . import audio_ingest
+                        with audio_ingest.reporting(task):
+                            doc_list = extractors.dispatch_by_ext(fpath, **({'force': True} if force else {}))
+                    except extractors.ExtractorUnavailable as e:
+                        raise RuntimeError(str(e)) from e
+                    except extractors.ExtractionError as e:
+                        raise RuntimeError(str(e)) from e
 
-            if is_doc:
-                try:
-                    doc_list = extractors.dispatch_by_ext(fpath, **({'force': True} if force else {}))
-                except extractors.ExtractorUnavailable as e:
-                    raise RuntimeError(str(e)) from e
-                except extractors.ExtractionError as e:
-                    raise RuntimeError(str(e)) from e
+                    mtime = os.path.getmtime(fpath)
+                    source_key = f"{project}/{rel}"
+                    from . import source_memory
+                    doc_list = [item for item in doc_list if item.text.strip()]
+                    source_document, segments = source_memory.extracted_documents(doc_list)
+                    all_records = []
+                    for extracted, (base, content) in zip(doc_list, segments):
+                        if not content.strip():
+                            continue
+                        doc_meta = dict(extracted.metadata or {})
+                        chunk_mode = extracted.chunk_mode or "prose"
+                        chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
+                        if chunks:
+                            part_records = _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode)
+                            _attach_source_part({'text': content}, part_records, rel, base=base, code=chunk_mode == 'code')
+                            all_records.extend(part_records)
+                            for index, record in enumerate(all_records):
+                                record["chunk_index"] = index
+                    if not all_records:
+                        stamp_records([], fpath, snapshot)
+                        file_profile = extraction_profile(fpath)
+                        reason = no_text_reason(fpath, file_profile)
+                        remember_no_text(snapshot["source_hash"], file_profile, reason)
+                        return [], reason
+                    all_records[0]['_source_document'] = source_document
+                    return stamp_records(all_records, fpath, snapshot), ""
+                else:
+                    if snapshot["source_size"] > max_file_bytes:
+                        raise ValueError(f"File exceeds ingest.max_file_bytes ({max_file_bytes}); prior chunks retained")
+                    with open(fpath, 'r', encoding='utf-8', newline='') as f:
+                        content = f.read(max_file_bytes + 1)
+                    from . import source_memory
+                    source_document = source_memory.document(content, kind='text')
+                    content = source_document['text']
+                    source_key = f"{project}/{rel}"
+                    if not content:
+                        prepared_documents[source_key] = (source_document, snapshot)
+                        return stamp_records([], fpath, snapshot), ""
+                    chunks = chunk_file(content, rel, chunk_mode=None)
+                    if not chunks:
+                        raise ValueError("Chunker produced no chunks for nonempty text")
+                    mtime = os.path.getmtime(fpath)
+                    source_key = f"{project}/{rel}"
+                    records = _chunks_to_records(chunks, project, rel, source_key, mtime, {}, None)
+                    from .chunker import _CODE_LANG
+                    _attach_source_part(source_document, records, rel, code=ext in _CODE_LANG)
+                    records[0]['_source_document'] = source_document
+                    return stamp_records(records, fpath, snapshot), ""
+            except Exception as e:
+                failures.append(rel)
+                task.note(f"  [error] {rel}: {e}")
+                return None
 
-                mtime = os.path.getmtime(fpath)
-                source_key = f"{project}/{rel}"
-                from . import source_memory
-                doc_list = [item for item in doc_list if item.text.strip()]
-                source_document, segments = source_memory.extracted_documents(doc_list)
-                all_records = []
-                for extracted, (base, content) in zip(doc_list, segments):
-                    if not content.strip():
-                        continue
-                    doc_meta = dict(extracted.metadata or {})
-                    chunk_mode = extracted.chunk_mode or "prose"
-                    chunks = chunk_file(content, rel, chunk_mode=chunk_mode)
-                    if chunks:
-                        part_records = _chunks_to_records(chunks, project, rel, source_key, mtime, doc_meta, chunk_mode)
-                        _attach_source_part({'text': content}, part_records, rel, base=base, code=chunk_mode == 'code')
-                        all_records.extend(part_records)
-                        for index, record in enumerate(all_records):
-                            record["chunk_index"] = index
-                if not all_records:
-                    stamp_records([], fpath, snapshot)
-                    file_profile = extraction_profile(fpath)
-                    reason = no_text_reason(fpath, file_profile)
-                    remember_no_text(snapshot["source_hash"], file_profile, reason)
-                    return [], reason
-                all_records[0]['_source_document'] = source_document
-                return stamp_records(all_records, fpath, snapshot), ""
-            else:
-                if snapshot["source_size"] > max_file_bytes:
-                    raise ValueError(f"File exceeds ingest.max_file_bytes ({max_file_bytes}); prior chunks retained")
-                with open(fpath, 'r', encoding='utf-8', newline='') as f:
-                    content = f.read(max_file_bytes + 1)
-                from . import source_memory
-                source_document = source_memory.document(content, kind='text')
-                content = source_document['text']
-                source_key = f"{project}/{rel}"
-                if not content:
-                    prepared_documents[source_key] = (source_document, snapshot)
-                    return stamp_records([], fpath, snapshot), ""
-                chunks = chunk_file(content, rel, chunk_mode=None)
-                if not chunks:
-                    raise ValueError("Chunker produced no chunks for nonempty text")
-                mtime = os.path.getmtime(fpath)
-                source_key = f"{project}/{rel}"
-                records = _chunks_to_records(chunks, project, rel, source_key, mtime, {}, None)
-                from .chunker import _CODE_LANG
-                _attach_source_part(source_document, records, rel, code=ext in _CODE_LANG)
-                records[0]['_source_document'] = source_document
-                return stamp_records(records, fpath, snapshot), ""
-        except Exception as e:
-            failures.append(rel)
-            print(f"\n  [error] {rel}: {e}", file=sys.stderr)
-            return None
+        # Build flat list of (project, rel, fpath) for all files
+        all_files = []
+        for project, files in project_files.items():
+            for rel, fpath in files:
+                all_files.append((project, rel, fpath))
 
-    # Build flat list of (project, rel, fpath) for all files
-    all_files = []
-    for project, files in project_files.items():
-        for rel, fpath in files:
-            all_files.append((project, rel, fpath))
-
-    # Compare complete byte fingerprints, including timestamp-preserving edits.
-    # A document already found to have no text is read again only once its
-    # bytes or the extraction profile (OCR settings and tools) changed.
-    profile = extraction_profile()
-    known_states = vs.get_source_states()
-    pre_skipped = 0
-    known_no_text_count = 0
-    no_text = []
-    filtered = []
-    for project, rel, fpath in all_files:
-        source_key = f"{project}/{rel}"
-        current = fingerprint(fpath)
-        if not force and unchanged(current, known_states.get(source_key)):
-            pre_skipped += 1
-        elif (not force and extractors.is_doc_extension(os.path.splitext(rel)[1])
-              and known_no_text(current["source_hash"], extraction_profile(fpath))):
-            known_no_text_count += 1
-        else:
-            filtered.append((project, rel, fpath))
-    all_files = filtered
-    stale_sources = missing_sources(known_states, [path for path, _ in pairs])
-    cleaned = 0
-    stored = 0
-    skipped = pre_skipped + known_no_text_count
-    processed = skipped
-    grand_total = grand_total  # bar total stays on full file count
-    t_start = time.time()
-    cancelled = False
-    pending_batch = []
-
-    def flush_batch():
-        nonlocal stored
-        if not pending_batch:
-            return
-        grouped = {}
-        for record in pending_batch:
-            grouped.setdefault((record["project"], record["source"]), []).append(record)
-        for (project, source), records in grouped.items():
-            inserted, _ = vs.replace_source(records, source, project, **({"force": True} if force else {}))
-            stored += inserted
-        pending_batch.clear()
-
-    try:
-        # Sequential read + chunk, flush to vector store in batches
-        for args in all_files:
-            result = read_and_chunk(args)
-            processed += 1
-            elapsed = time.time() - t_start
-            print_bar(processed, grand_total, elapsed)
-
-            now = time.time()
-            if now - _last_progress_write >= 1.0:
-                write_progress(command, processed, grand_total, stored, skipped, t_start, _progress_projects)
-                _last_progress_write = now
-
-            if result is None:
-                skipped += 1
-                continue
-
-            records, reason = result
-            project, rel, _ = args
+        # Compare complete byte fingerprints, including timestamp-preserving edits.
+        # A document already found to have no text is read again only once its
+        # bytes or the extraction profile (OCR settings and tools) changed.
+        profile = extraction_profile()
+        known_states = vs.get_source_states()
+        pre_skipped = 0
+        known_no_text_count = 0
+        no_text = []
+        filtered = []
+        task.update(0, total=grand_total, phase="comparing", detail="")
+        for project, rel, fpath in all_files:
             source_key = f"{project}/{rel}"
-            if reason:
-                # Nothing to index, not a failure. Chunks of an earlier version
-                # stay: the document may still hold that text, unreadable now.
-                skipped += 1
-                no_text.append((rel, reason, source_key in known_states))
-                continue
-            if not records:
-                # A verified empty file is an explicit deletion of its old chunks.
-                if source_key in known_states:
-                    vs.delete_by_source(source_key, project=known_states[source_key].get("project", ""))
+            task.advance(detail=rel)
+            current = fingerprint(fpath)
+            if not force and unchanged(current, known_states.get(source_key)):
+                pre_skipped += 1
+            elif (not force and extractors.is_doc_extension(os.path.splitext(rel)[1])
+                  and known_no_text(current["source_hash"], extraction_profile(fpath))):
+                known_no_text_count += 1
+            else:
+                filtered.append((project, rel, fpath))
+        all_files = filtered
+        stale_sources = missing_sources(known_states, [path for path, _ in pairs])
+        cleaned = 0
+        stored = 0
+        skipped = pre_skipped + known_no_text_count
+        processed = skipped
+        # The total stays on the full file count; unchanged files count as done.
+        task.update(processed, total=grand_total, phase="indexing", skipped=skipped, detail="")
+        cancelled = False
+        pending_batch = []
+
+        def flush_batch():
+            nonlocal stored
+            if not pending_batch:
+                return
+            grouped = {}
+            for record in pending_batch:
+                grouped.setdefault((record["project"], record["source"]), []).append(record)
+            task.update(detail=f"embedding {len(pending_batch)} chunks")
+            for (project, source), records in grouped.items():
+                inserted, _ = vs.replace_source(records, source, project, **({"force": True} if force else {}))
+                stored += inserted
+            pending_batch.clear()
+
+        try:
+            # Sequential read + chunk, flush to vector store in batches
+            for args in all_files:
+                task.update(detail=args[1])
+                result = read_and_chunk(args)
+                processed += 1
+                task.update(processed, stored=stored, skipped=skipped)
+
+                if result is None:
+                    skipped += 1
+                    continue
+
+                records, reason = result
+                project, rel, _ = args
+                source_key = f"{project}/{rel}"
+                if reason:
+                    # Nothing to index, not a failure. Chunks of an earlier version
+                    # stay: the document may still hold that text, unreadable now.
+                    skipped += 1
+                    no_text.append((rel, reason, source_key in known_states))
+                    continue
+                if not records:
+                    # A verified empty file is an explicit deletion of its old chunks.
+                    if source_key in known_states:
+                        vs.delete_by_source(source_key, project=known_states[source_key].get("project", ""))
+                        cleaned += 1
+                    if source_key in prepared_documents:
+                        source_document, provenance = prepared_documents.pop(source_key)
+                        _empty_snapshot(source_document, source_key, project, provenance)
+                    continue
+                pending_batch.extend(records)
+
+                # Flush batch when large enough
+                if len(pending_batch) >= BATCH_SIZE:
+                    flush_batch()
+
+            # Flush remaining
+            flush_batch()
+            task.update(processed, stored=stored, skipped=skipped, detail="removing stale sources" if stale_sources else "")
+            for source in stale_sources:
+                project = known_states[source].get("project", "")
+                if vs.delete_by_source(source, project=project):
                     cleaned += 1
-                if source_key in prepared_documents:
-                    source_document, provenance = prepared_documents.pop(source_key)
-                    _empty_snapshot(source_document, source_key, project, provenance)
-                continue
-            pending_batch.extend(records)
 
-            # Flush batch when large enough
-            if len(pending_batch) >= BATCH_SIZE:
-                flush_batch()
+        except KeyboardInterrupt:
+            cancelled = True
+            flush_batch()  # Save what we have
+            task.note(f"\n  {C_YELLOW}Cancelled{C_RESET} — progress saved. Re-run to continue where you left off.")
 
-        # Flush remaining
-        flush_batch()
-        for source in stale_sources:
-            project = known_states[source].get("project", "")
-            if vs.delete_by_source(source, project=project):
-                cleaned += 1
-
-    except KeyboardInterrupt:
-        cancelled = True
-        flush_batch()  # Save what we have
-        clear_progress()
+        # ── Summary ────────────────────────────────────────────────
+        # The summary's first line says how long it took.
+        task.update(processed, stored=stored, skipped=skipped, detail="")
+        print(flush=True)
+        if cancelled:
+            task.finish(f"{C_YELLOW}═══ Indexing Cancelled ═══{C_RESET}")
+        elif failures:
+            task.finish(f"{C_YELLOW}═══ Indexing Incomplete ═══{C_RESET}")
+        else:
+            task.finish(f"{C_GREEN}═══ Indexing Complete ═══{C_RESET}")
+        print(f"  Stored:   {stored}")
+        print(f"  Skipped:  {skipped}")
+        if no_text or known_no_text_count:
+            print(f"  No text:  {len(no_text) + known_no_text_count} documents with nothing to index "
+                  f"(retried once the file or the OCR settings change)")
+            for rel, reason, kept in no_text:
+                print(f"    {rel}: {reason}{'; kept the chunks of its earlier version' if kept else ''}")
+        if failures:
+            print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
+        if cleaned:
+            print(f"  Cleaned:  {cleaned} stale sources")
+        report(stored)
+        if cancelled:
+            print(f"  {C_DIM}Re-run to index remaining files (duplicates are skipped automatically){C_RESET}")
         print()
-        print()
-        print(f"  {C_YELLOW}Cancelled{C_RESET} — progress saved. Re-run to continue where you left off.")
 
-    if not cancelled:
-        print_bar(grand_total, grand_total, time.time() - t_start)
-        print()
-
-    # ── Summary ────────────────────────────────────────────────
-    elapsed = time.time() - t_start
-    print()
-    if cancelled:
-        print(f"  {C_YELLOW}═══ Indexing Cancelled ═══{C_RESET}")
-    elif failures:
-        print(f"  {C_YELLOW}═══ Indexing Incomplete ═══{C_RESET}")
-    else:
-        print(f"  {C_GREEN}═══ Indexing Complete ═══{C_RESET}")
-    print(f"  Stored:   {stored}")
-    print(f"  Skipped:  {skipped}")
-    if no_text or known_no_text_count:
-        print(f"  No text:  {len(no_text) + known_no_text_count} documents with nothing to index "
-              f"(retried once the file or the OCR settings change)")
-        for rel, reason, kept in no_text:
-            print(f"    {rel}: {reason}{'; kept the chunks of its earlier version' if kept else ''}")
-    if failures:
-        print(f"  Failed:   {len(failures)} (prior chunks retained; fix errors and retry)")
-    if cleaned:
-        print(f"  Cleaned:  {cleaned} stale sources")
-    print(f"  Time:     {elapsed:.1f}s")
-    report(stored)
-    if cancelled:
-        print(f"  {C_DIM}Re-run to index remaining files (duplicates are skipped automatically){C_RESET}")
-    else:
-        clear_progress()
-    print()
-
-    if failures:
-        raise SystemExit(1)
+        if failures:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

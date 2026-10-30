@@ -18,11 +18,11 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
-import time
 
 from qdrant_client import models as qm
 
 from . import config as _config, vectorstore
+from .progress import Task
 
 
 _SCROLL_BATCH = 100
@@ -170,96 +170,102 @@ def migrate(
     pending_points: list = []
     pending_ids: list = []
     sources: set[str] = {source} if source else set()
-    t0 = time.time()
+    try:
+        total = src_client.count(collection_name=src_coll, count_filter=flt, exact=False).count
+    except Exception:
+        total = 0
 
-    while True:
-        points, offset = src_client.scroll(
-            collection_name=src_coll,
-            limit=_SCROLL_BATCH,
-            offset=offset,
-            scroll_filter=flt,
-            with_payload=True,
-            with_vectors=True,
-        )
-
-        for pt in points:
-            scanned += 1
-            vec = pt.vector
-            if isinstance(vec, dict):
-                # Named vector dict — pass through verbatim.
-                new_vec = vec
-            else:
-                new_vec = {_config.QDRANT_VECTOR_NAME: vec}
-            pending_points.append(
-                qm.PointStruct(id=pt.id, vector=new_vec, payload=pt.payload or {})
+    # Migrate runs without the queue lock: it shows its phases (memories,
+    # source snapshots, knowledge-graph facts) but writes no progress record.
+    with Task("migrate", phase="copying" if copy else "moving", unit="memories", total=total,
+              record=False) as task:
+        while True:
+            points, offset = src_client.scroll(
+                collection_name=src_coll,
+                limit=_SCROLL_BATCH,
+                offset=offset,
+                scroll_filter=flt,
+                with_payload=True,
+                with_vectors=True,
             )
-            pending_ids.append(pt.id)
-            if (pt.payload or {}).get("source"):
-                sources.add(pt.payload["source"])
 
-            if len(pending_points) >= batch_size:
-                if not dry_run:
-                    vectorstore._upsert_chunked(tgt_client, tgt_coll, pending_points)
-                    if not copy:
-                        src_client.delete(
-                            collection_name=src_coll,
-                            points_selector=qm.PointIdsList(points=pending_ids),
-                        )
-                moved += len(pending_points)
-                elapsed = time.time() - t0
-                rate = moved / elapsed if elapsed > 0 else 0
-                print(
-                    f"\r  {verb} {moved} / {scanned} scanned  ({rate:.1f}/s)",
-                    end="", file=sys.stderr, flush=True,
+            for pt in points:
+                scanned += 1
+                vec = pt.vector
+                if isinstance(vec, dict):
+                    # Named vector dict — pass through verbatim.
+                    new_vec = vec
+                else:
+                    new_vec = {_config.QDRANT_VECTOR_NAME: vec}
+                pending_points.append(
+                    qm.PointStruct(id=pt.id, vector=new_vec, payload=pt.payload or {})
                 )
-                pending_points = []
-                pending_ids = []
+                pending_ids.append(pt.id)
+                if (pt.payload or {}).get("source"):
+                    sources.add(pt.payload["source"])
 
-        if offset is None:
-            break
+                if len(pending_points) >= batch_size:
+                    if not dry_run:
+                        vectorstore._upsert_chunked(tgt_client, tgt_coll, pending_points)
+                        if not copy:
+                            src_client.delete(
+                                collection_name=src_coll,
+                                points_selector=qm.PointIdsList(points=pending_ids),
+                            )
+                    moved += len(pending_points)
+                    pending_points = []
+                    pending_ids = []
+                task.update(scanned, total=max(total, scanned), stored=moved)
 
-    # Flush remaining
-    if pending_points:
+            if offset is None:
+                break
+
+        # Flush remaining
+        if pending_points:
+            if not dry_run:
+                vectorstore._upsert_chunked(tgt_client, tgt_coll, pending_points)
+                if not copy:
+                    src_client.delete(
+                        collection_name=src_coll,
+                        points_selector=qm.PointIdsList(points=pending_ids),
+                    )
+            moved += len(pending_points)
+        task.update(scanned, total=scanned, stored=moved)
+
         if not dry_run:
-            vectorstore._upsert_chunked(tgt_client, tgt_coll, pending_points)
-            if not copy:
-                src_client.delete(
-                    collection_name=src_coll,
-                    points_selector=qm.PointIdsList(points=pending_ids),
-                )
-        moved += len(pending_points)
+            from . import source_snapshots
+            snapshots = [metadata for metadata in source_snapshots.list_metadata(from_workspace)
+                         if metadata['source'] in sources]
+            task.update(0, total=len(snapshots), phase="source_snapshots", unit="sources")
+            for metadata in snapshots:
+                task.update(detail=metadata['source'])
+                snapshot = source_snapshots.get(metadata['source'], metadata['project'], from_workspace)
+                status = source_snapshots.integrity(snapshot, to_workspace)
+                # A topic/subset copy must never reveal the unselected remainder
+                # of a conversation/file through its full-source snapshot.
+                if status['missing_chunks'] == 0 and status['changed_chunks'] == 0:
+                    source_snapshots.publish(snapshot, to_workspace)
+                if not copy:
+                    source_snapshots.remove(metadata['source'], metadata['project'], from_workspace)
+                task.advance()
 
-    if not dry_run:
-        from . import source_snapshots
-        for metadata in source_snapshots.list_metadata(from_workspace):
-            if metadata['source'] not in sources:
-                continue
-            snapshot = source_snapshots.get(metadata['source'], metadata['project'], from_workspace)
-            status = source_snapshots.integrity(snapshot, to_workspace)
-            # A topic/subset copy must never reveal the unselected remainder
-            # of a conversation/file through its full-source snapshot.
-            if status['missing_chunks'] == 0 and status['changed_chunks'] == 0:
-                source_snapshots.publish(snapshot, to_workspace)
-            if not copy:
-                source_snapshots.remove(metadata['source'], metadata['project'], from_workspace)
+        # KG facts — for project or source migration (topics aren't tracked in KG)
+        kg_copied = 0
+        if project or source:
+            task.update(0, total=0, phase="knowledge_graph", unit="facts", detail="")
+            kg_copied = _migrate_kg_facts(
+                from_workspace, to_workspace, sources, f"{project}/" if project else "", dry_run,
+            )
+            task.update(kg_copied)
 
-    # KG facts — for project or source migration (topics aren't tracked in KG)
-    kg_copied = 0
-    if project or source:
-        kg_copied = _migrate_kg_facts(
-            from_workspace, to_workspace, sources, f"{project}/" if project else "", dry_run,
-        )
-
-    elapsed = time.time() - t0
-    print(file=sys.stderr)
-    if dry_run:
-        summary = (f"  Dry run: would {'copy' if copy else 'move'} {moved} of {scanned} scanned "
-                   f"+ {kg_copied} new KG facts; nothing was changed [DRY RUN]")
-    else:
-        kept = "source unchanged" if copy else "removed from source"
-        summary = (f"  Done: {moved} {verb.lower()} of {scanned} scanned ({kept}) "
-                   f"({elapsed:.1f}s) + {kg_copied} new KG facts")
-    print(summary, file=sys.stderr)
+        if dry_run:
+            summary = (f"Dry run: would {'copy' if copy else 'move'} {moved} of {scanned} scanned "
+                       f"+ {kg_copied} new KG facts; nothing was changed [DRY RUN]")
+        else:
+            kept = "source unchanged" if copy else "removed from source"
+            summary = (f"Done: {moved} {verb.lower()} of {scanned} scanned ({kept}) "
+                       f"+ {kg_copied} new KG facts")
+        task.finish(summary)
     return moved, scanned, kg_copied
 
 

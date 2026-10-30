@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs, extractors
 from imprint.chunker import chunk_file
 from imprint.extractors import url as url_ext
-from imprint.progress import write_progress, clear_progress
+from imprint.progress import Task
 from imprint._cli_signals import install as _install_signals
 
 _install_signals()
@@ -226,79 +226,72 @@ def main():
     if url_follow:
         print(f"  {C_DIM}(follow depth={follow_depth} max={follow_max}){C_RESET}", end="")
     print()
-    print()
+    print(flush=True)
 
     known = vs.get_url_sources()
     total_stored = 0
     total_skipped = 0
     total_errors = 0
     total_discovered = 0
-    t_start = time.time()
-    progress_projects = [project] if project else []
 
     # BFS queue: (url, depth). Seed URLs start at depth 0.
     queue: list[tuple[str, int]] = [(u, 0) for u in urls]
     visited: set[str] = set()
-    processed = 0
 
-    write_progress(
-        "ingest-url", 0, len(urls), 0, 0, t_start, progress_projects, unit="pages",
-    )
+    # The total grows as followed links are discovered; each URL's result is
+    # a line of its own above the progress line.
+    with Task("ingest-url", phase="fetching", unit="pages", total=len(urls),
+              projects=[project] if project else []) as task:
+        while queue:
+            url, depth = queue.pop(0)
+            if url in visited:
+                continue
+            visited.add(url)
+            task.update(detail=url)
 
-    while queue:
-        url, depth = queue.pop(0)
-        if url in visited:
-            continue
-        visited.add(url)
-        processed += 1
+            depth_tag = f"  {C_DIM}depth {depth}{C_RESET}" if depth > 0 else ""
+            n, status = ingest_one(url, project, known, force=force)
+            if status == "stored":
+                total_stored += n
+                line = f"  {C_GREEN}+{C_RESET} {url}  ({n} chunks){depth_tag}"
+            elif status == "skipped-unchanged":
+                total_skipped += 1
+                line = f"  {C_DIM}= {url}  (unchanged){C_RESET}{depth_tag}"
+            else:
+                total_errors += 1
+                line = f"  {C_YELLOW}! {url}  ({status}){C_RESET}{depth_tag}"
 
-        depth_tag = f"  {C_DIM}depth {depth}{C_RESET}" if depth > 0 else ""
-        n, status = ingest_one(url, project, known, force=force)
-        if status == "stored":
-            total_stored += n
-            print(f"  {C_GREEN}+{C_RESET} {url}  ({n} chunks){depth_tag}")
-        elif status == "skipped-unchanged":
-            total_skipped += 1
-            print(f"  {C_DIM}= {url}  (unchanged){C_RESET}{depth_tag}")
-        else:
-            total_errors += 1
-            print(f"  {C_YELLOW}! {url}  ({status}){C_RESET}{depth_tag}")
-
-        write_progress(
-            "ingest-url", processed, max(processed, len(queue) + processed),
-            total_stored, total_skipped, t_start, progress_projects, unit="pages",
-        )
-
-        # Follow same-domain links if enabled and within depth limit
-        if url_follow and depth < follow_depth and status in ("stored", "skipped-unchanged"):
-            links = url_ext.extract_links(url)
+            # Follow same-domain links if enabled and within depth limit
             new_links = 0
-            for link in links:
-                if link not in visited and total_discovered < follow_max:
-                    queue.append((link, depth + 1))
-                    total_discovered += 1
-                    new_links += 1
-            if new_links:
-                print(f"  {C_DIM}  → discovered {new_links} link(s) from {url}{C_RESET}")
-            # Refresh known sources so freshness checks work for newly discovered URLs
-            if new_links:
-                known = vs.get_url_sources()
+            if url_follow and depth < follow_depth and status in ("stored", "skipped-unchanged"):
+                links = url_ext.extract_links(url)
+                for link in links:
+                    if link not in visited and total_discovered < follow_max:
+                        queue.append((link, depth + 1))
+                        total_discovered += 1
+                        new_links += 1
+                # Refresh known sources so freshness checks work for newly discovered URLs
+                if new_links:
+                    known = vs.get_url_sources()
 
-    clear_progress()
+            pending = len({u for u, _ in queue if u not in visited})
+            task.update(task.processed + 1, total=task.processed + 1 + pending,
+                        stored=total_stored, skipped=total_skipped)
+            task.note(line)
+            if new_links:
+                task.note(f"  {C_DIM}  → discovered {new_links} link(s) from {url}{C_RESET}")
 
-    elapsed = time.time() - t_start
-    print()
-    print(f"  {C_GREEN}═══ URL Ingest Complete ═══{C_RESET}")
+        task.update(detail="")
+        print(flush=True)
+        task.finish(f"{C_GREEN}═══ URL Ingest Complete ═══{C_RESET}")
     print(f"  Stored:   {total_stored} chunks")
     print(f"  Skipped:  {total_skipped} url(s)")
     print(f"  Errors:   {total_errors}")
     if total_discovered:
         print(f"  Followed: {total_discovered} discovered url(s)")
-    print(f"  Time:     {elapsed:.1f}s")
     from imprint.tag_backlog import report
     report(total_stored)
     print()
-
 
 if __name__ == "__main__":
     main()

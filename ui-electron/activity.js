@@ -27,10 +27,12 @@ function processAlive(pid) {
   }
 }
 
-// "setup: installing llama.cpp (1 of 3 steps)"
+// "retag: llm tagging (340 of 1,200 memories, 28%)"
 function describeActivity(record) {
-  const counts = record.total > 0 ? ` (${record.processed} of ${record.total} ${record.unit || 'files'})` : '';
-  return `${record.command}${record.phase ? `: ${record.phase}` : ''}${counts}`;
+  const n = value => Number(value || 0).toLocaleString('en-US');
+  const percent = record.total > 0 ? Math.floor((100 * Math.min(record.processed, record.total)) / record.total) : null;
+  const counts = percent === null ? '' : ` (${n(record.processed)} of ${n(record.total)} ${record.unit || 'files'}, ${percent}%)`;
+  return `${record.command}${record.phase ? `: ${record.phase.replace(/_/g, ' ')}` : ''}${counts}`;
 }
 
 module.exports = { readActivity, describeActivity };
