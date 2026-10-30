@@ -125,7 +125,8 @@ TARGET_SIZE_PROSE = config.CHUNK_SIZE_PROSE
 # Kept for legacy callers (e.g. _merge_small fallback).
 TARGET_SIZE = config.CHUNK_SIZE_CHARS
 OVERLAP = config.CHUNK_OVERLAP
-SEMANTIC_THRESHOLD = config.CHUNK_SEMANTIC_THRESHOLD
+# Topic-shift threshold for the legacy SemanticChunker helper only (was chunker.semantic_threshold).
+SEMANTIC_THRESHOLD = 0.5
 
 _code_chunker_cache: dict[str, object] = {}
 _semantic_chunker = None

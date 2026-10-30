@@ -35,6 +35,19 @@ class ExtractionError(RuntimeError):
     """Raised when extraction of an otherwise-supported file fails."""
 
 
+class DocumentTooLarge(ValueError):
+    """A document over ingest.max_doc_size_mb; refused before it is read."""
+
+
+def max_doc_bytes() -> int:
+    """ingest.max_doc_size_mb in bytes (MiB, like audio.max_file_size_mb)."""
+    from ..config_schema import resolve
+    try:
+        return int(resolve("ingest.max_doc_size_mb")[0]) * 1024 * 1024
+    except (TypeError, ValueError) as e:
+        raise DocumentTooLarge(f"invalid ingest.max_doc_size_mb: {e}") from e
+
+
 @dataclass
 class ExtractedDoc:
     text: str
@@ -121,6 +134,11 @@ def dispatch_by_ext(path: str, *, force: bool = False) -> list[ExtractedDoc]:
     fn = _BY_EXT.get(ext)
     if fn is None:
         raise ExtractorUnavailable(f"no extractor registered for {ext!r}")
+    # Checked before any extractor reads the file; audio has audio.max_file_size_mb.
+    if ext not in AUDIO_EXTENSIONS:
+        limit = max_doc_bytes()
+        if os.path.getsize(path) > limit:
+            raise DocumentTooLarge(f"Document exceeds ingest.max_doc_size_mb ({limit // 1048576} MiB); prior chunks retained")
     return _normalize_result(_with_ocr_repair(
         lambda: fn(path, force=force) if ext in AUDIO_EXTENSIONS else fn(path)))
 
@@ -207,6 +225,8 @@ __all__ = [
     "ExtractorUnavailable",
     "OcrRuntimeMissing",
     "ExtractionError",
+    "DocumentTooLarge",
+    "max_doc_bytes",
     "register_ext",
     "register_mime",
     "available_extensions",

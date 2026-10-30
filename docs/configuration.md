@@ -100,7 +100,6 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chunker.size_code` | `4000` | Soft target chunk size for code |
 | `chunker.size_prose` | `6000` | Soft target chunk size for prose |
 | `chunker.hard_max` | `8000` | Absolute max chunk size |
-| `chunker.semantic_threshold` | `0.5` | Topic-shift threshold for SemanticChunker (lower = sharper splits) |
 | **Tagger** | | |
 | `tagger.zero_shot` | `true` | Enable zero-shot topic tagging |
 | `tagger.llm` | `false` | Enable LLM tagging: memories stored by learn/ingest/refresh are classified by the dashboard's background tagging job ([tagging](tagging.md#llm-tagging-runs-in-the-background)) |
@@ -119,7 +118,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ingest.doc_formats` | `pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json` | Comma-separated doc formats enabled for the file walker |
 | `ingest.ocr_enabled` | `true` | Local OCR for scanned PDFs and images. Setup installs RapidOCR (including its small Chinese/English models), Pillow and the PDFium renderer; no system tools are required. Explicit saved `false` stays off. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md). |
 | `ingest.ocr_lang` | `eng` | `eng` or `auto` uses the bundled Chinese/English recognizer. Other Tesseract codes (e.g. `eng+fra`) use the compatibility backend and require system Tesseract plus the selected language data. |
-| `ingest.max_doc_size_mb` | `25` | Per-file byte cap for document extraction |
+| `ingest.max_doc_size_mb` | `25` | Largest document in MiB (1–4096) read for extraction: PDFs, Office files, EPUB, RTF, HTML, email, JSON and images on disk (checked by file size before opening), and every URL download (Content-Length, then a streamed byte cap). A refused document is an error, keeps its prior chunks and marks the run incomplete. Text files use `ingest.max_file_bytes`; audio uses `audio.max_file_size_mb`. |
 | **Audio ingestion** | | |
 | `audio.enabled` | `true` | Include audio files in ingestion/refresh; the selected model downloads only on first uncached use |
 | `audio.model` | `large-v3-turbo` | Multilingual CPU model: `large-v3-turbo` (~1.51 GiB) or `small` (~464 MiB) |
@@ -130,7 +129,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ingest.url_timeout_sec` | `30` | HTTP connect timeout for URL fetch |
 | `ingest.url_read_timeout_sec` | `300` | Per-chunk read timeout for URL fetch (raise for very large files) |
 | `ingest.url_user_agent` | `imprint/1.0` | HTTP User-Agent header |
-| `ingest.url_respect_robots` | `true` | Check `robots.txt` before fetching |
+| `ingest.url_respect_robots` | `true` | Check the site's `robots.txt` against `ingest.url_user_agent` before ingesting, following links (disallowed links are not queued) or refreshing a URL; read once per site per hour (retried after five minutes when it could not be read). 4xx (e.g. 404) = no rules, allowed; 5xx or unreachable = site refused for now ([RFC 9309](https://www.rfc-editor.org/rfc/rfc9309)). Refused URLs are reported and keep prior content. `false` never fetches `robots.txt`. |
 | `ingest.use_kreuzberg` | `false` | Use kreuzberg (ELv2) for doc extraction — replaces PDF/DOCX/image extractors, adds archives (.zip, .7z, .tar, Apple iWork, ODF, .eml, images via OCR). Install with `pip install kreuzberg[all]`. **ELv2 — not permitted for SaaS/hosted use.** |
 | `ingest.use_obscura` | `false` | Use obscura headless browser for HTML URL fetch (JS rendering). Requires `obscura` binary in PATH. Enables full-fidelity ingestion of JS-heavy SPAs and docs sites. |
 | `ingest.url_follow` | `false` | Follow same-domain links found on ingested pages (BFS crawl) |
@@ -139,7 +138,6 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Chat (dashboard panel)** | | |
 | `voice.avatar` | `echo` | Echo's look and voice: `echo` (a synaptic core whose neurons fire as it thinks, around an eye that follows the pointer; a robotic voice), `iris` (indigo straight cut, pale lavender eyes; a female voice) or `kai` (spiky orange hair, a determined frown; a male voice). Also chosen on the Voice page and in Companion settings. See [Echo voice](live-voice.md). |
 | `voice.runtime_dir` | — | Explicit external cache containing the built native live speech worker for Windows x64, Apple silicon macOS or Linux x64; `IMPRINT_VOICE_RUNTIME_DIR` overrides it. See [Echo voice](live-voice.md). |
-| `chat.enabled` | `true` | Enable the dashboard chat panel |
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
 | `chat.model` | — | Model name for remote providers (default per provider) |
 | `chat.base_url` | — | Base URL override for OpenAI-compat providers |
@@ -231,7 +229,7 @@ These don't live in `config.json` because they're path-shaped infra knobs the co
 
 ## Source limits and operation workspace
 
-`ingest.max_file_bytes` (`IMPRINT_INGEST_MAX_FILE_BYTES`) defaults to 2,000,000 for source-text indexing. Oversize/undecodable sources retain their old chunks and report an incomplete run; there is no silent 50,000-character cutoff. Document extraction keeps `ingest.max_doc_size_mb` separately. LLM tagging remains opt-in even with a local provider; `tagger.zero_shot=false` also disables batch backfill.
+`ingest.max_file_bytes` (`IMPRINT_INGEST_MAX_FILE_BYTES`) defaults to 2,000,000 for source-text indexing. Oversize/undecodable sources retain their old chunks and report an incomplete run; there is no silent 50,000-character cutoff. Documents (local and downloaded) are capped separately by `ingest.max_doc_size_mb` (MiB) and fail the same way. LLM tagging remains opt-in even with a local provider; `tagger.zero_shot=false` also disables batch backfill.
 
 `IMPRINT_DATA_DIR` selects persistent storage consistently in Go and Python. `IMPRINT_WORKSPACE` is an operation override used by queued subprocesses; it must name an existing valid workspace. It outranks a directory's own workspace, so set in a client's MCP server environment it pins every session of that client. New jobs capture it at submission so a later dashboard switch cannot redirect them. `imprint sync --workspace NAME` selects the workspace for one session the same way, without changing the active workspace. MCP calls resolve their workspace at entry. Per-project binding is a project file this device approved ([workspace per project](workspaces.md#workspace-per-project), [ADR 0072](adr/0072-projects-name-their-workspace-and-each-device-approves-it.md)).
 

@@ -197,7 +197,7 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
     except extractors.ExtractorUnavailable as e:
         print(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
         return 0
-    except extractors.ExtractionError as e:
+    except (extractors.ExtractionError, extractors.DocumentTooLarge) as e:
         print(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
         return 0
 

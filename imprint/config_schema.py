@@ -93,6 +93,10 @@ def research_patience(raw):
     return _bounded_integer(raw, 2, 20)
 
 
+def document_megabytes(raw):
+    return _bounded_integer(raw, 1, 4096)
+
+
 def _gpus():
     """The GPUs llama.cpp offloads to; none when the binding cannot load."""
     try:
@@ -182,7 +186,6 @@ SETTINGS: list[Setting] = [
     Setting("chunker.size_code",           "IMPRINT_CHUNK_SIZE_CODE",      4000,  int,   "Soft target chunk size for code"),
     Setting("chunker.size_prose",          "IMPRINT_CHUNK_SIZE_PROSE",     6000,  int,   "Soft target chunk size for prose"),
     Setting("chunker.hard_max",            "IMPRINT_CHUNK_HARD_MAX",       8000,  int,   "Absolute max chunk size"),
-    Setting("chunker.semantic_threshold",  "IMPRINT_SEMANTIC_THRESHOLD",   0.5,   float, "Topic-shift threshold (lower = sharper splits)"),
 
     # ── Tagger ────────────────────────────────────────────────
     Setting("tagger.zero_shot",    "IMPRINT_ZERO_SHOT_TAGS",        True,        bool, "Enable zero-shot topic tagging"),
@@ -212,11 +215,11 @@ SETTINGS: list[Setting] = [
     Setting("ingest.doc_formats",       "IMPRINT_INGEST_DOC_FORMATS",       "pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json", str,  "Comma-separated doc formats enabled for file walker"),
     Setting("ingest.ocr_enabled",       "IMPRINT_INGEST_OCR",               True,       bool, "Local OCR for scanned PDFs + images (installed with runtime)"),
     Setting("ingest.ocr_lang",          "IMPRINT_INGEST_OCR_LANG",          "eng",       str,  "OCR language: eng/auto uses bundled models; other codes need Tesseract"),
-    Setting("ingest.max_doc_size_mb",   "IMPRINT_INGEST_MAX_DOC_MB",        25,          int,  "Per-file byte cap for document extraction"),
+    Setting("ingest.max_doc_size_mb",   "IMPRINT_INGEST_MAX_DOC_MB",        25,          document_megabytes, "Largest document (MiB, 1–4096) read for extraction, local or downloaded; larger ones fail and keep prior chunks"),
     Setting("ingest.url_timeout_sec",   "IMPRINT_INGEST_URL_TIMEOUT",       30,          int,  "HTTP connect timeout for URL fetch (seconds)"),
     Setting("ingest.url_read_timeout_sec","IMPRINT_INGEST_URL_READ_TIMEOUT", 300,         int,  "Per-chunk read timeout for URL fetch (seconds) — increase for very large files"),
     Setting("ingest.url_user_agent",    "IMPRINT_INGEST_URL_USER_AGENT",    "imprint/1.0", str, "HTTP User-Agent header for URL fetch"),
-    Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs"),
+    Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs; an unreachable or failing robots.txt refuses the site"),
     Setting("ingest.use_kreuzberg",    "IMPRINT_INGEST_USE_KREUZBERG",    False, bool, "Use kreuzberg (ELv2) for doc extraction — replaces PDF/DOCX/image extractors, adds archives"),
     Setting("ingest.use_obscura",      "IMPRINT_INGEST_USE_OBSCURA",      False, bool, "Use obscura headless browser for HTML URL fetch (JS rendering, needs obscura in PATH)"),
     Setting("ingest.url_follow",       "IMPRINT_INGEST_URL_FOLLOW",       False, bool, "Follow same-domain links found on ingested pages"),
@@ -242,7 +245,6 @@ SETTINGS: list[Setting] = [
             choices=(Choice("echo", "Echo", "Synaptic core with a watching eye; fires as it thinks; robotic voice"),
                      Choice("iris", "Iris", "Indigo straight cut, pale lavender eyes; female voice"),
                      Choice("kai", "Kai", "Spiky orange hair, a determined frown; male voice"))),
-    Setting("chat.enabled",        "IMPRINT_CHAT_ENABLED",        True,                             bool,  "Enable dashboard chat panel"),
     Setting("chat.provider",       "IMPRINT_CHAT_PROVIDER",       "local",                          str,   "Chat provider: local / vllm / openai / ollama / gemini / anthropic", choices=PROVIDERS),
     Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)",
             choices=PROVIDER_DEFAULT, custom=True),

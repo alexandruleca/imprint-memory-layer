@@ -76,7 +76,6 @@ CHUNK_SIZE_PROSE = _get("chunker.size_prose")
 # Legacy alias
 CHUNK_SIZE_CHARS = int(os.environ.get("IMPRINT_CHUNK_SIZE", str(CHUNK_SIZE_PROSE)))
 CHUNK_HARD_MAX = _get("chunker.hard_max")
-CHUNK_SEMANTIC_THRESHOLD = _get("chunker.semantic_threshold")
 
 # ── Hugging Face Hub ───────────────────────────────────────────
 def hub_token() -> str | None:

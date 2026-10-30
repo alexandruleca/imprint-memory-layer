@@ -2852,7 +2852,7 @@ document.getElementById('workspace-select').addEventListener('change', async (e)
 
 // ── Chat panel ──
 const chatState = {
-  enabled: false,
+  available: false,
   modelReady: false,
   sessionId: null,
   sessions: [],
@@ -2864,13 +2864,12 @@ const chatState = {
 async function chatFetchStatus() {
   try {
     const s = await fetch('/api/chat/status').then(r => r.json());
-    chatState.enabled = !!s.enabled;
+    chatState.available = true;
     chatState.installed = !!s.installed;
     chatState.modelReady = !!s.model_ready;
     chatState.statusRaw = s;
-    const btn = document.getElementById('chat-toggle');
-    if (chatState.enabled) btn.style.display = 'inline-block';
-    else btn.style.display = 'none';
+    // Chat is always on; the button waits only for the API to answer.
+    document.getElementById('chat-toggle').style.display = 'inline-block';
     return s;
   } catch (_) { return null; }
 }
@@ -3171,7 +3170,7 @@ function chatToggle() {
 
 async function initChat() {
   const s = await chatFetchStatus();
-  if (!s || !s.enabled) return;
+  if (!s) return;
 
   document.getElementById('chat-toggle').addEventListener('click', chatToggle);
   document.getElementById('chat-close').addEventListener('click', chatToggle);
@@ -3239,7 +3238,7 @@ const _origWsChange = document.getElementById('workspace-select');
 _origWsChange.addEventListener('change', () => {
   chatState.sessionId = null;
   document.getElementById('chat-workspace-badge').textContent = _origWsChange.value || 'default';
-  if (chatState.enabled) chatLoadSessions();
+  if (chatState.available) chatLoadSessions();
 });
 
 // ── Boot ──

@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+import unittest.mock
 from unittest.mock import patch
 
 from qdrant_client import QdrantClient
@@ -305,6 +306,64 @@ class NoTextDocumentTests(ProjectStoreTests):
         output = self.ingest('--file', str(self.folder / 'scan.pdf'), '--project', 'Desktop')
         self.assertIn('Nothing to index:', output)
         self.assertEqual(self.placed(), [])
+
+
+
+class OversizeDocumentTests(ProjectStoreTests):
+    """ingest.max_doc_size_mb refuses a document by its size, before any extractor reads it."""
+
+    def setUp(self):
+        super().setUp()
+        self.folder = Path(self.data.name) / 'Desktop'
+        self.folder.mkdir()
+        (self.folder / 'text.pdf').write_bytes(b'%PDF with a text layer')
+        # The real dispatcher, with a stand-in PDF extractor.
+        self.reader = unittest.mock.Mock(side_effect=lambda path: extractors.ExtractedDoc(
+            text=f'readable text of {Path(path).name}', chunk_mode='prose'))
+        values = {'ingest.doc_formats': 'pdf', 'ingest.max_doc_size_mb': 1, 'ingest.max_file_bytes': 2_000_000}
+        for item in [patch.dict(extractors._BY_EXT, {'.pdf': self.reader}),
+                     patch('imprint.config_schema.resolve', side_effect=lambda key: (values.get(key, False), 'default')),
+                     patch('imprint.chunker.chunk_file',
+                           side_effect=lambda text, *args, **kwargs: [(text, 0)] if text.strip() else []),
+                     patch('imprint.tagger.build_payload_tags', return_value={}),
+                     patch('imprint.extractors.ocr.available', return_value=False)]:
+            item.start()
+            self.addCleanup(item.stop)
+
+    def ingest(self, *args):
+        """The run's output, and its exit code when it ends with one."""
+        from imprint import cli_index
+        output = io.StringIO()
+        argv = ['index', *args] if args else ['index', str(self.folder), f'{self.folder}:Desktop']
+        with patch('sys.argv', argv), contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            try:
+                cli_index.main(command='refresh')
+            except SystemExit as stop:
+                return output.getvalue(), stop.code
+        return output.getvalue(), None
+
+    def test_oversize_document_is_refused_unread_and_keeps_its_chunks(self):
+        self.ingest()
+        self.assertIn(('Desktop', 'Desktop/text.pdf', 'readable text of text.pdf'), self.placed())
+        self.reader.reset_mock()
+        (self.folder / 'text.pdf').write_bytes(b'%' * (1024 * 1024 + 1))
+        output, code = self.ingest()
+        self.assertEqual(code, 1)
+        self.assertIn('Indexing Incomplete', output)
+        self.assertIn('text.pdf: Document exceeds ingest.max_doc_size_mb (1 MiB); prior chunks retained', output)
+        self.reader.assert_not_called()
+        self.assertIn(('Desktop', 'Desktop/text.pdf', 'readable text of text.pdf'), self.placed())
+        with self.assertRaisesRegex(ValueError, 'exceeds ingest.max_doc_size_mb'):
+            self.ingest('--file', str(self.folder / 'text.pdf'), '--project', 'Desktop')
+        self.reader.assert_not_called()
+
+    def test_size_cap_rejects_zero_and_negative(self):
+        from imprint.config_schema import SETTINGS_BY_KEY
+        cast = SETTINGS_BY_KEY['ingest.max_doc_size_mb'].type
+        self.assertEqual(cast('25'), 25)
+        for bad in ('0', '-5', 4097):
+            with self.assertRaises(ValueError):
+                cast(bad)
 
 
 if __name__ == '__main__':

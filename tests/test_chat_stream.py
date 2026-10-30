@@ -91,6 +91,17 @@ class ProvisioningTests(unittest.TestCase):
         self.assertFalse(status['model_ready'])
         self.assertIsNone(status['error'])
 
+    def test_chat_is_always_available_even_with_a_stale_chat_enabled(self):
+        """chat.enabled was removed; a config.json still holding it loads and changes nothing."""
+        from imprint import config_schema
+        (self.tmp / 'config.json').write_text(json.dumps({'chat': {'enabled': False, 'provider': 'local'}}))
+        with patch.dict(os.environ, {'IMPRINT_DATA_DIR': str(self.tmp)}):
+            self.assertNotIn('chat.enabled', [row[0] for row in config_schema.resolve_all()])
+            self.assertEqual(config_schema.resolve('chat.provider'), ('local', 'config'))
+            status = chat.status()
+        self.assertNotIn('enabled', status)
+        self.assertEqual(status['provider'], 'local')
+
 
 def text_chunk(content):
     """A streamed OpenAI-compatible chunk carrying reply text."""

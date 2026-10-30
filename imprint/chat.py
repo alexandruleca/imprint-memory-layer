@@ -503,7 +503,6 @@ def _run_provisioning(job: _Provisioning) -> None:
 
 def status() -> dict:
     """Reportable status for /api/chat/status without forcing a load."""
-    enabled = bool(_cfg("chat.enabled"))
     provider = _get_chat_provider()
 
     if provider != "local":
@@ -512,7 +511,6 @@ def status() -> dict:
         key_env = defaults.get("key_env")
         missing_key = key_env and not os.environ.get(key_env)
         return {
-            "enabled": enabled,
             "installed": True,
             "provider": provider,
             "model": _get_chat_model(),
@@ -529,7 +527,6 @@ def status() -> dict:
     if explicit:
         p = Path(explicit)
         return {
-            "enabled": enabled,
             "installed": installed,
             "provider": "local",
             "model_ready": p.exists() or _llm is not None,
@@ -540,7 +537,6 @@ def status() -> dict:
     fname = _cfg("chat.model_file")
     local = _models_dir() / fname if fname else None
     return {
-        "enabled": enabled,
         "installed": installed,
         "provider": "local",
         "model_ready": (local is not None and local.exists()) or _llm is not None,

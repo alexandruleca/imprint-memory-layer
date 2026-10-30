@@ -98,10 +98,6 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The largest a chunk may be, in characters, including the file-name prefix Imprint adds for context; it caps the code and prose sizes. The next index or refresh re-chunks affected sources. Keep it above both target sizes and small enough that a chunk fits model.seq_length tokens.",
         "example": "6000: after lowering model.seq_length to 1024, so no chunk is longer than the model reads.",
     },
-    "chunker.semantic_threshold": {
-        "help": "The topic-shift threshold of an older semantic prose splitter (lower values split more sharply). Indexing no longer uses that splitter, so this setting currently has no effect.",
-        "example": "0.5, the default: there is no reason to change it.",
-    },
     # ── Tagging ──────────────────────────────────────────────────────────
     "tagger.zero_shot": {
         "help": "Zero-shot topic tagging labels each new chunk with up to three topics by comparing its embedding with built-in topic descriptions. It needs no LLM, download or network, and costs little time. Turned off, newly ingested chunks get no topics unless LLM tagging adds them; tags already stored stay as they are.",
@@ -170,8 +166,8 @@ HELP: dict[str, dict[str, str]] = {
         "example": "\"deu\": to OCR German scans, with Tesseract and its German language data installed.",
     },
     "ingest.max_doc_size_mb": {
-        "help": "Meant as a size limit for document extraction (25 MB by default), but no ingestion code reads it, so it currently has no effect. Plain-text files are limited by ingest.max_file_bytes and audio by the audio limits.",
-        "example": "25, the default: changing it currently does nothing.",
+        "help": "The largest document, in MiB (1 to 4096; 25 by default), that Imprint reads for extraction: PDFs, Office files, EPUB, RTF, HTML, email, JSON and images on disk, and every download when ingesting a URL. A local file's size is checked before it is opened; a download is refused when its Content-Length is too large or once it has streamed past the limit. A refused document is reported as an error, the run counts as incomplete, and chunks it already had stay. Plain-text files use ingest.max_file_bytes and audio uses audio.max_file_size_mb.",
+        "example": "100: to index 60 MB scanned manuals or a large PDF linked from a docs site.",
     },
     "ingest.url_timeout_sec": {
         "help": "How many seconds to wait while connecting to a site when ingesting a URL (30 by default). The same limit bounds the quick change check on refresh and each page load with the obscura browser. Raise it for slow or distant servers that time out; lower it to give up on dead links sooner.",
@@ -186,8 +182,8 @@ HELP: dict[str, dict[str, str]] = {
         "example": "\"imprint/1.0 (+mailto:you@example.com)\": so a docs site's admins can contact you about your crawling.",
     },
     "ingest.url_respect_robots": {
-        "help": "Meant to make URL ingestion check a site's robots.txt (its rules for automated crawlers) before fetching, but the fetcher does not read robots.txt yet, so this has no effect either way. Keep crawls small with ingest.url_follow_max, and only ingest sites you are allowed to.",
-        "example": "true, the default: it currently does not change fetching.",
+        "help": "Checks a site's robots.txt (its rules for automated crawlers) before fetching any page from it, matching the rules against ingest.url_user_agent. This covers URLs you ingest, links found with ingest.url_follow (disallowed links are not queued) and URL refreshes. robots.txt is read once per site and remembered for an hour (five minutes when it could not be read). A site without one (any 4xx answer, such as 404) is allowed. If robots.txt cannot be read because the server fails (5xx) or cannot be reached, the site is refused for now, as RFC 9309 asks; try again later. A refused URL is reported with the reason and keeps any content stored earlier. Off, robots.txt is never fetched. Local files are never checked.",
+        "example": "false: to ingest your own intranet wiki whose robots.txt blocks all crawlers.",
     },
     "ingest.use_kreuzberg": {
         "help": "Extracts documents with the kreuzberg library instead of the built-in PDF, DOCX and image extractors, and adds archives (.zip, .tar, .7z) and other document types. Install it yourself (`pip install kreuzberg`, or `kreuzberg[all]`); it is licensed under the Elastic License 2.0, which forbids offering it as a hosted service. A change applies to documents read from then on; those that yielded no text before are retried on the next index.",
@@ -253,10 +249,6 @@ HELP: dict[str, dict[str, str]] = {
         "example": "\"iris\": if you prefer a natural female voice to the robotic one.",
     },
     # ── Chat ─────────────────────────────────────────────────────────────
-    "chat.enabled": {
-        "help": "Turns chat off for the standalone graph viewer, which then hides its chat button. The dashboard's Chat page does not read this setting, so it stays available there.",
-        "example": "false: to hide the chat button in the graph viewer on a machine where you never use chat.",
-    },
     "chat.provider": {
         "help": "Which model answers in chat. \"local\" (the default) runs a bundled llama.cpp model on this computer, and nothing leaves the machine. \"ollama\" and \"vllm\" use a model server you run, on localhost by default. \"anthropic\", \"openai\" and \"gemini\" send your messages, the system prompt (which includes this device's name and working directory) and the memory excerpts chat looks up to that company, and need ANTHROPIC_API_KEY, OPENAI_API_KEY or GOOGLE_API_KEY in the environment. Voice conversations with the chat engine need \"local\".",
         "example": "\"ollama\" with chat.model \"qwen3:8b\": to use a model you already run in Ollama.",

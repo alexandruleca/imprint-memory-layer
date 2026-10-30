@@ -17,6 +17,17 @@ class ConfigHelpTests(unittest.TestCase):
     def test_help_names_only_settings_that_exist(self):
         self.assertEqual(sorted(set(HELP) - set(SETTINGS_BY_KEY)), [])
 
+    def test_removed_settings_left_in_config_json_are_ignored(self):
+        import json
+        from imprint import config_schema
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"IMPRINT_DATA_DIR": directory}):
+            with open(os.path.join(directory, "config.json"), "w") as f:
+                json.dump({"chat": {"enabled": False}, "chunker": {"semantic_threshold": 0.2, "overlap": 300}}, f)
+            keys = [row[0] for row in config_schema.resolve_all()]
+            self.assertEqual(config_schema.resolve("chunker.overlap"), (300, "config"))
+        self.assertNotIn("chat.enabled", keys)
+        self.assertNotIn("chunker.semantic_threshold", keys)
+
 
 class ConfigHelpAPITests(unittest.IsolatedAsyncioTestCase):
     async def test_the_dashboard_receives_the_explanations(self):

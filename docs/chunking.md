@@ -22,7 +22,7 @@ flowchart LR
 | `chunker.hard_max` / `IMPRINT_CHUNK_HARD_MAX` | 8000 characters | Cap including the derived filename prefix |
 | `chunker.overlap` / `IMPRINT_CHUNK_OVERLAP` | 400 characters | Overlap, bounded to one third of the effective target |
 
-The splitter prefers paragraph and then line boundaries in the latter half of a chunk, falling back to a character cut. A long function may cross chunks. Chonkie's AST and semantic helpers remain for legacy direct callers; `chunk_file` and `chunk_conversation` use the span path. `chunker.semantic_threshold` does not affect those paths.
+The splitter prefers paragraph and then line boundaries in the latter half of a chunk, falling back to a character cut. A long function may cross chunks. Chonkie's AST and semantic helpers remain for legacy direct callers; `chunk_file` and `chunk_conversation` use the span path.
 
 `source_start` and `source_end` are half-open Unicode character offsets into the redacted source, not offsets into the original private file. `source_prefix` is derived retrieval context, excluded when reconstructing. Overlap is verified for agreement. A manifest records every index, span, content hash and ID, with a source version and expected chunk count. Empty text has a valid zero-chunk snapshot. Extracted documents have one joined text snapshot and ranges for their extracted parts; it does not reconstruct a PDF, image or original binary.
 

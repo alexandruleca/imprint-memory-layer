@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 type Session = { id: string; title: string; created_at: number; updated_at: number };
 
 const now = Date.now() / 1000;
-const LOCAL = { enabled: true, provider: 'local', model_path: '', model_file: 'Qwen3.5-4B-Q4_K_M.gguf', error: null };
+const LOCAL = { provider: 'local', model_path: '', model_file: 'Qwen3.5-4B-Q4_K_M.gguf', error: null };
 
 const sse = (...events: object[]) => events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
 

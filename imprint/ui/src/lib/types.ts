@@ -218,7 +218,6 @@ export interface ChatMessage {
 
 /** /api/chat/status. A missing local binding or model is set up by the first chat. */
 export interface ChatStatus {
-  enabled: boolean;
   installed: boolean;
   provider: string;
   model?: string;
