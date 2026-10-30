@@ -177,7 +177,7 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
-      RELAY_URL: https://imprint.alexandruleca.com
+      RELAY_URL: https://sync.alexandruleca.com
     steps:
       - name: Redeploy the public relay
         env:

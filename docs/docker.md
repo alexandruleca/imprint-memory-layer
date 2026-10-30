@@ -256,6 +256,6 @@ After a stable build, the `deploy-relay` job redeploys the public relay: it
 POSTs the URL in the repository secret `RELAY_DEPLOY_WEBHOOK` (a Portainer
 service webhook on the Swarm service running `imprint-relay:latest`, which
 re-pulls that tag) and waits up to five minutes for
-`https://imprint.alexandruleca.com/health` to report the new version. A
+`https://sync.alexandruleca.com/health` to report the new version. A
 self-hosted relay can be wired the same way: enable the service webhook in
 Portainer and POST it after pushing the image.

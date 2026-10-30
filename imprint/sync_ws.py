@@ -50,7 +50,7 @@ from .sync_crypto import PROTOCOL, Cipher, FrameError, KeyExchange, KeyExchangeE
 
 # ── Constants ─────────────────────────────────────────────────────
 
-DEFAULT_RELAY_HOST = "imprint.alexandruleca.com"
+DEFAULT_RELAY_HOST = "sync.alexandruleca.com"
 DEFAULT_BATCH_SIZE = 500
 PIN_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 # A batch of 500 memories with 1024-dim vectors is roughly 15 MB of JSON.
