@@ -14,7 +14,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dashboard:
+    runs-on: ${{ fromJSON(github.event_name == 'pull_request' && '["imprint-pr"]' || '["self-hosted", "linux", "x64"]') }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          npm ci --prefix imprint/ui
+          npm run build --prefix imprint/ui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-export
+          path: imprint/ui/out
+          retention-days: 1
+          if-no-files-found: error
+
   native:
+    needs: dashboard
     # arm64 runs under qemu-user emulation, several times slower (ADR 0112).
     timeout-minutes: ${{ matrix.os == 'ubuntu-24.04-arm' && 90 || 60 }}
     strategy:
@@ -39,8 +58,20 @@ jobs:
           python3.12 -m venv "$RUNNER_TEMP/imprint-python"
           echo "$RUNNER_TEMP/imprint-python/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$RUNNER_TEMP/imprint-python" >> "$GITHUB_ENV"
+      # The throwaway runners' image carries the locked dependencies
+      # (.github/runners/Dockerfile.ci-runner); pip below adds only changes.
+      - name: Dependencies baked into the runner
+        id: baked
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ -x /opt/imprint-ci/bin/python ]; then
+            echo /opt/imprint-ci/bin >> "$GITHUB_PATH"
+            echo VIRTUAL_ENV=/opt/imprint-ci >> "$GITHUB_ENV"
+            echo venv=true >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v5
-        if: runner.os != 'macOS'
+        if: runner.os != 'macOS' && steps.baked.outputs.venv != 'true'
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
@@ -66,11 +97,12 @@ jobs:
       - run: python -m pip install --require-hashes -r requirements/base.lock.txt -r requirements/cpu.lock.txt -r requirements/llm.lock.txt
       - run: python -m pip check
       - run: python -m unittest discover -s tests -v
-      # The dashboard static export is not tracked; the smoke serves it.
-      - name: Dashboard static export
-        run: |
-          npm ci --prefix imprint/ui
-          npm run build --prefix imprint/ui
+      # The dashboard static export is not tracked; the smoke serves it. It is
+      # the same on every platform, so it is built once.
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard-export
+          path: imprint/ui/out
       - name: MCP, dashboard and native Qdrant smoke
         env:
           PYTHONPATH: .

@@ -29,6 +29,7 @@ The repository is public. A pull request's workflow files decide what its jobs r
    ```bash
    .github/runners/install-host.sh
    ```
+   It also builds `imprint-ci-runner:amd64` and `:arm64` with `build-ci-runner.sh`: the runner image with CI's locked Python dependencies and Go baked in, which the slots use when it exists ([ADR 0119](adr/0119-throwaway-runners-carry-cis-dependencies.md)). The arm64 build takes about 20 minutes under emulation. Rerun `.github/runners/build-ci-runner.sh` after a lock file or Go version changes; a stale image only makes jobs slower.
    The supervisor mints runner configs with `$GH_TOKEN`, else `~/.config/imprint-runners/token`, else `gh auth token`. A token in a file keeps working when no keyring is unlocked, for example after a reboot without a login.
 2. **Trusted runners.** Redeploy the `imprint-runner` stack in Portainer from [`linux-trusted.stack.yml`](../.github/runners/linux-trusted.stack.yml), with `ACCESS_TOKEN` set as before. The change from the old stack is the host network and the pinned image.
 3. **Windows VMs.** `install-host.sh` writes `.github/runners/windows/.env` with a generated password. Then:

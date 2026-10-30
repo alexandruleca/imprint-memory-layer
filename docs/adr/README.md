@@ -20,8 +20,9 @@ Records 0001 to 0062 were brought to this structure on 2026-10-25 (*Restructured
 The records in force, by area. An amended record is listed with the records that changed it; read them together.
 
 - [ADR 0083](0083-apple-silicon-laptop-runner.md) **Apple silicon laptop runner.** Trusted ARM64 jobs use the laptop; PR checks remain hosted. Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) (Intel jobs on the Intel laptop, since superseded) and [ADR 0111](0111-intel-macs-are-not-supported.md) (no Intel macOS jobs) and [ADR 0112](0112-ci-runs-on-the-owners-machines.md) (no hosted PR jobs) and [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) (disposable VMs).
-- [ADR 0112](0112-ci-runs-on-the-owners-machines.md) **CI runs on the owner's machines.** Trusted jobs use bedrock's Swarm runners, Windows VMs and the Apple silicon laptop; Linux PR jobs run in throwaway just-in-time containers with no token or Docker socket; arm64 runs emulated; Windows and macOS jobs skip pull requests. Amended by [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) (macOS jobs in disposable VMs).
+- [ADR 0112](0112-ci-runs-on-the-owners-machines.md) **CI runs on the owner's machines.** Trusted jobs use bedrock's Swarm runners, Windows VMs and the Apple silicon laptop; Linux PR jobs run in throwaway just-in-time containers with no token or Docker socket; arm64 runs emulated; Windows and macOS jobs skip pull requests. Amended by [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) (macOS jobs in disposable VMs) and [ADR 0119](0119-throwaway-runners-carry-cis-dependencies.md) (runner image with CI's dependencies).
 - [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) **Apple silicon jobs run in disposable Tart VMs.** A laptop supervisor clones a golden macOS VM per queued job with a single-use JIT runner and deletes it afterwards; the macOS package job installs and smokes the package.
+- [ADR 0119](0119-throwaway-runners-carry-cis-dependencies.md) **Throwaway runners carry CI's dependencies, and the dashboard is built once.** The throwaway Linux runners start from an image with the locked Python dependencies and Go installed; CI builds the dashboard export in one job for every platform.
 
 ### Process and evidence
 
@@ -300,13 +301,14 @@ Every record in number order. *Date* is when the decision was made.
 | [0109](0109-automatic-ocr-runtime-repair.md) | 2026-10-28 | Accepted | Automatic OCR runtime repair |
 | [0110](0110-the-scan-follows-no-links.md) | 2026-10-28 | Accepted | The scan follows no links |
 | [0111](0111-intel-macs-are-not-supported.md) | 2026-10-29 | Accepted | Intel Macs are not supported |
-| [0112](0112-ci-runs-on-the-owners-machines.md) | 2026-10-29 | Amended by [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | CI runs on the owner's machines |
+| [0112](0112-ci-runs-on-the-owners-machines.md) | 2026-10-29 | Amended by [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md), [ADR 0119](0119-throwaway-runners-carry-cis-dependencies.md) | CI runs on the owner's machines |
 | [0113](0113-unchosen-install-profiles-try-the-gpu.md) | 2026-10-29 | Accepted | Unchosen install profiles try the GPU |
 | [0114](0114-linux-desktop-app-runs-unpacked-with-an-apparmor-profile.md) | 2026-10-29 | Accepted | Linux desktop app runs unpacked with an AppArmor profile |
 | [0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | 2026-10-29 | Accepted | Apple silicon jobs run in disposable Tart VMs |
 | [0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) | 2026-10-30 | Accepted | Paired devices send only what the other lacks, in stored chunks |
 | [0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) | 2026-10-29 | Accepted | The dashboard shows each agent session and its calls |
 | [0118](0118-personaplex-prototype-removed.md) | 2026-10-30 | Accepted | The PersonaPlex prototype is removed; the voice memory snapshot stays |
+| [0119](0119-throwaway-runners-carry-cis-dependencies.md) | 2026-10-30 | Accepted | Throwaway runners carry CI's dependencies, and the dashboard is built once |
 
 ## How to write and maintain ADRs
 

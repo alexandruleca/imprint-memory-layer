@@ -1,0 +1,36 @@
+# The throwaway runners' image (jit-runners.sh): the upstream runner image
+# with what every Linux CI job would otherwise install again, so an arm64 job
+# under emulation skips about a quarter of an hour (docs/ci-runners.md).
+#   - /opt/imprint-ci: a Python 3.12 venv holding the locked dependencies;
+#     ci.yml uses it in place of setup-python, and its pip install then adds
+#     only what the locks changed since this image was built
+#   - Go from go.mod in the tool cache, where setup-go finds it
+# A stale image is only slower. build-ci-runner.sh rebuilds it.
+ARG RUNNER_IMAGE=myoung34/github-runner:2.338.2-ubuntu-noble
+FROM ${RUNNER_IMAGE}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3.12-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements/base.lock.txt requirements/cpu.lock.txt requirements/llm.lock.txt /tmp/imprint-requirements/
+RUN python3.12 -m venv /opt/imprint-ci \
+    && /opt/imprint-ci/bin/python -m pip install --no-cache-dir --upgrade pip \
+    && /opt/imprint-ci/bin/python -m pip install --no-cache-dir --require-hashes \
+        -r /tmp/imprint-requirements/base.lock.txt \
+        -r /tmp/imprint-requirements/cpu.lock.txt \
+        -r /tmp/imprint-requirements/llm.lock.txt \
+    && rm -rf /tmp/imprint-requirements
+
+# setup-go's cache layout: go/<version>/<arch>/ and a <arch>.complete marker.
+ARG GO_VERSION
+ARG GO_SHA256
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in amd64) arch=x64 ;; arm64) arch=arm64 ;; esac; \
+    dest="$AGENT_TOOLSDIRECTORY/go/$GO_VERSION/$arch"; \
+    curl -fsSLo /tmp/go.tgz "https://go.dev/dl/go$GO_VERSION.linux-$(dpkg --print-architecture).tar.gz"; \
+    echo "$GO_SHA256  /tmp/go.tgz" | sha256sum -c -; \
+    mkdir -p "$dest"; \
+    tar -xzf /tmp/go.tgz -C "$dest" --strip-components=1; \
+    touch "$dest.complete"; \
+    rm /tmp/go.tgz

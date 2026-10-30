@@ -19,8 +19,11 @@ PLATFORM="${2:?platform, linux/amd64 or linux/arm64}"
 LABELS="${3:?comma-separated custom labels}"
 REPO="${IMPRINT_RUNNER_REPO:-alexandruleca/imprint-memory-layer}"
 # The image the trusted runners use, which has git and build tools as hosted
-# runners do; its entrypoint is bypassed, since it registers with a token.
-IMAGE="${IMPRINT_RUNNER_IMAGE:-myoung34/github-runner:2.338.2-ubuntu-noble}"
+# runners do, with CI's dependencies baked in (build-ci-runner.sh); without
+# that build, the upstream image. Its entrypoint is bypassed, since it
+# registers with a token.
+UPSTREAM=myoung34/github-runner:2.338.2-ubuntu-noble
+IMAGE="${IMPRINT_RUNNER_IMAGE:-imprint-ci-runner:${PLATFORM#linux/}}"
 CPUS="${IMPRINT_RUNNER_CPUS:-4}"
 MEMORY="${IMPRINT_RUNNER_MEMORY:-8g}"
 
@@ -59,13 +62,15 @@ delay=5
 while true; do
     if config=$(jitconfig); then
         delay=5
+        image=$IMAGE
+        docker image inspect "$image" >/dev/null 2>&1 || image=$UPSTREAM
         # --init reaps the job's leftover processes; the container and all it
         # wrote go away when its one job ends.
         docker run --rm --init --name "imprint-jit-$SLOT" \
             --platform "$PLATFORM" \
             --cpus "$CPUS" --memory "$MEMORY" --pids-limit 4096 \
             -e RUNNER_ALLOW_RUNASROOT=1 --workdir /actions-runner \
-            --entrypoint ./run.sh "$IMAGE" --jitconfig "$config" || true
+            --entrypoint ./run.sh "$image" --jitconfig "$config" || true
     else
         echo "jit-runners[$SLOT]: minting a runner config failed; retrying in ${delay}s" >&2
         sleep "$delay"

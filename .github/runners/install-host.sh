@@ -5,7 +5,7 @@
 #   - lingering for this user, so the runner units run without a login
 #   - Docker waiting for the VM disk and stopping the VMs cleanly (sudo, once)
 #   - throwaway runner slots as systemd user units: PR jobs on x64, and
-#     arm64 jobs under emulation
+#     arm64 jobs under emulation, on an image with CI's dependencies baked in
 #   - the Windows VMs' .env with a generated password, if missing
 # The trusted x64 runners stay the Docker Swarm stack `imprint-runner`.
 #
@@ -48,6 +48,7 @@ install -Dm755 "$HERE/jit-runners.sh" "$DEST/jit-runners.sh"
 install -Dm644 "$HERE/imprint-jit-runner@.service" "$UNITS/imprint-jit-runner@.service"
 docker pull --quiet --platform linux/amd64 myoung34/github-runner:2.338.2-ubuntu-noble >/dev/null
 docker pull --quiet --platform linux/arm64 myoung34/github-runner:2.338.2-ubuntu-noble >/dev/null
+"$HERE/build-ci-runner.sh"
 systemctl --user daemon-reload
 
 for i in $(seq "${IMPRINT_PR_SLOTS:-2}"); do

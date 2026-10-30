@@ -7,7 +7,9 @@ description: Every workflow job runs on self-hosted runners on bedrock and the A
 - Date: 2026-10-29
 - Amends:
   - [ADR 0083](0083-apple-silicon-laptop-runner.md) — pull-request jobs no longer run on hosted machines; Linux PR jobs run in throwaway containers on bedrock, macOS and Windows jobs skip pull requests
-- Amended by: [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) — the macOS runner no longer persists between jobs
+- Amended by:
+  - [ADR 0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) — the macOS runner no longer persists between jobs
+  - [ADR 0119](0119-throwaway-runners-carry-cis-dependencies.md) — the throwaway runners start from an image with CI's dependencies
 - Related: [ADR 0111](0111-intel-macs-are-not-supported.md), [docs/ci-runners.md](../ci-runners.md)
 
 ## Context
