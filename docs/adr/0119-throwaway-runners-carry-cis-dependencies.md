@@ -15,11 +15,13 @@ The emulated arm64 job was CI's slowest, at 40 minutes, and Release waits for CI
 
 ## Decision
 
-- `.github/runners/Dockerfile.ci-runner` extends the pinned runner image with a Python 3.12 venv at `/opt/imprint-ci` holding `base`, `cpu` and `llm` locks, and Go from `go.mod` in the tool cache. `build-ci-runner.sh` builds it for amd64 and arm64 on the host; `install-host.sh` runs it, and `jit-runners.sh` falls back to the upstream image when it has not been built.
+- `.github/runners/Dockerfile.ci-runner` extends the pinned runner image with GitHub's Python 3.12 build and Go from `go.mod` in the tool cache, and a venv of that Python at `/opt/imprint-ci` holding the `base`, `cpu` and `llm` locks. `build-ci-runner.sh` builds it for amd64 and arm64 on the host; `install-host.sh` runs it, and `jit-runners.sh` falls back to the upstream image when it has not been built.
 - `ci.yml`'s Linux native jobs use the venv when the runner has it, skipping setup-python; their pip install still runs and adds only what the locks changed since the image was built. A stale image is slower, never wrong.
 - A `dashboard` job builds the static export once; every native job downloads it for the runtime smoke.
 
 ## Rejected alternatives
+
+- **Ubuntu's `python3.12` for the venv.** The first image used it: under arm64 emulation the test step took 36 to 40 minutes instead of 9, and a plain Python benchmark ran 11 times slower than GitHub's build of the same version.
 
 - **Running the jobs in the imprint base image.** It needs a Docker socket on the throwaway runners, which would hand pull requests root on the host.
 - **Caching downloaded wheels.** It saves the 5 download minutes but not the 8 spent unpacking.

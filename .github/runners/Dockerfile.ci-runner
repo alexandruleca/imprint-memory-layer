@@ -1,7 +1,10 @@
 # The throwaway runners' image (jit-runners.sh): the upstream runner image
 # with what every Linux CI job would otherwise install again, so an arm64 job
 # under emulation skips about a quarter of an hour (docs/ci-runners.md).
-#   - /opt/imprint-ci: a Python 3.12 venv holding the locked dependencies;
+#   - GitHub's Python 3.12 build in the tool cache, as setup-python installs
+#     it. Not Ubuntu's python3.12: under arm64 emulation that one ran the
+#     tests about four times slower (ADR 0119).
+#   - /opt/imprint-ci: a venv of that Python holding the locked dependencies;
 #     ci.yml uses it in place of setup-python, and its pip install then adds
 #     only what the locks changed since this image was built
 #   - Go from go.mod in the tool cache, where setup-go finds it
@@ -9,12 +12,18 @@
 ARG RUNNER_IMAGE=myoung34/github-runner:2.338.2-ubuntu-noble
 FROM ${RUNNER_IMAGE}
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3.12-venv \
-    && rm -rf /var/lib/apt/lists/*
+# The build's own setup.sh lays it out in the tool cache; ldconfig finds its
+# libpython without the LD_LIBRARY_PATH setup-python would set.
+ARG PYTHON_URL
+RUN set -eu; \
+    mkdir /tmp/python && curl -fsSL "$PYTHON_URL" | tar -xz -C /tmp/python; \
+    (cd /tmp/python && bash ./setup.sh >/dev/null); \
+    rm -rf /tmp/python; \
+    dirname "$(ls -d "$AGENT_TOOLSDIRECTORY"/Python/3.12.*/*/lib/libpython3.12.so.1.0)" > /etc/ld.so.conf.d/imprint-python.conf; \
+    ldconfig
 
 COPY requirements/base.lock.txt requirements/cpu.lock.txt requirements/llm.lock.txt /tmp/imprint-requirements/
-RUN python3.12 -m venv /opt/imprint-ci \
+RUN "$(ls -d "$AGENT_TOOLSDIRECTORY"/Python/3.12.*/*/bin/python3.12)" -m venv /opt/imprint-ci \
     && /opt/imprint-ci/bin/python -m pip install --no-cache-dir --upgrade pip \
     && /opt/imprint-ci/bin/python -m pip install --no-cache-dir --require-hashes \
         -r /tmp/imprint-requirements/base.lock.txt \

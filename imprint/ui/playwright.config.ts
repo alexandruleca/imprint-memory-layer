@@ -11,6 +11,11 @@ export default defineConfig({
   // which its other jobs and VMs share: timing-bound tests then miss their
   // waits. Two match the hosted runners these tests were tuned on.
   workers: process.env.CI ? 2 : undefined,
+  // Even so, a busy host can spend most of a test's 30 s loading the companion's
+  // model and rendering WebGL in software. CI doubles it and retries once; a
+  // test that needs the retry is still reported as flaky.
+  timeout: process.env.CI ? 60_000 : 30_000,
+  retries: process.env.CI ? 1 : 0,
   use: { baseURL: `http://127.0.0.1:${port}`, headless: true, trace: 'retain-on-failure' },
   webServer: {
     command: `python3 -m http.server ${port} --bind 127.0.0.1 --directory out`,
