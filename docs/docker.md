@@ -236,7 +236,10 @@ server {
 git clone https://github.com/alexandruleca/imprint-memory-layer.git
 cd imprint-memory-layer
 
-# Full Imprint runtime:
+# Full Imprint runtime: its base (Python, system packages and the dependency
+# venv) first, then Imprint on top. Rebuild the base only after a lock file or
+# Dockerfile.base changed; or use the published one: --build-arg BASE_IMAGE=$(scripts/base-image-tag.sh)
+docker build -f Dockerfile.base -t imprint-base:local .
 docker build --build-arg VERSION=dev -f Dockerfile.imprint -t imprint:local .
 
 # Sync relay:
@@ -247,10 +250,19 @@ docker build --build-arg VERSION=dev -f Dockerfile -t imprint-relay:local .
 
 Both images are built by [`image.yml`](https://github.com/alexandruleca/imprint-memory-layer/blob/main/.github/workflows/image.yml)
 — a dedicated workflow that fires **after** the release workflow succeeds via
-`workflow_run`. It runs a matrix of two builds (relay + imprint) so either
-can be rebuilt independently. Manual rebuilds of a specific tag are available
+`workflow_run`. The relay and the imprint image build in separate jobs, so
+the relay is deployed as soon as its own image is ready, without waiting for
+the larger imprint image or a new base. Manual rebuilds of a specific tag are available
 via `workflow_dispatch`, useful for rebasing an image without cutting a new
 release.
+
+Before them, the `base` job looks up the imprint image's base,
+`ghcr.io/alexandruleca/imprint-base:<hash>`. The hash covers `Dockerfile.base`
+and the lock files it installs ([`scripts/base-image-tag.sh`](https://github.com/alexandruleca/imprint-memory-layer/blob/main/scripts/base-image-tag.sh)),
+so the base is built only when one of them changed, which takes about 35
+minutes for arm64 under emulation; every other release reuses it and builds
+the imprint image in minutes. Moving the pinned Python digest in
+`Dockerfile.base` takes Debian and Python updates into a new base.
 
 After a stable build, the `deploy-relay` job redeploys the public relay: it
 POSTs the URL in the repository secret `RELAY_DEPLOY_WEBHOOK` (a Portainer

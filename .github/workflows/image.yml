@@ -88,24 +88,77 @@ jobs:
         if: steps.version.outputs.version != ''
         run: git merge-base --is-ancestor "$VERSION" origin/main
 
-  build:
+  # The imprint image's base (Dockerfile.base) changes only with its inputs,
+  # which its tag hashes: a release reuses it, and only a new base is built.
+  base:
     needs: resolve
     if: needs.resolve.outputs.version != ''
     runs-on: [self-hosted, linux, x64]
-    # The arm64 image's Python stage installs under qemu emulation (ADR 0112).
+    # A new base installs the arm64 dependencies under qemu emulation (ADR 0112).
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Lightweight sync relay — Go binary only, stateless.
-          - name: relay
-            image: ghcr.io/alexandruleca/imprint-relay
-            dockerfile: Dockerfile
-          # Full Imprint runtime — Go CLI + Python + dashboard UI + auto-Qdrant.
-          - name: imprint
-            image: ghcr.io/alexandruleca/imprint
-            dockerfile: Dockerfile.imprint
+    outputs:
+      image: ${{ steps.base.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout source at tag
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: git checkout "$VERSION"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the base image
+        id: base
+        run: |
+          set -euo pipefail
+          if [ ! -f Dockerfile.base ]; then
+            echo "This release predates the base image; its Dockerfile installs everything"
+            exit 0
+          fi
+          image=$(scripts/base-image-tag.sh)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if docker manifest inspect "$image" >/dev/null 2>&1; then
+            echo "Reusing $image"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Building $image"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup QEMU
+        if: steps.base.outputs.build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        if: steps.base.outputs.build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the base image
+        if: steps.base.outputs.build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.base.outputs.image }}
+
+  # Lightweight sync relay — Go binary only, stateless. It is built and
+  # deployed on its own, never waiting for the imprint image.
+  build-relay:
+    needs: resolve
+    if: needs.resolve.outputs.version != ''
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -120,7 +173,7 @@ jobs:
       - name: Compute image tags
         id: tags
         env:
-          IMAGE: ${{ matrix.image }}
+          IMAGE: ghcr.io/alexandruleca/imprint-relay
           VERSION: ${{ needs.resolve.outputs.version }}
           MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
           CHANNEL: ${{ needs.resolve.outputs.channel }}
@@ -154,25 +207,94 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.name }} image
+      - name: Build and push the relay image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             VERSION=${{ needs.resolve.outputs.version }}
           tags: ${{ steps.tags.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-from: type=gha,scope=relay
+          cache-to: type=gha,mode=max,scope=relay
+
+  # Full Imprint runtime — Go CLI + Python + dashboard UI + auto-Qdrant —
+  # on its base image.
+  build-imprint:
+    needs: [resolve, base]
+    if: needs.resolve.outputs.version != ''
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout source at tag
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: git checkout "$VERSION"
+
+      - name: Compute image tags
+        id: tags
+        env:
+          IMAGE: ghcr.io/alexandruleca/imprint
+          VERSION: ${{ needs.resolve.outputs.version }}
+          MAJOR_MINOR: ${{ needs.resolve.outputs.major_minor }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
+        run: |
+          set -euo pipefail
+          TAGS="${IMAGE}:${VERSION}"
+          if [ "$CHANNEL" = "dev" ]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE}:dev"
+          else
+            TAGS="${TAGS}"$'\n'"${IMAGE}:latest"
+            if [ -n "${MAJOR_MINOR:-}" ]; then
+              TAGS="${TAGS}"$'\n'"${IMAGE}:${MAJOR_MINOR}"
+            fi
+          fi
+          {
+            echo 'tags<<EOF'
+            echo "$TAGS"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the imprint image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.imprint
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ needs.resolve.outputs.version }}
+            BASE_IMAGE=${{ needs.base.outputs.image }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=imprint
+          cache-to: type=gha,mode=max,scope=imprint
 
   # The public relay runs the relay image's `latest` tag. Its Portainer service
   # webhook (secret RELAY_DEPLOY_WEBHOOK) re-pulls that tag; Swarm starts the
   # new relay before stopping the old one and rolls back if it never turns
   # healthy. The job ends when the relay reports the release.
   deploy-relay:
-    needs: [resolve, build]
+    needs: [resolve, build-relay]
     if: needs.resolve.outputs.channel == 'stable'
     runs-on: [self-hosted, linux, x64]
     env:

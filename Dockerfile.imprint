@@ -6,6 +6,12 @@
 # users who want to run imprint itself in a container — browse memories,
 # ingest content via the MCP `ingest_content` tool or the API, and drive the
 # CLI via `docker exec`.
+#
+# Python, system packages and the dependency venv come from the base image
+# (Dockerfile.base), so a release rebuilds only what follows. The Image
+# workflow passes the published base; locally, build the base first:
+#   docker build -f Dockerfile.base -t imprint-base:local .
+ARG BASE_IMAGE=imprint-base:local
 
 # ── Stage 1: Go CLI binary ────────────────────────────────────────────
 # The Go binary is static, so it is cross-compiled on the build machine: Go's
@@ -31,7 +37,7 @@ COPY imprint/ui/ ./
 RUN npm run build
 
 # ── Stage 2: Python runtime ───────────────────────────────────────────
-FROM python:3.12-slim
+FROM ${BASE_IMAGE}
 
 ARG VERSION=dev
 ENV IMPRINT_VERSION=${VERSION} \
@@ -45,20 +51,10 @@ ENV IMPRINT_VERSION=${VERSION} \
     HF_HOME=/data/hf-cache \
     XDG_CACHE_HOME=/data/cache
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates curl libgomp1 tini \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
-
-# Python deps: the base requirements with the CPU ONNX Runtime (OCR, privacy
-# filter), plus the llama.cpp binding, which runs embeddings, the tagger and
-# the `local` chat provider (ADR 0086). The binding installs from upstream's
-# prebuilt Linux CPU wheel (ADR 0035): containers get no GPU.
+# All profiles' requirements, as an installation has them; the base installed
+# the container's.
 COPY requirements/ /app/requirements/
-RUN python -m venv /app/.venv \
-    && /app/.venv/bin/pip install --no-cache-dir --require-hashes -r /app/requirements/base.lock.txt -r /app/requirements/cpu.lock.txt -r /app/requirements/llm.lock.txt
 
 # Imprint Python package + Go binary + entrypoint.
 COPY imprint/ /app/imprint/

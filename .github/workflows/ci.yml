@@ -117,7 +117,17 @@ jobs:
           trap 'docker rm -f imprint-relay-ci' EXIT
           test "$(docker exec imprint-relay-ci id -u)" != 0
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8430/health
-      - run: docker build -f Dockerfile.imprint -t imprint-ci:local .
+      # The published base when this commit's exists; a commit that changes
+      # the base builds it here (amd64 only, natively).
+      - name: Build the image on its base
+        run: |
+          set -euo pipefail
+          base=$(scripts/base-image-tag.sh)
+          if ! docker pull --quiet "$base"; then
+            base=imprint-base:ci
+            docker build -f Dockerfile.base -t "$base" .
+          fi
+          docker build --build-arg BASE_IMAGE="$base" -f Dockerfile.imprint -t imprint-ci:local .
       - run: bash scripts/smoke-container.sh imprint-ci:local
 
   workflows:
