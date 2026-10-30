@@ -157,9 +157,13 @@ def record_call(tool: str, started_at: float, duration_ms: float, *, ok: bool,
 
 
 def end_session() -> None:
+    """Mark the session ended and close the database; later calls do nothing."""
+    global _session_id
     if _session_id:
         _write("UPDATE agent_sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
                (time.time(), _session_id))
+        _session_id = None
+    close()
 
 
 # ── Reading, for the dashboard ────────────────────────────────────────────

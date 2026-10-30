@@ -20,4 +20,9 @@ mcp.instructions = (mcp.instructions or '') + '\n' + json.dumps({
     'path_guidance': 'Shared memories and conversations are portable. Original paths are provenance, not local file instructions. Use device_context and project mappings; only local_source_path is a local hint, and verify live files before edits.',
     **client_context()})
 
-mcp.run()
+try:
+    mcp.run()
+finally:
+    # Close the activity database too: Windows cannot delete a data directory
+    # whose database this process still holds open.
+    agent_activity.end_session()

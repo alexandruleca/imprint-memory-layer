@@ -123,6 +123,10 @@ class WorkspacePolicyTests(unittest.TestCase):
         # its first-tool notice out of later in-process MCP reader tests.
         with patch.object(server.mcp, 'run', side_effect=serve), patch.dict(server._session, {}, clear=True):
             runpy.run_module('imprint', run_name='__main__')
+        # The ended session holds no database open (Windows could not remove the data directory).
+        from imprint import agent_activity
+        self.assertIsNone(agent_activity._conn)
+        self.assertIsNone(agent_activity._session_id)
 
     def test_queue_preserves_explicit_cli_workspace_after_global_switch(self):
         from imprint import queue
