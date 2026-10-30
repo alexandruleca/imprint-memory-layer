@@ -19,7 +19,7 @@ import urllib.request
 import zipfile
 
 from .downloads import expected_digest, verify_archive
-from . import personaplex as memory
+from . import voice_memory as memory
 
 MODEL_REPO = "LiquidAI/LFM2.5-Audio-1.5B-GGUF"
 REVISION = "7d525f883a077e20afb782f2ff618edcae0e39e4"
@@ -38,7 +38,7 @@ VOICES = {"us_female": "US female", "us_male": "US male", "uk_female": "UK femal
 
 def _platform() -> None:
     if platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"}:
-        raise memory.PrototypeError("This experimental runner is enabled only on Linux x64, including WSL2.")
+        raise memory.VoiceMemoryError("This experimental runner is enabled only on Linux x64, including WSL2.")
 
 
 def _digest(path: Path) -> str:
@@ -50,18 +50,18 @@ def extract_runner(root: Path) -> None:
     verify_archive(root / ARCHIVE, expected_digest("lfm-audio-q4", REVISION, ARCHIVE))
     destination = root / "runner"
     if destination.is_symlink():
-        raise memory.PrototypeError("Runner directory must not be a symlink.")
+        raise memory.VoiceMemoryError("Runner directory must not be a symlink.")
     destination.mkdir(mode=0o700, exist_ok=True)
     with zipfile.ZipFile(root / ARCHIVE) as archive:
         entries = archive.infolist()
         if sum(item.file_size for item in entries) > 256 * 1024 * 1024:
-            raise memory.PrototypeError("Runner archive exceeds the extraction budget.")
+            raise memory.VoiceMemoryError("Runner archive exceeds the extraction budget.")
         for entry in entries:
             path = Path(entry.filename)
             if (path.is_absolute() or ".." in path.parts or "\\" in entry.filename
                     or stat.S_ISLNK(entry.external_attr >> 16)
                     or not (destination / path).resolve().is_relative_to(destination.resolve())):
-                raise memory.PrototypeError("Unsafe runner archive entry.")
+                raise memory.VoiceMemoryError("Unsafe runner archive entry.")
         for entry in entries:
             path = destination / entry.filename
             if entry.is_dir():
@@ -108,11 +108,11 @@ def _install_assets(root: Path, assets: dict[str, int], *, progress=None, downlo
                     while chunk := response.read(1024 * 1024):
                         received += len(chunk)
                         if received > size:
-                            raise memory.PrototypeError("Download exceeds its pinned size.")
+                            raise memory.VoiceMemoryError("Download exceeds its pinned size.")
                         output.write(chunk)
                         report("downloading", asset, received)
                 if received != size:
-                    raise memory.PrototypeError("Incomplete runtime download.")
+                    raise memory.VoiceMemoryError("Incomplete runtime download.")
                 report("verifying", asset, received)
                 verify_archive(Path(name), expected)
                 os.replace(name, target)
@@ -133,7 +133,7 @@ def verify_weights(root: Path) -> None:
             continue
         path = root / asset
         if path.is_symlink() or not path.is_file() or path.stat().st_size != size:
-            raise memory.PrototypeError("Voice weights are missing or invalid; run the explicit install command.")
+            raise memory.VoiceMemoryError("Voice weights are missing or invalid; run the explicit install command.")
         verify_archive(path, expected_digest("lfm-audio-q4", REVISION, asset))
 
 
@@ -148,7 +148,7 @@ def verify_runtime(root: Path) -> Path:
     for asset, size in ASSETS.items():
         path = root / asset
         if not path.is_file() or path.stat().st_size != size:
-            raise memory.PrototypeError("Runtime assets are missing; run the explicit install command.")
+            raise memory.VoiceMemoryError("Runtime assets are missing; run the explicit install command.")
         verify_archive(path, expected_digest("lfm-audio-q4", REVISION, asset))
     with zipfile.ZipFile(root / ARCHIVE) as archive:
         for entry in archive.infolist():
@@ -157,38 +157,38 @@ def verify_runtime(root: Path) -> Path:
             path = root / "runner" / entry.filename
             if (path.is_symlink() or not path.is_file()
                     or _digest(path) != hashlib.sha256(archive.read(entry)).hexdigest()):
-                raise memory.PrototypeError("Extracted runner changed; run install to repair it.")
+                raise memory.VoiceMemoryError("Extracted runner changed; run install to repair it.")
     return root / "runner" / RUNNER_DIRECTORY / "llama-liquid-audio-cli"
 
 
 def wav_info(path: Path) -> dict:
     if not 44 <= path.stat().st_size <= 24 * 1024 * 1024:
-        raise memory.PrototypeError("WAV must contain audio and be at most 24 MiB.")
+        raise memory.VoiceMemoryError("WAV must contain audio and be at most 24 MiB.")
     data = path.read_bytes()
     if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        raise memory.PrototypeError("Expected a RIFF WAV file.")
+        raise memory.VoiceMemoryError("Expected a RIFF WAV file.")
     offset, fmt, audio = 12, None, None
     while offset + 8 <= len(data):
         kind, size = struct.unpack_from("<4sI", data, offset)
         start = offset + 8
         if start + size > len(data):
-            raise memory.PrototypeError("Truncated WAV chunk.")
+            raise memory.VoiceMemoryError("Truncated WAV chunk.")
         if kind == b"fmt " and size >= 16:
             fmt = struct.unpack_from("<HHIIHH", data, start)
         if kind == b"data":
             audio = data[start:start + size]
         offset = start + size + (size % 2)
     if not fmt or not audio:
-        raise memory.PrototypeError("WAV is missing format or audio data.")
+        raise memory.VoiceMemoryError("WAV is missing format or audio data.")
     encoding, channels, rate, _, align, bits = fmt
     if ((encoding, bits) not in {(1, 16), (3, 32)} or channels != 1 or not 8000 <= rate <= 48000
             or align != channels * bits // 8 or len(audio) % align):
-        raise memory.PrototypeError("Use mono PCM16 or float32 WAV at 8–48 kHz.")
+        raise memory.VoiceMemoryError("Use mono PCM16 or float32 WAV at 8–48 kHz.")
     count, energy = len(audio) // align, 0.0
     for (sample,) in struct.iter_unpack("<h" if encoding == 1 else "<f", audio):
         value = sample / 32768 if encoding == 1 else sample
         if not math.isfinite(value):
-            raise memory.PrototypeError("Nonfinite audio samples.")
+            raise memory.VoiceMemoryError("Nonfinite audio samples.")
         energy += value * value
     return {"sample_rate": rate, "seconds": count / rate, "rms": math.sqrt(energy / count),
             "format": "pcm16" if encoding == 1 else "float32"}
@@ -199,13 +199,13 @@ def run_turn(root: Path, output: Path, *, text: str = "", audio: Path | None = N
              threads: int = 4, timeout: float = 120, max_tokens: int = 256) -> dict:
     if (not 1 <= threads <= 16 or not 1 <= timeout <= 300 or not 16 <= max_tokens <= 1024
             or len(text) > 4000 or mode not in {"reply", "tts", "asr"} or voice not in VOICES):
-        raise memory.PrototypeError("Invalid turn limits.")
+        raise memory.VoiceMemoryError("Invalid turn limits.")
     if (mode == "tts" and (not text.strip() or audio or session)) or (mode == "asr" and (not audio or text or session)):
-        raise memory.PrototypeError("TTS requires text only; ASR requires audio only.")
+        raise memory.VoiceMemoryError("TTS requires text only; ASR requires audio only.")
     if mode == "reply" and (bool(text.strip()) == bool(audio)):
-        raise memory.PrototypeError("Supply exactly one of --text or --audio.")
+        raise memory.VoiceMemoryError("Supply exactly one of --text or --audio.")
     if audio and wav_info(audio)["seconds"] > 30:
-        raise memory.PrototypeError("Prototype input audio is limited to 30 seconds.")
+        raise memory.VoiceMemoryError("Prototype input audio is limited to 30 seconds.")
     snapshot = memory.load_session(session, identity=IDENTITY) if session else None
     context = snapshot["text_prompt"] if snapshot else ""
     runner = verify_runtime(root)
@@ -240,7 +240,7 @@ def run_turn(root: Path, output: Path, *, text: str = "", audio: Path | None = N
             try:
                 while process.poll() is None:
                     if time.monotonic() - start > timeout:
-                        raise memory.PrototypeError("Native audio turn timed out.")
+                        raise memory.VoiceMemoryError("Native audio turn timed out.")
                     try:
                         status = Path(f"/proc/{process.pid}/status").read_text()
                         rss = next((int(line.split()[1]) for line in status.splitlines() if line.startswith("VmRSS:")), 0)
@@ -258,7 +258,7 @@ def run_turn(root: Path, output: Path, *, text: str = "", audio: Path | None = N
                         process.wait()
         elapsed = time.monotonic() - start
         if process.returncode:
-            raise memory.PrototypeError(f"Native audio runner failed (exit {process.returncode}); no prompt was logged publicly.")
+            raise memory.VoiceMemoryError(f"Native audio runner failed (exit {process.returncode}); no prompt was logged publicly.")
         logs = log.read_text(encoding="utf-8", errors="replace")
         if mode == "reply":
             # The runner echoes input prompts even with --log-disable. Parse
@@ -269,9 +269,9 @@ def run_turn(root: Path, output: Path, *, text: str = "", audio: Path | None = N
         transcript = logs.rsplit(marker, 1)[1].strip() if marker in logs else ""
         info = wav_info(sound) if sound.exists() else None
         if mode != "asr" and (not info or info["rms"] <= 1e-6):
-            raise memory.PrototypeError("Runner produced no non-silent speech.")
+            raise memory.VoiceMemoryError("Runner produced no non-silent speech.")
         if mode != "tts" and not transcript:
-            raise memory.PrototypeError("Runner produced no generated transcript.")
+            raise memory.VoiceMemoryError("Runner produced no generated transcript.")
         result = {"schema": 1, "backend": "lfm-audio", "model_revision": REVISION,
                   "mode": mode, "device": "cpu", "threads": threads, "elapsed_seconds": elapsed,
                   "peak_rss_mib_sampled": peak / 1024, "text": transcript, "audio": info,
@@ -317,7 +317,7 @@ def main(argv: list[str] | None = None) -> int:
             install(args.runtime_dir.resolve())
         elif args.command == "prepare":
             if not 1 <= args.timeout <= 600:
-                raise memory.PrototypeError("MCP timeout must be 1–600 seconds.")
+                raise memory.VoiceMemoryError("MCP timeout must be 1–600 seconds.")
             result = asyncio.run(memory._prepare(args, identity=IDENTITY))
             print(f"Prepared LFM memory snapshot: {result['prompt_chars']} characters; omitted queries: {result['omitted_queries']}")
         else:
@@ -329,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Results: {args.output_dir}")
             print(f"CPU turn: {result['elapsed_seconds']:.2f}s; sampled peak RSS: {result['peak_rss_mib_sampled']:.0f} MiB")
         return 0
-    except memory.PrototypeError as error:
+    except memory.VoiceMemoryError as error:
         print(str(error), file=sys.stderr)
     except Exception as error:
         print(f"LFM audio experiment failed ({type(error).__name__}); no memory content was printed.", file=sys.stderr)

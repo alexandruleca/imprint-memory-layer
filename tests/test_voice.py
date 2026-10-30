@@ -17,7 +17,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from imprint import chat, voice_api as voice, voice_runtime
-from imprint.personaplex import PrototypeError
+from imprint.voice_memory import VoiceMemoryError
 from test_chat_stream import call_chunk, remote_provider, text_chunk, tool
 from test_lfm_audio import wav_bytes
 
@@ -28,7 +28,7 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         try: fixture_target = voice_runtime.target()
-        except PrototypeError: fixture_target = "linux-x64"
+        except VoiceMemoryError: fixture_target = "linux-x64"
         platform_patch = patch.object(voice_runtime, "target", return_value=fixture_target)
         platform_patch.start(); self.addCleanup(platform_patch.stop)
         (self.root / "live-build.json").write_text(json.dumps({"source_revision": voice_runtime.SOURCE_REVISION,
@@ -274,12 +274,12 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         self.assertFalse(pending.done())
         for invalid in (True, -1, window.sent + 1, "24000"):
-            with self.assertRaises(PrototypeError):
+            with self.assertRaises(VoiceMemoryError):
                 window.acknowledge(invalid)
         window.acknowledge(window.sent)
         await asyncio.wait_for(pending, 1)
         self.assertEqual(window.sent - window.played, 2)
-        with self.assertRaises(PrototypeError):
+        with self.assertRaises(VoiceMemoryError):
             window.acknowledge(0)
 
     async def test_cancelling_audio_wait_drops_blocked_generation(self):
@@ -302,7 +302,7 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(voice, "STARTUP_TIMEOUT", .01), \
                 patch.object(voice.voice_runtime, "verify", side_effect=slow_verification), \
                 patch.object(voice.subprocess, "Popen") as launch:
-            with self.assertRaisesRegex(PrototypeError, "too long to load"):
+            with self.assertRaisesRegex(VoiceMemoryError, "too long to load"):
                 await worker.start()
             launch.assert_not_called()
             self.assertIsNone(worker.process)
@@ -338,7 +338,7 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
         content = await voice.audio_content(base64.b64encode(wav_bytes()).decode())
         self.assertEqual(content[0]["input_audio"]["format"], "wav")
         for value in ("not base64", base64.b64encode(b"not audio" * 10).decode(), "A" * 1_920_061):
-            with self.assertRaises(PrototypeError):
+            with self.assertRaises(VoiceMemoryError):
                 await voice.audio_content(value)
 
     async def test_chat_bridge_uses_same_model_with_read_only_and_pinned_workspace(self):
@@ -401,25 +401,25 @@ class LiveRuntimeIntegrityTests(unittest.TestCase):
                     patch.object(voice_runtime, "patched_server", return_value="patched fixture"):
                 self.assertEqual(voice_runtime.verify(root), binary)
                 binary.write_bytes(b"modified")
-                with self.assertRaises(PrototypeError):
+                with self.assertRaises(VoiceMemoryError):
                     voice_runtime.verify(root)
                 binary.write_bytes(b"native fixture")
                 with patch.object(voice_runtime, "patched_server", return_value="new patch"):
-                    with self.assertRaises(PrototypeError):
+                    with self.assertRaises(VoiceMemoryError):
                         voice_runtime.verify(root)
                 archive.write_bytes(b"changed archive")
-                with self.assertRaises(PrototypeError):
+                with self.assertRaises(VoiceMemoryError):
                     voice_runtime.verify(root)
 
     def test_source_patch_and_invalid_build_fail_before_execution(self):
-        with self.assertRaises(PrototypeError):
+        with self.assertRaises(VoiceMemoryError):
             voice_runtime.patched_server("unrecognized upstream")
         with patch.object(voice_runtime.lfm, "_platform"), \
                 patch.object(voice_runtime.lfm, "install") as download:
-            with self.assertRaises(PrototypeError):
+            with self.assertRaises(VoiceMemoryError):
                 voice_runtime.install(Path("unused"), jobs=99)
             with patch.object(voice_runtime.shutil, "which", return_value=None):
-                with self.assertRaises(PrototypeError):
+                with self.assertRaises(VoiceMemoryError):
                     voice_runtime.install(Path("unused"))
             download.assert_not_called()
 
@@ -436,7 +436,7 @@ class LiveRuntimeIntegrityTests(unittest.TestCase):
             with patch.object(voice_runtime.platform, "system", return_value=system), \
                     patch.object(voice_runtime.platform, "machine", return_value=machine):
                 self.assertFalse(voice_runtime.supported())
-        with self.assertRaises(PrototypeError):
+        with self.assertRaises(VoiceMemoryError):
             voice_runtime.native_binary(Path("cache"), "macos-x64")
 
 

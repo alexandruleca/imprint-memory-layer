@@ -14,7 +14,7 @@ import tempfile
 import urllib.request
 
 from . import lfm_audio as lfm
-from .personaplex import PrototypeError
+from .voice_memory import VoiceMemoryError
 from .downloads import expected_digest
 
 SOURCE_REVISION = "ec9d1fdd9cc18643c5e161b65b8053f6f6f34a4b"
@@ -28,7 +28,7 @@ def target() -> str:
     system, machine = platform.system(), platform.machine().lower()
     arch = {"amd64": "x64", "x86_64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
     if (system, arch) not in {("Linux", "x64"), ("Windows", "x64"), ("Darwin", "arm64")}:
-        raise PrototypeError("Voice supports Linux x64, Windows x64, and macOS on Apple silicon.")
+        raise VoiceMemoryError("Voice supports Linux x64, Windows x64, and macOS on Apple silicon.")
     return {"Linux": "linux", "Windows": "windows", "Darwin": "macos"}[system] + "-" + arch
 
 
@@ -36,14 +36,14 @@ def supported() -> bool:
     try:
         target()
         return True
-    except PrototypeError:
+    except VoiceMemoryError:
         return False
 
 
 def native_binary(root: Path, expected_target: str | None = None) -> Path:
     current = expected_target or target()
     if current not in {"linux-x64", "windows-x64", "macos-arm64"}:
-        raise PrototypeError("Unsupported voice engine target")
+        raise VoiceMemoryError("Unsupported voice engine target")
     return root / "live-native" / current / (SERVER + (".exe" if current == "windows-x64" else ""))
 
 
@@ -63,7 +63,7 @@ def patched_server(source: str) -> str:
     def replace(old: str, new: str) -> None:
         nonlocal source
         if source.count(old) != 1:
-            raise PrototypeError("Live voice source patch does not match the pinned revision.")
+            raise VoiceMemoryError("Live voice source patch does not match the pinned revision.")
         source = source.replace(old, new)
 
     replace('#include "mtmd.h"', '#include "mtmd.h"\n#include <iostream>\n#include <cstdlib>')
@@ -121,9 +121,9 @@ def patched_server(source: str) -> str:
 
 def install(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=None, download_prefix="") -> None:
     if not 1 <= jobs <= 16:
-        raise PrototypeError("Build jobs must be 1–16.")
+        raise VoiceMemoryError("Build jobs must be 1–16.")
     if not shutil.which(cmake):
-        raise PrototypeError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
+        raise VoiceMemoryError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
     lfm.install_weights(root, progress=progress, download_prefix=download_prefix)
     build_engine(root, cmake=cmake, jobs=jobs, progress=progress, download_prefix=download_prefix)
 
@@ -132,10 +132,10 @@ def build_engine(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=No
     """Native release builder. Engine compilation never downloads model weights."""
     current = target()
     if not 1 <= jobs <= 16:
-        raise PrototypeError("Build jobs must be 1–16.")
+        raise VoiceMemoryError("Build jobs must be 1–16.")
     executable = shutil.which(cmake)
     if not executable:
-        raise PrototypeError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
+        raise VoiceMemoryError("Install CMake and a C++ compiler, or pass --cmake /path/to/cmake.")
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     def report(stage):
         if progress:
@@ -144,7 +144,7 @@ def build_engine(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=No
     with FileLock(str(root / ".live-build.lock")):
         try:
             verify_engine(root)
-        except PrototypeError:
+        except VoiceMemoryError:
             pass
         else:
             print("Verified cached live voice worker. No rebuild needed.", flush=True)
@@ -160,10 +160,10 @@ def build_engine(root: Path, *, cmake: str = "cmake", jobs: int = 4, progress=No
                     while chunk := response.read(1024 * 1024):
                         total += len(chunk)
                         if total > 64 * 1024 * 1024:
-                            raise PrototypeError("Source archive exceeds its size budget.")
+                            raise VoiceMemoryError("Source archive exceeds its size budget.")
                         out.write(chunk)
                 if lfm._digest(Path(name)) != SOURCE_SHA256:
-                    raise PrototypeError("Live voice source checksum does not match.")
+                    raise VoiceMemoryError("Live voice source checksum does not match.")
                 os.replace(name, archive)
             finally:
                 Path(name).unlink(missing_ok=True)
@@ -229,22 +229,22 @@ def verify_engine(root: Path, expected_target: str | None = None) -> Path:
     try:
         metadata = json.loads((root / "live-build.json").read_text(encoding="utf-8"))
         if not isinstance(metadata, dict):
-            raise PrototypeError("Live voice metadata is invalid; run setup again.")
+            raise VoiceMemoryError("Live voice metadata is invalid; run setup again.")
         binary = native_binary(root, current)
         # Check the patch implementation too, so a patch update requires rebuild.
         with tarfile.open(root / "live-source.tar.gz") as archive:
             if lfm._digest(root / "live-source.tar.gz") != SOURCE_SHA256:
-                raise PrototypeError("Live source archive changed; rebuild the voice runtime.")
+                raise VoiceMemoryError("Live source archive changed; rebuild the voice runtime.")
             original = archive.extractfile(f"llama.cpp-{SOURCE_REVISION}/tools/liquid-audio/server.cpp").read().decode()
         digest = hashlib.sha256(patched_server(original).encode()).hexdigest()
         if (metadata.get("source_revision") != SOURCE_REVISION or metadata.get("patch_version") != PATCH_VERSION
                 or metadata.get("target") != current or metadata.get("build_version") != BUILD_VERSION
                 or metadata.get("patch_sha256") != digest or binary.is_symlink()
                 or metadata.get("binary_sha256") != lfm._digest(binary)):
-            raise PrototypeError("Live voice worker changed; rebuild the voice runtime.")
+            raise VoiceMemoryError("Live voice worker changed; rebuild the voice runtime.")
         return binary
     except (OSError, ValueError, KeyError, tarfile.TarError) as error:
-        raise PrototypeError("Live voice runtime is missing or invalid; run the explicit build command.") from error
+        raise VoiceMemoryError("Live voice runtime is missing or invalid; run the explicit build command.") from error
 
 
 if __name__ == "__main__":

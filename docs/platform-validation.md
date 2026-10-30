@@ -435,7 +435,7 @@ Needs a live, logged-in Copilot: that Copilot honors the SessionStart context an
 
 ## PersonaPlex startup memory prototype (2026-10-24)
 
-See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the [prototype guide](personaplex-prototype.md). This validates an experimental adapter, not a supported voice/avatar product.
+See [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md) and the prototype guide (removed, [ADR 0118](adr/0118-personaplex-prototype-removed.md)). This validates an experimental adapter, not a supported voice/avatar product.
 
 | Check | Result | Evidence and limits |
 | --- | --- | --- |

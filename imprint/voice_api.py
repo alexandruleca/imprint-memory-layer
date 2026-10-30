@@ -21,7 +21,7 @@ import httpx
 
 from . import config, config_schema, lfm_audio as lfm, voice_runtime, voice_setup
 from .http_security import local_host, local_origin, loopback_address
-from .personaplex import INSTRUCTIONS, PrototypeError, _json
+from .voice_memory import INSTRUCTIONS, VoiceMemoryError, _json
 
 router = APIRouter(prefix="/api/voice")
 MAX_MESSAGE = 2_000_000
@@ -64,7 +64,7 @@ class Worker:
                 await self._start()
         except TimeoutError:
             await self.stop()
-            raise PrototypeError("Voice took too long to load. Close other applications and try again.") from None
+            raise VoiceMemoryError("Voice took too long to load. Close other applications and try again.") from None
 
     async def _start(self) -> None:
         if self.process and self.process.poll() is None:
@@ -72,7 +72,7 @@ class Worker:
         await self.stop()
         root = runtime_root()
         if root is None:
-            raise PrototypeError("Voice is not set up. Configure voice.runtime_dir after building the local runtime.")
+            raise VoiceMemoryError("Voice is not set up. Configure voice.runtime_dir after building the local runtime.")
         binary = await asyncio.to_thread(voice_runtime.verify, root)
         token = secrets.token_urlsafe(48)
         threads = str(worker_threads())
@@ -104,7 +104,7 @@ class Worker:
                     except httpx.HTTPError:
                         pass
                     await asyncio.sleep(.1)
-                raise PrototypeError("The local voice model could not start. Rebuild its isolated runtime.")
+                raise VoiceMemoryError("The local voice model could not start. Rebuild its isolated runtime.")
         except BaseException:
             await self.stop()
             raise
@@ -132,7 +132,7 @@ class Worker:
                    (["audio"] if system.startswith("Perform TTS.") else ["audio", "text"])}
         async with self.client.stream("POST", "/v1/chat/completions", json=request) as response:
             if response.status_code != 200:
-                raise PrototypeError("The local voice worker rejected the turn.")
+                raise VoiceMemoryError("The local voice worker rejected the turn.")
             async for line in response.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -140,10 +140,10 @@ class Worker:
                 if payload == "[DONE]":
                     break
                 if len(payload) > 1_000_000:
-                    raise PrototypeError("The voice worker exceeded its output budget.")
+                    raise VoiceMemoryError("The voice worker exceeded its output budget.")
                 event = json.loads(payload)
                 if "error" in event:
-                    raise PrototypeError("The voice model could not process this turn. Try a shorter question.")
+                    raise VoiceMemoryError("The voice model could not process this turn. Try a shorter question.")
                 choices = event.get("choices") or []
                 if choices:
                     delta = choices[0].get("delta", {})
@@ -152,7 +152,7 @@ class Worker:
                     if delta.get("audio"):
                         audio = delta["audio"]
                         if audio.get("format") != "pcm" or audio.get("sample_rate") != 24000:
-                            raise PrototypeError("Unexpected native voice audio format.")
+                            raise VoiceMemoryError("Unexpected native voice audio format.")
                         yield {"type": "audio", "data": audio["data"], "sample_rate": 24000, "format": "pcm16"}
 
 
@@ -271,20 +271,20 @@ def check_socket(websocket: WebSocket) -> bool:
 
 async def audio_content(encoded: str) -> list:
     if len(encoded) > 1_920_060:
-        raise PrototypeError("Keep each spoken question under 30 seconds.")
+        raise VoiceMemoryError("Keep each spoken question under 30 seconds.")
     try:
         audio = base64.b64decode(encoded, validate=True)
     except (ValueError, TypeError):
-        raise PrototypeError("Invalid microphone audio.") from None
+        raise VoiceMemoryError("Invalid microphone audio.") from None
     if len(audio) > MAX_AUDIO:
-        raise PrototypeError("Microphone audio exceeds the turn limit.")
+        raise VoiceMemoryError("Microphone audio exceeds the turn limit.")
     with tempfile.TemporaryDirectory(prefix="imprint-mic-") as directory:
         path = Path(directory) / "question.wav"
         path.write_bytes(audio)
         os.chmod(path, 0o600)
         info = await asyncio.to_thread(lfm.wav_info, path)
     if info["seconds"] > 30 or info["sample_rate"] != 24000 or info["format"] != "pcm16":
-        raise PrototypeError("Use mono PCM16 WAV at 24 kHz, at most 30 seconds.")
+        raise VoiceMemoryError("Use mono PCM16 WAV at 24 kHz, at most 30 seconds.")
     return [{"type": "input_audio", "input_audio": {"data": encoded, "format": "wav"}}]
 
 
@@ -358,7 +358,7 @@ class PlaybackWindow:
 
     def acknowledge(self, samples: object) -> None:
         if type(samples) is not int or not self.played <= samples <= self.sent:
-            raise PrototypeError("Invalid voice playback progress.")
+            raise VoiceMemoryError("Invalid voice playback progress.")
         self.played = samples
         self.changed.set()
 
@@ -395,17 +395,17 @@ async def stream(websocket: WebSocket):
     try:
         auth = await asyncio.wait_for(websocket.receive_text(), 5)
         if len(auth) > 512:
-            raise PrototypeError("Invalid voice session.")
+            raise VoiceMemoryError("Invalid voice session.")
         payload = json.loads(auth)
         if not isinstance(payload, dict) or not isinstance(payload.get("token"), str):
-            raise PrototypeError("Invalid voice session.")
+            raise VoiceMemoryError("Invalid voice session.")
         lease = sessions.consume(payload.get("token", ""), websocket.headers["origin"])
         if not lease:
-            raise PrototypeError("Voice session expired. Start again.")
+            raise VoiceMemoryError("Voice session expired. Start again.")
         if sessions.active:
-            raise PrototypeError("Voice is already open in another window. Stop it there first.")
+            raise VoiceMemoryError("Voice is already open in another window. Stop it there first.")
         if voice_setup.setup.snapshot()["busy"]:
-            raise PrototypeError("Wait for Echo setup to finish before starting voice.")
+            raise VoiceMemoryError("Wait for Echo setup to finish before starting voice.")
         sessions.active = owned = True
         workspace, engine = lease["workspace"], lease["engine"]
         speaker, effect = VOICES[lease["voice"]]
@@ -420,7 +420,7 @@ async def stream(websocket: WebSocket):
             done, _ = await asyncio.wait({boot, disconnected}, return_when=asyncio.FIRST_COMPLETED)
             if disconnected in done:
                 disconnected.result()  # Propagate disconnect; reject early controls.
-                raise PrototypeError("Wait for voice readiness before sending controls.")
+                raise VoiceMemoryError("Wait for voice readiness before sending controls.")
             await boot
         finally:
             for task in (boot, disconnected):
@@ -454,7 +454,7 @@ async def stream(websocket: WebSocket):
                                 question += event["text"]
                         question = question.strip()
                     if not question or len(question) > 2000:
-                        raise PrototypeError("I didn't catch a short question. Please try again.")
+                        raise VoiceMemoryError("I didn't catch a short question. Please try again.")
                     await emit({"type": "user", "text": question})
                     await emit({"type": "state", "state": "thinking"})
                     answer = ""
@@ -490,7 +490,7 @@ async def stream(websocket: WebSocket):
                                 turn_budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
                                 provisioning = False
                             if kind == "error":
-                                raise PrototypeError("The chat model could not reply. Open Chat to check its setup.")
+                                raise VoiceMemoryError("The chat model could not reply. Open Chat to check its setup.")
                             if kind == "token":
                                 text = event["text"]
                                 answer += text
@@ -541,10 +541,10 @@ async def stream(websocket: WebSocket):
                     continue
                 raise
             if len(raw) > MAX_MESSAGE:
-                raise PrototypeError("Voice message exceeds its size limit.")
+                raise VoiceMemoryError("Voice message exceeds its size limit.")
             message = json.loads(raw)
             if not isinstance(message, dict):
-                raise PrototypeError("Invalid voice message.")
+                raise VoiceMemoryError("Invalid voice message.")
             kind = message.get("type")
             if kind == "cancel":
                 await cancel(force=True)
@@ -566,7 +566,7 @@ async def stream(websocket: WebSocket):
                         or not isinstance(message.get("audio", ""), str)
                         or bool(message.get("text", "").strip()) == bool(message.get("audio"))
                         or len(message.get("text", "")) > 2000):
-                    raise PrototypeError("Invalid voice turn.")
+                    raise VoiceMemoryError("Invalid voice turn.")
                 await cancel()
                 awaiting.clear()
                 turn_id = identifier
@@ -574,10 +574,10 @@ async def stream(websocket: WebSocket):
                 playback = PlaybackWindow()
                 turn_task = asyncio.create_task(turn(turn_id, message, cancel_flag, playback))
             else:
-                raise PrototypeError("Unknown voice control.")
+                raise VoiceMemoryError("Unknown voice control.")
     except (WebSocketDisconnect, TimeoutError, RuntimeError):
         pass
-    except PrototypeError as error:
+    except VoiceMemoryError as error:
         with contextlib.suppress(Exception):
             await send({"type": "error", "error": str(error)})
     except (ValueError, TypeError):

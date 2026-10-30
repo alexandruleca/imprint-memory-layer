@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from imprint import voice_bundle as bundle, voice_runtime as runtime, voice_setup as setup
-from imprint.personaplex import PrototypeError
+from imprint.voice_memory import VoiceMemoryError
 
 
 class VoiceBundleTests(unittest.TestCase):
@@ -66,9 +66,9 @@ class VoiceBundleTests(unittest.TestCase):
             with patch.object(bundle, 'bundled_root', return_value=shipped), \
                     patch.object(bundle.lfm, 'install_weights') as weights:
                 runtime.native_binary(shipped).write_bytes(b'tampered')
-                with self.assertRaises(PrototypeError): bundle.install(root / 'fresh')
+                with self.assertRaises(VoiceMemoryError): bundle.install(root / 'fresh')
                 weights.assert_not_called()
-            with self.assertRaises(PrototypeError): runtime.verify_engine(root, 'macos-arm64')
+            with self.assertRaises(VoiceMemoryError): runtime.verify_engine(root, 'macos-arm64')
             metadata = json.loads((root / 'live-build.json').read_text())
             metadata['build_version'] -= 1
             (root / 'live-build.json').write_text(json.dumps(metadata))
@@ -76,7 +76,7 @@ class VoiceBundleTests(unittest.TestCase):
             (shipped / 'live-build.json').unlink()
             with patch.object(bundle, 'bundled_root', return_value=shipped):
                 self.assertTrue(bundle.available())
-                with self.assertRaises(PrototypeError): setup.prerequisites(root)
+                with self.assertRaises(VoiceMemoryError): setup.prerequisites(root)
 
 
 if __name__ == '__main__':

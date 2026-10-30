@@ -33,8 +33,6 @@ installers/
 # Tests, their fixtures (including third-party chat templates) + benchmark results
 /tests/
 benchmark/
-/requirements/personaplex-test.txt
-/requirements/personaplex-test.lock.txt
 __pycache__/
 *.pyc
 .pytest_cache/

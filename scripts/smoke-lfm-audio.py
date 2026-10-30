@@ -24,7 +24,7 @@ def main():
         with patch.dict(os.environ, {"IMPRINT_DATA_DIR": directory, "IMPRINT_WORKSPACE": "default"}):
             from fastmcp import Client
             from imprint import server, lfm_audio
-            from imprint import personaplex as memory
+            from imprint import voice_memory as memory
 
             async def snapshot(name):
                 records = [{"id": f"fixture-{name.lower()}", "similarity": 0.95,

@@ -71,15 +71,6 @@ def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False, mic
 
 
 class ReleaseValidationTests(unittest.TestCase):
-    def test_personaplex_test_dependencies_are_never_distributed(self):
-        for name in ('personaplex-test.txt', 'personaplex-test.lock.txt'):
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                self.tree(root)
-                (root / 'requirements' / name).write_text('test-only dependencies')
-                with self.assertRaisesRegex(ValueError, 'Development state.*personaplex-test'):
-                    VALIDATOR.validate(root, 'linux/amd64')
-
     def tree(self, root, machine=62):
         for rel in ('imprint/__main__.py', 'imprint/desktop_server.py', 'imprint/wsl_bridge.py', 'imprint/wsl_paths.py', 'requirements/base.txt', 'requirements/base.lock.txt', 'requirements/cpu.txt', 'requirements/cpu.lock.txt',
                     'requirements/llm.txt', 'requirements/llm.lock.txt',

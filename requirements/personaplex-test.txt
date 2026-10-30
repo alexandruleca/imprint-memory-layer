@@ -1,3 +1,0 @@
-# Test-only HTTP/WebSocket harness for the optional external PersonaPlex runtime.
-# Never install this overlay into an Imprint distribution (ADR 0041).
-aiohttp>=3.13.3

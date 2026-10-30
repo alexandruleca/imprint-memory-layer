@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 import zipfile
 
-from imprint import lfm_audio as lfm, personaplex as memory
+from imprint import lfm_audio as lfm, voice_memory as memory
 
 
 def wav_bytes(samples=(0.2, -0.2), *, floating=False):
@@ -30,10 +30,10 @@ class AudioTests(unittest.TestCase):
                 self.assertGreater(info["rms"], 0.1)
             for data in (wav_bytes()[:-1], wav_bytes((float("nan"),), floating=True), b"not a wav" * 10):
                 path.write_bytes(data)
-                with self.assertRaises(memory.PrototypeError):
+                with self.assertRaises(memory.VoiceMemoryError):
                     lfm.wav_info(path)
 
-    def test_new_backend_identity_does_not_weaken_personaplex_validation(self):
+    def test_a_snapshot_made_for_another_voice_runtime_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             prompt = memory.INSTRUCTIONS + "Fixture evidence"
             session = {"schema": 1, "mode": "startup_snapshot", "language": "en", "workspace": "alpha",
@@ -41,8 +41,8 @@ class AudioTests(unittest.TestCase):
             path = Path(directory) / "session.json"
             memory.write_session(path, session)
             self.assertEqual(memory.load_session(path, identity=lfm.IDENTITY), session)
-            with self.assertRaises(memory.PrototypeError):
-                memory.load_session(path)
+            with self.assertRaises(memory.VoiceMemoryError):
+                memory.load_session(path, identity={**lfm.IDENTITY, "model_repo": "another/voice-model"})
 
     def test_turn_uses_private_file_not_memory_arguments_or_public_logs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -86,7 +86,7 @@ class AudioTests(unittest.TestCase):
             with patch.object(lfm, "verify_runtime", return_value=root / "runner"), \
                     patch.object(lfm.subprocess, "Popen", return_value=child), \
                     patch.object(lfm.time, "monotonic", side_effect=[0, 2]):
-                with self.assertRaisesRegex(memory.PrototypeError, "timed out"):
+                with self.assertRaisesRegex(memory.VoiceMemoryError, "timed out"):
                     lfm.run_turn(root, root / "output", text="hello", timeout=1)
             child.terminate.assert_called_once_with()
             child.wait.assert_called_once_with(timeout=3)
@@ -97,7 +97,7 @@ class AudioTests(unittest.TestCase):
             for kwargs in ({"text": ""}, {"text": "hi", "threads": 0}, {"text": "hi", "max_tokens": 10000},
                            {"text": "hi", "mode": "asr"}, {"text": "hi", "timeout": 999}):
                 with self.subTest(kwargs=kwargs), patch.object(lfm, "verify_runtime") as verify:
-                    with self.assertRaises(memory.PrototypeError):
+                    with self.assertRaises(memory.VoiceMemoryError):
                         lfm.run_turn(root, root / "output", **kwargs)
                     verify.assert_not_called()
             with patch.object(lfm, "verify_runtime", return_value=root / "runner"), patch.object(lfm.subprocess, "Popen") as start:
@@ -137,7 +137,7 @@ class ArtifactTests(unittest.TestCase):
                 self.assertEqual((root / lfm.MODEL).read_bytes(), assets[lfm.MODEL])
                 fetch.assert_called_once()
                 runner.write_bytes(b"tampered")
-                with self.assertRaisesRegex(memory.PrototypeError, "runner changed"):
+                with self.assertRaisesRegex(memory.VoiceMemoryError, "runner changed"):
                     lfm.verify_runtime(root)
 
     def test_archive_traversal_and_symlinks_are_rejected(self):
@@ -150,13 +150,13 @@ class ArtifactTests(unittest.TestCase):
                         entry.external_attr = 0o120777 << 16
                     output.writestr(entry, "outside")
                 with patch.object(lfm, "verify_archive"):
-                    with self.assertRaises(memory.PrototypeError):
+                    with self.assertRaises(memory.VoiceMemoryError):
                         lfm.extract_runner(root)
                 self.assertFalse((root.parent / "escape").exists())
 
     def test_platform_support_is_explicit(self):
         with patch.object(lfm.platform, "system", return_value="Windows"):
-            with self.assertRaisesRegex(memory.PrototypeError, "Linux x64"):
+            with self.assertRaisesRegex(memory.VoiceMemoryError, "Linux x64"):
                 lfm._platform()
 
 

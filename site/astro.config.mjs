@@ -134,7 +134,6 @@ export default defineConfig({
           label: 'Research and experiments',
           items: [
             { label: 'Voice and avatar feasibility', slug: 'voice-avatar-feasibility' },
-            { label: 'PersonaPlex prototype', slug: 'personaplex-prototype' },
             { label: 'LFM2.5-Audio experiment', slug: 'lfm-audio-prototype' },
           ],
         },

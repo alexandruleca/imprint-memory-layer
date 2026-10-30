@@ -15,7 +15,7 @@ import sys
 import threading
 
 from . import config, config_schema, lfm_audio, voice_runtime, voice_bundle
-from .personaplex import PrototypeError
+from .voice_memory import VoiceMemoryError
 
 TOTAL_BYTES = sum(size for name, size in lfm_audio.ASSETS.items() if name != lfm_audio.ARCHIVE)
 STAGES = {"checking", "verifying", "downloading", "engine", "preparing", "building", "finishing"}
@@ -90,14 +90,14 @@ def run_worker(root: Path, job_id: str) -> int:
             emit({"stage": "checking"})
             try:
                 voice_runtime.verify(root)
-            except (PrototypeError, ValueError):
+            except (VoiceMemoryError, ValueError):
                 pass
             else:
                 emit({"stage": "ready", "downloaded": TOTAL_BYTES})
                 return 0
             try:
                 problem = prerequisites(root)
-            except PrototypeError:
+            except VoiceMemoryError:
                 emit({"stage": "error", "problem": "engine"})
                 return 1
             if problem:
@@ -117,7 +117,7 @@ def run_worker(root: Path, job_id: str) -> int:
         emit({"stage": "blocked", "problem": "in_use"})
     except subprocess.CalledProcessError:
         emit({"stage": "error", "problem": "build"})
-    except (OSError, ValueError, PrototypeError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, VoiceMemoryError, subprocess.TimeoutExpired):
         emit({"stage": "error", "problem": "download"})
     return 1
 

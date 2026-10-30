@@ -40,7 +40,7 @@ Two different scopes follow. A bounded prototype can retrieve selected project m
 
 ## What Imprint already has
 
-Implementation follow-up, 2026-10-24: branch `feat/personaplex-voice` adds the [experimental startup-snapshot adapter](personaplex-prototype.md), recorded in [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md). It does not implement the complete cascade/voice/avatar design below or establish real speech performance.
+Implementation follow-up, 2026-10-24: branch `feat/personaplex-voice` adds the experimental startup-snapshot adapter (removed, [ADR 0118](adr/0118-personaplex-prototype-removed.md)), recorded in [ADR 0041](adr/0041-personaplex-startup-memory-prototype.md). It does not implement the complete cascade/voice/avatar design below or establish real speech performance.
 
 | Existing source | Reusable behavior | Required extension |
 | --- | --- | --- |

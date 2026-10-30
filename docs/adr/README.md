@@ -121,7 +121,7 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Voice and Echo
 
-- [ADR 0041](0041-personaplex-startup-memory-prototype.md) **PersonaPlex startup memory prototype.** Prepare a bounded read-only MCP memory snapshot and inject it into a pinned, isolated PersonaPlex runtime (experimental adapter).
+- [ADR 0118](0118-personaplex-prototype-removed.md) **The PersonaPlex prototype is removed; the voice memory snapshot stays.** The unused PersonaPlex runtime adapter, launcher and test-only dependencies are gone; the live voice's read-only memory snapshot lives in `imprint/voice_memory.py`.
 - [ADR 0042](0042-lfm-audio-cpu-experiment.md) **Small LFM audio experiment on CPU.** Small, verified native LFM2.5-Audio Q4 inference on Linux x64 CPU with read-only MCP snapshots (experimental offline turns).
 - [ADR 0043](0043-live-voice-and-echo-companion.md) **Local live voice and the Echo companion.** Private local speech worker, same-chat reasoning, opt-in VAD and a floating Echo companion (experimental live pilot). Amended by [ADR 0044](0044-native-desktop-voice-platforms.md) (native platforms), [ADR 0048](0048-anime-echo-and-desktop-recovery.md) (avatar asset), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) (microphone on Start) and [ADR 0092](0092-voice-generation-follows-playback.md) (playback pacing).
 - [ADR 0044](0044-native-desktop-voice-platforms.md) **Native Windows and macOS voice.** Portable weights and native Windows/macOS/Linux speech workers, transparent companion and dashboard lifecycle control. Amended by [ADR 0046](0046-visible-echo-runtime-setup.md) (UI-driven setup), [ADR 0047](0047-bundled-private-voice-engine.md) (bundled engine), [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md) (entitlements) and [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) (consent check), [ADR 0111](0111-intel-macs-are-not-supported.md) (no macOS Intel worker).
@@ -228,7 +228,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0038](0038-gpu-runtime-ships-cuda-libraries.md) | 2026-10-24 | Superseded by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md); amended by [ADR 0062](0062-cuda-only-for-gpu-embedding-on-a-supported-nvidia-gpu.md) | GPU runtime ships its CUDA libraries |
 | [0039](0039-shadcn-overlays-and-desktop-drag-handles.md) | 2026-10-24 | Accepted | shadcn overlays and desktop drag handles |
 | [0040](0040-documents-with-nothing-to-index.md) | 2026-10-24 | Amended by [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) | Documents with nothing to index |
-| [0041](0041-personaplex-startup-memory-prototype.md) | 2026-10-24 | Accepted | PersonaPlex startup memory prototype |
+| [0041](0041-personaplex-startup-memory-prototype.md) | 2026-10-24 | Superseded by [ADR 0118](0118-personaplex-prototype-removed.md) | PersonaPlex startup memory prototype |
 | [0042](0042-lfm-audio-cpu-experiment.md) | 2026-10-24 | Accepted | Small LFM audio experiment on CPU |
 | [0043](0043-live-voice-and-echo-companion.md) | 2026-10-24 | Amended by [ADR 0044](0044-native-desktop-voice-platforms.md), [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md), [ADR 0092](0092-voice-generation-follows-playback.md) | Local live voice and the Echo companion |
 | [0044](0044-native-desktop-voice-platforms.md) | 2026-10-24 | Amended by [ADR 0046](0046-visible-echo-runtime-setup.md), [ADR 0047](0047-bundled-private-voice-engine.md), [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md), [ADR 0111](0111-intel-macs-are-not-supported.md) | Native Windows and macOS voice |
@@ -306,6 +306,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | 2026-10-29 | Accepted | Apple silicon jobs run in disposable Tart VMs |
 | [0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) | 2026-10-30 | Accepted | Paired devices send only what the other lacks, in stored chunks |
 | [0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) | 2026-10-29 | Accepted | The dashboard shows each agent session and its calls |
+| [0118](0118-personaplex-prototype-removed.md) | 2026-10-30 | Accepted | The PersonaPlex prototype is removed; the voice memory snapshot stays |
 
 ## How to write and maintain ADRs
 

@@ -23,7 +23,7 @@ Start with the [architecture overview](architecture.md), then the subsystems: [i
 
 ## Research and experiments
 
-Explored designs, kept because decisions cite them. They describe what was tried, not current behavior: the [voice assistant and floating avatar feasibility](voice-avatar-feasibility.md) study, the [PersonaPlex memory prototype](personaplex-prototype.md) and the [LFM2.5-Audio local voice experiment](lfm-audio-prototype.md). The voice feature that shipped is the [Echo voice companion](live-voice.md).
+Explored designs, kept because decisions cite them. They describe what was tried, not current behavior: the [voice assistant and floating avatar feasibility](voice-avatar-feasibility.md) study, the PersonaPlex memory prototype (removed, [ADR 0118](adr/0118-personaplex-prototype-removed.md)) and the [LFM2.5-Audio local voice experiment](lfm-audio-prototype.md). The voice feature that shipped is the [Echo voice companion](live-voice.md).
 
 ## Decisions and upkeep
 

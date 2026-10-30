@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from imprint import voice_api as voice, voice_setup as setup, lfm_audio as lfm
-from imprint.personaplex import PrototypeError
+from imprint.voice_memory import VoiceMemoryError
 
 
 class SetupBoundaryTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class SetupWorkerTests(unittest.TestCase):
     def test_missing_prerequisite_is_reported_before_any_download(self):
         with tempfile.TemporaryDirectory() as directory, \
                 patch.object(setup.threading, "Thread"), \
-                patch.object(setup.voice_runtime, "verify", side_effect=PrototypeError("not installed")), \
+                patch.object(setup.voice_runtime, "verify", side_effect=VoiceMemoryError("not installed")), \
                 patch.object(setup, "prerequisites", return_value="cmake"), \
                 patch.object(setup.voice_runtime, "install") as install, \
                 contextlib.redirect_stdout(io.StringIO()) as output:

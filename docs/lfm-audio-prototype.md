@@ -9,7 +9,7 @@ Live follow-up: [Echo voice companion](live-voice.md) now adds streamed speech,
 microphone controls, optional hands-free VAD and the floating particle head. This
 page documents the earlier offline CLI, which remains available independently.
 
-The user selected **LFM2.5-Audio-1.5B** as the primary voice experiment on 2026-10-24, after asking for a smaller alternative to PersonaPlex. Work continues on `feat/local-voice-avatar`. [ADR 0042](adr/0042-lfm-audio-cpu-experiment.md) records the runtime decision; the earlier [PersonaPlex adapter](personaplex-prototype.md) remains a separate experiment.
+The user selected **LFM2.5-Audio-1.5B** as the primary voice experiment on 2026-10-24, after asking for a smaller alternative to PersonaPlex. Work continues on `feat/local-voice-avatar`. [ADR 0042](adr/0042-lfm-audio-cpu-experiment.md) records the runtime decision; the earlier PersonaPlex adapter (removed, [ADR 0118](adr/0118-personaplex-prototype-removed.md)) remains a separate experiment.
 
 This implementation performs **offline English turns** with Liquid AI's official Q4 artifacts and specialized native audio CLI. It supports speech synthesis, recognition, typed questions with spoken answers, and WAV questions with spoken answers. Replies can use a bounded read-only Imprint MCP memory snapshot. The snapshot builder is shared with the earlier prototype, while backend identity validation keeps their session files distinct.
 

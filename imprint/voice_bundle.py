@@ -8,7 +8,7 @@ import shutil
 import tempfile
 
 from . import lfm_audio as lfm, voice_runtime as runtime
-from .personaplex import PrototypeError
+from .voice_memory import VoiceMemoryError
 
 
 def bundled_root() -> Path:
@@ -26,7 +26,7 @@ def runtime_notices(root: Path) -> list[Path]:
 def export_engine(root: Path, destination: Path) -> None:
     binary = runtime.verify_engine(root)
     if destination.exists():
-        raise PrototypeError("Choose a new engine bundle destination")
+        raise VoiceMemoryError("Choose a new engine bundle destination")
     destination.mkdir(parents=True, mode=0o755)
     for source in [binary, root / "live-source.tar.gz", root / "live-build.json"]:
         target = destination / source.relative_to(root)
@@ -56,7 +56,7 @@ def verify() -> Path:
     source = bundled_root()
     binary = runtime.verify_engine(source)
     if not all(p.is_file() for p in [source / "NOTICE.md", *runtime_notices(source)]):
-        raise PrototypeError("Bundled engine notices are missing")
+        raise VoiceMemoryError("Bundled engine notices are missing")
     return binary
 
 

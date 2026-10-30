@@ -3,9 +3,10 @@ title: ADR 0041 — PersonaPlex startup memory prototype
 description: Keep the experimental voice model in a separate runtime and supply a bounded read-only MCP snapshot at startup.
 ---
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-10-24
 - Scope: experimental adapter only; real speech and platform support remain unvalidated
+- Superseded by: [ADR 0118](0118-personaplex-prototype-removed.md)
 - Related: [ADR 0004](0004-runtime-dependencies-and-local-boundaries.md), [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md), [ADR 0024](0024-enforce-local-service-boundaries.md), [ADR 0038](0038-gpu-runtime-ships-cuda-libraries.md)
 - Restructured: 2026-10-25
 
@@ -47,4 +48,4 @@ The source adapter is deliberately revision-specific and fails on drift. A sourc
 
 Linux/WSL2 focused tests exercise real MCP discovery/calls (including a stdio child) with disposable fixture storage, workspace isolation, read-only routing, bounded/escaped evidence, export validation, source drift checks, browser connection boundaries, server-side prompt injection, binary WebSocket transport, cache-only model lookup and owned-child shutdown. No real model or audio device is used by those tests.
 
-Native CI installs the test overlay and discovers the tests on its existing OS matrix; configuring that job is not evidence that native CI ran. Record executed results and remaining limitations in the [prototype guide](../personaplex-prototype.md) and [platform validation](../platform-validation.md).
+Native CI installs the test overlay and discovers the tests on its existing OS matrix; configuring that job is not evidence that native CI ran. Record executed results and remaining limitations in the prototype guide (removed by [ADR 0118](0118-personaplex-prototype-removed.md)) and [platform validation](../platform-validation.md).

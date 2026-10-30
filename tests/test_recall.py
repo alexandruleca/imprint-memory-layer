@@ -298,7 +298,8 @@ class LocalModelTests(RecallTestCase):
         with patch.dict(os.environ, {'IMPRINT_RECALL_LLM_TIMEOUT': '1'}):
             started = time.monotonic()
             text = server.recall('what does api use')
-        self.assertLess(time.monotonic() - started, 2)
+        # 1 s of deadline plus start-up; a slow CI VM took 2.07 s once.
+        self.assertLess(time.monotonic() - started, 3)
         self.assertIn('Plan (local model,', text)
         self.assertIn('did not answer (timed out after 1 s)', text)
 
