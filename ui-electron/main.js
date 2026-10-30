@@ -264,11 +264,22 @@ async function start() {
   }
 }
 
+// macOS shows a regular app in the Dock even with every window hidden. Like
+// the Windows taskbar button, the Dock icon is there only while the dashboard
+// or the splash is; hidden to the tray, Imprint lives in the menu bar and the
+// floating launcher.
+function showInDock(visible) {
+  if (!app.dock) return;
+  if (visible) app.dock.show();
+  else app.dock.hide();
+}
+
 function showWindow() {
   if (quitting) return;
   wantLauncher = false;
   const window = phase === 'ready' ? win : startupWin;
   if (window) {
+    showInDock(true);
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
@@ -288,6 +299,7 @@ async function hideDashboard() {
     if (!wantLauncher || quitting) return;
     if (tray || launcherWin?.isVisible()) win.hide();
     else win.minimize();
+    if (tray) showInDock(false);
   } finally { hidingDashboard = false; }
 }
 async function showLauncher() {
@@ -412,7 +424,7 @@ async function openCompanion(recover = false) {
   // instead of only activating it, so pin and the controls answer the first click.
   const window = new BrowserWindow({ ...windowOptions, ...bounds, title: 'Imprint · Echo',
     minWidth: 280, minHeight: 360, transparent: true, backgroundColor: '#00000000',
-    resizable: false, hasShadow: false, alwaysOnTop: false, acceptFirstMouse: true });
+    resizable: false, hasShadow: false, alwaysOnTop: false, acceptFirstMouse: true, skipTaskbar: true });
   companionWin = window;
   companionPinned = false;
   notifyCompanion();

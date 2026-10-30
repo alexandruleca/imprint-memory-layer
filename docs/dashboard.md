@@ -120,7 +120,7 @@ Echo, the voice companion ([live voice](live-voice.md)).
 ## Desktop app
 
 - The window opens a splash while the local service starts, with the startup log and **Try again** when it fails ([ADR 0025](adr/0025-desktop-owned-background-service.md)).
-- Closing or minimizing hides the window and leaves Imprint running, with a small floating button to open it again. **Quit Imprint** (sidebar, tray, or the floating button's menu) stops the app and its background service.
+- Closing or minimizing hides the window to the tray and leaves Imprint running, with a small floating button to open it again. Hidden, the dashboard leaves the taskbar, and on macOS the Dock; the floating button and Echo never show there. **Quit Imprint** (sidebar, tray, or the floating button's menu) stops the app and its background service.
 - The tray opens the dashboard, floats Echo or quits. The top bar's **Floating Echo** switch shows or hides Echo's window.
 - The window's empty top bar and the sidebar header move it. While a dialog, menu or popover is open they do not, so the overlay stays usable ([ADR 0039](adr/0039-shadcn-overlays-and-desktop-drag-handles.md)).
 

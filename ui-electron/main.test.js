@@ -25,6 +25,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   app.whenReady = () => Promise.resolve();
   app.getPath = () => '/disposable-profile';
   app.focus = () => {};
+  if (platform === 'darwin') app.dock = { show() { calls.push('dock-show'); }, hide() { calls.push('dock-hide'); } };
   app.quit = () => {
     const e = { prevented: false, preventDefault() { this.prevented = true; } };
     app.emit('before-quit', e);
@@ -241,6 +242,43 @@ test('reuses independent daemon and explicit Quit leaves it running', async () =
   await settle();
   assert.ok(h.calls.includes('quit'));
   assert.equal(h.calls.includes('stop'), false);
+});
+
+test('macOS: the Dock icon goes to the menu bar with the dashboard and comes back with it', async () => {
+  const h = harness();
+  await settle();
+  const dashboard = h.windows[1];
+  h.emit('win-close', dashboard);
+  await settle();
+  assert.equal(dashboard.visible, false);
+  assert.equal(h.calls.filter(c => String(c).startsWith('dock-')).at(-1), 'dock-hide');
+  h.app.emit('second-instance');
+  assert.equal(dashboard.visible, true);
+  assert.equal(h.calls.filter(c => String(c).startsWith('dock-')).at(-1), 'dock-show');
+  dashboard.emit('minimize');
+  await settle();
+  assert.equal(h.calls.filter(c => String(c).startsWith('dock-')).at(-1), 'dock-hide');
+});
+
+test('macOS without a menu bar icon keeps the Dock icon, the only way back', async () => {
+  const h = harness({ trayAvailable: false });
+  await settle();
+  h.emit('win-close', h.windows[1]);
+  await settle();
+  assert.equal(h.calls.includes('dock-hide'), false);
+});
+
+test('Echo stays off the taskbar like the launcher', async () => {
+  const h = harness({ alreadyUp: true, platform: 'linux' });
+  await settle();
+  const dashboard = h.windows[1];
+  dashboard.url = 'http://127.0.0.1:8420/voice/';
+  h.emit('voice-open-companion', dashboard);
+  await settle();
+  assert.equal(h.windows[2].options.skipTaskbar, true);
+  h.emit('win-close', dashboard);
+  await settle();
+  assert.equal(h.windows.find(w => w.options.title === 'Imprint launcher').options.skipTaskbar, true);
 });
 
 test('without a system tray, the floating launcher keeps a hidden dashboard accessible', async () => {
