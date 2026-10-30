@@ -95,6 +95,49 @@ class BacklogTests(BacklogCase):
         self.assertNotIn('tagged_at', payloads['stored with LLM tagging off'])
         self.assertEqual(tag_backlog.pending_count(), 0)
 
+    def test_a_server_provider_classifies_the_configured_number_at_once_in_order(self):
+        import threading
+        import time as clock
+        self.store([f'note {i}' for i in range(6)])
+        lock, running, peak, written = threading.Lock(), [0], [0], []
+
+        def slow(content, **kw):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            clock.sleep(.15)
+            with lock:
+                running[0] -= 1
+            return classification(topic=content.replace(' ', '-'))(content, **kw)
+
+        server = {'IMPRINT_LLM_TAGGER_PROVIDER': 'vllm', 'IMPRINT_LLM_TAGGER_CONCURRENCY': '3'}
+        with patch.dict(os.environ, server), patch('imprint.tagger.build_payload_tags', side_effect=slow):
+            tagged, _ = tag_backlog.drain(on_tagged=written.append)
+        self.assertEqual(tagged, 6)
+        self.assertEqual(peak[0], 3)
+        self.assertEqual(written, [1, 2, 3, 4, 5, 6])
+        payloads = self.payloads()
+        self.assertEqual({payloads[f'note {i}']['tags']['topics'][0] for i in range(6)}, {f'note-{i}' for i in range(6)})
+
+    def test_the_local_model_tags_one_at_a_time_whatever_the_setting(self):
+        with patch.dict(os.environ, {'IMPRINT_LLM_TAGGER_PROVIDER': 'local', 'IMPRINT_LLM_TAGGER_CONCURRENCY': '8'}):
+            self.assertEqual(tag_backlog.concurrency(), 1)
+        with patch.dict(os.environ, {'IMPRINT_LLM_TAGGER_PROVIDER': 'ollama', 'IMPRINT_LLM_TAGGER_CONCURRENCY': '4'}):
+            self.assertEqual(tag_backlog.concurrency(), 4)
+
+    def test_retag_repairs_memories_stored_as_an_empty_finding_and_skips_good_ones(self):
+        from imprint import cli_retag
+        self.store(['never tagged', 'tagged well', 'failed tagging'], pending=False)
+        _, coll = vs._ensure_collection()
+        points, _ = self.client.scroll(coll, limit=10, with_payload=True)
+        ids = {p.payload['content']: p.id for p in points}
+        self.client.set_payload(coll, {'llm_tagged': True, 'type': 'decision',
+                                       'tags': {'domain': ['infra'], 'topics': ['queues']}}, points=[ids['tagged well']])
+        self.client.set_payload(coll, {'llm_tagged': True, 'type': 'finding',
+                                       'tags': {'domain': [], 'topics': []}}, points=[ids['failed tagging']])
+        chosen, _ = self.client.scroll(coll, scroll_filter=cli_retag._build_scroll_filter(), limit=10, with_payload=True)
+        self.assertEqual(sorted(p.payload['content'] for p in chosen), ['failed tagging', 'never tagged'])
+
     def test_a_stop_between_memories_leaves_the_rest_waiting_and_a_rerun_resumes(self):
         self.store(['one', 'two', 'three', 'four'])
         calls = []

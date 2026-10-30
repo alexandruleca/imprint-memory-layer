@@ -541,6 +541,19 @@ _LLM_CLASSIFY_PROMPT = (
     "- Return ONLY the JSON object, no explanation\n\n"
 )
 
+# The registry gains labels with almost every classification. The most used
+# ones are what steer the model toward reuse; listing all of them (1,955
+# domains on one device, 30,000 characters) overflowed the local model's
+# context, and every classification after the first failed.
+_PROMPT_TYPES = 30
+_PROMPT_DOMAINS = 80
+
+
+class ClassificationFailed(RuntimeError):
+    """The model gave no usable classification. The caller keeps its
+    deterministic tags and does not mark the memory LLM-tagged."""
+
+
 _CLASSIFY_FALLBACK = {
     "type": "finding", "domains": [], "topics": [],
     "lang": "", "layer": "", "kind": "",
@@ -564,7 +577,8 @@ def _call_llm_raw_text(full_input: str) -> str:
         # No grammar: on a GPU it cost more than the inference itself
         # (ADR 0049). The reply is parsed and validated like a remote one.
         from .local_llm import complete
-        return complete(llm, full_input)
+        # Replies are a small JSON object, under 120 tokens; remote providers cap at 200 too.
+        return complete(llm, full_input, max_tokens=200)
 
     if provider == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY")
@@ -717,13 +731,13 @@ def derive_llm_classify(
     labels while allowing new ones to emerge.
 
     Returns {"type": str, "domains": list[str], "topics": list[str]}.
-    Falls back to {"type": "finding", "domains": [], "topics": []}.
+    Raises ClassificationFailed (or the provider's error) when there is no usable classification.
     """
     from . import taxonomy
 
     # Build taxonomy-aware prompt
-    type_values = taxonomy.get_all_values("type", workspace)
-    domain_values = taxonomy.get_all_values("domain", workspace)
+    type_values = taxonomy.get_all_values("type", workspace)[:_PROMPT_TYPES]
+    domain_values = taxonomy.get_all_values("domain", workspace)[:_PROMPT_DOMAINS]
     prompt = _LLM_CLASSIFY_PROMPT.format(
         types=", ".join(type_values) if type_values else "(none yet)",
         domains=", ".join(domain_values) if domain_values else "(none yet)",
@@ -745,11 +759,13 @@ def derive_llm_classify(
 
     full_input = prompt + content[:max_chars]
 
-    try:
-        raw_text = _call_llm_raw_text(full_input)
-        result = _parse_llm_classification(raw_text)
-    except Exception:
-        result = dict(_CLASSIFY_FALLBACK)
+    # A failed call or an empty or unreadable reply raises: stored as a real
+    # classification, it would mark the memory LLM-tagged as an empty "finding",
+    # which background tagging and retag then never revisit.
+    raw_text = _call_llm_raw_text(full_input)
+    result = _parse_llm_classification(raw_text)
+    if result == _CLASSIFY_FALLBACK:
+        raise ClassificationFailed("the model's reply held no classification")
 
     # Record new values in taxonomy registry
     try:

@@ -123,6 +123,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The API address for the OpenAI-compatible providers (openai, ollama, vllm and gemini). Empty uses the provider's standard address: http://localhost:11434/v1 for ollama, http://localhost:8000/v1 for vllm, and the official endpoints for openai and gemini; anthropic ignores it. Set it when your server runs on another port or host. A non-loopback address sends tagged text (secrets redacted) to that host, and recall then does not use it as a local model.",
         "example": "\"http://192.168.1.20:8000/v1\": to tag with a vLLM server on another machine in your network.",
     },
+    "tagger.llm_concurrency": {
+        "help": "How many memories LLM tagging and `imprint retag` send to the model at the same time. A server that runs requests in parallel tags several times faster with more: vLLM batches them, Ollama does with OLLAMA_NUM_PARALLEL set, and remote APIs answer them side by side within your rate limit. The local provider always tags one at a time, because one model in memory runs one request at once; more would only wait in line. Results are written in order either way.",
+        "example": "4 with tagger.llm_provider \"vllm\": to tag a large backlog about four times faster on a vLLM server.",
+    },
     "tagger.local.model_repo": {
         "help": "The Hugging Face repository the local helper model (a GGUF file) downloads from on first use; the default is the bundled helper, unsloth/Qwen3.5-4B-GGUF. The helper serves LLM tagging, local recall, summaries and model-based project analysis, so a change affects all of them. Set tagger.local.model_file to a file that exists in the new repository.",
         "example": "\"unsloth/Qwen3-8B-GGUF\" with a matching model file: a larger helper on a machine with plenty of RAM or VRAM.",

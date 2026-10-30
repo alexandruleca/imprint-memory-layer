@@ -108,6 +108,24 @@ def _next_page(client, coll: str, flt) -> list:
     return points
 
 
+def concurrency() -> int:
+    """How many memories to classify at once: the configured number for a
+    server provider; one for the local model, which runs one request at once."""
+    from .config_schema import resolve
+    if resolve("tagger.llm_provider")[0] == "local":
+        return 1
+    return int(resolve("tagger.llm_concurrency")[0])
+
+
+def classify_all(payloads: list[dict], workspace: str | None, workers: int) -> list[tuple[dict, str]]:
+    """``classify`` for each payload, ``workers`` at a time; results in order."""
+    if workers <= 1 or len(payloads) <= 1:
+        return [classify(payload, workspace) for payload in payloads]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(workers, len(payloads)), thread_name_prefix="imprint-tag") as pool:
+        return list(pool.map(lambda payload: classify(payload, workspace), payloads))
+
+
 def drain(
     workspace: str | None = None,
     *,
@@ -117,13 +135,15 @@ def drain(
 ) -> tuple[int, bool]:
     """Tag one workspace's backlog, newest first. Returns ``(tagged, stopped)``.
 
-    ``should_stop`` is asked before each memory; a classification once begun
+    ``should_stop`` is asked before each group of memories classified at once
+    (``concurrency()``, one with the local model); a classification once begun
     is written. Each memory's tags, type, ``tagged_at`` (ADR 0051) and the
     cleared marker are one payload update.
     """
     from . import vectorstore as vs
     client, coll = vs._ensure_collection(workspace)
     flt = _pending_filter(project)
+    workers = concurrency()
     tagged = 0
     logged = 0
     seen: set = set()
@@ -133,34 +153,44 @@ def drain(
             points = _next_page(client, coll, flt)
             if not points:
                 break
-            for point in points:
+            # With a server provider, ``workers`` memories are classified at
+            # once; their results are written in order, one memory at a time.
+            for start in range(0, len(points), workers):
                 if should_stop():
                     stopped = True
                     break
-                if point.id in seen:
-                    raise RuntimeError(f"memory {point.id} stayed on the tagging backlog after it was tagged")
-                seen.add(point.id)
-                tags, kind = classify(point.payload or {}, workspace)
-                try:
-                    vs.set_classifications(client, coll, [(point.id, tags, kind)])
-                except Exception:
-                    # A memory replaced or deleted while it was classified is
-                    # no longer on the backlog; anything else is a real failure.
-                    if client.retrieve(collection_name=coll, ids=[point.id], with_payload=False):
-                        raise
-                    continue
-                tagged += 1
-                if on_tagged:
-                    on_tagged(tagged)
-                if tagged - logged >= _WAL_EVERY:
-                    # Payload updates change no point count: log them so readers
-                    # of the data fingerprint (dashboard caches) see new tags.
-                    vs._wal_log("llm_tag", workspace=workspace, count=tagged - logged)
-                    logged = tagged
+                group = points[start:start + workers]
+                for point in group:
+                    if point.id in seen:
+                        raise RuntimeError(f"memory {point.id} stayed on the tagging backlog after it was tagged")
+                    seen.add(point.id)
+                for point, (tags, kind) in zip(group, classify_all([p.payload or {} for p in group], workspace, workers)):
+                    tagged, logged = _store(client, coll, vs, workspace, point, tags, kind, tagged, logged, on_tagged)
     finally:
         if tagged > logged:
             vs._wal_log("llm_tag", workspace=workspace, count=tagged - logged)
     return tagged, stopped
+
+
+def _store(client, coll, vs, workspace, point, tags, kind, tagged, logged, on_tagged):
+    """Write one memory's classification; returns the updated (tagged, logged)."""
+    try:
+        vs.set_classifications(client, coll, [(point.id, tags, kind)])
+    except Exception:
+        # A memory replaced or deleted while it was classified is no longer
+        # on the backlog; anything else is a real failure.
+        if client.retrieve(collection_name=coll, ids=[point.id], with_payload=False):
+            raise
+        return tagged, logged
+    tagged += 1
+    if on_tagged:
+        on_tagged(tagged)
+    if tagged - logged >= _WAL_EVERY:
+        # Payload updates change no point count: log them so readers of the
+        # data fingerprint (dashboard caches) see new tags.
+        vs._wal_log("llm_tag", workspace=workspace, count=tagged - logged)
+        logged = tagged
+    return tagged, logged
 
 
 def report(stored: int) -> None:

@@ -168,6 +168,30 @@ class LocalHelperTests(unittest.TestCase):
             self.assertEqual(closed, [True])
             self.assertEqual(local_llm.complete(llm, 'unbounded'), 'abc')
 
+    def test_the_prompt_names_only_the_most_used_labels(self):
+        from imprint import taxonomy
+        domains = [f'domain-{i}' for i in range(2000)]  # most used first, as the registry returns them
+        sent = []
+        reply = '{"type": "decision", "domains": ["auth"], "topics": ["token-refresh"]}'
+        with patch.object(taxonomy, 'get_all_values', side_effect=lambda axis, ws=None: domains if axis == 'domain' else ['decision']), \
+             patch.object(taxonomy, 'record_usage'), \
+             patch.object(tagger, '_call_llm_raw_text', side_effect=lambda text: sent.append(text) or reply):
+            tagger.derive_llm_classify('We decided to refresh tokens in the auth middleware.')
+        self.assertIn('domain-0, ', sent[0])
+        self.assertIn('domain-79\n', sent[0])
+        self.assertNotIn('domain-80', sent[0])
+        self.assertLess(len(sent[0]), 6000)
+
+    def test_a_reply_without_a_classification_is_not_stored_as_one(self):
+        for reply in ('', '<think>The chunk is about tokens.</think>'):
+            with patch.object(tagger, '_call_llm_raw_text', return_value=reply), \
+                 self.assertRaises(tagger.ClassificationFailed):
+                tagger.derive_llm_classify('We decided to refresh tokens in the auth middleware.')
+            with patch.object(tagger, '_call_llm_raw_text', return_value=reply):
+                tags = tagger.build_payload_tags('We decided to refresh tokens in the auth middleware.', llm=True, zero_shot=False)
+            self.assertFalse(tags.get('_llm_type'))  # so the memory is not marked LLM-tagged
+            self.assertTrue(tags['domain'])  # the keyword domains stay
+
     def test_local_classification_is_unconstrained_and_validated(self):
         from test_chat_stream import LocalModel, llama_binding
         llm = LocalModel(['Here it is:\n```json\n{"type": "Decision", "domains": ["auth"], "topics": ["Token Refresh"]}\n```'])

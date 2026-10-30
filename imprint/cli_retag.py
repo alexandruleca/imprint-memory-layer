@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 
 from qdrant_client import models as qm
 
 from . import tag_backlog, tagger, vectorstore
-from .progress import write_progress, clear_progress
+from .progress import Task
 from ._cli_signals import install as _install_signals
 
 _install_signals()
@@ -43,13 +42,23 @@ def _build_scroll_filter(
         must.append(qm.FieldCondition(
             key="project", match=qm.MatchValue(value=project),
         ))
+    should: list = []
     if not include_tagged:
-        must_not.append(qm.FieldCondition(
-            key="llm_tagged", match=qm.MatchValue(value=True),
-        ))
-    if not must and not must_not:
+        # Not yet LLM-tagged, or tagged with the empty "finding" a failed
+        # classification used to be stored as (no topics, no domains): retag
+        # repairs those.
+        should = [
+            qm.Filter(must_not=[qm.FieldCondition(key="llm_tagged", match=qm.MatchValue(value=True))]),
+            qm.Filter(must=[
+                qm.FieldCondition(key="llm_tagged", match=qm.MatchValue(value=True)),
+                qm.FieldCondition(key="type", match=qm.MatchValue(value="finding")),
+                qm.IsEmptyCondition(is_empty=qm.PayloadField(key="tags.topics")),
+                qm.IsEmptyCondition(is_empty=qm.PayloadField(key="tags.domain")),
+            ]),
+        ]
+    if not must and not must_not and not should:
         return None
-    return qm.Filter(must=must or None, must_not=must_not or None)
+    return qm.Filter(must=must or None, must_not=must_not or None, should=should or None)
 
 
 def retag(
@@ -80,75 +89,50 @@ def retag(
     scanned = 0
     offset = None
     batch_updates: list[tuple[str, dict, str]] = []  # (point_id, new_tags, new_type)
+    workers = tag_backlog.concurrency()
 
-    t0 = time.time()
-    progress_projects = [project] if project else []
-    last_progress_ts = 0.0
-    write_progress(
-        "retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging", unit="memories",
-    )
+    with Task("retag", phase="llm_tagging", unit="memories", total=total,
+              projects=[project] if project else []) as task:
+        while True:
+            points, offset = client.scroll(
+                collection_name=coll,
+                limit=_SCROLL_BATCH,
+                offset=offset,
+                scroll_filter=scroll_filter,
+                with_payload=["content", "source", "tags"],
+                with_vectors=False,
+            )
 
-    while True:
-        points, offset = client.scroll(
-            collection_name=coll,
-            limit=_SCROLL_BATCH,
-            offset=offset,
-            scroll_filter=scroll_filter,
-            with_payload=["content", "source", "tags"],
-            with_vectors=False,
-        )
+            # Re-derive tags with LLM enabled (unified classification), keeping
+            # deterministic fields the re-derivation leaves blank; a server
+            # provider classifies tagger.llm_concurrency memories at once.
+            for start in range(0, len(points), workers):
+                group = points[start:start + workers]
+                classified = tag_backlog.classify_all([pt.payload or {} for pt in group], workspace, workers)
+                for pt, (new_tags, new_type) in zip(group, classified):
+                    scanned += 1
+                    batch_updates.append((pt.id, new_tags, new_type))
+                    task.update(scanned, total=max(total, scanned), detail=(pt.payload or {}).get("source", ""))
 
-        for pt in points:
-            scanned += 1
-            # Re-derive tags with LLM enabled (unified classification),
-            # keeping deterministic fields the re-derivation leaves blank.
-            new_tags, new_type = tag_backlog.classify(pt.payload or {}, workspace)
-            batch_updates.append((pt.id, new_tags, new_type))
+                if len(batch_updates) >= batch_size:
+                    if not dry_run:
+                        _flush_updates(client, coll, batch_updates)
+                    updated += len(batch_updates)
+                    task.update(stored=updated)
+                    batch_updates = []
 
-            if len(batch_updates) >= batch_size:
-                if not dry_run:
-                    _flush_updates(client, coll, batch_updates)
-                updated += len(batch_updates)
-                elapsed = time.time() - t0
-                rate = updated / elapsed if elapsed > 0 else 0
-                print(
-                    f"\r  Retagged {updated} / {scanned} scanned"
-                    f"  ({rate:.1f}/s)",
-                    end="", file=sys.stderr, flush=True,
-                )
-                batch_updates = []
-                now_ts = time.time()
-                if now_ts - last_progress_ts >= 1.0:
-                    last_progress_ts = now_ts
-                    write_progress(
-                        "retag", scanned, max(total, scanned),
-                        updated, 0, t0, progress_projects, phase="llm_tagging", unit="memories",
-                    )
+            if offset is None:
+                break
 
-        if offset is None:
-            break
+        # Flush remaining
+        if batch_updates:
+            if not dry_run:
+                _flush_updates(client, coll, batch_updates)
+            updated += len(batch_updates)
 
-    # Flush remaining
-    if batch_updates:
-        if not dry_run:
-            _flush_updates(client, coll, batch_updates)
-        updated += len(batch_updates)
-
-    final_total = max(total, scanned)
-    write_progress(
-        "retag", scanned, final_total, updated, 0, t0,
-        progress_projects, phase="llm_tagging", unit="memories",
-    )
-    clear_progress()
-
-    elapsed = time.time() - t0
-    print(file=sys.stderr)  # newline
-    mode = " [--all]" if all_tagged else ""
-    print(
-        f"  Done: {updated} retagged out of {scanned} scanned"
-        f"  ({elapsed:.1f}s){mode}{' [DRY RUN]' if dry_run else ''}",
-        file=sys.stderr,
-    )
+        task.update(scanned, total=max(total, scanned), stored=updated, detail="")
+        mode = " [--all]" if all_tagged else ""
+        task.finish(f"Done: {updated:,} retagged out of {scanned:,} scanned{mode}{' [DRY RUN]' if dry_run else ''}")
     return updated, scanned
 
 
@@ -156,23 +140,13 @@ def retag_pending(project: str = "", workspace: str | None = None) -> int:
     """Tag the background tagging backlog in the foreground, newest first.
     Returns how many memories were tagged."""
     total = tag_backlog.pending_count(workspace, project)
-    t0 = time.time()
-    progress_projects = [project] if project else []
-    write_progress("retag", 0, total, 0, 0, t0, progress_projects, phase="llm_tagging", unit="memories")
+    with Task("retag", phase="llm_tagging", unit="memories", total=total,
+              projects=[project] if project else []) as task:
+        def tagged_one(n: int) -> None:
+            task.update(n, total=max(total, n), stored=n)
 
-    def tagged_one(n: int) -> None:
-        elapsed = time.time() - t0
-        print(f"\r  Tagged {n} / {total}  ({n / elapsed if elapsed > 0 else 0:.1f}/s)",
-              end="", file=sys.stderr, flush=True)
-        write_progress("retag", n, max(total, n), n, 0, t0, progress_projects, phase="llm_tagging", unit="memories")
-
-    try:
         tagged, _ = tag_backlog.drain(workspace, project=project, on_tagged=tagged_one)
-    finally:
-        clear_progress()
-    print(file=sys.stderr)
-    print(f"  Done: {tagged} memories waiting for LLM tagging tagged ({time.time() - t0:.1f}s)",
-          file=sys.stderr)
+        task.finish(f"Done: {tagged:,} memories waiting for LLM tagging tagged")
     return tagged
 
 

@@ -68,6 +68,10 @@ def analysis_worker_count(raw: Any) -> int:
     return count
 
 
+def tagging_concurrency(raw: Any) -> int:
+    return _bounded_integer(raw, 1, 8)
+
+
 def _bounded_integer(raw: Any, low: int, high: int) -> int:
     if isinstance(raw, (bool, float)):
         raise ValueError(f"expected a whole number from {low} to {high}")
@@ -187,6 +191,9 @@ SETTINGS: list[Setting] = [
     Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "",          str,  "Server model override (default per provider); local uses GGUF settings",
             choices=PROVIDER_DEFAULT, custom=True),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
+    Setting("tagger.llm_concurrency", "IMPRINT_LLM_TAGGER_CONCURRENCY", 1, tagging_concurrency,
+            "Memories classified at once by a server provider (1–8); the local model tags one at a time",
+            choices=tuple(Choice(n, str(n)) for n in range(1, 9))),
 
     # ── Tagger local model (llama-cpp) ───────────────────────
     Setting("tagger.local.model_repo",   "IMPRINT_TAGGER_MODEL_REPO",       HELPER_REPO,                    str,  "HF repo for local tagger GGUF"),
