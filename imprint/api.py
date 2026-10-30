@@ -831,6 +831,25 @@ def api_queue(recent_limit: int = 20):
     }
 
 
+@app.get("/api/agents")
+def api_agents(limit: int = 100):
+    """The agents that used this Imprint's MCP server: each session, connected
+    ones first, and the same grouped by client (ADR 0117)."""
+    from . import agent_activity
+    sessions = agent_activity.list_sessions(limit)
+    return {"sessions": sessions, "clients": agent_activity.clients(sessions)}
+
+
+@app.get("/api/agents/{session_id}/calls")
+def api_agent_calls(session_id: str, limit: int = 200, before: int | None = None):
+    """One session's tool calls, newest first; ``before`` pages back."""
+    from . import agent_activity
+    session = agent_activity.get_session(session_id)
+    if session is None:
+        return JSONResponse({"error": "No such agent session"}, status_code=404)
+    return {"session": session, "calls": agent_activity.session_calls(session_id, limit, before)}
+
+
 def _background_state() -> dict:
     """Background tagging (ADR 0067): its state, the memories waiting for
     LLM tagging and its running or latest run, with live progress."""

@@ -117,6 +117,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) **Registered dashboard server and supervised restart.** The serving dashboard registers itself; its launcher starts it again when it exits for a restart, so every update method replaces it and the dashboard reloads. Amended by [ADR 0084](0084-setup-frees-the-runtime-before-replacing-its-files.md) (launchers wait while setup changes the runtime; setup restarts the server).
 - [ADR 0094](0094-the-dashboard-reads-whole-sources-from-their-snapshots.md) **The dashboard reads whole sources from their snapshots.** Topics group their memories by conversation or file, named by a conversation's first question; any source opens whole from its stored redacted snapshot, events read back from the snapshot's headers, with a topic's passages marked. A source without a snapshot is not rebuilt from chunks. Amended by [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) (audio events and filenames).
 - [ADR 0114](0114-linux-desktop-app-runs-unpacked-with-an-apparmor-profile.md) **Linux desktop app runs unpacked with an AppArmor profile.** Setup unpacks the AppImage (no FUSE) and, where AppArmor restricts user namespaces, installs a profile with sudo after asking; `ui open` falls back to the browser with the reason when the app dies at startup.
+- [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) **The dashboard shows each agent session and its calls.** Each MCP server process records its client, folder, workspace and tool calls (arguments shortened and redacted, kept 30 days) in `data/agent_activity.sqlite3`; the Agents page lists them.
 
 ### Voice and Echo
 
@@ -304,6 +305,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0114](0114-linux-desktop-app-runs-unpacked-with-an-apparmor-profile.md) | 2026-10-29 | Accepted | Linux desktop app runs unpacked with an AppArmor profile |
 | [0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | 2026-10-29 | Accepted | Apple silicon jobs run in disposable Tart VMs |
 | [0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) | 2026-10-30 | Accepted | Paired devices send only what the other lacks, in stored chunks |
+| [0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) | 2026-10-29 | Accepted | The dashboard shows each agent session and its calls |
 
 ## How to write and maintain ADRs
 

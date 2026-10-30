@@ -168,6 +168,8 @@ already waiting: `job_id` is that job and nothing new is queued
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
 | GET | `/api/queue` | Active + queued + recent jobs, and `background`: background LLM tagging's state, the memories waiting for it and its running or latest run ([queue](queue.md#http-api)). Each job carries `label`, `params` and `workspace`: its name and arguments in the command catalog's words (`commands.describe`). |
 | POST | `/api/queue/background/resume` | Start background tagging again after a cancel or a failure. |
+| GET | `/api/agents` | The MCP sessions of every client, connected ones first, and `clients`: the same totalled by client ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). `?limit=` (default 100). |
+| GET | `/api/agents/{id}/calls` | One session and its tool calls, newest first: tool, start, duration, outcome, shortened and redacted arguments. `?limit=` (default 200) and `?before=<call id>` page back. |
 | GET | `/api/jobs/{id}` | Job status + exit code, named like the queue's jobs. |
 | GET | `/api/jobs/{id}/stream` | SSE stream of live stdout/stderr. |
 | POST | `/api/jobs/{id}/cancel` | SIGTERM the job (SIGKILL after 3 s). |

@@ -18,6 +18,7 @@ import {
   Terminal,
   ListOrdered,
   Power,
+  Bot,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/commands", label: "Commands", icon: Terminal },
   { href: "/queue", label: "Queue", icon: ListOrdered },
+  { href: "/agents", label: "Agents", icon: Bot },
 ];
 
 function TrafficLights() {

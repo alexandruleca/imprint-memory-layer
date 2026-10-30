@@ -702,3 +702,27 @@ export function connectSSE(onUpdate: (version: number) => void): EventSource {
   });
   return es;
 }
+
+// ── Agents (ADR 0117) ──────────────────────────────────────────
+
+/** One MCP server process: the session of one client. */
+export type AgentSession = {
+  id: string; pid: number; client: string | null; client_version: string | null;
+  directory: string | null; workspace: string | null;
+  started_at: number; last_seen: number; ended_at: number | null; connected: boolean;
+  calls: number; errors: number; last_tool: string | null;
+};
+export type AgentClient = { client: string; sessions: number; connected: number; calls: number; errors: number; last_seen: number };
+export type AgentCall = {
+  id: number; session_id: string; tool: string; started_at: number; duration_ms: number;
+  ok: number; error: string | null; arguments: string | null; result_chars: number | null;
+};
+
+export function getAgents(limit = 100) {
+  return fetchAPI<{ sessions: AgentSession[]; clients: AgentClient[] }>(`/api/agents?limit=${limit}`);
+}
+export function getAgentCalls(sessionId: string, before?: number, limit = 100) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (before !== undefined) qs.set("before", String(before));
+  return fetchAPI<{ session: AgentSession; calls: AgentCall[] }>(`/api/agents/${encodeURIComponent(sessionId)}/calls?${qs}`);
+}

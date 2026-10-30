@@ -99,6 +99,68 @@ class _SessionNotice(Middleware):
 
 mcp.add_middleware(_SessionNotice())
 
+
+def _client_info(params):
+    """The client's Implementation from initialize params or a session's
+    client_params; SDK v2 names it client_info, v1 clientInfo."""
+    return getattr(params, 'client_info', None) or getattr(params, 'clientInfo', None)
+
+
+class _ActivityLog(Middleware):
+    """Record the client and each tool call for the Agents page (ADR 0117).
+
+    A client on protocol 2026-07-28 may skip initialize and send its details
+    with each request, so the first tool call names it when the handshake
+    did not.
+    """
+
+    def __init__(self):
+        self.named = False
+
+    def _name(self, info):
+        if info is None or self.named:
+            return
+        from . import agent_activity
+        agent_activity.name_client(getattr(info, 'name', None), getattr(info, 'version', None))
+        self.named = True
+
+    async def on_initialize(self, context, call_next):
+        try:
+            self._name(_client_info(getattr(context.message, 'params', None)))
+        except Exception:
+            pass
+        return await call_next(context)
+
+    async def on_call_tool(self, context, call_next):
+        import os
+        import time
+        from . import agent_activity
+        try:
+            session = getattr(context.fastmcp_context, 'session', None)
+            self._name(_client_info(getattr(session, 'client_params', None)))
+        except Exception:
+            pass
+        name = context.message.name
+        arguments = context.message.arguments
+        started = time.time()
+        clock = time.perf_counter()
+        try:
+            result = await call_next(context)
+        except Exception as error:
+            agent_activity.record_call(name, started, (time.perf_counter() - clock) * 1000, ok=False,
+                                       error=f'{type(error).__name__}: {error}', arguments=arguments,
+                                       workspace=os.environ.get('IMPRINT_WORKSPACE'))
+            raise
+        content = getattr(result, 'content', None) or []
+        chars = sum(len(getattr(part, 'text', '') or '') for part in content)
+        agent_activity.record_call(name, started, (time.perf_counter() - clock) * 1000, ok=True,
+                                   arguments=arguments, result_chars=chars,
+                                   workspace=os.environ.get('IMPRINT_WORKSPACE'))
+        return result
+
+
+mcp.add_middleware(_ActivityLog())
+
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
 

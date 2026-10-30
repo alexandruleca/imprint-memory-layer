@@ -8,6 +8,12 @@ start_session(os.getcwd())
 from .device import current
 from .wsl_paths import client_context
 import json
+import atexit
+
+# This process is one agent session on the Agents page (ADR 0117).
+from . import agent_activity
+agent_activity.start_session(os.getcwd(), os.environ.get('IMPRINT_WORKSPACE'))
+atexit.register(agent_activity.end_session)
 
 mcp.instructions = (mcp.instructions or '') + '\n' + json.dumps({
     'current_device': current(), 'working_directory': os.getcwd(),
