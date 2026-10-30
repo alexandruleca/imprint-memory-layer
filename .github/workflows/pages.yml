@@ -12,10 +12,11 @@ on:
   # Rebuild + redeploy after a successful Release so the download page
   # (site/scripts/build-releases.mjs) picks up the new tag's .tar.gz/.zip/
   # .exe/.pkg assets without waiting on the GitHub Pages cache or a manual
-  # dispatch.
+  # dispatch. Only main's releases: dev prereleases leave the site alone.
   workflow_run:
     workflows: [Release]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +34,7 @@ jobs:
     # the Release run failed (no new assets to publish). Push/dispatch
     # triggers have no workflow_run context so `conclusion` is empty and
     # the expression short-circuits to true.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
