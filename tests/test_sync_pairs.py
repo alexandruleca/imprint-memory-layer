@@ -17,6 +17,7 @@ from websockets.asyncio.server import serve
 from imprint import cli_sync, config, sync_delta, sync_pairs, sync_ws
 from imprint.sync_pair_lock import owner
 from test_sync_live import Relay, EXPORT, STATS
+from emulation import emulated
 
 
 class ReconnectingRelay(Relay):
@@ -354,12 +355,12 @@ class PairedSyncTests(unittest.TestCase):
             self.scenario(scenario)
 
     @contextlib.contextmanager
-    def short_waits(self, limit=1):
+    def short_waits(self, limit=1, wait=.5):
         """A one-second attempt limit and key-exchange wait instead of 10 minutes and 30 s."""
         real_wait_for = asyncio.wait_for
 
         async def wait_for(awaitable, timeout):
-            return await real_wait_for(awaitable, None if timeout is None else min(timeout, .5))
+            return await real_wait_for(awaitable, None if timeout is None else min(timeout, wait))
 
         with patch.object(sync_pairs, 'ATTEMPT_LIMIT', limit), patch('asyncio.wait_for', wait_for):
             yield
@@ -420,15 +421,18 @@ class PairedSyncTests(unittest.TestCase):
             await self.initial(endpoint)
             self.manifests['a']['memories']['c' * 16] = 0.0  # a change, so data moves
             importer = sync_ws.process_import_buffer.side_effect
+            # The key exchange must finish within the limit and the import must
+            # not; emulated arm64 on a busy host needs a wider margin for both.
+            limit = 5 if emulated() else 1
 
             def slow(*args, **kwargs):
-                time.sleep(1.5)
+                time.sleep(limit + .5)
                 return importer(*args, **kwargs)
 
             async def attempt():
                 await sync_pairs._attempt(sync_pairs.pairs()[0])
 
-            with self.short_waits(), patch.object(sync_ws, 'process_import_buffer', side_effect=slow):
+            with self.short_waits(limit, wait=limit / 2), patch.object(sync_ws, 'process_import_buffer', side_effect=slow):
                 a = asyncio.create_task(self.at('a', attempt))
                 await asyncio.sleep(.02)
                 with self.assertRaisesRegex(sync_pairs.AttemptFailed, '^The sync made no progress for'):
