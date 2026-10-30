@@ -92,6 +92,8 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.version != ''
     runs-on: [self-hosted, linux, x64]
+    # The arm64 image's Python stage installs under qemu emulation (ADR 0112).
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

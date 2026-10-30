@@ -1,10 +1,13 @@
-FROM golang:1.25-alpine AS builder
+# The Go binary is static, so it is cross-compiled on the build machine: Go's
+# compiler hangs under the qemu emulation an arm64 image would otherwise use.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 ARG VERSION=dev
+ARG TARGETOS TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/imprint .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/imprint .
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
