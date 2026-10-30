@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import secrets
 import re
@@ -194,22 +193,6 @@ def remove_peer(fingerprint):
     cancel_peer(fingerprint)
 
 
-def digest(workspace):
-    """Hash stable exported records; transfer only when an endpoint changes.
-
-    Hashing scans the workspace on the local machine, including vectors. It
-    uses no embedding model/LLM. Sort record hashes so scroll order is irrelevant.
-    """
-    from .sync_ws import stream_export_lines
-    records = []
-    for line in stream_export_lines(workspace):
-        frame = json.loads(line)
-        for record in frame.get('records', []):
-            encoded = json.dumps([frame['dataset'], record], sort_keys=True, separators=(',', ':')).encode()
-            records.append(hashlib.sha256(encoded).digest())
-    return hashlib.sha256(b''.join(sorted(records))).hexdigest()
-
-
 async def exchange(channel, pair, peer, *, provider):
     """Authenticate identity and scope, exchange pause/revocation before data."""
     pair = get(pair['id'])  # Management changes override the worker's snapshot.
@@ -241,15 +224,23 @@ async def exchange(channel, pair, peer, *, provider):
     # both authenticated endpoints have agreed that transfer is enabled.
     if pair['workspace'] not in config.get_known_workspaces():
         raise ValueError('Paired workspace no longer exists; forget or explicitly pair a workspace again')
-    snapshot = {'digest': await asyncio.to_thread(digest, pair['workspace']),
+    from . import sync_delta
+    # The manifest reads no vectors, so even a large workspace lists quickly;
+    # the other device may still take a while, so wait as long as for data.
+    manifest = await asyncio.to_thread(sync_delta.manifest, pair['workspace'])
+    snapshot = {'digest': sync_delta.digest(manifest), 'delta': sync_delta.offered(),
                 'last_local_digest': pair.get('local_digest'), 'last_remote_digest': pair.get('remote_digest')}
     await channel.send(snapshot)
-    remote_snapshot = await channel.recv(timeout=60)
+    remote_snapshot = await channel.recv(timeout=sync_delta.WAIT)
     local_digest = snapshot['digest']
     remote_digest = remote_snapshot.get('digest')
     if not isinstance(remote_digest, str) or len(remote_digest) != 64:
         raise ValueError('Malformed paired workspace digest')
     pair['_local_digest'], pair['_remote_digest'] = local_digest, remote_digest
+    # Both devices send only what the other lacks; an older peer gets and
+    # sends whole workspaces as before.
+    pair['_manifest'] = manifest
+    pair['_delta'] = sync_delta.offered() is not None and remote_snapshot.get('delta') == sync_delta.offered()
     # Both endpoints must make the SAME decision. One side may have failed to
     # store/acknowledge an earlier transfer even though the other checkpointed.
     changed = (local_digest != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
@@ -259,7 +250,9 @@ async def exchange(channel, pair, peer, *, provider):
 
 _running: dict[str, tuple[asyncio.Task, str]] = {}
 
-# How long one automatic attempt may take, waiting for the other device included.
+# How long an automatic attempt may go without progress: waiting for the
+# other device, or for its next chunk. A large sync runs as long as chunks
+# keep arriving (ADR 0116).
 ATTEMPT_LIMIT = 600
 
 
@@ -296,9 +289,11 @@ async def _attempt(pair):
     session = (sync_ws.serve_session(pair['workspace'], policy, relay, pairing=pair) if provider else
                sync_ws.receive_session(relay, pair['room'], pair['secret'], pair['workspace'], policy, pairing=pair))
     errors, unanswered = [], False
+    loop = asyncio.get_running_loop()
     try:
-        async with asyncio.timeout(ATTEMPT_LIMIT):
+        async with asyncio.timeout(ATTEMPT_LIMIT) as limit:
             async for event in session:
+                limit.reschedule(loop.time() + ATTEMPT_LIMIT)
                 if event['type'] in ('error', 'warning'):
                     errors.append(event.get('message', 'Sync failed'))
                     # The joining side gives up on an unanswered key exchange.
@@ -315,7 +310,8 @@ async def _attempt(pair):
         # opening side's wait for the other device to join has no bound of its own.
         if get(pair['id'])['last_seen'] == pair['last_seen']:
             raise _unanswered(pair) from None
-        raise AttemptFailed(f'The sync did not finish within {ATTEMPT_LIMIT // 60} minutes; it runs again shortly') from None
+        raise AttemptFailed(f'The sync made no progress for {ATTEMPT_LIMIT // 60} minutes; '
+                            'it runs again shortly and continues where it stopped') from None
     if unanswered:
         raise _unanswered(pair)
     if errors:

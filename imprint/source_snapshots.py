@@ -341,8 +341,9 @@ def rehome(snapshot, project):
     return {'metadata': meta, 'text': text}
 
 
-def export_parts(workspace):
-    for meta in list_metadata(workspace):
+def export_parts(workspace, metadata=None):
+    """Transfer frames of the workspace's snapshots, or of ``metadata``'s."""
+    for meta in list_metadata(workspace) if metadata is None else metadata:
         snapshot = get(meta['source'], meta['project'], workspace)
         # Export redacts again, including snapshots created under an older policy.
         snapshot = sanitize(snapshot)

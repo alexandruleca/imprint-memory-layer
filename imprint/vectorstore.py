@@ -1032,6 +1032,26 @@ def _scroll_all(fields: list[str], workspace: str | None = None, with_vectors: b
             break
 
 
+def retrieve_payloads(memory_ids: Iterable[str], fields: list[str], workspace: str | None = None,
+                      with_vectors: bool = False) -> Iterable[dict]:
+    """The payloads of the requested memories that exist, as ``_scroll_all``
+    gives them, without scanning the collection."""
+    client, coll = _ensure_collection(workspace)
+    requested = list(dict.fromkeys(memory_ids))
+    for start in range(0, len(requested), 256):
+        points = client.retrieve(collection_name=coll,
+                                 ids=[_point_uuid(mid) for mid in requested[start:start + 256]],
+                                 with_payload=fields, with_vectors=with_vectors)
+        for p in points:
+            rec = p.payload or {}
+            if with_vectors and p.vector:
+                vec = p.vector
+                if isinstance(vec, dict):
+                    vec = vec.get(config.QDRANT_VECTOR_NAME, next(iter(vec.values()), None))
+                rec["_vector"] = vec
+            yield rec
+
+
 def get_source_states(workspace: str | None = None) -> dict[str, dict]:
     """Fail visibly if provenance cannot be read; never infer an empty index."""
     states = {}

@@ -83,9 +83,19 @@ imprint sync watch
 
 The backend reconnects through the same relay using a new, private pair capability,
 not the old share PIN or a device fingerprint. It verifies the paired workspace
-mapping and only runs the approved directions. Changed workspace data merges
-about once a minute when both workers can connect; unchanged digests skip the
-vector transfer. No model or embedding call is required. Turning off the app,
+mapping and only runs the approved directions. About once a minute, when both
+workers can connect, each device lists what sync can change without reading
+vectors (each memory with its classification stamp, each fact, each source
+snapshot with its update time), the devices swap these lists, and each sends
+only what the other lacks or holds an older version of. An unchanged workspace
+sends nothing else. The records travel in chunks of up to 200 memories (with
+their vectors) or facts, or one source snapshot, and the receiver stores and
+acknowledges each before the next, so an interrupted sync keeps what arrived
+and the next attempt sends the rest. An attempt runs as long as it makes
+progress; it stops after 10 minutes without any. Both devices need the same
+release for this; a device on an older one gets and sends whole workspaces, as
+before ([ADR 0116](adr/0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md)).
+No model or embedding call is required. Turning off the app,
 network outages or an unavailable relay delay sync. `watch` is a foreground
 service command; pairing does not silently install a system startup service.
 
@@ -129,8 +139,8 @@ keeps trying the paired room, where this device no longer appears, which to it
 looks the same as this device being offline. Each of its attempts ends with
 *The other device hasn't answered since 2026-10-19 14:03; it may be offline or
 have removed this pairing*, with the time of its last contact: after 30 seconds
-when it joins the room (the higher device id), at the worker's 10-minute
-attempt limit when it opens the room.
+when it joins the room (the higher device id), after 10 minutes without an
+answer when it opens the room.
 **Paired devices** shows it as the last connection, and `imprint sync peers` as
 `last_error`. After 7 days without contact its **Paired devices** also
 highlights removal: remove the pairing there the same way. The protocol cannot

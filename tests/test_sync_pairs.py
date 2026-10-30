@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 import httpx
 from websockets.asyncio.server import serve
 
-from imprint import cli_sync, config, sync_pairs, sync_ws
+from imprint import cli_sync, config, sync_delta, sync_pairs, sync_ws
 from imprint.sync_pair_lock import owner
 from test_sync_live import Relay, EXPORT, STATS
 
@@ -40,7 +40,9 @@ class PairedSyncTests(unittest.TestCase):
                                   'user': side, 'os': 'linux'} for side in ('a', 'b')}
         self.imports = []
         self.export = Mock(return_value=EXPORT)
-        self.digests = {'a': 'a' * 64, 'b': 'b' * 64}
+        # Each device holds a memory the other lacks, so both directions move data.
+        self.sent = []  # (device, keys it was asked to send)
+        self.manifests = {side: {'memories': {side * 16: 0.0}, 'facts': {}, 'sources': {}} for side in ('a', 'b')}
 
         def importer(path, workspace, on_progress=None):
             self.imports.append((self.side.get(), workspace, Path(path).read_text()))
@@ -51,7 +53,8 @@ class PairedSyncTests(unittest.TestCase):
                    patch.object(sync_ws, 'get_device_identity', side_effect=lambda: self.identities[self.side.get()]),
                    patch.object(sync_ws, 'stream_export_lines', self.export),
                    patch.object(sync_ws, 'process_import_buffer', side_effect=importer),
-                   patch.object(sync_pairs, 'digest', side_effect=lambda ws: self.digests[self.side.get()])]
+                   patch.object(sync_delta, 'manifest', side_effect=lambda ws: self.manifests[self.side.get()]),
+                   patch.object(sync_delta, 'export_chunks', side_effect=self.chunks)]
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
@@ -59,6 +62,10 @@ class PairedSyncTests(unittest.TestCase):
             token = self.side.set(side)
             config.register_workspace('from-' + side)
             self.side.reset(token)
+
+    def chunks(self, workspace, keys, count=1):
+        self.sent.append((self.side.get(), {dataset: k for dataset, k in keys.items() if k}))
+        return iter([EXPORT] * count if any(keys.values()) else [])
 
     async def at(self, side, fn):
         token = self.side.set(side)
@@ -138,7 +145,7 @@ class PairedSyncTests(unittest.TestCase):
             await self.repeat()
             self.assertEqual(len(self.imports), 2)
             self.imports.clear()
-            self.digests['a'] = 'c' * 64
+            self.manifests['a']['memories']['c' * 16] = 0.0
             await self.repeat()
             self.assertEqual(len(self.imports), 2)
             wire = b''.join(f.encode() if isinstance(f, str) else f for _, f in relay.frames)
@@ -225,7 +232,7 @@ class PairedSyncTests(unittest.TestCase):
             sync_pairs.forget(pair['id'], confirmed=True)
             self.imports.clear()
             with patch.object(config, 'get_known_workspaces', return_value=[]), \
-                 patch.object(sync_pairs, 'digest', side_effect=RuntimeError('index unavailable')) as read:
+                 patch.object(sync_delta, 'manifest', side_effect=RuntimeError('index unavailable')) as read:
                 await self.repeat()
                 read.assert_not_called()
             self.assertFalse(sync_pairs.pairs())
@@ -411,7 +418,7 @@ class PairedSyncTests(unittest.TestCase):
     def test_an_attempt_past_its_limit_after_the_other_device_answered_says_so(self):
         async def scenario(endpoint, relay):
             await self.initial(endpoint)
-            self.digests['a'] = 'c' * 64  # a change, so data moves
+            self.manifests['a']['memories']['c' * 16] = 0.0  # a change, so data moves
             importer = sync_ws.process_import_buffer.side_effect
 
             def slow(*args, **kwargs):
@@ -424,7 +431,7 @@ class PairedSyncTests(unittest.TestCase):
             with self.short_waits(), patch.object(sync_ws, 'process_import_buffer', side_effect=slow):
                 a = asyncio.create_task(self.at('a', attempt))
                 await asyncio.sleep(.02)
-                with self.assertRaisesRegex(sync_pairs.AttemptFailed, '^The sync did not finish within'):
+                with self.assertRaisesRegex(sync_pairs.AttemptFailed, '^The sync made no progress for'):
                     await self.at('b', attempt)  # b stores what it pulled: slower than the limit
                 await asyncio.gather(a, return_exceptions=True)
         self.scenario(scenario)
@@ -565,6 +572,96 @@ class PairedSyncTests(unittest.TestCase):
         code, prompts, output = cli('remove', record['id'], answer='y')
         self.assertEqual((code, prompts), (1, []))
         self.assertIn('Unknown pairing', output)
+
+
+    async def attempts(self, b_started=None):
+        """Both devices' attempts, a first; their exceptions, not raised."""
+        async def attempt():
+            await sync_pairs._attempt(sync_pairs.pairs()[0])
+        a = asyncio.create_task(self.at('a', attempt))
+        await asyncio.sleep(.02)
+        b = asyncio.create_task(self.at('b', attempt))
+        if b_started:
+            b_started(b)
+        return await asyncio.wait_for(asyncio.gather(a, b, return_exceptions=True), 10)
+
+    def record(self, side):
+        token = self.side.set(side)
+        try:
+            return sync_pairs.pairs()[0]
+        finally:
+            self.side.reset(token)
+
+    def test_only_what_the_other_device_lacks_is_sent(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            self.manifests['b']['memories']['a' * 16] = 0.0  # b already holds a's memory
+            self.sent.clear()
+            self.imports.clear()
+            self.export.reset_mock()
+            await self.repeat()
+            self.assertEqual(self.sent, [('a', {}), ('b', {'memories': ['b' * 16]})])
+            self.assertEqual([side for side, _, _ in self.imports], ['a'])
+            self.export.assert_not_called()  # no whole-workspace export
+        self.scenario(scenario)
+
+    def test_an_interrupted_sync_keeps_what_was_stored_and_records_no_sync(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            stored = []
+
+            def importer(path, workspace, on_progress=None):
+                if self.side.get() == 'b' and stored:
+                    raise RuntimeError('disk full')
+                stored.append(self.side.get())
+                return STATS
+
+            with patch.object(sync_ws, 'process_import_buffer', side_effect=importer), \
+                 patch.object(sync_delta, 'export_chunks', side_effect=lambda ws, keys: self.chunks(ws, keys, 2)):
+                a, b = await self.attempts()
+            self.assertEqual(stored, ['b'])  # the first chunk stays stored
+            self.assertIsInstance(a, sync_pairs.AttemptFailed)
+            self.assertIn('did not store the sync', str(a))
+            self.assertIsInstance(b, sync_pairs.AttemptFailed)
+            self.assertIn('disk full', str(b))
+            for side in 'ab':
+                self.assertIsNone(self.record(side)['last_sync'])
+                self.assertIsNone(self.record(side).get('local_digest'))
+        self.scenario(scenario)
+
+    def test_the_serving_device_does_not_count_a_sync_the_other_one_left(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            loop = asyncio.get_running_loop()
+            consumer = []
+
+            def importer(path, workspace, on_progress=None):
+                loop.call_soon_threadsafe(consumer[0].cancel)  # b goes away while storing
+                time.sleep(.1)
+                return STATS
+
+            with patch.object(sync_ws, 'process_import_buffer', side_effect=importer):
+                a, b = await self.attempts(b_started=consumer.append)
+            self.assertIsInstance(b, asyncio.CancelledError)
+            self.assertIsInstance(a, sync_pairs.AttemptFailed)
+            self.assertIn('disconnected before the sync finished', str(a))
+            self.assertIsNone(self.record('a')['last_sync'])
+        self.scenario(scenario)
+
+    def test_a_device_without_delta_sync_gets_and_sends_whole_workspaces(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            self.imports.clear()
+            self.export.reset_mock()
+            self.sent.clear()
+            older_b = lambda: None if self.side.get() == 'b' else sync_delta.VERSION
+            with patch.object(sync_delta, 'offered', side_effect=older_b):
+                await self.repeat()
+            self.assertEqual([(s, w) for s, w, _ in self.imports], [('b', 'from-b'), ('a', 'from-a')])
+            self.assertEqual(self.export.call_count, 2)
+            self.assertEqual(self.sent, [])
+            self.assertIsNotNone(self.record('a')['last_sync'])
+        self.scenario(scenario)
 
 
 if __name__ == '__main__':

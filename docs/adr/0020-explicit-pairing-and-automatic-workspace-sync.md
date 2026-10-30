@@ -5,7 +5,9 @@ description: Opt-in device capabilities, scoped automatic merge and acknowledged
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0073](0073-remove-a-pairing-from-one-device.md) — a pairing can also be removed from this device alone, at once, without the encrypted forget acknowledgement
+- Amended by:
+  - [ADR 0073](0073-remove-a-pairing-from-one-device.md) — a pairing can also be removed from this device alone, at once, without the encrypted forget acknowledgement
+  - [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) — devices send only what the other lacks, in stored chunks, bounded by progress instead of a total time
 - Related: [ADR 0016](0016-sync-direction-and-workspace-sharing.md), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md)
 - Restructured: 2026-10-25
 

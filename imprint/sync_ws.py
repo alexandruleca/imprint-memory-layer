@@ -71,6 +71,8 @@ REFUSED_PULL = "provider is serving receive-only: pulls are refused"
 REFUSED_PUSH = "provider is serving send-only: pushes are refused"
 
 OUTDATED = "update Imprint on both machines: live sync is now end-to-end encrypted"
+UNFINISHED = "The other device disconnected before the sync finished; it runs again shortly"
+STOPPED_ANSWERING = "The other device stopped answering"
 TAMPERED = ("Sync stopped: a frame failed authentication (altered, dropped or replayed between the machines); "
             "nothing from it was stored")
 
@@ -531,6 +533,35 @@ async def _join(ws, room_id: str, pin: str, identity: dict) -> _Channel:
 
 # ── Data streaming (sync, not async — called from thread) ────────
 
+MEMORY_FIELDS = ["_mid", "content", "project", "type", "tags", "source",
+                 "chunk_index", "source_mtime", "timestamp", "llm_tagged", "tagged_at"]
+
+
+def memory_record(pl: dict, identity: str) -> dict:
+    """A stored memory as a stream record: its payload fields and vector."""
+    from .device import TRANSFER_FIELDS
+    rec = {
+        "id": pl.get("_mid", ""),
+        "content": pl.get("content", ""),
+        "project": pl.get("project", ""),
+        "type": pl.get("type", ""),
+        "tags": pl.get("tags", {}),
+        "source": pl.get("source", ""),
+        "chunk_index": pl.get("chunk_index", 0),
+        "source_mtime": pl.get("source_mtime", 0),
+        "timestamp": pl.get("timestamp", 0),
+        "embedding_identity": identity,
+        **{key: pl[key] for key in TRANSFER_FIELDS if key in pl},
+        # The classification and when it was set (ADR 0051); absent
+        # until a memory is tagged after creation.
+        **{key: pl[key] for key in ("llm_tagged", "tagged_at") if pl.get(key)},
+    }
+    vec = pl.get("_vector")
+    if vec is not None:
+        rec["vector"] = vec
+    return rec
+
+
 def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
     """Generate JSONL lines for a full export (memories + facts with vectors)
     of ``workspace``.
@@ -569,30 +600,9 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
         buf: list[dict] = []
         seq = 0
         from .device import TRANSFER_FIELDS
-        for pl in vs._scroll_all([
-            "_mid", "content", "project", "type", "tags", "source",
-            "chunk_index", "source_mtime", "timestamp", "llm_tagged", "tagged_at",
-        ] + TRANSFER_FIELDS, workspace=workspace, with_vectors=True):
-            rec = {
-                "id": pl.get("_mid", ""),
-                "content": pl.get("content", ""),
-                "project": pl.get("project", ""),
-                "type": pl.get("type", ""),
-                "tags": pl.get("tags", {}),
-                "source": pl.get("source", ""),
-                "chunk_index": pl.get("chunk_index", 0),
-                "source_mtime": pl.get("source_mtime", 0),
-                "timestamp": pl.get("timestamp", 0),
-                "embedding_identity": config.embedding_identity(),
-                **{key: pl[key] for key in TRANSFER_FIELDS if key in pl},
-                # The classification and when it was set (ADR 0051); absent
-                # until a memory is tagged after creation.
-                **{key: pl[key] for key in ("llm_tagged", "tagged_at") if pl.get(key)},
-            }
-            vec = pl.get("_vector")
-            if vec is not None:
-                rec["vector"] = vec
-            buf.append(rec)
+        identity = config.embedding_identity()
+        for pl in vs._scroll_all(MEMORY_FIELDS + TRANSFER_FIELDS, workspace=workspace, with_vectors=True):
+            buf.append(memory_record(pl, identity))
             if len(buf) >= batch_size:
                 seq += 1
                 emit({"kind": "batch", "dataset": "memories", "seq": seq, "records": buf})
@@ -900,15 +910,16 @@ async def _send_export(channel: _Channel, workspace: str, phase: str, cancel: as
             yield {"type": "progress", "phase": phase, "dataset": ds, "done": sent[ds], "total": totals.get(ds, 0)}
 
 
-async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Event):
+async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Event, first: dict | None = None):
     """Write the peer's stream to ``out`` until ``done``, yielding
     ``progress`` events. Raises ``RuntimeError`` when the peer sends an
-    error line or anything other than stream lines (e.g. a refusal)."""
+    error line or anything other than stream lines (e.g. a refusal).
+    ``first``: the stream's opening frame, when the caller read it."""
     totals: dict[str, int] = {}
     received: dict[str, int] = {}
     while True:
         _check_cancel(cancel)
-        msg = await channel.recv()
+        msg, first = first or await channel.recv(), None
         kind = msg.get("kind")
         if kind == "error":
             raise RuntimeError(_printable(msg.get("message", "peer export error")))
@@ -928,7 +939,8 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
 
 def _stream_line_ok(msg: dict, after_meta: bool) -> bool:
     """A data stream is one meta line (with vectors), batches of records,
-    then done."""
+    source snapshot parts, then done. The importer checks the parts' order,
+    size and checksum."""
     kind = msg.get("kind")
     if kind == "meta":
         datasets = msg.get("datasets")
@@ -943,6 +955,9 @@ def _stream_line_ok(msg: dict, after_meta: bool) -> bool:
         if not all(isinstance(r, dict) for r in records):
             return False
         return msg["dataset"] == "facts" or all(isinstance(r.get("vector"), list) for r in records)
+    if kind == "source_snapshot":
+        return (isinstance(msg.get("transfer"), str) and isinstance(msg.get("data"), str)
+                and type(msg.get("part")) is int and type(msg.get("parts")) is int)
     return kind == "done"
 
 
@@ -964,6 +979,7 @@ async def serve_session(
     cancel = asyncio.Event()
     _sessions[sid] = cancel
 
+    unfinished = False
     room_id = pairing['room'] if pairing else generate_room_id()
     pin = pairing['secret'] if pairing else generate_pin()
     code = share_code(room_id, pin)
@@ -1019,6 +1035,10 @@ async def serve_session(
                     except Exception as exc:
                         yield {"type": "warning", "message": f"Could not persist trust: {exc}"}
 
+            # A paired sync that sends only differences ends when it is
+            # reconciled; the other device leaving earlier is a failure.
+            unfinished = bool(pairing and pairing.get("_delta"))
+
             # Accept; the body tells the consumer which phases it may request
             # and who it is talking to, so it can decide what to send.
             await channel.send({"status": 200, "body": {**policy.grant(), "device": get_device_identity(),
@@ -1035,6 +1055,9 @@ async def serve_session(
                     yield {"type": "error", "message": "Peer timed out"}
                     return
                 except websockets.exceptions.ConnectionClosed:
+                    if unfinished:
+                        yield {"type": "error", "message": UNFINISHED}
+                        return
                     break
 
                 _check_cancel(cancel)
@@ -1052,6 +1075,25 @@ async def serve_session(
                     from .sync_pairs import accept_pair
                     pair_id = await accept_pair(channel, req, workspace, peer_info, policy, relay)
                     yield {'type': 'paired', 'pair_id': pair_id, **peer_info}
+
+                elif path == "/sync/delta":
+                    pull, push = req.get("pull"), req.get("push")
+                    if (not unfinished or type(pull) is not bool or type(push) is not bool
+                            or pull and not policy.send or push and not policy.receive):
+                        await channel.send({"status": 403, "body": "this pairing does not allow that"})
+                        yield {"type": "error", "message": "The other device asked for a sync this pairing does not allow"}
+                        return
+                    await channel.send({"status": 200})
+                    yield {"type": "status", "status": "reconciling"}
+                    from . import sync_delta
+                    result: dict = {}
+                    async for event in sync_delta.reconcile(channel, workspace, pairing["_manifest"], provider=True,
+                                                            provider_sends=pull, consumer_sends=push,
+                                                            cancel=cancel, result=result):
+                        yield event
+                    unfinished = False
+                    if push:
+                        yield {"type": "push_complete", "stats": result.get("received")}
 
                 elif path == "/sync/pull":
                     if not policy.send:
@@ -1110,9 +1152,14 @@ async def serve_session(
             raise  # the task was cancelled (a time limit, the paired worker, shutdown): its owner decides
         yield {"type": "cancelled"}
     except websockets.exceptions.ConnectionClosed:
-        yield {"type": "done"}
+        if pairing and pairing.get("_delta") and unfinished:
+            yield {"type": "error", "message": UNFINISHED}
+        else:
+            yield {"type": "done"}
     except (FrameError, PeerNotice):
         yield {"type": "error", "message": TAMPERED}
+    except asyncio.TimeoutError:
+        yield {"type": "error", "message": STOPPED_ANSWERING}
     except Exception as e:
         yield {"type": "error", "message": str(e)}
     finally:
@@ -1231,7 +1278,25 @@ async def receive_session(
             pull_stats: dict | None = None
             push_stats: dict | None = None
 
-            if plan.pull:
+            if pairing and pairing.get("_delta"):
+                # ── Paired: only what each side lacks, in stored chunks ──
+                yield {"type": "status", "status": "reconciling"}
+                await channel.send({"path": "/sync/delta", "pull": plan.pull, "push": plan.push})
+                answer = await channel.recv(timeout=60)
+                if answer.get("status") != 200:
+                    yield {"type": "error", "message": f"Sync refused: {_printable(answer.get('body') or 'refused')}"}
+                    return
+                from . import sync_delta
+                result: dict = {}
+                async for event in sync_delta.reconcile(channel, workspace, pairing["_manifest"], provider=False,
+                                                        provider_sends=plan.pull, consumer_sends=plan.push,
+                                                        cancel=cancel, result=result):
+                    yield event
+                if plan.pull:
+                    pull_stats = result.get("received")
+                    yield {"type": "pull_complete", "stats": pull_stats}
+
+            elif plan.pull:
                 # ── Phase 1: Pull remote data ─────────────────────
                 yield {"type": "status", "status": "pulling"}
                 await channel.send({"method": "GET", "path": "/sync/pull"})
@@ -1270,7 +1335,7 @@ async def receive_session(
                 pull_stats = result["stats"]
                 yield {"type": "pull_complete", "stats": pull_stats}
 
-            if plan.push:
+            if plan.push and not (pairing and pairing.get("_delta")):
                 # ── Phase 2: Push local data ──────────────────────
                 yield {"type": "status", "status": "pushing"}
                 await channel.send({"method": "POST", "path": "/sync/push"})
@@ -1300,6 +1365,8 @@ async def receive_session(
         yield {"type": "error", "message": "Connection closed unexpectedly"}
     except (FrameError, PeerNotice):
         yield {"type": "error", "message": TAMPERED}
+    except asyncio.TimeoutError:
+        yield {"type": "error", "message": STOPPED_ANSWERING}
     except Exception as e:
         yield {"type": "error", "message": str(e)}
     finally:
