@@ -17,6 +17,7 @@ import numpy as np
 from qdrant_client import models
 
 import test_indexing_retrieval as indexing
+from emulation import emulated
 from imprint import config, config_schema, imprint_graph as kg, privacy_filter, redaction, sync_ws, vectorstore as vs
 
 # Fixtures are assembled from parts so this file holds no credential-shaped
@@ -137,14 +138,16 @@ class RuleTests(unittest.TestCase):
         self.assertFalse(redaction.supersedes(strict, f"use {token} with {R('password', 'SECRET')}"))
 
     def test_large_encoded_blobs_stay_fast(self):
-        # Quadratic matching would take minutes on these; linear takes well under a second.
+        # Quadratic matching would take minutes on these; linear takes well under a second,
+        # and a few seconds under the arm64 runner's emulation, which runs several times slower.
+        limit = 25 if emulated() else 2.5
         blob = "data:application/octet-stream;base64," + ("QUJDREVGR0hJSktMTU5PUFFSU1RVVldY" * 6000)
         lines = "\n".join(("TUlJRXZRSUJBREFOQmdrcWhraUc5dzBCQVFFRkFBU0NCS2N3Z2dTakFnRUFBb0lCQVFD" for _ in range(5000)))
         end = "-----END " + "PRIVATE KEY-----"
         for text in (blob, lines, lines + "\n" + end, "-----BEGIN " + "PRIVATE KEY-----\n" + lines + " !", "a" * 200000):
             started = time.perf_counter()
             redaction.rule_spans(text)
-            self.assertLess(time.perf_counter() - started, 2.5)
+            self.assertLess(time.perf_counter() - started, limit)
 
 
 class SettingTests(unittest.TestCase):
