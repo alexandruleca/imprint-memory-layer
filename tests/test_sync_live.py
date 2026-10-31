@@ -24,6 +24,7 @@ from websockets.protocol import State
 from imprint import cli_sync, config, sync_ws
 from imprint.sync_crypto import KeyExchange
 from imprint.sync_ws import REFUSED_PUSH, TAMPERED, SyncPolicy
+from emulation import slack, until
 
 BOTH, SEND, RECEIVE = (SyncPolicy.parse(direction) for direction in ('both', 'send', 'receive'))
 SECRET = 'TOP-SECRET-MEMORY-CONTENT'
@@ -119,7 +120,7 @@ class LiveSyncTests(unittest.TestCase):
                             sync_ws.submit_approval(room['session_id'], decision)
 
                 task = asyncio.create_task(provide())
-                room = await asyncio.wait_for(ready, 5)
+                room = await asyncio.wait_for(ready, slack(10))
                 if consumer_side is not None:
                     consumer_events = await consumer_side(endpoint, room)
                 else:
@@ -130,7 +131,7 @@ class LiveSyncTests(unittest.TestCase):
                         consumer_events.append(event)
                         if event['type'] == 'confirm_push':
                             sync_ws.submit_approval(consumer_events[0]['session_id'], send)
-                await asyncio.wait_for(task, 5)
+                await asyncio.wait_for(task, slack(10))
                 return provider_events, consumer_events
 
         provider_events, consumer_events = asyncio.run(run())
@@ -181,15 +182,15 @@ class LiveSyncTests(unittest.TestCase):
                 ready = asyncio.get_running_loop().create_future()
                 task = asyncio.create_task(provide(ready.set_result,
                                                    lambda room: sync_ws.cancel_session(room['session_id'])))
-                room = await asyncio.wait_for(ready, 5)
+                room = await asyncio.wait_for(ready, slack(10))
                 await self.collect(sync_ws.receive_session(endpoint, room['room_id'], room['pin'], 'team', BOTH))
-                self.assertEqual((await asyncio.wait_for(task, 5))[-1], {'type': 'cancelled'})
+                self.assertEqual((await asyncio.wait_for(task, slack(10)))[-1], {'type': 'cancelled'})
 
                 # Cancelling the task (a time limit, the paired worker, shutdown)
                 # reaches whoever cancelled it instead of ending as a user's cancel.
                 waiting = asyncio.Event()
                 task = asyncio.create_task(provide(lambda room: waiting.set()))
-                await asyncio.wait_for(waiting.wait(), 5)
+                await asyncio.wait_for(waiting.wait(), slack(10))
                 task.cancel()
                 with self.assertRaises(asyncio.CancelledError):
                     await task
@@ -455,7 +456,7 @@ class LiveSyncTests(unittest.TestCase):
                         await ws.send(json.dumps({'status': 400, 'body': 'handshake required'}))
 
                 task = asyncio.create_task(legacy_provider())
-                await asyncio.sleep(0.05)
+                await until(lambda: 'provider' in relay.rooms.get('room1', {}))
                 events = [e async for e in sync_ws.receive_session(endpoint, 'room1', 'PIN', 'team', BOTH)]
                 await task
                 return events
@@ -562,18 +563,13 @@ class LiveSyncTests(unittest.TestCase):
                 with patch.object(cli_sync, '_ask', side_effect=answered), contextlib.redirect_stdout(out):
                     serve_args = argparse.Namespace(workspace='team', relay=host, direction='both')
                     serving = asyncio.create_task(cli_sync._serve(serve_args))
-                    shared = None
-                    for _ in range(200):
-                        await asyncio.sleep(0.01)
-                        shared = next((line.split()[2] for line in out.getvalue().splitlines()
-                                       if line.strip().startswith('imprint sync ws://')), None)
-                        if shared:
-                            break
+                    shared = await until(lambda: next((line.split()[2] for line in out.getvalue().splitlines()
+                                                       if line.strip().startswith('imprint sync ws://')), None))
                     if pin:
                         shared = shared.rsplit('-', 1)[0] + '-' + pin
                     join_args = argparse.Namespace(code=shared, fresh=False, workspace=None, direction=direction)
                     joined = await cli_sync._join(join_args)
-                    served = await asyncio.wait_for(serving, 5)
+                    served = await asyncio.wait_for(serving, slack(10))
                 return served, joined, out.getvalue()
 
         return asyncio.run(run())

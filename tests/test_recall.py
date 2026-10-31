@@ -9,6 +9,11 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 from imprint import recall, server
+from emulation import slack
+
+# The local model's time limit in tests, in whole seconds as the setting takes it;
+# the fake model's delays and the bounds on a recall scale with it.
+LIMIT = round(slack(1))
 
 
 def memory(mid, text='', similarity=.7, project='alpha', source=None):
@@ -126,7 +131,7 @@ class BatchTests(RecallTestCase):
         self.assertIn('Error', server.recall('q', max_chars=20000))
 
     def test_independent_steps_run_concurrently(self):
-        barrier = threading.Barrier(2, timeout=5)
+        barrier = threading.Barrier(2, timeout=slack(10))
 
         def search(query, **kw):
             barrier.wait()  # deadlocks unless both searches run at once
@@ -258,12 +263,12 @@ class LocalModelTests(RecallTestCase):
         self.assertNotIn('Answer', evidence)
 
     def test_planning_timeout_returns_the_search_with_a_note(self):
-        self.model('{"steps": []}', delay=3)
-        with patch.dict(os.environ, {'IMPRINT_RECALL_LLM_TIMEOUT': '1'}):
+        self.model('{"steps": []}', delay=3 * LIMIT)
+        with patch.dict(os.environ, {'IMPRINT_RECALL_LLM_TIMEOUT': str(LIMIT)}):
             started = time.monotonic()
             text = server.recall('reconnect retry')
-        self.assertLess(time.monotonic() - started, 2.5)
-        note = 'Local model could not plan (timed out after 1 s); ran the question as one search.\n'
+        self.assertLess(time.monotonic() - started, 2.5 * LIMIT)
+        note = f'Local model could not plan (timed out after {LIMIT} s); ran the question as one search.\n'
         self.assertTrue(text.startswith(note))
         self.assertEqual(text[len(note):], recall.compact_search(
             server.search_rows('reconnect retry', workspace='team'), 'reconnect retry', 'team', 0, 5,
@@ -294,14 +299,15 @@ class LocalModelTests(RecallTestCase):
             self.assertLessEqual(len(text), 4000)
 
     def test_the_deadline_bounds_the_whole_recall(self):
-        self.model(json.dumps({'steps': [{'tool': 'kg_query', 'args': {'subject': 'api'}}]}), 'late [1]', delay=0.7)
-        with patch.dict(os.environ, {'IMPRINT_RECALL_LLM_TIMEOUT': '1'}):
+        self.model(json.dumps({'steps': [{'tool': 'kg_query', 'args': {'subject': 'api'}}]}), 'late [1]',
+                   delay=.7 * LIMIT)
+        with patch.dict(os.environ, {'IMPRINT_RECALL_LLM_TIMEOUT': str(LIMIT)}):
             started = time.monotonic()
             text = server.recall('what does api use')
-        # 1 s of deadline plus start-up; a slow CI VM took 2.07 s once.
-        self.assertLess(time.monotonic() - started, 3)
+        # The deadline plus start-up; a slow CI VM took 2.07 s of 1 s once.
+        self.assertLess(time.monotonic() - started, 3 * LIMIT)
         self.assertIn('Plan (local model,', text)
-        self.assertIn('did not answer (timed out after 1 s)', text)
+        self.assertIn(f'did not answer (timed out after {LIMIT} s)', text)
 
 
 class LocalInferenceSwitchTests(unittest.TestCase):

@@ -17,6 +17,7 @@ from unittest.mock import patch
 import httpx
 
 from imprint import config, queue, queue_lock, tag_backlog
+from emulation import slack
 
 REPO = Path(__file__).resolve().parents[1]
 # How a stopped process exits: by SIGTERM on Unix, with code 15 on Windows,
@@ -150,7 +151,7 @@ class BackgroundSchedulingTests(QueueCase):
                 conn.execute("UPDATE jobs SET status='running', pid=?, pgid=? WHERE id=?",
                              (process.pid, process.pid, job_id))
         queue.recover_on_startup()
-        self.assertEqual(left_behind.wait(timeout=10), STOPPED)
+        self.assertEqual(left_behind.wait(timeout=slack(10)), STOPPED)
         self.assertIsNone(unrelated.poll(), 'a process that does not hold the lock was stopped')
         self.assertEqual([queue.get_job(job_id)['status'] for job_id in (left, older, never_started)],
                          ['yielded', 'yielded', 'cancelled'])
@@ -225,7 +226,7 @@ class DispatcherTests(QueueCase):
         return patch.object(queue, '_build_argv', side_effect=build)
 
     async def until(self, predicate, timeout=30.0):
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + slack(timeout)
         while not predicate():
             if time.monotonic() > deadline:
                 raise AssertionError('timed out')
@@ -250,7 +251,8 @@ class DispatcherTests(QueueCase):
             finally:
                 dispatcher.cancel()
 
-        with self.argv(BACKGROUND_WORKER, ticks=20):
+        # It tags for a second, a few on a slow machine: long enough to notice the job.
+        with self.argv(BACKGROUND_WORKER, ticks=round(slack(20))):
             job_id = asyncio.run(scenario())
         first, second = self.background_runs()
         job = queue.get_job(job_id)
@@ -314,7 +316,7 @@ class PreemptibleLockTests(QueueCase):
         self.assertIsNotNone(descriptor)
         try:
             self.assertLess(time.monotonic() - started, queue_lock.PREEMPT_WAIT)
-            self.assertEqual(child.wait(timeout=10), STOPPED)
+            self.assertEqual(child.wait(timeout=slack(10)), STOPPED)
             self.assertEqual(queue_lock.read_holder()['command'], 'purge')
             self.assertNotIn('preemptible', queue_lock.read_holder())
         finally:

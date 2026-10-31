@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hunter/imprint/internal/platform"
+	"github.com/hunter/imprint/internal/testtime"
 )
 
 // A native executable stands in for Electron, without a shell or Python venv.
@@ -35,7 +36,7 @@ func TestUIOpenLaunchesShellBeforeRuntimeStartup(t *testing.T) {
 	t.Setenv("IMPRINT_ELECTRON", os.Args[0])
 	t.Setenv("IMPRINT_TEST_DESKTOP_ARGS", capture)
 	uiOpen([]string{"--port", "18420"})
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testtime.Slack(10 * time.Second))
 	for {
 		b, err := os.ReadFile(capture)
 		if err == nil {

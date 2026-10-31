@@ -11,6 +11,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from emulation import slack
+
 REPO = Path(__file__).resolve().parents[1]
 
 # Runs one job through the real dispatcher. The job prints what the CLI
@@ -55,7 +57,7 @@ class LocaleEncodingTests(unittest.TestCase):
     def test_dispatcher_reads_utf8_output_in_a_non_utf8_locale(self):
         with tempfile.TemporaryDirectory() as data:
             env = ascii_locale(IMPRINT_DATA_DIR=data)
-            out = subprocess.run([sys.executable, "-c", CHILD], env=env, capture_output=True, timeout=120)
+            out = subprocess.run([sys.executable, "-c", CHILD], env=env, capture_output=True, timeout=slack(120))
             self.assertEqual(out.returncode, 0, out.stderr.decode("utf-8", "replace")[-2000:])
             result = json.loads(out.stdout.decode("ascii").strip().splitlines()[-1])
             self.assertEqual(result["status"], "done", result)
@@ -69,7 +71,7 @@ class LocaleEncodingTests(unittest.TestCase):
             subprocess.run(["git", "-C", repo, "init", "-q"], check=True, env=git)
             subprocess.run(["git", "-C", repo, "add", "."], check=True, env=git)
             env = ascii_locale(IMPRINT_DATA_DIR=data, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
-            out = subprocess.run([sys.executable, "-c", GIT_CHILD, repo], env=env, capture_output=True, timeout=120)
+            out = subprocess.run([sys.executable, "-c", GIT_CHILD, repo], env=env, capture_output=True, timeout=slack(120))
             self.assertEqual(out.returncode, 0, out.stderr.decode("utf-8", "replace")[-2000:])
             result = json.loads(out.stdout.decode("ascii").strip().splitlines()[-1])
             self.assertTrue(result["listed"], result)

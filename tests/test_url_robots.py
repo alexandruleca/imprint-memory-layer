@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from imprint import extractors
 from imprint.extractors import url as url_ext
+from emulation import slack
 
 
 class Site(BaseHTTPRequestHandler):
@@ -36,7 +37,7 @@ class SiteTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        env = patch.dict(os.environ, {'IMPRINT_DATA_DIR': temp.name, 'IMPRINT_INGEST_URL_TIMEOUT': '5'})
+        env = patch.dict(os.environ, {'IMPRINT_DATA_DIR': temp.name, 'IMPRINT_INGEST_URL_TIMEOUT': str(round(slack(10)))})
         env.start(); self.addCleanup(env.stop)
         Site.routes = {'/robots.txt': (200, b'User-agent: *\nDisallow: /private\n', {}),
                        '/public': (200, b'public page text', {}),

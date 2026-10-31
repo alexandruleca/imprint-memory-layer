@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from emulation import REASON as EMULATED, emulated
+from emulation import REASON as EMULATED, emulated, slack
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,7 +75,7 @@ class InstallPs1DevChannelTests(unittest.TestCase):
                 script = f"{select}\nSelect-LatestDev ('{releases(tags)}' | ConvertFrom-Json)\n"
                 encoded = base64.b64encode(script.encode('utf-16-le')).decode()
                 result = subprocess.run([powershell(), '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
-                                        capture_output=True, text=True, timeout=120)
+                                        capture_output=True, text=True, timeout=slack(120))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.strip(), expected)
 

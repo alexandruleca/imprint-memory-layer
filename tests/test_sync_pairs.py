@@ -17,7 +17,7 @@ from websockets.asyncio.server import serve
 from imprint import cli_sync, config, sync_delta, sync_pairs, sync_ws
 from imprint.sync_pair_lock import owner
 from test_sync_live import Relay, EXPORT, STATS
-from emulation import emulated
+from emulation import slack, until
 
 
 class ReconnectingRelay(Relay):
@@ -91,7 +91,7 @@ class PairedSyncTests(unittest.TestCase):
                     sync_ws.submit_approval(room['session_id'], 'accept')
 
         task = asyncio.create_task(self.at('a', provider))
-        room = await asyncio.wait_for(ready, 5)
+        room = await asyncio.wait_for(ready, slack(10))
 
         async def consumer():
             session_id = None
@@ -103,8 +103,8 @@ class PairedSyncTests(unittest.TestCase):
                 elif event['type'] == 'confirm_push':
                     sync_ws.submit_approval(session_id, send)
 
-        await asyncio.wait_for(self.at('b', consumer), 10)
-        await asyncio.wait_for(task, 10)
+        await asyncio.wait_for(self.at('b', consumer), slack(10))
+        await asyncio.wait_for(task, slack(10))
         self.assertFalse([e for e in provider_events + consumer_events if e['type'] == 'error'],
                          provider_events + consumer_events)
         return provider_events, consumer_events
@@ -113,9 +113,9 @@ class PairedSyncTests(unittest.TestCase):
         async def attempt():
             await sync_pairs._attempt(sync_pairs.pairs()[0])
         a = asyncio.create_task(self.at('a', attempt))
-        await asyncio.sleep(.02)
+        await asyncio.sleep(slack(.02))
         b = asyncio.create_task(self.at('b', attempt))
-        async with asyncio.timeout(timeout):  # not wait_for, which short_waits shortens
+        async with asyncio.timeout(slack(timeout)):  # not wait_for, which short_waits shortens
             await asyncio.gather(a, b)
 
     def scenario(self, fn):
@@ -270,16 +270,10 @@ class PairedSyncTests(unittest.TestCase):
             with patch.object(sync_pairs, '_attempt', side_effect=attempt):
                 task = asyncio.create_task(sync_pairs.watch(interval=.02, tick=.01))
                 try:
-                    for _ in range(100):
-                        if starts:
-                            break
-                        await asyncio.sleep(.01)
+                    await until(lambda: starts)
                     # Simulate a separate CLI process: update the database only.
                     sync_pairs.update(record['id'], enabled=False)
-                    for _ in range(100):
-                        if (False, 'active') in starts:
-                            break
-                        await asyncio.sleep(.01)
+                    await until(lambda: (False, 'active') in starts)
                     self.assertIn(True, cancelled)
                     self.assertIn((False, 'active'), starts)
                 finally:
@@ -368,13 +362,10 @@ class PairedSyncTests(unittest.TestCase):
 
     @staticmethod
     async def worker_until(done):
-        """Run this side's worker until ``done()``."""
+        """Run this side's worker until ``done()``; return its last result."""
         task = asyncio.create_task(sync_pairs.watch(interval=60, tick=.05))
         try:
-            for _ in range(200):
-                if done():
-                    break
-                await asyncio.sleep(.05)
+            return await until(done, every=.05)
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -423,8 +414,8 @@ class PairedSyncTests(unittest.TestCase):
             self.manifests['a']['memories']['c' * 16] = 0.0  # a change, so data moves
             importer = sync_ws.process_import_buffer.side_effect
             # The key exchange must finish within the limit and the import must
-            # not; emulated arm64 on a busy host needs a wider margin for both.
-            limit = 5 if emulated() else 1
+            # not; a slow machine needs a wider margin for both.
+            limit = slack(1)
 
             def slow(*args, **kwargs):
                 time.sleep(limit + .5)
@@ -435,7 +426,7 @@ class PairedSyncTests(unittest.TestCase):
 
             with self.short_waits(limit, wait=limit / 2), patch.object(sync_ws, 'process_import_buffer', side_effect=slow):
                 a = asyncio.create_task(self.at('a', attempt))
-                await asyncio.sleep(.02)
+                await asyncio.sleep(slack(.02))
                 with self.assertRaisesRegex(sync_pairs.AttemptFailed, '^The sync made no progress for'):
                     await self.at('b', attempt)  # b stores what it pulled: slower than the limit
                 await asyncio.gather(a, return_exceptions=True)
@@ -464,11 +455,11 @@ class PairedSyncTests(unittest.TestCase):
         async def scenario(endpoint, relay):
             await self.initial(endpoint)
             self.manifests['a']['memories']['c' * 16] = 0.0
-            limit = 5 if emulated() else 1
+            limit = slack(1)
             sent, frames = self.frames()
             with self.short_waits(limit, wait=limit / 2), self.slow_store(limit * 2.5), frames, \
                     patch.object(sync_ws, 'STORE_HEARTBEAT', limit / 5):
-                await self.repeat(timeout=10 * limit)  # each device stores for 2.5 limits
+                await self.repeat()  # slack(10), ten limits: each device stores for 2.5
             self.assertIn(('a', 'storing'), sent)
             self.assertIn(('b', 'storing'), sent)
             for side in 'ab':
@@ -500,18 +491,14 @@ class PairedSyncTests(unittest.TestCase):
 
             task = asyncio.create_task(sync_pairs.watch(interval=60, tick=.02))
             try:
-                for _ in range(200):
-                    if provider_waiting() and pair['id'] in sync_pairs._running:
-                        break
-                    await asyncio.sleep(.01)
+                await until(lambda: provider_waiting() and pair['id'] in sync_pairs._running)
                 first, _ = sync_pairs._running[pair['id']]
                 sync_pairs.set_enabled(pair['id'], False)
                 await asyncio.gather(first, return_exceptions=True)
                 self.assertTrue(first.cancelled())
-                for _ in range(200):  # a paused pairing still opens the room for control frames
-                    if sync_pairs._running.get(pair['id'], (first,))[0] is not first and provider_waiting():
-                        break
-                    await asyncio.sleep(.01)
+                # A paused pairing still opens the room for control frames.
+                await until(lambda: sync_pairs._running.get(pair['id'], (first,))[0] is not first
+                            and provider_waiting())
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
@@ -548,10 +535,7 @@ class PairedSyncTests(unittest.TestCase):
                 with patch.object(sync_pairs, '_attempt', side_effect=attempt):
                     task = asyncio.create_task(sync_pairs.watch(interval=.02, tick=.01))
                     try:
-                        for _ in range(100):
-                            if starts:
-                                break
-                            await asyncio.sleep(.01)
+                        await until(lambda: starts)
                         # Another process (CLI) only changes the database; this
                         # one also cancels its own sessions at once.
                         with patch.object(sync_pairs, 'cancel_peer') if other_process else contextlib.nullcontext():
@@ -559,10 +543,7 @@ class PairedSyncTests(unittest.TestCase):
                         if not other_process:
                             await asyncio.sleep(0)
                             self.assertEqual(cancelled, [record['id']])
-                        for _ in range(100):
-                            if not sync_pairs._running:
-                                break
-                            await asyncio.sleep(.01)
+                        await until(lambda: not sync_pairs._running)
                         await asyncio.sleep(.1)  # several ticks: nothing starts again
                         self.assertEqual((starts, cancelled), ([record['id']], [record['id']]))
                         self.assertFalse(sync_pairs._running)
@@ -633,11 +614,11 @@ class PairedSyncTests(unittest.TestCase):
         async def attempt():
             await sync_pairs._attempt(sync_pairs.pairs()[0])
         a = asyncio.create_task(self.at('a', attempt))
-        await asyncio.sleep(.02)
+        await asyncio.sleep(slack(.02))
         b = asyncio.create_task(self.at('b', attempt))
         if b_started:
             b_started(b)
-        return await asyncio.wait_for(asyncio.gather(a, b, return_exceptions=True), 10)
+        return await asyncio.wait_for(asyncio.gather(a, b, return_exceptions=True), slack(10))
 
     def record(self, side):
         token = self.side.set(side)
@@ -691,7 +672,7 @@ class PairedSyncTests(unittest.TestCase):
 
             def importer(path, workspace, on_progress=None):
                 loop.call_soon_threadsafe(consumer[0].cancel)  # b goes away while storing
-                time.sleep(.1)
+                time.sleep(slack(.1))
                 return STATS
 
             with patch.object(sync_ws, 'process_import_buffer', side_effect=importer):
@@ -752,8 +733,11 @@ class PairedSyncTests(unittest.TestCase):
             await self.initial(endpoint)
             pair = sync_pairs.pairs()[0]
             sync_pairs.update(pair['id'], activity={'stage': 'receiving', 'since': 1.0, 'at': 2.0})
-            await self.worker_until(lambda: sync_pairs.pairs()[0].get('activity') is None)
-            self.assertIsNone(sync_pairs.pairs()[0]['activity'])
+            # A real attempt would overwrite the stale progress itself; this one does nothing.
+            async def attempt(pair):
+                await asyncio.Event().wait()
+            with patch.object(sync_pairs, '_attempt', side_effect=attempt):
+                self.assertTrue(await self.worker_until(lambda: sync_pairs.pairs()[0].get('activity') is None))
         self.scenario(scenario)
 
 

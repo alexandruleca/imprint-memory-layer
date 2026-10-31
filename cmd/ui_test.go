@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hunter/imprint/internal/testtime"
 )
 
 // The test binary stands in for the Python server: it counts its starts in
@@ -27,7 +29,7 @@ func init() {
 	starts := len(b) + 1
 	_ = os.WriteFile(counter, append(b, '.'), 0o600)
 	if os.Getenv("IMPRINT_TEST_FAKE_SERVER_WAIT") == "1" {
-		time.Sleep(time.Minute) // until signaled
+		time.Sleep(testtime.Slack(time.Minute)) // until signaled
 	}
 	if want, _ := strconv.Atoi(os.Getenv("IMPRINT_TEST_FAKE_SERVER_STARTS")); starts < want {
 		os.Exit(uiRestartExitCode)
@@ -75,7 +77,7 @@ func TestSupervisorPassesASignalOnAndDoesNotRestart(t *testing.T) {
 	signals := make(chan os.Signal, 1)
 	done := make(chan error, 1)
 	go func() { done <- superviseServer(newCmd, signals) }()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testtime.Slack(10 * time.Second)); ; time.Sleep(20 * time.Millisecond) {
 		if b, _ := os.ReadFile(counter); len(b) == 1 {
 			break
 		}
@@ -90,7 +92,7 @@ func TestSupervisorPassesASignalOnAndDoesNotRestart(t *testing.T) {
 		if !errors.As(err, &exited) || exitCode(err) == uiRestartExitCode {
 			t.Fatalf("the interrupted server should end supervision, got %v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(testtime.Slack(10 * time.Second)):
 		t.Fatal("supervision did not end after the signal")
 	}
 	if got := startsRecorded(t, counter); got != 1 {
@@ -132,7 +134,7 @@ func TestRestartWaitsForTheRegisteredServersReplacement(t *testing.T) {
 		go func() { time.Sleep(300 * time.Millisecond); register(t, dataDir, 101, st.Port) }()
 		_, _ = w.Write([]byte(`{"restarting": true}`))
 	})
-	st, err := restartRegisteredUI(dataDir, 5*time.Second)
+	st, err := restartRegisteredUI(dataDir, testtime.Slack(10*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

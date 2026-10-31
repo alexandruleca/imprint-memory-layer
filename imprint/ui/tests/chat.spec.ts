@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { slack } from './slack';
 
 type Session = { id: string; title: string; created_at: number; updated_at: number };
 
@@ -233,7 +234,7 @@ test('a failed reply offers retry, which asks again', async ({ page }) => {
 test('stop ends a reply that is still running', async ({ page }) => {
   await mockChat(page, { sessions: [{ id: 'chat1', title: 'Slow', created_at: now, updated_at: now }] });
   await page.route('**/api/chat', async route => {
-    await new Promise(resolve => setTimeout(resolve, 10_000));
+    await new Promise(resolve => setTimeout(resolve, slack(10_000)));  // longer than Stop takes
     await route.fulfill({ contentType: 'text/event-stream', body: sse({ type: 'done' }) }).catch(() => {});
   });
   await page.goto('/chat/');

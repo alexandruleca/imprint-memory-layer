@@ -8,7 +8,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from emulation import REASON as EMULATED, emulated
+from emulation import REASON as EMULATED, emulated, slack
 
 from imprint import voice_memory as voice
 
@@ -133,7 +133,7 @@ class MCPBridgeTests(unittest.IsolatedAsyncioTestCase):
                                    keep_alive=False, log_file=self.root / "mcp.log")
         import argparse
         args = argparse.Namespace(data_dir=self.root, workspace="alpha", query=["evidence"], project="", max_chars=8000,
-                                  timeout=30, output=self.root / "prepared.json")
+                                  timeout=slack(30), output=self.root / "prepared.json")
         with patch("fastmcp.client.transports.StdioTransport", return_value=transport) as connect:
             session = await voice._prepare(args, identity=IDENTITY)
         self.assertEqual(connect.call_args.kwargs["args"], ["-m", "imprint"])

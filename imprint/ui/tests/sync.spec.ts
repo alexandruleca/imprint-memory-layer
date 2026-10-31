@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { slack } from './slack';
 
 const sse = (events: object[]) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
 const stream = (events: object[]) => ({ headers: { 'content-type': 'text/event-stream' }, body: sse(events) });
@@ -353,7 +354,7 @@ test('a running automatic sync shows its stage and counts, then what it moved', 
 
   peer = { ...base, activity: null, last_sync: now - 180, last_checked: now - 60,
     last_result: { received: { memories: 50214, facts: 12 }, sent: { memories: 4 } } };
-  await expect(progress).toHaveCount(0, { timeout: 5000 });  // refreshed every 2 s while syncing
+  await expect(progress).toHaveCount(0, { timeout: slack(10_000) });  // refreshed every 2 s while syncing
   const row = page.getByRole('listitem').filter({ hasText: 'workstation' });
   await expect(row).toContainText('last sync 3 min ago: received 50,214 memories, 12 facts; sent 4 memories');
   await expect(row).toContainText('up to date, checked 1 min ago');

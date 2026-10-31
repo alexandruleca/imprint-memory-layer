@@ -18,6 +18,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from imprint import chat, voice_api as voice, voice_runtime
 from imprint.voice_memory import VoiceMemoryError
+from emulation import slack
 from test_chat_stream import call_chunk, remote_provider, text_chunk, tool
 from test_lfm_audio import wav_bytes
 
@@ -131,10 +132,10 @@ class VoiceBoundaryTests(unittest.TestCase):
                 ws.receive_json(); ws.receive_json()
                 ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
                 ws.receive_json(); ws.receive_json()
-                self.assertTrue(started.wait(2))
+                self.assertTrue(started.wait(slack(10)))
                 ws.send_json({"type": "cancel"})
                 self.assertEqual(ws.receive_json(), {"type": "cancelled", "id": 1})
-                self.assertTrue(ended.wait(2))
+                self.assertTrue(ended.wait(slack(10)))
                 stop.assert_awaited()
 
     def test_chat_speaks_long_tail_in_bounded_phrases_without_losing_text(self):
@@ -162,9 +163,9 @@ class VoiceBoundaryTests(unittest.TestCase):
     def test_first_chat_download_has_progress_and_a_separate_budget_without_private_logs(self):
         async def events(*args):
             yield {"type": "download_start", "path": "/PRIVATE/model.gguf", "repo": "PRIVATE"}
-            await asyncio.sleep(.15)
+            await asyncio.sleep(slack(.15))
             yield {"type": "download_progress", "downloaded": 12, "total": 24}
-            await asyncio.sleep(.15)
+            await asyncio.sleep(slack(.15))
             yield {"type": "load_start"}
             yield {"type": "token", "text": "A local answer."}
             yield {"type": "done"}
@@ -174,7 +175,7 @@ class VoiceBoundaryTests(unittest.TestCase):
                 patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
                 patch.object(voice.sessions.worker, "stream", side_effect=native), \
                 patch.object(voice, "chat_events", side_effect=events), \
-                patch.object(voice, "TURN_TIMEOUT", .1), patch.object(voice, "CHAT_SETUP_TIMEOUT", 5):
+                patch.object(voice, "TURN_TIMEOUT", slack(.1)), patch.object(voice, "CHAT_SETUP_TIMEOUT", slack(5)):
             with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
                 ws.send_json({"token": self.token(engine="chat")}); ws.receive_json(); ws.receive_json()
                 ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
@@ -193,14 +194,14 @@ class VoiceBoundaryTests(unittest.TestCase):
 
         async def native(*args):
             for _ in range(40):
-                await asyncio.sleep(.01)
+                await asyncio.sleep(slack(.01))
                 yield {"type": "audio", "data": audio, "sample_rate": 24000, "format": "pcm16"}
 
         with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
                 patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
                 patch.object(voice.sessions.worker, "stream", side_effect=native), \
                 patch.object(chat, "stream_reply", return_value=iter([{"type": "token", "text": "A complete long reply."}])), \
-                patch.object(voice, "TURN_TIMEOUT", .3):
+                patch.object(voice, "TURN_TIMEOUT", slack(.3)):
             with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
                 ws.send_json({"token": self.token(engine="chat")}); ws.receive_json(); ws.receive_json()
                 ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
@@ -233,7 +234,7 @@ class VoiceBoundaryTests(unittest.TestCase):
                 ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
                 while ws.receive_json()["type"] != "audio":
                     pass
-                self.assertTrue(blocked.wait(2))
+                self.assertTrue(blocked.wait(slack(10)))
                 ws.send_json({"type": "cancel"})
                 self.assertEqual(ws.receive_json(), {"type": "cancelled", "id": 1})
                 stop.assert_awaited()
@@ -277,7 +278,7 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(VoiceMemoryError):
                 window.acknowledge(invalid)
         window.acknowledge(window.sent)
-        await asyncio.wait_for(pending, 1)
+        await asyncio.wait_for(pending, slack(10))
         self.assertEqual(window.sent - window.played, 2)
         with self.assertRaises(VoiceMemoryError):
             window.acknowledge(0)
@@ -329,7 +330,7 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
                 cancelled.set()
         with patch.object(voice, "sessions", registry), patch.object(registry.worker, "start", side_effect=slow_start), \
                 patch.object(registry.worker, "stop", new_callable=AsyncMock) as stop:
-            await asyncio.wait_for(voice.stream(socket), 1)
+            await asyncio.wait_for(voice.stream(socket), slack(10))
             self.assertTrue(cancelled.is_set())
             self.assertFalse(registry.active)
             stop.assert_awaited()

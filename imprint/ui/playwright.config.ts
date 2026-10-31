@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { slack } from './tests/slack';
 
 // The trusted CI runners share their host's network, so concurrent jobs (and
 // a local run on that host) would meet on one fixed port; CI passes a free one.
@@ -12,9 +13,10 @@ export default defineConfig({
   // waits. Two match the hosted runners these tests were tuned on.
   workers: process.env.CI ? 2 : undefined,
   // Even so, a busy host can spend most of a test's 30 s loading the companion's
-  // model and rendering WebGL in software. CI doubles it and retries once; a
-  // test that needs the retry is still reported as flaky.
-  timeout: process.env.CI ? 60_000 : 30_000,
+  // model and rendering WebGL in software. CI stretches every wait (slack) and
+  // retries once; a test that needs the retry is still reported as flaky.
+  timeout: slack(30_000),
+  expect: { timeout: slack(5_000) },
   retries: process.env.CI ? 1 : 0,
   use: { baseURL: `http://127.0.0.1:${port}`, headless: true, trace: 'retain-on-failure' },
   webServer: {

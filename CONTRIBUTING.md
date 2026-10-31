@@ -56,6 +56,10 @@ go build -ldflags "-s -w" -o /tmp/imprint .
 
 Run the same commands locally before pushing. Workflows use a **self-hosted** runner; if CI fails only on the runner, paste the log snippet in the PR.
 
+### Time limits in tests
+
+CI runs on busy self-hosted machines, Windows and macOS VMs and an arm64 runner under qemu emulation ([`docs/ci-runners.md`](docs/ci-runners.md)), all slower than a workstation. Pass every deadline a test waits under through the shared allowance instead of a fixed number: `slack(seconds)` and `until(done, seconds)` from `tests/emulation.py`, `testtime.Slack(d)` from `internal/testtime` in Go tests, and `slack(ms)` from `imprint/ui/tests/slack.ts` in Playwright specs. It multiplies by `IMPRINT_TEST_TIME_SCALE` if set, else 5 under emulation, else 3 when `CI` is set, else 1. Give waits a base of at least 10 s, wait for the condition rather than sleeping, and scale a short timeout the test expects to fire only together with what it races. Set `IMPRINT_TEST_TIME_SCALE` to reproduce a CI run locally or to give a slow machine more room.
+
 ## Commits & releases
 
 - Prefer **Conventional Commits** (`feat:`, `fix:`, `perf:`, `docs:`, `chore:`, …) so automated versioning on `main` can infer semver bumps. See [`docs/building.md`](docs/building.md#release-channels-ci) for which types trigger a release.

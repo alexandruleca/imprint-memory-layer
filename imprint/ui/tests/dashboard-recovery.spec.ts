@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { slack } from './slack';
 
 const stats = { total: 0, projects: [], langs: [], domains: [], types: [], topics: [] };
 const overview = { projects: [], total: 0 };
@@ -18,7 +19,7 @@ test('an open dashboard recovers after its API becomes reachable', async ({ page
   await expect(error).toBeVisible();
   await expect(page.getByText('Reconnecting automatically.', { exact: false })).toBeVisible();
   reachable = true;
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible({ timeout: slack(10_000) });
   await expect(error).toHaveCount(0);
 });
 

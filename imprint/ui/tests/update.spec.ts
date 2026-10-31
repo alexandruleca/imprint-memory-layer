@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { slack } from './slack';
 
 const REPORT = {
   current: 'v0.13.1', latest: 'v0.14.0', name: 'v0.14.0', url: 'https://example.invalid/releases/v0.14.0',
@@ -53,7 +54,7 @@ test('an update waits through the installer handover and reloads into the new ve
   state.running = false;
   state.log = [...state.log, '[+] Installer started: it updates Imprint to v0.14.0 and restarts the dashboard.'];
   await expect(dialog.getByLabel('Updater log')).toContainText('Installer started');
-  await page.waitForTimeout(2500); // at least one more poll
+  await page.waitForTimeout(slack(2500)); // at least one more poll
   await expect(dialog.getByRole('status')).toContainText('Updating to v0.14.0');
   await expect(dialog.getByRole('button', { name: 'Try again' })).toHaveCount(0);
   // The restarted server runs the new release: the page reloads by itself.

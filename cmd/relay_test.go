@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hunter/imprint/internal/testtime"
 	"nhooyr.io/websocket"
 )
 
@@ -35,7 +36,7 @@ func newTestRelay(t *testing.T) string {
 // dialRole opens a WebSocket to the relay as the given role.
 func dialRole(t *testing.T, base, roomID, role string) *websocket.Conn {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	wsURL := fmt.Sprintf("%s/%s?role=%s", base, roomID, role)
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
@@ -46,11 +47,10 @@ func dialRole(t *testing.T, base, roomID, role string) *websocket.Conn {
 	return conn
 }
 
-// waitJoined waits until the relay forwards to role in roomID: a peer that
-// sends before then is held, and more than relayHeldLimit is refused.
-func waitJoined(t *testing.T, roomID, role string) {
+// waitRoom waits until roomID exists and done holds for it, under the room's lock.
+func waitRoom(t *testing.T, roomID, what string, done func(*relayRoom) bool) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(testtime.Slack(10 * time.Second)); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		roomsMu.Lock()
 		room := rooms[roomID]
 		roomsMu.Unlock()
@@ -58,16 +58,25 @@ func waitJoined(t *testing.T, roomID, role string) {
 			continue
 		}
 		room.mu.Lock()
-		ready := room.consumerReady
-		if role == "provider" {
-			ready = room.providerReady
-		}
+		ok := done(room)
 		room.mu.Unlock()
-		if ready {
+		if ok {
 			return
 		}
 	}
-	t.Fatalf("%s never joined room %s", role, roomID)
+	t.Fatalf("room %s never %s", roomID, what)
+}
+
+// waitJoined waits until the relay forwards to role in roomID: a peer that
+// sends before then is held, and more than relayHeldLimit is refused.
+func waitJoined(t *testing.T, roomID, role string) {
+	t.Helper()
+	waitRoom(t, roomID, "forwarded to its "+role, func(room *relayRoom) bool {
+		if role == "provider" {
+			return room.providerReady
+		}
+		return room.consumerReady
+	})
 }
 
 // uniqueRoomID keeps tests from colliding on the package-global rooms map.
@@ -102,7 +111,7 @@ func TestRelayForwardsLargePayload(t *testing.T) {
 	go func() {
 		defer close(done)
 		conn := consumer
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 		defer cancel()
 		_, data, err := conn.Read(ctx)
 		if err != nil {
@@ -114,7 +123,7 @@ func TestRelayForwardsLargePayload(t *testing.T) {
 
 	conn := dialRole(t, base, room, "provider")
 	conn.SetReadLimit(-1)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	if err := conn.Write(ctx, websocket.MessageBinary, payload); err != nil {
 		t.Fatalf("provider write: %v", err)
@@ -122,7 +131,7 @@ func TestRelayForwardsLargePayload(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testtime.Slack(10 * time.Second)):
 		t.Fatal("consumer hung — read-limit still pinching?")
 	}
 
@@ -155,7 +164,7 @@ func TestRelayClosesPeerOnDisconnect(t *testing.T) {
 	provider.Close(websocket.StatusNormalClosure, "bye")
 
 	// Consumer Read must return promptly, not block indefinitely.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	_, _, err := consumer.Read(ctx)
 	if err == nil {
@@ -168,7 +177,7 @@ func TestRelayClosesPeerOnDisconnect(t *testing.T) {
 
 func TestRelayRejectsUnknownRole(t *testing.T) {
 	base := newTestRelay(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	_, resp, err := websocket.Dial(ctx, fmt.Sprintf("%s/%s?role=observer", base, nextRoom(t)), nil)
 	if err == nil {
@@ -184,7 +193,7 @@ func TestRelayRejectsUnknownRole(t *testing.T) {
 func TestRelayRefusesATakenRole(t *testing.T) {
 	base := newTestRelay(t)
 	room := nextRoom(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	provider := dialRole(t, base, room, "provider")
 	first := dialRole(t, base, room, "consumer")
@@ -217,7 +226,7 @@ func TestRelayRefusesATakenRole(t *testing.T) {
 func TestRelayHoldsFramesUntilThePeerJoins(t *testing.T) {
 	base := newTestRelay(t)
 	room := nextRoom(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 
 	consumer := dialRole(t, base, room, "consumer")
@@ -226,8 +235,8 @@ func TestRelayHoldsFramesUntilThePeerJoins(t *testing.T) {
 			t.Fatalf("consumer write %q: %v", msg, err)
 		}
 	}
-	// Let the relay read them while the provider is still absent.
-	time.Sleep(50 * time.Millisecond)
+	// The relay holds them while the provider is still absent.
+	waitRoom(t, room, "held the consumer's frames", func(r *relayRoom) bool { return len(r.held) == 3 })
 
 	provider := dialRole(t, base, room, "provider")
 	if err := consumer.Write(ctx, websocket.MessageText, []byte("after")); err != nil {
@@ -253,7 +262,7 @@ func TestRelayDisconnectsAPeerSendingTooMuchAlone(t *testing.T) {
 	room := nextRoom(t)
 	consumer := dialRole(t, base, room, "consumer")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	chunk := make([]byte, 256<<10)
 	for i := 0; i < 8; i++ {
@@ -279,12 +288,12 @@ func TestRelayClosesOversizedMessages(t *testing.T) {
 	// for the deadline instead (a flake on busy CI hosts); a raw connection
 	// reads the close while it writes.
 	host := strings.TrimPrefix(base, "ws://")
-	conn, err := net.DialTimeout("tcp", host, 3*time.Second)
+	conn, err := net.DialTimeout("tcp", host, testtime.Slack(10*time.Second))
 	if err != nil {
 		t.Fatalf("dial relay: %v", err)
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	conn.SetDeadline(time.Now().Add(testtime.Slack(10 * time.Second)))
 	fmt.Fprintf(conn, "GET /%s?role=provider HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
 		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", room, host)
 	reader := bufio.NewReader(conn)
@@ -386,7 +395,7 @@ func TestRelayCountsPairedSessions(t *testing.T) {
 	provider := dialRole(t, base, paired, "provider")
 
 	// The relay has registered both peers once a frame crosses the room.
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testtime.Slack(10*time.Second))
 	defer cancel()
 	if err := provider.Write(ctx, websocket.MessageBinary, []byte("hello")); err != nil {
 		t.Fatalf("provider write: %v", err)

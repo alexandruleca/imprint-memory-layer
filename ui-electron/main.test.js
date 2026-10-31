@@ -156,7 +156,10 @@ const SETUP = { pid: 7, command: 'setup', phase: 'installing llama.cpp', process
 
 test('while setup holds the service back the splash says what it does', async () => {
   const h = harness({ activity: SETUP, servicePending: true });
-  await new Promise(resolve => setTimeout(resolve, 400));
+  // Until the startup loop has read the activity, however slow the machine.
+  for (const end = Date.now() + 30000; !h.calls.some(call => call[0] === 'activity') && Date.now() < end;) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
   assert.deepEqual(h.calls.find(call => call[0] === 'activity'), ['activity', '/data']);
   assert.equal(h.invoke('startup-state', h.windows[0]).message, 'Waiting for setup: installing llama.cpp (1 of 3 steps, 33%)…');
   assert.equal(h.invoke('startup-state', h.windows[0]).phase, 'starting');

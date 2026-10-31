@@ -4,6 +4,7 @@ import sys
 import unittest
 
 from imprint.processes import is_alive
+from emulation import slack
 
 
 class ProcessTests(unittest.TestCase):
@@ -15,7 +16,7 @@ class ProcessTests(unittest.TestCase):
                 self.assertIsNone(child.poll())
         finally:
             child.terminate()
-            child.wait(timeout=10)
+            child.wait(timeout=slack(10))
         self.assertFalse(is_alive(child.pid))
 
     def test_current_and_invalid_pid(self):

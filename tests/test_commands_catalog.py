@@ -16,6 +16,7 @@ from unittest.mock import patch
 import httpx
 
 from imprint import commands, queue
+from emulation import slack
 
 REPO = Path(__file__).resolve().parents[1]
 SAMPLES = {'switch': True, 'path': '/home/me/project', 'text': 'value', 'project': 'notes', 'client': 'cursor'}
@@ -172,7 +173,7 @@ class NonInteractiveJobTests(unittest.TestCase):
             child = subprocess.Popen([sys.executable, '-c', STDIN_CHILD], env=env, stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
-                child.wait(timeout=60)
+                child.wait(timeout=slack(60))
             except subprocess.TimeoutExpired:
                 child.kill()
                 self.fail('the job waited on standard input')

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from imprint import chat
+from emulation import slack
 
 
 class ProvisioningTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class ProvisioningTests(unittest.TestCase):
         def run(progress_cb=None):
             progress_cb(5, 10)
             if done:
-                done.wait(5)
+                done.wait(slack(10))
             progress_cb(10, 10)
             self.model.write_bytes(b'gguf')
             return self.model, None
@@ -59,7 +60,7 @@ class ProvisioningTests(unittest.TestCase):
             follower.start()
             release.set()
             events = list(first.follow())
-            follower.join(5)
+            follower.join(slack(10))
         download.assert_called_once()
         self.assertEqual(events, seen)
         self.assertEqual([e['type'] for e in events], ['download_start', 'download_progress', 'download_progress', 'download_complete'])

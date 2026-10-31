@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/hunter/imprint/internal/testtime"
 )
 
 // The exit code a holder stopped on Windows reports; Unix holders end by SIGTERM.
@@ -109,7 +111,7 @@ func TestTryAcquireStopsAPreemptibleHolder(t *testing.T) {
 	go func() { done <- holder.Wait() }()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(testtime.Slack(10 * time.Second)):
 		t.Fatal("the preempted holder kept running")
 	}
 	if code := holder.ProcessState.ExitCode(); runtime.GOOS == "windows" && code != preemptedExitCodeForTest {
@@ -199,7 +201,7 @@ func TestPythonWaitsForTheRuntimeLock(t *testing.T) {
 		if err != nil {
 			t.Fatalf("waiting failed: %v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(testtime.Slack(10 * time.Second)):
 		t.Fatal("Python kept waiting after setup released the runtime lock")
 	}
 	if err := WaitRuntime(directory); err != nil {

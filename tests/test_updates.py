@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from imprint import updates
+from emulation import slack
 
 REPORT = {
     'current': 'v0.13.1', 'latest': 'v0.14.0', 'name': 'v0.14.0',
@@ -77,11 +78,12 @@ class UpdateModuleTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == 'nt', 'uses a POSIX script as the CLI')
     def test_start_runs_the_cli_detached_and_status_tails_its_log(self):
-        cli = self._fake_cli("print('[*] Downloading', flush=True)\ntime.sleep(30)")
+        # It runs on past the wait for its line.
+        cli = self._fake_cli(f"print('[*] Downloading', flush=True)\ntime.sleep({slack(30)})")
         with patch.object(updates.job_queue, 'find_imprint_binary', return_value=cli), \
                 patch.object(updates.job_queue, 'active_job', return_value=None):
             updates.start()
-            deadline = time.time() + 10
+            deadline = time.time() + slack(10)
             while time.time() < deadline and not updates.status()['log']:
                 time.sleep(0.05)
             self.assertEqual(updates.status(), {'running': True, 'failed': False, 'log': ['[*] Downloading']})
@@ -97,7 +99,7 @@ class UpdateModuleTests(unittest.TestCase):
             with patch.object(updates.job_queue, 'find_imprint_binary', return_value=self._fake_cli(body)), \
                     patch.object(updates.job_queue, 'active_job', return_value=None):
                 updates.start()
-                updates._process.wait(timeout=10)
+                updates._process.wait(timeout=slack(10))
                 self.assertEqual(updates.status()['running'], False)
                 self.assertEqual(updates.status()['failed'], failed)
 

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hunter/imprint/internal/testtime"
 )
 
 func TestOwnedBy(t *testing.T) {
@@ -66,7 +68,7 @@ func TestHelperSleep(t *testing.T) {
 	if os.Getenv("IMPRINT_TEST_SLEEPER") != "1" {
 		t.Skip("helper process")
 	}
-	time.Sleep(time.Minute)
+	time.Sleep(testtime.Slack(time.Minute)) // past every wait of the test that started it
 }
 
 func TestStopOwnedProcessesEndsOnlyThisInstallation(t *testing.T) {
@@ -90,7 +92,7 @@ func TestStopOwnedProcessesEndsOnlyThisInstallation(t *testing.T) {
 	for name, done := range map[string]chan struct{}{"install process": fromInstall, "desktop shell": shell} {
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(testtime.Slack(10 * time.Second)):
 			t.Errorf("%s still running", name)
 		}
 	}
@@ -130,7 +132,7 @@ func TestStopOwnedProcessesSparesTheRestartedServer(t *testing.T) {
 	}
 	select {
 	case <-otherDone:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testtime.Slack(10 * time.Second)):
 		t.Errorf("process %d still running", other.Process.Pid)
 	}
 	select {
@@ -138,7 +140,7 @@ func TestStopOwnedProcessesSparesTheRestartedServer(t *testing.T) {
 		t.Error("the excepted server was stopped")
 	default:
 	}
-	if !waitForExit([]int{other.Process.Pid}, time.Second) || waitForExit([]int{server.Process.Pid}, 200*time.Millisecond) {
+	if !waitForExit([]int{other.Process.Pid}, testtime.Slack(10*time.Second)) || waitForExit([]int{server.Process.Pid}, 200*time.Millisecond) {
 		t.Error("waitForExit does not tell an exited process from a running one")
 	}
 }
@@ -160,7 +162,7 @@ func startSleeper(t *testing.T, binary string, extra ...string) (*exec.Cmd, chan
 // CI's emulated arm64 runner does (ADR 0112): there /proc/<pid>/exe names
 // the interpreter, not the program, so no process looks like the install's.
 func skipUnderEmulation(t *testing.T, pid int) {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testtime.Slack(10 * time.Second))
 	for time.Now().Before(deadline) {
 		procs, err := listProcesses()
 		if err != nil {
@@ -193,7 +195,7 @@ func countOwned(t *testing.T, bin, project string) int {
 }
 
 func waitUntil(t *testing.T, ok func() bool) {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(testtime.Slack(10 * time.Second))
 	for !ok() {
 		if time.Now().After(deadline) {
 			t.Fatal("condition not reached")

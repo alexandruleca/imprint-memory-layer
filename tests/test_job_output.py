@@ -4,12 +4,12 @@ import asyncio
 import os
 import sys
 import textwrap
-import time
 import unittest
 from unittest.mock import patch
 
 from imprint import queue
 from test_queue_priority import QueueCase
+from emulation import slack, until
 
 
 class JobOutputTests(QueueCase):
@@ -20,7 +20,7 @@ class JobOutputTests(QueueCase):
         child = textwrap.dedent(f'''
             import os, time
             print("Scanning")
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + {slack(20)}  # longer than the test waits for this line
             while not os.path.exists({str(seen)!r}) and time.monotonic() < deadline:
                 time.sleep(0.05)
         ''')
@@ -29,12 +29,11 @@ class JobOutputTests(QueueCase):
             job_id = queue.enqueue('status', {})
             run = asyncio.create_task(queue._run_job(queue.get_job(job_id)))
             log = queue._logs_dir() / f'{job_id}.log'
-            deadline = time.monotonic() + 15
-            while not run.done() and time.monotonic() < deadline:
-                if log.exists() and 'Scanning' in log.read_text(encoding='utf-8'):
-                    seen.touch()
-                    break
-                await asyncio.sleep(0.05)
+
+            def printed():
+                return log.exists() and 'Scanning' in log.read_text(encoding='utf-8')
+            if await until(lambda: run.done() or printed(), 15, every=.05) and not run.done():
+                seen.touch()
             while_running = seen.exists()
             await run
             return while_running

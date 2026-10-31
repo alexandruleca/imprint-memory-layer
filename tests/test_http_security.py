@@ -7,6 +7,7 @@ from unittest.mock import patch
 import httpx
 
 from imprint.http_security import local_origin, local_host, loopback_address
+from emulation import slack
 
 
 class OriginTests(unittest.TestCase):
@@ -101,14 +102,14 @@ class LegacyGraphBoundaryTests(unittest.TestCase):
                 for method in ('GET', 'POST', 'DELETE', 'OPTIONS'):
                     for headers in ({'Host': 'evil.example'}, {'Origin': 'https://evil.example'},
                                     {'Origin': 'null'}, {'Origin': ''}):
-                        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+                        connection = http.client.HTTPConnection(*server.server_address, timeout=slack(10))
                         try:
                             connection.request(method, '/api/chat/sessions', headers=headers)
                             self.assertEqual(connection.getresponse().status, 403)
                         finally:
                             connection.close()
                 create.assert_not_called()
-            connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+            connection = http.client.HTTPConnection(*server.server_address, timeout=slack(10))
             try:
                 connection.request('GET', '/')
                 response = connection.getresponse()
@@ -120,4 +121,4 @@ class LegacyGraphBoundaryTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
-            thread.join(timeout=3)
+            thread.join(timeout=slack(10))

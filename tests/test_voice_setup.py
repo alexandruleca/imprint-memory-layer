@@ -17,6 +17,7 @@ from starlette.testclient import TestClient
 
 from imprint import voice_api as voice, voice_setup as setup, lfm_audio as lfm
 from imprint.voice_memory import VoiceMemoryError
+from emulation import slack
 
 
 class SetupBoundaryTests(unittest.TestCase):
@@ -147,11 +148,11 @@ time.sleep(120)
                 handle = kernel.OpenProcess(0x100001, False, descendant)
                 self.assertTrue(handle)
             process.stdin.close()
-            process.wait(timeout=15)
+            process.wait(timeout=slack(15))
             if os.name == "nt":
-                self.assertEqual(kernel.WaitForSingleObject(handle, 5000), 0)
+                self.assertEqual(kernel.WaitForSingleObject(handle, round(slack(10) * 1000)), 0)
             else:
-                for _ in range(50):
+                for _ in range(round(slack(100))):
                     state = subprocess.run(["ps", "-o", "stat=", "-p", str(descendant)], capture_output=True, text=True).stdout.strip()
                     if not state or state.startswith("Z"): break
                     time.sleep(.1)

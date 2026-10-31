@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 
 from imprint.desktop_server import watch_parent
 
-from emulation import REASON as EMULATED, emulated
+from emulation import REASON as EMULATED, emulated, slack
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,14 +37,14 @@ class ParentWatchTests(unittest.TestCase):
             'from imprint.desktop_server import watch_parent; '
             'threading.Thread(target=watch_parent, args=(sys.stdin.buffer, '
             'threading.Event(), threading.Event(), .1), daemon=True).start(); '
-            'print("ready", flush=True); time.sleep(30)'
+            'print("ready", flush=True); time.sleep(600)'  # outlasts the wait below, which it must not pass
         )
         proc = subprocess.Popen([sys.executable, '-c', code], cwd=ROOT,
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         try:
             self.assertEqual(proc.stdout.readline().strip(), b'ready')
             proc.stdin.close()
-            self.assertEqual(proc.wait(timeout=5), 0)
+            self.assertEqual(proc.wait(timeout=slack(10)), 0)
         finally:
             if proc.poll() is None:
                 proc.kill()
@@ -68,10 +68,10 @@ class ParentWatchTests(unittest.TestCase):
             line = []
             reader = threading.Thread(target=lambda: line.append(proc.stdout.readline()), daemon=True)
             reader.start()
-            reader.join(60)
+            reader.join(slack(60))
             self.assertEqual([l.strip() for l in line], [b"stdin ''"])
             proc.stdin.close()
-            self.assertEqual(proc.wait(timeout=15), 0)
+            self.assertEqual(proc.wait(timeout=slack(15)), 0)
         finally:
             if proc.poll() is None:
                 proc.kill()
@@ -91,7 +91,7 @@ class ParentWatchTests(unittest.TestCase):
             cwd=ROOT, env=env, stdin=subprocess.PIPE, stdout=log, stderr=log,
         )
         self.addCleanup(self.reap, proc)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + slack(30)
         while True:
             try:
                 with urlopen(f'http://127.0.0.1:{port}/api/ping', timeout=.5) as res:
@@ -120,7 +120,7 @@ class ParentWatchTests(unittest.TestCase):
             # No UI heartbeat is needed while Electron holds the pipe.
             self.assertIsNone(proc.poll())
             proc.stdin.close()
-            self.assertEqual(proc.wait(timeout=15), 0)
+            self.assertEqual(proc.wait(timeout=slack(15)), 0)
             with socket.socket() as sock:
                 self.assertNotEqual(sock.connect_ex(('127.0.0.1', port)), 0)
             self.assertFalse(registration.exists())
@@ -130,10 +130,10 @@ class ParentWatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data, tempfile.TemporaryFile() as log:
             proc, port = self.serve(data, log)
             request = Request(f'http://127.0.0.1:{port}/api/restart', method='POST')
-            with urlopen(request, timeout=5) as res:
+            with urlopen(request, timeout=slack(10)) as res:
                 self.assertEqual(json.load(res), {'restarting': True})
             # Electron still holds the pipe: the exit status asks it to restart.
-            self.assertEqual(proc.wait(timeout=15), RESTART_EXIT_CODE)
+            self.assertEqual(proc.wait(timeout=slack(15)), RESTART_EXIT_CODE)
             self.assertFalse((Path(data) / 'imprint_ui.json').exists())
 
     def test_service_waits_while_setup_changes_the_runtime(self):
