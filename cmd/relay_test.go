@@ -46,6 +46,30 @@ func dialRole(t *testing.T, base, roomID, role string) *websocket.Conn {
 	return conn
 }
 
+// waitJoined waits until the relay forwards to role in roomID: a peer that
+// sends before then is held, and more than relayHeldLimit is refused.
+func waitJoined(t *testing.T, roomID, role string) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		roomsMu.Lock()
+		room := rooms[roomID]
+		roomsMu.Unlock()
+		if room == nil {
+			continue
+		}
+		room.mu.Lock()
+		ready := room.consumerReady
+		if role == "provider" {
+			ready = room.providerReady
+		}
+		room.mu.Unlock()
+		if ready {
+			return
+		}
+	}
+	t.Fatalf("%s never joined room %s", role, roomID)
+}
+
 // uniqueRoomID keeps tests from colliding on the package-global rooms map.
 var roomCounter int
 
@@ -70,11 +94,14 @@ func TestRelayForwardsLargePayload(t *testing.T) {
 
 	var got []byte
 	done := make(chan struct{})
+	consumer := dialRole(t, base, room, "consumer")
+	consumer.SetReadLimit(-1)
+	// The 2 MiB message is more than the relay holds for an absent peer.
+	waitJoined(t, room, "consumer")
 
 	go func() {
 		defer close(done)
-		conn := dialRole(t, base, room, "consumer")
-		conn.SetReadLimit(-1)
+		conn := consumer
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_, data, err := conn.Read(ctx)
@@ -84,9 +111,6 @@ func TestRelayForwardsLargePayload(t *testing.T) {
 		}
 		got = data
 	}()
-
-	// Let the consumer register on the relay before the provider writes.
-	time.Sleep(100 * time.Millisecond)
 
 	conn := dialRole(t, base, room, "provider")
 	conn.SetReadLimit(-1)
@@ -122,8 +146,7 @@ func TestRelayClosesPeerOnDisconnect(t *testing.T) {
 	consumer := dialRole(t, base, room, "consumer")
 	consumer.SetReadLimit(-1)
 
-	// Let the consumer register before the provider connects.
-	time.Sleep(50 * time.Millisecond)
+	waitJoined(t, room, "consumer")
 
 	provider := dialRole(t, base, room, "provider")
 	provider.SetReadLimit(-1)
