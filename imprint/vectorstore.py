@@ -22,6 +22,7 @@ import atexit
 import gc
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -232,17 +233,19 @@ def _stored_versions(client, coll: str, records: list[dict], *, redacted_only: b
             return found
 
 
-def _redacted(records: list[dict], workspace: str) -> list[dict]:
+def _redacted(records: list[dict], workspace: str, filtered: list[bool] | None = None) -> list[dict]:
     """Records with their secrets replaced, before anything derives from
     their content (ADR 0060). A record takes the content of the most redacted
     version of itself this workspace holds or receives with it, so a stricter
     device's redaction wins here too and a looser copy is never stored. A
     source chunk's prefix is derived context, not source text (ADR 0081):
-    only the text after it is redacted."""
+    only the text after it is redacted. ``filtered``: the records the
+    Privacy Filter has already gone over (ADR 0122)."""
     from .redaction import kinds, redact_all, redacted, supersedes
     prefixes = [r.get("source_prefix", "") for r in records]
-    records = [{**r, "content": prefix + text} for r, prefix, text in
-               zip(records, prefixes, redact_all([r["content"][len(prefix):] for r, prefix in zip(records, prefixes)]))]
+    texts = [r["content"][len(prefix):] for r, prefix in zip(records, prefixes)]
+    texts = redact_all(texts, filtered) if filtered and any(filtered) else redact_all(texts)
+    records = [{**r, "content": prefix + text} for r, prefix, text in zip(records, prefixes, texts)]
     client, coll = _ensure_collection(workspace)
     versions = {position: [(p.payload or {}).get("content", "") for p in points] for position, points in
                 _stored_versions(client, coll, records, redacted_only=True).items()}
@@ -717,17 +720,59 @@ def replace_source(records: list[dict], source: str, project: str,
     return inserted, skipped
 
 
+FILTER_MARK = "privacy_filter"  # The Privacy Filter a sender ran over a synced record (ADR 0122).
+
+
+def _filtered_by_sender(record: dict) -> bool:
+    from .model_profiles import PRIVACY_FILTER_IDENTITY
+    return record.get(FILTER_MARK) == PRIVACY_FILTER_IDENTITY
+
+
 def _redacted_received(records: list[dict], workspace: str) -> list[dict]:
     """Received records after this device's redaction. A record it changes
-    takes the ID of its redacted content and drops the sender's vector."""
+    takes the ID of its redacted content and drops the sender's vector. The
+    Privacy Filter skips a record its sender marked as gone over by this
+    same filter (ADR 0122); the rules and the stricter-version check still
+    apply to it."""
     out = []
-    for record, redacted in zip(records, _redacted(records, workspace)):
+    marked = [_filtered_by_sender(record) for record in records]
+    for record, redacted in zip(records, _redacted(records, workspace, marked)):
         if redacted["content"] != record["content"]:
             redacted["vector"] = None
             if record.get("id"):
                 redacted["id"] = relabeled_id(record["id"], record, content=redacted["content"])
+        redacted.pop(FILTER_MARK, None)
         out.append(redacted)
     return out
+
+
+def filtered_for_peer(records: list[dict]) -> list[dict]:
+    """Outgoing sync records, marked with this device's Privacy Filter
+    identity where it has gone over them unchanged (ADR 0122), so the
+    receiver need not run the model again. Only when the filter is on and
+    runs on a GPU here: a CPU-only device leaves the work to the receiver.
+
+    A record the filter (or the rules) would change is sent as stored and
+    unmarked: its ID and vector derive from its stored content, and the
+    receiver redacts it, takes the new ID and embeds it again, as before.
+    Any failure sends the records unmarked."""
+    from .config_schema import resolve
+    if not records or not resolve("redact.privacy_filter")[0]:
+        return records
+    from . import privacy_filter
+    from .model_profiles import PRIVACY_FILTER_IDENTITY
+    from .redaction import redact_all
+    try:
+        if not privacy_filter.accelerated():
+            return records
+        prefixes = [r.get("source_prefix", "") for r in records]
+        texts = [r.get("content", "")[len(prefix):] for r, prefix in zip(records, prefixes)]
+        redacted = redact_all(texts)
+    except Exception as error:
+        logging.getLogger(__name__).warning("Sending records for the other device to filter: %s", error)
+        return records
+    return [{**r, FILTER_MARK: PRIVACY_FILTER_IDENTITY} if after == before else r
+            for r, before, after in zip(records, texts, redacted)]
 
 
 def store_batch_precomputed(records: list[dict], workspace: str | None = None) -> tuple[int, int, int]:

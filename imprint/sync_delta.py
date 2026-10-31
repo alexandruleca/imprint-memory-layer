@@ -142,7 +142,8 @@ def export_chunks(workspace: str, keys: dict[str, list[str]]):
         records = [sync_ws.memory_record(pl, identity) for pl in vs.retrieve_payloads(
             mids[start:start + CHUNK_RECORDS], sync_ws.MEMORY_FIELDS + TRANSFER_FIELDS, workspace, with_vectors=True)]
         if records:
-            yield _stream(memories=records)
+            # A GPU here runs the Privacy Filter for the other device (ADR 0122).
+            yield _stream(memories=vs.filtered_for_peer(records))
 
     wanted_facts = set(keys.get('facts', []))
     if wanted_facts:

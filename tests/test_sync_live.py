@@ -89,7 +89,7 @@ class LiveSyncTests(unittest.TestCase):
         self.importer = Mock(side_effect=importer)
         for item in (patch.object(config, 'get_data_dir', return_value=self.data),
                      patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}),
-                     patch.object(sync_ws, 'stream_export_lines', self.export),
+                     patch.object(sync_ws, 'export_lines', self.export),
                      patch.object(sync_ws, 'process_import_buffer', self.importer)):
             item.start()
             self.addCleanup(item.stop)

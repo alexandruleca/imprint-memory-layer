@@ -569,12 +569,19 @@ def memory_record(pl: dict, identity: str) -> dict:
 
 
 def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) -> list[str]:
-    """Generate JSONL lines for a full export (memories + facts with vectors)
-    of ``workspace``.
+    """JSONL lines for a full export (memories + facts with vectors) of
+    ``workspace``.
 
     The workspace is explicit: this runs inside the long-lived API process,
     whose active workspace can change mid-session.
     """
+    return list(export_lines(workspace, batch_size))
+
+
+def export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE):
+    """The lines of :func:`stream_export_lines` as they are made: the sender
+    can send each batch while the next goes through its Privacy Filter
+    (ADR 0122)."""
     from . import vectorstore as vs
 
     try:
@@ -594,12 +601,10 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
         except Exception:
             fact_total = 0
 
-    lines: list[str] = []
+    def line(obj: dict) -> str:
+        return json.dumps(obj, separators=(",", ":"))
 
-    def emit(obj: dict) -> None:
-        lines.append(json.dumps(obj, separators=(",", ":")))
-
-    emit({"kind": "meta", "datasets": {"memories": mem_total, "facts": fact_total}, "vectors": True})
+    yield line({"kind": "meta", "datasets": {"memories": mem_total, "facts": fact_total}, "vectors": True})
 
     # Stream memories with vectors
     if mem_total > 0:
@@ -611,11 +616,11 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
             buf.append(memory_record(pl, identity))
             if len(buf) >= batch_size:
                 seq += 1
-                emit({"kind": "batch", "dataset": "memories", "seq": seq, "records": buf})
+                yield line({"kind": "batch", "dataset": "memories", "seq": seq, "records": vs.filtered_for_peer(buf)})
                 buf = []
         if buf:
             seq += 1
-            emit({"kind": "batch", "dataset": "memories", "seq": seq, "records": buf})
+            yield line({"kind": "batch", "dataset": "memories", "seq": seq, "records": vs.filtered_for_peer(buf)})
 
     # Stream facts
     if fact_total > 0 and kg is not None:
@@ -637,13 +642,12 @@ def stream_export_lines(workspace: str, batch_size: int = DEFAULT_BATCH_SIZE) ->
         ]
         for i in range(0, len(records), batch_size):
             seq = i // batch_size + 1
-            emit({"kind": "batch", "dataset": "facts", "seq": seq, "records": records[i:i + batch_size]})
+            yield line({"kind": "batch", "dataset": "facts", "seq": seq, "records": records[i:i + batch_size]})
 
     from . import source_snapshots
     for frame in source_snapshots.export_parts(workspace):
-        emit(frame)
-    emit({"kind": "done"})
-    return lines
+        yield line(frame)
+    yield line({"kind": "done"})
 
 
 def process_import_buffer(
@@ -699,7 +703,7 @@ def process_import_buffer(
                 "id": r.get("id"),
                 "embedding_identity": r.get("embedding_identity"),
             }
-            p.update({key: r[key] for key in TRANSFER_FIELDS + ["llm_tagged", "tagged_at"] if key in r})
+            p.update({key: r[key] for key in TRANSFER_FIELDS + ["llm_tagged", "tagged_at", vs.FILTER_MARK] if key in r})
             payloads.append(prepare(p, imported=True))
         ins, upd, sk = vs.store_batch_precomputed(payloads, workspace=workspace)
         stats["memories"]["inserted"] += int(ins)
@@ -902,15 +906,18 @@ async def resume_session(pending: PendingDownload) -> AsyncGenerator[dict, None]
 
 async def _send_export(channel: _Channel, workspace: str, phase: str, cancel: asyncio.Event):
     """Stream this workspace to the peer, yielding ``progress`` events."""
-    try:
-        lines = await asyncio.to_thread(stream_export_lines, workspace)
-    except Exception:
-        await channel.send({"kind": "error", "message": "the other machine could not export its memories"})
-        raise
+    lines = iter(export_lines(workspace))
     totals: dict[str, int] = {}
     sent: dict[str, int] = {}
-    for line in lines:
+    while True:
         _check_cancel(cancel)
+        try:
+            line = await asyncio.to_thread(next, lines, None)
+        except Exception:
+            await channel.send({"kind": "error", "message": "the other machine could not export its memories"})
+            raise
+        if line is None:
+            break
         await channel.send_line(line)
         msg = json.loads(line)
         kind = msg.get("kind")

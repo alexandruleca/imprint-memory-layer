@@ -189,15 +189,19 @@ def apply(text: str, spans) -> str:
     return text
 
 
-def redact_all(texts: list[str]) -> list[str]:
-    """``texts`` with their secrets replaced (ADR 0060)."""
+def redact_all(texts: list[str], filtered: list[bool] | None = None) -> list[str]:
+    """``texts`` with their secrets replaced (ADR 0060). ``filtered`` marks
+    the texts this device's Privacy Filter has already gone over (a paired
+    device did, ADR 0122): the rules still run on them, the model does not."""
     out = [apply(text, rule_spans(text)) if text else text for text in texts]
     from .config_schema import resolve
     if not resolve("redact.privacy_filter")[0]:
         return out
     from . import privacy_filter
+    skip = filtered or [False] * len(out)
     try:
-        return [apply(text, privacy_filter.spans(text)) if text.strip() else text for text in out]
+        return [apply(text, privacy_filter.spans(text)) if text.strip() and not done else text
+                for text, done in zip(out, skip)]
     except Exception as error:
         raise RuntimeError(
             f"Privacy Filter is on (redact.privacy_filter) but could not run: {error}. Nothing was stored. "

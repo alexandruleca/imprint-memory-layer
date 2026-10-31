@@ -52,7 +52,7 @@ class PairedSyncTests(unittest.TestCase):
         patches = [patch.object(config, 'get_data_dir', side_effect=lambda: self.dirs[self.side.get()]),
                    patch.dict(os.environ, {'IMPRINT_WORKSPACE': ''}),
                    patch.object(sync_ws, 'get_device_identity', side_effect=lambda: self.identities[self.side.get()]),
-                   patch.object(sync_ws, 'stream_export_lines', self.export),
+                   patch.object(sync_ws, 'export_lines', self.export),
                    patch.object(sync_ws, 'process_import_buffer', side_effect=importer),
                    patch.object(sync_delta, 'manifest', side_effect=lambda ws: self.manifests[self.side.get()]),
                    patch.object(sync_delta, 'export_chunks', side_effect=self.chunks)]
