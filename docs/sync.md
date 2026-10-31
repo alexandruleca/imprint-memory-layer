@@ -91,7 +91,7 @@ only what the other lacks or holds an older version of. An unchanged workspace
 sends nothing else. The records travel in chunks of up to 200 memories (with
 their vectors) or facts, or one source snapshot, and the receiver stores and
 acknowledges each before the next, so an interrupted sync keeps what arrived
-and the next attempt sends the rest. An attempt runs as long as it makes
+and the next attempt sends the rest. The sender prepares the next chunk while the other device stores the last ([ADR 0123](adr/0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md)). An attempt runs as long as it makes
 progress; it stops after 10 minutes without any. Both devices need the same
 release for this; a device on an older one gets and sends whole workspaces, as
 before ([ADR 0116](adr/0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md)).

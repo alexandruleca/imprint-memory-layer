@@ -3,12 +3,13 @@ title: ADR 0122 — The Privacy Filter runs on a GPU that passes a probe, and th
 description: Setup installs ONNX Runtime's build for a GPU it finds; the Privacy Filter uses that GPU only when it labels exactly like the CPU and clearly faster; a device whose filter runs on a GPU filters the memories it sends and marks them, and a receiver with the same filter skips the model for marked records but still applies the rules.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-31
 - Scope: CUDA was verified on Linux x64 with an RTX 5070 Ti. CUDA on Windows, MIGraphX on AMD with ROCm, DirectML and Core ML were tested only with stand-ins; see Validation.
 - Amends:
   - [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) — the pinned export (q4 instead of q4f16), the runtime (a GPU that passes the probe, else the CPU), and the receiver's Privacy Filter skipping records a paired sender marked as filtered by the same model
   - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — ONNX Runtime may be a GPU build again, for the Privacy Filter only, in place of the CPU build
+- Amended by: [ADR 0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) — the sender filters the next chunk while the other device stores the last
 - Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md) (one ONNX Runtime per environment, unchanged), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0113](0113-unchosen-install-profiles-try-the-gpu.md), [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md), [ADR 0120](0120-a-device-storing-a-chunk-says-so.md)
 
 ## Context

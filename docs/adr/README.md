@@ -101,7 +101,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0024](0024-enforce-local-service-boundaries.md) **Enforce local service boundaries.** Loopback-only managed Qdrant, dashboard peer validation, legacy graph browser checks and explicit container isolation.
 - [ADR 0033](0033-stored-secret-settings.md) **Stored secret settings.** Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence.
 - [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) **Redact secrets before memories are stored.** Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` first; the most redacted version of a memory wins on every synced device; OpenAI Privacy Filter is opt-in. Amended by [ADR 0122](0122-the-sending-device-filters-on-its-gpu.md) (GPU, q4 export, the receiver trusts a sender's filter mark).
-- [ADR 0122](0122-the-sending-device-filters-on-its-gpu.md) **The Privacy Filter runs on a GPU that passes a probe, and that device filters what it syncs.** Setup installs ONNX Runtime's CUDA, ROCm (MIGraphX) or DirectML build for a GPU it finds; the filter keeps a GPU only when it labels exactly like the CPU and at least 1.5x faster; a device whose filter runs on a GPU marks the memories it sends as filtered, and a receiver with the same filter skips the model for them but still applies the rules.
+- [ADR 0122](0122-the-sending-device-filters-on-its-gpu.md) **The Privacy Filter runs on a GPU that passes a probe, and that device filters what it syncs.** Setup installs ONNX Runtime's CUDA, ROCm (MIGraphX) or DirectML build for a GPU it finds; the filter keeps a GPU only when it labels exactly like the CPU and at least 1.5x faster; a device whose filter runs on a GPU marks the memories it sends as filtered, and a receiver with the same filter skips the model for them but still applies the rules. Amended by [ADR 0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) (the next chunk is filtered while the last is stored).
+- [ADR 0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) **A paired sender prepares the next chunk while the other device stores the last.** One chunk ahead at most, frames unchanged; a send that ends early drops it and waits for its thread.
 
 ### MCP clients and hooks
 
@@ -314,7 +315,8 @@ Every record in number order. *Date* is when the decision was made.
 | [0119](0119-throwaway-runners-carry-cis-dependencies.md) | 2026-10-30 | Accepted | Throwaway runners carry CI's dependencies, and the dashboard is built once |
 | [0120](0120-a-device-storing-a-chunk-says-so.md) | 2026-10-31 | Accepted | A device storing a synced chunk says so |
 | [0121](0121-optional-tools-install-when-turned-on.md) | 2026-10-31 | Accepted | Optional ingestion tools install when turned on |
-| [0122](0122-the-sending-device-filters-on-its-gpu.md) | 2026-10-31 | Accepted | The Privacy Filter runs on a GPU that passes a probe, and that device filters what it syncs |
+| [0122](0122-the-sending-device-filters-on-its-gpu.md) | 2026-10-31 | Amended by [ADR 0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) | The Privacy Filter runs on a GPU that passes a probe, and that device filters what it syncs |
+| [0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) | 2026-10-31 | Accepted | A paired sender prepares the next chunk while the other device stores the last |
 
 ## How to write and maintain ADRs
 
