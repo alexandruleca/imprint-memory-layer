@@ -30,3 +30,8 @@ WORKDIR /app
 COPY requirements/base.lock.txt requirements/cpu.lock.txt requirements/llm.lock.txt /app/requirements/
 RUN python -m venv /app/.venv \
     && /app/.venv/bin/pip install --no-cache-dir --require-hashes -r /app/requirements/base.lock.txt -r /app/requirements/cpu.lock.txt -r /app/requirements/llm.lock.txt
+
+# The user Imprint runs as. Dockerfile.imprint switches to root to add
+# Imprint and back to this user, so neither image runs as root.
+RUN useradd --create-home --uid 1000 imprint
+USER imprint

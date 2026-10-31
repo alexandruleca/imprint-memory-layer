@@ -38,6 +38,8 @@ RUN npm run build
 
 # ── Stage 2: Python runtime ───────────────────────────────────────────
 FROM ${BASE_IMAGE}
+# The base ends as its non-root user; adding Imprint needs root.
+USER root
 
 ARG VERSION=dev
 ENV IMPRINT_VERSION=${VERSION} \
@@ -65,10 +67,9 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN ln -s /app/bin/imprint /usr/local/bin/imprint \
     && chmod +x /app/bin/imprint /usr/local/bin/entrypoint.sh
 
-# Run as non-root. /data and /workspace are owned by this user so volume
-# mounts from the host Just Work (user overrides with -u if they prefer).
-RUN useradd --create-home --uid 1000 imprint \
-    && mkdir -p /data /workspace \
+# Run as non-root, the base's user. /data and /workspace are owned by it so
+# volume mounts from the host Just Work (user overrides with -u if they prefer).
+RUN mkdir -p /data /workspace \
     && chown imprint:imprint /data /workspace
 
 USER imprint

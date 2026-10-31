@@ -24,5 +24,7 @@ scan:
 
 pkg:
   include-dev-deps: true
+# Accepted findings, each scoped to its files and explained there.
+ignorefile: .trivyignore.yaml
 exit-code: 0
 timeout: 10m

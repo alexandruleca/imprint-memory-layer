@@ -1,0 +1,10 @@
+# Accepted findings, each limited to the files it applies to, with the reason.
+misconfigurations:
+  - id: DS-0002
+    paths:
+      - .github/runners/Dockerfile.ci-runner
+    statement: >-
+      The throwaway CI runners run as root, as the upstream runner image does
+      (RUNNER_ALLOW_RUNASROOT): jobs install packages. Each runs one job in a
+      container without the Docker socket or a token and is then discarded
+      (ADR 0112).
