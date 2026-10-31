@@ -47,6 +47,7 @@ test('download bytes remain visible across navigation; preparation has no fabric
   await expect(page.getByRole('progressbar', { name: 'Voice model download' })).toHaveAttribute('aria-valuenow', '50');
   await expect(page.getByText('537 MB of 1.07 GB')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('echo-download-progress.png'), fullPage: true });
+  await page.getByRole('button', { name: 'System' }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   const indicator = page.getByRole('link', { name: /Echo · 50%.*View voice setup/ });
   await expect(indicator).toBeVisible();

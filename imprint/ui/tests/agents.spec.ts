@@ -76,3 +76,22 @@ test('the sidebar links to the Agents page', async ({ page }) => {
   await page.getByRole('link', { name: 'Agents' }).click();
   await expect(page).toHaveURL(/\/agents\/?$/);
 });
+
+test('the sidebar groups pages and remembers which groups are open', async ({ page }) => {
+  await mockApi(page, []);
+  await page.goto('/queue/');
+  const pages = page.getByRole('navigation', { name: 'Pages' });
+  const system = pages.getByRole('button', { name: 'System' });
+  // Activity holds the open page, so it stays open; System starts collapsed.
+  await expect(pages.getByRole('button', { name: 'Activity' })).toBeDisabled();
+  await expect(pages.getByRole('link', { name: 'Agents' })).toBeVisible();
+  await expect(system).toHaveAttribute('aria-expanded', 'false');
+  await expect(pages.getByRole('link', { name: 'Settings' })).toBeHidden();
+  await system.click();
+  await expect(pages.getByRole('link', { name: 'Settings' })).toBeVisible();
+  await pages.getByRole('button', { name: 'Memory' }).click();
+  await expect(pages.getByRole('link', { name: 'Graph' })).toBeHidden();
+  await page.reload();
+  await expect(pages.getByRole('link', { name: 'Settings' })).toBeVisible();
+  await expect(pages.getByRole('link', { name: 'Graph' })).toBeHidden();
+});
