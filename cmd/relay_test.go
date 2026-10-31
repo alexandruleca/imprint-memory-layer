@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -246,16 +249,37 @@ func TestRelayClosesOversizedMessages(t *testing.T) {
 	base := newTestRelay(t)
 	room := nextRoom(t)
 	_ = dialRole(t, base, room, "consumer")
-	provider := dialRole(t, base, room, "provider")
-	provider.SetReadLimit(-1)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	// The relay refuses the frame from its header and closes while the 80 MiB
-	// payload is still being sent, so read the close while the write runs.
-	go provider.Write(ctx, websocket.MessageBinary, make([]byte, relayMaxMessage+1))
-	if _, _, err := provider.Read(ctx); websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
+	// The relay refuses the frame once it has read past the limit, while the
+	// rest is still being sent. A websocket client still writing holds its
+	// write side, so it cannot answer the relay's close and its read waits
+	// for the deadline instead (a flake on busy CI hosts); a raw connection
+	// reads the close while it writes.
+	host := strings.TrimPrefix(base, "ws://")
+	conn, err := net.DialTimeout("tcp", host, 3*time.Second)
+	if err != nil {
+		t.Fatalf("dial relay: %v", err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	fmt.Fprintf(conn, "GET /%s?role=provider HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n", room, host)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("websocket handshake: %v %v", resp, err)
+	}
+	// A final binary frame, masked as a client's must be, with a 64-bit length.
+	// A zero mask leaves the zero payload as it is.
+	header := binary.BigEndian.AppendUint64([]byte{0x82, 0x80 | 127}, relayMaxMessage+1)
+	go conn.Write(append(append(header, 0, 0, 0, 0), make([]byte, relayMaxMessage+1)...))
+	// The relay's reply: an unmasked close frame whose payload starts with the status.
+	frame := make([]byte, 4)
+	if _, err := io.ReadFull(reader, frame); err != nil {
 		t.Fatalf("oversized message not refused: %v", err)
+	}
+	if frame[0] != 0x88 || websocket.StatusCode(binary.BigEndian.Uint16(frame[2:])) != websocket.StatusMessageTooBig {
+		t.Fatalf("oversized message not refused with %v: frame % x", websocket.StatusMessageTooBig, frame)
 	}
 }
 

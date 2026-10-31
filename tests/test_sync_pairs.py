@@ -109,13 +109,13 @@ class PairedSyncTests(unittest.TestCase):
                          provider_events + consumer_events)
         return provider_events, consumer_events
 
-    async def repeat(self):
+    async def repeat(self, timeout=10):
         async def attempt():
             await sync_pairs._attempt(sync_pairs.pairs()[0])
         a = asyncio.create_task(self.at('a', attempt))
         await asyncio.sleep(.02)
         b = asyncio.create_task(self.at('b', attempt))
-        async with asyncio.timeout(10):  # not wait_for, which short_waits shortens
+        async with asyncio.timeout(timeout):  # not wait_for, which short_waits shortens
             await asyncio.gather(a, b)
 
     def scenario(self, fn):
@@ -468,7 +468,7 @@ class PairedSyncTests(unittest.TestCase):
             sent, frames = self.frames()
             with self.short_waits(limit, wait=limit / 2), self.slow_store(limit * 2.5), frames, \
                     patch.object(sync_ws, 'STORE_HEARTBEAT', limit / 5):
-                await self.repeat()
+                await self.repeat(timeout=10 * limit)  # each device stores for 2.5 limits
             self.assertIn(('a', 'storing'), sent)
             self.assertIn(('b', 'storing'), sent)
             for side in 'ab':
