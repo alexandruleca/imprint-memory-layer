@@ -13,15 +13,24 @@ HELPER_FILE = "Qwen3.5-4B-Q4_K_M.gguf"
 HELPER_REVISION = "e87f176479d0855a907a41277aca2f8ee7a09523"
 HELPER_SHA256 = "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
 # OpenAI Privacy Filter (Apache-2.0), opt-in secret redaction (ADR 0060).
-# The q4f16 ONNX export: the smallest download and the fastest on CPU.
+# The q4 ONNX export (float32 activations, 4-bit weights): as fast as q4f16
+# on the CPU, and its labels on CUDA match the CPU's. The q4f16 export's
+# mixture-of-experts layers run on CUDA but returned wrong labels on an RTX
+# 5070 Ti (ADR 0122).
 PRIVACY_FILTER_REPO = "openai/privacy-filter"
 PRIVACY_FILTER_REVISION = "7ffa9a043d54d1be65afb281eddf0ffbe629385b"
-PRIVACY_FILTER_FILE = "onnx/model_q4f16.onnx"
+PRIVACY_FILTER_FILE = "onnx/model_q4.onnx"
 PRIVACY_FILTER_SHA256 = {
-    PRIVACY_FILTER_FILE: "eaae4e83cf1345a60abe333ed882b55fe5775d1dfbf34b9b269e5e5416f45e5b",
-    PRIVACY_FILTER_FILE + "_data": "6d4dde787e03ace283c45d4e32a94eec32b6cfcc242e7219bea96f5b4c13569d",
+    PRIVACY_FILTER_FILE: "8f7dee8b46d096f052b359375dfba5d983cc4d18c44a783bf548615c472f8dea",
+    PRIVACY_FILTER_FILE + "_data": "f30998e28c71c5374cc7e8b7de8f0f83e981592c0c2d652d2ad4928454dbb496",
     "tokenizer.json": "0614fe83cadab421296e664e1f48f4261fa8fef6e03e63bb75c20f38e37d07d3",
 }
+# The filter a synced record says its sender applied (ADR 0122): a receiver
+# with the same identity does not run it again. Whatever changes the spans
+# the filter produces (the model file, its revision, the kept categories,
+# the decoder) must change this string; the execution provider does not.
+PRIVACY_FILTER_IDENTITY = (f"{PRIVACY_FILTER_REPO}@{PRIVACY_FILTER_REVISION}/{PRIVACY_FILTER_FILE}"
+                           ";secret,account_number;viterbi-0")
 
 
 def family(repo: str) -> str:
