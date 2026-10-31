@@ -1,6 +1,9 @@
 # Native regression: cleanup must finish before Inno is allowed to delete files.
 param([string]$FixtureBinary)
 $ErrorActionPreference = 'Stop'
+# CI's Windows VMs share a busy host: the same allowance as the other tests
+# (CONTRIBUTING.md, Time limits in tests).
+$slack = if ($env:IMPRINT_TEST_TIME_SCALE) { [double]$env:IMPRINT_TEST_TIME_SCALE } elseif ($env:CI) { 3 } else { 1 }
 $root = Join-Path ([IO.Path]::GetTempPath()) ('imprint-uninstall-test-' + [guid]::NewGuid())
 $helper = (Resolve-Path "$PSScriptRoot/../installers/windows/imprint-uninstall.ps1").Path
 New-Item -ItemType Directory -Path "$root/bin" -Force | Out-Null
@@ -35,7 +38,7 @@ func main(){
             "`"$root/imprint-uninstall.ps1`"", '-InstallDir', "`"$root`""
         ) + $case.Switches) -WorkingDirectory $root -PassThru -WindowStyle Hidden
         $null = $child.Handle
-        if (-not $child.WaitForExit(30000)) { taskkill /PID $child.Id /T /F; throw 'Cleanup timed out' }
+        if (-not $child.WaitForExit(30000 * $slack)) { taskkill /PID $child.Id /T /F; throw 'Cleanup timed out' }
         $child.Refresh()
         if ($child.ExitCode -ne $fail) { throw "Expected exit $fail, got $($child.ExitCode)" }
         $calls = @(Get-Content "$root/calls.json" -Raw | ConvertFrom-Json)

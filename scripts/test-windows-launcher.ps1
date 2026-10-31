@@ -3,6 +3,9 @@
 param([string]$FixtureBinary)
 
 $ErrorActionPreference = 'Stop'
+# CI's Windows VMs share a busy host: the same allowance as the other tests
+# (CONTRIBUTING.md, Time limits in tests).
+$slack = if ($env:IMPRINT_TEST_TIME_SCALE) { [double]$env:IMPRINT_TEST_TIME_SCALE } elseif ($env:CI) { 3 } else { 1 }
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ("imprint launcher's test " + [guid]::NewGuid())
 $oldCapture = $env:IMPRINT_TEST_DESKTOP_CAPTURE
 $oldDataDir = $env:IMPRINT_DATA_DIR
@@ -30,7 +33,7 @@ func main() {
     $env:IMPRINT_DATA_DIR = Join-Path $root 'custom data'
     & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $launcher
     if ($LASTEXITCODE -ne 0) { throw 'Desktop launcher failed' }
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    $deadline = [DateTime]::UtcNow.AddSeconds(10 * $slack)
     while (-not (Test-Path $env:IMPRINT_TEST_DESKTOP_CAPTURE)) {
         if ([DateTime]::UtcNow -gt $deadline) { throw 'GUI fixture was not launched' }
         Start-Sleep -Milliseconds 100

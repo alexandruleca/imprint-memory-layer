@@ -4,6 +4,9 @@
 param([string]$FixtureBinary)
 
 $ErrorActionPreference = 'Stop'
+# CI's Windows VMs share a busy host: the same allowance as the other tests
+# (CONTRIBUTING.md, Time limits in tests).
+$slack = if ($env:IMPRINT_TEST_TIME_SCALE) { [double]$env:IMPRINT_TEST_TIME_SCALE } elseif ($env:CI) { 3 } else { 1 }
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ('imprint-setup-test-' + [guid]::NewGuid())
 $helper = (Resolve-Path "$PSScriptRoot/../installers/windows/imprint-setup.ps1").Path
 New-Item -ItemType Directory -Path $root -Force | Out-Null
@@ -64,8 +67,9 @@ func main() {
         # Windows PowerShell 5.1 needs the handle opened before the process
         # exits to retain ExitCode reliably after WaitForExit/Refresh.
         $null = $child.Handle
-        if (-not $child.WaitForExit(30000)) {
+        if (-not $child.WaitForExit(30000 * $slack)) {
             taskkill /PID $child.Id /T /F
+            Get-Content "$dest/stdout.log", "$dest/stderr.log", "$dest/first-run.log" -ErrorAction SilentlyContinue
             throw 'Setup regression fixture timed out'
         }
         Remove-Job $poller -Force
@@ -98,5 +102,11 @@ func main() {
     Get-Job | Remove-Job -Force
     Remove-Item Env:IMPRINT_SETUP_TEST_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:IMPRINT_SETUP_TEST_ARGS -ErrorAction SilentlyContinue
-    Remove-Item $root -Recurse -Force
+    # Windows releases a killed process's executable a moment later; a
+    # leftover temp folder must not replace the error that got us here.
+    foreach ($attempt in 1..10) {
+        Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path $root)) { break }
+        Start-Sleep -Milliseconds 500
+    }
 }
