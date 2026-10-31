@@ -31,8 +31,16 @@ func TestMain(m *testing.M) {
 //
 //	optional-tools uv=<uv> data=<dir>  python -m imprint.optional_tools
 //
-// IMPRINT_FAKE_UNUSED lists what Imprint no longer uses (a JSON list), and
-// llama.cpp's offload answer is IMPRINT_FAKE_OFFLOAD.
+// IMPRINT_FAKE_UNUSED lists what Imprint no longer uses (a JSON list, or an
+// object of lists by ONNX Runtime build), and llama.cpp's offload answer is
+// IMPRINT_FAKE_OFFLOAD. IMPRINT_FAKE_PLAN is imprint.onnx_runtime's plan
+// (JSON; the CPU build when unset) and IMPRINT_FAKE_CHECK its check of a GPU
+// build ("ok" passes):
+//
+//	check <build>                  python -m imprint.onnx_runtime check
+//
+// An install's --excludes file names distributions it leaves out; the call
+// records them as "-<name>".
 // A dry run would upgrade the installed distributions IMPRINT_FAKE_OUTDATED
 // lists (comma-separated).
 func fakeTool(log string, args []string) int {
@@ -48,14 +56,14 @@ func fakeTool(log string, args []string) int {
 	}
 	switch {
 	case len(args) > 0 && args[0] == "install" && slices.Contains(args, "--dry-run"):
-		var files []string
+		files, excluded := fakeInstallFiles(args)
 		installed, outdated := fakeVenv(), strings.Split(os.Getenv("IMPRINT_FAKE_OUTDATED"), ",")
 		adds, upgrades := 0, 0
 		for i, arg := range args {
 			if arg == "-r" {
-				files = append(files, filepath.Base(args[i+1]))
 				for _, name := range fakeRequirementNames(args[i+1]) {
 					switch {
+					case slices.Contains(excluded, name):
 					case !installed[name]:
 						adds++
 					case slices.Contains(outdated, name):
@@ -74,13 +82,14 @@ func fakeTool(log string, args []string) int {
 			fmt.Printf("Would install %d packages\n", adds+upgrades)
 		}
 	case len(args) > 0 && args[0] == "install":
-		var files []string
+		files, excluded := fakeInstallFiles(args)
 		installed := fakeVenv()
 		for i, arg := range args {
 			if arg == "-r" {
-				files = append(files, filepath.Base(args[i+1]))
 				for _, name := range fakeRequirementNames(args[i+1]) {
-					installed[name] = true
+					if !slices.Contains(excluded, name) {
+						installed[name] = true
+					}
 				}
 			}
 		}
@@ -101,9 +110,15 @@ func fakeTool(log string, args []string) int {
 		record("cache-clean " + strings.Join(args[2:], " "))
 	case len(args) > 2 && args[0] == "-m" && args[1] == "imprint.onnx_runtime" && args[2] == "unused":
 		// What imprint.onnx_runtime would name: the installed distributions
-		// IMPRINT_FAKE_UNUSED lists.
+		// IMPRINT_FAKE_UNUSED lists, for the build when it lists by build.
 		var listed []string
-		_ = json.Unmarshal([]byte(os.Getenv("IMPRINT_FAKE_UNUSED")), &listed)
+		if json.Unmarshal([]byte(os.Getenv("IMPRINT_FAKE_UNUSED")), &listed) != nil {
+			byBuild := map[string][]string{}
+			_ = json.Unmarshal([]byte(os.Getenv("IMPRINT_FAKE_UNUSED")), &byBuild)
+			if len(args) > 3 {
+				listed = byBuild[args[3]]
+			}
+		}
 		installed := fakeVenv()
 		unused := []string{}
 		for _, name := range listed {
@@ -117,10 +132,23 @@ func fakeTool(log string, args []string) int {
 		// Setup passes its uv on; the answer is IMPRINT_FAKE_TOOLS.
 		record("optional-tools uv=" + os.Getenv("IMPRINT_UV") + " data=" + filepath.Base(os.Getenv("IMPRINT_DATA_DIR")))
 		fmt.Print(os.Getenv("IMPRINT_FAKE_TOOLS"))
+	case len(args) > 2 && args[0] == "-m" && args[1] == "imprint.onnx_runtime" && args[2] == "plan":
+		plan := os.Getenv("IMPRINT_FAKE_PLAN")
+		if plan == "" {
+			plan = `[{"name":"cpu","distribution":"onnxruntime","requirements":"cpu","provider":"","reason":"no GPU build applies"}]`
+		}
+		fmt.Println(plan)
+	case len(args) > 3 && args[0] == "-m" && args[1] == "imprint.onnx_runtime" && args[2] == "check":
+		record("check " + args[3])
+		if os.Getenv("IMPRINT_FAKE_CHECK") == "ok" {
+			fmt.Println(`{"ok": true, "detail": "runs"}`)
+		} else {
+			fmt.Println(`{"ok": false, "detail": "CUDAExecutionProvider did not load"}`)
+		}
 	case len(args) > 1 && args[0] == "-m" && args[1] == "imprint.onnx_runtime":
 		providers := map[string]bool{}
 		for name := range fakeVenv() {
-			if name == "onnxruntime" || name == "onnxruntime-gpu" {
+			if name == "onnxruntime" || strings.HasPrefix(name, "onnxruntime-") {
 				providers[name] = true
 			}
 		}
@@ -147,6 +175,24 @@ func fakeTool(log string, args []string) int {
 		}
 	}
 	return 0
+}
+
+// fakeInstallFiles names the requirements files an install lists, with the
+// distributions its --excludes file leaves out as "-<name>", and those names.
+func fakeInstallFiles(args []string) ([]string, []string) {
+	var files, excluded []string
+	for i, arg := range args {
+		switch {
+		case arg == "-r":
+			files = append(files, filepath.Base(args[i+1]))
+		case arg == "--excludes":
+			excluded = fakeRequirementNames(args[i+1])
+		}
+	}
+	for _, name := range excluded {
+		files = append(files, "-"+name)
+	}
+	return files, excluded
 }
 
 // fakeRequirementNames reads the distribution names a requirements file lists.

@@ -201,60 +201,175 @@ func normalizeDistribution(name string) string {
 	return strings.ToLower(distributionSeparators.ReplaceAllString(name, "-"))
 }
 
-// installCoreRuntime makes the venv hold the base requirements with the CPU
-// build of ONNX Runtime, which OCR and the privacy filter use, as its only,
-// complete ONNX Runtime (ADR 0032). It removes another build left from
-// before embeddings moved to llama.cpp, with what only that build brought
-// in (ADR 0086). Both builds write the same files, so removing one or
-// repairing the CPU build frees the runtime first (ADR 0084). A healthy venv
-// that already matches is left untouched.
-func installCoreRuntime(uv, venvPython, venvPip, projectDir string) {
+// ortBuild is one build of ONNX Runtime setup can install, as
+// imprint.onnx_runtime plans it (ADR 0122): the CPU build, or one with a GPU
+// provider for the Privacy Filter in its place. Each provides the same
+// `onnxruntime` package, so a venv holds exactly one (ADR 0032).
+type ortBuild struct {
+	Name         string `json:"name"`
+	Distribution string `json:"distribution"`
+	Requirements string `json:"requirements"`
+	Provider     string `json:"provider"`
+	Reason       string `json:"reason"`
+	Wheel        *struct {
+		URL    string `json:"url"`
+		SHA256 string `json:"sha256"`
+	} `json:"wheel"`
+}
+
+var cpuBuild = ortBuild{Name: "cpu", Distribution: cpuOrt, Requirements: "cpu"}
+
+// planOrtBuilds asks imprint.onnx_runtime which builds to try, best first,
+// ending with the CPU build. The cpu profile asks for the CPU build alone.
+// Without uv, which can leave out the CPU build that faster-whisper
+// requires, setup installs the CPU build.
+func planOrtBuilds(uv, venvPython, projectDir, profile string) []ortBuild {
+	if uv == "" {
+		return []ortBuild{cpuBuild}
+	}
+	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime", "plan", profile)
+	var builds []ortBuild
+	if err == nil {
+		err = json.Unmarshal([]byte(lastLine(out)), &builds)
+	}
+	if err != nil || len(builds) == 0 || builds[len(builds)-1].Name != "cpu" {
+		output.Warn("Could not tell which ONNX Runtime build fits this machine, so it gets the CPU build: " + lastNonBlankLines(out, 2))
+		return []ortBuild{cpuBuild}
+	}
+	return builds
+}
+
+// installCoreRuntime makes the venv hold the base requirements with one
+// complete ONNX Runtime build, which OCR, audio VAD and the Privacy Filter
+// use (ADR 0032): the first planned GPU build whose check passes, else the
+// CPU build (ADR 0122). OCR and VAD always run on its CPU provider. It
+// removes the other builds and what only they brought in (ADR 0086).
+// Builds write the same files, so removing one or repairing the chosen one
+// frees the runtime first (ADR 0084). A healthy venv that already matches
+// is left untouched.
+func installCoreRuntime(uv, venvPython, venvPip, projectDir, profile string) {
+	builds := planOrtBuilds(uv, venvPython, projectDir, profile)
+	for _, build := range builds {
+		if build.Name == "cpu" {
+			if build.Reason != "" && build.Reason != "the fallback" && build.Reason != "no GPU build applies" {
+				output.Info("The Privacy Filter stays on the CPU: " + build.Reason)
+			}
+			installOrtBuild(uv, venvPython, venvPip, projectDir, build)
+			return
+		}
+		output.Info("Installing ONNX Runtime's " + build.Name + " build so the Privacy Filter can run on " + build.Reason +
+			" (imprint profile set cpu keeps the CPU build)...")
+		if !installOrtBuild(uv, venvPython, venvPip, projectDir, build) {
+			continue
+		}
+		ok, detail := ortBuildWorks(venvPython, projectDir, build.Name)
+		if ok {
+			output.Success("ONNX Runtime's " + build.Name + " build runs " + build.Provider)
+			return
+		}
+		output.Info("ONNX Runtime's " + build.Name + " build does not run here (" + detail + ") — trying the next build")
+	}
+}
+
+// installOrtBuild installs the base requirements and build, which replaces
+// the CPU build's `onnxruntime`. A GPU build that fails to install reports
+// false; the CPU build failing ends setup.
+func installOrtBuild(uv, venvPython, venvPip, projectDir string, build ortBuild) bool {
+	fail := func(message string) bool {
+		if build.Name == "cpu" {
+			output.Fail(message)
+		}
+		output.Warn(message)
+		return false
+	}
 	requirements := []string{requirementsFile(projectDir, "base"), requirementsFile(projectDir, "cpu")}
+	var extra []string
+	if build.Name != "cpu" {
+		requirements = append(requirements, requirementsFile(projectDir, build.Requirements))
+		scratch, err := os.MkdirTemp("", "imprint-onnxruntime-")
+		if err != nil {
+			return fail("Could not prepare the " + build.Name + " build: " + err.Error())
+		}
+		defer os.RemoveAll(scratch)
+		excludes := filepath.Join(scratch, "excludes.txt")
+		if err := os.WriteFile(excludes, []byte(cpuOrt+"\n"), 0o644); err != nil {
+			return fail("Could not prepare the " + build.Name + " build: " + err.Error())
+		}
+		extra = []string{"--excludes", excludes}
+		if build.Wheel != nil {
+			// AMD's wheel, pinned by ROCm release in requirements/onnx-rocm.json.
+			wheel := filepath.Join(scratch, "onnx-rocm-wheel.lock.txt")
+			line := build.Distribution + " @ " + build.Wheel.URL + " --hash=sha256:" + build.Wheel.SHA256 + "\n"
+			if err := os.WriteFile(wheel, []byte(line), 0o644); err != nil {
+				return fail("Could not prepare the " + build.Name + " build: " + err.Error())
+			}
+			requirements = append(requirements, wheel)
+		}
+	}
 	for _, path := range requirements {
 		if !platform.FileExists(path) {
-			output.Fail("requirements not found at " + path + " — is the install tree intact?")
+			return fail("requirements not found at " + path + " — is the install tree intact?")
 		}
 	}
 	// Asked before installing, while the build being removed still says
 	// what it brought in.
-	unused := unusedDistributions(venvPython, projectDir)
-	if providers, err := ortProviders(venvPython, projectDir); err == nil && len(staleOrtProviders(providers, cpuOrt)) > 0 {
+	unused := unusedDistributions(venvPython, projectDir, build.Name)
+	if providers, err := ortProviders(venvPython, projectDir); err == nil && len(staleOrtProviders(providers, build.Distribution)) > 0 {
 		freeRuntime()
 	}
-	install := func() {
-		if err := pipInstall(uv, venvPython, venvPip, requirementInstallArgs(requirements...)...); err != nil {
-			output.Fail("Installing dependencies failed: " + err.Error())
-		}
-	}
+	args := append(requirementInstallArgs(requirements...), extra...)
+	install := func() error { return pipInstall(uv, venvPython, venvPip, args...) }
 	output.Info("Installing dependencies...")
-	install()
+	if err := install(); err != nil {
+		return fail("Installing dependencies failed: " + err.Error())
+	}
 	providers, err := ortProviders(venvPython, projectDir)
 	if err != nil {
-		output.Fail("Could not inspect the installed ONNX Runtime: " + err.Error())
+		return fail("Could not inspect the installed ONNX Runtime: " + err.Error())
 	}
-	stale := staleOrtProviders(providers, cpuOrt)
+	stale := staleOrtProviders(providers, build.Distribution)
 	if len(stale) > 0 {
-		output.Info("Removing " + strings.Join(stale, ", ") + " so " + cpuOrt + " is installed alone and complete...")
+		output.Info("Removing " + strings.Join(stale, ", ") + " so " + build.Distribution + " is installed alone and complete...")
 		if err := pipUninstall(uv, venvPython, venvPip, stale...); err != nil {
-			output.Fail("Removing the previous ONNX Runtime failed (stop Imprint and run setup again): " + err.Error())
+			return fail("Removing the previous ONNX Runtime failed (stop Imprint and run setup again): " + err.Error())
 		}
-		install()
+		if err := install(); err != nil {
+			return fail("Installing dependencies failed: " + err.Error())
+		}
 	}
 	removeDistributions(uv, venvPython, venvPip, unused, stale)
 	if out, err := runner.RunCapture(venvPython, "-c", "import onnxruntime; onnxruntime.InferenceSession"); err != nil {
-		output.Fail("ONNX Runtime does not load after installing " + cpuOrt + ":\n" + lastNonBlankLines(out, 3))
+		return fail("ONNX Runtime does not load after installing " + build.Distribution + ":\n" + lastNonBlankLines(out, 3))
 	}
+	return true
 }
 
-// cpuOrt is the ONNX Runtime distribution Imprint installs.
+// ortBuildWorks runs imprint.onnx_runtime's check of the installed build:
+// alone, complete, and running a tiny model on its GPU provider.
+func ortBuildWorks(venvPython, projectDir, name string) (bool, string) {
+	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime", "check", name)
+	var verdict struct {
+		OK     bool   `json:"ok"`
+		Detail string `json:"detail"`
+	}
+	if err == nil {
+		err = json.Unmarshal([]byte(lastLine(out)), &verdict)
+	}
+	if err != nil {
+		return false, lastNonBlankLines(out, 2)
+	}
+	return verdict.OK, verdict.Detail
+}
+
+// cpuOrt is the distribution of ONNX Runtime's CPU build.
 const cpuOrt = "onnxruntime"
 
 // unusedDistributions asks imprint.onnx_runtime which installed
-// distributions Imprint no longer uses: ONNX Runtime builds other than the
-// CPU one, what only they need, and libraries an older lock brought in.
-// When it cannot tell, nothing is removed.
-func unusedDistributions(venvPython, projectDir string) []string {
-	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime", "unused")
+// distributions Imprint no longer uses when build is installed: the other
+// ONNX Runtime builds, what only they need, and libraries an older lock
+// brought in. When it cannot tell, nothing is removed.
+func unusedDistributions(venvPython, projectDir, build string) []string {
+	out, err := runner.RunCaptureEnv(venvPython, []string{"PYTHONPATH=" + projectDir}, "-m", "imprint.onnx_runtime", "unused", build)
 	var names []string
 	if err == nil {
 		err = json.Unmarshal([]byte(lastLine(out)), &names)
@@ -524,14 +639,15 @@ func setupBackend() backendPaths {
 	}
 
 	// ── Dependencies, ONNX Runtime and llama.cpp ───────────────
-	// One complete environment with exactly one ONNX Runtime distribution,
-	// the CPU build (ADR 0032), and llama.cpp, which runs embeddings and the
-	// local LLM; the install profile selects llama.cpp's build (ADR 0086).
+	// One complete environment with exactly one ONNX Runtime distribution
+	// (ADR 0032), the CPU build or, unless the profile is cpu, a GPU build
+	// for the Privacy Filter (ADR 0122), and llama.cpp, which runs embeddings
+	// and the local LLM; the install profile selects llama.cpp's build (ADR 0086).
 	// Setup changes the venv once running jobs and setups are done.
 	holdRuntime(projectDir)
 	defer releaseRuntime()
 	setupStep(1, 4, "installing dependencies")
-	installCoreRuntime(uv, venvPython, venvPip, projectDir)
+	installCoreRuntime(uv, venvPython, venvPip, projectDir, profile)
 
 	// Sanity check — the core runtime packages should import. If anything
 	// core is missing we give up loud; the extractor/LLM extras are probed

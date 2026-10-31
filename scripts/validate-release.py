@@ -137,6 +137,9 @@ def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
                 'requirements/llm.txt', 'requirements/llm.lock.txt',
                 'requirements/llm-gpu.txt', 'requirements/llm-gpu.lock.txt',
                 'requirements/kreuzberg.txt', 'requirements/kreuzberg.lock.txt',
+                'requirements/onnx-cuda.txt', 'requirements/onnx-cuda.lock.txt',
+                'requirements/onnx-directml.txt', 'requirements/onnx-directml.lock.txt',
+                'requirements/onnx-rocm.txt', 'requirements/onnx-rocm.lock.txt', 'requirements/onnx-rocm.json',
                 'requirements/runtime-manifest.json', 'LICENSE', 'licenses/uv/LICENSE-APACHE',
                 'licenses/uv/LICENSE-MIT', 'imprint/ui/out/index.html'):
         path = root / rel
