@@ -55,7 +55,7 @@ When a device exports memories for sync (full sync batches and paired-sync chunk
 
 A receiver with `redact.privacy_filter` on skips the model for a record whose mark equals its own identity. It still applies its rules (`redaction.rule_spans` and `apply`), keeps the most redacted version it holds or receives, relabels and re-embeds a record its rules change, and validates the sender's ID first. A record without the mark, or marked with another identity, is filtered on arrival. The mark is a transfer field: it is never stored.
 
-The device records no mark at write time. A stored mark would have to stay true through every path that rewrites stored content (`replace_source`'s payload updates, project moves, adoption of a stricter version, model changes), and a wrong one would make receivers skip the model; on a GPU, filtering again on export costs about 0.17 s a memory.
+The device records no mark at write time. A stored mark would have to stay true through every path that rewrites stored content (`replace_source`'s payload updates, project moves, adoption of a stricter version, model changes), and a wrong one would make receivers skip the model; on a GPU, filtering again on export costs about 0.15 s a memory.
 
 This changes ADR 0060's rule that a receiver redacts every import with its own settings "whatever the sending device did": the receiver's model now trusts a paired sender's statement that the same model already went over a record. The rules and the version check are unchanged.
 
@@ -73,11 +73,25 @@ This changes ADR 0060's rule that a receiver redacts every import with its own s
 
 ## Consequences
 
-- **Measured on bedrock**, 200 memories of 2,300 characters (docs and source of this repository, 10 with a GitHub token and 10 with a passphrase in prose) received through `process_import_buffer` into a scratch Qdrant: MEASUREMENTS.
+- **Measured on bedrock** (load average 4–7 from other work during the runs), with 200 memories of 2,300 characters (406–848 tokens, mean 546; docs and source of this repository, 10 with a GitHub token and 10 with a passphrase in prose):
+
+  | Step | Seconds for 200 | Per memory |
+  | --- | --- | --- |
+  | Redaction (rules and model) alone, CPU, q4f16 | 57.3–57.5 | 0.29 |
+  | The same, CPU, q4 | 51.4–52.0 | 0.26 |
+  | The same, CUDA, q4 | 29.5–29.6 | 0.15 |
+  | Sender on CUDA: filtering and marking (180 marked, 20 changed and sent unmarked) | 29.5 | 0.15 |
+  | Receiver storing unmarked records, CPU, q4f16 (before this record) | 58.9–61.6 | 0.30 |
+  | The same, CPU, q4 | 59.2–60.3 | 0.30 |
+  | The same, receiver's filter on CUDA, q4 | 37.8–37.9 | 0.19 |
+  | Receiver storing the sender's marked records, CPU | 13.2–15.4 | 0.07 |
+  | The same, receiver on CUDA | 13.6–15.4 | 0.07 |
+
+  Storing runs `process_import_buffer` into a scratch data directory and Qdrant, with the 20 changed memories embedded again by llama.cpp's Vulkan build; the model was loaded beforehand (3–3.5 s). A paired sync filters the next chunk only after the receiver acknowledges the last, so sender and receiver times add up: a CPU receiver with a CUDA sender spends about 0.22 s a memory between them against 0.30 s, and a CUDA receiver alone 0.19 s. For the 58,563-memory first sync that is roughly 3.6 h or 3.1 h against 4.9 h at these rates; the 0.85 s a memory observed on the live installation would scale in proportion. Preparing the next chunk while the receiver stores the last would hide the sender's share; it is not done here.
 - **Security.** A mark arrives only from a paired device over the authenticated, end-to-end encrypted sync channel (ADR 0018), that is from a device of the same owner. A lying or broken peer can make the receiver skip the model for what it sends, but it already holds that content and could store or send it unredacted anyway; skipping the model on its records exposes nothing the peer does not have. The rules always run on received records. A peer on an older release never marks; the receiver filters everything it sends.
 - **Compatibility.** Older receivers ignore the mark and filter as before; older senders send none. Records and IDs are unchanged on the wire. Every device on this release downloads the q4 export (945 MB) the next time the filter loads; the q4f16 files stay in `data/models/privacy-filter/7ffa9a043d54/` until deleted. Labels can differ from q4f16 on a few tokens, so a memory filtered under q4f16 and again under q4 may redact differently; the most redacted version still wins.
-- **Downloads.** NVIDIA machines on the `gpu` and `auto` profiles download about 2.5 GB of CUDA and cuDNN wheels, even with the Privacy Filter off; AMD machines with ROCm about 20 MB from `repo.radeon.com`; Windows machines about 25 MB. Releases before ADR 0086 removed the CUDA libraries; an update now installs them again on NVIDIA machines.
-- **Speed is model-bound.** With q4 the expert layers stay on the CPU, so CUDA is about twice as fast as the CPU here, not the hundredfold the q4f16 measurement suggested. A GPU sender now carries the filter's cost for both devices, and a CPU-only receiver stores marked memories at the cost of the rules and the database.
+- **Downloads.** NVIDIA machines on the `gpu` and `auto` profiles download about 2.5 GB of CUDA and cuDNN wheels, even with the Privacy Filter off; AMD machines with ROCm about 20 MB from `repo.radeon.com`; Windows machines about 25 MB. ADR 0086 had removed the CUDA libraries; an update installs them again on NVIDIA machines, where setup's `auto` plan tries the CUDA build.
+- **Speed is model-bound.** With q4 the expert layers stay on the CPU, so CUDA is about 1.75 times as fast as the CPU here, not the hundredfold the q4f16 measurement suggested. A GPU sender now carries the filter's cost for both devices, and a CPU-only receiver stores marked memories at the cost of the rules and the database.
 - **Known gaps.** The probe's verdict is per provider and ONNX Runtime version, not per GPU or driver: a new driver keeps an old verdict until `providers.json` is deleted, though a failure at run time still falls back. Windows CUDA, DirectML, MIGraphX and Core ML are unverified on hardware. MIGraphX compiles per input shape; the probe charges for three shapes but real memories have many lengths.
 
 ## Invalidation conditions
