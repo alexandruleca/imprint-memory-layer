@@ -14,6 +14,7 @@ import base64
 import hashlib
 import json
 import os
+import threading
 import zlib
 
 from . import config
@@ -25,6 +26,9 @@ CHUNK_RECORDS = 200
 # How long either side waits for the other's next frame: while it builds its
 # manifest, reads a chunk or stores one.
 WAIT = 600
+# Records the sender's Privacy Filter goes over between checks for a
+# stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
+FILTER_SLICE = 25
 DATASETS = ('memories', 'facts', 'sources')
 
 
@@ -129,9 +133,15 @@ def _stream(memories=(), facts=(), snapshot=()) -> list[str]:
     return [json.dumps(frame, separators=(',', ':')) for frame in frames]
 
 
-def export_chunks(workspace: str, keys: dict[str, list[str]]):
+class Stopped(Exception):
+    """The session ended while a chunk was being prepared."""
+
+
+def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Event | None = None):
     """The wanted records as small streams: memories and facts by
-    ``CHUNK_RECORDS``, each source snapshot on its own."""
+    ``CHUNK_RECORDS``, each source snapshot on its own. ``stop`` set ends
+    the Privacy Filter's pass over a chunk at the next slice, raising
+    :class:`Stopped`."""
     from . import source_snapshots, sync_ws
     from . import vectorstore as vs
     from .device import TRANSFER_FIELDS
@@ -143,7 +153,12 @@ def export_chunks(workspace: str, keys: dict[str, list[str]]):
             mids[start:start + CHUNK_RECORDS], sync_ws.MEMORY_FIELDS + TRANSFER_FIELDS, workspace, with_vectors=True)]
         if records:
             # A GPU here runs the Privacy Filter for the other device (ADR 0122).
-            yield _stream(memories=vs.filtered_for_peer(records))
+            filtered = []
+            for at in range(0, len(records), FILTER_SLICE):
+                if stop is not None and stop.is_set():
+                    raise Stopped()
+                filtered += vs.filtered_for_peer(records[at:at + FILTER_SLICE])
+            yield _stream(memories=filtered)
 
     wanted_facts = set(keys.get('facts', []))
     if wanted_facts:
@@ -189,32 +204,61 @@ async def reconcile(channel, workspace: str, local: dict, *, provider: bool, pro
 
 
 async def _send(channel, workspace: str, keys: dict, cancel: asyncio.Event):
+    """Send the wanted records chunk by chunk, each acknowledged before the
+    next. The next chunk is read and filtered in a thread while the other
+    device stores the last one, at most one chunk ahead (ADR 0122); the
+    frames and their order are those of a sender without it. When the send
+    ends early, the chunk being prepared is dropped and its thread awaited."""
     from .sync_ws import _check_cancel, _printable
     totals = {dataset: len(keys[dataset]) for dataset in ('memories', 'facts')}
     sent = dict.fromkeys(totals, 0)
-    chunks = export_chunks(workspace, keys)
+    stop = threading.Event()
+    chunks = export_chunks(workspace, keys, stop=stop)
+    prepare = lambda: asyncio.ensure_future(asyncio.to_thread(next, chunks, None))  # noqa: E731
+    ahead = None
     seq = 0
-    while True:
-        _check_cancel(cancel)
-        lines = await asyncio.to_thread(next, chunks, None)
-        if lines is None:
-            break
-        seq += 1
-        for line in lines:
-            await channel.send_line(line)
-        # Storing a chunk can outlast WAIT (Privacy Filter runs on every
-        # record); the other device says it is still at it.
-        ack = await channel.recv(timeout=WAIT)
-        while ack.get('kind') == 'storing' and ack.get('seq') == seq:
-            yield {'type': 'status', 'status': 'storing'}
+    try:
+        ahead = prepare()
+        while True:
+            _check_cancel(cancel)
+            # Shielded: cancelling the send must not orphan the thread. A
+            # cancelled session stops waiting for the chunk at once.
+            cancelled = asyncio.ensure_future(cancel.wait())
+            try:
+                await asyncio.wait({ahead, cancelled}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                cancelled.cancel()
+            _check_cancel(cancel)
+            lines, ahead = ahead.result(), None
+            if lines is None:
+                break
+            seq += 1
+            for line in lines:
+                await channel.send_line(line)
+            ahead = prepare()
+            # Storing a chunk can outlast WAIT (Privacy Filter runs on every
+            # record); the other device says it is still at it.
             ack = await channel.recv(timeout=WAIT)
-        if ack.get('kind') != 'ack' or ack.get('seq') != seq or ack.get('error'):
-            raise RuntimeError(f"The other device did not store the sync: {_printable(ack.get('error') or 'no acknowledgement')}")
-        for dataset, count in json.loads(lines[0])['datasets'].items():
-            if count:
-                sent[dataset] += count
-                yield {'type': 'progress', 'phase': 'send', 'dataset': dataset, 'done': sent[dataset], 'total': totals[dataset]}
-    await channel.send({'kind': 'end', 'chunks': seq})
+            while ack.get('kind') == 'storing' and ack.get('seq') == seq:
+                yield {'type': 'status', 'status': 'storing'}
+                ack = await channel.recv(timeout=WAIT)
+            if ack.get('kind') != 'ack' or ack.get('seq') != seq or ack.get('error'):
+                raise RuntimeError(f"The other device did not store the sync: {_printable(ack.get('error') or 'no acknowledgement')}")
+            for dataset, count in json.loads(lines[0])['datasets'].items():
+                if count:
+                    sent[dataset] += count
+                    yield {'type': 'progress', 'phase': 'send', 'dataset': dataset, 'done': sent[dataset], 'total': totals[dataset]}
+        await channel.send({'kind': 'end', 'chunks': seq})
+    finally:
+        stop.set()
+        if ahead is not None:
+            # The thread cannot be interrupted; it stops at the next slice.
+            await asyncio.wait({ahead})
+            if not ahead.cancelled():
+                ahead.exception()  # Retrieved: the send already ended.
+        close = getattr(chunks, 'close', None)
+        if close is not None:
+            close()
 
 
 async def _receive(channel, workspace: str, keys: dict, cancel: asyncio.Event, result: dict, storing: bool = False):

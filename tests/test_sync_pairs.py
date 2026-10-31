@@ -64,7 +64,7 @@ class PairedSyncTests(unittest.TestCase):
             config.register_workspace('from-' + side)
             self.side.reset(token)
 
-    def chunks(self, workspace, keys, count=1):
+    def chunks(self, workspace, keys, count=1, stop=None):
         self.sent.append((self.side.get(), {dataset: k for dataset, k in keys.items() if k}))
         return iter([EXPORT] * count if any(keys.values()) else [])
 
@@ -654,7 +654,7 @@ class PairedSyncTests(unittest.TestCase):
                 return STATS
 
             with patch.object(sync_ws, 'process_import_buffer', side_effect=importer), \
-                 patch.object(sync_delta, 'export_chunks', side_effect=lambda ws, keys: self.chunks(ws, keys, 2)):
+                 patch.object(sync_delta, 'export_chunks', side_effect=lambda ws, keys, stop=None: self.chunks(ws, keys, 2)):
                 a, b = await self.attempts()
             self.assertEqual(stored, ['b'])  # the first chunk stays stored
             self.assertIsInstance(a, sync_pairs.AttemptFailed)
