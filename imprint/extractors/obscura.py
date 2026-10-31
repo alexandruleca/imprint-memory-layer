@@ -4,8 +4,10 @@ Wraps the ``obscura`` CLI binary (https://github.com/h4ckf0r0day/obscura) to
 provide JS-rendered HTML extraction and same-domain link discovery.
 
 Enable:
-    # Install binary: download from GitHub releases and put in PATH
     imprint config set ingest.use_obscura true
+
+Turning the setting on installs Imprint's pinned obscura release into
+data/obscura-bin/ (ADR 0121); an obscura on PATH is used when that is missing.
 
 ``fetch(url)`` → full page text after JS execution (vastly better than static
 trafilatura for JS-heavy SPAs and docs sites).
@@ -13,12 +15,12 @@ trafilatura for JS-heavy SPAs and docs sites).
 ``extract_links(url, domain)`` → list of same-domain absolute URLs discovered
 on the page (for BFS crawling in cli_ingest_url.py).
 
-Both raise ExtractorUnavailable when the binary is not in PATH.
+``fetch`` raises ExtractorUnavailable when obscura is missing and cannot be
+installed.
 """
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from urllib.parse import urlparse, urljoin
 
@@ -35,11 +37,12 @@ def _get_config(key: str, default):
 
 
 def _obscura_bin() -> str:
-    binary = shutil.which("obscura")
+    from .. import optional_tools
+    binary = optional_tools.obscura_path()
+    if not binary and optional_tools.ensure_once("obscura"):
+        binary = optional_tools.obscura_path()
     if not binary:
-        raise ExtractorUnavailable(
-            "obscura not in PATH — download from https://github.com/h4ckf0r0day/obscura/releases"
-        )
+        raise ExtractorUnavailable("obscura unavailable: " + optional_tools.status("obscura"))
     return binary
 
 

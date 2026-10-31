@@ -29,6 +29,8 @@ func TestMain(m *testing.M) {
 //	uninstall <distributions>      uv pip uninstall / pip uninstall
 //	cache-clean <distribution>     uv cache clean
 //
+//	optional-tools uv=<uv> data=<dir>  python -m imprint.optional_tools
+//
 // IMPRINT_FAKE_UNUSED lists what Imprint no longer uses (a JSON list), and
 // llama.cpp's offload answer is IMPRINT_FAKE_OFFLOAD.
 // A dry run would upgrade the installed distributions IMPRINT_FAKE_OUTDATED
@@ -111,6 +113,10 @@ func fakeTool(log string, args []string) int {
 		}
 		data, _ := json.Marshal(unused)
 		fmt.Println(string(data))
+	case len(args) > 1 && args[0] == "-m" && args[1] == "imprint.optional_tools":
+		// Setup passes its uv on; the answer is IMPRINT_FAKE_TOOLS.
+		record("optional-tools uv=" + os.Getenv("IMPRINT_UV") + " data=" + filepath.Base(os.Getenv("IMPRINT_DATA_DIR")))
+		fmt.Print(os.Getenv("IMPRINT_FAKE_TOOLS"))
 	case len(args) > 1 && args[0] == "-m" && args[1] == "imprint.onnx_runtime":
 		providers := map[string]bool{}
 		for name := range fakeVenv() {

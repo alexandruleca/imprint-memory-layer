@@ -530,7 +530,7 @@ func setupBackend() backendPaths {
 	// Setup changes the venv once running jobs and setups are done.
 	holdRuntime(projectDir)
 	defer releaseRuntime()
-	setupStep(1, 3, "installing dependencies")
+	setupStep(1, 4, "installing dependencies")
 	installCoreRuntime(uv, venvPython, venvPip, projectDir)
 
 	// Sanity check — the core runtime packages should import. If anything
@@ -546,7 +546,7 @@ func setupBackend() backendPaths {
 		output.Success("Core dependencies installed")
 	}
 
-	setupStep(2, 3, "installing llama.cpp")
+	setupStep(2, 4, "installing llama.cpp")
 	installLlama(uv, venvPython, venvPip, projectDir, profile)
 
 	// Persist the effective profile so subsequent runs without flags stay
@@ -559,8 +559,11 @@ func setupBackend() backendPaths {
 	// Native installer entry points mark first-run completion only after
 	// both backend provisioning and host registration have finished.
 
+	setupStep(3, 4, "installing enabled optional tools")
+	installOptionalTools(uv, venvPython, projectDir, dataDir)
+
 	// Extractor self-check — surfaces config + OCR prereqs clearly.
-	setupStep(3, 3, "checking document extractors")
+	setupStep(4, 4, "checking document extractors")
 	reportExtractorHealth(venvPython, projectDir, dataDir)
 
 	output.Info("Checking data directory...")
@@ -739,6 +742,31 @@ func checkPythonImports(venvPython string, pkgs []string) []string {
 	return missing
 }
 
+// installOptionalTools installs kreuzberg and obscura when their settings
+// are on and they are missing, which repairs installations whose settings
+// were turned on before Imprint installed them itself (ADR 0121). Setup
+// passes its uv along. A tool that cannot be installed is a warning, not a
+// failed setup: extraction falls back to the native extractors.
+func installOptionalTools(uv, venvPython, projectDir, dataDir string) {
+	env := []string{"PYTHONPATH=" + projectDir, "IMPRINT_DATA_DIR=" + dataDir}
+	if uv != "" {
+		env = append(env, "IMPRINT_UV="+uv)
+	}
+	out, err := runner.RunCaptureEnv(venvPython, env, "-m", "imprint.optional_tools")
+	if err != nil {
+		output.Warn("Could not install the optional tools that are turned on: " + lastNonBlankLines(out, 3))
+		return
+	}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		switch {
+		case strings.Contains(line, ": enabled BUT "):
+			output.Warn(line)
+		case strings.Contains(line, ": enabled "):
+			output.Success(line)
+		}
+	}
+}
+
 // reportExtractorHealth prints a human summary of which document formats
 // are available after setup, including the default local OCR runtime.
 func reportExtractorHealth(venvPython, projectDir, dataDir string) {
@@ -782,6 +810,10 @@ if bool(resolve("ingest.ocr_enabled")[0]):
 else:
     print("OCR: disabled (imprint config set ingest.ocr_enabled true to enable)")
 
+from imprint.optional_tools import health_lines
+for line in health_lines():
+    print(line)
+
 `
 	output.Info("Checking extractor health...")
 	out, err := runner.RunCaptureEnv(venvPython,
@@ -806,6 +838,10 @@ else:
 		case strings.HasPrefix(line, "OCR: enabled BUT"):
 			output.Warn(line)
 		case strings.HasPrefix(line, "OCR:"):
+			output.Info(line)
+		case strings.Contains(line, ": enabled BUT "):
+			output.Warn(line)
+		case strings.Contains(line, ": enabled "):
 			output.Info(line)
 		default:
 			fmt.Println("  " + line)

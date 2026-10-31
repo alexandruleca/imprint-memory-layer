@@ -1,25 +1,33 @@
 """Kreuzberg extractor (opt-in, ELv2 license).
 
-When ``ingest.use_kreuzberg=true`` AND the ``kreuzberg`` package is installed,
-this module overwrites the existing per-extension / per-mime registrations with
-kreuzberg-backed implementations. It also adds archive formats (.zip, .tar,
-.7z, …) and extra document types that our native extractors do not handle.
+When ``ingest.use_kreuzberg=true``, this module overwrites the existing
+per-extension / per-mime registrations with kreuzberg-backed implementations.
+It also adds archive formats (.zip, .tar, .7z, …) and extra document types
+that our native extractors do not handle.
 
 Enable:
     imprint config set ingest.use_kreuzberg true
-    pip install kreuzberg[all]   # or kreuzberg for core only
 
-License notice: kreuzberg is published under the Elastic License 2.0 (ELv2).
-It may NOT be offered as a hosted / SaaS service. Internal / self-hosted use
-is permitted. Review https://www.elastic.co/licensing/elastic-license before
-enabling in a multi-tenant deployment.
+Turning the setting on installs kreuzberg into Imprint's venv (ADR 0121). The
+first extraction that finds it missing installs it once per process; when
+kreuzberg is unavailable or fails on a file, the native extractor it replaced
+handles that file.
+
+License notice: kreuzberg is published under the Elastic License 2.0 (ELv2);
+turning the setting on accepts it. It may NOT be offered as a hosted / SaaS
+service. Internal / self-hosted use is permitted. Review
+https://www.elastic.co/licensing/elastic-license before enabling in a
+multi-tenant deployment.
 """
 
 from __future__ import annotations
 
+import functools
 import os
 
 from . import (
+    _BY_EXT,
+    _BY_MIME,
     ExtractedDoc,
     ExtractorUnavailable,
     ExtractionError,
@@ -90,15 +98,27 @@ _PROSE_MIMES = {
 _CODE_EXTS: set[str] = set()
 
 
+def _kreuzberg():
+    """The kreuzberg module, installed once per process when missing."""
+    try:
+        import kreuzberg  # type: ignore
+        return kreuzberg
+    except ImportError:
+        pass
+    from .. import optional_tools
+    if optional_tools.ensure_once("kreuzberg"):
+        try:
+            import kreuzberg  # type: ignore
+            return kreuzberg
+        except ImportError:
+            pass
+    raise ExtractorUnavailable("kreuzberg unavailable: " + optional_tools.status("kreuzberg"))
+
+
 def _extract_file(path: str) -> ExtractedDoc:
+    kreuzberg = _kreuzberg()
     try:
-        from kreuzberg import extract_file_sync  # type: ignore
-    except ImportError as e:
-        raise ExtractorUnavailable(
-            "kreuzberg not installed — `pip install kreuzberg[all]`"
-        ) from e
-    try:
-        result = extract_file_sync(path)
+        result = kreuzberg.extract_file_sync(path)
     except Exception as e:
         raise ExtractionError(f"kreuzberg failed on {path}: {e}") from e
     text = _assemble(result)
@@ -114,15 +134,11 @@ def _extract_file(path: str) -> ExtractedDoc:
     )
 
 
-def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
+def _extract_bytes(mime: str, data: bytes, source_url: str = "") -> ExtractedDoc:
+    kreuzberg = _kreuzberg()
     try:
-        from kreuzberg import extract_bytes_sync  # type: ignore
-    except ImportError as e:
-        raise ExtractorUnavailable(
-            "kreuzberg not installed — `pip install kreuzberg[all]`"
-        ) from e
-    try:
-        result = extract_bytes_sync(data)
+        # kreuzberg needs the MIME type of bytes; it does not sniff them.
+        result = kreuzberg.extract_bytes_sync(data, mime)
     except Exception as e:
         raise ExtractionError(f"kreuzberg failed on bytes from {source_url}: {e}") from e
     text = _assemble(result)
@@ -136,16 +152,28 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     )
 
 
+def _or_native(extract, native):
+    """extract, falling back to the native extractor it replaces when
+    kreuzberg is unavailable or fails (its OCR, for one, needs Tesseract
+    language data that Imprint does not install)."""
+    if native is None:
+        return extract
+
+    def run(*args):
+        try:
+            return extract(*args)
+        except (ExtractorUnavailable, ExtractionError):
+            return native(*args)
+    return run
+
+
 def _register() -> None:
     for ext in _PROSE_EXTS:
-        register_ext(ext, _extract_file)
+        register_ext(ext, _or_native(_extract_file, _BY_EXT.get(ext)))
         DOC_EXTENSIONS.add(ext)
 
-    for mime in _PROSE_MIMES:
-        register_mime(mime, _extract_bytes)
-
     # Also override common mime types for formats kreuzberg handles better
-    for mime in (
+    for mime in _PROSE_MIMES | {
         "application/pdf",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -155,8 +183,8 @@ def _register() -> None:
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "image/png", "image/jpeg", "image/gif", "image/webp",
         "image/tiff", "image/bmp",
-    ):
-        register_mime(mime, _extract_bytes)
+    }:
+        register_mime(mime, _or_native(functools.partial(_extract_bytes, mime), _BY_MIME.get(mime)))
 
 
 if _get_kreuzberg_enabled():

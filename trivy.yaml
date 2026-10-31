@@ -19,7 +19,7 @@ scan:
     - site/.astro
     - site/dist
   file-patterns:
-    - 'pip:requirements/(base|cpu|llm|llm-gpu)\.lock\.txt$'
+    - 'pip:requirements/(base|cpu|llm|llm-gpu|kreuzberg)\.lock\.txt$'
     - 'dockerfile:Dockerfile(\.[^/]+)?$'
 
 pkg:

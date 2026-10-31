@@ -1,0 +1,9 @@
+# kreuzberg (Elastic License 2.0), installed only while ingest.use_kreuzberg
+# is on: turning the setting on accepts its license (ADR 0121). Plain
+# kreuzberg is what the extractor calls; the [all] extra only adds EasyOCR
+# and PyTorch, a backend the extractor never selects.
+#
+# PyPI publishes kreuzberg wheels for these platforms only. Elsewhere nothing
+# is installed and Imprint reports it cannot be installed instead of building
+# it from source.
+kreuzberg==4.10.4 ; (sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64")) or (sys_platform == "darwin" and platform_machine == "arm64") or (sys_platform == "win32" and platform_machine == "AMD64")

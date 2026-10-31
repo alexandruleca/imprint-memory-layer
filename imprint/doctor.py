@@ -68,6 +68,12 @@ def report(project_dir: Path, probe_mcp: bool = False) -> dict:
             check('dependency:' + package, False, 'Missing', 'Run imprint bootstrap --profile cpu --non-interactive.')
     check(*_onnx_runtime_check())
     check(*_embedding_device_check())
+    from . import optional_tools
+    for tool in optional_tools.SETTINGS:
+        if optional_tools.enabled(tool):  # Turned on, so Imprint installs it (ADR 0121).
+            reason = optional_tools.status(tool)
+            check('tool:' + tool, not reason, reason or 'Installed',
+                  'Run imprint bootstrap --non-interactive; it installs the optional tools that are turned on.')
     check('dashboard', (project_dir / 'imprint/ui/out/index.html').is_file(), str(project_dir / 'imprint/ui/out'), 'Reinstall a complete release or run make dashboard-build in a checkout.')
     codex = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex') / 'config.toml'
     if codex.exists():

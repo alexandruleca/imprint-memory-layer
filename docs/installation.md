@@ -19,23 +19,25 @@ description: Install Imprint on macOS, Linux, or Windows in 30 seconds — one-l
 
 **LLM topic tagging** (`IMPRINT_LLM_TAGS=1`) — `anthropic` and `openai` SDKs are installed automatically in the base profile. No extra steps needed for any provider.
 
-**Optional — kreuzberg document extractor** (ELv2, opt-in) — Replaces the built-in PDF/DOCX/image extractors with a more capable alternative that also adds archive formats (.zip, .7z, .tar), Apple iWork files, ODF documents, and email/mbox. Install separately and opt in:
+**Optional — kreuzberg document extractor** (ELv2, opt-in) — Replaces the built-in PDF/DOCX/image extractors with a more capable alternative that also adds archive formats (.zip, .7z, .tar), Apple iWork files, ODF documents, and email/mbox. Turn it on and Imprint installs it (kreuzberg 4.10.4, hash-locked in `requirements/kreuzberg.lock.txt`) into its own environment ([ADR 0121](adr/0121-optional-tools-install-when-turned-on.md)):
 
 ```bash
-pip install kreuzberg[all]          # or: kreuzberg  (core, no OCR / image support)
 imprint config set ingest.use_kreuzberg true
 ```
 
-> **License note:** kreuzberg is published under the [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license). Internal and self-hosted use is permitted; offering Imprint as a hosted/SaaS service that exposes kreuzberg's extraction is not. Imprint does not install kreuzberg automatically — you accept ELv2 when you run `pip install kreuzberg`.
+Wheels exist for Linux x64/arm64 (glibc 2.28 or later), Apple silicon macOS and Windows x64; elsewhere Imprint reports that it cannot be installed and keeps the built-in extractors. When kreuzberg is missing or fails on a file — its own image OCR needs Tesseract language data Imprint does not install — the built-in extractor handles that file.
 
-**Optional — obscura headless browser** (Apache 2.0, opt-in) — Provides JS-rendered HTML extraction for `imprint ingest-url`, making it possible to fully index JS-heavy SPAs and documentation sites that return blank pages to static fetchers. Install the binary and opt in:
+> **License note:** kreuzberg is published under the [Elastic License 2.0 (ELv2)](https://www.elastic.co/licensing/elastic-license). Internal and self-hosted use is permitted; offering Imprint as a hosted/SaaS service that exposes kreuzberg's extraction is not. Turning `ingest.use_kreuzberg` on is your acceptance of ELv2: Imprint installs kreuzberg only while that setting is on.
+
+**Optional — obscura headless browser** (Apache 2.0, opt-in) — Provides JS-rendered HTML extraction for `imprint ingest-url`, making it possible to fully index JS-heavy SPAs and documentation sites that return blank pages to static fetchers. Turn it on and Imprint downloads the pinned obscura release (v0.2.5, about 70 MB, checked against its SHA-256) into `data/obscura-bin/`; an `obscura` already on PATH is used when that is missing:
 
 ```bash
-# Download from https://github.com/h4ckf0r0day/obscura/releases and put in PATH
 imprint config set ingest.use_obscura true
 ```
 
-When `use_obscura=true`, `imprint ingest-url` pipes each URL through `obscura fetch` for JS execution before extraction. Falls back gracefully if the binary is not in PATH.
+Releases exist for Linux x64/arm64, Apple silicon macOS and Windows x64. When `use_obscura=true`, `imprint ingest-url` pipes each URL through `obscura fetch` for JS execution before extraction, and falls back to a plain fetch when obscura is unavailable or fails.
+
+**Installing these tools.** Setting either one with `imprint config set` installs it before the command returns; switching it on in the dashboard installs it in the background, and the setting shows the progress or the failure. `imprint bootstrap` (and so `imprint update`) installs every turned-on tool that is missing, and the first document or URL that needs a missing tool installs it once per process. A failure is printed with the manual fallback (`imprint bootstrap --non-interactive`, or the tool's own install), extraction continues with the built-in extractors, and `imprint doctor` lists the tool until it is installed.
 
 ## Quick Install
 

@@ -137,6 +137,23 @@ def _inbox_workspaces() -> tuple[Choice, ...]:
             *(Choice(name, name) for name in config.get_known_workspaces()))
 
 
+def _tool_state(tool: str) -> Callable[[], tuple[Choice, ...]]:
+    """Off and On (ADR 0121). The dashboard disables an unavailable choice
+    that is not the current value, so On is unavailable only where the tool
+    has no build; once on, it says why the tool is not in use yet."""
+    def options() -> tuple[Choice, ...]:
+        from . import optional_tools
+        reason = optional_tools.unsupported(tool)
+        if reason:
+            on = Choice(True, "On", unavailable=f"{reason}; the native extractors are used instead.")
+        elif optional_tools.enabled(tool):
+            on = Choice(True, "On", unavailable=optional_tools.status(tool))
+        else:
+            on = Choice(True, "On", f"Installs {tool} when turned on")
+        return Choice(False, "Off"), on
+    return options
+
+
 AUTO = (Choice("auto", "Auto"),)
 PROVIDER_DEFAULT = (Choice("", "Provider default"),)
 TOOL_FORMATS = (Choice("auto", "Auto", "Detected from the model's chat template"),
@@ -220,8 +237,10 @@ SETTINGS: list[Setting] = [
     Setting("ingest.url_read_timeout_sec","IMPRINT_INGEST_URL_READ_TIMEOUT", 300,         int,  "Per-chunk read timeout for URL fetch (seconds) — increase for very large files"),
     Setting("ingest.url_user_agent",    "IMPRINT_INGEST_URL_USER_AGENT",    "imprint/1.0", str, "HTTP User-Agent header for URL fetch"),
     Setting("ingest.url_respect_robots","IMPRINT_INGEST_URL_RESPECT_ROBOTS", True,       bool, "Check robots.txt before fetching URLs; an unreachable or failing robots.txt refuses the site"),
-    Setting("ingest.use_kreuzberg",    "IMPRINT_INGEST_USE_KREUZBERG",    False, bool, "Use kreuzberg (ELv2) for doc extraction — replaces PDF/DOCX/image extractors, adds archives"),
-    Setting("ingest.use_obscura",      "IMPRINT_INGEST_USE_OBSCURA",      False, bool, "Use obscura headless browser for HTML URL fetch (JS rendering, needs obscura in PATH)"),
+    Setting("ingest.use_kreuzberg",    "IMPRINT_INGEST_USE_KREUZBERG",    False, bool, "Use kreuzberg (ELv2) for doc extraction — replaces PDF/DOCX/image extractors, adds archives; installed when on",
+            choices=_tool_state("kreuzberg")),
+    Setting("ingest.use_obscura",      "IMPRINT_INGEST_USE_OBSCURA",      False, bool, "Use obscura headless browser for HTML URL fetch (JS rendering); installed when on",
+            choices=_tool_state("obscura")),
     Setting("ingest.url_follow",       "IMPRINT_INGEST_URL_FOLLOW",       False, bool, "Follow same-domain links found on ingested pages"),
     Setting("ingest.url_follow_depth", "IMPRINT_INGEST_URL_FOLLOW_DEPTH", 1,     int,  "Max link-follow depth (1 = links on seed pages only)"),
     Setting("ingest.url_follow_max",   "IMPRINT_INGEST_URL_FOLLOW_MAX",   20,    int,  "Max discovered URLs to queue per ingest run"),
@@ -574,7 +593,23 @@ def cli_set(key: str, value: str) -> None:
         print(str(e), file=sys.stderr)
         sys.exit(1)
     print(f"{C_GREEN}[+]{C_RESET} {key} = {display_value(SETTINGS_BY_KEY[key], val)}")
+    _install_tool(key, val)
     _print_effect(key, val)
+
+
+def _install_tool(key: str, value: Any) -> None:
+    """Turning on an optional tool installs it now (ADR 0121); a failure is
+    the setting's effect, which _print_effect reports."""
+    from . import optional_tools
+    tool = next((t for t, k in optional_tools.SETTINGS.items() if k == key), None)
+    if tool is None or value is not True or optional_tools.installed(tool):
+        return
+    print(f"  Installing {tool}…", flush=True)
+    try:
+        optional_tools.ensure(tool)
+    except optional_tools.InstallFailed:
+        return
+    print(f"{C_GREEN}[+]{C_RESET} {tool} installed")
 
 
 def _print_effect(key: str, value: Any) -> None:

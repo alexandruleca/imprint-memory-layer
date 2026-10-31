@@ -42,7 +42,7 @@ const faqs = [
   },
   {
     q: 'Can it index JS-heavy docs sites or complex documents?',
-    a: 'Yes, via two opt-in extractors. For JS-rendered pages, install the obscura headless browser (Apache 2.0) and set `imprint config set ingest.use_obscura true` — `imprint ingest-url` will pipe every URL through a real browser before extraction. For richer document support (archives, Apple iWork, ODF, email/mbox, image OCR), install kreuzberg (`pip install kreuzberg[all]`) and set `ingest.use_kreuzberg true`. kreuzberg is under the Elastic License 2.0 — internal and self-hosted use is fine; SaaS re-hosting of its extraction is not.',
+    a: 'Yes, via two opt-in extractors. For JS-rendered pages, set `imprint config set ingest.use_obscura true`: Imprint downloads the obscura headless browser (Apache 2.0) and `imprint ingest-url` pipes every URL through it before extraction. For richer document support (archives, Apple iWork, ODF, email/mbox), set `ingest.use_kreuzberg true` and Imprint installs kreuzberg. kreuzberg is under the Elastic License 2.0, which turning it on accepts — internal and self-hosted use is fine; SaaS re-hosting of its extraction is not.',
   },
   {
     q: 'Which platforms does it run on?',

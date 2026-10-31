@@ -1005,6 +1005,7 @@ async def api_config_set(key: str, request: Request):
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     _tagging_settings_changed(key)
+    _optional_tool_changed(key, val)
     return {"ok": True, "value": display_value(SETTINGS_BY_KEY[key], val)}
 
 
@@ -1025,6 +1026,15 @@ def _tagging_settings_changed(key: str) -> None:
     tagging start or retry at once (ADR 0067)."""
     if key.startswith("tagger."):
         job_queue.backlog_changed()
+
+
+def _optional_tool_changed(key: str, value) -> None:
+    """Turning on kreuzberg or obscura installs it in the background; the
+    setting's On choice reports progress and failure (ADR 0121)."""
+    from . import optional_tools
+    for tool, setting in optional_tools.SETTINGS.items():
+        if key == setting and value is True:
+            optional_tools.start_background(tool)
 
 
 # ── CLI command execution ──────────────────────────────────────

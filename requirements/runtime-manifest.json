@@ -17,6 +17,16 @@
     "upstream": "https://huggingface.co/LiquidAI/LFM2.5-Audio-1.5B-GGUF/tree/7d525f883a077e20afb782f2ff618edcae0e39e4",
     "version": "7d525f883a077e20afb782f2ff618edcae0e39e4"
   },
+  "obscura": {
+    "assets": {
+      "obscura-aarch64-linux.tar.gz": "24c549a348b1d464e80aa3f643bc0c874b0a2942fb7836c683528028d0fbb190",
+      "obscura-aarch64-macos.tar.gz": "fcca31eba4280cd67a2e226ef4b015e432d5c089f78cefd074ad12bbc8e23345",
+      "obscura-x86_64-linux.tar.gz": "2116764b99bc084fae3668b68aa535b4cf456e4498845b47493ad4123e83ca36",
+      "obscura-x86_64-windows.zip": "9e56fa1cc1f9e4fb78926f7e9f36c40166b65177541ad7b7fd9645944c49174e"
+    },
+    "upstream": "https://github.com/h4ckf0r0day/obscura/releases/tag/v0.2.5",
+    "version": "v0.2.5"
+  },
   "qdrant": {
     "assets": {
       "qdrant-aarch64-apple-darwin.tar.gz": "adf795d7c2ac9d93677517fd58b119e9bb5bc8fc5143ac9b581a6f8264def8da",

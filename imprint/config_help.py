@@ -186,11 +186,11 @@ HELP: dict[str, dict[str, str]] = {
         "example": "false: to ingest your own intranet wiki whose robots.txt blocks all crawlers.",
     },
     "ingest.use_kreuzberg": {
-        "help": "Extracts documents with the kreuzberg library instead of the built-in PDF, DOCX and image extractors, and adds archives (.zip, .tar, .7z) and other document types. Install it yourself (`pip install kreuzberg`, or `kreuzberg[all]`); it is licensed under the Elastic License 2.0, which forbids offering it as a hosted service. A change applies to documents read from then on; those that yielded no text before are retried on the next index.",
-        "example": "true, after `pip install kreuzberg[all]`: to index zipped document bundles and get better table extraction.",
+        "help": "Extracts documents with the kreuzberg library instead of the built-in PDF, DOCX and image extractors, and adds archives (.zip, .tar, .7z) and other document types. Turning it on installs kreuzberg into Imprint's environment (in the background from the dashboard, where this setting shows the progress or why it failed) and accepts its license, the Elastic License 2.0, which forbids offering it as a hosted service. Where it cannot be installed, or fails on a file, the built-in extractors are used. A change applies to documents read from then on; those that yielded no text before are retried on the next index.",
+        "example": "true: to index zipped document bundles and get better table extraction.",
     },
     "ingest.use_obscura": {
-        "help": "Fetches HTML pages with the obscura headless browser, which runs a page's JavaScript before extracting its text and links. That helps with single-page apps and JavaScript-heavy docs sites that otherwise come back nearly empty, but it is slower. The obscura binary must be on your PATH; if it is missing or fails, Imprint falls back to a normal fetch.",
+        "help": "Fetches HTML pages with the obscura headless browser, which runs a page's JavaScript before extracting its text and links. That helps with single-page apps and JavaScript-heavy docs sites that otherwise come back nearly empty, but it is slower. Turning it on downloads obscura (about 70 MB) into Imprint's data folder; an obscura already on your PATH also works. If it cannot be installed or fails, Imprint falls back to a normal fetch.",
         "example": "true: to ingest a React-rendered documentation site whose pages come back empty with a plain fetch.",
     },
     "ingest.url_follow": {

@@ -160,6 +160,7 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled. Amended by [ADR 0109](0109-automatic-ocr-runtime-repair.md) (automatic missing-runtime repair), [ADR 0111](0111-intel-macs-are-not-supported.md) (no Intel OpenCV pin).
 - [ADR 0109](0109-automatic-ocr-runtime-repair.md) **Automatic OCR runtime repair.** Release the job lock, attempt noninteractive bootstrap once per managed command and retry in a fresh extraction worker when bundled OCR dependencies are missing.
+- [ADR 0121](0121-optional-tools-install-when-turned-on.md) **Optional ingestion tools install when turned on.** Turning on `ingest.use_kreuzberg` or `ingest.use_obscura` installs the hash-locked kreuzberg wheel or the pinned obscura release; setup, the dashboard and the first extraction that needs one repair a missing tool, and failures fall back to the native extractors with the manual fix.
 
 - [ADR 0085](0085-main-only-fast-forwards-to-dev.md) **Main only fast-forwards to dev.** Every change reaches main by fast-forwarding main to a dev commit; pull requests target dev, and no workflow fast-forwards dev after pushes to main.
 
@@ -311,6 +312,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0118](0118-personaplex-prototype-removed.md) | 2026-10-30 | Accepted | The PersonaPlex prototype is removed; the voice memory snapshot stays |
 | [0119](0119-throwaway-runners-carry-cis-dependencies.md) | 2026-10-30 | Accepted | Throwaway runners carry CI's dependencies, and the dashboard is built once |
 | [0120](0120-a-device-storing-a-chunk-says-so.md) | 2026-10-31 | Accepted | A device storing a synced chunk says so |
+| [0121](0121-optional-tools-install-when-turned-on.md) | 2026-10-31 | Accepted | Optional ingestion tools install when turned on |
 
 ## How to write and maintain ADRs
 
