@@ -211,6 +211,18 @@ def rocm_gpu(root: Path | None = None) -> bool:
     return bool(re.search(r'Device Type:\s*GPU', _run([tool])))
 
 
+def amd_gpu(drm: Path = Path('/sys/class/drm')) -> bool:
+    """Whether Linux lists an AMD display device (PCI vendor 0x1002)."""
+    for card in drm.glob('card*'):
+        if re.fullmatch(r'card\d+', card.name):
+            try:
+                if (card / 'device' / 'vendor').read_text().strip() == '0x1002':
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def rocm_wheels(requirements: Path = REQUIREMENTS) -> dict:
     """AMD's pinned onnxruntime-migraphx wheels, by ROCm release."""
     try:
@@ -250,6 +262,9 @@ def plan(profile: str = 'auto', system: str | None = None, machine: str | None =
                 add('rocm', f'ROCm {version}', wheel=wheels[version])
             elif version:
                 notes.append(f'ROCm {version} lists no GPU agent')
+            elif amd_gpu():
+                notes.append(f'an AMD GPU needs ROCm {" or ".join(sorted(wheels))} installed; '
+                             'install it and run imprint setup again')
         if system == 'Windows':
             adapters = directx12_gpus()
             if adapters:

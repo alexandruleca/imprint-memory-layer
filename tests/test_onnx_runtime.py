@@ -155,6 +155,7 @@ class BuildPlanTests(unittest.TestCase):
 
     def plan(self, system, machine='x86_64', profile='auto', nvidia='', rocm='', agent=False, adapters=()):
         with patch.object(onnx_runtime, 'nvidia_gpu', return_value=nvidia), \
+             patch.object(onnx_runtime, 'amd_gpu', return_value=False), \
              patch.object(onnx_runtime, 'rocm_version', return_value=rocm), \
              patch.object(onnx_runtime, 'rocm_gpu', return_value=agent), \
              patch.object(onnx_runtime, 'directx12_gpus', return_value=list(adapters)):
@@ -175,11 +176,27 @@ class BuildPlanTests(unittest.TestCase):
         steps = None
         with patch.object(onnx_runtime, 'nvidia_gpu', return_value=''), \
              patch.object(onnx_runtime, 'rocm_version', return_value='6.4.4'), \
+             patch.object(onnx_runtime, 'amd_gpu', return_value=False), \
              patch.object(onnx_runtime, 'rocm_gpu', return_value=True):
             steps = onnx_runtime.plan('auto', 'Linux', 'x86_64')
         self.assertEqual([step['name'] for step in steps], ['cpu'])
         self.assertIn('ROCm 6.4.4 has no pinned ONNX Runtime build', steps[0]['reason'])
         self.assertEqual(self.plan('Linux'), ['cpu'])
+
+    def test_an_amd_gpu_without_rocm_says_how_to_use_it(self):
+        with patch.object(onnx_runtime, 'nvidia_gpu', return_value=''), \
+             patch.object(onnx_runtime, 'rocm_version', return_value=''), \
+             patch.object(onnx_runtime, 'amd_gpu', return_value=True):
+            (step,) = onnx_runtime.plan('auto', 'Linux', 'x86_64')
+        self.assertEqual(step['name'], 'cpu')
+        self.assertIn('an AMD GPU needs ROCm 7.2.0 or', step['reason'])
+        with tempfile.TemporaryDirectory() as directory:
+            card = Path(directory, 'card0', 'device')
+            card.mkdir(parents=True)
+            (card / 'vendor').write_text('0x10de\n')
+            self.assertFalse(onnx_runtime.amd_gpu(Path(directory)))
+            (card / 'vendor').write_text('0x1002\n')
+            self.assertTrue(onnx_runtime.amd_gpu(Path(directory)))
 
     def test_the_rocm_step_carries_its_pinned_wheel(self):
         with patch.object(onnx_runtime, 'nvidia_gpu', return_value=''), \
