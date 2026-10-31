@@ -54,7 +54,7 @@ graph LR
     MCP --> KG --> SQLITE
     VS --> RED
     KG --> RED
-    RED -.opt-in.-> PF[privacy_filter.py<br/><small>ONNX, CPU</small>]
+    RED -.opt-in.-> PF[privacy_filter.py<br/><small>ONNX, CPU or GPU</small>]
     VS --> QR
     QR --> QBIN
     QR --> QSRV

@@ -154,7 +154,7 @@ curl -fsSL .../install.sh | bash -s -- --profile cpu
 curl -fsSL .../install.sh | bash -s -- --non-interactive
 ```
 
-The profile selects llama.cpp's build, which runs embeddings and the local LLM: `cpu` installs the CPU build, and `gpu` and `auto` (the default of `imprint setup` and `imprint bootstrap`) install the GPU build and keep it when llama.cpp finds a GPU, so the two behave the same ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)). `data/profile.json` records it. Swap it later with `imprint profile set cpu|gpu|auto`, which re-runs the installer's bootstrap step via `uv`. Whether embeddings use the GPU is `model.device`, which installs nothing.
+The profile selects llama.cpp's build, which runs embeddings and the local LLM: `cpu` installs the CPU build, and `gpu` and `auto` (the default of `imprint setup` and `imprint bootstrap`) install the GPU build and keep it when llama.cpp finds a GPU, so the two behave the same ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)). On `gpu` and `auto` it also picks ONNX Runtime's build for the Privacy Filter ([below](#privacy-filter-on-a-gpu)); `cpu` keeps ONNX Runtime's CPU build. `data/profile.json` records it. Swap it later with `imprint profile set cpu|gpu|auto`, which re-runs the installer's bootstrap step via `uv`. Whether embeddings use the GPU is `model.device`, which installs nothing.
 
 ## Supported hosts
 
@@ -299,7 +299,21 @@ curl -fsSL .../install.sh | bash -s -- --yes
 Setup installs two native runtimes into the venv ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)):
 
 - **llama.cpp's binding** runs embeddings, the local tagger, summaries and chat. The install profile picks its build: the GPU build from `requirements/llm-gpu.txt`, kept when llama.cpp finds a GPU (`llama_supports_gpu_offload()`), otherwise the CPU build from `requirements/llm.txt`. On those profiles setup checks the GPU build on every run, so after installing or updating a graphics driver another `imprint setup` picks it up. Setup fails when the binding does not load. A binding that stops loading later is a damaged installation: chat, the tagger and `imprint doctor` say to run `imprint bootstrap --non-interactive`.
-- **ONNX Runtime's CPU build** (`requirements/cpu.txt`) runs OCR and the opt-in privacy filter. ONNX Runtime's builds share one package directory, so setup keeps exactly one: it removes any other build and reinstalls a build with missing files. Rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md)).
+- **ONNX Runtime** runs OCR, audio VAD and the opt-in privacy filter: its CPU build (`requirements/cpu.txt`), or a GPU build in its place for the privacy filter (below). ONNX Runtime's builds share one package directory, so setup keeps exactly one: it removes any other build, with what only that build brought in, and reinstalls a build with missing files. Rerunning `imprint bootstrap --non-interactive` repairs `module 'onnxruntime' has no attribute 'InferenceSession'`, and `imprint doctor` reports the damage ([ADR 0032](adr/0032-one-onnx-runtime-per-environment.md)).
+
+#### Privacy Filter on a GPU
+
+The opt-in Privacy Filter (`redact.privacy_filter`, [secret redaction](redaction.md)) takes about a second per memory on a CPU. On the `gpu` and `auto` profiles setup installs ONNX Runtime's build for a GPU it finds instead of the CPU build, checks that it runs a tiny model on that GPU, and otherwise goes back to the CPU build ([ADR 0122](adr/0122-the-sending-device-filters-on-its-gpu.md)). OCR and audio keep running on the CPU with any build.
+
+| Machine | Build | Extra download |
+| --- | --- | --- |
+| NVIDIA GPU listed by `nvidia-smi`, Linux x64 or Windows x64 | `onnxruntime-gpu` with NVIDIA's CUDA 13 and cuDNN wheels (`requirements/onnx-cuda.lock.txt`); needs only the NVIDIA driver | about 2.5 GB installed |
+| AMD GPU on Linux x64 with ROCm 7.2.0–7.2.4 installed (`/opt/rocm/.info/version`, and `rocminfo` lists a GPU agent) | AMD's `onnxruntime-migraphx` 1.23.2 wheel for that ROCm release, from `repo.radeon.com`, pinned by SHA-256 in `requirements/onnx-rocm.json` | about 20 MB |
+| Windows x64 with a DirectX 12 GPU where CUDA does not apply or does not run (AMD, Intel, NVIDIA without CUDA) | `onnxruntime-directml` 1.24.4 (`requirements/onnx-directml.lock.txt`) | about 25 MB |
+| Apple silicon | the standard build, which includes Core ML | none |
+| Anything else | the CPU build | none |
+
+Setup does not install GPU drivers or ROCm. An AMD GPU on Linux without ROCm, or with another ROCm release, stays on the CPU, and setup says so: install ROCm 7.2.x from AMD (it needs root and a kernel driver matched to it), then run `imprint setup` again. A GPU build is only the opportunity: the model itself moves to the GPU only after its first-use check finds the GPU labels exactly like the CPU and is at least 1.5 times faster. Some providers run only part of this model (DirectML and Core ML have no kernel for its mixture-of-experts layers, which then run on the CPU), so the check may keep the CPU. To keep the CPU build and its smaller download, choose the `cpu` profile: `imprint profile set cpu`, or `--profile cpu` at install; that also puts llama.cpp on its CPU build.
 
 An installation from a release that embedded through CUDA loses `onnxruntime-gpu` and the NVIDIA libraries only it brought in on its next update or `imprint setup` (`python -m imprint.onnx_runtime unused` names them), and setup clears them from the install's `uv` cache, whose files the environment shares, so their disk space is freed. `onnx` and `ml-dtypes`, which the old CUDA check installed (about 20 MB), stay. Before it replaces or removes packages, setup restarts the dashboard server and, on Windows, stops Imprint's MCP servers; AI clients reconnect Imprint ([ADR 0084](adr/0084-setup-frees-the-runtime-before-replacing-its-files.md)). The new embedding model also changes the embedding profile: reindex into a new workspace ([embeddings](embeddings.md#rebuild-after-upgrading)).
 

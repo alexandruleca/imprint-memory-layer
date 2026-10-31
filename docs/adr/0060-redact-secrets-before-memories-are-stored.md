@@ -3,8 +3,9 @@ title: ADR 0060 — Redact secrets before memories are stored
 description: Every memory and fact write, and every prompt to a background model, replaces credentials with length-bearing placeholders; the most redacted version of a memory wins on every device, so one scrub reaches all of them. Deterministic rules always run; OpenAI Privacy Filter is opt-in.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
+- Amended by: [ADR 0122](0122-the-sending-device-filters-on-its-gpu.md) — the q4 export, a GPU that passes a probe, and a receiver's Privacy Filter skipping records a paired sender marked as filtered by the same model
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0017](0017-device-provenance-and-local-project-paths.md), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md), [ADR 0033](0033-stored-secret-settings.md), [ADR 0036](0036-move-memories-between-projects.md), [ADR 0051](0051-synced-tags-follow-the-latest-retag.md), [ADR 0058](0058-recall-batched-reads-with-optional-local-planning.md), [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md)
 - Restructured: 2026-10-25
 

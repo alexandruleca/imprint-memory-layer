@@ -225,7 +225,7 @@ SETTINGS: list[Setting] = [
     # ── Redaction (ADR 0060) ──────────────────────────────────
     # Rules for known credential formats always run; this adds a model.
     Setting("redact.privacy_filter", "IMPRINT_REDACT_PRIVACY_FILTER", False, bool,
-            "Also redact secrets and account numbers OpenAI Privacy Filter finds (CPU; ~810 MB download on first use; seconds per chunk)"),
+            "Also redact secrets and account numbers OpenAI Privacy Filter finds (CPU, or a GPU that passes its check; ~945 MB download on first use)"),
 
     # ── Ingest (docs + urls) ──────────────────────────────────
     Setting("ingest.max_file_bytes",    "IMPRINT_INGEST_MAX_FILE_BYTES",    2_000_000,    int,  "Per-file byte cap for source text indexing"),

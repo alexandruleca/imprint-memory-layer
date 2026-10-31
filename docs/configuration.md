@@ -113,7 +113,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `tagger.local.n_ctx` | `8192` | Tagger context window in tokens |
 | `tagger.local.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
 | **Redaction** | | |
-| `redact.privacy_filter` | `false` | Also redact the secrets and account numbers OpenAI Privacy Filter finds, after the always-on rules. CPU only, ~837 MB download on first use, seconds per chunk; a write fails rather than store less redacted text when the model cannot run. See [secret redaction](redaction.md) |
+| `redact.privacy_filter` | `false` | Also redact the secrets and account numbers OpenAI Privacy Filter finds, after the always-on rules. ~945 MB download on first use; seconds per chunk on a CPU, on a GPU where setup installed ONNX Runtime's GPU build and the model's first-use check passes ([ADR 0122](adr/0122-the-sending-device-filters-on-its-gpu.md)); a write fails rather than store less redacted text when the model cannot run. See [secret redaction](redaction.md) |
 | **Ingest (docs + URLs)** | | |
 | `ingest.doc_formats` | `pdf,docx,pptx,xlsx,csv,epub,rtf,html,eml,json` | Comma-separated doc formats enabled for the file walker |
 | `ingest.ocr_enabled` | `true` | Local OCR for scanned PDFs and images. Setup installs RapidOCR (including its small Chinese/English models), Pillow and the PDFium renderer; no system tools are required. Explicit saved `false` stays off. See [ADR 0076](adr/0076-default-ocr-with-wheel-installed-models-and-renderer.md). |

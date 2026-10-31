@@ -97,7 +97,9 @@ release for this; a device on an older one gets and sends whole workspaces, as
 before ([ADR 0116](adr/0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md)).
 Received records are redacted again before they are stored; with
 `redact.privacy_filter` on, that takes about a second a memory on a CPU, so a
-first sync of a large workspace can store for hours. A device storing a chunk
+first sync of a large workspace can store for hours, unless the sending device
+runs the filter on a GPU and marks what it sent (see
+[secret redaction](#secret-redaction)). A device storing a chunk
 says so every 30 seconds, which counts as progress, and both devices show
 *storing* meanwhile ([ADR 0120](adr/0120-a-device-storing-a-chunk-says-so.md)).
 No embedding call is required. Turning off the app,
@@ -324,7 +326,9 @@ Precomputed imports preserve a supplied logical ID only when it matches the cont
 
 ## Secret redaction
 
-A receiving device redacts every memory and fact it imports with its own rules and settings, whatever the sending device did ([secret redaction](redaction.md), [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md)). This also covers peers on releases from before redaction existed. The sender's logical ID is validated against the content as sent, as above. A record that redaction changes is then stored under the ID of its redacted content, and embedded again from the redacted text instead of keeping the sender's vector. Records it leaves unchanged keep their ID and vector.
+A receiving device redacts every memory and fact it imports with its own rules and settings, whatever the sending device did, except that its Privacy Filter trusts a sender's mark (below) ([secret redaction](redaction.md), [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md)). This also covers peers on releases from before redaction existed. The sender's logical ID is validated against the content as sent, as above. A record that redaction changes is then stored under the ID of its redacted content, and embedded again from the redacted text instead of keeping the sender's vector. Records it leaves unchanged keep their ID and vector.
+
+When the sending device has `redact.privacy_filter` on and its filter runs on a GPU, it runs its redaction, rules and Privacy Filter, over the memories it sends, in full and paired syncs alike, and marks each one the redaction leaves unchanged with the filter it applied: the model's revision and file. A receiver whose filter is on and is that same filter skips the model for a marked memory; it still applies its rules and keeps the most redacted version, as below. An unmarked memory, or one marked with another filter, is filtered on arrival as before. A memory the sender's redaction would change is sent as stored and unmarked, so its ID and vector stay those of its stored content and the receiver redacts, relabels and embeds it again. A device whose filter runs on the CPU marks nothing: the faster side does the work ([ADR 0122](adr/0122-the-sending-device-filters-on-its-gpu.md)). The mark is trusted only because it arrives from a paired device of the same owner over the authenticated, encrypted sync channel. A device on an older release ignores the mark and filters everything; an older sender sends none.
 
 Redaction placeholders record the length of the text they replaced, so a device can tell that a received memory is a further-redacted version of one it holds, at the same project, source and chunk position. Every write keeps the most redacted version:
 
