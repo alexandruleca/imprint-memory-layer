@@ -115,7 +115,8 @@ class PairedSyncTests(unittest.TestCase):
         a = asyncio.create_task(self.at('a', attempt))
         await asyncio.sleep(.02)
         b = asyncio.create_task(self.at('b', attempt))
-        await asyncio.wait_for(asyncio.gather(a, b), 10)
+        async with asyncio.timeout(10):  # not wait_for, which short_waits shortens
+            await asyncio.gather(a, b)
 
     def scenario(self, fn):
         async def run():
@@ -440,6 +441,55 @@ class PairedSyncTests(unittest.TestCase):
                 await asyncio.gather(a, return_exceptions=True)
         self.scenario(scenario)
 
+    def slow_store(self, seconds):
+        importer = sync_ws.process_import_buffer.side_effect
+
+        def slow(*args, **kwargs):
+            time.sleep(seconds)
+            return importer(*args, **kwargs)
+        return patch.object(sync_ws, 'process_import_buffer', side_effect=slow)
+
+    def frames(self):
+        """Every frame a device sends, as (device, kind)."""
+        sent, real = [], sync_ws._Channel.send
+
+        async def send(channel, msg):
+            sent.append((self.side.get(), msg.get('kind')))
+            return await real(channel, msg)
+        return sent, patch.object(sync_ws._Channel, 'send', send)
+
+    def test_a_store_slower_than_the_limit_still_finishes_while_it_says_so(self):
+        # Privacy Filter can take a second a memory: a 200-memory chunk takes
+        # minutes, longer than either side waits for the other's next frame.
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            self.manifests['a']['memories']['c' * 16] = 0.0
+            limit = 5 if emulated() else 1
+            sent, frames = self.frames()
+            with self.short_waits(limit, wait=limit / 2), self.slow_store(limit * 2.5), frames, \
+                    patch.object(sync_ws, 'STORE_HEARTBEAT', limit / 5):
+                await self.repeat()
+            self.assertIn(('a', 'storing'), sent)
+            self.assertIn(('b', 'storing'), sent)
+            for side in 'ab':
+                self.assertIsNotNone(self.record(side)['last_sync'])
+                self.assertEqual(self.record(side)['last_error'], '')
+        self.scenario(scenario)
+
+    def test_a_device_that_does_not_take_storing_frames_gets_none(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            self.manifests['a']['memories']['c' * 16] = 0.0
+            sent, frames = self.frames()
+            older_b = lambda: self.side.get() != 'b'
+            with self.slow_store(.3), frames, patch.object(sync_ws, 'STORE_HEARTBEAT', .05), \
+                    patch.object(sync_delta, 'storing_offered', side_effect=older_b):
+                await self.repeat()
+            self.assertNotIn(('a', 'storing'), sent)  # a stores b's records without telling b
+            self.assertIn(('b', 'storing'), sent)
+            self.assertIsNotNone(self.record('a')['last_sync'])
+        self.scenario(scenario)
+
     def test_pause_and_shutdown_end_an_attempt_waiting_for_the_other_device_quietly(self):
         async def scenario(endpoint, relay):
             await self.initial(endpoint)
@@ -681,7 +731,7 @@ class PairedSyncTests(unittest.TestCase):
             with patch.object(sync_ws, 'process_import_buffer', side_effect=storing):
                 await self.repeat()
             # b stores a's records while the devices reconcile; a stores b's after sending its own.
-            self.assertEqual([(side, activity['stage']) for side, activity in seen], [('b', 'comparing'), ('a', 'sending')])
+            self.assertEqual([(side, activity['stage']) for side, activity in seen], [('b', 'storing'), ('a', 'storing')])
             for _, activity in seen:
                 self.assertLessEqual(activity['since'], activity['at'])
             for side in 'ab':

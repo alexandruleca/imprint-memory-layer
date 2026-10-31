@@ -91,7 +91,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) **Explicit pairing and automatic workspace sync.** Mutually approved workspace pairing, automatic encrypted merge, pause and acknowledged peer revocation. Amended by [ADR 0073](0073-remove-a-pairing-from-one-device.md) (one-sided removal) and [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) (only differences, in stored chunks).
 - [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) **Synced tags follow the latest retag.** Each memory carries a `tagged_at` stamp; sync gives a memory both devices hold the classification that was set last.
 - [ADR 0073](0073-remove-a-pairing-from-one-device.md) **Remove a pairing from one device without the other's acknowledgement.** A confirmed removal deletes this device's pairing with a peer, its credentials and trust at once, without contacting the relay or the peer; forgetting on both devices stays the normal path.
-- [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) **Paired devices send only what the other lacks, in stored chunks.** Vector-free manifests are swapped and only missing or newer records sent, as small streams each stored and acknowledged before the next; an attempt is bounded by progress, not total time.
+- [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) **Paired devices send only what the other lacks, in stored chunks.** Vector-free manifests are swapped and only missing or newer records sent, as small streams each stored and acknowledged before the next; an attempt is bounded by progress, not total time. Amended by [ADR 0120](0120-a-device-storing-a-chunk-says-so.md) (a device storing a chunk says so).
+- [ADR 0120](0120-a-device-storing-a-chunk-says-so.md) **A device storing a synced chunk says so.** While a paired device stores a chunk it sends a storing frame every 30 seconds, so a store slower than the 10-minute wait no longer fails the sync; both devices show "storing".
 
 ### Security and privacy
 
@@ -305,10 +306,11 @@ Every record in number order. *Date* is when the decision was made.
 | [0113](0113-unchosen-install-profiles-try-the-gpu.md) | 2026-10-29 | Accepted | Unchosen install profiles try the GPU |
 | [0114](0114-linux-desktop-app-runs-unpacked-with-an-apparmor-profile.md) | 2026-10-29 | Accepted | Linux desktop app runs unpacked with an AppArmor profile |
 | [0115](0115-apple-silicon-jobs-run-in-disposable-tart-vms.md) | 2026-10-29 | Accepted | Apple silicon jobs run in disposable Tart VMs |
-| [0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) | 2026-10-30 | Accepted | Paired devices send only what the other lacks, in stored chunks |
+| [0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) | 2026-10-30 | Amended by [ADR 0120](0120-a-device-storing-a-chunk-says-so.md) | Paired devices send only what the other lacks, in stored chunks |
 | [0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) | 2026-10-29 | Accepted | The dashboard shows each agent session and its calls |
 | [0118](0118-personaplex-prototype-removed.md) | 2026-10-30 | Accepted | The PersonaPlex prototype is removed; the voice memory snapshot stays |
 | [0119](0119-throwaway-runners-carry-cis-dependencies.md) | 2026-10-30 | Accepted | Throwaway runners carry CI's dependencies, and the dashboard is built once |
+| [0120](0120-a-device-storing-a-chunk-says-so.md) | 2026-10-31 | Accepted | A device storing a synced chunk says so |
 
 ## How to write and maintain ADRs
 

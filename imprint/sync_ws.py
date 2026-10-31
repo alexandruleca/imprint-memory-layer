@@ -55,6 +55,12 @@ DEFAULT_BATCH_SIZE = 500
 PIN_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 # A batch of 500 memories with 1024-dim vectors is roughly 15 MB of JSON.
 MAX_FRAME_BYTES = 64 * 1024 * 1024
+# How often a store with no progress to report says it is still storing, so
+# a device storing a large chunk is not taken for one that went away.
+STORE_HEARTBEAT = 30
+# How long a stream may go without its next frame. The sender reads each
+# batch from its own store, which takes seconds, not minutes.
+STREAM_WAIT = 600
 
 # Active sessions keyed by session_id, value is an asyncio.Event that
 # gets set when cancellation is requested.
@@ -762,7 +768,8 @@ class _StopImport(Exception):
 
 async def _store(path: str, workspace: str, phase: str, cancel: asyncio.Event, result: dict):
     """Import ``path`` into ``workspace`` on a worker thread, yielding
-    ``progress`` events. Sets ``result["stats"]`` when done. Cancellation
+    ``progress`` events, and a ``storing`` status every ``STORE_HEARTBEAT``
+    seconds without one. Sets ``result["stats"]`` when done. Cancellation
     (task or session) stops the worker after its current chunk."""
     loop = asyncio.get_running_loop()
     updates: asyncio.Queue = asyncio.Queue()
@@ -776,6 +783,7 @@ async def _store(path: str, workspace: str, phase: str, cancel: asyncio.Event, r
     worker = asyncio.ensure_future(asyncio.to_thread(process_import_buffer, path, workspace, report))
     # A worker stopped by a task cancellation finishes unobserved.
     worker.add_done_callback(lambda f: f.cancelled() or f.exception())
+    beat = loop.time()
     try:
         while not worker.done() or not updates.empty():
             if cancel.is_set():
@@ -783,7 +791,11 @@ async def _store(path: str, workspace: str, phase: str, cancel: asyncio.Event, r
             try:
                 dataset, done, total = await asyncio.wait_for(updates.get(), timeout=0.25)
             except asyncio.TimeoutError:
+                if loop.time() - beat >= STORE_HEARTBEAT:
+                    beat = loop.time()
+                    yield {"type": "status", "status": "storing"}
                 continue
+            beat = loop.time()
             yield {"type": "progress", "phase": phase, "dataset": dataset, "done": done, "total": total}
         try:
             result["stats"] = worker.result()
@@ -914,12 +926,16 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
     """Write the peer's stream to ``out`` until ``done``, yielding
     ``progress`` events. Raises ``RuntimeError`` when the peer sends an
     error line or anything other than stream lines (e.g. a refusal).
-    ``first``: the stream's opening frame, when the caller read it."""
+    ``first``: the stream's opening frame, when the caller read it. A peer
+    that stops sending mid-stream fails it after ``STREAM_WAIT`` seconds."""
     totals: dict[str, int] = {}
     received: dict[str, int] = {}
     while True:
         _check_cancel(cancel)
-        msg, first = first or await channel.recv(), None
+        try:
+            msg, first = first or await channel.recv(timeout=STREAM_WAIT), None
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"The other device sent nothing for {STREAM_WAIT // 60} minutes") from None
         kind = msg.get("kind")
         if kind == "error":
             raise RuntimeError(_printable(msg.get("message", "peer export error")))
@@ -1090,7 +1106,8 @@ async def serve_session(
                     result: dict = {}
                     async for event in sync_delta.reconcile(channel, workspace, pairing["_manifest"], provider=True,
                                                             provider_sends=pull, consumer_sends=push,
-                                                            cancel=cancel, result=result):
+                                                            cancel=cancel, result=result,
+                                                            storing=pairing.get("_storing", False)):
                         yield event
                     unfinished = False
                     if push:
@@ -1292,7 +1309,8 @@ async def receive_session(
                 result: dict = {}
                 async for event in sync_delta.reconcile(channel, workspace, pairing["_manifest"], provider=False,
                                                         provider_sends=plan.pull, consumer_sends=plan.push,
-                                                        cancel=cancel, result=result):
+                                                        cancel=cancel, result=result,
+                                                        storing=pairing.get("_storing", False)):
                     yield event
                 if plan.pull:
                     pull_stats = result.get("received")

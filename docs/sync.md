@@ -95,7 +95,12 @@ and the next attempt sends the rest. An attempt runs as long as it makes
 progress; it stops after 10 minutes without any. Both devices need the same
 release for this; a device on an older one gets and sends whole workspaces, as
 before ([ADR 0116](adr/0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md)).
-No model or embedding call is required. Turning off the app,
+Received records are redacted again before they are stored; with
+`redact.privacy_filter` on, that takes about a second a memory on a CPU, so a
+first sync of a large workspace can store for hours. A device storing a chunk
+says so every 30 seconds, which counts as progress, and both devices show
+*storing* meanwhile ([ADR 0120](adr/0120-a-device-storing-a-chunk-says-so.md)).
+No embedding call is required. Turning off the app,
 network outages or an unavailable relay delay sync. `watch` is a foreground
 service command; pairing does not silently install a system startup service.
 

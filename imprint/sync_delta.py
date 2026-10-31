@@ -31,6 +31,13 @@ DATASETS = ('memories', 'facts', 'sources')
 def offered() -> int | None:
     """The version this device offers in the paired exchange."""
     return VERSION
+
+
+def storing_offered() -> bool:
+    """Whether this device, sending, takes ``storing`` frames while it waits
+    for an acknowledgement. 0.36.0 refused them, so a device sends them only
+    to one that offers this."""
+    return True
 MANIFEST_BYTES = 256 * 1024 * 1024
 
 
@@ -157,10 +164,12 @@ def export_chunks(workspace: str, keys: dict[str, list[str]]):
 
 
 async def reconcile(channel, workspace: str, local: dict, *, provider: bool, provider_sends: bool,
-                    consumer_sends: bool, cancel: asyncio.Event, result: dict):
+                    consumer_sends: bool, cancel: asyncio.Event, result: dict, storing: bool = False):
     """Swap manifests, then send what the other device lacks: the provider's
-    records first, then the consumer's. Yields ``progress`` events; sets
-    ``result['received']`` to what this side stored."""
+    records first, then the consumer's. Yields ``progress`` events, and a
+    ``storing`` status while either side stores a chunk; sets
+    ``result['received']`` to what this side stored. ``storing``: the other
+    device takes ``storing`` frames (``storing_offered``)."""
     if provider:
         await channel.send({'kind': 'manifest', 'data': encode(local)})
         remote = decode((await channel.recv(timeout=WAIT)).get('data'))
@@ -174,7 +183,7 @@ async def reconcile(channel, workspace: str, local: dict, *, provider: bool, pro
             async for event in _send(channel, workspace, wanted(local, remote), cancel):
                 yield event
         else:
-            async for event in _receive(channel, workspace, wanted(remote, local), cancel, result):
+            async for event in _receive(channel, workspace, wanted(remote, local), cancel, result, storing):
                 yield event
 
 
@@ -192,7 +201,12 @@ async def _send(channel, workspace: str, keys: dict, cancel: asyncio.Event):
         seq += 1
         for line in lines:
             await channel.send_line(line)
+        # Storing a chunk can outlast WAIT (Privacy Filter runs on every
+        # record); the other device says it is still at it.
         ack = await channel.recv(timeout=WAIT)
+        while ack.get('kind') == 'storing' and ack.get('seq') == seq:
+            yield {'type': 'status', 'status': 'storing'}
+            ack = await channel.recv(timeout=WAIT)
         if ack.get('kind') != 'ack' or ack.get('seq') != seq or ack.get('error'):
             raise RuntimeError(f"The other device did not store the sync: {_printable(ack.get('error') or 'no acknowledgement')}")
         for dataset, count in json.loads(lines[0])['datasets'].items():
@@ -202,7 +216,7 @@ async def _send(channel, workspace: str, keys: dict, cancel: asyncio.Event):
     await channel.send({'kind': 'end', 'chunks': seq})
 
 
-async def _receive(channel, workspace: str, keys: dict, cancel: asyncio.Event, result: dict):
+async def _receive(channel, workspace: str, keys: dict, cancel: asyncio.Event, result: dict, storing: bool = False):
     from .sync_ws import _check_cancel, _printable, _receive_stream, _store, _temp_buffer
     totals = {dataset: len(keys[dataset]) for dataset in ('memories', 'facts')}
     stats = {'memories': {'inserted': 0, 'updated': 0, 'skipped': 0}, 'facts': {'inserted': 0, 'skipped': 0}}
@@ -224,9 +238,13 @@ async def _receive(channel, workspace: str, keys: dict, cancel: asyncio.Event, r
                 async for _ in _receive_stream(channel, out, 'receive', cancel, first=first):
                     pass
             stored: dict = {}
+            yield {'type': 'status', 'status': 'storing'}
             try:
-                async for _ in _store(path, workspace, 'store', cancel, stored):
-                    pass
+                async for event in _store(path, workspace, 'store', cancel, stored):
+                    if event['type'] == 'status':
+                        if storing:
+                            await channel.send({'kind': 'storing', 'seq': seq})
+                        yield event
             except asyncio.CancelledError:
                 raise
             except Exception as e:

@@ -1,4 +1,6 @@
 """Paired sync sends only what the other device lacks, in chunks (ADR 0116)."""
+import asyncio
+import io
 import json
 import sqlite3
 import unittest
@@ -59,6 +61,17 @@ class StreamTests(unittest.TestCase):
         self.assertFalse(sync_ws._stream_line_ok(frame, False))  # not before the meta line
         for broken in ({**frame, 'part': '0'}, {**frame, 'data': None}, {k: v for k, v in frame.items() if k != 'transfer'}):
             self.assertFalse(sync_ws._stream_line_ok(broken, True))
+
+    def test_a_stream_that_stops_fails_instead_of_waiting_forever(self):
+        class Silent:
+            async def recv(self, timeout=None):
+                await asyncio.wait_for(asyncio.Event().wait(), timeout)
+
+        async def receive():
+            async for _ in sync_ws._receive_stream(Silent(), io.StringIO(), 'pull', asyncio.Event()):
+                pass
+        with patch.object(sync_ws, 'STREAM_WAIT', .05), self.assertRaisesRegex(RuntimeError, 'sent nothing'):
+            asyncio.run(receive())
 
     def test_chunks_are_complete_streams_of_bounded_size(self):
         payloads = {f'{i:016x}': {'_mid': f'{i:016x}', 'content': f'memory {i}', '_vector': [0.1, 0.2]}

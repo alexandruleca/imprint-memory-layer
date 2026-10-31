@@ -3,9 +3,10 @@ title: ADR 0116 — Paired devices send only what the other lacks, in stored chu
 description: Automatic sync swaps vector-free manifests and sends only missing or newer records, as small streams each stored and acknowledged before the next, so large workspaces sync and interrupted syncs resume.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-30
 - Amends: [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) — what an automatic attempt compares and transfers, and how long it may run
+- Amended by: [ADR 0120](0120-a-device-storing-a-chunk-says-so.md) — a device storing a chunk sends storing frames, so a slow store is progress
 - Related: [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) (the encrypted session and stream format, unchanged), [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) (which classification wins), [ADR 0081](0081-verifiable-redacted-source-snapshots.md) (snapshot transfer frames), [sync](../sync.md#automatic-sync-between-paired-devices)
 
 ## Context

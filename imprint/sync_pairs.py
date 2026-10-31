@@ -228,7 +228,7 @@ async def exchange(channel, pair, peer, *, provider):
     # The manifest reads no vectors, so even a large workspace lists quickly;
     # the other device may still take a while, so wait as long as for data.
     manifest = await asyncio.to_thread(sync_delta.manifest, pair['workspace'])
-    snapshot = {'digest': sync_delta.digest(manifest), 'delta': sync_delta.offered(),
+    snapshot = {'digest': sync_delta.digest(manifest), 'delta': sync_delta.offered(), 'storing': sync_delta.storing_offered(),
                 'last_local_digest': pair.get('local_digest'), 'last_remote_digest': pair.get('remote_digest')}
     await channel.send(snapshot)
     remote_snapshot = await channel.recv(timeout=sync_delta.WAIT)
@@ -241,6 +241,7 @@ async def exchange(channel, pair, peer, *, provider):
     # sends whole workspaces as before.
     pair['_manifest'] = manifest
     pair['_delta'] = sync_delta.offered() is not None and remote_snapshot.get('delta') == sync_delta.offered()
+    pair['_storing'] = remote_snapshot.get('storing') is True
     # Both endpoints must make the SAME decision. One side may have failed to
     # store/acknowledge an earlier transfer even though the other checkpointed.
     changed = (local_digest != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
@@ -281,7 +282,7 @@ def cancel_peer(fingerprint):
 # What a running attempt is doing, by session event: the stage the paired-device
 # list shows, with done/total while records move.
 _STAGES = {'waiting': 'connecting', 'connected': 'connecting', 'handshake_sent': 'connecting',
-           'comparing': 'comparing', 'reconciling': 'comparing'}
+           'comparing': 'comparing', 'reconciling': 'comparing', 'storing': 'storing'}
 _PHASES = {'send': 'sending', 'push': 'sending', 'pull': 'receiving', 'receive': 'receiving', 'store': 'storing'}
 
 
