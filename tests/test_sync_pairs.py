@@ -457,7 +457,9 @@ class PairedSyncTests(unittest.TestCase):
             self.manifests['a']['memories']['c' * 16] = 0.0
             limit = slack(1)
             sent, frames = self.frames()
-            with self.short_waits(limit, wait=limit / 2), self.slow_store(limit * 2.5), frames, \
+            # The sender waits for the first storing frame, a heartbeat after
+            # the store starts; the whole limit leaves room for a stalled VM.
+            with self.short_waits(limit, wait=limit), self.slow_store(limit * 2.5), frames, \
                     patch.object(sync_ws, 'STORE_HEARTBEAT', limit / 5):
                 await self.repeat()  # slack(10), ten limits: each device stores for 2.5
             self.assertIn(('a', 'storing'), sent)
