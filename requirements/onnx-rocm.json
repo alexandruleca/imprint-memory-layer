@@ -1,0 +1,28 @@
+{
+  "_comment": "AMD ONNX Runtime builds for ROCm (ADR 0122), one per ROCm release: each wheel is built against that release. Setup installs the entry matching /opt/rocm/.info/version with requirements/onnx-rocm.lock.txt; other ROCm releases use the CPU build. Add a release by downloading its wheel from repo.radeon.com/rocm/manylinux/rocm-rel-<version>/ and recording its SHA-256 (docs/building.md).",
+  "distribution": "onnxruntime-migraphx",
+  "version": "1.23.2",
+  "python": "cp312",
+  "wheels": {
+    "7.2.0": {
+      "url": "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/onnxruntime_migraphx-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "45d556a6c261383f3e1f1469764a6ce94dc9daaa65fc3d494406d9cd357a3656"
+    },
+    "7.2.1": {
+      "url": "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/onnxruntime_migraphx-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "663bff4dc3f72582d69f12ad073eb5695dfb526d574376cc8e5b161c7d2f0f08"
+    },
+    "7.2.2": {
+      "url": "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.2/onnxruntime_migraphx-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "76f22bba96991d6653c8169999817203cde72e6703b8211f00dc8dd80ff8e43b"
+    },
+    "7.2.3": {
+      "url": "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.3/onnxruntime_migraphx-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "99bd7e597ba1d41b84932aa953d9812acd58ce00224469b7b24c716f545a1896"
+    },
+    "7.2.4": {
+      "url": "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.4/onnxruntime_migraphx-1.23.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "ee8edeb2ba6a8d99b3043b23e812423e6f10333b508e003fc77b0feda197449f"
+    }
+  }
+}

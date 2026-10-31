@@ -1,0 +1,7 @@
+# What AMD's ONNX Runtime build for ROCm (onnxruntime-migraphx, from
+# repo.radeon.com) requires beyond cpu.txt (ADR 0122). The wheel itself is
+# built for one ROCm release and is not on PyPI: onnx-rocm.json pins it by
+# ROCm version with its SHA-256, and setup adds it to this lock's install on
+# Linux x64 with that ROCm installed, in place of cpu.txt's `onnxruntime`
+# (one build per environment, ADR 0032).
+coloredlogs ; sys_platform == "linux" and platform_machine == "x86_64"

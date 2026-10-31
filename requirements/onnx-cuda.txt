@@ -1,0 +1,15 @@
+# ONNX Runtime's CUDA build for the Privacy Filter (ADR 0122), installed with
+# cpu.txt in place of its `onnxruntime` where setup finds a usable NVIDIA GPU
+# on Linux x64 or Windows x64. onnxruntime, onnxruntime-gpu,
+# onnxruntime-directml and onnxruntime-migraphx install the same `onnxruntime`
+# package directory, so setup installs exactly one of them (ADR 0032) and
+# excludes the CPU build that faster-whisper requires.
+#
+# The [cuda,cudnn] extras bring NVIDIA's CUDA runtime, cuBLAS, cuFFT, cuRAND
+# and cuDNN wheels (about 2.5 GB installed): the only system requirement is
+# an NVIDIA driver for CUDA 13. OCR and audio VAD run on the CPU provider of
+# this same build.
+onnxruntime-gpu[cuda,cudnn]==1.31.0 ; (sys_platform == "linux" and platform_machine == "x86_64") or (sys_platform == "win32" and platform_machine == "AMD64")
+# cuDNN requires cuBLAS. Every NVIDIA pin needs win_amd64 and manylinux
+# x86_64 wheels; some patch releases ship Linux only (13.8.1 and 13.8.2).
+nvidia-cublas==13.8.0.4 ; (sys_platform == "linux" and platform_machine == "x86_64") or (sys_platform == "win32" and platform_machine == "AMD64")

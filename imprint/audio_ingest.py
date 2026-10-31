@@ -72,11 +72,14 @@ def profile(options=None) -> str:
     options = settings() if options is None else options
     spec = MODELS[str(options['audio.model'])]
     versions = {}
-    for name in ("faster-whisper", "ctranslate2", "av", "onnxruntime"):
+    for name in ("faster-whisper", "ctranslate2", "av"):
         try:
             versions[name] = version(name)
         except PackageNotFoundError:
             versions[name] = "unavailable"
+    # Whichever build provides it (ADR 0122); VAD runs on its CPU provider.
+    from .onnx_runtime import installed_version
+    versions["onnxruntime"] = installed_version() or "unavailable"
     payload = [TRANSCRIPTION_VERSION, RATE, WINDOW, OVERLAP, spec.repo, spec.revision, versions, options]
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 

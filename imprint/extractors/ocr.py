@@ -16,10 +16,16 @@ def _engine():
     except ImportError as error:
         raise OcrRuntimeMissing(f'OCR runtime missing ({error}) — run imprint bootstrap') from error
     # Small, bundled models; keep CPU parallelism bounded on workstations.
+    # OCR stays on the CPU whichever ONNX Runtime build is installed: only
+    # the Privacy Filter uses a GPU provider (ADR 0122).
     return RapidOCR(params={
         'Global.log_level': 'error',
         'EngineConfig.onnxruntime.intra_op_num_threads': 4,
         'EngineConfig.onnxruntime.inter_op_num_threads': 1,
+        'EngineConfig.onnxruntime.use_cuda': False,
+        'EngineConfig.onnxruntime.use_dml': False,
+        'EngineConfig.onnxruntime.use_coreml': False,
+        'EngineConfig.onnxruntime.use_cann': False,
     })
 
 

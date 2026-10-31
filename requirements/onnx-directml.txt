@@ -1,0 +1,7 @@
+# ONNX Runtime's DirectML build for the Privacy Filter (ADR 0122), installed
+# with cpu.txt in place of its `onnxruntime` on Windows x64 with a DirectX 12
+# GPU when the CUDA build is not usable: AMD and Intel GPUs, and NVIDIA cards
+# CUDA cannot use. One build only per environment (ADR 0032). DirectML ships
+# in Windows; the wheel holds its own DirectML.dll. 1.24 is the last DirectML
+# release (the provider is in maintenance upstream).
+onnxruntime-directml==1.24.4 ; sys_platform == "win32" and platform_machine == "AMD64"

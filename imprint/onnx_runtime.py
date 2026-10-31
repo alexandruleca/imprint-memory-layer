@@ -7,26 +7,56 @@ one deletes every file in its RECORD, including files the other also owns,
 while the other still counts as installed. A sound runtime therefore has
 exactly one provider whose RECORD files all exist (ADR 0032).
 
-Imprint installs the CPU build only: OCR and the privacy filter run on it,
-and embeddings run on llama.cpp (ADR 0086). ``unused`` names what setup
-removes from an installation that still holds another build, such as the
-CUDA build and its NVIDIA libraries from before.
+OCR, audio VAD and the Privacy Filter run on it; embeddings run on
+llama.cpp (ADR 0086). Imprint installs the CPU build, or where a GPU can run
+the Privacy Filter, a build with that GPU's provider in its place (ADR
+0122): ``BUILDS`` lists them. OCR and VAD use the CPU provider of whichever
+build is installed. ``unused`` names what setup removes from an
+installation that holds another build than the one chosen, such as a CUDA
+build and its NVIDIA libraries.
 
 This module reads distribution metadata without importing ``onnxruntime``,
-so it also works on a damaged runtime. ``python -m imprint.onnx_runtime``
-prints the providers as JSON for ``imprint setup``, and
-``python -m imprint.onnx_runtime unused`` the distributions to remove.
+so it also works on a damaged runtime. For ``imprint setup``,
+``python -m imprint.onnx_runtime`` prints the providers as JSON,
+``... unused <build>`` the distributions to remove, ``... plan <profile>``
+the builds to try in order, and ``... check <build>`` whether the installed
+build runs a tiny model on its GPU provider.
 """
 from __future__ import annotations
 
+import base64
 import csv
 import importlib.metadata as metadata
 import json
+import os
+import platform
 import re
+import shutil
+import subprocess
 import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 REQUIREMENTS = Path(__file__).resolve().parent.parent / 'requirements'
+
+
+@dataclass(frozen=True)
+class Build:
+    name: str
+    distribution: str  # The distribution that provides the ``onnxruntime`` package.
+    requirements: str  # Its requirements file, installed with base and cpu (whose onnxruntime it replaces).
+    provider: str      # The execution provider it adds; empty for the CPU build.
+
+
+BUILDS = {
+    'cpu': Build('cpu', 'onnxruntime', 'cpu', ''),
+    'cuda': Build('cuda', 'onnxruntime-gpu', 'onnx-cuda', 'CUDAExecutionProvider'),
+    'rocm': Build('rocm', 'onnxruntime-migraphx', 'onnx-rocm', 'MIGraphXExecutionProvider'),
+    'directml': Build('directml', 'onnxruntime-directml', 'onnx-directml', 'DmlExecutionProvider'),
+}
+# Mul(x, x) on a float[1, 4]: setup's check that a build's GPU provider loads and runs.
+_TINY_MODEL = base64.b64decode('CAgSB2ltcHJpbnQ6QQoOCgF4CgF4EgF5IgNNdWwSBXByb2JlWhMKAXgSDgoMCAESCAoCCAEKAggEYhMKAX'
+                               'kSDgoMCAESCAoCCAEKAggEQgQKABAN')
 _NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
 _EXTRA = re.compile(r'\bextra\s*==')
 
@@ -89,9 +119,20 @@ def _requirements(distribution: metadata.Distribution, extras: bool) -> list[str
     return names
 
 
-def unused(requirements: Path = REQUIREMENTS, distributions=None) -> list[str]:
-    """Installed distributions to remove: every ONNX Runtime build but the
-    CPU one, and what only those builds brought in.
+def _kept_requirements(requirements: Path, build: str) -> set[str]:
+    """The distributions this installation's requirements name, leaving out
+    the files of the ONNX Runtime builds not chosen."""
+    others = {BUILDS[name].requirements for name in BUILDS if name not in ('cpu', build)}
+    keep = {BUILDS[build].distribution}
+    for path in requirements.glob('*.txt'):
+        if path.name.split('.')[0] not in others:
+            keep |= requirement_names(path)
+    return keep
+
+
+def unused(requirements: Path = REQUIREMENTS, distributions=None, build: str = 'cpu') -> list[str]:
+    """Installed distributions to remove: every ONNX Runtime build but
+    ``build``'s, and what only those builds brought in.
 
     The other builds are the roots. Setup follows the installed
     distributions' requirements from there, a root's extras included, since a
@@ -102,16 +143,14 @@ def unused(requirements: Path = REQUIREMENTS, distributions=None) -> list[str]:
     is gone. Nothing a requirements file of this installation names is
     removed, and nothing another installed distribution still requires.
     """
-    keep = set()
-    for path in requirements.glob('*.txt'):
-        keep |= requirement_names(path)
+    keep = _kept_requirements(requirements, build)
     installed = {normalize(d.metadata['Name']): d
                  for d in (metadata.distributions() if distributions is None else distributions)}
     beside: dict[str, set[str]] = {}
     for name, distribution in installed.items():
         for top in _top_levels(distribution):
             beside.setdefault(top, set()).add(name)
-    roots = beside.get('onnxruntime', set()) - {'onnxruntime'}
+    roots = beside.get('onnxruntime', set()) - {'onnxruntime', BUILDS[build].distribution}
     reached, pending = set(), list(roots)
     while pending:
         name = pending.pop()
@@ -130,8 +169,133 @@ def unused(requirements: Path = REQUIREMENTS, distributions=None) -> list[str]:
         remove -= required
 
 
+def installed_version() -> str:
+    """The version of the distribution that provides ``onnxruntime``, which
+    ever build it is; empty when none or several do."""
+    names = list(providers())
+    return metadata.version(names[0]) if len(names) == 1 else ''
+
+
+# ── Choosing a build (ADR 0122) ─────────────────────────────────
+def _run(command: list[str], timeout: float = 20) -> str:
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def nvidia_gpu() -> str:
+    """The first NVIDIA GPU the driver lists, or empty: nvidia-smi ships
+    with the driver on Linux and Windows."""
+    tool = shutil.which('nvidia-smi')
+    listed = _run([tool, '-L']) if tool else ''
+    return next((line.split(' (UUID')[0].strip() for line in listed.splitlines() if line.startswith('GPU ')), '')
+
+
+def rocm_version(root: Path | None = None) -> str:
+    """The installed ROCm release as ``major.minor.patch``, or empty."""
+    root = root or Path(os.environ.get('ROCM_PATH') or '/opt/rocm')
+    try:
+        text = (root / '.info' / 'version').read_text(encoding='utf-8').strip()
+    except OSError:
+        return ''
+    match = re.match(r'(\d+)\.(\d+)(?:\.(\d+))?', text)
+    return f'{match.group(1)}.{match.group(2)}.{match.group(3) or 0}' if match else ''
+
+
+def rocm_gpu(root: Path | None = None) -> bool:
+    """Whether ROCm's runtime sees a GPU agent (an integrated GPU ROCm does
+    not support has none)."""
+    root = root or Path(os.environ.get('ROCM_PATH') or '/opt/rocm')
+    tool = shutil.which('rocminfo') or str(root / 'bin' / 'rocminfo')
+    return bool(re.search(r'Device Type:\s*GPU', _run([tool])))
+
+
+def rocm_wheels(requirements: Path = REQUIREMENTS) -> dict:
+    """AMD's pinned onnxruntime-migraphx wheels, by ROCm release."""
+    try:
+        return json.loads((requirements / 'onnx-rocm.json').read_text(encoding='utf-8'))['wheels']
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def directx12_gpus() -> list[str]:
+    """Windows display adapters other than the software and remote ones."""
+    listed = _run(['powershell', '-NoProfile', '-NonInteractive', '-Command',
+                   '(Get-CimInstance Win32_VideoController).Name'], timeout=30)
+    software = re.compile(r'Microsoft Basic|Remote Display|Hyper-V|Virtual', re.I)
+    return [name.strip() for name in listed.splitlines() if name.strip() and not software.search(name)]
+
+
+def plan(profile: str = 'auto', system: str | None = None, machine: str | None = None) -> list[dict]:
+    """The builds setup tries, best first, each with why; the CPU build
+    always ends the list. The cpu profile asks for the CPU only. macOS uses
+    the CPU build, whose Apple Silicon wheel includes Core ML."""
+    system = system or platform.system()
+    machine = (machine or platform.machine()).lower()
+    steps, notes = [], []
+
+    def add(name: str, reason: str, **extra):
+        steps.append({**asdict(BUILDS[name]), 'reason': reason, **extra})
+
+    if profile != 'cpu' and machine in ('x86_64', 'amd64'):
+        nvidia = nvidia_gpu() if system in ('Linux', 'Windows') else ''
+        if nvidia:
+            add('cuda', nvidia)
+        if system == 'Linux':
+            version, wheels = rocm_version(), rocm_wheels()
+            if version and version not in wheels:
+                notes.append(f'ROCm {version} has no pinned ONNX Runtime build (pinned: {", ".join(sorted(wheels))})')
+            elif version and rocm_gpu():
+                add('rocm', f'ROCm {version}', wheel=wheels[version])
+            elif version:
+                notes.append(f'ROCm {version} lists no GPU agent')
+        if system == 'Windows':
+            adapters = directx12_gpus()
+            if adapters:
+                add('directml', ', '.join(adapters))
+    add('cpu', '; '.join(notes) or ('the fallback' if steps else 'no GPU build applies'))
+    return steps
+
+
+def check(build: str) -> dict:
+    """Whether the installed ONNX Runtime is ``build``, complete and alone,
+    and runs the tiny model on its GPU provider."""
+    expected = BUILDS[build]
+    found = providers()
+    if list(found) != [expected.distribution] or not all(found.values()):
+        return {'ok': False, 'detail': f'installed: {found}'}
+    try:
+        import numpy as np
+        import onnxruntime as ort
+        if not expected.provider:
+            ort.InferenceSession
+            return {'ok': True, 'detail': 'CPU build'}
+        if expected.provider not in ort.get_available_providers():
+            return {'ok': False, 'detail': f'{expected.provider} is not available'}
+        if build == 'cuda' and hasattr(ort, 'preload_dlls'):
+            ort.preload_dlls()
+        options = ort.SessionOptions()
+        options.log_severity_level = 4
+        session = ort.InferenceSession(_TINY_MODEL, sess_options=options,
+                                       providers=[expected.provider, 'CPUExecutionProvider'])
+        if session.get_providers()[0] != expected.provider:
+            return {'ok': False, 'detail': f'{expected.provider} did not load'}
+        x = np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32)
+        if not np.allclose(session.run(None, {'x': x})[0], x * x):
+            return {'ok': False, 'detail': f'{expected.provider} computed a wrong result'}
+    except Exception as error:
+        return {'ok': False, 'detail': f'{type(error).__name__}: {error}'}
+    return {'ok': True, 'detail': f'{expected.provider} runs'}
+
+
 if __name__ == '__main__':
-    if sys.argv[1:2] == ['unused']:
-        print(json.dumps(unused()))
+    command = sys.argv[1:2]
+    if command == ['unused']:
+        print(json.dumps(unused(build=(sys.argv[2:3] or ['cpu'])[0])))
+    elif command == ['plan']:
+        print(json.dumps(plan((sys.argv[2:3] or ['auto'])[0])))
+    elif command == ['check']:
+        print(json.dumps(check(sys.argv[2])))
     else:
         print(json.dumps(providers()))
