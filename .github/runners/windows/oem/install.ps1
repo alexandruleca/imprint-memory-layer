@@ -39,6 +39,11 @@ foreach ($dir in 'C:\Program Files\Git\bin', 'C:\Program Files\Git\usr\bin') {
     if ($path -notlike "*$dir*") { $path += ";$dir" }
 }
 [Environment]::SetEnvironmentVariable('Path', $path, 'Machine')
+# UTC, as on hosted images. dockur starts the VM's clock at the container's
+# local time, which is UTC; in any other zone Windows boots hours off until it
+# next syncs, and the runner service, starting first, has its token refused
+# as not yet valid and stops for good.
+Set-TimeZone -Id 'UTC'
 # Long paths: node_modules and Electron's output nest deeply.
 Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1
 # Defender scanning every extracted wheel and node module triples build times,
