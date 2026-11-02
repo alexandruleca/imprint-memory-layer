@@ -62,7 +62,13 @@ func saveProfile(projectDir string, st profileState) {
 // createVenvWithUv creates (or reuses) the venv via bundled uv. uv
 // auto-downloads python-build-standalone when no compatible system Python is
 // available, so the user never has to install Python manually.
-func createVenvWithUv(uv, venvDir, venvPython string) {
+//
+// On Windows, uv may fail with "untrusted mount point" (os error 448) when
+// the install path sits on a junction/virtual mount that blocks symlink
+// creation (common on Enterprise-managed or BitLocker paths). In that case
+// the fallback closure — passed from setupBackend — is invoked to create
+// the venv via stdlib `python -m venv` instead.
+func createVenvWithUv(uv, venvDir, venvPython string, fallback func()) {
 	// Fresh venv? Create it. uv venv is idempotent but re-runs always
 	// replace, so only invoke when the python binary is actually missing
 	// OR broken (stale path from a previous install, host Python that got
@@ -91,6 +97,19 @@ func createVenvWithUv(uv, venvDir, venvPython string) {
 			"--python", bundledPythonVersion,
 			"--python-preference", "only-managed",
 		); err != nil {
+			// Windows: uv fails to create version-link symlinks when the
+			// install tree sits on an untrusted mount point (junction,
+			// virtual drive, Enterprise policy, BitLocker overlay…).
+			// os error 448 = ERROR_UNTRUSTED_MOUNT_POINT.
+			// Fall back to stdlib `python -m venv` which does not create
+			// version links.
+			if runtime.GOOS == "windows" && strings.Contains(err.Error(), "untrusted mount point") {
+				output.Warn("uv venv blocked by Windows mount-point policy — falling back to stdlib venv")
+				if fallback != nil {
+					fallback()
+					return
+				}
+			}
 			output.Fail("uv venv failed: " + err.Error())
 		}
 		output.Success("Virtual environment ready")
@@ -628,7 +647,12 @@ func setupBackend() backendPaths {
 	uv := uvBinary(projectDir)
 	usedLegacyFallback := false
 	if uv != "" {
-		createVenvWithUv(uv, venvDir, venvPython)
+		// When uv venv hits Windows mount-point policy (error 448), fall
+		// back to the legacy host-Python + stdlib venv flow so setup can
+		// still succeed without manual Python installation.
+		createVenvWithUv(uv, venvDir, venvPython, func() {
+			createVenvWithHostPython(venvDir, venvPython, venvPip)
+		})
 	} else {
 		// No bundled uv and no `uv` on PATH: dev checkout or broken install.
 		// Fall back to the legacy host-Python + `python -m venv` + pip flow
