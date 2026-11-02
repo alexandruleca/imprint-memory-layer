@@ -655,6 +655,8 @@ def store(
     tags: str = "",
     source: str = "",
     workspace: str = "",
+    title: str = "",
+    evidence: str = "",
 ) -> str:
     """Store a memory (decision/pattern/finding/bug). Include the WHY.
     Returns only after durable persistence. Uses local deterministic tags.
@@ -667,10 +669,18 @@ def store(
         tags: Optional comma-separated domain tags; preserved alongside local tags
         source: File path or conversation topic (optional)
         workspace: Target workspace (optional)
+        title: Short headline (optional); stored as the note's first line
+        evidence: Where the claim comes from (optional); stored after the note
     """
     ws, err = _validate_ws(workspace)
     if err:
         return err
+    # Agents often send a headline and their evidence as separate arguments.
+    # Both become part of the stored text rather than failing the call.
+    if title.strip() and content.strip():
+        content = f"{title.strip()}\n\n{content}"
+    if evidence.strip() and content.strip():
+        content = f"{content}\n\nEvidence: {evidence.strip()}"
 
     if len(project) > 128 or len(source) > 1024 or len(tags) > 2048:
         return "Error: project, source or tags exceed the supported size"

@@ -611,6 +611,41 @@ func OpenClawMCPPath() string {
 	return filepath.Join(OpenClawConfigDir(), "openclaw.json")
 }
 
+// OpenCode's directories, resolved as OpenCode resolves them on every
+// platform: XDG base directories under the home, and OPENCODE_CONFIG_DIR for
+// its configuration directory (ADR 0124).
+func openCodeXDG(name string, fallback ...string) string {
+	if dir := os.Getenv(name); dir != "" {
+		return filepath.Join(dir, "opencode")
+	}
+	return filepath.Join(append([]string{HomeDir()}, append(fallback, "opencode")...)...)
+}
+
+// OpenCodeConfigDir is OPENCODE_CONFIG_DIR, else $XDG_CONFIG_HOME/opencode,
+// default ~/.config/opencode.
+func OpenCodeConfigDir() string {
+	if dir := os.Getenv("OPENCODE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	return openCodeXDG("XDG_CONFIG_HOME", ".config")
+}
+
+// OpenCodeDataDir is $XDG_DATA_HOME/opencode, default ~/.local/share/opencode:
+// the session databases imprint learn reads.
+func OpenCodeDataDir() string { return openCodeXDG("XDG_DATA_HOME", ".local", "share") }
+
+// OpenCodeConfigPath is OpenCode's global opencode.json, where Imprint's MCP
+// server and instructions file are registered.
+func OpenCodeConfigPath() string { return filepath.Join(OpenCodeConfigDir(), "opencode.json") }
+
+// OpenCodeRulePath is Imprint's instructions file, listed in the config's
+// "instructions" so it adds to the user's AGENTS.md instead of replacing the
+// ~/.claude/CLAUDE.md fallback OpenCode reads without one.
+func OpenCodeRulePath() string { return filepath.Join(OpenCodeConfigDir(), "imprint.md") }
+
+// OpenCodePluginPath is Imprint's plugin, which learns a session when it goes idle.
+func OpenCodePluginPath() string { return filepath.Join(OpenCodeConfigDir(), "plugins", "imprint.js") }
+
 // ClineRulesPath is Imprint's global Cline rule, <ClineDir>/rules/imprint.md.
 // Cline reads every file in its global rules directories as an always-on rule.
 func ClineRulesPath() string {

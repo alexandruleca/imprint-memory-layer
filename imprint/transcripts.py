@@ -1,5 +1,6 @@
 """Coding-client transcripts: Claude Code sessions, Codex rollouts, Cursor
-agent conversations, GitHub Copilot sessions and Cline sessions.
+agent conversations, GitHub Copilot sessions, Cline sessions and OpenCode
+sessions (exported from OpenCode's database by ``opencode_sessions``).
 
 Claude Code, Codex, Cursor and Copilot append one JSON record per line. Cline
 writes a session's messages as one JSON document beside the session's
@@ -128,7 +129,9 @@ def message(record):
     typed = None
     if _claude_injected(record):
         return None
-    if record.get('type') == 'response_item':  # Codex
+    if record.get('type') == 'opencode.message':  # OpenCode export (opencode_sessions)
+        role, content = record.get('role'), record.get('content')
+    elif record.get('type') == 'response_item':  # Codex
         item = record.get('payload')
         if not isinstance(item, dict) or item.get('type') != 'message':
             return None
@@ -257,7 +260,7 @@ def session(path):
     """A transcript's session id where the client states it in full, else None.
 
     Codex states it in its session_meta record, which comes no later than its
-    first cwd. Cline and Copilot name a session's folder after it, and Cline
+    first cwd, and an OpenCode export in its first record. Cline and Copilot name a session's folder after it, and Cline
     its messages file too. Claude Code and Cursor ids are random UUIDs their
     file names carry.
     """
@@ -267,6 +270,9 @@ def session(path):
     if path.name == _COPILOT_EVENTS and path.parent.parent.name == 'session-state':
         return path.parent.name
     for record in records(path):
+        if record.get('type') == 'opencode.session':
+            found = record.get('id')
+            return found if isinstance(found, str) and found else None
         found = codex_session(record)
         if found or recorded_cwd(record):
             return found

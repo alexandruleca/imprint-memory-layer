@@ -26,6 +26,9 @@ type clientCleanup struct {
 	// owned is a file Imprint writes whole, such as Copilot's hooks file.
 	// Like rules and hooks, another runtime's entry in registry protects it.
 	owned string
+	// instruction is a path Imprint lists in registry's "instructions"
+	// array (OpenCode's); disconnect removes it from the list.
+	instruction string
 }
 
 // The registrations of each client in the clients table: the files its
@@ -102,6 +105,14 @@ func clineRegistrations() []clientCleanup {
 		registrations = append(registrations, clientCleanup{registry: filepath.Join(dir, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), keys: []string{"mcpServers"}})
 	}
 	return registrations
+}
+
+// openCodeRegistrations: OpenCode's global config (its "mcp" entry and the
+// listed instructions file), the instructions file and Imprint's plugin.
+func openCodeRegistrations() []clientCleanup {
+	return []clientCleanup{{registry: platform.OpenCodeConfigPath(), keys: []string{"mcp"},
+		rules: platform.OpenCodeRulePath(), rule: instructions.OpenCodeRule,
+		owned: platform.OpenCodePluginPath(), instruction: platform.OpenCodeRulePath()}}
 }
 
 func openClawRegistrations() []clientCleanup {
@@ -214,6 +225,11 @@ func cleanupClient(c clientCleanup, project string) error {
 				return err
 			}
 			output.Success("Removed Imprint from " + c.registry)
+		}
+		if c.instruction != "" {
+			if err := removeOpenCodeInstruction(c.registry, c.instruction); err != nil {
+				return fmt.Errorf("%s: %w", c.registry, err)
+			}
 		}
 	}
 	if c.owned != "" {

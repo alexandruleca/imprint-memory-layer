@@ -23,6 +23,8 @@ func TestLearnStoresCoverLocalProfilesAndRegisteredWSLProfiles(t *testing.T) {
 	t.Setenv("CLINE_DATA_DIR", filepath.Join(project, "cline data"))
 	t.Setenv("CLINE_SESSION_DATA_DIR", "")
 	t.Setenv("COPILOT_HOME", filepath.Join(project, "copilot home"))
+	// OpenCode's sessions are in its XDG data directory.
+	t.Setenv("XDG_DATA_HOME", filepath.Join(project, "xdg data"))
 	profile := wslProfile{Distribution: "Ubuntu", Home: "/home/test", ClaudeHome: "/home/test/.config/claude",
 		ClaudeRegistry: "/home/test/.config/claude/.claude.json", CodexHome: "/home/test/codex", CursorHome: "/home/test/.cursor",
 		ClineHome: "/home/test/.cline", CopilotHome: "/home/test/.copilot"}
@@ -58,7 +60,8 @@ func TestLearnStoresCoverLocalProfilesAndRegisteredWSLProfiles(t *testing.T) {
 	groups, problems := learnStores(project)
 	want := []conversationStores{
 		{label: "this computer", stores: [][2]string{{"claude-code", claude}, {"cursor", filepath.Join(project, ".cursor")}, {"codex", codex},
-			{"copilot", filepath.Join(project, "copilot home")}, {"cline", filepath.Join(project, "cline data", "sessions")}}},
+			{"copilot", filepath.Join(project, "copilot home")}, {"cline", filepath.Join(project, "cline data", "sessions")},
+			{"opencode", filepath.Join(project, "xdg data", "opencode")}}},
 		{label: "WSL Ubuntu", distribution: "Ubuntu", home: "/home/test", mounts: "C:\\134\t/mnt/c\n",
 			stores: [][2]string{{"claude-code", "/home/test/.config/claude"}, {"codex", "/home/test/codex"}, {"cursor", "/home/test/.cursor"},
 				{"cline", "/home/test/.cline/data/sessions"}, {"copilot", "/home/test/.copilot"}}},

@@ -29,6 +29,24 @@ class MCPContractTests(unittest.TestCase):
             server.store('I prefer clear error messages.', type='preference')
             self.assertEqual(persist.call_args.kwargs['type'], 'preference')
 
+    def test_store_keeps_a_title_and_evidence_in_the_note(self):
+        with patch.object(server.vs, 'store', return_value='id') as persist, \
+             patch('imprint.tagger.build_payload_tags', return_value={}):
+            self.assertEqual(server.store('CI pins actions by SHA because tags move.', type='decision',
+                                          title='Audit-gate CI pins', evidence='.github/workflows/ci.yml'), 'Stored [id]')
+            self.assertEqual(persist.call_args.kwargs['content'],
+                             'Audit-gate CI pins\n\nCI pins actions by SHA because tags move.\n\nEvidence: .github/workflows/ci.yml')
+
+    def test_store_over_mcp_accepts_title_and_evidence(self):
+        import asyncio
+
+        async def call():
+            async with Client(server.mcp) as client:
+                return await client.call_tool('store', {'content': 'A decision.', 'title': 'Headline', 'evidence': 'a.py'})
+        with patch.object(server.vs, 'store', return_value='id'), \
+             patch('imprint.tagger.build_payload_tags', return_value={}):
+            self.assertIn('Stored [id]', str(asyncio.run(call()).content))
+
     def test_invalid_search_does_not_initialize_models(self):
         with patch.object(server.vs, 'search') as search:
             self.assertIn('Error', server.search('   '))

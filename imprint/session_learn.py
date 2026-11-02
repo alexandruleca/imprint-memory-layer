@@ -20,6 +20,11 @@ So at most one learner per transcript waits, and one Imprint job runs at a
 time. Output goes to ``session_learn.log`` in the data directory.
 
 Usage: python -m imprint.session_learn <transcript>
+       python -m imprint.session_learn --opencode <session id>
+
+OpenCode has no Stop hook: Imprint's OpenCode plugin starts the learner when a
+session goes idle, and the session is exported from OpenCode's database once
+it has settled (ADR 0124).
 """
 
 import hashlib
@@ -45,7 +50,10 @@ def slot_path(transcript: str) -> Path:
     return get_data_dir() / "learn_slots" / f"{hashlib.sha256(key).hexdigest()}.lock"
 
 
-def learn(transcript: str) -> None:
+def learn(transcript: str, export=None) -> None:
+    """Learn ``transcript`` once its session settles. ``export``, when given,
+    writes the transcript after the wait and returns its path, or None when
+    there is nothing to learn (an OpenCode session, ADR 0124)."""
     slot = slot_path(transcript)
     waiting = queue_lock.try_lock(slot)
     if waiting is None:
@@ -59,6 +67,17 @@ def learn(transcript: str) -> None:
         queue_lock.unlock(waiting, slot)
     try:
         with _log() as log, redirect_stdout(log), redirect_stderr(log):
+            if export is not None:
+                try:
+                    path = export()
+                except Exception as error:
+                    print(time.strftime("%Y-%m-%d %H:%M:%S"), transcript,
+                          f"could not be exported: {type(error).__name__}: {error}", flush=True)
+                    return
+                if path is None:
+                    print(time.strftime("%Y-%m-%d %H:%M:%S"), transcript, "not found", flush=True)
+                    return
+                transcript = str(path)
             _learn(transcript)
     finally:
         queue_lock.release(lock)
@@ -104,6 +123,11 @@ def _log():
 def main() -> int:
     from ._cli_signals import install
     install()
+    if sys.argv[1] == "--opencode":
+        from . import opencode_sessions
+        session = sys.argv[2]
+        learn(f"opencode:{session}", export=lambda: opencode_sessions.export_session(session))
+        return 0
     learn(sys.argv[1])
     return 0
 

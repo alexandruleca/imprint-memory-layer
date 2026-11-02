@@ -10,6 +10,7 @@ description: Learning reads this computer's Claude Code and Codex profiles and e
   - [ADR 0052](0052-learn-cursor-conversations-from-their-folder-names.md) — Cursor profiles as stores, and project names for macOS and Windows home directories
   - [ADR 0056](0056-learn-cline-sessions-from-their-manifests.md) — Cline sessions directories as stores
   - [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) — Copilot homes as stores
+  - [ADR 0124](0124-opencode-sessions-are-exported-from-its-database.md) — OpenCode data directories as stores, read through exported transcripts
 - Related: [ADR 0026](0026-windows-installer-wsl-client-bridge.md) (WSL bridge and path translation), [ADR 0003](0003-local-mcp-and-portable-hooks.md)
 - Restructured: 2026-10-25
 

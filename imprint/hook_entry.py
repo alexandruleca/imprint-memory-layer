@@ -6,6 +6,7 @@ session reminders also work during dependency repair.
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -27,7 +28,7 @@ def pin_session(payload):
         os.environ['IMPRINT_WORKSPACE'] = policy.resolve(_cwd(payload), session=True)['workspace']
 
 
-def learn_later(transcript):
+def learn_later(transcript, *options):
     """Start the conversation's learner and return without waiting (ADR 0077).
 
     The learner is detached on purpose: it may wait behind other jobs for the
@@ -35,7 +36,7 @@ def learn_later(transcript):
     processes it started. It inherits the session's workspace and paths."""
     detach = ({'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
               if os.name == 'nt' else {'start_new_session': True})
-    subprocess.Popen([sys.executable, '-m', 'imprint.session_learn', transcript], stdin=subprocess.DEVNULL,
+    subprocess.Popen([sys.executable, '-m', 'imprint.session_learn', *options, transcript], stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detach)
 
 
@@ -78,6 +79,19 @@ def main():
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': context}}))
         return 0
     if not isinstance(payload, dict):
+        return 0
+    if action == 'opencode-idle':
+        # Imprint's OpenCode plugin: {"session_id", "cwd"} when a session goes
+        # idle. The learner exports the session from OpenCode's database
+        # (ADR 0124); an id that is not OpenCode's is ignored.
+        session_id = payload.get('session_id')
+        if isinstance(session_id, str) and re.fullmatch(r'ses_[A-Za-z0-9]+', session_id):
+            try:
+                pin_session(payload)
+            except (OSError, ValueError, sqlite3.Error) as error:
+                print(f'Imprint skipped this conversation: {error}', file=sys.stderr)
+                return 0
+            learn_later(session_id, '--opencode')
         return 0
     if action == 'stop':
         if payload.get('stop_hook_active'):

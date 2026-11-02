@@ -62,6 +62,10 @@ var clients = []client{
 	{name: "cline", label: "Cline", connect: SetupCline, registrations: clineRegistrations,
 		wslHome: func(p wslProfile) string { return p.ClineHome },
 		store:   platform.ClineSessionsDir, wslStore: wslClineSessions},
+	// OpenCode keeps every session in a SQLite database in its data
+	// directory; learn exports each one to a transcript (ADR 0124).
+	{name: "opencode", label: "OpenCode", connect: SetupOpenCode, registrations: openCodeRegistrations,
+		store: platform.OpenCodeDataDir},
 	{name: "openclaw", label: "OpenClaw", aliases: []string{"clawdbot", "moltbot"}, connect: SetupOpenClaw, registrations: openClawRegistrations},
 }
 
@@ -152,7 +156,7 @@ func connectClients(target string, backend func() backendPaths) bool {
 		c.connect(backend)
 	}
 	if setupHostsRan == 0 {
-		output.Warn("No supported clients found — install Claude Code, Claude Desktop, Cursor, Codex, Copilot, Cline, or OpenClaw, then run this again.")
+		output.Warn("No supported clients found — install Claude Code, Claude Desktop, Cursor, Codex, Copilot, Cline, OpenCode, or OpenClaw, then run this again.")
 	}
 	return true
 }

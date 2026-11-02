@@ -46,6 +46,11 @@ alwaysApply: true
 // installed.
 const ClineRule = "# Imprint Memory\n\n" + ImprintBase
 
+// OpenCodeRule is Imprint's OpenCode instructions file, listed in the
+// global opencode.json "instructions". OpenCode names MCP tools
+// <server>_<tool>, so the search tool is imprint_search there.
+var OpenCodeRule = "# Imprint Memory\n\n" + strings.Replace(ImprintBase, "mcp__imprint__search", "imprint_search", 1)
+
 // CodexRule is merged into ~/.codex/AGENTS.md via managed markers so
 // existing user-authored content is preserved. No frontmatter — AGENTS.md
 // is plain markdown consumed by Codex CLI.

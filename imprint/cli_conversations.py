@@ -1,27 +1,29 @@
 """Learn coding-client conversations into imprint memory.
 
 Reads Claude Code session transcripts (plus Claude's auto-memory files), Codex
-rollouts, Cursor agent conversations, GitHub Copilot sessions and Cline
-sessions, extracts Q+A exchange pairs, classifies each by type, and stores them as searchable memories. A
+rollouts, Cursor agent conversations, GitHub Copilot sessions, Cline
+sessions and OpenCode sessions, extracts Q+A exchange pairs, classifies each by type, and stores them as searchable memories. A
 conversation's recorded working directory decides its workspace (ADR 0034)
 and its project name.
 
 A store is the directory a client keeps its conversations in: Claude Code's
 CLAUDE_CONFIG_DIR (default ~/.claude), Codex's CODEX_HOME (default ~/.codex),
 Cursor's ~/.cursor, Copilot's COPILOT_HOME (default ~/.copilot) or Cline's
-sessions directory (default ~/.cline/data/sessions). The Go CLI's client table names them. In a WSL path
+sessions directory (default ~/.cline/data/sessions) or OpenCode's data
+directory (default ~/.local/share/opencode). The Go CLI's client table names them. In a WSL path
 context (IMPRINT_WSL_DISTRO, as the WSL bridge sets it) Linux paths, the
 store's and the recorded cwds, resolve the way the bridge resolves them
 (ADR 0026, ADR 0037).
 
 Usage:
-  python -m imprint.cli_conversations --store claude-code|codex|cursor|copilot|cline <dir> [--store ...]
+  python -m imprint.cli_conversations --store claude-code|codex|cursor|copilot|cline|opencode <dir> [--store ...]
   python -m imprint.cli_conversations --transcript <path>
 """
 
 import argparse
 import os
 import re
+import sqlite3
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -55,7 +57,8 @@ LEARNER_VERSION = 3
 # /Users/<user>, Windows <drive>:\Users\<user>.
 _HOME_FOLDER = re.compile(r"-home-|-Users-|[A-Za-z]--Users-")
 
-CLIENTS = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "copilot": "GitHub Copilot", "cline": "Cline"}
+CLIENTS = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "copilot": "GitHub Copilot", "cline": "Cline",
+           "opencode": "OpenCode"}
 
 
 def parse_exchanges(transcript_path: str) -> list[dict]:
@@ -213,6 +216,11 @@ def store_transcripts(client: str, root: Path) -> list[Path]:
         # to the store it was imported from.
         return [path for path in root.glob("*/*.messages.json")
                 if path.name == f"{path.parent.name}.messages.json" and not transcripts.cline_imported(path)]
+    if client == "opencode":
+        # One SQLite database holds every session: each is exported to a
+        # transcript in Imprint's data directory (ADR 0124).
+        from . import opencode_sessions
+        return opencode_sessions.export(root)
     return [*root.glob("sessions/**/rollout-*.jsonl"), *root.glob("archived_sessions/rollout-*.jsonl")]
 
 
@@ -358,7 +366,12 @@ def learn(stores: list[tuple[str, str]]) -> int:
             unreadable.append(label)
             print(f"  {C_YELLOW}{label}: could not be read ({error}){C_RESET}")
             continue
-        paths = store_transcripts(client, root)
+        try:
+            paths = store_transcripts(client, root)
+        except (OSError, sqlite3.Error) as error:
+            unreadable.append(label)
+            print(f"  {C_YELLOW}{label}: could not be read ({error}){C_RESET}")
+            continue
         print(f"  {C_CYAN}{label}: {len(paths)} conversations{C_RESET}", flush=True)
         if client == "claude-code":
             memory_files += learn_auto_memory(root)
@@ -453,7 +466,7 @@ def learn(stores: list[tuple[str, str]]) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Learn coding-client conversations.")
     parser.add_argument("--store", nargs=2, action="append", default=[], metavar=("CLIENT", "DIR"),
-                        help="client store to learn (claude-code, codex, cursor, copilot or cline); repeatable")
+                        help="client store to learn (claude-code, codex, cursor, copilot, cline or opencode); repeatable")
     parser.add_argument("--transcript", help="index a single transcript")
     args = parser.parse_args()
 
