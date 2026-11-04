@@ -759,6 +759,12 @@ def process_import_buffer(
                 import_memories(records)
             elif dataset == "facts":
                 import_facts(records)
+            elif dataset == "core":
+                from . import core_memories
+                stored = core_memories.import_records(records)
+                held = stats.setdefault("core", {"inserted": 0, "updated": 0, "skipped": 0})
+                for key, value in stored.items():
+                    held[key] += value
 
     snapshot_import.finish()
     if snapshot_import.imported:
@@ -968,16 +974,16 @@ def _stream_line_ok(msg: dict, after_meta: bool) -> bool:
     if kind == "meta":
         datasets = msg.get("datasets")
         return (not after_meta and msg.get("vectors") is True and isinstance(datasets, dict)
-                and all(k in ("memories", "facts") and type(v) is int and v >= 0 for k, v in datasets.items()))
+                and all(k in ("memories", "facts", "core") and type(v) is int and v >= 0 for k, v in datasets.items()))
     if not after_meta:
         return False
     if kind == "batch":
         records = msg.get("records")
-        if msg.get("dataset") not in ("memories", "facts") or not isinstance(records, list):
+        if msg.get("dataset") not in ("memories", "facts", "core") or not isinstance(records, list):
             return False
         if not all(isinstance(r, dict) for r in records):
             return False
-        return msg["dataset"] == "facts" or all(isinstance(r.get("vector"), list) for r in records)
+        return msg["dataset"] != "memories" or all(isinstance(r.get("vector"), list) for r in records)
     if kind == "source_snapshot":
         return (isinstance(msg.get("transfer"), str) and isinstance(msg.get("data"), str)
                 and type(msg.get("part")) is int and type(msg.get("parts")) is int)
@@ -1114,7 +1120,8 @@ async def serve_session(
                     async for event in sync_delta.reconcile(channel, workspace, pairing["_manifest"], provider=True,
                                                             provider_sends=pull, consumer_sends=push,
                                                             cancel=cancel, result=result,
-                                                            storing=pairing.get("_storing", False)):
+                                                            storing=pairing.get("_storing", False),
+                                                            core=pairing.get("_core", False)):
                         yield event
                     unfinished = False
                     if push:
@@ -1317,7 +1324,8 @@ async def receive_session(
                 async for event in sync_delta.reconcile(channel, workspace, pairing["_manifest"], provider=False,
                                                         provider_sends=plan.pull, consumer_sends=plan.push,
                                                         cancel=cancel, result=result,
-                                                        storing=pairing.get("_storing", False)):
+                                                        storing=pairing.get("_storing", False),
+                                                        core=pairing.get("_core", False)):
                     yield event
                 if plan.pull:
                     pull_stats = result.get("received")

@@ -115,6 +115,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0057](0057-copilot-home-as-store-config-and-hook-root.md) **The Copilot home is GitHub Copilot's store, configuration and hook root.** GitHub Copilot's surfaces share `COPILOT_HOME`: Imprint registers MCP, instructions and SessionStart/Stop hooks there, learns its session events by their recorded context, and `copilot` is a WSL registration target.
 - [ADR 0124](0124-opencode-sessions-are-exported-from-its-database.md) **OpenCode is a client; its sessions are exported from its database and learned when idle.** Setup registers a local MCP server and a listed instructions file in OpenCode's global `opencode.json` (not `AGENTS.md`) and a plugin that starts the learner when a session goes idle; learning exports each session from OpenCode's SQLite database to a transcript in Imprint's data directory.
 - [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) **WSL homes with a connected client get the imprint command.** `imprint wsl setup` puts the Windows bridge's CLI in the home's `~/.local/bin/imprint`, keeps any other `imprint` there (a Linux installation's link, for one), and removes it with the home's last registration.
+- [ADR 0129](0129-core-memories-are-user-approved-and-start-every-session.md) **Core memories are user-approved and start every session.** Short statements of the user's preferences and standing instructions, approved by the user, kept apart from ordinary memories, synced to paired devices and appended to the MCP server's handshake instructions.
 
 ### Dashboard and desktop
 
@@ -192,7 +193,6 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
-- [ADR 0129](0129-core-memories-are-user-approved-and-start-every-session.md) **Core memories are user-approved and start every session.** Short statements of the user's preferences and standing instructions, approved by the user, kept apart from ordinary memories and given to every session at its start.
 - [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) **Reorganization is proposed by a background job and reviewed.** Project profiles, project proposals for memories in catch-alls with quoted evidence, and core memory candidates; accepted moves apply as placement rules.
 
 ## Decision log
@@ -330,7 +330,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0126](0126-cuda-only-for-an-nvidia-gpu-cuda-13-supports.md) | 2026-11-04 | Accepted | CUDA only for an NVIDIA GPU CUDA 13 supports |
 | [0127](0127-the-final-answer-is-written-from-research-notes.md) | 2026-11-04 | Accepted | The final answer is written from research notes |
 | [0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) | 2026-11-04 | Accepted | The dashboard follows the Windows installer to the end |
-| [0129](0129-core-memories-are-user-approved-and-start-every-session.md) | 2026-11-04 | Proposed | Core memories are user-approved and start every session |
+| [0129](0129-core-memories-are-user-approved-and-start-every-session.md) | 2026-11-04 | Accepted | Core memories are user-approved and start every session |
 | [0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) | 2026-11-04 | Proposed | Reorganization is proposed by a background job and reviewed |
 
 ## How to write and maintain ADRs

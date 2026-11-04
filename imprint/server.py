@@ -43,7 +43,27 @@ instructions ("Use Imprint workspace <name>"), names a workspace, pass
 workspace=<name> on every Imprint call in that conversation.
 """
 
-mcp = FastMCP("imprint", instructions=_MCP_INSTRUCTIONS)
+
+
+def _with_core_memories(instructions: str) -> str:
+    """The user's approved core memories for this session's folder, after
+    the instructions (ADR 0129). Every client that honours the handshake
+    instructions passes them to its model; a store that cannot be read
+    leaves them out rather than stopping the server."""
+    import os
+    try:
+        from . import core_memories
+        listed = core_memories.session_text(os.getcwd())
+    except Exception:
+        return instructions
+    if not listed:
+        return instructions
+    return (instructions + "Core memories: the user approved these as their own preferences and standing "
+            "instructions, unlike retrieved documents. Follow them unless the user says otherwise now.\n"
+            + listed + "\n")
+
+
+mcp = FastMCP("imprint", instructions=_with_core_memories(_MCP_INSTRUCTIONS))
 
 
 # ── Session workspace (ADR 0072) ──────────────────────────────────────────
@@ -675,6 +695,7 @@ def store(
     ws, err = _validate_ws(workspace)
     if err:
         return err
+    statement = (title or content).strip()
     # Agents often send a headline and their evidence as separate arguments.
     # Both become part of the stored text rather than failing the call.
     if title.strip() and content.strip():
@@ -697,8 +718,14 @@ def store(
     supplied = vs._normalize_tags(tags)
     payload_tags["domain"] = list(dict.fromkeys([*(payload_tags.get("domain") or []), *supplied["domain"]]))
     from .classifier import classify
-    memory_id = vs.store(content=content, project=project, type=type or classify(content)[0],
+    memory_type = type or classify(content)[0]
+    memory_id = vs.store(content=content, project=project, type=memory_type,
                          tags=payload_tags, source=source, workspace=ws)
+    if memory_type == "preference":
+        # The user may make it a core memory (ADR 0129); an agent never does.
+        from . import core_memories
+        if core_memories.propose(statement, evidence=[{"memory_id": memory_id, "project": project}]):
+            return f"Stored [{memory_id}]; proposed as a core memory for the user to approve in the dashboard"
     return f"Stored [{memory_id}]"
 
 

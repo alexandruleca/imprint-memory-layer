@@ -20,6 +20,7 @@ import {
   Power,
   Bot,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
   {
     title: "Memory",
     items: [
+      { href: "/core", label: "Core memories", icon: Sparkles },
       { href: "/graph", label: "Graph", icon: Network },
       { href: "/topics", label: "Topics", icon: Tags },
       { href: "/projects", label: "Projects", icon: FolderOpen },

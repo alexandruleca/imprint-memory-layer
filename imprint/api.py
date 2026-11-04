@@ -548,6 +548,48 @@ async def api_decide_project_association(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
+# ── Core memories (ADR 0129) ───────────────────────────────────
+
+@app.get('/api/core')
+def api_core_memories():
+    """Every core memory, and how much of a session's budget the ones for
+    every project take."""
+    from . import core_memories
+    return {'memories': core_memories.list_all(), 'budget': core_memories.SESSION_BUDGET,
+            'used': core_memories.used_budget(), 'kinds': list(core_memories.KINDS),
+            'max_text': core_memories.MAX_TEXT}
+
+
+@app.post('/api/core')
+async def api_add_core_memory(request: Request):
+    """A core memory the user wrote: active at once."""
+    from . import core_memories
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A core memory object is required')
+        return await asyncio.to_thread(core_memories.add, body.get('text'), body.get('kind', 'preference'),
+                                       body.get('scope', core_memories.EVERYWHERE))
+    except (ValueError, RuntimeError) as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.patch('/api/core/{memory_id}')
+async def api_change_core_memory(memory_id: str, request: Request):
+    """Edit, approve (state ``active``), retire or restore a core memory."""
+    from . import core_memories
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A change object is required')
+        changes = {key: body[key] for key in ('text', 'kind', 'scope', 'state') if key in body}
+        return await asyncio.to_thread(core_memories.update, memory_id, **changes)
+    except KeyError:
+        return JSONResponse({'error': 'core memory not found'}, status_code=404)
+    except (ValueError, RuntimeError) as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
 # ── Chat ───────────────────────────────────────────────────────
 
 @app.get("/api/chat/status")

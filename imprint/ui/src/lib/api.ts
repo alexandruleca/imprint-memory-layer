@@ -187,6 +187,45 @@ export function startUpdate() {
   return fetchAPI<{ started: boolean; target: string }>("/api/update", { method: "POST" });
 }
 
+// ── Core memories (ADR 0129) ────────────────────────────────────
+
+export type CoreKind = "preference" | "instruction" | "fact";
+export type CoreState = "proposed" | "active" | "retired";
+export interface CoreMemory {
+  id: string;
+  text: string;
+  kind: CoreKind;
+  /** "*" for every project, else a project name. */
+  scope: string;
+  state: CoreState;
+  evidence: { memory_id?: string; source?: string; project?: string; quote?: string }[];
+  /** "user", "agent" or "organize". */
+  origin: string;
+  created_at: number;
+  updated_at: number;
+  approved_at: number | null;
+}
+export interface CoreMemories {
+  memories: CoreMemory[];
+  /** Characters of core memories each session receives. */
+  budget: number;
+  /** Characters the ones for every project take of it. */
+  used: number;
+  max_text: number;
+}
+
+export function getCoreMemories() {
+  return fetchAPI<CoreMemories>("/api/core");
+}
+
+export function addCoreMemory(text: string, kind: CoreKind, scope: string) {
+  return fetchAPI<CoreMemory>("/api/core", { method: "POST", body: JSON.stringify({ text, kind, scope }) });
+}
+
+export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "text" | "kind" | "scope" | "state">>) {
+  return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
 /** Restart the dashboard server into the installed code (ADR 0050). */
 export function restartServer() {
   return fetchAPI<{ restarting: boolean }>("/api/restart", { method: "POST" });

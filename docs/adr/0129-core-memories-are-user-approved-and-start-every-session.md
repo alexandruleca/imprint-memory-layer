@@ -1,9 +1,9 @@
 ---
 title: ADR 0129 — Core memories are user-approved and start every session
-description: Proposed core memories, short statements of the user's preferences and standing instructions that the user approves, kept apart from ordinary memories and given to every agent session at its start.
+description: Core memories are short statements of the user's preferences and standing instructions that the user approves, kept apart from ordinary memories, synced to paired devices and given to every agent session at its start.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-04
 - Related: [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md), [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md), [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)
 
@@ -30,11 +30,15 @@ A **core memory** is one short statement about the user that the user has approv
 
 Core memories live in their own store, outside every workspace's collection. They describe the user, not a project's content, so they apply in every workspace. Only an approval in the dashboard makes one active:
 
-- **Agents can propose, never approve.** A `store` with type `preference`, or a new MCP tool, adds a proposal.
+- **Agents can propose, never approve.** A `store` with type `preference` adds a proposal and says so in its reply.
 - **The background job of ADR 0130 proposes them** from preference-typed memories, imported client memory files and conversation turns in which the user states how they want things done. Each proposal needs a verbatim quote, as ADR 0099 requires of model suggestions.
 - **The user can write one directly** on a **Core memories** page, which also edits, scopes and retires them.
 
-The SessionStart hook adds the active core memories for the session's project and the global ones, within a fixed budget (proposed: 2,000 characters), under a heading that says the user approved them. Because the user approved each one, they are instructions, unlike retrieved documents, and the server's instructions say so. Core memories sync to paired devices as their own record kind, carrying their state, so an approval or retirement made on one device holds on all of them.
+The MCP server appends the active core memories to its handshake instructions when a session starts it: the global ones, then those scoped to the session folder's project, within 2,000 characters. The session's projects are the nearest manifest's name and the folder names. The block says the user approved them. Because the user approved each one, they are instructions, unlike retrieved documents. A store that cannot be read leaves them out rather than stopping the server.
+
+The instructions reach every client that honours them, desktop apps without hooks included. Claude Code already passes them to its model. The SessionStart hook, which the proposal named, would have sent the same list a second time there, and it reaches only the clients Imprint installs hooks for.
+
+Core memories sync to paired devices as a fourth manifest dataset, keyed by id and versioned by their last change. The newest change of each wins, so an approval or retirement made on one device holds on all of them. A device sends them only to a peer whose handshake offers `core`. Older peers neither send nor receive them, and keep syncing as before.
 
 ## Rejected alternatives
 
@@ -44,9 +48,11 @@ The SessionStart hook adds the active core memories for the session's project an
 
 ## Consequences
 
-- Every session starts with the user's approved rules, in every client with a SessionStart hook. Codex, Copilot and Cursor take hooks differently, so a client without one gets them through an MCP tool or its instructions file.
+- Every session starts with the user's approved rules, in every client that passes MCP handshake instructions to its model. A client that ignores them gets none. Codex and Copilot are not yet checked.
+- A change takes effect in the next session, because the instructions are read when the server starts.
 - The user curates a short list instead of hoping the right memory ranks first.
-- It needs a new store, a sync record kind with deletion-free state changes, a dashboard page, a hook change and changes to the server's instructions. Each is a decision this record makes for core memories only.
+- It adds a store (`data/core-memories.sqlite3`), a sync dataset with deletion-free state changes, a dashboard page and an instructions block. Each is a decision this record makes for core memories only.
+- Every write redacts the statement (ADR 0060), imports from paired devices included.
 - A long list costs every session tokens. The budget keeps it bounded, and the page shows how much of it is used.
 
 ## Invalidation conditions
@@ -57,4 +63,17 @@ The SessionStart hook adds the active core memories for the session's project an
 
 ## Validation
 
-None yet; this is a proposal. Before acceptance: a prototype hook on this repository's sessions with a hand-written list, and a measured candidate run of ADR 0130 over the maintainer's memories counting proposals worth approving.
+- `tests/test_core_memories.py`:
+  - the user's are active and agents' are proposals;
+  - a statement held in any state, a retired one included, is not proposed again;
+  - statements are bounded and redacted;
+  - approving, retiring and restoring work, and nothing returns to a proposal;
+  - a session gets the global ones, then its project's, within its budget;
+  - sync keeps the newest change of each and skips invalid records;
+  - core memories export as a stream the receiver accepts, and the paired import stores them;
+  - a peer without `core` is sent none;
+  - the MCP instructions carry the session's core memories;
+  - a stored preference becomes a proposal.
+- `tests/test_sync_delta.py`: the manifest lists core memories, and an older peer's manifest decodes without them.
+- `imprint/ui/tests/core.spec.ts`: adding, approving a proposal with its quote shown, editing it before approval, retiring, restoring, and the budget meter.
+- Not verified: how Codex and Copilot handle MCP handshake instructions, and a sync between two devices on hardware.

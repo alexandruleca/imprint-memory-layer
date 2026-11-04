@@ -29,7 +29,7 @@ WAIT = 600
 # Records the sender's Privacy Filter goes over between checks for a
 # stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
 FILTER_SLICE = 25
-DATASETS = ('memories', 'facts', 'sources')
+DATASETS = ('memories', 'facts', 'sources', 'core')
 
 
 def offered() -> int | None:
@@ -41,6 +41,12 @@ def storing_offered() -> bool:
     """Whether this device, sending, takes ``storing`` frames while it waits
     for an acknowledgement. 0.36.0 refused them, so a device sends them only
     to one that offers this."""
+    return True
+
+
+def core_offered() -> bool:
+    """Whether this device exchanges core memories (ADR 0129). A device that
+    does not say so gets none: its importer refuses the dataset."""
     return True
 MANIFEST_BYTES = 256 * 1024 * 1024
 
@@ -74,7 +80,9 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
             for row in conn.execute('SELECT subject, predicate, object, valid_from FROM facts'):
                 facts[_fact_key(row)] = 0.0
     sources = {_source_key(meta): float(meta['updated_at']) for meta in source_snapshots.list_metadata(workspace)}
-    return {'memories': memories, 'facts': facts, 'sources': sources}
+    # Core memories belong to no workspace: every paired workspace carries them.
+    from . import core_memories
+    return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest()}
 
 
 def digest(local: dict) -> str:
@@ -121,13 +129,17 @@ def decode(data: object) -> dict[str, dict[str, float]]:
     return {dataset: remote.get(dataset, {}) for dataset in DATASETS}
 
 
-def _stream(memories=(), facts=(), snapshot=()) -> list[str]:
-    """A complete small stream, the format a full sync sends."""
-    frames = [{'kind': 'meta', 'datasets': {'memories': len(memories), 'facts': len(facts)}, 'vectors': True}]
+def _stream(memories=(), facts=(), snapshot=(), core=()) -> list[str]:
+    """A complete small stream, the format a full sync sends. Core memories
+    only go to a device that offers them (``core_offered``)."""
+    datasets = {'memories': len(memories), 'facts': len(facts), **({'core': len(core)} if core else {})}
+    frames = [{'kind': 'meta', 'datasets': datasets, 'vectors': True}]
     if memories:
         frames.append({'kind': 'batch', 'dataset': 'memories', 'seq': 1, 'records': list(memories)})
     if facts:
         frames.append({'kind': 'batch', 'dataset': 'facts', 'seq': 1, 'records': list(facts)})
+    if core:
+        frames.append({'kind': 'batch', 'dataset': 'core', 'seq': 1, 'records': list(core)})
     frames.extend(snapshot)
     frames.append({'kind': 'done'})
     return [json.dumps(frame, separators=(',', ':')) for frame in frames]
@@ -178,14 +190,22 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
         if _source_key(meta) in wanted_sources:
             yield _stream(snapshot=list(source_snapshots.export_parts(workspace, [meta])))
 
+    if keys.get('core'):
+        from . import core_memories
+        records = core_memories.export(keys['core'])
+        for start in range(0, len(records), CHUNK_RECORDS):
+            yield _stream(core=records[start:start + CHUNK_RECORDS])
+
 
 async def reconcile(channel, workspace: str, local: dict, *, provider: bool, provider_sends: bool,
-                    consumer_sends: bool, cancel: asyncio.Event, result: dict, storing: bool = False):
+                    consumer_sends: bool, cancel: asyncio.Event, result: dict, storing: bool = False,
+                    core: bool = False):
     """Swap manifests, then send what the other device lacks: the provider's
     records first, then the consumer's. Yields ``progress`` events, and a
     ``storing`` status while either side stores a chunk; sets
     ``result['received']`` to what this side stored. ``storing``: the other
-    device takes ``storing`` frames (``storing_offered``)."""
+    device takes ``storing`` frames (``storing_offered``). ``core``: it
+    exchanges core memories (``core_offered``); otherwise none are sent."""
     if provider:
         await channel.send({'kind': 'manifest', 'data': encode(local)})
         remote = decode((await channel.recv(timeout=WAIT)).get('data'))
@@ -196,7 +216,10 @@ async def reconcile(channel, workspace: str, local: dict, *, provider: bool, pro
         if not active:
             continue
         if sender_is_provider == provider:
-            async for event in _send(channel, workspace, wanted(local, remote), cancel):
+            keys = wanted(local, remote)
+            if not core:
+                keys['core'] = []
+            async for event in _send(channel, workspace, keys, cancel):
                 yield event
         else:
             async for event in _receive(channel, workspace, wanted(remote, local), cancel, result, storing):
@@ -245,7 +268,7 @@ async def _send(channel, workspace: str, keys: dict, cancel: asyncio.Event):
             if ack.get('kind') != 'ack' or ack.get('seq') != seq or ack.get('error'):
                 raise RuntimeError(f"The other device did not store the sync: {_printable(ack.get('error') or 'no acknowledgement')}")
             for dataset, count in json.loads(lines[0])['datasets'].items():
-                if count:
+                if count and dataset in sent:
                     sent[dataset] += count
                     yield {'type': 'progress', 'phase': 'send', 'dataset': dataset, 'done': sent[dataset], 'total': totals[dataset]}
         await channel.send({'kind': 'end', 'chunks': seq})
@@ -307,6 +330,10 @@ async def _receive(channel, workspace: str, keys: dict, cancel: asyncio.Event, r
         if 'sources' in stored['stats']:
             stats['sources'] = {'imported': stats.get('sources', {}).get('imported', 0)
                                 + stored['stats']['sources']['imported']}
+        if 'core' in stored['stats']:
+            held = stats.setdefault('core', {'inserted': 0, 'updated': 0, 'skipped': 0})
+            for key, value in stored['stats']['core'].items():
+                held[key] += value
         await channel.send({'kind': 'ack', 'seq': seq})
         result['received'] = stats
         for dataset in totals:
