@@ -104,7 +104,7 @@ Echo, the voice companion ([live voice](live-voice.md)).
 
 - The first visit sets Echo up: **Download & set up Echo** fetches its runtime and models, with its progress.
 - **Start conversation** starts talking, by push to talk or hands-free; a reply can be interrupted, and a thought can also be typed.
-- **Companion settings** picks the reasoning model (the chat model, or the small LFM voice model) and the microphone options; the picker chooses Echo's look and voice.
+- **Companion settings** picks the reasoning model (the chat model, or the small LFM voice model), the microphone and speaker, and the microphone options; the picker chooses Echo's look and voice.
 - **Float Echo** opens Echo in its own small window: the desktop companion window, or a browser popup. Voice stops when the page is hidden.
 
 ## Shared behavior

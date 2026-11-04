@@ -172,6 +172,9 @@ export interface UpdateInfo {
   /** That update exited with an error. A successful exit hands over to the
    * installer or the server restart; the new version then serves. */
   failed: boolean;
+  /** The Windows installer the updater handed over to, from its log: it
+   * provisions the release and restarts this server, then closes its log. */
+  installer?: "running" | "succeeded" | "failed";
   log: string[];
   error?: string;
 }
@@ -182,6 +185,11 @@ export function getUpdate(refresh = false) {
 
 export function startUpdate() {
   return fetchAPI<{ started: boolean; target: string }>("/api/update", { method: "POST" });
+}
+
+/** Restart the dashboard server into the installed code (ADR 0050). */
+export function restartServer() {
+  return fetchAPI<{ restarting: boolean }>("/api/restart", { method: "POST" });
 }
 
 export async function getJobs(): Promise<{ jobs: IngestionJob[] }> {

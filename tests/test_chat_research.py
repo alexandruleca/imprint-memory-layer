@@ -1,6 +1,7 @@
 import json
 import unittest
 
+from imprint import chat_research
 from imprint.chat_research import ResearchBudget, ResearchExhausted
 
 
@@ -80,6 +81,47 @@ class ResearchBudgetTests(unittest.TestCase):
     def test_zero_or_empty_results_are_not_evidence(self):
         for text in ('', '  ', 'No memories found.', 'No facts match this query.'):
             self.assertFalse(self.observe(text))
+
+
+
+def exchange(*results):
+    """A reply's research: a user question, then each (tool, args, result)."""
+    messages = [{'role': 'user', 'content': 'question'}]
+    for n, (name, args, result) in enumerate(results):
+        messages.append({'role': 'assistant', 'content': '', 'tool_calls': [
+            {'id': f'c{n}', 'type': 'function', 'function': {'name': name, 'arguments': args}}]})
+        messages.append({'role': 'tool', 'tool_call_id': f'c{n}', 'content': result})
+    return messages
+
+
+class NotesTests(unittest.TestCase):
+    def test_earlier_replies_empty_reads_and_errors_add_no_notes(self):
+        messages = [{'role': 'user', 'content': 'old'},
+                    {'role': 'tool', 'tool_call_id': 'old', 'content': 'An earlier reply found this.'}]
+        messages += exchange(('kg_query', {'subject': 'x'}, 'No facts found.'),
+                             ('search', {'query': 'x'}, 'Workspace: w. Search evidence; verify live sources before edits.\n'
+                                                        'No relevant matches. Read the relevant files directly if needed.'),
+                             ('file_chunks', {}, '[tool error] source is required'),
+                             ('status', {}, '[research stopped] This call was not executed because the time budget ended.'))
+        self.assertEqual(chat_research.notes(messages), [])
+
+    def test_other_tools_become_one_note_named_by_their_subject(self):
+        (note,) = chat_research.notes(exchange(('file_summary', '{"source": "api.py"}', 'api.py: 4 chunks, the HTTP routes.')))
+        self.assertEqual((note.label, note.text), ('file_summary api.py', 'api.py: 4 chunks, the HTTP routes.'))
+
+    def test_long_notes_end_at_a_word_and_the_digest_keeps_whole_notes_within_its_size(self):
+        result = '\n'.join(f'[{n}] id:m{n} sim:0.5 | source:s{n}.md\n' + 'word ' * 400 for n in range(1, 30))
+        found = chat_research.notes(exchange(('search', {}, result)), per_note=100)
+        self.assertEqual(len(found), 29)
+        self.assertTrue(all(len(note.text) <= 102 and note.text.endswith('word …') for note in found))
+        text = chat_research.digest(found, max_chars=600)
+        self.assertLessEqual(len(text), 600)
+        self.assertTrue(text.startswith('[1] s1.md\n') and text.endswith('word …'))
+
+    def test_sources_lists_only_the_notes_an_answer_cites(self):
+        found = [chat_research.Note('a.md', 'A', 'a'), chat_research.Note('b.md', 'B', 'b')]
+        self.assertEqual(chat_research.sources('Yes [2], see [2] and [7].', found), '- [2] b.md')
+        self.assertEqual(chat_research.sources('No citations.', found), '')
 
 
 if __name__ == '__main__':

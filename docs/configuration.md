@@ -55,7 +55,7 @@ imprint config reset --all
 
 `imprint config` groups settings visually by prefix (`model.*`, `huggingface.*`, `qdrant.*`, `chunker.*`, `tagger.*`, `tagger.local.*`, `ingest.*`, `chat.*`, `summarizer.*`, `recall.*`). Non-default values are highlighted by source (`config.json` cyan, `env` yellow).
 
-The dashboard's **Settings** page edits the same values. A setting with known values, such as `model.device`, a provider or `model.gpu_device` (the GPUs llama.cpp finds on this device), is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
+The dashboard's **Settings** page edits the same values. Sections follow the key's group, except **GPU**, which gathers `model.gpu_device` (the GPUs llama.cpp finds on this device), `model.device` and the local models' `n_gpu_layers`. A setting with known values, such as `model.device`, a provider or `model.gpu_device`, is a dropdown. **Custom value…** accepts anything else the setting allows. A value set by an environment variable is shown read-only. The reset button (remove, for a secret) deletes the `config.json` override, like `imprint config reset <key>`. Both the CLI and the dashboard refuse a value outside a fixed set.
 
 Settings also holds **Workspaces** and, for a Windows installation, **WSL profiles**: enroll or remove the client profiles (whichever clients the CLI supports there) of each WSL distribution's default user. See [installation](installation.md#clients-inside-wsl).
 
@@ -184,7 +184,10 @@ reservations are not refunded; this is not a provider billing or monetary cap.
 Time checks are cooperative: an already-running blocking tool or native prompt
 prefill may finish after the deadline. Pending calls are then skipped explicitly.
 The final answer has separate `chat.max_tokens` space and a 120-second deadline.
-If it cannot be synthesized, labelled evidence excerpts are preserved.
+It is written from a deduplicated digest of what research found, not from the
+raw research turns, and lists the sources it cites. An answer that cannot finish
+ends with a short list of the strongest findings
+([ADR 0127](adr/0127-the-final-answer-is-written-from-research-notes.md)).
 
 The old `chat.max_tool_iters` key and `IMPRINT_CHAT_MAX_TOOL_ITERS` are ignored;
 old config entries stay on disk but do not appear in Settings or cut research

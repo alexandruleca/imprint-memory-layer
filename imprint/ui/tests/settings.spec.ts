@@ -325,7 +325,7 @@ test('one section shows at a time; its link, a deep link and the filter reach th
   await page.goto('/settings/');
   await expect(page.getByText('model.device')).toBeVisible();
   await expect(page.getByText('chat.provider')).toHaveCount(0);
-  await expect(sections.getByRole('link', { name: /Embeddings/ })).toHaveAttribute('aria-current', 'page');
+  await expect(sections.getByRole('link', { name: /GPU/ })).toHaveAttribute('aria-current', 'page');
 
   await sections.getByRole('link', { name: /Chat/ }).click();
   await expect(page).toHaveURL(/#settings-chat$/);
@@ -340,6 +340,44 @@ test('one section shows at a time; its link, a deep link and the filter reach th
 
   await page.goto('/settings/#workspaces');
   await expect(sections.getByRole('link', { name: 'Workspaces' })).toHaveAttribute('aria-current', 'page');
+});
+
+test('the GPU section gathers every GPU setting, the GPU device first, each under the model it is for', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
+  const setting = (key: string, value: unknown, desc: string) =>
+    ({ key, value, source: 'default', default: value, type: typeof value === 'number' ? 'int' : 'str', env: '', desc });
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [
+    setting('model.name', 'Qwen3-Embedding-0.6B', 'Embedding model'),
+    setting('model.device', 'auto', 'Compute device'),
+    setting('model.threads', 0, 'CPU threads for local models'),
+    setting('model.gpu_device', 'auto', 'GPU that runs local models'),
+    setting('tagger.local.n_gpu_layers', -1, 'Helper GPU layers'),
+    setting('tagger.local.model', 'qwen3.5-4b', 'Helper model'),
+    setting('chat.provider', 'local', 'Chat model provider'),
+    setting('chat.n_gpu_layers', -1, 'Chat GPU layers'),
+  ] } }));
+  const sections = page.getByRole('navigation', { name: 'Settings sections' });
+  await page.goto('/settings/#settings-gpu');
+  await expect(sections.getByRole('link')).toHaveText([/Embeddings/, /GPU/, /Tagging/, /Chat/, 'Workspaces']);
+  const card = page.locator('#settings-gpu');
+  await expect(card.locator('p.font-mono')).toHaveText(['model.gpu_device', 'model.device', 'tagger.local.n_gpu_layers', 'chat.n_gpu_layers']);
+  await expect(card).toContainText('Embeddings');
+  await expect(card).toContainText('Local helper model');
+  await expect(card).toContainText('Chat (local model)');
+
+  for (const [section, kept, moved] of [
+    ['Embeddings', ['model.name', 'model.threads'], ['model.device', 'model.gpu_device']],
+    ['Tagging', ['tagger.local.model'], ['tagger.local.n_gpu_layers']],
+    ['Chat', ['chat.provider'], ['chat.n_gpu_layers']],
+  ] as const) {
+    await sections.getByRole('link', { name: new RegExp(section) }).click();
+    for (const key of kept) await expect(page.getByText(key, { exact: true })).toBeVisible();
+    for (const key of moved) await expect(page.getByText(key, { exact: true })).toHaveCount(0);
+  }
+
+  await page.getByLabel('Filter settings').fill('gpu');
+  await expect(page.locator('#settings-gpu p.font-mono')).toHaveCount(4);
 });
 
 test('a setting explains what it is for, with an example, and is found by words from that explanation', async ({ page }) => {

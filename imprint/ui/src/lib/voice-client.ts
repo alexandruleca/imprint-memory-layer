@@ -167,6 +167,9 @@ export class VoiceClient {
   private question?: string;
   /** The user's remembered choice: arm the microphone whenever a conversation is ready (ADR 0069). */
   armMicrophone = false;
+  /** The microphone and speaker to use, as browser device IDs; empty for the system default. */
+  inputDevice = "";
+  outputDevice = "";
   /** The session's voice effect, as the API reports it when the session is ready. */
   private effect: string | null = null;
   private outputSamples = 0;
@@ -191,14 +194,17 @@ export class VoiceClient {
           audioTimer = setTimeout(() => reject(new Error("Audio output is unavailable. Choose a speaker or headset in sound settings, then try again.")), 10000);
         })]);
       } finally { clearTimeout(audioTimer); }
+      await this.routeOutput();
       if (this.stopped || epoch !== this.epoch) return;
       // A new look or reasoning model replaces the session; the old one releases
-      // the worker as it closes. One voice window owns the worker at a time.
+      // the worker as it closes. One voice window owns the worker at a time. A
+      // status check that does not answer in time is asked again, not a failure.
       for (const deadline = Date.now() + 8000; ;) {
-        const previous = await fetch(`${API_BASE}/api/voice/status`, { signal: AbortSignal.timeout(1500) });
+        const previous = await fetch(`${API_BASE}/api/voice/status`, { signal: AbortSignal.timeout(1500) }).catch(() => null);
         if (this.stopped || epoch !== this.epoch) return;
-        if (previous.ok && !(await previous.json()).busy) break;
-        if (Date.now() >= deadline) throw new Error("Voice is open in another window. Stop it there, then try again.");
+        if (previous?.ok && !(await previous.json()).busy) break;
+        if (Date.now() >= deadline) throw new Error(previous ? "Voice is open in another window. Stop it there, then try again."
+          : "Local voice isn't answering. Try again in a moment.");
         this.update({ detail: "Waiting for the previous conversation…" });
         await new Promise(resolve => setTimeout(resolve, 150));
         if (this.stopped || epoch !== this.epoch) return;
@@ -239,8 +245,7 @@ export class VoiceClient {
       if (access && !microphoneAccessAllows(access.status, platform)) throw new MicrophoneAccessError(access.status);
       step = "device";
       if (!navigator.mediaDevices?.getUserMedia) throw new DOMException("Microphone capture needs a secure page.", "NotSupportedError");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1,
-        echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      const stream = await this.openMicrophone();
       if (!current()) { stream.getTracks().forEach(track => track.stop()); return false; }
       this.stream = stream;
       step = "worklet";
@@ -265,6 +270,44 @@ export class VoiceClient {
     } finally {
       if (attempt === this.micAttempt) this.micPending = false;
     }
+  }
+  /** The chosen microphone, or the system default when it is no longer connected. */
+  private async openMicrophone() {
+    const audio = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    if (!this.inputDevice) return navigator.mediaDevices.getUserMedia({ audio, video: false });
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: this.inputDevice } }, video: false });
+    } catch (error) {
+      if (!(error instanceof DOMException) || !["OverconstrainedError", "NotFoundError"].includes(error.name)) throw error;
+      return navigator.mediaDevices.getUserMedia({ audio, video: false });
+    }
+  }
+  /** Play through the chosen speaker, or the system default when it is gone
+   * or the browser cannot choose one (Web Audio's setSinkId is Chromium's).
+   * A new context already plays through the default, so starting with no
+   * choice routes nothing; a device that does not answer in 3 s is left. */
+  private async routeOutput(changed = false) {
+    const context = this.context as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | undefined;
+    if (!context?.setSinkId || (!this.outputDevice && !changed)) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const route = (id: string) => Promise.race([context.setSinkId!(id), new Promise<void>(resolve => { timer = setTimeout(resolve, 3000); })])
+      .finally(() => clearTimeout(timer));
+    try { await route(this.outputDevice); }
+    catch { if (this.outputDevice) await route("").catch(() => {}); }
+  }
+  /** Another microphone: a running capture reopens on it, keeping the conversation. */
+  async setInputDevice(id: string) {
+    this.inputDevice = id;
+    if (!this.stream) return;
+    this.release(false); this.gate.reset(); this.heldFrames = [];
+    this.releaseMicrophone();
+    this.update({ microphone: false });
+    await this.enableMicrophone();
+  }
+  /** Another speaker: playback moves to it, mid-reply included. */
+  async setOutputDevice(id: string) {
+    this.outputDevice = id;
+    await this.routeOutput(true);
   }
   private releaseMicrophone() {
     this.stream?.getTracks().forEach(track => track.stop()); this.stream = undefined;

@@ -10,6 +10,7 @@ import { VoiceClient, initialVoice, type VoiceMode, type VoiceSnapshot } from "@
 import { readVoicePreferences, saveVoicePreferences } from "@/lib/voice-preferences";
 import { API_BASE } from "@/lib/api-base";
 import { useVoiceSetup } from "@/lib/voice-setup";
+import { useAudioDevices, type AudioDevice } from "@/lib/audio-devices";
 import { VoiceSetup, VoiceChatSetup } from "@/components/voice-setup";
 import { AvatarPicker } from "@/components/avatar-picker";
 import { getConfig, setConfigValue } from "@/lib/api";
@@ -29,6 +30,8 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [shortcutAvailable, setShortcutAvailable] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [rememberMicrophone, setRememberMicrophone] = useState(false);
+  const [inputDevice, setInputDevice] = useState("");
+  const [outputDevice, setOutputDevice] = useState("");
   // Echo's look (the voice.avatar setting); null until it is known, so the
   // default never flashes before a different choice loads.
   const [avatar, setAvatar] = useState<string | null>(null);
@@ -49,10 +52,13 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     const preferences = readVoicePreferences();
     client.current.setMode(preferences.mode);
     client.current.armMicrophone = preferences.microphoneEnabled;
+    client.current.inputDevice = preferences.inputDevice;
+    client.current.outputDevice = preferences.outputDevice;
     // Read browser storage and host capabilities only after hydration.
     const timer = setTimeout(() => {
       setDesktop(!!window.electronAPI?.openCompanion);
       setEngine(preferences.engine); setRememberMicrophone(preferences.microphoneEnabled);
+      setInputDevice(preferences.inputDevice); setOutputDevice(preferences.outputDevice);
     }, 0);
     // The main process owns the window, so pinning shows the state it reports.
     function companion(state: { pinned: boolean; shortcutAvailable?: boolean } | null) {
@@ -76,6 +82,8 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     return () => { clearTimeout(timer); controller.abort(); unsubscribe?.(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
   }, [compact]);
   const energy = () => client.current?.level || 0;
+  // Listed while Companion settings is open; names become readable once the microphone is allowed.
+  const devices = useAudioDevices(optionsOpen, voice.microphone);
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
     && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
   const active = voice.connected || voice.phase === "connecting";
@@ -101,6 +109,20 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     setRememberMicrophone(value); saveVoicePreferences({ microphoneEnabled: value });
     client.current?.setMicrophonePreference(value);
   }
+  function chooseInput(id: string) {
+    setInputDevice(id); saveVoicePreferences({ inputDevice: id });
+    void client.current?.setInputDevice(id);
+  }
+  function chooseOutput(id: string) {
+    setOutputDevice(id); saveVoicePreferences({ outputDevice: id });
+    void client.current?.setOutputDevice(id);
+  }
+  /** A remembered device that is not plugged in stays listed, so the choice is visible and kept. */
+  const deviceOptions = (found: AudioDevice[], chosen: string, systemDefault: string) => <>
+    <option value="">{systemDefault ? `System default (${systemDefault})` : "System default"}</option>
+    {found.map(device => <option key={device.id} value={device.id}>{device.label}</option>)}
+    {chosen && !found.some(device => device.id === chosen) && <option value={chosen}>Not connected · uses the default</option>}
+  </>;
   // The full page shows these under its controls; the companion keeps them in its settings panel.
   const textForm = <form className="voice-text" onSubmit={event => { event.preventDefault(); if (text.trim()) { client.current?.ask(text, engine); setText(""); input.current?.focus(); } }}>
     <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} onChange={event => setText(event.target.value)}/>
@@ -142,6 +164,13 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
               <label>Voice reasoning <select aria-label="Voice reasoning model" value={engine} onChange={event => chooseEngine(event.target.value as "chat" | "lfm")}>
                 <option value="chat" disabled={runtime?.chat_provider !== "local"}>Same local model as Chat</option><option value="lfm">Small voice model · LFM 1.5B</option>
               </select></label>
+              <label>Microphone <select aria-label="Microphone" value={inputDevice} onChange={event => chooseInput(event.target.value)}>
+                {deviceOptions(devices.inputs, inputDevice, devices.defaultInput)}
+              </select></label>
+              {devices.outputSupported && <label>Speaker <select aria-label="Speaker" value={outputDevice} onChange={event => chooseOutput(event.target.value)}>
+                {deviceOptions(devices.outputs, outputDevice, devices.defaultOutput)}
+              </select></label>}
+              {!devices.labelled && <small>Device names appear once the microphone is allowed.</small>}
               <label className="voice-check"><Checkbox aria-label="Use microphone for conversations" checked={rememberMicrophone} onCheckedChange={remember}/>Use microphone for conversations</label>
               <small>Remembered on this device. Starting a conversation turns the microphone on, after the system allows it; push-to-talk stays silent until you hold it.</small>
               {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}

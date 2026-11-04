@@ -31,6 +31,10 @@ class UpdateModuleTests(unittest.TestCase):
         patcher = patch.object(updates, 'log_path', return_value=log)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.installer_log = Path(self.directory.name) / 'update-setup.log'
+        installer = patch.object(updates, 'installer_log_path', return_value=self.installer_log)
+        installer.start()
+        self.addCleanup(installer.stop)
         channel = patch.dict(os.environ, {'IMPRINT_UPDATE_CHANNEL': 'stable'})
         channel.start()
         self.addCleanup(channel.stop)
@@ -102,6 +106,40 @@ class UpdateModuleTests(unittest.TestCase):
                 updates._process.wait(timeout=slack(10))
                 self.assertEqual(updates.status()['running'], False)
                 self.assertEqual(updates.status()['failed'], failed)
+
+    @unittest.skipIf(os.name == 'nt', 'uses a POSIX script as the CLI')
+    def test_the_windows_installer_is_followed_from_its_log_until_it_closes(self):
+        self.installer_log.write_text('A previous update\'s installer log.\n')
+        with patch.object(updates.job_queue, 'find_imprint_binary', return_value=self._fake_cli("print('[+] Installer started')")), \
+                patch.object(updates.job_queue, 'active_job', return_value=None):
+            updates.start()
+            self.assertFalse(self.installer_log.exists())
+            updates._process.wait(timeout=slack(10))
+        self.assertNotIn('installer', updates.status())  # Not started yet.
+        stamp = '2026-11-04 20:00:00.000   '
+        lines = ['Log opened. (Time zone: UTC+02:00)', 'Installation process succeeded.', '-- Run entry --']
+        self.installer_log.write_text('\ufeff' + ''.join(stamp + line + '\n' for line in lines), encoding='utf-8')
+        report = updates.status()
+        # Files are in place, but provisioning and the server restart still run.
+        self.assertEqual((report['installer'], report['failed']), ('running', False))
+        self.assertEqual(report['log'][0], '[+] Installer started')
+        self.assertEqual(report['log'][-1], stamp + '-- Run entry --')
+        with self.installer_log.open('a', encoding='utf-8') as log:
+            log.write(stamp + 'Log closed.\n')
+        self.assertEqual((updates.status()['installer'], updates.status()['failed']), ('succeeded', False))
+        self.installer_log.write_text(''.join(stamp + line + '\n' for line in
+                                              ('Log opened.', 'DeleteFile: The process cannot access the file.', 'Log closed.')))
+        self.assertEqual((updates.status()['installer'], updates.status()['failed']), ('failed', True))
+
+    @unittest.skipIf(os.name == 'nt', 'uses a POSIX script as the CLI')
+    def test_an_updater_that_failed_ignores_any_installer_log(self):
+        with patch.object(updates.job_queue, 'find_imprint_binary', return_value=self._fake_cli("sys.exit('[x] checksum mismatch')")), \
+                patch.object(updates.job_queue, 'active_job', return_value=None):
+            updates.start()
+            updates._process.wait(timeout=slack(10))
+        self.installer_log.write_text('Installation process succeeded.\nLog closed.\n')
+        self.assertNotIn('installer', updates.status())
+        self.assertTrue(updates.status()['failed'])
 
     def test_start_waits_for_a_running_job(self):
         with patch.object(updates.job_queue, 'active_job', return_value={'id': 'j1'}), \

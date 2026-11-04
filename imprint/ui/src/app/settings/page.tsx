@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
-  ArrowUpCircle, Bot, Boxes, Cpu, Database, FileInput, FolderTree, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
+  ArrowUpCircle, Bot, Boxes, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
   Scissors, ShieldCheck, SquareTerminal, Tags, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,8 @@ import { SettingRow, settingTitle } from "./_components/setting-row";
 import type { ConfigSetting } from "@/lib/types";
 
 const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> = {
-  model: { title: "Embeddings", desc: "The local model that turns text into the vectors search compares, and the hardware it runs on. Changing the model, its file, revision, dimension, token cap, pooling or query instruction needs a new workspace and a reindex; device, GPU, thread and batch settings only change speed.", icon: Cpu },
+  model: { title: "Embeddings", desc: "The local model that turns text into the vectors search compares. Changing the model, its file, revision, dimension, token cap, pooling or query instruction needs a new workspace and a reindex; thread and batch settings only change speed. Where it runs is under GPU.", icon: Cpu },
+  gpu: { title: "GPU", desc: "Which GPU runs Imprint's local models, and how much of each model it holds. Every model runs whole on that one GPU, through llama.cpp (Vulkan on Windows and Linux, Metal on macOS). These settings only change speed.", icon: Gpu },
   huggingface: { title: "Hugging Face", desc: "Credentials for downloading models from the Hugging Face Hub, needed only for gated or private models or when anonymous downloads are rate-limited.", icon: KeyRound },
   qdrant: { title: "Vector store", desc: "Where the Qdrant vector database runs and how Imprint reaches it. By default Imprint downloads and manages a local Qdrant; these settings point it at your own server instead.", icon: Database },
   chunker: { title: "Chunking", desc: "How files and conversations are split into chunks before they are embedded. Changes apply when sources are next indexed or refreshed and keep existing workspaces working.", icon: Scissors },
@@ -41,9 +42,19 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   collection: { title: "Storage", desc: "The Qdrant collection the default workspace uses; other workspaces get their own automatically.", icon: Layers },
 };
 const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };
+// The GPU section gathers these from the groups their keys name, in this
+// order, each under a heading for the model it is for: the GPU device
+// applies to all of them.
+const GPU_SETTINGS: Record<string, string> = {
+  "model.gpu_device": "",
+  "model.device": "Embeddings",
+  "tagger.local.n_gpu_layers": "Local helper model (tagging, recall, summaries)",
+  "chat.n_gpu_layers": "Chat (local model)",
+};
+const GPU_ORDER = Object.keys(GPU_SETTINGS);
 
 function groupOf(key: string) {
-  return key.split(".")[0];
+  return key in GPU_SETTINGS ? "gpu" : key.split(".")[0];
 }
 
 /** The section in the URL's hash (#settings-chat, #workspaces). */
@@ -137,6 +148,7 @@ export default function SettingsPage() {
     if (group) group[1].push(s);
     else groups.push([name, [s]]);
   }
+  groups.find(([name]) => name === "gpu")?.[1].sort((a, b) => GPU_ORDER.indexOf(a.key) - GPU_ORDER.indexOf(b.key));
   const ids = [...groups.map(([name]) => `settings-${name}`), ...deviceSections.map((d) => d.id)];
   // Filtering searches every section; otherwise one section shows at a time.
   const current = ids.includes(hash) ? hash : ids[0];
@@ -196,7 +208,8 @@ export default function SettingsPage() {
             <CardContent className="@container mt-4 divide-y divide-border border-t border-border px-0">
               {items.map((s) => {
                 const prefix = s.key.split(".").slice(0, -1).join(".");
-                const heading = SUBGROUPS[prefix] && prefix !== subgroup ? SUBGROUPS[prefix] : "";
+                const heading = name === "gpu" ? GPU_SETTINGS[s.key]
+                  : SUBGROUPS[prefix] && prefix !== subgroup ? SUBGROUPS[prefix] : "";
                 subgroup = prefix;
                 return (
                   <div key={s.key}>

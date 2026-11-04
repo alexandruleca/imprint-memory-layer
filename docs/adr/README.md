@@ -152,7 +152,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) **Verified runtime and desktop baseline.** Hashed dependencies/downloads, Electron 45, macOS 13 and container parity.
 - [ADR 0012](0012-native-package-runtime-and-silent-installs.md) **Native package runtime and silent installs.** Platform-specific Intel ONNX runtime and bounded, noninteractive Windows installer smoke. Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (no LLM choice), [ADR 0111](0111-intel-macs-are-not-supported.md) (no Intel ONNX pin).
 - [ADR 0014](0014-main-only-release-packaging.md) **Main-only release packaging.** Compile/test branches; package and publish release artifacts only from main. Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev prereleases).
-- [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart).
+- [ADR 0023](0023-update-by-installation-type.md) **Update by installation type.** The dashboard updates through the CLI, which installs a release the way the installation was set up. Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) (dashboard server stop and restart) and [ADR 0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) (the dashboard follows the Windows installer to the end).
+- [ADR 0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) **The dashboard follows the Windows installer to the end.** The server reports the installer's progress from its log; a failed installer stops the wait, a finished one whose server restart did not happen gets the server restarted, and a dashboard still on the old version says to reopen Imprint.
 - [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md) **Symmetric uninstall and branch synchronization.** Disconnect managed clients before uninstall, retry failures and fast-forward dev after main changes. Amended by [ADR 0028](0028-complete-uninstall.md) (data retention), [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) (dev publishes prereleases) and [ADR 0085](0085-main-only-fast-forwards-to-dev.md) (no dev sync).
 - [ADR 0028](0028-complete-uninstall.md) **Complete uninstall.** Uninstall stops every process of the installation and removes its runtime and data unless the user keeps the data. Amended by [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) (desktop profile).
 - [ADR 0030](0030-chrome-extension-release-zip.md) **Chrome preview ZIP and release downloads.** Allowlisted Chrome preview ZIP in validated releases, website download/install guide and coming-soon integrations.
@@ -175,9 +176,11 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0099](0099-sources-can-belong-to-several-projects.md) **Sources can belong to several projects.** Reviewable local links add retrieval membership while preserving the canonical source. Amended by [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md) (per-source timeout recovery).
 - [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) **Explicit unassigned inbox.** One opted-in workspace may learn conversations without directory evidence; conflicting evidence still rejects them.
 
-- [ADR 0101](0101-chat-research-always-reserves-an-answer.md) **Chat research always reserves an answer.** Tool rounds are bounded; exhaustion, repeating reads or a full research context transition to tools-free synthesis and preserved evidence. Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) (evidence novelty and resource budgets).
+- [ADR 0101](0101-chat-research-always-reserves-an-answer.md) **Chat research always reserves an answer.** Tool rounds are bounded; exhaustion, repeating reads or a full research context transition to tools-free synthesis and preserved evidence. Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) (evidence novelty and resource budgets) and [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md) (the answer is written from research notes).
 
 - [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) **Chat research follows progress and resource budgets.** No fixed round cutoff; bounded evidence-novelty tracking and reply-wide time/token reservations lead to synthesis.
+
+- [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md) **The final answer is written from research notes.** After a budget stop, the reserved answer reads a deduplicated digest of what research found, without the raw research turns, and lists the sources it cites; an answer that cannot finish ends with a short list of findings.
 
 - [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) **Echo has a generated eye with shared morph controls.** An opaque generated iris follows gaze and the nucleus blinks with it through named morph targets.
 
@@ -189,6 +192,8 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
+- [ADR 0129](0129-core-memories-are-user-approved-and-start-every-session.md) **Core memories are user-approved and start every session.** Short statements of the user's preferences and standing instructions, approved by the user, kept apart from ordinary memories and given to every session at its start.
+- [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) **Reorganization is proposed by a background job and reviewed.** Project profiles, project proposals for memories in catch-alls with quoted evidence, and core memory candidates; accepted moves apply as placement rules.
 
 ## Decision log
 
@@ -218,7 +223,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0020](0020-explicit-pairing-and-automatic-workspace-sync.md) | 2026-10-23 | Amended by [ADR 0073](0073-remove-a-pairing-from-one-device.md), [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) | Explicit pairing and automatic workspace sync |
 | [0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) | 2026-10-23 | Accepted | Budgeted MCP evidence and selective expansion |
 | [0022](0022-http-client-lifetime-during-model-work.md) | 2026-10-23 | Accepted | Retain HTTP clients during model work |
-| [0023](0023-update-by-installation-type.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Update by installation type |
+| [0023](0023-update-by-installation-type.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md), [ADR 0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) | Update by installation type |
 | [0024](0024-enforce-local-service-boundaries.md) | 2026-10-23 | Accepted | Enforce local service boundaries |
 | [0025](0025-desktop-owned-background-service.md) | 2026-10-23 | Amended by [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) | Desktop-owned background service |
 | [0026](0026-windows-installer-wsl-client-bridge.md) | 2026-10-23 | Amended by [ADR 0027](0027-symmetric-uninstall-and-branch-sync.md), [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | Windows installer registration for WSL clients |
@@ -297,7 +302,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) | 2026-10-28 | Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | Head surfaces take light; generated parts glow |
 | [0099](0099-sources-can-belong-to-several-projects.md) | 2026-10-28 | Amended by [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md) | Sources can belong to several projects |
 | [0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md) | 2026-10-28 | Accepted | Explicit workspace inbox for unassigned conversations |
-| [0101](0101-chat-research-always-reserves-an-answer.md) | 2026-10-28 | Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) | Chat research always reserves an answer |
+| [0101](0101-chat-research-always-reserves-an-answer.md) | 2026-10-28 | Amended by [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md), [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md) | Chat research always reserves an answer |
 | [0102](0102-chat-research-follows-progress-and-resource-budgets.md) | 2026-10-28 | Accepted | Chat research follows progress and resource budgets |
 | [0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) | 2026-10-28 | Accepted | Echo has a generated eye with shared morph controls |
 | [0104](0104-bundle-uv-with-conditional-hash-lock-support.md) | 2026-10-28 | Accepted | Bundle uv with conditional hash-lock support |
@@ -323,6 +328,10 @@ Every record in number order. *Date* is when the decision was made.
 | [0124](0124-opencode-sessions-are-exported-from-its-database.md) | 2026-11-02 | Accepted | OpenCode is a client; its sessions are exported from its database and learned when idle |
 | [0125](0125-integrated-gpus-can-be-chosen-beside-a-discrete-one.md) | 2026-11-04 | Accepted | Integrated GPUs can be chosen beside a discrete one |
 | [0126](0126-cuda-only-for-an-nvidia-gpu-cuda-13-supports.md) | 2026-11-04 | Accepted | CUDA only for an NVIDIA GPU CUDA 13 supports |
+| [0127](0127-the-final-answer-is-written-from-research-notes.md) | 2026-11-04 | Accepted | The final answer is written from research notes |
+| [0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) | 2026-11-04 | Accepted | The dashboard follows the Windows installer to the end |
+| [0129](0129-core-memories-are-user-approved-and-start-every-session.md) | 2026-11-04 | Proposed | Core memories are user-approved and start every session |
+| [0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) | 2026-11-04 | Proposed | Reorganization is proposed by a background job and reviewed |
 
 ## How to write and maintain ADRs
 

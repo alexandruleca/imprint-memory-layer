@@ -9,12 +9,19 @@ const REPORT = {
 // The server's version is what the restarted server reports; the release
 // check then sees the installation as current.
 async function mockApi(page: Page, report: Record<string, unknown>) {
-  const state = { version: 'v0.13.1', running: false, failed: false, log: [] as string[], posts: 0 };
+  const state = { version: 'v0.13.1', running: false, failed: false, log: [] as string[], posts: 0,
+    installer: undefined as string | undefined, restarts: 0, restartTo: '' };
   await page.route('**/api/ping', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 1, projects: [], langs: [], domains: [], types: [], topics: [] } }));
   await page.route('**/api/overview', route => route.fulfill({ json: { projects: [], total: 1, version: 1, facets: {} } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/version', route => route.fulfill({ json: { version: state.version } }));
+  // The restarted server serves what is installed.
+  await page.route('**/api/restart', route => {
+    state.restarts += 1;
+    if (state.restartTo) state.version = state.restartTo;
+    return route.fulfill({ json: { restarting: true } });
+  });
   await page.route('**/api/update', async route => {
     if (route.request().method() === 'POST') {
       state.posts += 1;
@@ -25,7 +32,7 @@ async function mockApi(page: Page, report: Record<string, unknown>) {
     }
     await route.fulfill({ json: {
       ...report, current: state.version, update_available: report.update_available && state.version !== report.latest,
-      running: state.running, failed: state.failed, log: state.log,
+      running: state.running, failed: state.failed, log: state.log, installer: state.installer,
     } });
   });
   return state;
@@ -80,6 +87,55 @@ test('a failed updater shows its log and can be retried', async ({ page }) => {
   await expect(dialog.getByLabel('Updater log')).toContainText('checksum mismatch');
   await dialog.getByRole('button', { name: 'Try again' }).click();
   await expect.poll(() => state.posts).toBe(2);
+});
+
+test('an installer that finished without restarting the dashboard gets it restarted, which reloads it', async ({ page }) => {
+  const state = await mockApi(page, REPORT);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Update to v0.14.0' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Update Imprint' });
+  await dialog.getByRole('button', { name: 'Update now' }).click();
+  state.running = false;
+  state.installer = 'running';
+  await page.waitForTimeout(slack(2500));
+  expect(state.restarts).toBe(0);  // Not while the installer runs.
+  state.restartTo = 'v0.14.0';
+  const reloaded = page.waitForEvent('load');
+  state.installer = 'succeeded';
+  await reloaded;
+  expect(state.restarts).toBe(1);
+  await expect(page.getByRole('button', { name: /Update to/ })).toHaveCount(0);
+});
+
+test('a failed installer stops the wait and shows its log', async ({ page }) => {
+  const state = await mockApi(page, REPORT);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Update to v0.14.0' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Update Imprint' });
+  await dialog.getByRole('button', { name: 'Update now' }).click();
+  state.running = false;
+  state.installer = 'failed';
+  state.failed = true;
+  state.log = ['[+] Installer started', '2026-11-04 20:00:01.000   DeleteFile: The process cannot access the file.', '2026-11-04 20:00:02.000   Log closed.'];
+  await expect(dialog.getByRole('alert')).toContainText('The update to v0.14.0 failed');
+  await expect(dialog.getByLabel('Updater log')).toContainText('cannot access the file');
+  await expect(dialog.getByRole('button', { name: 'Try again' })).toBeVisible();
+  expect(state.restarts).toBe(0);
+});
+
+test('a dashboard that does not come back on the new release says to reopen Imprint', async ({ page }) => {
+  await page.clock.install();
+  const state = await mockApi(page, REPORT);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Update to v0.14.0' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Update Imprint' });
+  await dialog.getByRole('button', { name: 'Update now' }).click();
+  state.running = false;
+  state.installer = 'succeeded';
+  await expect.poll(async () => { await page.clock.runFor(2000); return state.restarts; }).toBe(1);
+  await page.clock.runFor(62_000);
+  await expect(dialog.getByRole('alert')).toContainText('the dashboard still runs v0.13.1. Close and reopen Imprint to start v0.14.0');
+  expect(state.restarts).toBe(1);
 });
 
 test('a dev build offered on the dev channel is marked as one', async ({ page }) => {

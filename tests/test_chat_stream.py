@@ -405,11 +405,38 @@ class RemoteProtocolTests(unittest.TestCase):
         self.assertEqual(search.call_count, 2)
         self.assertEqual(len(requests), 3)
         self.assertIsNone(requests[-1]['tools'])
-        self.assertIn('last source evidence', str(requests[-1]['messages']))
-        self.assertIn('Answer the original user question', requests[-1]['messages'][0]['content'])
+        final = requests[-1]['messages']
+        self.assertIn('# Write the answer', final[0]['content'])
+        self.assertEqual(final[-1]['role'], 'user')
+        self.assertTrue(final[-1]['content'].startswith('hi\n\n# Research notes'))
+        self.assertIn('last source evidence', final[-1]['content'])
+        self.assertNotIn('tool', [message['role'] for message in final])  # Notes, not the research turns.
         self.assertNotIn('error', [event['type'] for event in events])
         self.assertEqual(events[-2]['text'], 'The sources establish the project history.')
         self.assertEqual(events[-1], {'type': 'done'})
+
+    def test_the_final_answer_reads_deduplicated_notes_and_lists_the_sources_it_cites(self):
+        def hits(*blocks):
+            return ('Workspace: default. Search evidence; verify live sources before edits.\n' + ''.join(
+                f'[{n}] id:{memory} sim:0.5{n} | project:shop | type:{kind} | source:{source} | sha256:abc123 | '
+                f'recorded on: Laptop [d1] | original path (reference): /home/u/{source} | path status: foreign-unmapped\n'
+                f'{text}\n[excerpt chars 0:90 of 900; expand with get_memory(memory_id="{memory}")]\n\n'
+                for n, (memory, kind, source, text) in enumerate(blocks, 1)) + 'More results may exist: offset=2; use filters.')
+        gateway = ('m1', 'decision', 'docs/gateway.md', 'The gateway books plans through Nexus.')
+        retries = ('m2', 'bug', 'conversation/77aa', 'Retries were capped at three.')
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '2050'}), patch.object(chat, '_prompt_tokens', return_value=1):
+            events, requests = self._reply(
+                [call_chunk(0, 'search', '{"query":"gateway"}', id='a')],
+                [call_chunk(0, 'search', '{"query":"gateway booking"}', id='b')],
+                [text_chunk('The gateway books plans through Nexus [1]. Retries stop at three [2].')],
+                tools=tool('search', Mock(side_effect=[hits(gateway, retries), hits(gateway)])))
+        notes = requests[-1]['messages'][-1]['content']
+        self.assertEqual(notes.count('The gateway books plans through Nexus.'), 1)
+        self.assertLess(notes.index('[1] docs/gateway.md (decision), shop'), notes.index('[2] conversation/77aa (bug), shop'))
+        for noise in ('sim:', 'sha256', 'recorded on', '/home/u/', 'expand with get_memory', 'More results may exist'):
+            self.assertNotIn(noise, notes)
+        self.assertTrue(events[-2]['text'].endswith('**Sources**\n- [1] docs/gateway.md (decision), shop\n'
+                                                     '- [2] conversation/77aa (bug), shop'))
 
     def test_new_evidence_continues_beyond_twelve_rounds_and_ignores_legacy_round_cap(self):
         status = Mock(return_value='project overview')
@@ -449,7 +476,7 @@ class RemoteProtocolTests(unittest.TestCase):
         self.assertEqual(len([event for event in events if event['type'] == 'tool_call']), 1)
         self.assertNotIn('error', [event['type'] for event in events])
         self.assertIn('verified project notes', events[-2]['text'])
-        self.assertIn('incomplete, without synthesis', events[-2]['text'])
+        self.assertIn('here is what the research found', events[-2]['text'])
 
     def test_final_provider_failure_preserves_evidence_and_completes(self):
         client, patches = remote_provider([call_chunk(0, 'status', '{}', id='a')])
@@ -470,7 +497,9 @@ class RemoteProtocolTests(unittest.TestCase):
                 tools=tool('status', Mock(return_value='Source architecture.md: SQLite storage.')))
         answer = events[-2]['text']
         self.assertTrue(answer.startswith('The project has a local database.'))
+        self.assertIn('The answer was cut short. What the research found:', answer)
         self.assertIn('architecture.md', answer)
+        self.assertNotIn('…', answer)  # It stopped after a whole sentence.
         self.assertNotIn('error', [event['type'] for event in events])
 
     def test_context_exhaustion_after_tools_still_gets_a_tools_free_answer(self):
@@ -492,7 +521,8 @@ class RemoteProtocolTests(unittest.TestCase):
         from imprint.chat_analysis import SectionAnalysis
         prepare = SectionAnalysis.prepare
         def no_more_context(analysis, messages, offered):
-            if any(message['role'] == 'tool' for message in messages):
+            # Full once tool results, or the notes made from them, are in it.
+            if any(message['role'] == 'tool' or '# Research notes' in message['content'] for message in messages):
                 raise ValueError('section reply limit reached')
             return (yield from prepare(analysis, messages, offered))
         with patch.object(SectionAnalysis, 'prepare', no_more_context):

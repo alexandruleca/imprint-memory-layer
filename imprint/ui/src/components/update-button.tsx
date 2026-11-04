@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpCircle, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/loaders";
-import { getUpdate, getVersion, startUpdate, type UpdateInfo, type UpdateMethod } from "@/lib/api";
+import { getUpdate, getVersion, restartServer, startUpdate, type UpdateInfo, type UpdateMethod } from "@/lib/api";
 
 const STEPS: Record<UpdateMethod, string> = {
   archive:
@@ -29,11 +29,15 @@ type Phase =
   | { kind: "starting" }
   // Until the new version serves; the dashboard then reloads into it.
   | { kind: "updating" }
-  // The updater exited with an error.
+  // The updater or the installer exited with an error.
   | { kind: "stopped" }
+  // The installer finished, yet this server still runs the old version.
+  | { kind: "installed"; serving: string }
   | { kind: "error"; message: string };
 
 const POLL_MS = 2000;
+// After asking the server to restart into the installed release.
+const RESTART_WAIT_MS = 60_000;
 
 /** Top-bar notice for a newer release, and the dialog that installs it. */
 export function UpdateButton() {
@@ -41,6 +45,9 @@ export function UpdateButton() {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [log, setLog] = useState<string[]>([]);
+  // When this dialog asked the server to restart because the installer
+  // finished without the restart reaching it.
+  const restarted = useRef(0);
 
   useEffect(() => {
     getUpdate().then(setInfo).catch(() => {});
@@ -57,7 +64,15 @@ export function UpdateButton() {
         if (version === target) return window.location.reload();
         setLog(status.log);
         // A successful exit hands over to the installer or the server restart.
-        if (status.failed) setPhase({ kind: "stopped" });
+        if (status.failed) return setPhase({ kind: "stopped" });
+        if (restarted.current) {
+          if (Date.now() - restarted.current > RESTART_WAIT_MS) setPhase({ kind: "installed", serving: version });
+        } else if (status.installer === "succeeded") {
+          // The installer is done, but its restart of this server did not
+          // happen: restart it here. The new server then serves the release.
+          restarted.current = Date.now();
+          await restartServer().catch(() => {});
+        }
       } catch {
         // The server is restarting.
       }
@@ -68,6 +83,7 @@ export function UpdateButton() {
   async function begin() {
     setPhase({ kind: "starting" });
     setLog([]);
+    restarted.current = 0;
     try {
       await startUpdate();
       setPhase({ kind: "updating" });
@@ -141,6 +157,11 @@ function Body({ phase, info, target, log }: { phase: Phase; info: UpdateInfo; ta
       )}
       {phase.kind === "stopped" && (
         <p role="alert">The update to {target} failed. Its log shows why.</p>
+      )}
+      {phase.kind === "installed" && (
+        <p role="alert">
+          The installer finished, but the dashboard still runs {phase.serving}. Close and reopen Imprint to start {target}.
+        </p>
       )}
       {phase.kind === "error" && <p role="alert" className="text-destructive">{phase.message}</p>}
       {log.length > 0 && (

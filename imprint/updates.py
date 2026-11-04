@@ -34,6 +34,11 @@ def log_path() -> Path:
     return config.get_data_dir() / "update.log"
 
 
+def installer_log_path() -> Path:
+    """Where ``imprint update`` has the Windows installer log (cmd/update.go)."""
+    return config.get_data_dir() / "update-setup.log"
+
+
 def _env() -> dict[str, str]:
     return {**os.environ, "NO_COLOR": "1"}
 
@@ -84,6 +89,7 @@ def start() -> None:
             {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
             if os.name == "nt" else {"start_new_session": True}
         )
+        installer_log_path().unlink(missing_ok=True)  # A previous update's installer.
         with open(log_path(), "w", encoding="utf-8") as log:
             _process = subprocess.Popen(
                 [job_queue.find_imprint_binary(), "update", "-y"],
@@ -96,11 +102,26 @@ def status(lines: int = 20) -> dict:
     """Whether an update started by this server is running or failed, and its log tail.
 
     An updater that exits successfully has handed over: the Windows installer
-    and the restart of this server finish the update after it.
+    and the restart of this server finish the update after it. While that
+    installer runs, ``installer`` follows it from its log, which it closes
+    after its last step: ``running``, ``succeeded`` or ``failed``.
     """
     try:
         log = log_path().read_text(encoding="utf-8", errors="replace").splitlines()
     except FileNotFoundError:
         log = []
     code = None if _process is None else _process.poll()
-    return {"running": running(), "failed": bool(code), "log": log[-lines:]}
+    report = {"running": running(), "failed": bool(code), "log": log[-lines:]}
+    if code == 0:
+        try:
+            installer = installer_log_path().read_text(encoding="utf-8-sig", errors="replace").splitlines()
+        except FileNotFoundError:
+            return report
+        # Inno Setup logs this when the files are in place, then runs the
+        # provisioning and server restart, then closes its log.
+        closed = any(line.rstrip().endswith("Log closed.") for line in installer)
+        succeeded = any("Installation process succeeded." in line for line in installer)
+        report["installer"] = "running" if not closed else "succeeded" if succeeded else "failed"
+        report["failed"] = report["installer"] == "failed"
+        report["log"] = (log + installer)[-lines:]
+    return report

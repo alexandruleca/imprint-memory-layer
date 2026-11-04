@@ -6,7 +6,9 @@ description: Bounded tool research ends in a tools-free synthesis turn, with pre
 - Status: Amended
 - Date: 2026-10-28
 - Amends: [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md) — tool-round exhaustion transitions to final synthesis rather than a failed reply
-- Amended by: [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) — progress and resource budgets replace the fixed round cutoff and identical-batch test
+- Amended by:
+  - [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md) — progress and resource budgets replace the fixed round cutoff and identical-batch test
+  - [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md) — what the reserved answer's request holds, and how a reply ends when that answer cannot finish
 - Related: [ADR 0061](0061-local-tool-call-formats.md), [ADR 0093](0093-sequential-chat-section-analysis.md)
 
 ## Context

@@ -77,7 +77,7 @@ Each model runs whole on one GPU ([ADR 0087](adr/0087-llama-cpp-runs-each-model-
 | llama.cpp CPU (16 threads) | 438 |
 | Earlier int8 ONNX export, ONNX Runtime CPU (WSL, 16 threads) | 291 |
 
-Settings → Embeddings → Device says what `auto` and `gpu` do on this device, and `model.gpu_device` lists the GPUs llama.cpp found. `imprint doctor` reports where embeddings run. When setup found no GPU, it installed the CPU build: after installing or updating the graphics driver, run `imprint setup` again on the `gpu` or `auto` profile.
+Settings → GPU holds every GPU setting: **GPU device** (`model.gpu_device`) lists the GPUs llama.cpp found, integrated ones included, and the embeddings' **Device** says what `auto` and `gpu` do on this device. The local helper's and chat's GPU layers are there too. `imprint doctor` reports where embeddings run. When setup found no GPU, it installed the CPU build: after installing or updating the graphics driver, run `imprint setup` again on the `gpu` or `auto` profile.
 
 Changing the device does not change the embedding fingerprint, so an existing index keeps working. GPU and CPU vectors of the same text are close but not bit-identical; reindex with `--force` after switching when consistent ranking matters.
 

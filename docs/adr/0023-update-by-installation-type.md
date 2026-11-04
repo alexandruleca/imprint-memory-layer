@@ -5,7 +5,9 @@ description: The dashboard updates Imprint through the CLI, which installs a rel
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) — stopping and restarting the dashboard server
+- Amended by:
+  - [ADR 0050](0050-registered-dashboard-server-and-supervised-restart.md) — stopping and restarting the dashboard server
+  - [ADR 0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) — what the dashboard waits for after the Windows installer takes over
 - Related: [ADR 0002](0002-build-and-validate-before-publication.md), [ADR 0012](0012-native-package-runtime-and-silent-installs.md), [ADR 0014](0014-main-only-release-packaging.md)
 - Restructured: 2026-10-25
 

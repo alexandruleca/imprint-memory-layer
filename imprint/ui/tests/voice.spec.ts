@@ -4,6 +4,9 @@ test.use({ launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake
 async function prepare(page: Page) {
   const controls: { type?: string; id?: number; text?: string; audio?: string; samples?: number }[] = [];
   let socket: WebSocketRoute;
+  // Headless Chromium's fake-device enumeration can stall other requests under
+  // parallel load; tests that care about devices list their own (audioDevices).
+  await page.addInitScript(() => { navigator.mediaDevices.enumerateDevices = async () => []; });
   await page.route('**/api/**', route => {
     const url = route.request().url();
     if (url.endsWith('/voice/status')) return route.fulfill({ json: { installed: true, configured: true, supported: true, chat_provider: 'local', workspace: 'default' } });
@@ -584,4 +587,85 @@ test('a new look or reasoning model during a conversation starts a new session o
   await expect.poll(() => sessions.length).toBe(2);
   expect(sessions.at(-1)).toEqual({ engine: 'lfm' });
   await expect(page.getByRole('button', { name: 'Enable microphone' })).toBeVisible();
+});
+
+// A laptop with a headset and a dock: what enumerateDevices lists, and what
+// capture and playback were asked for. Capture still opens the fake device.
+async function audioDevices(page: Page) {
+  await page.addInitScript(() => {
+    const listed = [
+      ['default', 'audioinput', 'Default - Built-in Microphone'], ['built-in-mic', 'audioinput', 'Built-in Microphone'],
+      ['headset-mic', 'audioinput', 'USB Headset Microphone'],
+      ['default', 'audiooutput', 'Default - Built-in Speakers'], ['built-in-out', 'audiooutput', 'Built-in Speakers'],
+      ['dock-out', 'audiooutput', 'Dock Headphones'],
+    ];
+    const seen = { captures: [] as (string | null)[], sinks: [] as string[], stopped: 0 };
+    (window as unknown as { audio: typeof seen }).audio = seen;
+    navigator.mediaDevices.enumerateDevices = async () => listed.map(([deviceId, kind, label]) =>
+      ({ deviceId, kind, label, groupId: '', toJSON() { return this; } }) as MediaDeviceInfo);
+    const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      const wanted = ((constraints?.audio as MediaTrackConstraints)?.deviceId as ConstrainDOMStringParameters)?.exact as string | undefined;
+      seen.captures.push(wanted ?? null);
+      if (wanted === 'unplugged-mic') throw new DOMException('No such device', 'OverconstrainedError');
+      const stream = await open({ audio: true });
+      stream.getTracks().forEach(track => track.addEventListener('ended', () => seen.stopped++));
+      const stop = MediaStreamTrack.prototype.stop;
+      stream.getTracks().forEach(track => { track.stop = function () { seen.stopped++; stop.call(this); }; });
+      return stream;
+    };
+    (AudioContext.prototype as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId = async function (id: string) { seen.sinks.push(id); };
+  });
+  return () => page.evaluate(() => (window as unknown as { audio: { captures: (string | null)[]; sinks: string[]; stopped: number } }).audio);
+}
+
+for (const [page_, path] of [['the floating Echo', '/companion/'], ['the Voice tab', '/voice/']] as const) {
+  test(`${page_} picks its microphone and speaker, switches them mid-conversation and remembers them`, async ({ page }) => {
+    await prepare(page);
+    const seen = await audioDevices(page);
+    await page.goto(path);
+    await page.getByRole('button', { name: 'Companion settings' }).click();
+    const microphone = page.getByRole('combobox', { name: 'Microphone' });
+    const speaker = page.getByRole('combobox', { name: 'Speaker' });
+    await expect(microphone.locator('option')).toHaveText(['System default (Built-in Microphone)', 'Built-in Microphone', 'USB Headset Microphone']);
+    await expect(speaker.locator('option')).toHaveText(['System default (Built-in Speakers)', 'Built-in Speakers', 'Dock Headphones']);
+    await microphone.selectOption({ label: 'USB Headset Microphone' });
+    await speaker.selectOption({ label: 'Dock Headphones' });
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'Start conversation' }).click();
+    await page.getByRole('button', { name: 'Enable microphone' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Mic armed' })).toBeVisible();
+    expect(await seen()).toMatchObject({ captures: ['headset-mic'], sinks: ['dock-out'] });
+
+    await page.getByRole('button', { name: 'Companion settings' }).click();
+    await microphone.selectOption({ label: 'Built-in Microphone' });
+    await speaker.selectOption({ label: 'System default (Built-in Speakers)' });
+    await expect.poll(async () => (await seen()).captures).toEqual(['headset-mic', 'built-in-mic']);
+    expect((await seen()).stopped).toBeGreaterThan(0);  // The headset's capture was released.
+    expect((await seen()).sinks).toEqual(['dock-out', '']);
+    await expect(page.getByRole('status').filter({ hasText: 'Mic armed' })).toBeVisible();
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Companion settings' }).click();
+    await expect(page.getByRole('combobox', { name: 'Microphone' })).toHaveValue('built-in-mic');
+    await expect(page.getByRole('combobox', { name: 'Speaker' })).toHaveValue('');
+  });
+}
+
+test('a remembered microphone that is unplugged stays listed and capture uses the default', async ({ page }) => {
+  await prepare(page);
+  const seen = await audioDevices(page);
+  await page.addInitScript(() => localStorage.setItem('imprint.voice.preferences.v1',
+    JSON.stringify({ inputDevice: 'unplugged-mic', outputDevice: 'dock-out' })));
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  const microphone = page.getByRole('combobox', { name: 'Microphone' });
+  await expect(microphone).toHaveValue('unplugged-mic');
+  await expect(microphone.locator('option:checked')).toHaveText('Not connected · uses the default');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('button', { name: 'Enable microphone' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Mic armed' })).toBeVisible();
+  expect(await seen()).toMatchObject({ captures: ['unplugged-mic', null], sinks: ['dock-out'] });
 });

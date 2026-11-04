@@ -180,6 +180,18 @@ operating system can still refuse, and is asked every time. Stop, or clearing
 the choice while the system is still asking, means the microphone does not open
 when the answer arrives.
 
+**Companion settings** also picks the **Microphone** and the **Speaker**, on the
+Voice page and in the floating Echo alike. Both start at the system default,
+which follows the operating system's choice, and are remembered on this device
+with the choices above. Changing either during a conversation switches at once:
+capture reopens on the new microphone, and playback, a reply in progress
+included, moves to the new speaker. A remembered device that is unplugged stays
+listed as not connected, and the system default is used until it is back.
+Browsers name devices only once the microphone has been allowed, so the lists
+show generic names before then. Choosing the speaker needs Chromium's Web Audio
+output selection, which the desktop app has; a browser without it shows no
+Speaker list.
+
 - **macOS:** the first microphone action should show the system prompt.
   Affected `.pkg` installations (including observed v0.25.0) instead crash before
   consent because the enclosing app lacks microphone purpose text. Reinstalling
