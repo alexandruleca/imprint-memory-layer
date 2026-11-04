@@ -74,12 +74,12 @@ func createVenvWithUv(uv, venvDir, venvPython string, fallback func()) {
 	// OR broken (stale path from a previous install, host Python that got
 	// removed, etc.).
 	//
-	// --python-preference system-or-managed prefers a system Python so uv
-	// never touches the managed Python path (which lives under the install
-	// tree and may sit on a Windows "untrusted mount point"). When no
-	// system Python fits, uv falls back to downloading its own via
-	// python-build-standalone. Either way, the venv stays scoped to the
-	// install tree.
+	// --python-preference only-managed forces uv to use its own
+	// python-build-standalone interpreter (installed under
+	// UV_PYTHON_INSTALL_DIR set by setupBackend) and never reach for a
+	// stray /usr/bin/python3.12 on the host — keeps Imprint's Python
+	// 100% scoped to the install tree. Where Windows blocks that tree as
+	// an untrusted mount point, the caller's fallback uses host Python.
 	needCreate := !platform.FileExists(venvPython)
 	if !needCreate {
 		// Existing venv — make sure its interpreter actually runs. A common
@@ -96,24 +96,24 @@ func createVenvWithUv(uv, venvDir, venvPython string, fallback func()) {
 		output.Info("Creating virtual environment at " + venvDir + " (uv will download Python " + bundledPythonVersion + " if needed)...")
 		out, err := runner.RunCapture(uv, "venv", venvDir,
 			"--python", bundledPythonVersion,
-			"--python-preference", "system-or-managed",
+			"--python-preference", "only-managed",
 		)
 		if err != nil {
 			// Windows: uv fails to create version-link symlinks when the
 			// install tree sits on an untrusted mount point (junction,
 			// virtual drive, Enterprise policy, BitLocker overlay…).
-			// os error 448 = ERROR_UNTRUSTED_MOUNT_POINT.
+			// os error 448 = ERROR_UNTRUSTED_MOUNT_POINT. uv prints it on
+			// stderr, so it is in out, not err.
 			// Fall back to stdlib `python -m venv` which does not create
 			// version links.
-			if runtime.GOOS == "windows" && strings.Contains(err.Error(), "untrusted mount point") ||
-				strings.Contains(out, "untrusted mount point") {
+			if runtime.GOOS == "windows" && strings.Contains(out, "untrusted mount point") {
 				output.Warn("uv venv blocked by Windows mount-point policy — falling back to stdlib venv")
 				if fallback != nil {
 					fallback()
 					return
 				}
 			}
-			output.Fail("uv venv failed: " + err.Error())
+			output.Fail("uv venv failed: " + err.Error() + "\n" + out)
 		}
 		output.Success("Virtual environment ready")
 	} else {
