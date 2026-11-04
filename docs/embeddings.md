@@ -56,7 +56,7 @@ Snapshot imports and precomputed sync require matching embedding identity, so pa
 | Setting | Default | Behavior |
 | --- | --- | --- |
 | `model.device` | `auto` | `auto` embeds on a GPU when llama.cpp finds one and on the CPU otherwise. `cpu` forces the CPU. `gpu` asks for the GPU, and warns and embeds on the CPU when there is none. Changing it installs nothing; running processes use it once they restart. |
-| `model.gpu_device` | `auto` | The GPU that runs embeddings and the local LLM. `auto` takes the discrete GPU with the most memory, and an integrated GPU only when there is no discrete one; a number is an index into the GPUs llama.cpp offloads to, which Settings lists ([ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md)). |
+| `model.gpu_device` | `auto` | The GPU that runs embeddings and the local LLM. `auto` takes the discrete GPU with the most memory, and an integrated GPU only when there is no discrete one; a number names any GPU Settings lists, discrete ones first, then integrated ones ([ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md), [ADR 0125](adr/0125-integrated-gpus-can-be-chosen-beside-a-discrete-one.md)). |
 | `model.batch_size` | `0` | Texts per embedding call. Auto uses 8 on a GPU, where llama.cpp packs them into one pass, and 1 on the CPU, so progress moves after every text. |
 | `model.seq_length` | `2048` | Token cap per input, end-of-text token included; long documents are chunked beforehand. |
 | `model.threads` | `0` | CPU threads for CPU embedding and the privacy filter; `0` uses half the logical CPUs. |

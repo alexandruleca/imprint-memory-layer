@@ -5,13 +5,16 @@ machine with a fast and a slow card the slow one paces every batch: on an RTX
 4080 Laptop beside a GTX 1060, embedding ran at 1,763 tokens/s split across
 both and at 7,316 on the 4080 alone. Imprint therefore runs each model whole
 on one GPU. ``model.gpu_device`` names it; ``auto`` takes the discrete GPU
-with the most memory. Integrated GPUs count only when there is no discrete
-one, as llama.cpp itself decides: their memory is the system's and says
-nothing about speed.
+with the most memory. Integrated GPUs are ``auto``'s choice only when there
+is no discrete one: their memory is the system's and says nothing about
+speed. They can still be named, for an integrated GPU faster than an
+external card (ADR 0125).
 
 Device facts come from ggml's device registry, which the binding loads but
-does not wrap. The list here is the one llama.cpp offloads to, so a GPU's
-position in it is llama.cpp's ``main_gpu``.
+does not wrap. The list here holds the discrete GPUs in registry order, then
+the integrated ones. llama.cpp's own list leaves out integrated GPUs when a
+discrete one exists, so a model is handed its GPU in
+``llama_model_params.devices`` instead of by position in that list.
 
 Models load with ``verbose=True`` and llama.cpp's log goes through a callback
 that passes on errors only. The binding's quiet mode instead points file
@@ -35,7 +38,7 @@ import json
 import sys
 import threading
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # enum ggml_backend_dev_type
@@ -49,14 +52,16 @@ _loaded = weakref.WeakSet()  # Models still alive, freed at exit.
 
 @dataclass(frozen=True)
 class Gpu:
-    index: int  # llama.cpp's main_gpu
+    index: int  # model.gpu_device
     name: str
     memory_mb: int
+    integrated: bool = False
+    device: int = field(default=0, compare=False, repr=False)  # ggml_backend_dev_t
 
 
 def gpus() -> list[Gpu]:
-    """The GPUs llama.cpp offloads to, in its order. Empty for a CPU build
-    and for a GPU build that found no GPU."""
+    """The GPUs llama.cpp can offload to, discrete before integrated. Empty
+    for a CPU build and for a GPU build that found no GPU."""
     import llama_cpp
     from llama_cpp import _ctypes_extensions, _ggml
 
@@ -74,7 +79,7 @@ def gpus() -> list[Gpu]:
     devices.ggml_backend_dev_description.argtypes = [ctypes.c_void_p]
     devices.ggml_backend_dev_description.restype = ctypes.c_char_p
     devices.ggml_backend_dev_memory.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
-    found: dict[int, list[tuple[str, int]]] = {_GPU: [], _IGPU: []}
+    found: dict[int, list[tuple[str, int, int]]] = {_GPU: [], _IGPU: []}
     for i in range(registry.ggml_backend_dev_count()):
         device = registry.ggml_backend_dev_get(i)
         kind = devices.ggml_backend_dev_type(device)
@@ -82,8 +87,11 @@ def gpus() -> list[Gpu]:
             free, total = ctypes.c_size_t(), ctypes.c_size_t()
             devices.ggml_backend_dev_memory(device, ctypes.byref(free), ctypes.byref(total))
             name = devices.ggml_backend_dev_description(device).decode("utf-8", "replace")
-            found[kind].append((name, total.value >> 20))
-    return [Gpu(index, name, memory) for index, (name, memory) in enumerate(found[_GPU] or found[_IGPU])]
+            found[kind].append((name, total.value >> 20, device))
+    # Discrete first keeps the indices saved before integrated GPUs were listed.
+    listed = [(gpu, False) for gpu in found[_GPU]] + [(gpu, True) for gpu in found[_IGPU]]
+    return [Gpu(index, name, memory, integrated, device)
+            for index, ((name, memory, device), integrated) in enumerate(listed)]
 
 
 def cpu_profile() -> bool:
@@ -99,19 +107,23 @@ def cpu_profile() -> bool:
 def choose(setting: str, available: list[Gpu]) -> Gpu | None:
     """The GPU ``model.gpu_device`` selects, or None when it selects none."""
     if setting == "auto":
-        return max(available, key=lambda gpu: gpu.memory_mb, default=None)
+        candidates = [gpu for gpu in available if not gpu.integrated] or available
+        return max(candidates, key=lambda gpu: gpu.memory_mb, default=None)
     return next((gpu for gpu in available if gpu.index == int(setting)), None)
 
 
 def placement(n_gpu_layers: int) -> dict:
     """``llama_cpp.Llama`` arguments that put a model on the chosen GPU, or
-    on the CPU when ``n_gpu_layers`` is 0 or no GPU is chosen."""
+    on the CPU when ``n_gpu_layers`` is 0 or no GPU is chosen. ``device`` is
+    for ``_construct``: the chosen GPU is the only one llama.cpp offloads to,
+    so ``main_gpu`` is 0."""
     from . import config
     gpu = choose(str(config.GPU_DEVICE), gpus()) if n_gpu_layers else None
     if gpu is None:
         return {"n_gpu_layers": 0}
     import llama_cpp
-    return {"n_gpu_layers": n_gpu_layers, "split_mode": llama_cpp.LLAMA_SPLIT_MODE_NONE, "main_gpu": gpu.index}
+    return {"n_gpu_layers": n_gpu_layers, "split_mode": llama_cpp.LLAMA_SPLIT_MODE_NONE, "main_gpu": 0,
+            "device": gpu.device}
 
 
 def load(path: str, n_gpu_layers: int, **options):
@@ -132,12 +144,12 @@ def load(path: str, n_gpu_layers: int, **options):
         return _construct(path, **options, n_gpu_layers=0), False
 
 
-def _construct(path: str, **options):
+def _construct(path: str, device: int = 0, **options):
     import llama_cpp
     printed = io.StringIO()
     with _construct_lock:
         try:
-            with contextlib.redirect_stderr(printed):
+            with contextlib.redirect_stderr(printed), _offload_to(device):
                 model = llama_cpp.Llama(model_path=path, verbose=True, **options)
         except Exception:
             sys.stderr.write(printed.getvalue())  # Why loading failed, in llama.cpp's words.
@@ -145,6 +157,31 @@ def _construct(path: str, **options):
     model.verbose = False
     _loaded.add(model)
     return model
+
+
+@contextlib.contextmanager
+def _offload_to(device: int):
+    """While ``llama_cpp.Llama`` loads a model, make ``device`` (a
+    ggml_backend_dev_t) the only device it offloads to. ``Llama`` does not
+    take llama_model_params.devices, so the default params it starts from
+    carry the NULL-terminated list; llama.cpp copies it while loading."""
+    if not device:
+        yield
+        return
+    from llama_cpp import llama_cpp as binding
+    defaults = binding.llama_model_default_params
+    listed = (ctypes.c_void_p * 2)(device, None)
+
+    def with_device():
+        params = defaults()
+        params.devices = ctypes.addressof(listed)
+        return params
+
+    binding.llama_model_default_params = with_device
+    try:
+        yield
+    finally:
+        binding.llama_model_default_params = defaults
 
 
 @atexit.register

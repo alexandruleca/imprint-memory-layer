@@ -98,7 +98,7 @@ def document_megabytes(raw):
 
 
 def _gpus():
-    """The GPUs llama.cpp offloads to; none when the binding cannot load."""
+    """The GPUs llama.cpp can offload to; none when the binding cannot load."""
     try:
         from . import llama_runtime
         return llama_runtime.gpus()
@@ -108,7 +108,8 @@ def _gpus():
 
 def _gpu_devices() -> tuple[Choice, ...]:
     return (Choice("auto", "Auto", "The discrete GPU with the most memory"),
-            *(Choice(str(gpu.index), f"{gpu.index}: {gpu.name}", f"{gpu.memory_mb / 1024:.0f} GB")
+            *(Choice(str(gpu.index), f"{gpu.index}: {gpu.name}",
+                     f"{gpu.memory_mb / 1024:.0f} GB" + (", integrated" if gpu.integrated else ""))
               for gpu in _gpus()))
 
 

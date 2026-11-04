@@ -40,7 +40,7 @@ HELP: dict[str, dict[str, str]] = {
         "example": "4: on an 8-core laptop, to keep indexing from slowing down your editor and builds.",
     },
     "model.gpu_device": {
-        "help": "Which GPU runs the local models (embeddings and the local LLM) when there are several. \"auto\" takes the discrete GPU with the most memory, and an integrated GPU only when there is no discrete one; a number picks a GPU from the list Settings shows. Each model runs whole on one GPU, so a slow card never holds back a fast one.",
+        "help": "Which GPU runs the local models (embeddings and the local LLM) when there are several. \"auto\" takes the discrete GPU with the most memory, and an integrated GPU only when there is no discrete one; a number picks any GPU from the list Settings shows, integrated ones included. Each model runs whole on one GPU, so a slow card never holds back a fast one.",
         "example": "\"1\": on a desktop with two GPUs, to run Imprint on the second card and leave the first free for games or training.",
     },
     "model.batch_size": {

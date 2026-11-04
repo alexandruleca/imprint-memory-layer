@@ -228,6 +228,19 @@ class BuildPlanTests(unittest.TestCase):
         with patch.object(onnx_runtime, '_run', return_value=agents.replace('GPU', 'CPU')):
             self.assertFalse(onnx_runtime.rocm_gpu(Path('/opt/rocm')))
 
+    def test_cuda_needs_an_nvidia_gpu_cuda_13_supports(self):
+        listed = '0, NVIDIA GeForce GTX 1060 6GB, 6.1\n1, NVIDIA GeForce RTX 4080 Laptop GPU, 8.9\n'
+        with patch.object(onnx_runtime.shutil, 'which', return_value='nvidia-smi'), \
+             patch.object(onnx_runtime, '_run', return_value=listed):
+            self.assertEqual(onnx_runtime.nvidia_gpu(), 'GPU 1: NVIDIA GeForce RTX 4080 Laptop GPU')
+        with patch.object(onnx_runtime.shutil, 'which', return_value='nvidia-smi'), \
+             patch.object(onnx_runtime, '_run', return_value=listed.splitlines()[0]):
+            self.assertEqual(onnx_runtime.nvidia_gpu(), '')
+        # A driver that does not know compute_cap prints an error instead.
+        with patch.object(onnx_runtime.shutil, 'which', return_value='nvidia-smi'), \
+             patch.object(onnx_runtime, '_run', return_value='Field "compute_cap" is not a valid field to query.\n'):
+            self.assertEqual(onnx_runtime.nvidia_gpu(), '')
+
     def test_software_display_adapters_do_not_count(self):
         names = 'Microsoft Basic Render Driver\nIntel(R) Arc(TM) Graphics\nMicrosoft Remote Display Adapter\n'
         with patch.object(onnx_runtime, '_run', return_value=names):

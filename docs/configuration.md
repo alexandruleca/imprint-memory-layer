@@ -83,7 +83,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `model.dim` | `1024` | Embedding vector dimension |
 | `model.seq_length` | `2048` | Token cap per embed call |
 | `model.threads` | `0` | CPU threads for CPU embedding and the privacy filter (0 = half the logical CPUs) |
-| `model.gpu_device` | `auto` | GPU that runs embeddings and the local LLM, each model whole on it: `auto` = the discrete GPU with the most memory (an integrated GPU only when there is no discrete one), else an index into the GPUs llama.cpp offloads to ([ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md)) |
+| `model.gpu_device` | `auto` | GPU that runs embeddings and the local LLM, each model whole on it: `auto` = the discrete GPU with the most memory (an integrated GPU only when there is no discrete one), else an index into the GPUs Settings lists, integrated ones after the discrete ([ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md), [ADR 0125](adr/0125-integrated-gpus-can-be-chosen-beside-a-discrete-one.md)) |
 | `model.batch_size` | `0` | Embedding batch size (0 = auto: 8 on a GPU, 1 on the CPU) |
 | `model.pooling` | `auto` | Pooling strategy: auto / cls / mean / last. `auto` follows the model family (Qwen3 last token, BGE-M3 CLS), else the GGUF's own metadata |
 | `model.query_instruction` | `auto` | Model-specific query task; Qwen wraps Instruct/Query |

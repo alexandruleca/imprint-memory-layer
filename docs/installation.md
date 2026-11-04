@@ -307,7 +307,7 @@ The opt-in Privacy Filter (`redact.privacy_filter`, [secret redaction](redaction
 
 | Machine | Build | Extra download |
 | --- | --- | --- |
-| NVIDIA GPU listed by `nvidia-smi`, Linux x64 or Windows x64 | `onnxruntime-gpu` with NVIDIA's CUDA 13 and cuDNN wheels (`requirements/onnx-cuda.lock.txt`); needs only the NVIDIA driver | about 2.5 GB installed |
+| NVIDIA GPU of compute capability 7.5 or newer listed by `nvidia-smi` (CUDA 13's minimum, [ADR 0126](adr/0126-cuda-only-for-an-nvidia-gpu-cuda-13-supports.md)), Linux x64 or Windows x64 | `onnxruntime-gpu` with NVIDIA's CUDA 13 and cuDNN wheels (`requirements/onnx-cuda.lock.txt`); needs only the NVIDIA driver | about 2.5 GB installed |
 | AMD GPU on Linux x64 with ROCm 7.2.0–7.2.4 installed (`/opt/rocm/.info/version`, and `rocminfo` lists a GPU agent) | AMD's `onnxruntime-migraphx` 1.23.2 wheel for that ROCm release, from `repo.radeon.com`, pinned by SHA-256 in `requirements/onnx-rocm.json` | about 20 MB |
 | Windows x64 with a DirectX 12 GPU where CUDA does not apply or does not run (AMD, Intel, NVIDIA without CUDA) | `onnxruntime-directml` 1.24.4 (`requirements/onnx-directml.lock.txt`) | about 25 MB |
 | Apple silicon | the standard build, which includes Core ML | none |

@@ -9,7 +9,9 @@ description: Setup installs ONNX Runtime's build for a GPU it finds; the Privacy
 - Amends:
   - [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) — the pinned export (q4 instead of q4f16), the runtime (a GPU that passes the probe, else the CPU), and the receiver's Privacy Filter skipping records a paired sender marked as filtered by the same model
   - [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) — ONNX Runtime may be a GPU build again, for the Privacy Filter only, in place of the CPU build
-- Amended by: [ADR 0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) — the sender filters the next chunk while the other device stores the last
+- Amended by:
+  - [ADR 0123](0123-a-paired-sender-prepares-the-next-chunk-while-the-last-is-stored.md) — the sender filters the next chunk while the other device stores the last
+  - [ADR 0126](0126-cuda-only-for-an-nvidia-gpu-cuda-13-supports.md) — which NVIDIA GPUs make setup try the CUDA build
 - Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md) (one ONNX Runtime per environment, unchanged), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0113](0113-unchosen-install-profiles-try-the-gpu.md), [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md), [ADR 0120](0120-a-device-storing-a-chunk-says-so.md)
 
 ## Context

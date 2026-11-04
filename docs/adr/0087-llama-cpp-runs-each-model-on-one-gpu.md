@@ -3,11 +3,12 @@ title: ADR 0087 — llama.cpp runs each model on one GPU
 description: Embeddings and the local LLM load whole onto one GPU, the one model.gpu_device names or by default the discrete GPU with the most memory, instead of llama.cpp's split across every GPU.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-27
 - Amends:
   - [ADR 0045](0045-setting-choices-and-gpu-auto-select.md) — `model.gpu_device` indexes the GPUs llama.cpp offloads to, and `auto` is the discrete GPU with the most memory
   - [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) — a model no longer splits across GPUs
+- Amended by: [ADR 0125](0125-integrated-gpus-can-be-chosen-beside-a-discrete-one.md) — which GPUs `model.gpu_device` can name, and how a model is put on the chosen GPU
 - Related: [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md)
 
 ## Context

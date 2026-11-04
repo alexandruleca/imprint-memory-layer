@@ -57,6 +57,7 @@ BUILDS = {
 # Mul(x, x) on a float[1, 4]: setup's check that a build's GPU provider loads and runs.
 _TINY_MODEL = base64.b64decode('CAgSB2ltcHJpbnQ6QQoOCgF4CgF4EgF5IgNNdWwSBXByb2JlWhMKAXgSDgoMCAESCAoCCAEKAggEYhMKAX'
                                'kSDgoMCAESCAoCCAEKAggEQgQKABAN')
+_CUDA_MIN_COMPUTE = (7, 5)  # CUDA 13's oldest compute capability.
 _NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]*')
 _EXTRA = re.compile(r'\bextra\s*==')
 
@@ -185,11 +186,18 @@ def _run(command: list[str], timeout: float = 20) -> str:
 
 
 def nvidia_gpu() -> str:
-    """The first NVIDIA GPU the driver lists, or empty: nvidia-smi ships
-    with the driver on Linux and Windows."""
+    """The first NVIDIA GPU the driver lists that the CUDA build can run on,
+    or empty: nvidia-smi ships with the driver on Linux and Windows. CUDA 13,
+    which onnx-cuda.lock.txt installs, has no code for compute capability
+    below 7.5, such as a GTX 1060's 6.1 (ADR 0126). A driver too old to
+    report compute_cap is too old for CUDA 13 too."""
     tool = shutil.which('nvidia-smi')
-    listed = _run([tool, '-L']) if tool else ''
-    return next((line.split(' (UUID')[0].strip() for line in listed.splitlines() if line.startswith('GPU ')), '')
+    listed = _run([tool, '--query-gpu=index,name,compute_cap', '--format=csv,noheader']) if tool else ''
+    for line in listed.splitlines():
+        match = re.fullmatch(r'(\d+), (.+), (\d+)\.(\d+)', line.strip())
+        if match and (int(match.group(3)), int(match.group(4))) >= _CUDA_MIN_COMPUTE:
+            return f'GPU {match.group(1)}: {match.group(2)}'
+    return ''
 
 
 def rocm_version(root: Path | None = None) -> str:

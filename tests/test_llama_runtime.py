@@ -1,5 +1,7 @@
 import contextlib
+import ctypes
 import gc
+import inspect
 import io
 import sys
 import tempfile
@@ -15,7 +17,10 @@ from imprint.llama_runtime import Gpu
 
 # An RTX 4080 Laptop listed after a GTX 1060, as Vulkan enumerates them on the
 # machine ADR 0086 measured.
-GPUS = [Gpu(0, 'NVIDIA GeForce GTX 1060 6GB', 6245), Gpu(1, 'NVIDIA GeForce RTX 4080 Laptop GPU', 11997)]
+GPUS = [Gpu(0, 'NVIDIA GeForce GTX 1060 6GB', 6245, device=0x1060), Gpu(1, 'NVIDIA GeForce RTX 4080 Laptop GPU', 11997, device=0x4080)]
+# An AMD laptop's integrated GPU, with most of 128 GB of system memory, beside
+# a GTX 1060 in an enclosure.
+EGPU = [Gpu(0, 'NVIDIA GeForce GTX 1060 6GB', 6245, device=0x1060), Gpu(1, 'AMD Radeon(TM) 8060S Graphics', 98304, True, 0x8060)]
 
 
 class ChooseTests(unittest.TestCase):
@@ -26,6 +31,13 @@ class ChooseTests(unittest.TestCase):
         self.assertEqual(llama_runtime.choose('0', GPUS).index, 0)
         self.assertIsNone(llama_runtime.choose('2', GPUS))
         self.assertIsNone(llama_runtime.choose('auto', []))
+
+    def test_auto_takes_an_integrated_gpu_only_without_a_discrete_one(self):
+        self.assertEqual(llama_runtime.choose('auto', EGPU).index, 0)
+        self.assertEqual(llama_runtime.choose('auto', EGPU[1:]).index, 1)
+
+    def test_an_index_names_an_integrated_gpu_beside_a_discrete_one(self):
+        self.assertEqual(llama_runtime.choose('1', EGPU).name, 'AMD Radeon(TM) 8060S Graphics')
 
 
 class CpuProfileTests(unittest.TestCase):
@@ -43,7 +55,10 @@ class PlacementTests(unittest.TestCase):
     def test_the_whole_model_goes_on_the_chosen_gpu(self):
         with patch.object(config, 'GPU_DEVICE', 'auto'), patch.object(llama_runtime, 'gpus', return_value=GPUS):
             self.assertEqual(llama_runtime.placement(-1),
-                             {'n_gpu_layers': -1, 'split_mode': llama_cpp.LLAMA_SPLIT_MODE_NONE, 'main_gpu': 1})
+                             {'n_gpu_layers': -1, 'split_mode': llama_cpp.LLAMA_SPLIT_MODE_NONE, 'main_gpu': 0,
+                              'device': 0x4080})
+        with patch.object(config, 'GPU_DEVICE', '1'), patch.object(llama_runtime, 'gpus', return_value=EGPU):
+            self.assertEqual(llama_runtime.placement(-1)['device'], 0x8060)
 
     def test_no_layers_or_no_gpu_means_the_cpu(self):
         with patch.object(config, 'GPU_DEVICE', 'auto'), patch.object(llama_runtime, 'gpus', return_value=[]) as gpus:
@@ -58,7 +73,30 @@ class PlacementTests(unittest.TestCase):
         if not llama_cpp.llama_supports_gpu_offload():
             self.assertEqual(found, [])
         self.assertEqual([gpu.index for gpu in found], list(range(len(found))))
-        self.assertTrue(all(gpu.name and gpu.memory_mb > 0 for gpu in found), found)
+        self.assertTrue(all(gpu.name and gpu.memory_mb > 0 and gpu.device for gpu in found), found)
+        kinds = [gpu.integrated for gpu in found]
+        self.assertEqual(kinds, sorted(kinds), 'discrete GPUs come first')
+
+    def test_the_chosen_device_is_the_only_one_llama_cpp_loads_onto(self):
+        from llama_cpp import llama_cpp as binding
+        defaults = binding.llama_model_default_params
+        seen = []
+
+        def construct(**options):  # The list lives while the model loads, as llama.cpp copies it then.
+            devices = binding.llama_model_default_params().devices
+            seen.append(devices and tuple((ctypes.c_void_p * 2).from_address(devices)))
+            return MagicMock()
+
+        with patch.object(llama_cpp, 'Llama', side_effect=construct):
+            llama_runtime._construct('/models/model.gguf', device=0x8060, n_gpu_layers=-1)
+            llama_runtime._construct('/models/model.gguf', n_gpu_layers=0)
+        self.assertEqual(seen, [(0x8060, None), None])  # NULL-terminated; no list for the CPU.
+        self.assertIs(binding.llama_model_default_params, defaults)
+
+    def test_llama_builds_its_params_from_the_bindings_defaults(self):
+        # _offload_to relies on it: Llama does not take llama_model_params.devices.
+        self.assertIn('llama_cpp.llama_model_default_params()', inspect.getsource(llama_cpp.Llama.__init__))
+        self.assertIn('devices', dict(llama_cpp.llama_model_params._fields_))
 
 
 class LoadTests(unittest.TestCase):
