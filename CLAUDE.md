@@ -50,6 +50,9 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 - **Workspaces**: isolated — own collection (`memories_{name}`), DB (`imprint_graph_{name}.sqlite3`), WAL. Active one in `data/workspace.json`. A project's `.imprint/workspace.json`, honoured when this device's roots approve it, picks the workspace of sessions, hooks, `ingest`/`refresh` and learning there; sessions ask once and `use_workspace` assigns ([ADR 0072](docs/adr/0072-projects-name-their-workspace-and-each-device-approves-it.md)).
 - **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph*.sqlite3` + `data/workspace.json` (gitignored)
 - **Lifecycle**: `imprint enable` / `disable` / `status`; `imprint connect` / `disconnect` only register and unregister clients (one client table in `cmd/dispatch.go`, ADR 0053)
+- **Core memories**: short user-approved preferences and standing instructions in `data/core-memories.sqlite3`, outside every workspace; the MCP server appends the active ones to its handshake instructions; agents and Organize only propose; synced as their own dataset to peers that offer it ([`core_memories.py`](imprint/core_memories.py), ADR 0129).
+- **Organize**: a queued job ([`organize.py`](imprint/organize.py)) writes `profile/<project>` notes, proposes projects for catch-all sources (folder path, identifier-like name, or a quoted local-model answer) and proposes core memories; the user reviews on the Organize page, and an accepted move is a placement rule (ADR 0130).
+- **Recordings**: the dashboard records the microphone (left) and, with confirmed consent, the computer's audio (right; the desktop app's loopback) into `data/recordings/<id>/`; a queued job transcribes each channel with the audio pipeline into the replaceable source `recording/<id>` ([`recordings.py`](imprint/recordings.py), ADR 0131).
 
 ## Configuration
 

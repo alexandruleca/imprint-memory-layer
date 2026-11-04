@@ -145,7 +145,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0098](0098-head-surfaces-take-light-and-generated-parts-glow.md) **Head surfaces take light; generated parts glow.** Lighting follows each glTF material: the heads' lit materials take a sky and a key light, unlit generated parts render as light that fades toward their silhouettes. Amended by [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) (generated eye and shared morphs).
 
 - [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md) **CPU Whisper runtime for audio imports.** Locked native wheels provide CPU transcription with pinned multilingual models downloaded on first audio use.
-
+- [ADR 0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) **Meetings are recorded by channel and transcribed locally.** With the user's confirmed consent, the dashboard records the microphone and what the computer plays as two channels kept on the device; each is transcribed locally, so the transcript says who spoke, and stored as a replaceable source.
 ### Runtime, installers and release
 
 - [ADR 0002](0002-build-and-validate-before-publication.md) **Validate releases before publication.** Build all release artifacts and run native checks before publication. Amended by [ADR 0014](0014-main-only-release-packaging.md) (which branches build and publish releases).
@@ -331,6 +331,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) | 2026-11-04 | Accepted | The dashboard follows the Windows installer to the end |
 | [0129](0129-core-memories-are-user-approved-and-start-every-session.md) | 2026-11-04 | Accepted | Core memories are user-approved and start every session |
 | [0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) | 2026-11-04 | Accepted | Reorganization is proposed by a background job and reviewed |
+| [0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) | 2026-11-04 | Accepted | Meetings are recorded by channel and transcribed locally |
 
 ## How to write and maintain ADRs
 

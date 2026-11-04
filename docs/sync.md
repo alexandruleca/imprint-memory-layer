@@ -63,6 +63,10 @@ The public relay at `wss://sync.alexandruleca.com` is the default — pass `--re
 - Moved memories travel with their origin project. The receiver places them by its own rules, so each device keeps its own project layout and copies dedupe instead of undoing a move ([ADR 0036](adr/0036-move-memories-between-projects.md)).
 - Imported records are evidence, not authority: `imprint refresh-urls` (and the MCP refresh) re-fetch only URLs this device recorded, never URLs that arrived through sync.
 
+### Core memories
+
+Core memories ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)) belong to no workspace, so every paired workspace's sync carries them. Each is one record, and the newest change wins: approving, retiring or editing one on any device holds on all of them. A device sends them only to a peer whose handshake offers them; older releases neither send nor receive them and keep syncing as before. Meeting recordings' audio never syncs; their transcripts do, as ordinary memories.
+
 ### Automatic sync between paired devices
 
 A one-time sync stays one-time unless **both** devices enable automatic pairing.

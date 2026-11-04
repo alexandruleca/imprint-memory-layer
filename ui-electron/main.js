@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen, desktopCapturer } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -8,7 +8,7 @@ const { execFile } = require('node:child_process');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
 const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
-  requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
+  requestMicrophoneAccess, microphoneSettingsURL, systemAudioCapture } = require('./voice-permissions');
 const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage, dockCompanion, clampFloatingGroup } = require('./companion');
 const { desktopRuntime } = require('./runtime');
 const { readActivity, describeActivity } = require('./activity');
@@ -613,6 +613,14 @@ app.whenReady().then(() => {
     void macMicrophoneConsent(systemPreferences).then(granted => {
       callback(granted && audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
     }).catch(() => callback(false));
+  });
+  // Meeting recordings take the system's audio without a picker; any other
+  // screen-capture request is refused (ADR 0131).
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    if (!systemAudioCapture(request, UI_ORIGIN, win)) { callback({}); return; }
+    desktopCapturer.getSources({ types: ['screen'] })
+      .then(([source]) => callback(source ? { video: source, audio: 'loopback' } : {}))
+      .catch(() => callback({}));
   });
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
     if (!sameOrigin(requestingOrigin, UI_ORIGIN)) return false;

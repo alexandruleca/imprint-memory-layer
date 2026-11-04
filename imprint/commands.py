@@ -115,7 +115,7 @@ ALLOWED = frozenset(command['name'] for command in CATALOG) | DIALOG_FLOWS
 
 # Names for the queued jobs the Commands page does not offer.
 OTHER_LABELS = {'tag-backlog': 'Background tagging', 'wipe': 'Wipe workspace', 'migrate': 'Copy or move memories',
-                'workspace': 'Change workspaces', 'wsl': 'WSL profile'}
+                'workspace': 'Change workspaces', 'wsl': 'WSL profile', 'transcribe-recording': 'Transcribe a recording'}
 
 
 def describe(command: str, body: dict | None) -> dict:

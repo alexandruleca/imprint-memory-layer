@@ -548,6 +548,120 @@ async def api_decide_project_association(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
+# ── Recordings (ADR 0131) ──────────────────────────────────────
+
+def _transcribe_recording(recording_id: str) -> dict:
+    """Queue a recording's transcription (the queue's lock keeps it to one heavy job)."""
+    return job_queue.submit('transcribe-recording', {'id': recording_id})
+
+
+@app.get('/api/recordings')
+def api_recordings():
+    from . import recordings
+    return {'recordings': recordings.list_all(), 'default_project': recordings.DEFAULT_PROJECT}
+
+
+@app.post('/api/recordings')
+async def api_start_recording(request: Request):
+    """Start a recording; its audio follows in pieces."""
+    from . import recordings
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A recording object is required')
+        return await asyncio.to_thread(recordings.start, body.get('title', ''), body.get('project') or recordings.DEFAULT_PROJECT,
+                                       bool(body.get('others', True)), body.get('consent') is True)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.post('/api/recordings/{recording_id}/audio')
+async def api_recording_audio(recording_id: str, request: Request):
+    """The next piece of a recording's audio, as raw bytes."""
+    from . import recordings
+    data = await request.body()
+    try:
+        return await asyncio.to_thread(recordings.append, recording_id, data)
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=409)
+
+
+@app.post('/api/recordings/{recording_id}/stop')
+async def api_stop_recording(recording_id: str, request: Request):
+    """Stop a recording and queue its transcription."""
+    from . import recordings
+    body = {}
+    if request.headers.get('content-type', '').startswith('application/json'):
+        body = await request.json()
+    try:
+        duration = body.get('duration') if isinstance(body, dict) else None
+        meta = await asyncio.to_thread(recordings.stop, recording_id, duration if isinstance(duration, (int, float)) else None)
+        if not meta['audio_bytes']:
+            return {**meta, 'job': None}
+        return {**meta, 'job': _transcribe_recording(recording_id)}
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+
+
+@app.post('/api/recordings/{recording_id}/transcribe')
+def api_transcribe_recording(recording_id: str):
+    from . import recordings
+    try:
+        meta = recordings.get(recording_id)
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+    if meta['status'] == 'recording' or not meta['audio_bytes']:
+        return JSONResponse({'error': 'Stop the recording first; it needs audio to transcribe'}, status_code=409)
+    return {'job': _transcribe_recording(recording_id)}
+
+
+@app.get('/api/recordings/{recording_id}/transcript')
+def api_recording_transcript(recording_id: str):
+    from . import recordings
+    try:
+        path = recordings._folder(recording_id) / 'transcript.md'
+        return {'text': path.read_text(encoding='utf-8')}
+    except (KeyError, FileNotFoundError):
+        return JSONResponse({'error': 'no transcript'}, status_code=404)
+
+
+@app.get('/api/recordings/{recording_id}/audio')
+def api_recording_file(recording_id: str):
+    from fastapi.responses import FileResponse
+    from . import recordings
+    try:
+        path = recordings._folder(recording_id) / 'audio.webm'
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+    if not path.exists():
+        return JSONResponse({'error': 'no audio'}, status_code=404)
+    return FileResponse(path, media_type='audio/webm')
+
+
+@app.delete('/api/recordings/{recording_id}/audio')
+def api_recording_remove_audio(recording_id: str):
+    from . import recordings
+    try:
+        return recordings.remove_audio(recording_id)
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=409)
+
+
+@app.delete('/api/recordings/{recording_id}')
+async def api_delete_recording(recording_id: str):
+    from . import recordings
+    try:
+        await asyncio.to_thread(recordings.delete, recording_id)
+        reset_cache()
+        return {'deleted': True}
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+
+
 # ── Organize (ADR 0130) ────────────────────────────────────────
 
 @app.get('/api/organize')

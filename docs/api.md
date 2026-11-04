@@ -133,6 +133,23 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | GET | `/api/topic/{name}` | Every memory tagged with one topic, grouped by the source it came from (titled, largest group first), and its projects. `?project=` limits it to one project. |
 | GET | `/api/graph` | Graph walk. `?scope=root\|project:X\|topic:X\|source:X\|chunk:X&depth=1..3`. |
 
+### Core memories, Organize and recordings
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/core` | Every core memory, the session budget and how much of it the ones for every project use ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)). |
+| POST | `/api/core` | A core memory the user wrote: `{text, kind, scope}`, active at once. |
+| PATCH | `/api/core/{id}` | Edit `text`, `kind` or `scope`, or set `state` to `active` (approve, restore) or `retired`. |
+| GET | `/api/organize` | Project profiles, placement proposals and the last organize run ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). The job itself is `POST /api/commands/organize` (`{no_model: true}` to skip the local model). |
+| POST | `/api/organize/decide` | `{workspace, items: [{origin, source}], accept}`: move (a placement rule) or keep proposals. |
+| GET | `/api/recordings` | Recordings, newest first ([ADR 0131](adr/0131-meetings-are-recorded-by-channel-and-transcribed-locally.md)). |
+| POST | `/api/recordings` | Start one: `{title, project, others, consent: true}`; refused without consent. |
+| POST | `/api/recordings/{id}/audio` | The next piece of its audio (raw WebM/Opus bytes). |
+| POST | `/api/recordings/{id}/stop` | Stop it (`{duration}` seconds) and queue its transcription. |
+| POST | `/api/recordings/{id}/transcribe` | Queue its transcription again. |
+| GET | `/api/recordings/{id}/transcript`, `/api/recordings/{id}/audio` | The transcript text; the raw audio. |
+| DELETE | `/api/recordings/{id}/audio`, `/api/recordings/{id}` | Delete the audio only, or the recording with its transcript and memories. |
+
 ### Knowledge graph
 
 | Method | Path | Purpose |
@@ -266,8 +283,8 @@ curl -s -X PUT http://localhost:8420/api/config/tagger.llm \
 The dashboard's Audio action uses `POST /api/commands/ingest` with the ordinary
 `{"dir": "/server/path/meeting.m4a"}` body. The existing queue pins its workspace,
 reports model preparation/download bytes and transcription seconds, and cancels
-its owned process group. There is no raw media upload, media-serving endpoint or
-new microphone permission. Settings are exposed through `/api/config` under
+its owned process group. Meeting recordings are the one raw media upload and
+media-serving path (see above). Settings are exposed through `/api/config` under
 `audio.*`; see [audio ingestion](audio-ingestion.md).
 
 Completed audio is read from `/api/sources/read` as `kind="conversation"` with

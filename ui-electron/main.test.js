@@ -92,7 +92,9 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     systemPreferences: { getMediaAccessStatus() { calls.push('media-status'); return mediaStatus; },
       askForMediaAccess() { calls.push('media-consent'); return consent(); } },
     session: { defaultSession: { setPermissionRequestHandler(handler) { calls.request = handler; },
-      setPermissionCheckHandler(handler) { calls.check = handler; } } },
+      setPermissionCheckHandler(handler) { calls.check = handler; },
+      setDisplayMediaRequestHandler(handler) { calls.display = handler; } } },
+    desktopCapturer: { getSources: async () => [{ id: 'screen:0', name: 'Entire screen' }] },
   };
   const shortcuts = new Map();
   electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };

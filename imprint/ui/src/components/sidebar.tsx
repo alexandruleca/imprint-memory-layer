@@ -21,6 +21,7 @@ import {
   Bot,
   ChevronRight,
   Sparkles,
+  Disc3,
   WandSparkles,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
@@ -70,6 +71,7 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
       { href: "/search", label: "Search", icon: Search },
       { href: "/chat", label: "Chat", icon: MessageSquare },
       { href: "/voice", label: "Voice", icon: AudioLines },
+      { href: "/recordings", label: "Recordings", icon: Disc3 },
     ],
   },
   {

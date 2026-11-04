@@ -923,6 +923,10 @@ def _build_argv(command: str, body: dict, *, job_id: str | None = None) -> list[
         return [sys.executable, '-m', 'imprint.project_associations', *build_command_args(command, body)]
     if command == 'organize':
         return [sys.executable, '-m', 'imprint.organize', *build_command_args(command, body)]
+    if command == 'transcribe-recording':
+        if not re.fullmatch(r'[a-f0-9]{32}', str(body.get('id', ''))):
+            raise ValueError('transcribe-recording requires a recording ID')
+        return [sys.executable, '-m', 'imprint.recordings', 'transcribe', body['id']]
     if command in ('browser-capture', BACKGROUND):
         if not job_id or not re.fullmatch(r'[a-f0-9]{32}', job_id):
             raise ValueError(f'{command} requires a queue job ID')

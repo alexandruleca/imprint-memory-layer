@@ -187,6 +187,67 @@ export function startUpdate() {
   return fetchAPI<{ started: boolean; target: string }>("/api/update", { method: "POST" });
 }
 
+// ── Recordings (ADR 0131) ───────────────────────────────────────
+
+export type RecordingStatus = "recording" | "stopped" | "transcribing" | "ready" | "failed";
+export interface Recording {
+  id: string;
+  title: string;
+  project: string;
+  /** The computer's audio was asked for, besides the microphone. */
+  others: boolean;
+  status: RecordingStatus;
+  started_at: number;
+  stopped_at: number | null;
+  duration: number;
+  error: string;
+  memories: number;
+  transcribed_at: number | null;
+  audio_bytes: number;
+  transcript: boolean;
+}
+
+export function getRecordings() {
+  return fetchAPI<{ recordings: Recording[]; default_project: string }>("/api/recordings");
+}
+
+export function startRecording(body: { title: string; project: string; others: boolean; consent: boolean }) {
+  return fetchAPI<Recording>("/api/recordings", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** The next piece of a recording's audio. */
+export function sendRecordingAudio(id: string, data: Blob) {
+  return fetchAPI<{ audio_bytes: number }>(`/api/recordings/${id}/audio`, {
+    method: "POST", body: data, headers: { "Content-Type": "application/octet-stream" },
+  });
+}
+
+export function stopRecording(id: string, duration?: number) {
+  return fetchAPI<Recording & { job: QueuedJob | null }>(`/api/recordings/${id}/stop`, {
+    method: "POST", body: JSON.stringify(duration === undefined ? {} : { duration }),
+  });
+}
+
+export function transcribeRecording(id: string) {
+  return fetchAPI<{ job: QueuedJob }>(`/api/recordings/${id}/transcribe`, { method: "POST" });
+}
+
+export function getRecordingTranscript(id: string) {
+  return fetchAPI<{ text: string }>(`/api/recordings/${id}/transcript`);
+}
+
+export function recordingAudioUrl(id: string) {
+  return `${API_BASE}/api/recordings/${id}/audio`;
+}
+
+export function deleteRecordingAudio(id: string) {
+  return fetchAPI<Recording>(`/api/recordings/${id}/audio`, { method: "DELETE" });
+}
+
+export function deleteRecording(id: string) {
+  return fetchAPI<{ deleted: boolean }>(`/api/recordings/${id}`, { method: "DELETE" });
+}
+
 // ── Organize (ADR 0130) ─────────────────────────────────────────
 
 export interface OrganizeProposal {

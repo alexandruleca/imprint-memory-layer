@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
+const { voicePage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
   requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
 test('microphone permission is audio-only, main-frame-only, current app voice surface only', () => {
   const origin = 'http://127.0.0.1:8420';
@@ -20,6 +20,25 @@ test('microphone permission is audio-only, main-frame-only, current app voice su
   contents.getURL = () => `${origin}/chat/`;
   assert.equal(check('media', { mediaType: 'audio' }), false);
   assert.equal(voicePage('http://127.0.0.1:7777/companion/', origin), false);
+  // Meeting recordings use the microphone too (ADR 0131).
+  contents.getURL = () => `${origin}/recordings/`;
+  assert.ok(check('media', { mediaType: 'audio', requestingUrl: `${origin}/recordings/` }));
+});
+test('only the dashboard window\'s Recordings page gets the system audio', () => {
+  const origin = 'http://127.0.0.1:8420';
+  const mainFrame = { url: `${origin}/recordings/` };
+  const dashboard = { webContents: { mainFrame } };
+  const request = (frame, audioRequested = true) => ({ frame, audioRequested, videoRequested: true });
+  assert.equal(systemAudioCapture(request(mainFrame), origin, dashboard), true);
+  assert.equal(systemAudioCapture(request(mainFrame, false), origin, dashboard), false);
+  assert.equal(systemAudioCapture(request({ url: `${origin}/recordings/` }), origin, dashboard), false);  // another frame
+  assert.equal(systemAudioCapture(request({ ...mainFrame }), origin, { webContents: { mainFrame: {} } }), false);
+  mainFrame.url = `${origin}/voice/`;
+  assert.equal(systemAudioCapture(request(mainFrame), origin, dashboard), false);
+  mainFrame.url = 'https://evil.example/recordings/';
+  assert.equal(systemAudioCapture(request(mainFrame), origin, dashboard), false);
+  assert.equal(systemAudioCapture(request(null), origin, dashboard), false);
+  assert.equal(systemAudioCapture(request(mainFrame), origin, null), false);
 });
 test('existing dashboard copy actions can write text; clipboard reads and foreign windows remain denied', () => {
   const origin = 'http://127.0.0.1:8420';

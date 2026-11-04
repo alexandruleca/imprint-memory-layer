@@ -45,6 +45,22 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 - **Read conversation** (or **Read source**) opens the source whole with the topic's passages marked; clicking an excerpt opens it at that passage.
 - **Graph** shows the topic in the graph; **Migrate…** copies or moves its memories to another workspace. `?topic=NAME` links to a topic.
 
+### Core memories
+
+Short statements about you that every agent session receives at its start: preferences, standing instructions, facts about you ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)).
+
+- **Add one** writes a core memory, active at once, for every project or one project.
+- **Proposed** lists suggestions from agents (a stored `preference`) and from Organize, with the quote they rest on; each can be edited, approved or rejected.
+- **Active** and **Retired** list the rest; a retired one can be restored. The meter shows how much of a session's 2,000 characters the ones for every project take.
+- They reach sessions through the MCP server's handshake instructions and sync to paired devices.
+
+### Organize
+
+**Run Organize** queues a job that writes a short profile of each project, proposes a project for memories sitting in catch-alls (no project, Desktop, Code, unassigned, URLs, desktop conversations), and proposes core memories ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). **Without the local helper** keeps to the folder-path and project-name evidence.
+
+- Proposals are grouped by target project, each with its evidence: the project's folder path, its name, or a quote the local model found. **Move** or **Keep here** decides one; **Move all** or **Keep all** a group. A move is a placement rule, so it holds through refreshes.
+- **Project profiles** shows what each project is about; search and chat find the profiles too.
+
 ### Projects
 
 - Projects with their memory counts. A project shows its topics (each opens in Topics), kinds of memory, domains and languages as proportional bars, and a table of its sources.
@@ -97,6 +113,15 @@ Each setting has a one-line description and, under **What is this for?**, what i
 
 - **Configuration** edits the same values as `imprint config`, in this device's `config.json` ([configuration](configuration.md)). A value set by an environment variable is read-only. Reset (Remove, for a secret) deletes the `config.json` override. Running servers apply changes when they restart.
 - **This device:** **Workspaces** creates, switches, edits the roots of, wipes and deletes workspaces, and copies or moves memories between them; wiping and deleting are confirmed by typing, and the default and active workspaces cannot be deleted. **WSL profiles** appears only on a Windows installation; macOS and Linux omit it from navigation and settings search and ignore its deep link. On Windows it checks each distribution's clients (checking starts stopped distributions) and enrolls or removes them through the queue.
+
+### Recordings
+
+Records a call or meeting: your microphone and, if you choose, what this computer plays ([ADR 0131](adr/0131-meetings-are-recorded-by-channel-and-transcribed-locally.md)).
+
+- **Start recording** needs a title and project (default `meetings`) and your confirmation that everyone on the call knows it is being recorded. On Windows the desktop app records what the computer plays directly; a browser asks which tab or screen to share, with its audio. Without it, only the microphone is recorded, and the page says so.
+- While recording, the top bar shows the time and **Stop** on every page. Stopping queues the transcription.
+- Each recording lists its state, its transcript ("You" for the microphone, "Others" for the computer's audio, with times), **Listen**, **Transcribe again**, **Delete audio** (keeping the transcript) and delete. A recording whose window closed shows **Finish and transcribe**.
+- The audio stays in `data/recordings/` on this device; the transcript is the source `recording/<id>` and syncs like other memories.
 
 ### Voice
 

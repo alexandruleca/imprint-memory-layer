@@ -1,9 +1,14 @@
 'use strict';
-function voicePage(value, origin) {
+// Pages that may use the microphone: Echo's, and meeting recordings (ADR 0131).
+const AUDIO_PAGES = ['/voice', '/companion', '/recordings'];
+function onPage(value, origin, pages) {
   try {
     const url = new URL(value);
-    return url.origin === origin && ['/voice', '/companion'].includes(url.pathname.replace(/\/$/, ''));
+    return url.origin === origin && pages.includes(url.pathname.replace(/\/$/, ''));
   } catch { return false; }
+}
+function voicePage(value, origin) {
+  return onPage(value, origin, AUDIO_PAGES);
 }
 function audioPermission(contents, permission, details, origin, windows) {
   if (!contents || permission !== 'media' || !windows.some(window => window?.webContents === contents)
@@ -11,6 +16,14 @@ function audioPermission(contents, permission, details, origin, windows) {
   if (details?.requestingUrl && !voicePage(details.requestingUrl, origin)) return false;
   if (details?.mediaTypes) return details.mediaTypes.length === 1 && details.mediaTypes[0] === 'audio';
   return details?.mediaType === 'audio';
+}
+// Recording a meeting takes what this computer plays (ADR 0131): the
+// dashboard window's Recordings page asks for the screen with its audio, and
+// gets the system's audio loopback. The screen's video is stopped at once.
+function systemAudioCapture(request, origin, dashboard) {
+  const frame = request?.frame;
+  return !!frame && !!dashboard && frame === dashboard.webContents?.mainFrame
+    && onPage(frame.url, origin, ['/recordings']) && request.audioRequested === true;
 }
 function clipboardWritePermission(contents, permission, details, origin, windows) {
   if (permission !== 'clipboard-sanitized-write' || !contents
@@ -41,5 +54,5 @@ function microphoneSettingsURL(platform) {
   return platform === 'darwin' ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
     : platform === 'win32' ? 'ms-settings:privacy-microphone' : null;
 }
-module.exports = { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
+module.exports = { voicePage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
   requestMicrophoneAccess, microphoneSettingsURL };
