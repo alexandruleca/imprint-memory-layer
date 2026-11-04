@@ -187,6 +187,39 @@ export function startUpdate() {
   return fetchAPI<{ started: boolean; target: string }>("/api/update", { method: "POST" });
 }
 
+// ── Organize (ADR 0130) ─────────────────────────────────────────
+
+export interface OrganizeProposal {
+  workspace: string;
+  /** The project the source came from; "" for memories stored without one. */
+  origin: string;
+  source: string;
+  target: string;
+  /** How the target was found: a registered folder path, the project's name, or the local model's quote. */
+  method: "path" | "name" | "local-model";
+  evidence: { quote: string }[];
+  preview: string;
+  chunks: number;
+  status: "pending" | "accepted" | "rejected";
+  created_at: number;
+  decided_at: number | null;
+}
+export interface OrganizeReview {
+  workspace: string;
+  proposals: OrganizeProposal[];
+  profiles: { project: string; text: string; updated: number }[];
+  last_run: { finished_at: number; summary: string } | null;
+}
+
+export function getOrganize() {
+  return fetchAPI<OrganizeReview>("/api/organize");
+}
+
+export function decideOrganize(workspace: string, items: { origin: string; source: string }[], accept: boolean) {
+  return fetchAPI<{ decided: number; failed: { origin: string; source: string; error: string }[] }>(
+    "/api/organize/decide", { method: "POST", body: JSON.stringify({ workspace, items, accept }) });
+}
+
 // ── Core memories (ADR 0129) ────────────────────────────────────
 
 export type CoreKind = "preference" | "instruction" | "fact";

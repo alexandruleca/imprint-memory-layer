@@ -34,6 +34,10 @@ CATALOG: tuple[dict, ...] = (
      'description': 'Review existing source snapshots for links to known projects without moving or duplicating them',
      'fields': [{'key': 'model', 'label': 'Use installed local helper', 'kind': 'switch',
                  'hint': 'Analyze ambiguous passages too; local only, with no automatic project assignment'}]},
+    {'name': 'organize', 'label': 'Organize memories', 'group': 'Index',
+     'description': 'Write project profiles and propose projects for memories in catch-alls, and core memories, for you to review on the Organize page',
+     'fields': [{'key': 'no_model', 'label': 'Without the local helper', 'kind': 'switch',
+                 'hint': 'Only identifier and path matches: no profiles, no model placements'}]},
     {'name': 'learn', 'label': 'Learn conversations', 'group': 'Index',
      'description': 'Index coding-assistant conversations and memory files',
      'fields': [

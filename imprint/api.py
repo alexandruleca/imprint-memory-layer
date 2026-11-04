@@ -548,6 +548,32 @@ async def api_decide_project_association(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
+# ── Organize (ADR 0130) ────────────────────────────────────────
+
+@app.get('/api/organize')
+def api_organize(workspace: str | None = None):
+    """Project profiles, placement proposals and the last organize run."""
+    from . import organize
+    return organize.review(workspace)
+
+
+@app.post('/api/organize/decide')
+async def api_organize_decide(request: Request):
+    """Accept (move with a placement rule) or reject placement proposals."""
+    from . import organize
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get('items'), list) or not isinstance(body.get('accept'), bool):
+            raise ValueError('items (origin and source of each proposal) and accept are required')
+        if not body.get('workspace'):
+            raise ValueError('The workspace the review returned is required')
+        result = await asyncio.to_thread(organize.decide, body['workspace'], body['items'], body['accept'])
+        reset_cache()
+        return result
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
 # ── Core memories (ADR 0129) ───────────────────────────────────
 
 @app.get('/api/core')

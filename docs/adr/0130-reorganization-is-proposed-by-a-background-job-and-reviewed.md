@@ -1,9 +1,9 @@
 ---
 title: ADR 0130 — Reorganization is proposed by a background job and reviewed
-description: Proposed background job that writes a short profile of each project, proposes a project for memories in catch-alls and without one, and proposes core memories; the user reviews every proposal, and accepted moves apply as placement rules.
+description: A queued organize job writes a short profile of each project, proposes a project for the sources in catch-alls with evidence, and proposes core memories; the user reviews every proposal, and accepted moves apply as placement rules.
 ---
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-04
 - Related: [ADR 0036](0036-move-memories-between-projects.md), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0099](0099-sources-can-belong-to-several-projects.md), [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md), [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md), [ADR 0129](0129-core-memories-are-user-approved-and-start-every-session.md)
 
@@ -38,13 +38,28 @@ The rules a reorganizer must keep are already settled:
 
 ## Decision
 
-A queued **organize** job, which can also run in the background like ADR 0067's tagging and yields the same way, works on one workspace in three steps:
+A queued **organize** job (`python -m imprint.organize`, **Organize memories** on the Commands page or **Run Organize** on the new Organize page) works on one workspace in three steps.
 
-1. **Project profiles.** For each project, the model writes a short profile from its file summaries and most important memories: what the project is, its main topics and its key sources. It is stored as one replaceable note per project, `profile/<project>`, typed `summary`. Profiles give the big picture, on a dashboard **Overview** and to `wake_up` and chat.
-2. **Placement proposals.** For each source in a catch-all (an empty project, `unassigned`, `Desktop`, `urls`, desktop conversations), the job first looks for deterministic evidence: registered paths, and the identifier matches of ADR 0099. Only then does it give the model the project profiles and the source's text. A proposal names a target project, the evidence, and a verbatim quote from the source that ties it to the target. Without a quote there is no proposal.
-3. **Core memory candidates** for ADR 0129, from the same pass.
+**1. Project profiles.** For up to 60 projects, the local helper model writes two or three sentences and the main topics. It reads the opening of up to 12 of the project's most central sources: files and decisions before conversations, larger sources first. The profile is stored as one replaceable note per project, source `profile/<project>`, type `summary`. Search and chat find profiles like any note, and the Organize page shows them.
 
-Proposals wait on a dashboard **Organize** page, grouped by target project. The user accepts or rejects them one at a time or in bulk. An accepted placement applies through `projects.move` as a rule for its source. `move` is extended to accept an empty origin project, which it now refuses. Nothing applies automatically. ADR 0099's opt-in exact registered-path match is the only exception, and only when opted in. The job uses the configured tagger provider, redacting for remote ones, and keeps working without a model: profiles are skipped, and only deterministic placements are proposed.
+**2. Placement proposals.** These cover up to 300 sources per run, newest first, from the catch-alls:
+
+- no project, `unassigned`, `general`, `personal`, `conversations`, `urls`;
+- projects named after container folders (`Desktop`, `Documents`, `Downloads`, `Code`, `Projects`, `repos`, `src`);
+- every `*-convos` desktop-export project.
+
+For each source the job reads what it says:
+
+- a snapshot's text, or for a conversation only its user and assistant messages (ADR 0082);
+- otherwise the source's chunks.
+
+It first looks for deterministic evidence with project analysis's matcher (ADR 0099): the target's registered folder path, or the target's name. A name counts only when it looks like an identifier (a hyphen, underscore, dot, digit or inner capital), because plain names such as `client` or `platform` match ordinary text. Without such evidence, the model gets the project profiles and the source's opening 4,000 characters. It must return one project and a verbatim quote from the source, or nothing.
+
+**3. Core memory candidates** for ADR 0129, from up to 100 preference-typed memories. With the model, each is a short statement backed by a quote; without it, preferences of at most 300 characters are proposed as they are.
+
+Proposals wait on the **Organize** page, grouped by target project, with their evidence. The user moves or keeps them one at a time or a whole group at once. A rejected proposal stays rejected on later runs, and a source analysed before with the same text and candidates is not analysed again. A move applies through `projects.move` as a placement rule for its source. `move` now accepts the empty project as origin when sources are named; "no project" as a whole still cannot be moved. Nothing applies automatically.
+
+Without the local helper model, or with **Without the local helper**, the job proposes only the deterministic placements and short preferences. The model runs only locally, as for project analysis (ADR 0099), so no prompt leaves the device.
 
 ## Rejected alternatives
 
@@ -57,8 +72,8 @@ Proposals wait on a dashboard **Organize** page, grouped by target project. The 
 - Catch-alls shrink as the user reviews, and each move holds through refreshes and imports because it is a rule.
 - Placement rules stay on the device that wrote them (ADR 0036). Another device keeps its own layout until its user reviews there, unless rules gain sync later.
 - Profiles are model-written summaries, labelled as such. They are evidence about a project, not facts.
-- One more background holder of the queue lock means turning ADR 0067's single preemptible flag into a priority order, as that record expected.
-- A model pass over every catch-all source costs time on a local model. The job therefore works newest first and resumes where it stopped.
+- The job runs queued, holding the queue lock, not as a background holder. Running it in the background would need ADR 0067's single preemptible flag to become a priority order.
+- A model pass costs time on a local model: about 14 s per source on an Apple M3 with Qwen3.5-4B. The job therefore caps a run at 300 sources, works newest first, and skips sources analysed before.
 
 ## Invalidation conditions
 
@@ -68,4 +83,18 @@ Proposals wait on a dashboard **Organize** page, grouped by target project. The 
 
 ## Validation
 
-None yet; this is a proposal. Before acceptance: a dry run over the maintainer's workspace that counts catch-all sources, proposals by evidence class, and how many the maintainer would accept, plus the time it takes on the local model.
+- `tests/test_organize.py`:
+  - identifier matches are proposed and nothing moves until accepted;
+  - accepting moves a source with a placement rule, from no project too, and a rejection survives later runs;
+  - "no project" as a whole is refused;
+  - plain-word project names need more than their name, and folder-named and `*-convos` projects are catch-alls, not targets;
+  - the model writes and replaces profiles;
+  - a model placement needs a quote from the source;
+  - preference memories become core memory proposals with and without the model.
+- `imprint/ui/tests/organize.spec.ts`: proposals grouped by target with their evidence, moving one, keeping a group, the decided list, the last run's summary, and queueing a run without the model.
+- Read-only dry runs on the maintainer's workspace on macOS, which stored nothing:
+  - The workspace holds 5,732 memories without a project, 1,514 in `Code` and 6,057 in `cloud-ai-convos`, across 361 catch-all sources.
+  - Matching every name proposed `Code` for 122 sources and plain words like `client` for dozens more. The identifier rule and the folder catch-alls replaced these with distinctive targets: 140 of the first 300 sources (129 by name, 11 by path).
+  - The model first quoted the "Imprint conversation" header of conversation snapshots, which placed four sources in `imprint`. Reading conversations' messages only removed those.
+  - Profiles took 4–12 s each.
+- Not verified: a full run that stores proposals on real data, and how many proposals the maintainer accepts.

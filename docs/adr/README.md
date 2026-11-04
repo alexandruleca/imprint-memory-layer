@@ -66,7 +66,7 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0082](0082-retain-readable-conversation-evidence.md) **Retain readable conversation evidence.** Preserve available messages, analysis and tool evidence with explicit attribution and omission counts. Amended by [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) (unwritten bytes are counted omissions).
 - [ADR 0088](0088-bytes-a-crash-never-wrote-are-counted-omissions.md) **Bytes a crash never wrote are counted omissions.** A reading drops the NUL bytes an interrupted write leaves and counts each run, instead of failing the transcript.
-
+- [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) **Reorganization is proposed by a background job and reviewed.** A queued job writes project profiles, proposes projects for the sources in catch-alls backed by an identifier, a path or a quoted model answer, and proposes core memories; accepted moves apply as placement rules.
 ### Embeddings, local models and chat
 
 - [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) **Qwen defaults and explicit reindex.** Qwen defaults, collection encoding identity, explicit reindex and shared bounded helper. Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (classification grammar) and [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) (default export and device).
@@ -193,7 +193,6 @@ The records in force, by area. An amended record is listed with the records that
 Under consideration; not current behavior.
 
 - [ADR 0009](0009-model-profiles-and-embedding-identity.md) **Model profiles and embedding identity.** Evaluate local model profiles with explicit embedding identity and safe re-embedding.
-- [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) **Reorganization is proposed by a background job and reviewed.** Project profiles, project proposals for memories in catch-alls with quoted evidence, and core memory candidates; accepted moves apply as placement rules.
 
 ## Decision log
 
@@ -331,7 +330,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0127](0127-the-final-answer-is-written-from-research-notes.md) | 2026-11-04 | Accepted | The final answer is written from research notes |
 | [0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) | 2026-11-04 | Accepted | The dashboard follows the Windows installer to the end |
 | [0129](0129-core-memories-are-user-approved-and-start-every-session.md) | 2026-11-04 | Accepted | Core memories are user-approved and start every session |
-| [0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) | 2026-11-04 | Proposed | Reorganization is proposed by a background job and reviewed |
+| [0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) | 2026-11-04 | Accepted | Reorganization is proposed by a background job and reviewed |
 
 ## How to write and maintain ADRs
 

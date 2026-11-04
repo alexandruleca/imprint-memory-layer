@@ -257,7 +257,11 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
     from . import config, vectorstore as vs, workspace_policy as policy
     from .device import origin_project
     ws = policy.workspace_name(workspace)
-    project, target = project_name(project), project_name(target)
+    # Memories stored without a project can leave it source by source (ADR
+    # 0130); "no project" as a whole is not a project to merge.
+    if project != "" or sources is None:
+        project = project_name(project)
+    target = project_name(target)
     if project == target:
         raise ValueError("Choose a different target project")
     if sources is not None:
