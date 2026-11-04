@@ -57,7 +57,10 @@ class RecordingTests(unittest.TestCase):
             recordings.append(meta['id'], b'late')
         with self.assertRaises(KeyError):
             recordings.get('../../etc')
-        titles = [m['title'] for m in recordings.list_all()]  # Newest first.
+        # Newest first. Windows' clock can give recordings started together
+        # one time, so the newest one is moved clearly ahead.
+        recordings.update(late['id'], started_at=late['started_at'] + 60)
+        titles = [m['title'] for m in recordings.list_all()]
         self.assertEqual((titles[0], titles[-1], len(titles)), ('Too long', 'Weekly sync', 3))
 
     def test_audio_stops_at_the_size_limit(self):
