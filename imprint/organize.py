@@ -78,11 +78,9 @@ def _db():
         conn.execute('CREATE TABLE IF NOT EXISTS proposals (workspace TEXT, origin TEXT, source TEXT, target TEXT, '
                      'method TEXT, evidence TEXT, preview TEXT, chunks INTEGER, status TEXT, fingerprint TEXT, '
                      'created_at REAL, decided_at REAL, PRIMARY KEY (workspace, origin, source))')
-        held = {row[1] for row in conn.execute('PRAGMA table_info(proposals)')}
-        if 'updated_at' not in held:
-            conn.execute('ALTER TABLE proposals ADD COLUMN updated_at REAL NOT NULL DEFAULT 0')
-        if 'strength' not in held:
-            conn.execute("ALTER TABLE proposals ADD COLUMN strength TEXT NOT NULL DEFAULT ''")
+        from .private_store import add_column
+        add_column(conn, 'proposals', 'updated_at', 'REAL NOT NULL DEFAULT 0')
+        add_column(conn, 'proposals', 'strength', "TEXT NOT NULL DEFAULT ''")
         conn.execute('CREATE TABLE IF NOT EXISTS runs (workspace TEXT PRIMARY KEY, finished_at REAL, summary TEXT)')
         # What the last background pass saw (ADR 0132), each profile's
         # project size when it was written, and the preference memories

@@ -48,8 +48,8 @@ def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
         )
     """
     )
-    if 'recorded_device' not in {row[1] for row in conn.execute('PRAGMA table_info(facts)')}:
-        conn.execute("ALTER TABLE facts ADD COLUMN recorded_device TEXT NOT NULL DEFAULT '{}'")
+    from .private_store import add_column
+    add_column(conn, 'facts', 'recorded_device', "TEXT NOT NULL DEFAULT '{}'")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject)"
     )

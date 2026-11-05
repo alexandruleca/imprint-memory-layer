@@ -45,3 +45,16 @@ def _problem(conn: sqlite3.Connection) -> str | None:
     except sqlite3.DatabaseError as error:
         return str(error)
     return None if result == 'ok' else result
+
+
+def add_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    """Add a column an older database lacks. Two connections opening the
+    database at the same moment can both find it missing; the one that comes
+    second finds it already there and leaves it."""
+    if column in {row[1] for row in conn.execute(f'PRAGMA table_info({table})')}:
+        return
+    try:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+    except sqlite3.OperationalError as error:
+        if 'duplicate column' not in str(error):
+            raise

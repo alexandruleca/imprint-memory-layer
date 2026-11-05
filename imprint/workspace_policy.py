@@ -37,8 +37,8 @@ def _db():
         conn.execute('CREATE TABLE IF NOT EXISTS placements (workspace TEXT, project TEXT, source TEXT, target TEXT, PRIMARY KEY(workspace, project, source))')
         # When each rule last changed, and removed rules as an empty target,
         # so paired devices take the newest (ADR 0134).
-        if 'updated_at' not in {row[1] for row in conn.execute('PRAGMA table_info(placements)')}:
-            conn.execute('ALTER TABLE placements ADD COLUMN updated_at REAL NOT NULL DEFAULT 0')
+        from .private_store import add_column
+        add_column(conn, 'placements', 'updated_at', 'REAL NOT NULL DEFAULT 0')
         conn.commit()
         conn.execute('BEGIN IMMEDIATE')
         yield conn

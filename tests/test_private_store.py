@@ -9,6 +9,35 @@ from imprint import config, private_store, sync_pairs
 from imprint.sync_ws import SyncPolicy
 
 
+class AddColumnTests(unittest.TestCase):
+    """Two connections opening an older database at once can both find a
+    column missing; the second must not fail when the first added it."""
+
+    def test_a_column_added_meanwhile_by_another_connection_is_left(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'db.sqlite3'
+            first, second = sqlite3.connect(path), sqlite3.connect(path)
+            first.execute('CREATE TABLE rules (name TEXT)')
+            first.commit()
+            # The second connection looked before the first added it.
+            stale = {row[1] for row in second.execute('PRAGMA table_info(rules)')}
+            self.assertNotIn('updated_at', stale)
+            private_store.add_column(first, 'rules', 'updated_at', 'REAL NOT NULL DEFAULT 0')
+            first.commit()
+
+            class Late:
+                """The second connection, still seeing the old schema."""
+                def execute(self, sql, *args):
+                    return iter([(0, 'name')]) if sql.startswith('PRAGMA') else second.execute(sql, *args)
+
+            private_store.add_column(Late(), 'rules', 'updated_at', 'REAL NOT NULL DEFAULT 0')
+            self.assertEqual([row[1] for row in second.execute('PRAGMA table_info(rules)')], ['name', 'updated_at'])
+            # Any other failure still surfaces.
+            with self.assertRaises(sqlite3.OperationalError):
+                private_store.add_column(Late(), 'missing_table', 'x', 'TEXT')
+            first.close(); second.close()
+
+
 class PrivateStoreTests(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
