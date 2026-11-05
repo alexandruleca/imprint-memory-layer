@@ -163,3 +163,21 @@ html:has(.imprint-halo), body:has(.imprint-halo) { background: transparent!impor
 .halo-panel-host[data-origin^=left] .halo-collapse svg { transform: rotate(90deg); }
 .halo-panel-host[data-origin^=right] .halo-collapse svg { transform: rotate(-90deg); }
 .halo-panel-host { overflow: hidden; }
+
+/* "Hey Echo" (ADR 0137): the ear sits at the rim's lower-left point, opposite the
+ * warning badge, because the rim itself shows recording, errors and progress.
+ * Filled while the hidden listener exists; hollow while paused; amber when it
+ * can't use the microphone. It brightens while a burst of speech is checked. */
+.orb-ear { position: absolute; z-index: 2; left: 12px; top: 52px; width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid #8bdefe; background: #8bdefe; box-shadow: 0 0 0 1.5px #08131c; transition: box-shadow 160ms ease, background 160ms ease; }
+.orb-ear[data-checking] { background: #e6f8ff; box-shadow: 0 0 0 1.5px #08131c, 0 0 8px #8bdefecc; }
+.orb-ear[data-state=paused] { background: #08131c; }
+.orb-ear[data-state=blocked] { border-color: #ffb547; background: #ffb547; }
+/* "Heard": one cyan pulse around the rim. */
+.orb-wake-pulse { position: absolute; z-index: 0; left: 8px; top: 8px; width: 56px; height: 56px; border-radius: 50%;
+  box-shadow: 0 0 0 2.5px #8bdefe; pointer-events: none; animation: orb-wake-pulse 700ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes orb-wake-pulse { from { opacity: 1; transform: scale(.86); } to { opacity: 0; transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) {
+  .orb-wake-pulse { animation-duration: 1ms; }
+  .orb-ear { transition: none; }
+}

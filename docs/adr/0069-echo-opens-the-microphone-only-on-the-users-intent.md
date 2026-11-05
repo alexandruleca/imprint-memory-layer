@@ -3,12 +3,13 @@ title: ADR 0069 — Echo opens the microphone only on the user's intent, after a
 description: Enable microphone, or Start conversation once the user has chosen the microphone, asks the operating system for consent through scoped IPC before opening the device; the device remembers the choice, never the grant.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Scope: implementation; interactive macOS consent, Windows privacy settings and physical devices are unvalidated (see Validation)
 - Amends:
   - [ADR 0043](0043-live-voice-and-echo-companion.md) — its rule that microphone access is always a separate action from starting a conversation: once the user has chosen the microphone, a conversation turns it on when it is ready
   - [ADR 0044](0044-native-desktop-voice-platforms.md) — its macOS-only consent check inside Electron's permission request: an explicit consent check now precedes capture on macOS and Windows
+- Amended by: [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — a standing "Hey Echo" choice is the user's intent for a hidden listener's microphone; a conversation the wake starts turns the microphone on hands-free
 - Related: [ADR 0055](0055-ad-hoc-signed-macos-desktop-bundle.md), [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)
 
 ## Context

@@ -138,6 +138,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Chat (dashboard panel)** | | |
 | `voice.avatar` | `echo` | Echo's look and voice: `echo` (a synaptic core whose neurons fire as it thinks, around an eye that follows the pointer; a robotic voice), `iris` (indigo straight cut, pale lavender eyes; a female voice) or `kai` (spiky orange hair, a determined frown; a male voice). Also chosen on the Voice page and in Companion settings. See [Echo voice](live-voice.md). |
 | `voice.runtime_dir` | — | Explicit external cache containing the built native live speech worker for Windows x64, Apple silicon macOS or Linux x64; `IMPRINT_VOICE_RUNTIME_DIR` overrides it. See [Echo voice](live-voice.md). |
+| `voice.wake.idle_seconds` | `15` | Seconds a conversation that "Hey Echo" started waits for you after Echo's reply before it ends and Echo goes back where it was (5–120). Turning "Hey Echo" on or off is a choice in Echo's settings in the desktop app, kept on that device, not a setting. See [Echo voice](live-voice.md#hey-echo). |
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
 | `chat.model` | — | Model name for remote providers (default per provider) |
 | `chat.base_url` | — | Base URL override for OpenAI-compat providers |

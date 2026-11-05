@@ -119,18 +119,21 @@ def model_root(spec: ModelSpec) -> Path:
     return config.get_data_dir() / "models" / (spec.repo.rsplit('/', 1)[-1] + '-' + spec.revision[:12])
 
 
-def ensure_model(spec: ModelSpec) -> Path:
-    """Pin every model asset; incomplete downloads never become model files."""
+def ensure_model(spec: ModelSpec, progress=None) -> Path:
+    """Pin every model asset; incomplete downloads never become model files.
+    ``progress`` replaces the job progress record (same arguments as
+    ``report``); it may raise to cancel, which removes the partial file."""
     import httpx
     from filelock import FileLock
     from huggingface_hub.utils import build_hf_headers
     from .downloads import verify_archive
 
+    say = progress or report
     root = model_root(spec)
     root.mkdir(parents=True, exist_ok=True)
     total = sum(size for size, _ in spec.files.values())
     done = 0
-    report("preparing_transcription_model", unit="bytes")
+    say("preparing_transcription_model", unit="bytes")
     with FileLock(str(root / "download.lock"), timeout=1800):
         remaining = sum(size for name, (size, _) in spec.files.items() if not (root / name).exists())
         if shutil.disk_usage(root).free < remaining + 32 * 1024 * 1024:
@@ -158,7 +161,7 @@ def ensure_model(spec: ModelSpec) -> Path:
                             if received > size:
                                 raise ValueError("Transcription model download exceeded its pinned size")
                             output.write(chunk); hasher.update(chunk)
-                            report("downloading_transcription_model", done + received, total, "bytes")
+                            say("downloading_transcription_model", done + received, total, "bytes")
                 if received != size or hasher.hexdigest() != digest:
                     raise ValueError("Transcription model checksum/size mismatch; retry audio ingestion")
                 os.replace(part, path)

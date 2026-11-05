@@ -111,6 +111,30 @@ class VoiceBoundaryTests(unittest.TestCase):
             self.assertFalse(voice.sessions.active)
             self.assertGreaterEqual(stop.await_count, 2)
 
+    def test_a_wake_started_turn_that_asks_to_stop_ends_without_reasoning(self):
+        async def native(system, content):
+            yield {"type": "text", "text": "Answer."}
+
+        with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(voice, "memory_prompt", new_callable=AsyncMock, return_value="fixture") as memory:
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="lfm")})
+                ws.receive_json(); ws.receive_json()
+                ws.send_json({"type": "turn", "id": 1, "text": "Thanks, Echo.", "wake": True})
+                self.assertEqual(ws.receive_json(), {"type": "user", "text": "Thanks, Echo.", "id": 1})
+                self.assertEqual(ws.receive_json(), {"type": "end", "id": 1})
+                memory.assert_not_awaited()
+                # Outside a wake session the same words are an ordinary question.
+                ws.send_json({"type": "turn", "id": 2, "text": "Thanks, Echo."})
+                events = []
+                while not events or events[-1]["type"] != "done":
+                    events.append(ws.receive_json())
+                memory.assert_awaited()
+                ws.send_json({"type": "turn", "id": 3, "text": "stop", "wake": "yes"})
+                self.assertEqual(ws.receive_json()["type"], "error")
+
     def test_cancel_stops_pending_turn_and_late_output_is_not_sent(self):
         started = threading.Event()
         ended = threading.Event()

@@ -12,7 +12,8 @@ const path = require('node:path');
 const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'];
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
-  mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }) } = {}) {
+  mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }),
+  wakeFile = null, onBattery = false } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -36,7 +37,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       super();
       this.options = options;
       this.webContents = new EventEmitter();
-      this.webContents.send = () => {};
+      this.sent = [];
+      this.webContents.send = (...args) => { this.sent.push(args); };
       this.webContents.setWindowOpenHandler = () => {};
       this.webContents.getURL = () => this.url || '';
       this.webContents.getZoomFactor = () => 1;
@@ -55,7 +57,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     hide() { this.visible = false; }
     focus() {}
     moveTop() {}
-    showInactive() { this.visible = true; }
+    showInactive() { this.visible = true; this.inactive = (this.inactive || 0) + 1; }
     isVisible() { return this.visible; }
     getBounds() { return this.bounds || { x: this.options.x || 0, y: this.options.y || 0, width: this.options.width, height: this.options.height }; }
     getContentBounds() { return this.getBounds(); }
@@ -97,6 +99,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       setDisplayMediaRequestHandler(handler) { calls.display = handler; } } },
     desktopCapturer: { getSources: async () => [{ id: 'screen:0', name: 'Entire screen' }] },
     dialog: { showMessageBox: options => { calls.push(['dialog', options.message]); return messageBox(options); } },
+    powerMonitor: Object.assign(new EventEmitter(), { isOnBatteryPower: () => onBattery }),
   };
   const shortcuts = new Map();
   electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };
@@ -119,12 +122,15 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     queueMicrotask(() => callback(...cli()));
   } };
   const modules = { electron, 'node:path': path, 'node:http': http, 'node:child_process': childProcess, './runtime': require('./runtime'),
-    'node:fs': { readFileSync: () => { if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position'); }, mkdirSync() {}, writeFileSync() {}, renameSync() {} },
+    'node:fs': { readFileSync: file => {
+      if (file.endsWith('wake.json')) { if (wakeFile) return wakeFile; throw Error('No choice'); }
+      if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position');
+    }, mkdirSync() {}, writeFileSync(file, data) { calls.push(['write', path.basename(file), data]); }, renameSync() {} },
     './companion': require('./companion'),
     './navigation': require('./navigation'), './service': { DesktopService: Service },
     './activity': { readActivity: dir => { calls.push(['activity', dir]); return typeof activity === 'function' ? activity() : activity; },
       describeActivity: require('./activity').describeActivity },
-    './voice-permissions': require('./voice-permissions'), './recording-relay': require('./recording-relay') };
+    './voice-permissions': require('./voice-permissions'), './recording-relay': require('./recording-relay'), './wake': require('./wake') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },
     process: { argv: ['electron', ...packaged ? [] : ['main.js'], ...runtimeArgs], platform, env: {},
@@ -132,7 +138,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     __dirname, console: { warn() {}, error() {} }, setTimeout, clearTimeout, Promise, URL, Date,
     setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
   });
-  return { app, windows, services, calls, ipcMain, shortcuts, intervals, handlers, tick: () => intervals.forEach(tick => tick()),
+  return { app, windows, services, calls, ipcMain, shortcuts, intervals, handlers, power: electron.powerMonitor, tick: () => intervals.forEach(tick => tick()),
     invoke: (name, window, ...args) => handlers[name]({ sender: window.webContents }, ...args),
     emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
@@ -773,4 +779,155 @@ test('quitting during a recording asks first, then stops it and quits once it is
   h.emit('recorder-state', dashboard, report('idle'));
   await new Promise(resolve => setTimeout(resolve, 150)); await settle();
   assert.equal(h.calls.includes('quit'), true);
+});
+
+// "Hey Echo" (ADR 0137): the hidden listener and everything that shows it.
+const WAKE_ON = JSON.stringify({ enabled: true, pausedUntil: 0, battery: 'listen' });
+const listener = h => h.windows.find(window => window.url === `${ORIGIN}/wake/` && !window.destroyed);
+const wakeWrites = h => h.calls.filter(call => call[0] === 'write' && call[1] === 'wake.json.tmp').map(call => JSON.parse(call[2]));
+// Values made in the main process's context have its prototypes.
+const plain = value => JSON.parse(JSON.stringify(value));
+const meeting = phase => ({ phase, id: 'r1', title: 'Weekly', project: 'meetings', startedAt: 1000, others: true, error: '' });
+
+test('a chosen wake word listens from a hidden, unthrottled window, and the tray, top bar and orb say so', async () => {
+  const h = harness({ alreadyUp: true, wakeFile: WAKE_ON }); await settle();
+  const dashboard = h.windows[1], ear = listener(h);
+  assert.ok(ear, 'the listener window');
+  assert.equal(ear.visible, false, 'never shown');
+  assert.equal(ear.options.webPreferences.backgroundThrottling, false);
+  assert.equal(ear.options.webPreferences.autoplayPolicy, 'no-user-gesture-required');
+  assert.equal(ear.options.webPreferences.sandbox, true);
+  assert.equal(ear.options.skipTaskbar, true);
+  assert.equal(h.invoke('voice-wake-state', dashboard).listening, true);
+  assert.equal(dashboard.sent.filter(([name]) => name === 'wake-state').at(-1)[1].listening, true);
+  assert.equal(h.calls.tooltip, 'Imprint · Listening for “Hey Echo”');
+  assert.deepEqual(plain(h.calls.menu.slice(0, 3).map(item => item.label)), ['Listening for “Hey Echo”', 'Pause listening for 1 hour', 'Turn off “Hey Echo”']);
+  // Only the listener window's /wake page gets the microphone, and its consent step.
+  const allowed = contents => new Promise(resolve => h.calls.request(contents, 'media', resolve, { mediaType: 'audio' }));
+  assert.equal(await allowed(ear.webContents), true);
+  assert.equal(h.calls.check(ear.webContents, 'media', ORIGIN, { mediaType: 'audio' }), true);
+  assert.equal((await h.invoke('voice-microphone-access', ear)).status, 'granted');
+  dashboard.url = `${ORIGIN}/wake/`;
+  assert.equal(await allowed(dashboard.webContents), false, 'the dashboard on /wake gets nothing');
+  ear.url = `${ORIGIN}/voice/`;
+  assert.equal(await allowed(ear.webContents), false, 'the listener elsewhere gets nothing');
+  assert.equal((await h.invoke('voice-microphone-access', ear)).status, 'denied');
+  ear.url = `${ORIGIN}/wake/`; dashboard.url = `${ORIGIN}/`;
+  h.emit('win-close', dashboard); await settle();
+  const orb = h.windows.find(window => window.url === `${ORIGIN}/launcher/`);
+  assert.equal((await h.invoke('launcher-state', orb)).wake.listening, true);
+  h.emit('wake-listener', ear, { type: 'checking', on: true });
+  assert.equal((await h.invoke('launcher-state', orb)).wake.checking, true);
+});
+
+test('listening stops for recordings, Echo conversations, lock, sleep and a pause, and comes back', async () => {
+  const h = harness({ alreadyUp: true, wakeFile: WAKE_ON }); await settle();
+  const dashboard = h.windows[1];
+  const expect = (listening, what) => {
+    assert.equal(!!listener(h), listening, what);
+    // The indicators follow the window, always.
+    assert.equal(h.invoke('voice-wake-state', dashboard).listening, listening, `${what} (indicator)`);
+    assert.equal(/Listening for/.test(h.calls.tooltip), listening, `${what} (tray)`);
+  };
+  expect(true, 'chosen');
+  h.emit('recorder-state', dashboard, meeting('recording')); expect(false, 'recording');
+  assert.equal(h.invoke('voice-wake-state', dashboard).reason, 'recording');
+  h.emit('recorder-state', dashboard, meeting('idle')); expect(true, 'recording over');
+  await h.invoke('voice-set-companion', dashboard, true);
+  const echo = h.windows.find(window => window.url === `${ORIGIN}/companion/`);
+  h.emit('voice-microphone-state', echo, true); expect(false, 'Echo holds the microphone');
+  h.emit('voice-microphone-state', echo, false); expect(true, 'conversation over');
+  h.emit('voice-microphone-state', echo, true); echo.webContents.emit('destroyed'); expect(true, 'its page went away');
+  dashboard.url = `${ORIGIN}/chat/`;
+  h.emit('voice-microphone-state', dashboard, true); expect(true, 'only voice pages report a microphone');
+  for (const [off, on] of [['lock-screen', 'unlock-screen'], ['suspend', 'resume']]) {
+    h.power.emit(off); expect(false, off);
+    h.power.emit(on); expect(true, on);
+  }
+  h.power.emit('thermal-state-change', {}, 'critical'); expect(false, 'critical heat');
+  h.power.emit('thermal-state-change', {}, 'fair'); expect(true, 'cooler');
+  h.emit('wake-control', dashboard, 'pause'); expect(false, 'paused for an hour');
+  assert.match(h.calls.tooltip, /“Hey Echo” paused until \d\d:\d\d/);
+  assert.ok(wakeWrites(h).at(-1).pausedUntil > Date.now() + 59 * 60 * 1000);
+  assert.equal(h.calls.menu.find(item => item.label === 'Resume listening') !== undefined, true);
+  h.emit('wake-control', dashboard, 'resume'); expect(true, 'resumed');
+  h.emit('wake-control', dashboard, 'off'); expect(false, 'off');
+  assert.equal(wakeWrites(h).at(-1).enabled, false);
+  assert.equal(h.calls.tooltip, 'Imprint');
+});
+
+test('on battery it keeps listening unless the user chose to pause there, and tells the listener', async () => {
+  const h = harness({ alreadyUp: true, wakeFile: JSON.stringify({ enabled: true, battery: 'pause' }) }); await settle();
+  assert.ok(listener(h));
+  h.power.emit('on-battery'); assert.equal(listener(h), undefined);
+  h.power.emit('on-ac'); assert.ok(listener(h));
+  const other = harness({ alreadyUp: true, wakeFile: WAKE_ON, onBattery: true }); await settle();
+  const ear = listener(other);
+  assert.deepEqual(plain(await other.invoke('wake-listener-config', ear)), { battery: true });
+  assert.equal(await other.invoke('wake-listener-config', other.windows[1]), null);
+  other.power.emit('on-ac');
+  assert.deepEqual(plain(ear.sent.at(-1)), ['wake-listener-config', { battery: false }]);
+});
+
+test('"Hey Echo" shows Echo without focus, hands it the question, then puts it back where it was', async () => {
+  const h = harness({ alreadyUp: true, wakeFile: WAKE_ON }); await settle();
+  const dashboard = h.windows[1];
+  await h.invoke('voice-set-companion', dashboard, true);
+  const echo = h.windows.find(window => window.url === `${ORIGIN}/companion/`);
+  h.emit('win-close', dashboard); await settle();
+  h.emit('voice-collapse-companion', echo); assert.equal(echo.visible, false);
+  const ear = listener(h), wakes = () => echo.sent.filter(([name]) => name === 'voice-wake').map(([, value]) => value);
+  h.emit('wake-listener', h.windows[1], { type: 'heard', id: 6 }); await settle();
+  assert.equal(echo.visible, false, 'only the listener reports a wake');
+  h.emit('wake-listener', ear, { type: 'heard', id: 7 }); await settle();
+  assert.equal(echo.visible, true);
+  assert.ok(echo.inactive >= 1, 'shown without taking focus');
+  assert.deepEqual(plain(wakes().at(-1)), { type: 'start', id: 7 });
+  assert.deepEqual(plain(await h.invoke('voice-wake-session', echo)), { id: 7, text: null });
+  // Echo's microphone comes on before the question arrives: the listener stays to hand it over.
+  h.emit('voice-microphone-state', echo, true); assert.ok(listener(h));
+  h.emit('wake-listener', ear, { type: 'question', id: 3, text: 'not this one' });
+  h.emit('wake-listener', ear, { type: 'question', id: 7, text: 'what did we decide yesterday?' });
+  assert.deepEqual(plain(wakes().at(-1)), { type: 'question', id: 7, text: 'what did we decide yesterday?' });
+  assert.equal(listener(h), undefined, 'Echo hears the user now');
+  h.emit('voice-wake-done', dashboard, { id: 7, restore: true }); assert.equal(echo.visible, true, 'only Echo ends its session');
+  h.emit('voice-microphone-state', echo, false);
+  h.emit('voice-wake-done', echo, { id: 7, restore: true });
+  assert.equal(echo.visible, false); assert.equal(echo.destroyed, false, 'folded back, not closed');
+  assert.ok(listener(h), 'listening again');
+  // Closed before the wake: closed again afterwards.
+  h.emit('voice-close-companion', echo); assert.equal(echo.destroyed, true);
+  h.emit('wake-listener', listener(h), { type: 'heard', id: 8 }); await settle();
+  const second = h.windows.filter(window => window.url === `${ORIGIN}/companion/`).at(-1);
+  assert.notEqual(second, echo); assert.equal(second.visible, true); assert.ok(second.inactive >= 1);
+  assert.deepEqual(plain(await h.invoke('voice-wake-session', second)), { id: 8, text: null });
+  h.emit('voice-wake-done', second, { id: 8, restore: true });
+  assert.equal(second.destroyed, true);
+  // Taken over by the user: Echo stays.
+  h.emit('wake-listener', listener(h), { type: 'heard', id: 9 }); await settle();
+  const third = h.windows.filter(window => window.url === `${ORIGIN}/companion/`).at(-1);
+  h.emit('voice-wake-done', third, { id: 9, restore: false });
+  assert.equal(third.visible, true); assert.equal(third.destroyed, false);
+});
+
+test('a refused microphone waits for the user; only a voice page turns listening on', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  assert.equal(listener(h), undefined, 'off by default');
+  assert.equal(h.calls.tooltip, 'Imprint');
+  dashboard.url = `${ORIGIN}/chat/`;
+  assert.equal(await h.invoke('voice-wake-set', dashboard, { enabled: true }), null);
+  h.emit('wake-control', dashboard, 'resume'); assert.equal(listener(h), undefined, 'controls cannot turn it on');
+  dashboard.url = `${ORIGIN}/voice/`;
+  assert.equal(await h.invoke('voice-wake-set', dashboard, { enabled: true, battery: 'pause' }).listening, true);
+  assert.deepEqual(wakeWrites(h).at(-1), { enabled: true, pausedUntil: 0, battery: 'pause' });
+  h.emit('wake-listener', listener(h), { type: 'error', kind: 'microphone', message: 'Microphone permission denied.' });
+  assert.equal(listener(h), undefined);
+  const view = h.invoke('voice-wake-state', dashboard);
+  assert.deepEqual(plain([view.enabled, view.reason, view.problem]), [true, 'blocked', 'Microphone permission denied.']);
+  h.power.emit('unlock-screen'); assert.equal(listener(h), undefined, 'still waits for the user');
+  await h.invoke('voice-wake-set', dashboard, { enabled: true }); assert.ok(listener(h), 'turned on again');
+  h.emit('wake-listener', listener(h), { type: 'error', kind: 'service' });
+  assert.equal(listener(h), undefined);
+  assert.equal(h.invoke('voice-wake-state', dashboard).reason, 'retrying');
 });

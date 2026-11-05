@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { WakeView } from "./wake";
 
 /** The desktop app's floating orb and its ring of actions (ADR 0135). The main
  * process owns their windows and passes these values between them. */
@@ -21,6 +22,8 @@ export type LauncherState = {
   echoSide: number;
   recorder: LauncherRecorder;
   activity: { text: string; percent: number | null } | null;
+  /** "Hey Echo" (ADR 0137); the ear dot shows while `listening`. */
+  wake?: WakeView;
 };
 
 type Box = { x: number; y: number; width: number; height: number };

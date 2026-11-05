@@ -11,9 +11,12 @@ export type VoiceSnapshot = {
   microphoneSettings: boolean;
   mode: VoiceMode; held: boolean; user: string; answer: string; workspace: string;
   preparation: VoicePreparation | null;
+  /** This conversation was started by "Hey Echo" and ends after quiet (ADR 0137). */
+  wake: boolean;
 };
 export const initialVoice: VoiceSnapshot = { phase: "idle", detail: "Ready when you are", connected: false,
-  microphone: false, microphoneError: "", microphoneSettings: false, mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null };
+  microphone: false, microphoneError: "", microphoneSettings: false, mode: "ptt", held: false, user: "", answer: "", workspace: "", preparation: null,
+  wake: false };
 
 /** Turning the microphone on: asking the OS (desktop app), opening the device,
  * loading the capture worklet, connecting the graph. */
@@ -111,13 +114,14 @@ export class VoiceGate {
   }
 }
 
-export function encodeWav(frames: Float32Array[], sourceRate: number) {
+/** Mono PCM16 WAV, base64: 24 kHz for Echo's turns, 16 kHz for the wake listener. */
+export function encodeWav(frames: Float32Array[], sourceRate: number, rate = 24000) {
   const count = frames.reduce((sum, frame) => sum + frame.length, 0);
   if (count / sourceRate > 30) throw new Error("Keep each question under 30 seconds.");
   const joined = new Float32Array(count);
   let offset = 0;
   for (const frame of frames) { joined.set(frame, offset); offset += frame.length; }
-  const rate = 24000, length = Math.floor(count * rate / sourceRate);
+  const length = Math.floor(count * rate / sourceRate);
   const data = new ArrayBuffer(44 + length * 2), view = new DataView(data);
   function word(at: number, text: string) { for (let i = 0; i < text.length; i++) view.setUint8(at + i, text.charCodeAt(i)); }
   word(0, "RIFF"); view.setUint32(4, 36 + length * 2, true); word(8, "WAVE"); word(12, "fmt ");
@@ -125,7 +129,7 @@ export function encodeWav(frames: Float32Array[], sourceRate: number) {
   view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true);
   view.setUint16(34, 16, true); word(36, "data"); view.setUint32(40, length * 2, true);
   for (let i = 0; i < length; i++) {
-    // Box averaging downsamples the common 48 kHz browser input to 24 kHz.
+    // Box averaging downsamples the common 48 kHz browser input.
     const from = Math.floor(i * sourceRate / rate), to = Math.max(from + 1, Math.floor((i + 1) * sourceRate / rate));
     let sample = 0;
     for (let j = from; j < to; j++) sample += joined[j] || 0;
@@ -174,18 +178,60 @@ export class VoiceClient {
   private effect: string | null = null;
   private outputSamples = 0;
   private playedSamples = 0;
+  /** A conversation "Hey Echo" started (ADR 0137): hands-free with the microphone
+   * on for its duration, ending after `idle` ms of quiet once Echo has replied. */
+  private wakeSession: { idle: number; mode: VoiceMode; timer?: ReturnType<typeof setTimeout> } | null = null;
+  /** Called once when a wake-started conversation ends by itself or is stopped. */
+  onWakeEnd?: (reason: "quiet" | "asked" | "stopped") => void;
   constructor(private changed: (value: VoiceSnapshot) => void) {}
   private update(values: Partial<VoiceSnapshot>) {
     this.snapshot = { ...this.snapshot, ...values };
+    const session = this.wakeSession;
+    // Quiet counts from when Echo is ready again; speaking or thinking resets it.
+    if (session && this.snapshot.phase === "ready" && this.snapshot.connected && !session.timer) {
+      session.timer = setTimeout(() => this.endWake("quiet"), session.idle);
+    } else if (session?.timer && this.snapshot.phase !== "ready") {
+      clearTimeout(session.timer); session.timer = undefined;
+    }
     this.changed(this.snapshot);
+  }
+  private endWake(reason: "quiet" | "asked" | "stopped") {
+    const session = this.wakeSession;
+    if (!session) return;
+    this.wakeSession = null;
+    clearTimeout(session.timer);
+    if (reason !== "stopped") this.stop();
+    this.update({ wake: false, mode: session.mode });
+    this.onWakeEnd?.(reason);
+  }
+  /** "Hey Echo" (ADR 0137): an open conversation carries on hands-free with the
+   * microphone on; otherwise a new one starts that way. */
+  wakeUp(engine: "chat" | "lfm", idleSeconds: number) {
+    if (!this.snapshot.connected) { void this.start(engine, { wake: { idleSeconds } }); return; }
+    if (!this.wakeSession) this.wakeSession = { idle: Math.max(5, Math.min(120, idleSeconds)) * 1000, mode: this.snapshot.mode };
+    this.setMode("handsfree");
+    this.update({ wake: true });
+    void this.enableMicrophone();
+  }
+  /** The user took over a wake-started conversation: it no longer ends by itself. */
+  keepWake() {
+    const session = this.wakeSession;
+    if (!session) return;
+    this.wakeSession = null;
+    clearTimeout(session.timer);
+    this.update({ wake: false });
   }
   private send(message: object) { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message)); }
   private fail(message: string) { this.stop(); this.update({ phase: "error", detail: message }); }
 
-  async start(engine: "chat" | "lfm") {
+  async start(engine: "chat" | "lfm", options: { wake?: { idleSeconds: number } } = {}) {
     this.stop(); this.stopped = false;
     const epoch = ++this.epoch;
-    this.update({ phase: "connecting", detail: "Preparing audio…", user: "", answer: "" });
+    if (options.wake) {
+      this.wakeSession = { idle: Math.max(5, Math.min(120, options.wake.idleSeconds)) * 1000, mode: this.snapshot.mode };
+      this.snapshot = { ...this.snapshot, mode: "handsfree", wake: true };
+    }
+    this.update({ phase: "connecting", detail: options.wake ? "Heard “Hey Echo” · getting ready…" : "Preparing audio…", user: "", answer: "" });
     try {
       this.context = new AudioContext();
       let audioTimer: ReturnType<typeof setTimeout> | undefined;
@@ -367,7 +413,7 @@ export class VoiceClient {
     if (!this.snapshot.connected) return;
     this.interrupt(); this.accepted = ++this.id; this.complete = 0;
     this.update({ phase: "thinking", detail: "Thinking…", answer: "", user: content.text || "" });
-    this.send({ type: "turn", id: this.id, ...content });
+    this.send({ type: "turn", id: this.id, ...content, ...this.wakeSession ? { wake: true } : {} });
   }
   interrupt() {
     const pending = this.accepted > 0;
@@ -386,7 +432,7 @@ export class VoiceClient {
       this.update({ connected: true, phase: "ready", detail: "Type a question or enable your microphone", workspace: event.workspace });
       const question = this.question; this.question = undefined;
       if (question) this.submit({ text: question });
-      if (this.armMicrophone) void this.enableMicrophone();
+      if (this.armMicrophone || this.wakeSession) void this.enableMicrophone();
       return;
     }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
@@ -404,6 +450,7 @@ export class VoiceClient {
     if (event.type === "tool") this.update({ detail: `Checking memory · ${event.name}`, preparation: null });
     if (event.type === "audio" && event.data) this.play(event.data);
     if (event.type === "done") { this.complete = event.id; this.update({ preparation: null }); }
+    if (event.type === "end") { this.endWake("asked"); return; }
     if (event.type === "error") { this.interrupt(); this.update({ detail: event.error || "Try again." }); }
   }
   private play(encoded: string) {
@@ -456,5 +503,7 @@ export class VoiceClient {
     this.micPending = false; this.question = undefined;
     clearInterval(this.timer); this.timer = undefined; this.gate.reset(); this.heldFrames = [];
     this.update({ connected: false, microphone: false, microphoneError: "", microphoneSettings: false, held: false, preparation: null, phase: "idle", detail: "Microphone off" });
+    // Stop, hiding or closing ends a wake-started conversation too.
+    if (this.wakeSession) this.endWake("stopped");
   }
 }

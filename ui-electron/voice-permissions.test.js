@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { voicePage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
+const { voicePage, listenerPage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
   requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
 test('microphone permission is audio-only, main-frame-only, current app voice surface only', () => {
   const origin = 'http://127.0.0.1:8420';
@@ -83,4 +83,22 @@ test('explicit OS consent preserves denied/restricted/unknown states and only ma
   assert.equal(microphoneSettingsURL('linux'), null);
   assert.equal(microphoneSettingsURL('win32'), 'ms-settings:privacy-microphone');
   assert.equal(microphoneSettingsURL('darwin'), 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+});
+
+test('the hidden "Hey Echo" listener gets the microphone on /wake only, and /wake gives it to no other window', () => {
+  const origin = 'http://127.0.0.1:8420';
+  const listener = { webContents: { getURL: () => `${origin}/wake/` } };
+  const dashboard = { webContents: { getURL: () => `${origin}/wake/` } };
+  const check = (contents, details, windows = [dashboard], ear = listener) => audioPermission(contents, 'media', details, origin, windows, ear);
+  assert.equal(check(listener.webContents, { mediaType: 'audio', requestingUrl: `${origin}/wake/` }), true);
+  assert.equal(check(listener.webContents, { mediaType: 'audio', isMainFrame: false }), false);
+  assert.equal(check(listener.webContents, { mediaTypes: ['audio', 'video'] }), false);
+  assert.equal(check(listener.webContents, { mediaType: 'audio', requestingUrl: `${origin}/voice/` }), false);
+  assert.equal(check(dashboard.webContents, { mediaType: 'audio' }), false, 'the dashboard on /wake');
+  assert.equal(check(listener.webContents, { mediaType: 'audio' }, [dashboard], null), false, 'no listener window');
+  listener.webContents.getURL = () => `${origin}/voice/`;
+  assert.equal(check(listener.webContents, { mediaType: 'audio' }), false, 'the listener elsewhere');
+  assert.equal(listenerPage(`${origin}/wake/`, origin), true);
+  assert.equal(listenerPage('http://127.0.0.1:7777/wake/', origin), false);
+  assert.equal(voicePage(`${origin}/wake/`, origin), false);
 });

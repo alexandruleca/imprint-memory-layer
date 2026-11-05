@@ -13,7 +13,8 @@ export function DashboardShell({ children, overlays }: { children: React.ReactNo
   const route = usePathname().replace(/\/$/, "");
   const companion = route === "/companion";
   const launcher = route === "/launcher" || route === "/launcher/halo";
-  const floating = companion || launcher;
+  // The hidden "Hey Echo" listener window (ADR 0137) has no shell and no overlays.
+  const floating = companion || launcher || route === "/wake";
   useEffect(() => { document.documentElement.classList.toggle("companion-document", companion);
     document.documentElement.classList.toggle("launcher-document", launcher);
     return () => document.documentElement.classList.remove("companion-document", "launcher-document"); }, [companion, launcher]);

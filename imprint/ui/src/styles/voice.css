@@ -701,3 +701,27 @@
 .voice-options [data-slot=checkbox][data-checked] { border-color: var(--echo-cta); background: var(--echo-cta); color: var(--echo-cta-ink); }
 .voice-settings-link { display: flex; margin: 0 auto 14px; font-size: 11px; }
 .voice-compact .voice-settings-link { height: 28px; margin: 0 auto 6px; font-size: 10px; background: var(--echo-panel); border-color: var(--echo-line-strong); color: var(--echo-ink); }
+
+/* "Hey Echo" (ADR 0137): the switch in Companion settings, the caption of a
+ * wake-started conversation, and the explanation before turning it on. */
+.voice-options .voice-settings .voice-wake-switch { margin-top: 4px; }
+.voice-options .voice-wake-status { margin-top: -6px; }
+.voice-options [data-slot=switch] { border-color: var(--echo-line-strong); }
+.voice-wake-caption {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  margin: 0;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: .06em;
+  color: var(--echo-glow);
+}
+.voice-wake-sheet { -webkit-app-region: no-drag; app-region: no-drag; }
+.voice-wake-points { display: grid; gap: 8px; margin: 0; padding-left: 18px; list-style: disc; font-size: 12px; line-height: 1.5; }
+.voice-wake-battery { display: flex; align-items: center; gap: 9px; font-size: 12px; cursor: pointer; }
+.voice-wake-progress { display: grid; gap: 6px; font-size: 12px; }
+.voice-wake-progress progress { width: 100%; height: 6px; }
+.voice-wake-error { margin: 0; font-size: 12px; color: var(--destructive); }

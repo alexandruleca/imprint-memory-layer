@@ -265,6 +265,8 @@ SETTINGS: list[Setting] = [
             choices=(Choice("echo", "Echo", "Synaptic core with a watching eye; fires as it thinks; robotic voice"),
                      Choice("iris", "Iris", "Indigo straight cut, pale lavender eyes; female voice"),
                      Choice("kai", "Kai", "Spiky orange hair, a determined frown; male voice"))),
+    Setting("voice.wake.idle_seconds", "IMPRINT_VOICE_WAKE_IDLE_SECONDS", 15, int,
+            "Seconds a conversation started by “Hey Echo” waits for you after a reply before Echo goes back (5–120)"),
     Setting("chat.provider",       "IMPRINT_CHAT_PROVIDER",       "local",                          str,   "Chat provider: local / vllm / openai / ollama / gemini / anthropic", choices=PROVIDERS),
     Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)",
             choices=PROVIDER_DEFAULT, custom=True),

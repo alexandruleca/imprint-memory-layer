@@ -13,6 +13,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 
 - While a job runs, a pill shows it, for example `Learn conversations · embedding · 3/112 conversations`, and links to Queue.
 - While Echo is being set up, a pill shows its progress and links to Voice.
+- In the desktop app, while Imprint listens for “Hey Echo”, a pill says so, with **1 hour** (pause) and **Off** ([Echo voice](live-voice.md#hey-echo)).
 - **Update to vX.Y.Z** appears when a newer release exists on the update channel: stable releases, or dev builds as well once **Settings → Updates** is set to dev, which the dialog marks as a dev build ([ADR 0108](adr/0108-installations-opt-in-to-dev-builds-in-settings.md)). Its dialog explains the steps for this kind of installation, starts the update, shows the updater's log and reloads once the new version runs. Memories, workspaces and settings are kept, and running jobs finish first. An installation that cannot update itself says why ([ADR 0023](adr/0023-update-by-installation-type.md), [ADR 0050](adr/0050-registered-dashboard-server-and-supervised-restart.md)).
 - The workspace switcher names the active workspace. Its menu switches to another one (the dashboard reloads), creates one with **New workspace…** and switches to it, and opens **Manage workspaces…**.
 
@@ -157,7 +158,7 @@ Echo, the voice companion ([live voice](live-voice.md)).
 
 - The window opens a splash while the local service starts, with the startup log and **Try again** when it fails ([ADR 0025](adr/0025-desktop-owned-background-service.md)).
 - Closing or minimizing hides the window to the tray and leaves Imprint running, with a small floating button to open it again. Hidden, the dashboard leaves the taskbar, and on macOS the Dock; the floating button and Echo never show there. **Quit Imprint** (sidebar, tray, or the floating button's menu) stops the app and its background service.
-- The tray opens the dashboard, floats Echo or quits. The top bar's **Floating Echo** switch shows or hides Echo's window.
+- The tray opens the dashboard, floats Echo or quits; while “Hey Echo” is on, its first line says whether Imprint listens, with pause, resume and off. The top bar's **Floating Echo** switch shows or hides Echo's window.
 - The window's empty top bar and the sidebar header move it. While a dialog, menu or popover is open they do not, so the overlay stays usable ([ADR 0039](adr/0039-shadcn-overlays-and-desktop-drag-handles.md)).
 
 ## Design and tests

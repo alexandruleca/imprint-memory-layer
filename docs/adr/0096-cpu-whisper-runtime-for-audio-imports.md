@@ -3,9 +3,10 @@ title: ADR 0096 — CPU Whisper runtime for audio imports
 description: Pinned faster-whisper, CTranslate2 and PyAV wheels provide local multilingual transcription with explicit model downloads.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
 - Scope: transcription runtime/dependencies for audio ingestion
+- Amended by: [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — the English `tiny.en` model, pinned the same way, for the "Hey Echo" wake word, downloaded only when the user turns it on
 - Related: [ADR 0032](0032-one-onnx-runtime-per-environment.md), [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md), [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md)
 
 ## Context

@@ -7,6 +7,7 @@ import { CompanionToggle } from "@/components/companion-toggle";
 import { VoiceSetupIndicator } from "@/components/voice-setup";
 import { ActivityIndicator } from "@/components/activity-indicator";
 import { RecordingIndicator } from "@/components/recording-indicator";
+import { WakeIndicator } from "@/components/wake-indicator";
 
 /** App-wide controls above every page. In the frameless desktop window the
  * bar's empty space is a drag handle (globals.css). The handle is an empty
@@ -18,6 +19,7 @@ export function TopBar() {
     <header className="flex h-12 shrink-0 items-center justify-end gap-2 px-4 sm:px-6">
       {isElectron && <div className="app-drag h-full flex-1" />}
       <RecordingIndicator />
+      <WakeIndicator />
       <ActivityIndicator />
       <CompanionToggle />
       <VoiceSetupIndicator />

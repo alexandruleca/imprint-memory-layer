@@ -1,18 +1,19 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen, desktopCapturer, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen, desktopCapturer, dialog, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
 const { execFile } = require('node:child_process');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
-const { voicePage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
+const { voicePage, listenerPage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
   requestMicrophoneAccess, microphoneSettingsURL, systemAudioCapture } = require('./voice-permissions');
 const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage, dockCompanion, orbSide, haloLayout } = require('./companion');
 const { desktopRuntime } = require('./runtime');
 const { readActivity, describeActivity } = require('./activity');
 const { IDLE, recorderState: checkedRecorderState, recordingStart, recorderLevels } = require('./recording-relay');
+const { WAKE_FILE, HOUR, wakeIntent, readWakeIntent, wakeChoice, pauseReason, wakeLabel } = require('./wake');
 
 // `imprint ui open` resolves installation paths and launches the shell first.
 // Packaged apps have no script argument; dropping argv[1] loses the first
@@ -194,6 +195,7 @@ function showError(error) {
   companionWin?.destroy();
   closeHalo();
   if (recorder.phase !== 'idle') setRecorder(IDLE);
+  reconcileWake();
   updateStartup();
 }
 
@@ -227,6 +229,7 @@ async function openDashboard(id) {
   window.show();
   window.focus();
   startupWin?.destroy();
+  reconcileWake();
 }
 
 async function start() {
@@ -359,7 +362,7 @@ ipcMain.on('launcher-menu', event => {
     { label: echo ? 'Collapse Echo' : 'Show Echo', accelerator: SHORTCUT, click: echo ? collapseCompanion : recoverCompanion },
     recorder.phase === 'recording' ? { label: 'Stop recording', click: stopRecorder }
       : { label: 'New recording…', enabled: recorder.phase === 'idle', click: () => void openHalo('record') },
-    { type: 'separator' }, { label: 'Quit Imprint', click: () => app.quit() }]).popup({ window: launcherWin });
+    { type: 'separator' }, ...wakeMenu(), { label: 'Quit Imprint', click: () => app.quit() }]).popup({ window: launcherWin });
 });
 // Alt+arrow keys move the orb from the keyboard.
 ipcMain.on('launcher-nudge', (event, delta) => {
@@ -425,7 +428,7 @@ function trustedHalo(event) {
 }
 function launcherState() {
   return { ring: halo?.kind === 'ring', panel: halo && halo.kind !== 'ring' ? halo.kind : null,
-    echo: echoVisible(), echoSide: floatingGroup() ? echoSide : 0, recorder, activity: launcherActivity };
+    echo: echoVisible(), echoSide: floatingGroup() ? echoSide : 0, recorder, activity: launcherActivity, wake: wakeView() };
 }
 function notifyLauncher() {
   if (launcherWin && !launcherWin.isDestroyed()) launcherWin.webContents.send('launcher-state', launcherState());
@@ -549,6 +552,7 @@ function setRecorder(state) {
     if (window && !window.isDestroyed()) window.webContents.send('recorder-state', recorder);
   }
   notifyLauncher();
+  reconcileWake();
 }
 function stopRecorder() {
   if (recorder.phase === 'recording' && win && !win.isDestroyed()) win.webContents.send('recorder-command', { type: 'stop' });
@@ -574,14 +578,186 @@ ipcMain.on('launcher-record', (event, value) => {
 });
 ipcMain.on('launcher-record-stop', event => { if (trustedLauncher(event) || trustedHalo(event)) stopRecorder(); });
 
+// "Hey Echo" (ADR 0137). While the user's choice, the app and the moment allow,
+// a hidden window listens; every indicator (the orb's ear dot, the dashboard's
+// top-bar chip, the tray line) follows whether that window exists.
+const WAKE_PAGE = () => `${UI_ORIGIN}/wake/`;
+const wake = { intent: readWakeIntent(() => fs.readFileSync(path.join(app.getPath('userData'), WAKE_FILE), 'utf8')),
+  win: null, blocked: '', retryAt: 0, timer: null, session: null, checking: false, heard: 0 };
+const system = { locked: false, asleep: false, onBattery: false, thermal: 'nominal' };
+const echoMicrophones = new Map(); // a voice page's webContents → its cleanup, while its microphone is on
+
+function saveWakeIntent() {
+  try {
+    const directory = app.getPath('userData');
+    fs.mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, WAKE_FILE);
+    fs.writeFileSync(file + '.tmp', JSON.stringify(wake.intent), { mode: 0o600 });
+    fs.renameSync(file + '.tmp', file);
+  } catch { /* The choice holds for this run even if it cannot be kept. */ }
+}
+function wakeListening() { return !!wake.win && !wake.win.isDestroyed(); }
+function wakeReason() {
+  return pauseReason({ intent: wake.intent, blocked: !!wake.blocked, phase, now: Date.now(), recording: recorder.phase !== 'idle',
+    conversation: echoMicrophones.size > 0, locked: system.locked, asleep: system.asleep, onBattery: system.onBattery,
+    thermal: system.thermal, retryAt: wake.retryAt });
+}
+function wakeView() {
+  return { enabled: wake.intent.enabled, listening: wakeListening(), reason: wakeReason(), pausedUntil: wake.intent.pausedUntil,
+    battery: wake.intent.battery, problem: wake.blocked, checking: wakeListening() && wake.checking, heard: wake.heard };
+}
+function notifyWake() {
+  const view = wakeView();
+  for (const window of [win, companionWin]) {
+    if (window && !window.isDestroyed()) window.webContents.send('wake-state', view);
+  }
+  notifyLauncher();
+  refreshTray(true);
+}
+function reconcileWake() {
+  if (quitting) return;
+  clearTimeout(wake.timer); wake.timer = null;
+  const reason = wakeReason();
+  // A wake hands its question over before the listener goes.
+  const handover = wake.session && !wake.session.delivered;
+  if (!reason && !wakeListening()) openWakeListener();
+  else if (reason && wakeListening() && !handover) wake.win.destroy();
+  // Look again when a pause or a retry ends.
+  const next = [wake.intent.pausedUntil, wake.retryAt].filter(at => at > Date.now());
+  if (wake.intent.enabled && next.length) {
+    wake.timer = setTimeout(reconcileWake, Math.min(...next) - Date.now() + 50);
+    wake.timer?.unref?.();
+  }
+  notifyWake();
+}
+function openWakeListener() {
+  const window = new BrowserWindow({ ...windowOptions, width: 160, height: 90, title: 'Imprint listener', skipTaskbar: true, focusable: false,
+    // Never shown: it must keep its audio running and start it without a click.
+    webPreferences: { ...windowOptions.webPreferences, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' } });
+  wake.win = window; wake.checking = false;
+  window.on('closed', () => { if (wake.win === window) { wake.win = null; wake.checking = false; notifyWake(); } });
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => { if (url !== WAKE_PAGE()) event.preventDefault(); });
+  window.webContents.on('render-process-gone', () => retryWake());
+  window.loadURL(WAKE_PAGE()).catch(() => { if (wake.win === window) retryWake(); });
+}
+// The service went away or the page failed: try again in a while.
+function retryWake() {
+  wake.retryAt = Date.now() + 30000;
+  if (wakeListening()) wake.win.destroy();
+  reconcileWake();
+}
+function sendWakePower() {
+  if (wakeListening()) wake.win.webContents.send('wake-listener-config', { battery: system.onBattery });
+}
+function controlWake(action) {
+  if (!wake.intent.enabled) return;
+  if (action === 'pause') wake.intent = { ...wake.intent, pausedUntil: Date.now() + HOUR };
+  else if (action === 'resume') wake.intent = { ...wake.intent, pausedUntil: 0 };
+  else if (action === 'off') wake.intent = { ...wake.intent, enabled: false, pausedUntil: 0 };
+  else return;
+  saveWakeIntent(); reconcileWake();
+}
+function wakeMenu() {
+  if (!wake.intent.enabled) return [];
+  return [{ label: wakeLabel(wakeView()), enabled: false },
+    wake.intent.pausedUntil > Date.now() ? { label: 'Resume listening', click: () => controlWake('resume') }
+      : { label: 'Pause listening for 1 hour', click: () => controlWake('pause') },
+    { label: 'Turn off “Hey Echo”', click: () => controlWake('off') }, { type: 'separator' }];
+}
+function trustedWakeListener(event) {
+  return wakeListening() && wake.win.webContents === event.sender
+    && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
+    && listenerPage(event.sender.getURL(), UI_ORIGIN);
+}
+// On "Hey Echo", Echo appears without taking focus and starts at once; the
+// rest of the sentence follows as its first question. Afterwards Echo goes
+// back where it was: folded, closed or open.
+async function startWakeSession(id) {
+  if (wake.session || quitting || phase !== 'ready') return;
+  const before = !companionWin || companionWin.isDestroyed() ? 'closed' : echoVisible() ? 'open' : 'folded';
+  const session = wake.session = { id, before, text: null, delivered: false, timer: null };
+  // Without its question in 35 s, the listener goes anyway.
+  session.timer = setTimeout(() => { if (wake.session === session && !session.delivered) { session.delivered = true; reconcileWake(); } }, 35000);
+  session.timer?.unref?.();
+  wake.heard = Date.now();
+  notifyWake();
+  await openCompanion(false, true);
+  if (wake.session === session) companionWin?.webContents.send('voice-wake', { type: 'start', id });
+}
+function deliverWakeQuestion(text) {
+  const session = wake.session;
+  session.text = text; session.delivered = true; clearTimeout(session.timer);
+  companionWin?.webContents.send('voice-wake', { type: 'question', id: session.id, text });
+  reconcileWake();
+}
+function endWakeSession(restore) {
+  const session = wake.session;
+  if (!session) return;
+  wake.session = null; clearTimeout(session.timer);
+  if (restore && session.before === 'folded') collapseCompanion();
+  else if (restore && session.before === 'closed' && companionWin) { saveCompanionBounds(); companionWin.destroy(); }
+  reconcileWake();
+}
+ipcMain.handle('wake-listener-config', event => trustedWakeListener(event) ? { battery: system.onBattery } : null);
+ipcMain.on('wake-listener', (event, report) => {
+  if (!trustedWakeListener(event) || !report || typeof report !== 'object') return;
+  if (report.type === 'listening') wake.retryAt = 0;
+  else if (report.type === 'checking') { wake.checking = report.on === true; notifyLauncher(); }
+  else if (report.type === 'heard' && Number.isSafeInteger(report.id)) void startWakeSession(report.id);
+  else if (report.type === 'question' && wake.session && wake.session.id === report.id && typeof report.text === 'string') {
+    deliverWakeQuestion(report.text.slice(0, 2000));
+  } else if (report.type === 'error') {
+    // A refused or missing microphone, or a missing model, waits for the user; anything else is tried again.
+    if (report.kind !== 'microphone' && report.kind !== 'model') { retryWake(); return; }
+    wake.blocked = typeof report.message === 'string' && report.message ? report.message.slice(0, 400) : 'The microphone is unavailable.';
+    wake.win.destroy();
+    reconcileWake();
+  }
+});
+ipcMain.handle('voice-wake-state', event => trustedVoiceSender(event) || trustedDashboardSender(event) || trustedLauncher(event) ? wakeView() : null);
+// Turning it on comes from Echo's settings after the explanation and the OS consent step.
+ipcMain.handle('voice-wake-set', (event, value) => {
+  const choice = trustedVoiceSender(event) && wakeChoice(value);
+  if (!choice) return null;
+  wake.intent = wakeIntent({ ...wake.intent, ...choice, pausedUntil: 0 });
+  if (choice.enabled) { wake.blocked = ''; wake.retryAt = 0; }
+  saveWakeIntent(); reconcileWake();
+  return wakeView();
+});
+ipcMain.on('wake-control', (event, action) => {
+  if (trustedDashboardSender(event) || (companionWin?.webContents === event.sender && trustedVoiceSender(event))) controlWake(action);
+});
+ipcMain.on('voice-microphone-state', (event, on) => {
+  if (typeof on !== 'boolean' || !trustedVoiceSender(event)) return;
+  const contents = event.sender;
+  if (on && !echoMicrophones.has(contents)) {
+    const gone = () => { if (echoMicrophones.delete(contents)) reconcileWake(); };
+    echoMicrophones.set(contents, gone);
+    contents.once?.('destroyed', gone); contents.once?.('did-navigate', gone);
+  } else if (!on && echoMicrophones.has(contents)) {
+    const gone = echoMicrophones.get(contents);
+    echoMicrophones.delete(contents);
+    contents.removeListener?.('destroyed', gone); contents.removeListener?.('did-navigate', gone);
+  } else return;
+  reconcileWake();
+});
+ipcMain.handle('voice-wake-session', event => companionWin?.webContents === event.sender && trustedVoiceSender(event) && wake.session
+  ? { id: wake.session.id, text: wake.session.text } : null);
+ipcMain.on('voice-wake-done', (event, value) => {
+  if (companionWin?.webContents !== event.sender || !trustedVoiceSender(event) || !wake.session || value?.id !== wake.session.id) return;
+  endWakeSession(value.restore === true);
+});
+
 // The tray says what the running job is doing (ADR 0089): in its tooltip, as
 // the first line of its menu, which Linux trays show when they skip tooltips,
 // and on macOS as the percentage beside the menu bar icon.
-let trayActivity = null;
+let trayKey = null;
 
 function trayMenu(activity) {
   return Menu.buildFromTemplate([
     ...(activity ? [{ label: activity, enabled: false }, { type: 'separator' }] : []),
+    ...wakeMenu(),
     { label: 'Open Dashboard', click: showWindow },
     { label: 'Float Echo', accelerator: SHORTCUT, click: recoverCompanion },
     { type: 'separator' },
@@ -589,13 +765,16 @@ function trayMenu(activity) {
   ]);
 }
 
-function refreshTray() {
+function refreshTray(force = false) {
   if (!tray) return;
   const record = readActivity(dataDir);
   const activity = record ? describeActivity(record) : '';
-  if (activity === trayActivity) return;
-  trayActivity = activity;
-  tray.setToolTip(activity ? `Imprint · ${activity}` : 'Imprint');
+  // The tray also says whether Imprint is listening for "Hey Echo" (ADR 0137).
+  const listening = wakeLabel(wakeView());
+  const key = JSON.stringify([activity, listening]);
+  if (key === trayKey && force !== true) return;
+  trayKey = key;
+  tray.setToolTip(['Imprint', activity, listening].filter(Boolean).join(' · '));
   tray.setContextMenu(trayMenu(activity));
   if (process.platform === 'darwin') {
     tray.setTitle(record?.total > 0 ? ` ${Math.floor((100 * Math.min(record.processed, record.total)) / record.total)}%` : '');
@@ -632,9 +811,10 @@ function trustedDashboardSender(event) {
 // Enable microphone asks the OS first (ADR 0069). Consent can take as long as the
 // user leaves the dialog open, so the sender is checked again afterwards.
 ipcMain.handle('voice-microphone-access', async event => {
-  if (!trustedVoiceSender(event)) return { status: 'denied' };
+  const trusted = () => trustedVoiceSender(event) || trustedWakeListener(event);
+  if (!trusted()) return { status: 'denied' };
   const result = await requestMicrophoneAccess(process.platform, systemPreferences);
-  return trustedVoiceSender(event) ? result : { status: 'denied' };
+  return trusted() ? result : { status: 'denied' };
 });
 ipcMain.handle('voice-microphone-settings', async event => {
   const url = microphoneSettingsURL(process.platform);
@@ -657,13 +837,15 @@ function collapseCompanion() {
   if (!echoVisible()) return;
   saveCompanionBounds(); companionWin.hide(); notifyCompanion();
 }
-async function openCompanion(recover = false) {
+// `inactive` shows Echo without taking focus from the app the user is in (a wake, ADR 0137).
+async function openCompanion(recover = false, inactive = false) {
   if (quitting || phase !== 'ready') return;
   if (companionWin) {
     companionWin.setBounds(fitBounds(companionWin.getBounds(), companionArea(recover ? null : companionWin.getBounds()), recover));
     if (companionWin.isMinimized()) companionWin.restore();
     if (recover && process.platform === 'darwin') app.focus?.({ steal: true });
-    companionWin.show(); companionWin.moveTop(); companionWin.focus();
+    if (inactive) companionWin.showInactive();
+    else { companionWin.show(); companionWin.moveTop(); companionWin.focus(); }
     saveCompanionBounds(); dockFloatingGroup(); notifyCompanion(); return;
   }
   const saved = savedCompanionBounds();
@@ -677,7 +859,7 @@ async function openCompanion(recover = false) {
   companionPinned = false;
   notifyCompanion();
   window.on('close', () => saveCompanionBounds(window));
-  window.on('closed', () => { if (companionWin === window) companionWin = null; companionDrag = null; notifyCompanion(); });
+  window.on('closed', () => { if (companionWin === window) companionWin = null; companionDrag = null; notifyCompanion(); endWakeSession(false); });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (externalURL(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -688,7 +870,10 @@ async function openCompanion(recover = false) {
   window.webContents.on('render-process-gone', () => window.destroy());
   try {
     await window.loadURL(`${UI_ORIGIN}/companion/`);
-    if (!quitting && !window.isDestroyed()) { window.show(); window.focus(); dockFloatingGroup(); notifyCompanion(); }
+    if (!quitting && !window.isDestroyed()) {
+      if (inactive) window.showInactive(); else { window.show(); window.focus(); }
+      dockFloatingGroup(); notifyCompanion();
+    }
   } catch { if (!window.isDestroyed()) window.destroy(); }
 }
 ipcMain.handle('voice-companion-state', event => trustedDashboardSender(event)
@@ -825,7 +1010,7 @@ app.on('before-quit', event => {
   startupWin?.hide();
   // Releasing this renderer also closes its mic/socket on a reused daemon.
   saveCompanionBounds(); companionWin?.destroy();
-  saveCompanionBounds(launcherWin, 'launcher-window.json'); launcherWin?.destroy(); haloWin?.destroy();
+  saveCompanionBounds(launcherWin, 'launcher-window.json'); launcherWin?.destroy(); haloWin?.destroy(); wake.win?.destroy();
   Promise.resolve(service?.stop()).finally(() => {
     cleanupFinished = true;
     app.quit();
@@ -852,10 +1037,10 @@ app.whenReady().then(() => {
   });
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(true); return; }
-    if (!audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(false); return; }
+    if (!audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin], wake.win)) { callback(false); return; }
     if (process.platform !== 'darwin') { callback(true); return; }
     void macMicrophoneConsent(systemPreferences).then(granted => {
-      callback(granted && audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin]));
+      callback(granted && audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin], wake.win));
     }).catch(() => callback(false));
   });
   // Meeting recordings take the system's audio without a picker; any other
@@ -869,9 +1054,20 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
     if (!sameOrigin(requestingOrigin, UI_ORIGIN)) return false;
     if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) return true;
-    return audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin])
+    return audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin], wake.win)
       && (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('microphone') === 'granted');
   });
+  // Listening for "Hey Echo" pauses while the screen is locked or the computer
+  // sleeps, and on battery when the user chose that (ADR 0137).
+  system.onBattery = powerMonitor?.isOnBatteryPower?.() === true;
+  const power = (name, change) => powerMonitor?.on?.(name, (...args) => { change(...args); reconcileWake(); });
+  power('lock-screen', () => { system.locked = true; });
+  power('unlock-screen', () => { system.locked = false; });
+  power('suspend', () => { system.asleep = true; });
+  power('resume', () => { system.asleep = false; });
+  power('on-battery', () => { system.onBattery = true; sendWakePower(); });
+  power('on-ac', () => { system.onBattery = false; sendWakePower(); });
+  power('thermal-state-change', (event, state) => { system.thermal = typeof state === 'string' ? state : event?.state || 'unknown'; });
   // Display the splash before probing or starting Python.
   showStartup();
   try { createTray(); } catch (err) { console.warn('Tray unavailable:', err.message); }

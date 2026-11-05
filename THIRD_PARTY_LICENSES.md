@@ -21,6 +21,8 @@ Split across [requirements/base.txt](requirements/base.txt), the CPU build of ON
 | `fastmcp` | Apache 2.0 | base | https://github.com/jlowin/fastmcp |
 | `qdrant-client` | Apache 2.0 | base | https://github.com/qdrant/qdrant-client |
 | `onnxruntime` | MIT | cpu | https://github.com/microsoft/onnxruntime |
+| `faster-whisper` (including its bundled Silero VAD v6 model, MIT) | MIT | cpu | https://github.com/SYSTRAN/faster-whisper (Silero: https://github.com/snakers4/silero-vad) |
+| `ctranslate2` | MIT | cpu | https://github.com/OpenNMT/CTranslate2 |
 | `tokenizers` | Apache 2.0 | base | https://github.com/huggingface/tokenizers |
 | `huggingface-hub` | Apache 2.0 | base | https://github.com/huggingface/huggingface_hub |
 | `numpy` | BSD-3-Clause | base | https://github.com/numpy/numpy |
@@ -79,6 +81,7 @@ obscura is an external CLI binary that provides JS-rendered HTML extraction for 
 | BGE-M3 (alternative) | MIT | https://huggingface.co/BAAI/bge-m3 |
 | OpenAI Privacy Filter (opt-in, `redact.privacy_filter`) | Apache-2.0 | https://huggingface.co/openai/privacy-filter (code: https://github.com/openai/privacy-filter) |
 | Model2Vec static embedder (used by chunker) | MIT | https://huggingface.co/minishlab |
+| Whisper `tiny.en`, CTranslate2 conversion (opt-in: downloaded when the user turns on "Hey Echo") | MIT | https://huggingface.co/Systran/faster-whisper-tiny.en (pinned revision in [`imprint/wake.py`](imprint/wake.py); original weights: https://github.com/openai/whisper) |
 
 **Gemma is not Apache/MIT.** Users accept the Gemma Terms when downloading weights from HuggingFace. Imprint does not redistribute Gemma weights in source or Docker images. Switch to a differently-licensed model via `imprint config set model.name <repo>`.
 

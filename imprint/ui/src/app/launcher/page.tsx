@@ -17,6 +17,8 @@ export default function Launcher() {
   const [state, setState] = useState<LauncherState | null>(null);
   const [seenError, setSeenError] = useState("");
   const [announcement, setAnnouncement] = useState("");
+  // When "Hey Echo" was last heard, to play the rim's pulse once (ADR 0137).
+  const [pulse, setPulse] = useState(0);
   // Say what changed, once, for screen readers.
   const { recorder, levels } = useLauncherRecorder((next, previous) => {
     if (next.phase === previous.phase) return;
@@ -39,11 +41,14 @@ export default function Launcher() {
   useEffect(() => { if (host.current) host.current.dataset.ready = "true"; }, []);
   useEffect(() => {
     const api = window.electronAPI;
-    let alive = true, echo: boolean | null = null;
+    let alive = true, echo: boolean | null = null, heard: number | null = null;
     const update = (next: LauncherState) => {
       if (!alive) return;
       if (echo !== null && echo !== next.echo) setAnnouncement(next.echo ? "Echo opened, microphone off" : "Echo collapsed, microphone off");
       echo = next.echo;
+      const lastHeard = next.wake?.heard ?? 0;
+      if (heard !== null && lastHeard !== heard && lastHeard) { setPulse(lastHeard); setAnnouncement("Heard “Hey Echo”"); }
+      heard = lastHeard;
       // An error is acknowledged once the user opens the ring after it.
       if (next.ring && currentError.current) setSeenError(currentError.current);
       setState(next);
@@ -53,6 +58,9 @@ export default function Launcher() {
     return () => { alive = false; unsubscribe?.(); };
   }, []);
   const warning = !!error && error !== seenError;
+  // The ear: filled while the hidden listener exists, hollow while paused, amber when it can't listen.
+  const wake = state?.wake;
+  const ear = !wake?.enabled ? "" : wake.listening ? "listening" : wake.reason === "blocked" ? "blocked" : "paused";
 
   const elapsed = recording ? (now - recorder.startedAt) / 1000 : 0;
   const activity = state?.activity ?? null;
@@ -63,9 +71,10 @@ export default function Launcher() {
   const name = recording ? `Imprint. Recording, ${minutes ? spokenDuration(minutes * 60).replace(/ 0 seconds$/, "") : "under a minute"}`
     : warning ? "Imprint. Recording stopped, open for details"
     : activity ? `Imprint. ${activity.text}${activity.percent === null ? "" : `, ${activity.percent} percent`}` : "Imprint";
+  const label = ear === "listening" ? `${name}. Listening for Hey Echo` : name;
   const tooltip = recording ? `Recording ${clock(elapsed)} · click to stop or see levels`
     : warning ? `Recording stopped: ${error}`
-    : `Imprint${activity ? ` · ${activity.text}` : ""} · click for actions · double-click for the dashboard · drag to move`;
+    : `Imprint${activity ? ` · ${activity.text}` : ""}${ear === "listening" ? " · listening for “Hey Echo”" : ear ? " · “Hey Echo” paused" : ""} · click for actions · double-click for the dashboard · drag to move`;
 
   function endPress() {
     start.current = null;
@@ -89,7 +98,8 @@ export default function Launcher() {
             transform={`rotate(${state.echoSide > 0 ? -18 : 162} 36 36)`} />
         )}
       </svg>
-      <button type="button" className="orb" aria-label={name} title={tooltip} aria-haspopup="menu" aria-expanded={!!state?.ring}
+      {pulse > 0 && <span key={pulse} className="orb-wake-pulse" aria-hidden="true" />}
+      <button type="button" className="orb" aria-label={label} title={tooltip} aria-haspopup="menu" aria-expanded={!!state?.ring}
         aria-describedby="orb-help"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
@@ -143,6 +153,7 @@ export default function Launcher() {
         {recording ? <span className={`orb-timer ${elapsed >= 3600 ? "orb-timer-long" : ""}`}>{clock(elapsed)}</span> : <LogoMark className="size-7" />}
       </button>
       {warning && <span className="orb-badge" aria-hidden="true">!</span>}
+      {ear && <span className="orb-ear" data-state={ear} data-checking={wake?.checking || undefined} aria-hidden="true" />}
       <span id="orb-help" hidden>Press Enter for actions. Alt and the arrow keys move the button.</span>
       <div role="status" aria-live="polite" className="sr-only">{announcement}</div>
     </div>

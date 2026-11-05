@@ -248,6 +248,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "How Echo, the voice companion, looks and sounds: \"echo\" (the default) is a synaptic core with a robotic voice, \"iris\" has a female voice and \"kai\" a male one. It changes appearance and voice only, not the answers, from the next voice session.",
         "example": "\"iris\": if you prefer a natural female voice to the robotic one.",
     },
+    "voice.wake.idle_seconds": {
+        "help": "How long, in seconds, a conversation that \"Hey Echo\" started waits for you to speak again after Echo's reply, before it ends and Echo goes back where it was (15 by default, 5 to 120). Only wake-started conversations end this way; saying \"stop\" or \"that's all\" ends one at once. Turning \"Hey Echo\" on or off is a choice in Echo's settings in the desktop app, not a setting here.",
+        "example": "30: if you often pause to think before a follow-up question.",
+    },
     # ── Chat ─────────────────────────────────────────────────────────────
     "chat.provider": {
         "help": "Which model answers in chat. \"local\" (the default) runs a bundled llama.cpp model on this computer, and nothing leaves the machine. \"ollama\" and \"vllm\" use a model server you run, on localhost by default. \"anthropic\", \"openai\" and \"gemini\" send your messages, the system prompt (which includes this device's name and working directory) and the memory excerpts chat looks up to that company, and need ANTHROPIC_API_KEY, OPENAI_API_KEY or GOOGLE_API_KEY in the environment. Voice conversations with the chat engine need \"local\".",

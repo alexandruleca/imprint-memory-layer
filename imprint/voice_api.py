@@ -12,6 +12,7 @@ import re
 import secrets
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -19,7 +20,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 import httpx
 
-from . import config, config_schema, lfm_audio as lfm, voice_runtime, voice_setup
+from . import config, config_schema, lfm_audio as lfm, voice_runtime, voice_setup, wake
 from .http_security import local_host, local_origin, loopback_address
 from .voice_memory import INSTRUCTIONS, VoiceMemoryError, _json
 
@@ -456,6 +457,11 @@ async def stream(websocket: WebSocket):
                     if not question or len(question) > 2000:
                         raise VoiceMemoryError("I didn't catch a short question. Please try again.")
                     await emit({"type": "user", "text": question})
+                    # A conversation "Hey Echo" started ends when asked to (ADR 0137);
+                    # the request never reaches the reasoning model.
+                    if message.get("wake") is True and wake.end_phrase(question):
+                        await emit({"type": "end"})
+                        return
                     await emit({"type": "state", "state": "thinking"})
                     answer = ""
                     if engine == "lfm":
@@ -562,6 +568,7 @@ async def stream(websocket: WebSocket):
             elif kind == "turn":
                 identifier = message.get("id")
                 if (type(identifier) is not int or identifier <= turn_id
+                        or type(message.get("wake", False)) is not bool
                         or not isinstance(message.get("text", ""), str)
                         or not isinstance(message.get("audio", ""), str)
                         or bool(message.get("text", "").strip()) == bool(message.get("audio"))
@@ -591,7 +598,318 @@ async def stream(websocket: WebSocket):
             await websocket.close()
 
 
+# ── "Hey Echo" (ADR 0137) ─────────────────────────────────────────────────
+# The desktop app's hidden listener sends the first 2 s of each burst of speech
+# here; a low-priority worker process answers yes or no. Probes stay in memory.
+WAKE_PROBE_TEXT = 4 * ((44 + int(wake.PROBE_SECONDS * wake.RATE) * 2 + 2) // 3)
+WAKE_UTTERANCE_TEXT = 4 * ((44 + wake.UTTERANCE_SECONDS * wake.RATE * 2 + 2) // 3)
+WAKE_ANSWER_TIMEOUT = 20
+WAKE_FOLLOW = 35  # seconds a positive probe waits for the rest of its utterance
+WAKE_START_TIMEOUT = 60
+
+
+class WakeCancelled(Exception):
+    pass
+
+
+class WakeSetup:
+    """The model download behind Turn on, with real byte progress."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.thread: threading.Thread | None = None
+        self.cancelled = threading.Event()
+        self.state = {"stage": "idle", "downloaded": 0, "total": wake.TOTAL_BYTES, "problem": None}
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            return {**self.state, "busy": self.thread is not None}
+
+    def start(self) -> dict:
+        with self.lock:
+            if self.thread is None:
+                self.cancelled.clear()
+                self.state = {"stage": "downloading", "downloaded": 0, "total": wake.TOTAL_BYTES, "problem": None}
+                self.thread = threading.Thread(target=self._run, daemon=True, name="wake-model-download")
+                self.thread.start()
+        return self.snapshot()
+
+    def _progress(self, phase, done=0, total=0, unit="bytes") -> None:
+        if self.cancelled.is_set():
+            raise WakeCancelled()
+        if phase == "downloading_transcription_model":
+            with self.lock:
+                self.state["downloaded"] = max(0, min(wake.TOTAL_BYTES, int(done)))
+
+    def _run(self) -> None:
+        stage, problem = "ready", None
+        try:
+            wake.download(progress=self._progress)
+        except WakeCancelled:
+            stage = "cancelled"
+        except ValueError as error:
+            stage, problem = "error", "disk" if "space" in str(error) else "damaged" if "Damaged" in str(error) else "download"
+        except Exception:  # noqa: BLE001 — network and file errors end as a retryable failure
+            stage, problem = "error", "download"
+        with self.lock:
+            self.state.update(stage=stage, problem=problem,
+                              downloaded=wake.TOTAL_BYTES if stage == "ready" else self.state["downloaded"])
+            self.thread = None
+
+    def cancel(self) -> dict:
+        self.cancelled.set()
+        return self.snapshot()
+
+
+class WakeWorker:
+    """The owned worker process (imprint/wake_worker.py), one at a time."""
+    def __init__(self):
+        self.process: subprocess.Popen | None = None
+        self.events: asyncio.Queue | None = None
+
+    async def start(self) -> None:
+        loop = asyncio.get_running_loop()
+        self.events = asyncio.Queue()
+        environment = voice_runtime.child_environment()
+        environment.update(IMPRINT_DATA_DIR=str(config.get_data_dir().resolve()), OMP_NUM_THREADS="1")
+        options = voice_runtime.child_options()
+        if os.name == "nt":
+            options["creationflags"] |= subprocess.BELOW_NORMAL_PRIORITY_CLASS
+        self.process = subprocess.Popen(
+            [sys.executable, "-m", "imprint.wake_worker"], cwd=Path(__file__).resolve().parent.parent,
+            env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **options)
+        process, events = self.process, self.events
+
+        def read() -> None:
+            try:
+                for line in iter(lambda: process.stdout.readline(1_000_000), b""):
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(event, dict):
+                        loop.call_soon_threadsafe(events.put_nowait, event)
+            except (OSError, ValueError):
+                pass
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(events.put_nowait, None)
+
+        threading.Thread(target=read, daemon=True, name="wake-worker-output").start()
+        try:
+            first = await asyncio.wait_for(events.get(), WAKE_START_TIMEOUT)
+        except TimeoutError:
+            first = None
+        if not first or first.get("ready") is not True:
+            await self.stop()
+            raise VoiceMemoryError((first or {}).get("error") or "The wake listener could not start.")
+
+    async def ask(self, message: dict, timeout: float) -> dict:
+        assert self.process is not None and self.process.stdin is not None and self.events is not None
+        line = (json.dumps(message) + "\n").encode()
+        stdin = self.process.stdin
+
+        def write() -> None:
+            stdin.write(line)
+            stdin.flush()
+        try:
+            await asyncio.to_thread(write)
+            while True:
+                event = await asyncio.wait_for(self.events.get(), timeout)
+                if event is None or ("error" in event and "id" not in event):
+                    raise VoiceMemoryError("The wake listener stopped.")
+                if event.get("id") == message["id"]:
+                    return event
+        except (OSError, ValueError, TimeoutError):
+            raise VoiceMemoryError("The wake listener stopped.") from None
+
+    async def stop(self) -> None:
+        process, self.process = self.process, None
+        if not process:
+            return
+        if process.stdin:
+            with contextlib.suppress(OSError):
+                process.stdin.close()
+        try:
+            await asyncio.to_thread(process.wait, timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            await asyncio.to_thread(process.wait)
+        if process.stdout:
+            with contextlib.suppress(OSError):
+                process.stdout.close()
+
+
+class WakeSessions:
+    def __init__(self):
+        self.leases: dict[str, dict] = {}
+        self.active = False
+        self.worker: WakeWorker | None = None
+
+    def issue(self, origin: str, battery: bool) -> str:
+        now = time.monotonic()
+        self.leases = {key: value for key, value in self.leases.items() if value["expires"] > now}
+        if len(self.leases) >= 4:
+            raise HTTPException(429, "Too many pending wake sessions")
+        token = secrets.token_urlsafe(32)
+        self.leases[token] = {"origin": origin, "battery": battery, "expires": now + 30}
+        return token
+
+    def consume(self, token: str, origin: str) -> dict | None:
+        lease = self.leases.pop(token, None)
+        return lease if lease and lease["expires"] > time.monotonic() and lease["origin"] == origin else None
+
+
+wake_setup = WakeSetup()
+wake_sessions = WakeSessions()
+
+
+def wake_idle_seconds() -> int:
+    try:
+        return max(5, min(120, int(config_schema.resolve("voice.wake.idle_seconds")[0])))
+    except (TypeError, ValueError):
+        return 15
+
+
+def wake_status() -> dict:
+    return {"installed": wake.installed(), "model": "tiny.en", "bytes": wake.TOTAL_BYTES,
+            "setup": wake_setup.snapshot(), "listening": wake_sessions.active, "idle_seconds": wake_idle_seconds()}
+
+
+@router.get("/wake/status")
+def wake_status_route(request: Request):
+    check_setup_origin(request)
+    return wake_status()
+
+
+@router.post("/wake/setup")
+async def wake_setup_start(request: Request):
+    """Turn on's download of the pinned wake model; never started by itself."""
+    check_setup_origin(request, mutate=True)
+    await empty_setup_body(request)
+    if not wake.installed():
+        wake_setup.start()
+    return wake_status()
+
+
+@router.post("/wake/setup/cancel")
+async def wake_setup_cancel(request: Request):
+    check_setup_origin(request, mutate=True)
+    await empty_setup_body(request)
+    wake_setup.cancel()
+    return wake_status()
+
+
+@router.post("/wake/sessions")
+async def create_wake_session(request: Request):
+    origin = request.headers.get("origin", f"http://{request.headers.get('host', '')}")
+    if (not request.client or not loopback_address(request.client.host)
+            or origin != f"http://{request.headers.get('host', '')}" or not local_origin(origin)):
+        raise HTTPException(403, "Listening requires the local dashboard origin")
+    body = await request.body()
+    if len(body) > 256:
+        raise HTTPException(413, "Wake session request is too large")
+    try:
+        payload = json.loads(body or b"{}")
+        battery = payload.get("battery", False)
+        if type(battery) is not bool:
+            raise ValueError()
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Invalid wake session request") from None
+    if not wake.installed():
+        raise HTTPException(409, "Turn on “Hey Echo” to download its model first")
+    return {"token": wake_sessions.issue(origin, battery), "expires_in": 30}
+
+
+@router.websocket("/wake/stream")
+async def wake_stream(websocket: WebSocket):
+    if not check_socket(websocket):
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    owned = False
+    worker: WakeWorker | None = None
+
+    async def send(event):
+        await asyncio.wait_for(websocket.send_json(event), 5)
+
+    try:
+        auth = await asyncio.wait_for(websocket.receive_text(), 5)
+        payload = json.loads(auth) if len(auth) <= 512 else None
+        lease = wake_sessions.consume(payload.get("token", ""), websocket.headers["origin"]) \
+            if isinstance(payload, dict) and isinstance(payload.get("token"), str) else None
+        if not lease:
+            raise VoiceMemoryError("Wake session expired. Start listening again.")
+        if wake_sessions.active:
+            raise VoiceMemoryError("Another window is already listening.")
+        wake_sessions.active = owned = True
+        worker = wake_sessions.worker = WakeWorker()
+        await worker.start()
+        budget = wake.Budget(wake.BUDGET / 2 if lease["battery"] else wake.BUDGET)
+        positives: dict[int, float] = {}
+        last = 0
+        await send({"type": "ready"})
+        while True:
+            raw = await websocket.receive_text()
+            if len(raw) > WAKE_UTTERANCE_TEXT + 256:
+                raise VoiceMemoryError("Wake message exceeds its size limit.")
+            message = json.loads(raw)
+            if not isinstance(message, dict):
+                raise VoiceMemoryError("Invalid wake message.")
+            kind, identifier, audio = message.get("type"), message.get("id"), message.get("audio")
+            if kind == "power" and type(message.get("battery")) is bool:
+                budget.per_minute = wake.BUDGET / 2 if message["battery"] else wake.BUDGET
+                continue
+            if type(identifier) is not int or not isinstance(audio, str):
+                raise VoiceMemoryError("Invalid wake message.")
+            if kind == "probe":
+                quiet = message.get("quiet", 0)
+                if (identifier <= last or len(audio) > WAKE_PROBE_TEXT
+                        or type(quiet) not in (int, float) or not 0 <= quiet <= 86400):
+                    raise VoiceMemoryError("Invalid wake probe.")
+                last = identifier
+                if not budget.allows(quiet):
+                    await send({"type": "probe", "id": identifier, "wake": False, "skipped": True})
+                    continue
+                answer = await worker.ask({"id": identifier, "kind": "probe", "audio": audio}, WAKE_ANSWER_TIMEOUT)
+                cost = answer.get("cpu")
+                budget.spend(cost if type(cost) in (int, float) else 0.5)
+                woke = answer.get("wake") is True
+                if woke:
+                    positives = {key: value for key, value in positives.items()
+                                 if time.monotonic() - value <= WAKE_FOLLOW}
+                    positives[identifier] = time.monotonic()
+                await send({"type": "probe", "id": identifier, "wake": woke})
+            elif kind == "utterance":
+                started = positives.pop(identifier, None)
+                if started is None or time.monotonic() - started > WAKE_FOLLOW or len(audio) > WAKE_UTTERANCE_TEXT:
+                    raise VoiceMemoryError("Only an utterance that woke Echo is transcribed.")
+                answer = await worker.ask({"id": identifier, "kind": "utterance", "audio": audio}, 60)
+                text = answer.get("text")
+                await send({"type": "question", "id": identifier, "text": text[:2000] if isinstance(text, str) else ""})
+            else:
+                raise VoiceMemoryError("Unknown wake message.")
+    except (WebSocketDisconnect, TimeoutError, RuntimeError):
+        pass
+    except VoiceMemoryError as error:
+        with contextlib.suppress(Exception):
+            await send({"type": "error", "error": str(error)})
+    except (ValueError, TypeError, AttributeError):
+        with contextlib.suppress(Exception):
+            await send({"type": "error", "error": "Wake session unavailable. Start listening again."})
+    finally:
+        if worker:
+            await worker.stop()
+        if owned:
+            wake_sessions.active = False
+            wake_sessions.worker = None
+        with contextlib.suppress(Exception):
+            await websocket.close()
+
+
 async def shutdown() -> None:
     voice_setup.setup.cancel()
+    wake_setup.cancel()
     sessions.leases.clear()
+    wake_sessions.leases.clear()
     await sessions.worker.stop()
+    if wake_sessions.worker:
+        await wake_sessions.worker.stop()

@@ -60,6 +60,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('recorder-levels', levels);
     return () => { ipcRenderer.removeListener('recorder-state', state); ipcRenderer.removeListener('recorder-levels', levels); };
   },
+  // "Hey Echo" (ADR 0137): the choice, its state, and Echo's side of a wake.
+  getWakeState: () => ipcRenderer.invoke('voice-wake-state'),
+  onWakeState: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('wake-state', listener);
+    return () => ipcRenderer.removeListener('wake-state', listener);
+  },
+  setWake: choice => ipcRenderer.invoke('voice-wake-set', choice),
+  controlWake: action => ipcRenderer.send('wake-control', action),
+  reportMicrophone: on => ipcRenderer.send('voice-microphone-state', on),
+  getWakeSession: () => ipcRenderer.invoke('voice-wake-session'),
+  onWake: callback => {
+    const listener = (_event, event) => callback(event);
+    ipcRenderer.on('voice-wake', listener);
+    return () => ipcRenderer.removeListener('voice-wake', listener);
+  },
+  wakeDone: (id, restore) => ipcRenderer.send('voice-wake-done', { id, restore }),
+  // The hidden listener page.
+  wakeListenerConfig: () => ipcRenderer.invoke('wake-listener-config'),
+  onWakeListenerConfig: callback => {
+    const listener = (_event, config) => callback(config);
+    ipcRenderer.on('wake-listener-config', listener);
+    return () => ipcRenderer.removeListener('wake-listener-config', listener);
+  },
+  reportWakeListener: report => ipcRenderer.send('wake-listener', report),
   getCompanionState: () => ipcRenderer.invoke('voice-companion-state'),
   setCompanionVisible: enabled => ipcRenderer.invoke('voice-set-companion', enabled),
   onCompanionState: callback => {

@@ -28,6 +28,8 @@ import { getVersion } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import type { HaloLayout, LauncherRecorder, LauncherState } from "@/lib/launcher";
+import type { WakeView } from "@/lib/wake";
+import type { WakeReport } from "@/lib/wake-listener";
 
 declare global {
   interface Window {
@@ -73,6 +75,18 @@ declare global {
       setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       onCompanionState?: (callback: (state: { open: boolean; docked?: boolean; pinned: boolean }) => void) => () => void;
       watchCursor?: (callback: (point: { x: number; y: number }) => void) => () => void;
+      /** "Hey Echo" (ADR 0137). */
+      getWakeState?: () => Promise<WakeView | null>;
+      onWakeState?: (callback: (state: WakeView) => void) => () => void;
+      setWake?: (choice: { enabled: boolean; battery?: "listen" | "pause" }) => Promise<WakeView | null>;
+      controlWake?: (action: "pause" | "resume" | "off") => void;
+      reportMicrophone?: (on: boolean) => void;
+      getWakeSession?: () => Promise<{ id: number; text: string | null } | null>;
+      onWake?: (callback: (event: { type: "start"; id: number } | { type: "question"; id: number; text: string }) => void) => () => void;
+      wakeDone?: (id: number, restore: boolean) => void;
+      wakeListenerConfig?: () => Promise<{ battery: boolean } | null>;
+      onWakeListenerConfig?: (callback: (config: { battery: boolean }) => void) => () => void;
+      reportWakeListener?: (report: WakeReport) => void;
       /** The running job's progress record, which the app reads directly. */
       activity?: () => Promise<{ command: string; phase?: string; processed?: number; total?: number; unit?: string } | null>;
     };

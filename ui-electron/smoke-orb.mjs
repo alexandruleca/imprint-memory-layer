@@ -90,8 +90,10 @@ try {
 
   // Echo opens docked beside the orb, and folds back into it.
   await menu.getByRole('menuitem', { name: 'Show Echo' }).click();
-  const echo = await until(async () => { const w = await windowAt('/companion/'); return w?.visible && w; }, 'Echo');
-  assert.ok(Math.abs(echo.bounds.x - (orbBounds.x + 74)) <= 1 || Math.abs(echo.bounds.x + echo.bounds.width - (orbBounds.x - 2)) <= 1, JSON.stringify(echo.bounds));
+  // Native position reports can lag a move (ADR 0070), so wait for Echo to settle beside the orb.
+  const docked = ({ bounds }) => Math.abs(bounds.x - (orbBounds.x + 74)) <= 1 || Math.abs(bounds.x + bounds.width - (orbBounds.x - 2)) <= 1;
+  await until(async () => { const w = await windowAt('/companion/'); return w?.visible && docked(w); }, 'Echo docked beside the orb', 3000)
+    .catch(async error => { console.error('Echo at', JSON.stringify((await windowAt('/companion/'))?.bounds), 'orb at', JSON.stringify(orbBounds)); throw error; });
   await orb.locator('.orb-rim-notch').waitFor({ state: 'attached' });
   const companion = await page('/companion/');
   await companion.getByRole('button', { name: 'Collapse Echo into the Imprint button' }).click();

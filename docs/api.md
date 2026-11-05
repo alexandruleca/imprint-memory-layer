@@ -32,7 +32,26 @@ workspace, the reasoning `engine` (`chat` or `lfm`) and the voice of the
 `voice.avatar` look current when the session was created. The stream's `ready`
 event reports that `voice` and its `effect` (`robot` for Echo, otherwise
 `null`), which the dashboard applies to reply audio. A different look or engine
-takes a new session.
+takes a new session. A `turn` may carry `"wake": true` (a conversation "Hey Echo"
+started); a whole utterance like "stop" then ends it with an `end` event instead
+of an answer.
+
+The desktop app's "Hey Echo" listener ([ADR 0137](adr/0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md))
+uses `GET /api/voice/wake/status` (whether the pinned `tiny.en` model is
+installed, its download progress, whether a listener is connected, and
+`idle_seconds`), `POST /api/voice/wake/setup` and `POST /api/voice/wake/setup/cancel`
+(the model download, only on the user's Turn on; same-origin, empty body),
+`POST /api/voice/wake/sessions` (a one-use 30 s capability, body `{"battery": bool}`,
+`409` until the model is installed) and `WS /api/voice/wake/stream`. After the
+capability, the socket answers `{"type": "ready"}` once its worker has loaded;
+`{"type": "probe", "id", "audio", "quiet"}` (a base64 16 kHz mono PCM16 WAV of at
+most 2.5 s, ids increasing) gets `{"type": "probe", "id", "wake": bool}`, with
+`"skipped": true` when the per-minute CPU budget is spent;
+`{"type": "utterance", "id", "audio"}` (at most 30 s) is accepted only for a probe
+that woke, within 35 s, and gets `{"type": "question", "id", "text"}`;
+`{"type": "power", "battery": bool}` halves or restores the budget. One listener
+connects at a time; audio is never written and no transcript of a probe that
+did not wake is returned.
 
 The Imprint container runs a FastAPI server on port **8420**. Everything the
 built-in dashboard does — search, ingest, retag, graph walks, sync, chat — is

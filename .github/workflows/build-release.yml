@@ -113,6 +113,7 @@ jobs:
           grep -Fx /runtime.js /tmp/asar-files
           grep -Fx /activity.js /tmp/asar-files
           grep -Fx /recording-relay.js /tmp/asar-files
+          grep -Fx /wake.js /tmp/asar-files
           grep -Fx /voice-permissions.js /tmp/asar-files
           grep -Fx /startup.html /tmp/asar-files
           grep -Fx /startup.css /tmp/asar-files

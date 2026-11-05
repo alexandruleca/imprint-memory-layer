@@ -275,6 +275,73 @@ pages stop the microphone and connection; ordinary window blur only cancels a
 held push-to-talk recording, so a visible floating hands-free companion can remain
 useful while another application has focus.
 
+## Hey Echo
+
+In the desktop app, Echo can wake when you say **“Hey Echo”** (also “Hi Echo” or
+“OK Echo”), with your question in the same sentence: “Hey Echo, what did we
+decide yesterday?” It is off until you turn it on, and it is not offered in a
+plain browser.
+
+**Turning it on.** Open **Companion settings** (in the floating Echo or on the
+Voice page) and switch on **Listen for “Hey Echo”**. Echo must be set up first.
+A sheet explains what follows; **Turn on** asks the operating system for the
+microphone (as **Enable microphone** does), then downloads a 78 MB English
+speech model once (Whisper `tiny.en`, pinned and verified), then starts
+listening. **Pause while on battery** in the sheet stops listening whenever the
+computer runs on battery. The choice is kept by this desktop profile only: it
+is not a setting, a memory or synced data, and another device never starts
+listening because of it.
+
+**When it hears you.** Echo appears (beside the Imprint button while the
+dashboard is hidden) without taking focus from the app you are in, the button
+pulses once, and the rest of your sentence becomes Echo's first question, shown
+in its transcript. That conversation is hands-free with the microphone on,
+whatever push-to-talk choice you made for conversations you start yourself. It
+ends after `voice.wake.idle_seconds` (15 s by default) without you speaking
+once Echo has answered, or when you say “stop”, “that's all” or “thanks,
+Echo”; Echo then goes back where it was: folded into the button, closed, or
+open. Click or type in Echo during it, and it stays an ordinary conversation.
+
+**While it listens.** A hidden window holds the microphone. Whenever it
+exists, the Imprint button shows a small dot at its lower left (hollow when
+paused, amber when it can't use the microphone), the dashboard's top bar shows
+**Listening for “Hey Echo”** with **1 hour** (pause) and **Off**, and the tray's
+tooltip and menu say so; the tray, the button's right-click menu and Companion
+settings also pause, resume and turn it off. The operating system's own
+microphone indicator stays on the whole time (on macOS the menu-bar dot and
+Control Center list Imprint; on Windows the notification area's microphone
+icon). Listening pauses by itself during meeting recordings, while an Echo
+conversation has the microphone, while the screen is locked or the computer
+sleeps, and when macOS reports a critical temperature.
+
+**What leaves the window, and what is kept.** Silence never leaves the
+listener. For each burst of speech, only its first two seconds go over the
+loopback connection to Imprint's local service, where a low-priority helper
+checks them with Silero voice detection and the speech model and answers yes or
+no. Nothing is written to disk or logged, and the words of anything that was not
+“Hey Echo” are never returned or kept. After a wake, the rest of that sentence
+is transcribed the same way and becomes the question; from there it is an
+ordinary Echo conversation, which keeps nothing either. If the microphone is
+refused or missing, listening stops until you turn it on again.
+
+**What it costs.** Measured on an Apple M3: the hidden window and the audio
+service about 0.5–0.8 % of one processor core in a quiet room, and each burst
+of nearby speech about 0.3–0.45 CPU-seconds to check. Checks are capped at
+2.5 CPU-seconds a minute (half on battery); in non-stop talk, bursts that
+follow a pause are checked first. The helper uses a few hundred MB of memory
+while listening and exits when listening stops.
+
+**Limits.** English only. Anything that sounds like “Hey Echo” wakes it, such
+as “Hey, Eggo waffles”, and so can a video or a call participant saying it;
+use **1 hour** during calls you are not recording. A Bluetooth headset chosen
+as the microphone (AirPods included) switches to its lower-quality hands-free
+mode for as long as Imprint listens; choose the built-in microphone in
+Companion settings to avoid that. There is no sound when Echo wakes yet. The
+numbers above come from synthetic speech; real voices and rooms are not yet
+measured.
+[ADR 0137](adr/0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md)
+records the design, the alternatives measured and its limits.
+
 ## Floating companion and 3D asset
 
 The **Floating Echo** switch in Imprint's top bar opens or closes the companion
@@ -485,6 +552,14 @@ physical speakers; the audio clock/graph still run. Real output devices are a
 separate manual check. Worker thread counts respect available CPU allocation,
 with at most four threads and polling disabled; this avoids overwhelming small
 hosted M1 allocations during simultaneous audio-model work.
+
+`ui-electron/smoke-wake.mjs` checks “Hey Echo” in real Electron with Chromium's
+fake microphone playing a spoken (macOS) or synthetic recording: the hidden
+listener, the orb's ear, Echo shown without focus with the question, Echo going
+back and listening resuming, and the listener's CPU. Native CI runs it with
+fixture wake answers; with `IMPRINT_WAKE_SMOKE_MODEL` (a folder with the pinned
+`tiny.en` files) and `IMPRINT_WAKE_SMOKE_PYTHON` it uses the real wake worker.
+With `IMPRINT_WAKE_MODEL_DIR` set, `tests/test_wake.py` also runs the real model.
 
 Two fixture smokes run before it in native CI, without voice models.
 `ui-electron/smoke-microphone.mjs` checks the production permission handlers and

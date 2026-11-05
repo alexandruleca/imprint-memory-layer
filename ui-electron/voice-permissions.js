@@ -10,10 +10,17 @@ function onPage(value, origin, pages) {
 function voicePage(value, origin) {
   return onPage(value, origin, AUDIO_PAGES);
 }
-function audioPermission(contents, permission, details, origin, windows) {
-  if (!contents || permission !== 'media' || !windows.some(window => window?.webContents === contents)
-      || !voicePage(contents.getURL(), origin) || details?.isMainFrame === false) return false;
-  if (details?.requestingUrl && !voicePage(details.requestingUrl, origin)) return false;
+// The hidden "Hey Echo" listener (ADR 0137) is the one window whose page is
+// /wake; that page gets the microphone only in that window.
+function listenerPage(value, origin) {
+  return onPage(value, origin, ['/wake']);
+}
+function audioPermission(contents, permission, details, origin, windows, listener = null) {
+  const listening = !!contents && !!listener && listener.webContents === contents;
+  const page = listening ? listenerPage : voicePage;
+  if (!contents || permission !== 'media' || (!listening && !windows.some(window => window?.webContents === contents))
+      || !page(contents.getURL(), origin) || details?.isMainFrame === false) return false;
+  if (details?.requestingUrl && !page(details.requestingUrl, origin)) return false;
   if (details?.mediaTypes) return details.mediaTypes.length === 1 && details.mediaTypes[0] === 'audio';
   return details?.mediaType === 'audio';
 }
@@ -54,5 +61,5 @@ function microphoneSettingsURL(platform) {
   return platform === 'darwin' ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
     : platform === 'win32' ? 'ms-settings:privacy-microphone' : null;
 }
-module.exports = { voicePage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
+module.exports = { voicePage, listenerPage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
   requestMicrophoneAccess, microphoneSettingsURL };

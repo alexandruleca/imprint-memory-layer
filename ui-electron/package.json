@@ -27,6 +27,7 @@
       "navigation.js",
       "voice-permissions.js",
       "recording-relay.js",
+      "wake.js",
       "runtime.js",
       "companion.js",
       "service.js",
