@@ -269,6 +269,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
               {!devices.labelled && <small>Device names appear once the microphone is allowed.</small>}
               <label className="voice-check"><Checkbox aria-label="Use microphone for conversations" checked={rememberMicrophone} onCheckedChange={remember}/>Use microphone for conversations</label>
               <small>Remembered on this device. Starting a conversation turns the microphone on, after the system allows it; push-to-talk stays silent until you hold it.</small>
+              {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
               <label className="voice-check voice-wake-switch"><Switch aria-label="Listen for “Hey Echo”" checked={!!wake?.enabled} disabled={!desktop || !ready || wakeBusy !== null}
                 onCheckedChange={on => { if (!on) { void window.electronAPI?.setWake?.({ enabled: false }); return; } setOptionsOpen(false); setWakeError(""); setWakeSheet(true); }}/>Listen for “Hey Echo”</label>
               <small className="voice-wake-status" role="status">{!desktop ? "“Hey Echo” needs the Imprint desktop app." : !ready ? "Set up Echo first."
@@ -278,7 +279,6 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
                   : wake.listening && <Button variant="ghost" onClick={() => window.electronAPI?.controlWake?.("pause")}>Pause for 1 hour</Button>}
                 {wake.reason === "blocked" && <Button variant="ghost" onClick={() => void window.electronAPI?.openMicrophoneSettings?.()}>Open microphone settings</Button>}
               </div>}
-              {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
             </div>
             {compact && ready && textForm}{compact && ready && transcript}
             {compact && <div className="voice-option-actions">
