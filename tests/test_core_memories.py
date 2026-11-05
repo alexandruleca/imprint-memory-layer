@@ -51,14 +51,35 @@ class CoreMemoryTests(unittest.TestCase):
         self.assertIsNotNone(approved['approved_at'])
         self.assertEqual(core_memories.update(proposal['id'], state='retired')['state'], 'retired')
         self.assertEqual(core_memories.update(proposal['id'], state='active')['state'], 'active')
+        written = core_memories.add('Commit only when asked')
         with self.assertRaisesRegex(ValueError, 'cannot become a proposal'):
-            core_memories.update(proposal['id'], state='proposed')
+            core_memories.update(written['id'], state='proposed')
         with self.assertRaisesRegex(ValueError, 'kind'):
             core_memories.update(proposal['id'], kind='rule')
         with self.assertRaises(ValueError):
             core_memories.update(proposal['id'], scope=' padded ')
         with self.assertRaises(KeyError):
             core_memories.update('0' * 32, state='retired')
+
+    def test_an_approval_or_rejection_is_undone_back_to_a_proposal(self):
+        """The dashboard's undo (ADR 0136): a proposal returns to proposed,
+        unapproved, and each change is stamped after the last one."""
+        proposal = core_memories.propose('Prefers small pull requests', origin='organize')
+        with patch('time.time', return_value=1000.0):
+            approved = core_memories.update(proposal['id'], state='active')
+            undone = core_memories.update(proposal['id'], state='proposed')
+        self.assertEqual((approved['state'], approved['approved_at']), ('active', approved['updated_at']))
+        self.assertEqual((undone['state'], undone['approved_at']), ('proposed', None))
+        self.assertGreater(undone['updated_at'], approved['updated_at'])  # Within one clock tick.
+        self.assertEqual(core_memories.session_text(None), '')
+        core_memories.update(proposal['id'], state='retired')
+        self.assertEqual(core_memories.update(proposal['id'], state='proposed')['state'], 'proposed')
+        self.assertEqual(core_memories.get(proposal['id'])['approved_at'], None)
+        written = core_memories.add('Commit only when asked')
+        core_memories.update(written['id'], state='retired')
+        with self.assertRaisesRegex(ValueError, 'you wrote cannot become a proposal'):
+            core_memories.update(written['id'], state='proposed')
+        self.assertEqual(core_memories.get(written['id'])['state'], 'retired')
 
     def test_a_session_gets_the_global_ones_and_its_projects_within_its_budget(self):
         core_memories.add('Commit only when asked', 'instruction')
@@ -151,6 +172,19 @@ class ServerTests(unittest.TestCase):
         text = server._with_core_memories('Base.\n')
         self.assertTrue(text.startswith('Base.\nCore memories: the user approved these'))
         self.assertTrue(text.endswith('- Commit only when asked\n'))
+
+    def test_the_dashboard_returns_a_proposal_to_proposed_but_not_one_the_user_wrote(self):
+        from fastapi.testclient import TestClient
+        from imprint.api import app
+        client = TestClient(app, base_url='http://127.0.0.1:8420', client=('127.0.0.1', 1234))
+        proposal = core_memories.propose('Prefers small pull requests')
+        written = core_memories.add('Commit only when asked')
+        self.assertEqual(client.patch(f"/api/core/{proposal['id']}", json={'state': 'active'}).json()['state'], 'active')
+        undone = client.patch(f"/api/core/{proposal['id']}", json={'state': 'proposed'})
+        self.assertEqual((undone.status_code, undone.json()['state'], undone.json()['approved_at']), (200, 'proposed', None))
+        refused = client.patch(f"/api/core/{written['id']}", json={'state': 'proposed'})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn('cannot become a proposal', refused.json()['error'])
 
     def test_a_stored_preference_is_proposed_for_the_user_to_approve(self):
         from imprint import server

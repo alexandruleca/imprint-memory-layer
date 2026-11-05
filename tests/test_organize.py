@@ -310,6 +310,112 @@ class BackgroundTests(Fixture):
         self.assertEqual((state['enabled'], state['tagging'], state['organize']['enabled']), (True, False, True))
 
 
+class ReopenTests(Fixture):
+    """Decisions return to review on request: the dashboard's undo and its
+    Decided tab (ADR 0136)."""
+
+    def setUp(self):
+        super().setUp()
+        organize.run(use_model=False)
+        self.workspace = organize._workspace()
+
+    def statuses(self):
+        return {p['source']: (p['status'], p['decided_at']) for p in organize.review()['proposals']}
+
+    def rules(self):
+        with policy._db() as conn:
+            return projects._placement_rules(conn, self.workspace)
+
+    def test_reopening_a_move_takes_it_back_and_a_keep_only_reopens(self):
+        organize.decide(self.workspace, [{'origin': '', 'source': 'note/retries'}], accept=True)
+        organize.decide(self.workspace, [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}], accept=False)
+        self.assertIn(('note/retries', 'checkout-service'), self.placed())
+        result = organize.reopen(self.workspace, [{'origin': '', 'source': 'note/retries'},
+                                                  {'origin': 'Desktop', 'source': 'Desktop/call.txt'}])
+        self.assertEqual(result, {'reopened': 2, 'failed': []})
+        self.assertNotIn(('', 'note/retries'), self.rules())  # The rule is gone,
+        self.assertIn(('note/retries', ''), self.placed())  # and the memories are back.
+        self.assertIn(('Desktop/call.txt', 'Desktop'), self.placed())
+        self.assertEqual(self.statuses(), {'note/retries': ('pending', None), 'Desktop/call.txt': ('pending', None)})
+        # A later run leaves the reopened proposals waiting, and they can be decided again.
+        organize.run(use_model=False)
+        self.assertEqual(set(self.pending()), {('', 'note/retries'), ('Desktop', 'Desktop/call.txt')})
+        self.assertEqual(organize.decide(self.workspace, [{'origin': '', 'source': 'note/retries'}], True)['decided'], 1)
+        self.assertIn(('note/retries', 'checkout-service'), self.placed())
+
+    def test_moves_organize_made_and_pending_proposals_are_refused(self):
+        vs.store_batch([{'content': 'Retry plan: checkout-service books twice, then checkout-service gives up.',
+                         'project': 'Desktop', 'source': 'Desktop/retry.txt'}])
+        organize.run(use_model=False)
+        self.assertEqual(self.statuses()['Desktop/retry.txt'][0], 'auto')
+        result = organize.reopen(self.workspace, [{'origin': 'Desktop', 'source': 'Desktop/retry.txt'},
+                                                  {'origin': 'Desktop', 'source': 'Desktop/call.txt'},
+                                                  {'origin': 'Desktop', 'source': 'Desktop/none.txt'}])
+        self.assertEqual(result['reopened'], 0)
+        self.assertEqual([f['error'] for f in result['failed']],
+                         ['moved by Organize itself; move it back instead', 'not decided yet', 'no decided proposal'])
+        self.assertEqual(self.statuses()['Desktop/retry.txt'][0], 'auto')
+        self.assertIn(('Desktop/retry.txt', 'checkout-service'), self.placed())
+        with self.assertRaisesRegex(ValueError, 'at least one'):
+            organize.reopen(self.workspace, [])
+
+    def test_a_move_back_and_its_undo_end_as_the_users_move(self):
+        """Undoing Move back: reopen the rejection, then move it."""
+        vs.store_batch([{'content': 'Retry plan: checkout-service books twice, then checkout-service gives up.',
+                         'project': 'Desktop', 'source': 'Desktop/retry.txt'}])
+        organize.run(use_model=False)
+        item = [{'origin': 'Desktop', 'source': 'Desktop/retry.txt'}]
+        organize.undo(self.workspace, item)
+        self.assertEqual(organize.reopen(self.workspace, item)['reopened'], 1)
+        organize.decide(self.workspace, item, accept=True)
+        self.assertEqual(self.statuses()['Desktop/retry.txt'][0], 'accepted')
+        self.assertEqual(self.rules()[('Desktop', 'Desktop/retry.txt')], 'checkout-service')
+
+    def test_a_running_job_refuses_taking_a_move_back(self):
+        organize.decide(self.workspace, [{'origin': '', 'source': 'note/retries'}], accept=True)
+        with patch('imprint.queue_lock.acquire', return_value=None):
+            result = organize.reopen(self.workspace, [{'origin': '', 'source': 'note/retries'}])
+        self.assertEqual(result['reopened'], 0)
+        self.assertIn('ingestion or maintenance job is running', result['failed'][0]['error'])
+        self.assertEqual(self.statuses()['note/retries'][0], 'accepted')
+        self.assertIn(('note/retries', 'checkout-service'), self.placed())
+
+    def test_a_reopen_within_one_clock_tick_still_reaches_the_peer(self):
+        config.register_workspace('peer')
+        item = [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}]
+        with patch('time.time', return_value=1000.0):
+            organize.decide(self.workspace, item, accept=False)
+            organize.import_records(organize.export(self.workspace, organize.manifest(self.workspace)), 'peer')
+            before = organize.manifest(self.workspace)
+            organize.reopen(self.workspace, item)
+            after = organize.manifest(self.workspace)
+            stats = organize.import_records(organize.export(self.workspace, after), 'peer')
+        key = next(k for k in after if 'Desktop/call.txt' in k)
+        self.assertGreater(after[key], before[key])
+        self.assertEqual(stats['updated'], 1)
+        self.assertEqual({p['source']: p['status'] for p in organize.review('peer')['proposals']}['Desktop/call.txt'],
+                         'pending')
+
+    def test_proposals_carry_their_conversations_title(self):
+        with patch('imprint.source_snapshots.conversation_titles',
+                   return_value={'note/retries': 'How many retries does checkout get?'}) as titles:
+            proposals = {p['source']: p['title'] for p in organize.review()['proposals']}
+        titles.assert_called_once_with(self.workspace)
+        self.assertEqual(proposals, {'note/retries': 'How many retries does checkout get?', 'Desktop/call.txt': ''})
+
+    def test_the_dashboard_reopens_through_the_api(self):
+        from fastapi.testclient import TestClient
+        from imprint.api import app
+        client = TestClient(app, base_url='http://127.0.0.1:8420', client=('127.0.0.1', 1234))
+        organize.decide(self.workspace, [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}], accept=False)
+        reply = client.post('/api/organize/reopen', json={'workspace': self.workspace,
+                                                          'items': [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}]})
+        self.assertEqual(reply.json(), {'reopened': 1, 'failed': []})
+        self.assertEqual(client.post('/api/organize/reopen', json={'items': []}).status_code, 400)
+        refused = client.post('/api/organize/reopen', json={'workspace': self.workspace, 'items': [{'source': 1}]})
+        self.assertEqual((refused.status_code, refused.json()['error']), (400, 'Each proposal is an origin and a source'))
+
+
 class ProposalSyncTests(Fixture):
     """Proposals and decisions reach paired devices; the newest wins (ADR 0134)."""
 

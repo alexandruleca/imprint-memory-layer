@@ -703,6 +703,21 @@ async def api_organize_undo(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
+@app.post('/api/organize/reopen')
+async def api_organize_reopen(request: Request):
+    """Return moved or kept proposals to review; a move is taken back first (ADR 0136)."""
+    from . import organize
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get('items'), list) or not body.get('workspace'):
+            raise ValueError('The workspace and items (origin and source of each proposal) are required')
+        result = await asyncio.to_thread(organize.reopen, body['workspace'], body['items'])
+        reset_cache()
+        return result
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
 # ── Core memories (ADR 0129) ───────────────────────────────────
 
 @app.get('/api/core')
@@ -731,7 +746,8 @@ async def api_add_core_memory(request: Request):
 
 @app.patch('/api/core/{memory_id}')
 async def api_change_core_memory(memory_id: str, request: Request):
-    """Edit, approve (state ``active``), retire or restore a core memory."""
+    """Edit, approve (state ``active``), retire or restore a core memory, or
+    return a proposal to ``proposed`` (an undo, ADR 0136)."""
     from . import core_memories
     try:
         body = await request.json()

@@ -3,8 +3,9 @@ title: ADR 0129 — Core memories are user-approved and start every session
 description: Core memories are short statements of the user's preferences and standing instructions that the user approves, kept apart from ordinary memories, synced to paired devices and given to every agent session at its start.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-04
+- Amended by: [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) — a proposal an agent or Organize made can return to proposed, which undoes its approval or rejection
 - Related: [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md), [ADR 0037](0037-learn-every-integrated-client-store.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md), [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)
 
 ## Context

@@ -9,6 +9,7 @@ description: A queued organize job writes a short profile of each project, propo
   - [ADR 0132](0132-organize-runs-in-the-idle-slot-after-background-tagging.md) — Organize also runs by itself, incrementally, not only as a queued job
   - [ADR 0133](0133-strong-placements-apply-by-themselves.md) — placements with strong evidence apply without review
   - [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md) — Organize's proposals and decisions travel to paired devices
+  - [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) — the user's moves and keeps can be reopened, and review happens in paged tabs with a rail of target projects
 - Related: [ADR 0036](0036-move-memories-between-projects.md), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0099](0099-sources-can-belong-to-several-projects.md), [ADR 0100](0100-explicit-workspace-inbox-for-unassigned-conversations.md), [ADR 0105](0105-project-analysis-continues-after-model-timeouts.md), [ADR 0129](0129-core-memories-are-user-approved-and-start-every-session.md)
 
 ## Context

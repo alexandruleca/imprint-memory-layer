@@ -75,8 +75,11 @@ def relative_path(record):
 
 
 def origin_project(record):
-    """The project the memory's writer named; a moved memory keeps it."""
-    return record.get('origin_project') or record.get('project', '')
+    """The project the memory's writer named; a moved memory keeps it. An
+    empty one is a memory stored without a project (ADR 0130), so it counts:
+    only a memory stored before the field existed falls back to its project."""
+    origin = record.get('origin_project')
+    return record.get('project', '') if origin is None else origin
 
 
 def prepare(record, *, imported=False):

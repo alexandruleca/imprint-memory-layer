@@ -1,239 +1,320 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, Check, Undo2, X, WandSparkles } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { RefreshCw } from "lucide-react";
+import { SourceReader, type ReaderTarget } from "@/components/source-reader";
+import { ListSkeleton } from "@/components/loaders";
+import { PlacementsPanel, inTab, type PlacementTab, type PlacementsContext } from "@/components/organize/placements-panel";
+import { ProfilesPanel } from "@/components/organize/profiles-panel";
+import { parseKey, proposalKey, proposalName, originLabel, type OrganizeKind, type OrganizeStatus } from "@/components/organize/proposal-row";
+import { RunButton } from "@/components/organize/run-button";
+import { StatusStrip, lastRunText, organizeJob } from "@/components/organize/status-strip";
+import { PAGE_SIZES } from "@/components/review/pager";
+import { CountTab, ReviewHeader } from "@/components/review/review-header";
+import { Announcer, RESET, reviewTab, type ReviewTabState } from "@/components/review/review-list";
+import { ShortcutsButton, ShortcutsDialog, type Shortcut } from "@/components/review/shortcuts-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { PageHeader } from "@/components/split-page";
-import { decideOrganize, enqueueCommand, getOrganize, undoOrganize, type OrganizeProposal, type OrganizeReview } from "@/lib/api";
-import { ago } from "@/lib/queue";
+import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs";
+import {
+  decideOrganize, enqueueCommand, getCoreMemories, getOrganize, reopenOrganize, undoOrganize,
+  type OrganizeProposal, type OrganizeReview,
+} from "@/lib/api";
+import { useQueue } from "@/lib/queue";
+import { useHashTab } from "@/lib/use-hash-tab";
+import { useReviewShortcuts } from "@/lib/use-review-shortcuts";
+import { useStoredNumber, useStoredString } from "@/lib/use-stored";
+import { useDecisions } from "@/lib/write-queue";
 
-const DESCRIPTION = "Organize reads the memories that sit in catch-alls (no project, Desktop, unassigned, URLs, desktop conversations) and finds the project each belongs to, with the evidence. A source that names exactly one project's folder, or one project's distinctive name at least twice, moves by itself and can be undone; the rest wait for you. It also writes a short profile of each project and suggests core memories. Moves hold through refreshes and reach paired devices.";
-const METHODS: Record<OrganizeProposal["method"], string> = {
-  path: "Mentions its folder", name: "Names the project", "local-model": "Local model, quoted",
+const TABS = ["review", "moved", "decided", "profiles"] as const;
+type Tab = (typeof TABS)[number];
+const UNDO_TOAST = "organize-undo";
+
+const INFO = (
+  <div className="space-y-2">
+    <p className="font-medium">How Organize decides</p>
+    <p>Organize finds the project each memory in a catch-all belongs to (no project, Desktop, unassigned, URLs, desktop conversations), with the evidence.</p>
+    <p><span className="font-medium">Moves by itself</span> when a source names only one project&apos;s folder, or only one project&apos;s distinctive name at least twice, in its opening 50,000 characters. Each can be moved back.</p>
+    <p><span className="font-medium">Waits for you</span> otherwise, including every local-model placement. It also writes project profiles and suggests core memories, which you approve on Core memories.</p>
+    <p className="text-muted-foreground">Moves hold through refreshes and reach paired devices.</p>
+  </div>
+);
+
+const SHORTCUTS: Shortcut[] = [
+  [["j", "↓"], "Next row"], [["k", "↑"], "Previous row"], [["J", "K"], "Next / previous project in the rail"],
+  [["x"], "Select the row"], [["a"], "Move"], [["r"], "Keep here"], [["u"], "Move back · Reopen"],
+  [["Enter"], "Show or hide details"], [["o"], "Read the source"], [["z", "⌘Z"], "Undo the last action"],
+  [["[", "]"], "Previous / next page"], [["/"], "Search"], [["1", "4"], "Switch tab"],
+  [["Esc"], "Clear the selection, close details"], [["?"], "This list"],
+];
+
+const RESULT: Record<OrganizeKind, OrganizeStatus> = { move: "accepted", keep: "rejected", back: "rejected", reopen: "pending" };
+
+/** How a decision is taken back. A Move back is reopened and moved again,
+ * so it ends as the user's move: Organize's own move cannot be restored. */
+function inverse(kind: OrganizeKind, from: OrganizeStatus): OrganizeKind[] {
+  if (kind === "move" || kind === "keep") return ["reopen"];
+  if (kind === "back") return ["reopen", "move"];
+  return from === "accepted" ? ["move"] : ["keep"];
+}
+
+const VERB: Record<OrganizeKind, string> = { move: "move", keep: "be kept", back: "move back", reopen: "reopen" };
+
+function decisionText(kind: OrganizeKind, items: OrganizeProposal[]) {
+  const one = items.length === 1;
+  const what = one ? proposalName(items[0]) : `${items.length} sources`;
+  const targets = new Set(items.map((p) => p.target));
+  switch (kind) {
+    case "move": return `Moved ${what} to ${targets.size === 1 ? items[0].target : "their projects"}`;
+    case "keep": return `Kept ${what} where ${one ? "it is" : "they are"}`;
+    case "back": return `Moved ${what} back to ${one ? originLabel(items[0].origin) : "where they were"}`;
+    case "reopen": return `Reopened ${what} for review`;
+  }
+}
+
+const largestGroup = (proposals: OrganizeProposal[]) => {
+  const counts = new Map<string, number>();
+  proposals.filter((p) => p.status === "pending").forEach((p) => counts.set(p.target, (counts.get(p.target) ?? 0) + 1));
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "";
 };
-const originLabel = (origin: string) => origin || "No project";
-const key = (p: Pick<OrganizeProposal, "origin" | "source">) => `${p.origin}\u0000${p.source}`;
 
-function ProposalRow({ proposal, busy, onDecide, onUndo }: {
-  proposal: OrganizeProposal; busy: boolean; onDecide: (items: OrganizeProposal[], accept: boolean) => void;
-  onUndo?: (items: OrganizeProposal[]) => void;
-}) {
-  return (
-    <li className="space-y-1.5 px-4 py-3 sm:px-6" aria-label={proposal.source}>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="min-w-0 truncate font-mono text-xs">{proposal.source}</span>
-        <Badge variant="outline">{originLabel(proposal.origin)}</Badge>
-        <Badge variant="secondary">{METHODS[proposal.method]}</Badge>
-        {proposal.status === "pending" && proposal.strength === "strong" && <Badge variant="outline">Strong evidence</Badge>}
-        <span className="text-xs text-muted-foreground">{proposal.chunks} {proposal.chunks === 1 ? "chunk" : "chunks"}</span>
-        {proposal.status === "pending" ? (
-          <div className="ml-auto flex gap-1">
-            <Button size="sm" disabled={busy} onClick={() => onDecide([proposal], true)}><Check /> Move</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDecide([proposal], false)}><X /> Keep here</Button>
-          </div>
-        ) : proposal.status === "auto" && onUndo ? (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">to {proposal.target}</span>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onUndo([proposal])}><Undo2 /> Undo</Button>
-          </div>
-        ) : (
-          <Badge className="ml-auto" variant={proposal.status === "rejected" ? "outline" : "default"}>
-            {proposal.status === "accepted" ? "Moved" : proposal.status === "auto" ? "Moved automatically" : "Kept"}
-          </Badge>
-        )}
-      </div>
-      {proposal.evidence[0]?.quote && (
-        <p className="border-l-2 border-border pl-2 text-xs text-muted-foreground">“{proposal.evidence[0].quote}”</p>
-      )}
-    </li>
-  );
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const seenKey = (workspace: string) => `imprint.organize.seen.${workspace}`;
+
+/** When this browser last marked the workspace's automatic moves as seen. */
+function lastSeenIn(workspace: string) {
+  try { return Number(window.localStorage.getItem(seenKey(workspace))) || 0; } catch { return 0; }
 }
 
 export default function OrganizePage() {
+  const root = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<OrganizeReview | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [withoutModel, setWithoutModel] = useState(false);
+  const [order, setOrder] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [arrived, setArrived] = useState(0);
+  const [stamps, setStamps] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [core, setCore] = useState<number | null>(null);
+  const [tabs, setTabs] = useState<Record<PlacementTab, ReviewTabState>>(() => ({
+    review: reviewTab({ group: null }), moved: reviewTab(), decided: reviewTab(),
+  }));
+  const [profileView, setProfileView] = useState({ query: "", project: "" });
+  const [reading, setReading] = useState<ReaderTarget | null>(null);
+  const [help, setHelp] = useState(false);
+  const [queuing, setQueuing] = useState(false);
+  const [linked, openTab] = useHashTab(TABS);
+  const [size, setSize] = useStoredNumber("imprint.review.page-size", 20, PAGE_SIZES);
+  const [seen, setSeen] = useStoredString(seenKey(data?.workspace ?? ""));
+  // The tab a link without a hash opens, chosen once from the first load so
+  // deciding the last proposal does not switch tabs under the cursor.
+  const [fallback, setFallback] = useState<Tab | null>(null);
+  const lastSeen = Number(seen) || 0;
+  const queue = useQueue();
+  const known = useRef<Set<string> | null>(null);
+  const workspace = useRef("");
+  const reload = useRef<() => void>(() => {});
 
-  const load = async () => {
-    try { setData(await getOrganize()); setError(""); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  };
+  const engine = useDecisions<OrganizeKind, OrganizeStatus>({
+    send: async (kind, keys, keepalive) => {
+      const items = keys.map(parseKey);
+      const init = keepalive ? { keepalive } : undefined;
+      const result = kind === "move" || kind === "keep" ? await decideOrganize(workspace.current, items, kind === "move", init)
+        : kind === "back" ? await undoOrganize(workspace.current, items, init)
+          : await reopenOrganize(workspace.current, items, init);
+      return result.failed.map((failure) => ({ key: proposalKey(failure), error: failure.error }));
+    },
+    result: (kind) => RESULT[kind],
+    inverse,
+    onDrain: () => reload.current(),
+    onFailed: (kind, failed) => toast.error(`${failed.length} could not ${VERB[kind]}`, { description: failed[0].error }),
+  });
+  const prune = engine.prune;
+
+  const absorb = useCallback((next: OrganizeReview, finished: boolean) => {
+    workspace.current = next.workspace;
+    const keys = next.proposals.map(proposalKey);
+    const before = known.current;
+    const fresh = before ? next.proposals.filter((p) => p.status === "pending" && !before.has(proposalKey(p))).length : 0;
+    known.current = new Set([...(before ?? []), ...keys]);
+    setOrder((prev) => {
+      if (keys.every((key) => prev.has(key))) return prev;
+      const map = new Map(prev);
+      keys.forEach((key) => { if (!map.has(key)) map.set(key, map.size); });
+      return map;
+    });
+    setData(next);
+    setError("");
+    if (fresh) setArrived((n) => n + fresh);
+    setTabs((prev) => (prev.review.group !== null ? prev : { ...prev, review: { ...prev.review, group: largestGroup(next.proposals) } }));
+    const seenAt = lastSeenIn(next.workspace);
+    const waiting = next.proposals.some((p) => p.status === "pending");
+    const freshMoves = next.proposals.some((p) => p.status === "auto" && (p.decided_at ?? 0) > seenAt);
+    setFallback((prev) => prev ?? (waiting || !freshMoves ? "review" : "moved"));
+    prune();
+    if (finished) toast.success(`Organize finished: ${fresh} new to review`);
+  }, [prune]);
+
+  const load = useCallback(async (finished = false) => {
+    try { absorb(await getOrganize(), finished); }
+    catch (e) { setError(message(e)); }
+    getCoreMemories().then((c) => {
+      setCore(Array.isArray(c?.memories) ? c.memories.filter((m) => m.state === "proposed").length : null);
+    }).catch(() => {});
+  }, [absorb]);
+  useEffect(() => { reload.current = () => void load(); }, [load]);
   useEffect(() => {
     let live = true;
-    getOrganize().then(
-      (d) => { if (live) setData(d); },
-      (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); },
-    );
+    getOrganize().then((next) => { if (live) absorb(next, false); }, (e) => { if (live) setError(message(e)); });
+    getCoreMemories().then((c) => {
+      if (live) setCore(Array.isArray(c?.memories) ? c.memories.filter((m) => m.state === "proposed").length : null);
+    }).catch(() => {});
     return () => { live = false; };
-  }, []);
+  }, [absorb]);
 
-  async function run() {
-    setBusy(true);
+  // A run that ends brings its proposals in by itself.
+  const job = organizeJob(queue);
+  const running = job !== null;
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running) void load(true);
+    wasRunning.current = running;
+  }, [running, load]);
+  const lock = queue?.active ? queue.active.label ?? queue.active.command : null;
+
+  const proposals = useMemo(() => (data?.proposals ?? []).map((p) => {
+    const status = engine.overrides.get(proposalKey(p));
+    if (!status || status === p.status) return p;
+    return { ...p, status, decided_at: status === "pending" ? null : stamps.get(proposalKey(p)) ?? p.decided_at };
+  }), [data, engine.overrides, stamps]);
+  const byKey = useMemo(() => new Map(proposals.map((p) => [proposalKey(p), p])), [proposals]);
+  const profiles = useMemo(() => new Map((data?.profiles ?? []).map((p) => [p.project, p])), [data]);
+
+  const count = (tab: PlacementTab) => proposals.filter((p) => inTab(tab, p.status)).length;
+  const autoFresh = proposals.filter((p) => p.status === "auto" && (p.decided_at ?? 0) > lastSeen).length;
+  const pending = count("review");
+  const tab: Tab = linked ?? fallback ?? "review";
+
+  const patchTab = useCallback((which: PlacementTab, patch: Partial<ReviewTabState>) => {
+    setTabs((prev) => ({ ...prev, [which]: { ...prev[which], ...patch } }));
+  }, []);
+  const openWith = (which: PlacementTab, patch: Partial<ReviewTabState> = {}) => {
+    patchTab(which, { ...RESET, ...patch });
+    openTab(which);
+  };
+
+  function undo() {
+    const undone = engine.undo();
+    if (!undone) { toast("Nothing to undo", { id: UNDO_TOAST }); return; }
+    const now = Date.now() / 1000;
+    setStamps((prev) => new Map([...prev, ...undone.keys.map((key): [string, number] => [key, now])]));
+    if (tab !== "profiles") {
+      // Functional: the toast's Undo may run from an older render.
+      setTabs((prev) => ({ ...prev, [tab]: { ...prev[tab], focus: undone.keys[0], reveal: true, selected: new Set(),
+                                              focusToken: prev[tab].focusToken + 1 } }));
+    }
+    const target = byKey.get(undone.keys[0])?.target;
+    toast(`Undone: ${undone.note.charAt(0).toLowerCase()}${undone.note.slice(1)}`, {
+      id: UNDO_TOAST, duration: 6000,
+      description: undone.kind === "back" ? `${undone.keys.length === 1 ? "It is" : "They are"} in ${target} again, as moved by you.` : undefined,
+    });
+  }
+
+  function act(kind: OrganizeKind, keys: string[]) {
+    const items = keys.map((key) => byKey.get(key)).filter((p): p is OrganizeProposal => !!p);
+    if (!items.length) return;
+    const note = decisionText(kind, items);
+    const now = Date.now() / 1000;
+    setStamps((prev) => new Map([...prev, ...keys.map((key): [string, number] => [key, now])]));
+    engine.decide(kind, items.map(proposalKey), new Map(items.map((p) => [proposalKey(p), p.status])), note);
+    toast(note, { id: UNDO_TOAST, duration: 8000, action: { label: "Undo", onClick: () => undo() } });
+  }
+
+  async function run(withoutModel: boolean) {
+    setQueuing(true);
     try {
       await enqueueCommand("organize", withoutModel ? { no_model: true } : {});
-      toast.success("Organize queued", { description: "Follow it in Queue; refresh this page when it finishes." });
+      toast.success("Organize queued", { description: "Its progress shows above; new proposals arrive when it ends." });
     } catch (e) {
-      toast.error("Could not queue Organize", { description: e instanceof Error ? e.message : String(e) });
-    } finally { setBusy(false); }
+      toast.error("Could not queue Organize", { description: message(e) });
+    } finally { setQueuing(false); }
   }
 
-  async function undo(items: OrganizeProposal[]) {
-    if (!data) return;
-    setBusy(true);
-    try {
-      const result = await undoOrganize(data.workspace, items.map(({ origin, source }) => ({ origin, source })));
-      for (const failure of result.failed) toast.error(`Could not move ${failure.source} back`, { description: failure.error });
-      if (result.undone) toast.success(result.undone === 1 ? "Moved back" : `Moved ${result.undone} sources back`);
-      await load();
-    } catch (e) {
-      toast.error("Could not undo the move", { description: e instanceof Error ? e.message : String(e) });
-    } finally { setBusy(false); }
-  }
+  useReviewShortcuts(root, {
+    "1": () => openTab("review"), "2": () => openTab("moved"), "3": () => openTab("decided"), "4": () => openTab("profiles"),
+    "?": () => setHelp(true), z: undo, "mod+z": undo,
+  });
 
-  async function decide(items: OrganizeProposal[], accept: boolean) {
-    if (!data) return;
-    setBusy(true);
-    try {
-      const result = await decideOrganize(data.workspace, items.map(({ origin, source }) => ({ origin, source })), accept);
-      for (const failure of result.failed) toast.error(`Could not move ${failure.source}`, { description: failure.error });
-      await load();
-    } catch (e) {
-      toast.error("Could not save the decision", { description: e instanceof Error ? e.message : String(e) });
-    } finally { setBusy(false); }
-  }
+  const ctx: PlacementsContext = {
+    proposals, order, profiles, autoMove: data?.background?.auto_move ?? true, lock, saving: engine.pending,
+    errors: engine.errors, lastSeen, neverRan: !!data && !data.last_run && !data.background?.last_pass && !data.proposals.length,
+    size, onSize: (next) => { setSize(next); setTabs((prev) => ({ review: { ...prev.review, page: 0, reveal: false }, moved: { ...prev.moved, page: 0, reveal: false }, decided: { ...prev.decided, page: 0, reveal: false } })); },
+    root, act,
+    retry: (key) => { const p = byKey.get(key); if (p) engine.retry(key, p.status); },
+    read: (p) => setReading({ source: p.source, project: p.status === "auto" || p.status === "accepted" ? p.target : undefined, title: p.title || p.source }),
+    openTab: openWith,
+    markSeen: () => {
+      setSeen(String(Date.now() / 1000));
+      patchTab("moved", { ...RESET, view: "all" });
+      toast("Marked all as seen");
+    },
+    run: () => void run(false),
+  };
 
   const header = (
-    <PageHeader title="Organize" description={DESCRIPTION} actions={
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Switch aria-label="Without the local helper" checked={withoutModel} onCheckedChange={setWithoutModel} />
-          Without the local helper
-        </label>
-        <Button disabled={busy} onClick={() => void run()}><WandSparkles /> Run Organize</Button>
-      </div>
-    } />
+    <ReviewHeader title="Organize" info={<>{INFO}{data && <p className="mt-2 text-xs text-muted-foreground">{lastRunText(data)}</p>}</>}
+      infoLabel="How Organize decides" actions={<RunButton disabled={queuing || running} onRun={(withoutModel) => void run(withoutModel)} />} />
   );
-
-  if (!data) return (
-    <div className="mx-auto max-w-5xl">
-      {header}
-      <div className="space-y-4 px-4 sm:px-8">
-        {error ? <p role="alert" className="text-sm text-destructive">Could not load Organize: {error}</p>
-          : <><Skeleton className="h-32 w-full rounded-xl" /><Skeleton className="h-48 w-full rounded-xl" /></>}
-      </div>
-    </div>
-  );
-
-  const pending = data.proposals.filter((p) => p.status === "pending");
-  const moved = data.proposals.filter((p) => p.status === "auto").sort((a, b) => (b.decided_at ?? 0) - (a.decided_at ?? 0));
-  const decided = data.proposals.filter((p) => p.status === "accepted" || p.status === "rejected");
-  const background = data.background;
-  const byTarget = new Map<string, OrganizeProposal[]>();
-  for (const proposal of pending) byTarget.set(proposal.target, [...(byTarget.get(proposal.target) ?? []), proposal]);
-  const summary = data.last_run ? JSON.parse(data.last_run.summary) as { profiles: number; pending: number; moved?: number; core: number; model: boolean } : null;
 
   return (
-    <div className="mx-auto max-w-5xl pb-10">
-      {header}
-      <div className="space-y-4 px-4 sm:px-8">
-        <p className="text-sm text-muted-foreground" role="status">
-          {data.last_run && summary
-            ? <>Last run {ago(data.last_run.finished_at)}: {summary.profiles} profiles, {summary.moved ?? 0} moved, {summary.pending} moves to review, {summary.core} core memory proposals{summary.model ? "" : ", without the local helper"}.{" "}
-                {summary.core > 0 && <Link href="/core/" className="underline underline-offset-2">Review core memories</Link>}</>
-            : "Organize has not run in this workspace yet."}
-        </p>
-        <p className="text-sm text-muted-foreground" aria-label="How Organize runs">
-          {background?.enabled
-            ? "Runs by itself whenever the queue is idle, after background tagging, and looks only at what changed."
-            : "Runs when you start it."}{" "}
-          {background && !background.auto_move && "Every move waits for your review. "}
-          <Link href="/settings/#settings-organize" className="underline underline-offset-2">Organize settings</Link>
-        </p>
-
-        {moved.length > 0 && (
-          <Card className="gap-0 pb-0" aria-label="Moved automatically">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">Moved automatically <span className="text-sm font-normal text-muted-foreground tabular-nums">{moved.length}</span></CardTitle>
-              <CardDescription>Each named one project clearly. Undo moves a source back to where it was and keeps it there.</CardDescription>
-            </CardHeader>
-            <CardContent className="mt-4 border-t border-border px-0">
-              <ul className="divide-y divide-border">
-                {moved.map((p) => <ProposalRow key={key(p)} proposal={p} busy={busy} onDecide={() => {}} onUndo={(i) => void undo(i)} />)}
-              </ul>
-            </CardContent>
-          </Card>
+    <Announcer>
+      <div ref={root} className="@container/page flex min-h-full flex-col lg:h-full">
+        {header}
+        {error && (
+          <div className="px-4 pb-3 sm:px-8">
+            <Alert variant="destructive">
+              <AlertTitle>Could not load Organize: {error}</AlertTitle>
+              <AlertDescription>
+                <Button variant="outline" size="sm" className="mt-1" onClick={() => void load()}><RefreshCw /> Try again</Button>
+              </AlertDescription>
+            </Alert>
+          </div>
         )}
-
-        {byTarget.size === 0 ? (
-          <Empty className="border border-dashed border-border">
-            <EmptyHeader>
-              <EmptyTitle>No moves to review</EmptyTitle>
-              <EmptyDescription>{moved.length ? "Every proposal Organize made was strong enough to apply." : "Run Organize to look for memories in catch-alls that belong to a project."}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : [...byTarget.entries()].map(([target, items]) => (
-          <Card key={target} className="gap-0 pb-0" aria-label={`Moves to ${target}`}>
-            <CardHeader className="flex flex-row flex-wrap items-center gap-2">
-              <CardTitle className="flex items-center gap-2"><ArrowRight className="size-4" aria-hidden /> {target}</CardTitle>
-              <span className="text-sm text-muted-foreground tabular-nums">{items.length}</span>
-              <div className="ml-auto flex gap-1">
-                <Button size="sm" disabled={busy} onClick={() => void decide(items, true)}>Move all {items.length}</Button>
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide(items, false)}>Keep all</Button>
+        {!data ? (!error && (
+          <div className="space-y-3 px-4 sm:px-8" aria-busy="true">
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <p className="flex gap-6 border-b border-border pb-2 text-sm text-muted-foreground"><span>To review</span><span>Moved automatically</span><span>Decided</span><span>Profiles</span></p>
+            <ListSkeleton count={6} />
+          </div>
+        )) : (
+          <>
+            <StatusStrip review={data} running={job} lock={lock} core={core} arrived={arrived} />
+            <Tabs value={tab} onValueChange={(value) => { openTab(value as Tab); setArrived(0); }} className="flex min-h-0 flex-1 flex-col gap-0">
+              <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background px-4 sm:px-8 lg:static">
+                <TabsList variant="line" className="h-10 min-w-0 justify-start overflow-x-auto">
+                  <CountTab value="review" name="To review" short="Review" count={pending} pill />
+                  <CountTab value="moved" name="Moved automatically" short="Moved" count={count("moved")} fresh={autoFresh} />
+                  <CountTab value="decided" name="Decided" count={count("decided")} />
+                  <CountTab value="profiles" name="Profiles" count={data.profiles.length} />
+                </TabsList>
+                <span className="flex-1" />
+                <ShortcutsButton onClick={() => setHelp(true)} />
               </div>
-            </CardHeader>
-            <CardContent className="mt-4 border-t border-border px-0">
-              <ul className="divide-y divide-border">
-                {items.map((p) => <ProposalRow key={key(p)} proposal={p} busy={busy} onDecide={(i, a) => void decide(i, a)} />)}
-              </ul>
-            </CardContent>
-          </Card>
-        ))}
-
-        {data.profiles.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Project profiles</CardTitle>
-              <CardDescription>Written by the local helper from each project&apos;s memories; search and chat find them too.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid gap-4 sm:grid-cols-2">
-                {data.profiles.map((profile) => (
-                  <div key={profile.project} className="space-y-1">
-                    <dt className="text-sm font-medium">{profile.project}</dt>
-                    <dd className="text-sm whitespace-pre-line text-muted-foreground">
-                      {profile.text.replace(/^Project profile: [^\n]*\n\n/, "")}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
-        )}
-
-        {decided.length > 0 && (
-          <Collapsible>
-            <CollapsibleTrigger className="text-sm text-muted-foreground underline-offset-2 hover:underline">
-              Decided ({decided.length})
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3">
-              <Card className="gap-0 py-0">
-                <ul className="divide-y divide-border">
-                  {decided.map((p) => <ProposalRow key={key(p)} proposal={p} busy={busy} onDecide={() => {}} />)}
-                </ul>
-              </Card>
-            </CollapsibleContent>
-          </Collapsible>
+              {(["review", "moved", "decided"] as const).map((which) => (
+                <TabsContent key={which} value={which} className="flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 sm:px-8">
+                  <PlacementsPanel tab={which} state={tabs[which]} onState={(patch) => patchTab(which, patch)} ctx={ctx} />
+                </TabsContent>
+              ))}
+              <TabsContent value="profiles" className="flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 sm:px-8">
+                <ProfilesPanel profiles={data.profiles} proposals={proposals} query={profileView.query} project={profileView.project}
+                  onChange={(patch) => setProfileView((prev) => ({ ...prev, ...patch }))} onOpen={openWith} />
+              </TabsContent>
+            </Tabs>
+          </>
         )}
       </div>
-    </div>
+      <SourceReader target={reading} onClose={() => setReading(null)} />
+      <ShortcutsDialog open={help} onOpenChange={setHelp} shortcuts={SHORTCUTS} />
+    </Announcer>
   );
 }

@@ -47,21 +47,27 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 
 ### Core memories
 
-Short statements about you that every agent session receives at its start: preferences, standing instructions, facts about you ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)).
+Short statements about you that every agent session receives at its start: preferences, standing instructions, facts about you ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)). They reach sessions through the MCP server's handshake instructions and sync to paired devices.
 
-- **Add one** writes a core memory, active at once, for every project or one project.
-- **Proposed** lists suggestions from agents (a stored `preference`) and from Organize, with the quote they rest on; each can be edited, approved or rejected.
-- **Active** and **Retired** list the rest; a retired one can be restored. The meter shows how much of a session's 2,000 characters the ones for every project take.
-- They reach sessions through the MCP server's handshake instructions and sync to paired devices.
+- The strip under the title shows how much of a session's 2,000 characters the ones for every project take, and says when some no longer fit.
+- **Add core memory** (`n`) writes one, active at once, for every project or one project.
+- **Proposed** (opens first while any wait) lists suggestions from agents (a stored `preference`) and from Organize, with the quote they rest on, where they came from and, for every-project ones, how many characters they would take. Each can be edited, given another kind or scope, approved or rejected.
+- **Active** and **Retired** list the rest; edit or retire an active one, restore a retired or rejected one.
+- The lists work like Organize's: search, a Kind filter and Scope and From selects, 20 rows a page, select several for **Approve**, **Reject**, **Retire** or **Restore**, and **Undo** in the toast or `z`. Undoing an approval or a rejection returns the core memory to the proposals ([ADR 0136](adr/0136-review-pages-use-paged-tabs-and-decisions-reopen.md)). `/core/#proposed`, `#active` and `#retired` link to a tab.
 
 ### Organize
 
-**Run Organize** queues a job that writes a short profile of each project, finds a project for memories sitting in catch-alls (no project, Desktop, Code, unassigned, URLs, desktop conversations), and proposes core memories ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). **Without the local helper** keeps to the folder-path and project-name evidence. With `organize.background` on, Organize also runs by itself when the queue is idle, after background tagging, and looks only at what changed ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)); the page says which.
+**Run Organize** queues a job that writes a short profile of each project, finds a project for memories sitting in catch-alls (no project, Desktop, Code, unassigned, URLs, desktop conversations), and proposes core memories ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)); its menu runs it **without the local helper**, which keeps to the folder-path and project-name evidence. With `organize.background` on, Organize also runs by itself when the queue is idle, after background tagging, and looks only at what changed ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)).
 
-- **Moved automatically** lists the sources Organize moved by itself because the evidence was strong: the source names exactly one project's folder, or one distinctive project name at least twice and no other, early in what it says. **Undo** moves one back and keeps it there ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)). `organize.auto_move` off sends these to review too.
-- The other proposals are grouped by target project, each with its evidence: the project's folder path, its name, or a quote the local model found. **Move** or **Keep here** decides one; **Move all** or **Keep all** a group. A move is a placement rule, so it holds through refreshes.
+The strip under the title says whether it runs by itself and when it last passed, whether strong matches move by themselves, the progress of a running pass, and what holds moves back. It also gives the last run and links to the core memory proposals waiting on Core memories. When a run ends, its proposals come in by themselves. The page reviews in four tabs ([ADR 0136](adr/0136-review-pages-use-paged-tabs-and-decisions-reopen.md)); `/organize/#review`, `#moved`, `#decided` and `#profiles` link to one.
+
+- **To review** lists the proposals that wait, by target project: a rail of projects by count (a select in a narrow window), the largest open first. Each row shows the conversation's first question or the source, where it is from, the evidence (the project's folder path, its name, or a quote the local model found, with the project's name marked) and, with `organize.auto_move` off, **Strong evidence**. **Move** or **Keep here** decides one; **Move all** or **Keep all** the project's group; a finished group offers the next. Click a row or press Enter for its preview, the whole quote, the project's profile and **Read source**. A move is a placement rule, so it holds through refreshes.
+- **Moved automatically** lists the sources Organize moved by itself because the evidence was strong: the source names exactly one project's folder, or one distinctive project name at least twice and no other, early in what it says ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)). **New since you last looked** shows those after the last **Mark all as seen** in this browser. **Move back** moves one back and keeps it there; **Move back all** a project's group, after a confirmation. `organize.auto_move` off sends these to review instead.
+- **Decided** lists your moves and keeps, and moves back, newest first; **Reopen** returns one to review, moving it back first if it was moved.
+- **Profiles** shows what Organize thinks each project is, with links to the sources waiting to move there and those moved there by themselves; search and chat find the profiles too.
+- Every list has a search, filters, 20 rows a page (10 or 50 are remembered in this browser) and checkboxes for deciding many rows at once. A decision shows at once with **Undo** in its toast; writes go to the server one request at a time, and one that fails comes back with its error and **Retry**. While a job holds the ingestion lock, **Move** and **Move back** wait; **Keep here** still works.
+- Keyboard: `j`/`k` move between rows, `a` moves, `r` keeps, `u` moves back or reopens, `x` selects, Enter opens a row, `o` reads its source, `z` undoes, `[`/`]` change page, `/` searches, `1`–`4` switch tabs, and `?` lists them all, with a switch that turns single-key shortcuts off.
 - Moves, proposals and decisions reach paired devices ([ADR 0134](adr/0134-placement-rules-and-organize-proposals-sync.md)).
-- **Project profiles** shows what each project is about; search and chat find the profiles too.
 
 ### Projects
 

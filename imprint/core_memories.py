@@ -145,7 +145,11 @@ def propose(text: str, kind: str = 'preference', scope: str = EVERYWHERE, eviden
 
 
 def update(memory_id: str, *, text=None, kind=None, scope=None, state=None) -> dict:
-    """Edit, approve (state ``active``), retire or restore a core memory."""
+    """Edit, approve (state ``active``), retire or restore a core memory.
+    One an agent or Organize proposed can return to ``proposed``, which is
+    how the dashboard undoes an approval or a rejection (ADR 0136); one the
+    user wrote never was a proposal. Each change is stamped after the last,
+    even within one tick of a coarse clock, so paired devices take it."""
     changes = {}
     if text is not None:
         changes['text'] = _text(text)
@@ -162,9 +166,11 @@ def update(memory_id: str, *, text=None, kind=None, scope=None, state=None) -> d
         if row is None:
             raise KeyError(memory_id)
         record = _record(row)
+        now = max(time.time(), float(record['updated_at']) + 0.001)
         if changes.get('state') == 'proposed' and record['state'] != 'proposed':
-            raise ValueError('An approved or retired core memory cannot become a proposal again')
-        now = time.time()
+            if record['origin'] == 'user':
+                raise ValueError('A core memory you wrote cannot become a proposal')
+            changes['approved_at'] = None
         if changes.get('state') == 'active' and record['state'] != 'active':
             changes['approved_at'] = now
         changes['updated_at'] = now

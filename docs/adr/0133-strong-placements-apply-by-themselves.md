@@ -3,9 +3,10 @@ title: ADR 0133 — Strong placements apply by themselves
 description: Organize moves a catch-all source by itself when it names exactly one project's registered folder, or one distinctive project name at least twice and no other, early in what it says; such moves are listed with an undo, and every other placement still waits for the user.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-05
 - Amends: [ADR 0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) — placements with strong evidence apply without review
+- Amended by: [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) — a move Organize made by itself is taken back with Move back, and its undo is reopened and moved as the user's move
 - Related: [ADR 0036](0036-move-memories-between-projects.md), [ADR 0099](0099-sources-can-belong-to-several-projects.md), [ADR 0132](0132-organize-runs-in-the-idle-slot-after-background-tagging.md), [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md)
 
 ## Context

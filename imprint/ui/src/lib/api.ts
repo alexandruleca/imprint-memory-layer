@@ -262,6 +262,8 @@ export interface OrganizeProposal {
   strength: "strong" | "weak" | "";
   evidence: { quote: string }[];
   preview: string;
+  /** A conversation's first question; "" for other sources. */
+  title?: string;
   chunks: number;
   /** "auto": Organize moved it by itself; it can be undone. */
   status: "pending" | "accepted" | "rejected" | "auto";
@@ -282,15 +284,25 @@ export function getOrganize() {
   return fetchAPI<OrganizeReview>("/api/organize");
 }
 
-export function decideOrganize(workspace: string, items: { origin: string; source: string }[], accept: boolean) {
-  return fetchAPI<{ decided: number; failed: { origin: string; source: string; error: string }[] }>(
-    "/api/organize/decide", { method: "POST", body: JSON.stringify({ workspace, items, accept }) });
+export type OrganizeItem = { origin: string; source: string };
+export type OrganizeFailure = OrganizeItem & { error: string };
+
+/** `keepalive` lets a write leave while the page unloads. */
+export function decideOrganize(workspace: string, items: OrganizeItem[], accept: boolean, init?: { keepalive?: boolean }) {
+  return fetchAPI<{ decided: number; failed: OrganizeFailure[] }>(
+    "/api/organize/decide", { method: "POST", body: JSON.stringify({ workspace, items, accept }), ...init });
 }
 
 /** Move sources Organize moved by itself back, and keep them there. */
-export function undoOrganize(workspace: string, items: { origin: string; source: string }[]) {
-  return fetchAPI<{ undone: number; failed: { origin: string; source: string; error: string }[] }>(
-    "/api/organize/undo", { method: "POST", body: JSON.stringify({ workspace, items }) });
+export function undoOrganize(workspace: string, items: OrganizeItem[], init?: { keepalive?: boolean }) {
+  return fetchAPI<{ undone: number; failed: OrganizeFailure[] }>(
+    "/api/organize/undo", { method: "POST", body: JSON.stringify({ workspace, items }), ...init });
+}
+
+/** Return moved or kept proposals to review; a move is taken back first (ADR 0136). */
+export function reopenOrganize(workspace: string, items: OrganizeItem[], init?: { keepalive?: boolean }) {
+  return fetchAPI<{ reopened: number; failed: OrganizeFailure[] }>(
+    "/api/organize/reopen", { method: "POST", body: JSON.stringify({ workspace, items }), ...init });
 }
 
 // ── Core memories (ADR 0129) ────────────────────────────────────
@@ -328,8 +340,11 @@ export function addCoreMemory(text: string, kind: CoreKind, scope: string) {
   return fetchAPI<CoreMemory>("/api/core", { method: "POST", body: JSON.stringify({ text, kind, scope }) });
 }
 
-export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "text" | "kind" | "scope" | "state">>) {
-  return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) });
+/** Edit, approve, retire or restore one; `state: "proposed"` returns a
+ * proposal an agent or Organize made to the proposals (an undo, ADR 0136). */
+export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "text" | "kind" | "scope" | "state">>,
+                                 init?: { keepalive?: boolean }) {
+  return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change), ...init });
 }
 
 /** Restart the dashboard server into the installed code (ADR 0050). */

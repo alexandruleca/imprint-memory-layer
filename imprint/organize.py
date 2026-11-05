@@ -520,7 +520,10 @@ def propose_core(workspace: str, llm=None, *, should_stop=None) -> int:
 
 def review(workspace: str | None = None) -> dict:
     """What the Organize page shows: profiles, proposals (moved ones
-    included), the last run and whether it runs in the background."""
+    included), the last run and whether it runs in the background. A
+    conversation's proposal carries its title, the first question, so an
+    opaque key like ``conversation/9a6cc9c6`` reads as what it was about."""
+    from . import source_snapshots
     ws = _workspace(workspace)
     with _db() as conn:
         rows = [dict(r) for r in conn.execute(
@@ -528,8 +531,13 @@ def review(workspace: str | None = None) -> dict:
             "ORDER BY status='pending' DESC, target, created_at DESC", (ws,))]
         run = conn.execute('SELECT finished_at, summary FROM runs WHERE workspace=?', (ws,)).fetchone()
         last_pass = conn.execute('SELECT finished_at FROM passes WHERE workspace=?', (ws,)).fetchone()
+    try:
+        titles = source_snapshots.conversation_titles(ws) if rows else {}
+    except sqlite3.Error:
+        titles = {}
     for row in rows:
         row['evidence'] = json.loads(row['evidence'] or '[]')
+        row['title'] = titles.get(row['source'], '')
         row.pop('fingerprint', None)
     known = profiles(ws)
     return {'workspace': ws, 'proposals': rows,
@@ -610,6 +618,41 @@ def undo(workspace: str, items: list[dict]) -> dict:
                          (time.time(), _stamp(conn, ws, origin, source), ws, origin, source))
         done += 1
     return {'undone': done, 'failed': failed}
+
+
+def reopen(workspace: str, items: list[dict]) -> dict:
+    """Return the user's decisions to review (ADR 0136). An accepted move is
+    taken back first: its source's placement rule goes, holding the
+    ingestion lock without waiting, as undo does, so the memories return to
+    where the rest of their origin is. A rejection only reopens. The change
+    is stamped, so it reaches paired devices (ADR 0134). Moves Organize made
+    by itself are moved back with ``undo``, and a pending proposal has
+    nothing to reopen."""
+    from .projects import locked, unplace
+    ws = _workspace(workspace)
+    done, failed = 0, []
+    for origin, source in _pairs(items):
+        item = {'origin': origin, 'source': source}
+        with _db() as conn:
+            row = conn.execute('SELECT status FROM proposals WHERE workspace=? AND origin=? AND source=?',
+                               (ws, origin, source)).fetchone()
+        status = row['status'] if row else None
+        if status not in ('accepted', 'rejected'):
+            failed.append({**item, 'error': 'moved by Organize itself; move it back instead' if status == 'auto'
+                           else 'not decided yet' if status == 'pending' else 'no decided proposal'})
+            continue
+        if status == 'accepted':
+            try:
+                locked('move', unplace, origin, source, workspace=ws)
+            except ValueError as error:
+                failed.append({**item, 'error': str(error)})
+                continue
+        with _db() as conn:
+            conn.execute("UPDATE proposals SET status='pending', decided_at=NULL, updated_at=? "
+                         "WHERE workspace=? AND origin=? AND source=?",
+                         (_stamp(conn, ws, origin, source), ws, origin, source))
+        done += 1
+    return {'reopened': done, 'failed': failed}
 
 
 # ── The job ─────────────────────────────────────────────────────
