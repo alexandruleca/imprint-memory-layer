@@ -56,14 +56,27 @@ class SectionAnalysis:
         return f"[{source_id}:{start}-{end}] of {len(text)} characters\n{text[start:end]}\nnext_start={end}"
 
     def prepare(self, messages, offered_tools):
-        """Keep current evidence, prune old history, then condense only on overflow."""
+        """Keep current evidence, prune old history, then condense only on overflow.
+
+        Old history goes a piece at a time, so the conversation lasts as long
+        as it fits (ADR 0140): first earlier turns' tool exchanges, oldest
+        first, whose answers already say what they found; then whole earlier
+        exchanges, oldest first, so the history still starts with a question."""
         messages = [dict(message) for message in messages]
         condensed = set()
         while not self.fits(messages, offered_tools()):
             self.check_cancelled()
             anchor = max(i for i, message in enumerate(messages) if message["role"] == "user")
+            research = next((i for i in range(1, anchor) if messages[i].get("tool_calls")), None)
+            if research is not None:
+                end = research + 1
+                while end < anchor and messages[end]["role"] == "tool":
+                    end += 1
+                del messages[research:end]
+                continue
             if anchor > 1:
-                del messages[1:anchor]
+                end = next((i for i in range(2, anchor) if messages[i]["role"] == "user"), anchor)
+                del messages[1:end]
                 continue
             if not self.workers:
                 raise ValueError("Chat context exceeded; enable chat.analysis_workers or increase chat.n_ctx")

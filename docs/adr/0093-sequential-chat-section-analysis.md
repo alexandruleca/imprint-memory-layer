@@ -3,9 +3,10 @@ title: ADR 0093 — Sequential chat section analysis
 description: Two configurable logical workers analyze oversized chat inputs and evidence before coordinator synthesis.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
 - Scope: dashboard chat and the same-chat voice route
+- Amended by: [ADR 0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) — old history goes a piece at a time: earlier research first, then the oldest exchanges
 - Related: [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md), [ADR 0061](0061-local-tool-call-formats.md), [ADR 0092](0092-voice-generation-follows-playback.md)
 
 ## Context

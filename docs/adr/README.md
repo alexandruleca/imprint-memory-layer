@@ -85,7 +85,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0125](0125-integrated-gpus-can-be-chosen-beside-a-discrete-one.md) **Integrated GPUs can be chosen beside a discrete one.** Settings lists integrated GPUs after the discrete ones, and each model loads through llama.cpp's device list, so `model.gpu_device` can name an integrated GPU; `auto` still prefers the discrete GPU.
 - [ADR 0090](0090-macos-installs-llama-cpp-wheels-built-here.md) **macOS installs llama.cpp wheels built by this repository.** A manually run workflow builds the binding's macOS wheels, Metal on both architectures, from the hash-locked source and publishes them as the prerelease `llama-cpp-python-v<version>`; the locks pin them, so no Mac needs a compiler. Amended by [ADR 0106](0106-intel-mac-laptop-runner.md) (Intel wheel built on the laptop runner), [ADR 0111](0111-intel-macs-are-not-supported.md) (Apple silicon wheel only).
 - [ADR 0078](0078-keep-qwen3-5-4b-as-the-local-tagger.md) **Keep Qwen3.5-4B as the local tagger.** Qwen3.5-2B tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on; putting the prompt's fixed text first gains nothing on Qwen3.5's architecture.
-- [ADR 0093](0093-sequential-chat-section-analysis.md) **Sequential chat section analysis.** Two configurable logical workers analyze oversized questions and evidence sequentially, with bounded notes and reply-local exact rereads.
+- [ADR 0093](0093-sequential-chat-section-analysis.md) **Sequential chat section analysis.** Two configurable logical workers analyze oversized questions and evidence sequentially, with bounded notes and reply-local exact rereads. Amended by [ADR 0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) (history goes a piece at a time).
+- [ADR 0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) **Chat keeps the conversation and drops old research first.** When a prompt does not fit, earlier turns' tool exchanges go first, oldest first, then whole earlier exchanges, oldest first, instead of the whole history at once.
 
 ### Sync and device provenance
 
@@ -300,7 +301,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0090](0090-macos-installs-llama-cpp-wheels-built-here.md) | 2026-10-27 | Amended by [ADR 0106](0106-intel-mac-laptop-runner.md), [ADR 0111](0111-intel-macs-are-not-supported.md) | macOS installs llama.cpp wheels built by this repository |
 | [0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) | 2026-10-27 | Accepted | WSL homes with a connected client get the imprint command |
 | [0092](0092-voice-generation-follows-playback.md) | 2026-10-28 | Accepted | Voice generation follows playback |
-| [0093](0093-sequential-chat-section-analysis.md) | 2026-10-28 | Accepted | Sequential chat section analysis |
+| [0093](0093-sequential-chat-section-analysis.md) | 2026-10-28 | Amended by [ADR 0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) | Sequential chat section analysis |
 | [0094](0094-the-dashboard-reads-whole-sources-from-their-snapshots.md) | 2026-10-28 | Amended by [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) | The dashboard reads whole sources from their snapshots |
 | [0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) | 2026-10-28 | Accepted | Audio files enter the source ingestion pipeline |
 | [0096](0096-cpu-whisper-runtime-for-audio-imports.md) | 2026-10-28 | Amended by [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) | CPU Whisper runtime for audio imports |
@@ -346,6 +347,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) | 2026-11-05 | Accepted | Review pages use paged tabs, and decisions reopen |
 | [0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) | 2026-11-05 | Accepted | Echo wakes on "Hey Echo" from a hidden desktop listener |
 | [0138](0138-memories-that-wait-for-llm-tagging-travel-to-a-paired-device-that-tags.md) | 2026-11-05 | Accepted | Memories that wait for LLM tagging travel to a paired device that tags |
+| [0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) | 2026-11-05 | Accepted | Chat keeps the conversation and drops old research first |
 
 ## How to write and maintain ADRs
 

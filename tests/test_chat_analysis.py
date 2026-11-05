@@ -84,6 +84,37 @@ class SectionAnalysisTests(unittest.TestCase):
         self.assertEqual(fitted, [messages[0], messages[-1]])
         self.assertEqual(self.requests, [])
 
+    def test_old_research_goes_first_then_the_oldest_exchanges_so_the_conversation_lasts(self):
+        # ADR 0140: earlier turns' search results are dropped before any of the
+        # conversation, and then whole exchanges, oldest first.
+        analysis = self.analyzer()
+
+        def turn(n, results):
+            call = {"role": "assistant", "content": "", "tool_calls": [{"id": f"h{n}"}]}
+            return [{"role": "user", "content": f"question {n}"}, call,
+                    *({"role": "tool", "tool_call_id": f"h{n}", "content": "r" * size} for size in results),
+                    {"role": "assistant", "content": f"answer {n}"}]
+
+        system = {"role": "system", "content": "instructions"}
+        messages = [system, *turn(1, [600, 600]), *turn(2, [700]), {"role": "user", "content": "and it?"}]
+        _, fitted = exhaust(analysis.prepare(messages, lambda: None))
+        # Only as much goes as must: turn 1's searches, while turn 2's still fit; every word said stays.
+        self.assertEqual([m["content"] for m in fitted if m["role"] != "tool" and not m.get("tool_calls")],
+                         ["instructions", "question 1", "answer 1", "question 2", "answer 2", "and it?"])
+        self.assertEqual([m["tool_call_id"] for m in fitted if m["role"] == "tool"], ["h2"])
+        self.assertEqual(self.requests, [])
+        # With room for one earlier exchange only, the oldest goes whole; history starts with a question.
+        long = [system, *(m for n in range(1, 4) for m in turn(n, [])), {"role": "user", "content": "and it?"}]
+        for message in long:
+            if message["content"].startswith("answer"):
+                message["content"] += " " + "a" * 700
+        _, fitted = exhaust(analysis.prepare(long, lambda: None))
+        self.assertEqual(fitted[1]["role"], "user")
+        self.assertEqual(fitted[-1]["content"], "and it?")
+        self.assertIn("question 3", [m["content"] for m in fitted])
+        self.assertNotIn("question 1", [m["content"] for m in fitted])
+        self.assertTrue(all(not m.get("tool_calls") for m in fitted))
+
     def test_large_tool_result_keeps_call_pair_and_analyzes_its_tail(self):
         analysis = self.analyzer()
         call = {"role": "assistant", "content": "", "tool_calls": [{"id": "one"}]}
