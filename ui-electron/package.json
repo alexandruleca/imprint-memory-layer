@@ -26,6 +26,7 @@
       "preload.js",
       "navigation.js",
       "voice-permissions.js",
+      "recording-relay.js",
       "runtime.js",
       "companion.js",
       "service.js",

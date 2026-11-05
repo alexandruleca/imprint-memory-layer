@@ -372,16 +372,24 @@ image is two-thirds of its previous size. The compact companion fits its viewpor
 without a page scrollbar; long transcript text is bounded and full setup details
 remain on the Voice page.
 
-While the dashboard is closed, hidden or minimized, an open companion docks
-beside the floating Imprint button, or above it on a narrow display. Dragging
-either the button or the head moves both; the pair is kept inside one display's
-work area and both positions are saved. The grouped companion stays on top with
-the button. Clicking the button reopens the dashboard and restores the
-companion's own **Keep on top** choice; the head then moves on its own again.
-Closing the companion leaves the button. Recalling Echo while the dashboard is
-hidden docks it beside the button again.
+While the dashboard is closed, hidden or minimized, Imprint shows a floating
+button, the orb. Dragging it moves it; a click fans out **Dashboard**, **Echo**
+and **Record** toward the side of the screen with room; a double-click opens the
+dashboard; right-click (or a long press on touch) shows a menu with Quit. An open
+companion docks beside the orb on that side, or above or below it on a narrow
+display, and slides along it to stay on screen; the orb stays where you put it.
+Dragging either the orb or the head moves both, and both positions are saved.
+The grouped companion stays on top with the orb. The **Echo** satellite, or the
+collapse button in Echo's header, folds Echo into the orb: its window hides,
+which ends the conversation and turns the microphone off, and the same window
+comes back docked when you choose **Echo** again. Opening the dashboard restores
+the companion's own **Keep on top** choice; the head then moves on its own again.
+Closing the companion from its settings leaves the orb. Recalling Echo while the
+dashboard is hidden docks it beside the orb again.
 [ADR 0070](adr/0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)
-records the grouping, the drag handles and the settings panel.
+records the grouping, the drag handles and the settings panel;
+[ADR 0135](adr/0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md)
+records the orb and its actions.
 
 Speech energy drives the jaw from actual playback audio; it is not phoneme/viseme
 alignment. Idle motion and occasional blinks are subtle; controls show the listening/thinking state.

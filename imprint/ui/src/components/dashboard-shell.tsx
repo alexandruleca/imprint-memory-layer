@@ -12,7 +12,7 @@ import { TopBar } from "./top-bar";
 export function DashboardShell({ children, overlays }: { children: React.ReactNode; overlays?: React.ReactNode }) {
   const route = usePathname().replace(/\/$/, "");
   const companion = route === "/companion";
-  const launcher = route === "/launcher";
+  const launcher = route === "/launcher" || route === "/launcher/halo";
   const floating = companion || launcher;
   useEffect(() => { document.documentElement.classList.toggle("companion-document", companion);
     document.documentElement.classList.toggle("launcher-document", launcher);

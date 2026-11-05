@@ -17,6 +17,9 @@ on:
       - 'imprint/ui/src/lib/echo-canvas-renderer.ts'
       - 'imprint/ui/src/styles/voice.css'
       - 'imprint/ui/src/app/launcher/**'
+      - 'imprint/ui/src/lib/launcher.ts'
+      - 'imprint/ui/src/styles/launcher.css'
+      - 'imprint/ui/src/components/recorder-bridge.tsx'
       - 'imprint/ui/public/models/**'
       - '.github/workflows/voice-engine.yml'
       - 'tests/test_voice*.py'
@@ -140,10 +143,12 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a node ui-electron/smoke-microphone.mjs
             xvfb-run -a node ui-electron/smoke-companion-controls.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
+            xvfb-run -a node ui-electron/smoke-orb.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
             xvfb-run -a python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           else
             node ui-electron/smoke-microphone.mjs
             node ui-electron/smoke-companion-controls.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
+            node ui-electron/smoke-orb.mjs imprint/ui/out "$RUNNER_TEMP/voice-controls"
             python scripts/smoke-voice-desktop.py --runtime-dir "$VOICE_CACHE" --output-dir "$RUNNER_TEMP/voice-desktop" --native-logs --bundled-setup
           fi
       - name: Preserve native evidence

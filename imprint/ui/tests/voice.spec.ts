@@ -357,26 +357,37 @@ test('compact chat download keeps cancellation controls inside the viewport', as
   expect(await page.locator('.voice-control-area').evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(420);
 });
 
-test('floating launcher distinguishes dragging from opening and supports keyboard after a drag', async ({ page }) => {
+test('the orb is a handle: a drag moves it, a click opens its ring, a double-click the dashboard, keys work after a drag', async ({ page }) => {
   await page.addInitScript(() => {
     const calls: string[] = []; Object.assign(window, { launcherCalls: calls });
     window.electronAPI = { isElectron: true, platform: 'win32', close() {}, quit() {}, minimize() {}, maximize() {},
       openCompanion() {}, closeCompanion() {}, pinCompanion() {},
       openDashboard() { calls.push('open'); }, beginLauncherDrag() { calls.push('start'); },
-      moveLauncherDrag() { calls.push('move'); }, endLauncherDrag() { calls.push('end'); } };
+      moveLauncherDrag() { calls.push('move'); }, endLauncherDrag() { calls.push('end'); },
+      toggleLauncherRing(focus?: string | null) { calls.push(`ring:${focus ?? ''}`); },
+      nudgeLauncher(delta: { x: number; y: number }) { calls.push(`nudge:${delta.x},${delta.y}`); },
+      launcherMenu() { calls.push('menu'); } };
   });
   await prepare(page);
   await page.route('**/api/ping', route => route.fulfill({ status: 503, json: {} }));
-  await page.setViewportSize({ width: 56, height: 56 }); await page.goto('/launcher/');
+  await page.setViewportSize({ width: 72, height: 72 }); await page.goto('/launcher/');
   await page.locator('.imprint-launcher[data-ready=true]').waitFor();
-  const button = page.getByRole('button', { name: 'Open Imprint' }); await button.waitFor();
+  const button = page.getByRole('button', { name: 'Imprint' }); await button.waitFor();
+  await expect(button).toHaveAttribute('aria-haspopup', 'menu');
   await expect(page.getByRole('link', { name: 'Skip to content' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Retry connection' })).toHaveCount(0);
   await page.keyboard.press('Tab'); await expect(button).toBeFocused();
-  await page.mouse.move(20,20); await page.mouse.down(); await page.mouse.move(40,35); await page.mouse.up();
-  const calls = () => page.evaluate(() => (window as unknown as { launcherCalls: string[] }).launcherCalls);
-  expect(await calls()).toContain('move'); expect(await calls()).not.toContain('open');
-  await button.press('Enter'); expect(await calls()).toContain('open');
+  const calls = () => page.evaluate(() => (window as unknown as { launcherCalls: string[] }).launcherCalls.splice(0));
+  await page.mouse.move(30, 30); await page.mouse.down(); await page.mouse.move(50, 45); await page.mouse.up();
+  const dragged = await calls();
+  expect(dragged).toContain('move'); expect(dragged.some(call => call.startsWith('ring') || call === 'open')).toBe(false);
+  await button.press('Enter'); expect(await calls()).toEqual(['ring:first']);
+  await button.press('ArrowUp'); expect(await calls()).toEqual(['ring:last']);
+  await button.press('Alt+ArrowRight'); await button.press('Alt+Shift+ArrowUp');
+  expect(await calls()).toEqual(['nudge:16,0', 'nudge:0,-64']);
+  await button.press('Shift+F10'); expect(await calls()).toEqual(['menu']);
+  await button.click(); expect((await calls()).filter(call => call !== 'start' && call !== 'end')).toEqual(['ring:']);
+  await button.dblclick(); expect((await calls()).filter(call => call !== 'start' && call !== 'end')).toEqual(['ring:', 'open']);
 });
 
 test("Echo's look is picked from previews, saved, and loads its own model", async ({ page }) => {

@@ -122,6 +122,7 @@ Records a call or meeting: your microphone and, if you choose, what this compute
 
 - **Start recording** needs a title and project (default `meetings`) and your confirmation that everyone on the call knows it is being recorded. On Windows the desktop app records what the computer plays directly; a browser asks which tab or screen to share, with its audio. Without it, only the microphone is recorded, and the page says so.
 - While recording, the top bar shows the time and **Stop** on every page. Stopping queues the transcription.
+- In the desktop app, with the dashboard hidden, the floating Imprint button's **Record** satellite opens a small panel with the same title, project, computer-audio switch and confirmation. The dashboard records in the background, moving to Recordings first. While recording, the button shows the time and a red rim, and its actions offer **Stop** and the levels. Quitting during a recording asks first and saves what was recorded ([ADR 0135](adr/0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md)).
 - Each recording lists its state, its transcript ("You" for the microphone, "Others" for the computer's audio, with times), **Listen**, **Transcribe again**, **Delete audio** (keeping the transcript) and delete. A recording whose window closed shows **Finish and transcribe**.
 - The audio stays in `data/recordings/` on this device; the transcript is the source `recording/<id>` and syncs like other memories.
 

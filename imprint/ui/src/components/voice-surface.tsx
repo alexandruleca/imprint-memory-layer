@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowUpRight, Download, Mic, MicOff, Pin, Settings2, Square, X, AudioLines } from "lucide-react";
+import { ArrowDownToDot, ArrowUpRight, Download, Mic, MicOff, Pin, Settings2, Square, X, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
@@ -26,6 +26,8 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [engine, setEngine] = useState<"chat" | "lfm">("chat");
   const [text, setText] = useState("");
   const [pinned, setPinned] = useState(false);
+  // Docked by the orb while the dashboard is hidden; then Echo can fold into it (ADR 0135).
+  const [docked, setDocked] = useState(false);
   const [desktop, setDesktop] = useState(false);
   const [shortcutAvailable, setShortcutAvailable] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -61,8 +63,8 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       setInputDevice(preferences.inputDevice); setOutputDevice(preferences.outputDevice);
     }, 0);
     // The main process owns the window, so pinning shows the state it reports.
-    function companion(state: { pinned: boolean; shortcutAvailable?: boolean } | null) {
-      if (state) { setPinned(state.pinned); setShortcutAvailable(state.shortcutAvailable !== false); }
+    function companion(state: { pinned: boolean; docked?: boolean; shortcutAvailable?: boolean } | null) {
+      if (state) { setPinned(state.pinned); setDocked(!!state.docked); setShortcutAvailable(state.shortcutAvailable !== false); }
     }
     const unsubscribe = window.electronAPI?.onCompanionState?.(companion);
     void window.electronAPI?.getCompanionState?.().then(companion);
@@ -182,9 +184,11 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
               {desktop && <Button variant="ghost" aria-label={pinned ? "Unpin companion" : "Keep companion on top"} aria-pressed={pinned} className="voice-pin" onClick={() => window.electronAPI?.pinCompanion(!pinned)}><Pin size={14} fill={pinned ? "currentColor" : "none"}/> {pinned ? "On top" : "Keep on top"}</Button>}
               <Button variant="ghost" aria-label="Close companion" onClick={() => { client.current?.stop(); if (window.electronAPI?.closeCompanion) window.electronAPI.closeCompanion(); else window.close(); }}><X size={14}/> Close</Button>
             </div>}
-            {compact && desktop && <small className="voice-hint">Drag Echo to move it; with the dashboard hidden, Echo and the Imprint button move together. {shortcutAvailable ? `${shortcut} recalls Echo.` : "Recall Echo from the Imprint tray menu."}</small>}
+            {compact && desktop && <small className="voice-hint">Drag Echo to move it; with the dashboard hidden, Echo and the Imprint button move together, and Echo can fold into the button. {shortcutAvailable ? `${shortcut} recalls Echo.` : "Recall Echo from the Imprint tray menu."}</small>}
           </PopoverContent>
         </Popover>
+        {compact && desktop && docked && <Button variant="ghost" size="icon-sm" aria-label="Collapse Echo into the Imprint button" title="Collapse into the Imprint button"
+          onClick={() => { client.current?.stop(); window.electronAPI?.collapseCompanion?.(); }}><ArrowDownToDot size={16}/></Button>}
       </div>
     </header>
     {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}

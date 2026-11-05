@@ -3,10 +3,11 @@ title: ADR 0070 — The floating companion moves with the launcher and keeps its
 description: While the dashboard is hidden the companion docks beside the floating launcher and either window drags both; only the head and header drag it; everything except talking sits in a settings panel.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Scope: implementation; native Windows and macOS window behavior is unvalidated (see Validation)
 - Amends: [ADR 0048](0048-anime-echo-and-desktop-recovery.md) — its rule that any non-interactive area of the companion drags it, and its launcher that moves independently of the companion
+- Amended by: [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — a click on the launcher opens its actions; Echo docks on the orb's open side and slides along it, and can fold into the orb
 - Related: [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md), [ADR 0043](0043-live-voice-and-echo-companion.md), [ADR 0054](0054-echo-looks-declare-their-motion.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md)
 
 ## Context

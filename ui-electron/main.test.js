@@ -12,7 +12,7 @@ const path = require('node:path');
 const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/writable/venv/python'];
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
-  mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false } = {}) {
+  mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }) } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -40,6 +40,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       this.webContents.setWindowOpenHandler = () => {};
       this.webContents.getURL = () => this.url || '';
       this.webContents.getZoomFactor = () => 1;
+      this.webContents.setBackgroundThrottling = allowed => { this.throttled = allowed; };
       this.visible = false;
       this.destroyed = false;
       windows.push(this);
@@ -95,6 +96,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       setPermissionCheckHandler(handler) { calls.check = handler; },
       setDisplayMediaRequestHandler(handler) { calls.display = handler; } } },
     desktopCapturer: { getSources: async () => [{ id: 'screen:0', name: 'Entire screen' }] },
+    dialog: { showMessageBox: options => { calls.push(['dialog', options.message]); return messageBox(options); } },
   };
   const shortcuts = new Map();
   electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };
@@ -122,12 +124,12 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     './navigation': require('./navigation'), './service': { DesktopService: Service },
     './activity': { readActivity: dir => { calls.push(['activity', dir]); return typeof activity === 'function' ? activity() : activity; },
       describeActivity: require('./activity').describeActivity },
-    './voice-permissions': require('./voice-permissions') };
+    './voice-permissions': require('./voice-permissions'), './recording-relay': require('./recording-relay') };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8'), {
     require: name => { assert.ok(name in modules, name); return modules[name]; },
     process: { argv: ['electron', ...packaged ? [] : ['main.js'], ...runtimeArgs], platform, env: {},
       execPath: '/opt/imprint/bin/imprint-ui.app/Contents/MacOS/Imprint' },
-    __dirname, console: { warn() {}, error() {} }, setTimeout, Promise, URL, Date,
+    __dirname, console: { warn() {}, error() {} }, setTimeout, clearTimeout, Promise, URL, Date,
     setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
   });
   return { app, windows, services, calls, ipcMain, shortcuts, intervals, handlers, tick: () => intervals.forEach(tick => tick()),
@@ -453,7 +455,7 @@ test('display fitting restores an offscreen avatar and handles a small work area
   const head = fitBounds({ x: 20000, y: -20000, width: 400, height: 640 }, area);
   assert.deepEqual(head, { x: -400, y: 20, width: 400, height: 600 });
   assert.deepEqual(fitBounds({ width: 'corrupt', height: [] }, area), { x: -420, y: 20, width: 400, height: 600 });
-  assert.deepEqual(fitLauncher({ x: 9999, y: 9999 }, area), { x: -56, y: 564, width: 56, height: 56 });
+  assert.deepEqual(fitLauncher({ x: 9999, y: 9999 }, area), { x: -72, y: 548, width: 72, height: 72 });
   const image = { isEmpty: () => false };
   assert.equal(trayImage(image, 'win32'), image); assert.equal(trayImage(image, 'linux'), image);
 });
@@ -538,7 +540,7 @@ test('group layout stays in one work area and stacks on narrow displays', () => 
   const { dockCompanion } = require('./companion');
   for (const area of [{ x: -1000, y: 40, width: 1000, height: 700 }, { x: 0, y: 0, width: 320, height: 480 }]) {
     const group = dockCompanion({ x: 9000, y: 9000, width: 400, height: 640 }, { x: -9000, y: 9000 }, area);
-    for (const bounds of Object.values(group)) {
+    for (const bounds of [group.launcher, group.companion]) {
       assert.ok(bounds.x >= area.x && bounds.y >= area.y);
       assert.ok(bounds.x + bounds.width <= area.x + area.width);
       assert.ok(bounds.y + bounds.height <= area.y + area.height);
@@ -607,4 +609,168 @@ test('the session permission request asks macOS consent and refuses a page that 
   answer(true);
   assert.equal(await result, false);
   assert.equal(h.calls.check(dashboard.webContents, 'media', 'https://foreign.test', { mediaType: 'audio' }), false);
+});
+
+const ORIGIN = 'http://127.0.0.1:8420';
+const inside = (box, area) => box.x >= area.x && box.y >= area.y && box.x + box.width <= area.x + area.width && box.y + box.height <= area.y + area.height;
+
+test('the orb fans its actions toward free space and keeps them on screen at every edge and corner', () => {
+  const { fitLauncher, orbSide, haloLayout } = require('./companion');
+  const area = { x: 1920, y: 25, width: 1440, height: 875 };
+  for (const fx of [0, 0.4, 1]) for (const fy of [0, 0.5, 1]) {
+    const orb = fitLauncher({ x: area.x + fx * area.width, y: area.y + fy * area.height }, area);
+    const side = orbSide(orb, area);
+    assert.equal(side.side, fx < 1 ? 1 : -1, 'toward the wider half');
+    assert.equal(side.tilt, fy === 0 ? 'down' : fy === 1 ? 'up' : 'level');
+    const ring = haloLayout(orb, area, side);
+    assert.ok(inside(ring.bounds, area), JSON.stringify(ring.bounds));
+    assert.deepEqual({ x: ring.bounds.x + ring.orb.x, y: ring.bounds.y + ring.orb.y }, { x: orb.x + 36, y: orb.y + 36 });
+    assert.equal(ring.satellites.length, 3);
+    for (const satellite of ring.satellites) {
+      assert.ok(Math.sign(satellite.x - ring.orb.x) !== -side.side, 'never behind the orb');
+      assert.ok(inside({ x: ring.bounds.x + satellite.x - 20, y: ring.bounds.y + satellite.y - 20, width: 40, height: 40 }, area));
+      assert.ok(inside({ ...satellite.slot, x: satellite.slot.x + ring.bounds.x, y: satellite.slot.y + ring.bounds.y }, area));
+    }
+    const panel = haloLayout(orb, area, side, 'record', { width: 344, height: 402 });
+    assert.ok(inside(panel.bounds, area));
+    assert.ok(side.side > 0 ? panel.bounds.x >= orb.x + 60 : panel.bounds.x + panel.bounds.width <= orb.x + 12, 'beside the orb');
+  }
+});
+
+test('Echo docks beside the orb on its side without moving the orb', () => {
+  const { fitLauncher, dockCompanion } = require('./companion');
+  const area = { x: 0, y: 0, width: 1920, height: 1080 };
+  const orb = fitLauncher({ x: 1000, y: 1000 }, area);
+  const right = dockCompanion({ width: 400, height: 640 }, orb, area, 1);
+  assert.deepEqual(right.launcher, orb);
+  assert.equal(right.side, 1); assert.equal(right.companion.x, orb.x + 72 + 2);
+  assert.equal(right.companion.y + right.companion.height, 1080, 'slides up along the orb to stay on screen');
+  const left = dockCompanion({ width: 400, height: 640 }, orb, area, -1);
+  assert.equal(left.side, -1); assert.equal(left.companion.x + left.companion.width, orb.x - 2);
+  const edge = dockCompanion({ width: 400, height: 640 }, fitLauncher({ x: 1900, y: 400 }, area), area, 1);
+  assert.equal(edge.side, -1, 'the other side when the preferred one has no room');
+});
+
+test('the orb opens its ring in a window of its own; clicking elsewhere or on the orb closes it', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2], orbBounds = orb.getBounds();
+  h.emit('launcher-ring', dashboard); await settle();
+  assert.equal(h.windows.length, 3, 'only the orb opens its ring');
+  h.emit('launcher-ring', orb, 'first');
+  const ring = h.windows[3], layouts = [];
+  ring.webContents.send = (name, value) => { if (name === 'halo-layout') layouts.push(value); };
+  await settle();
+  assert.equal(ring.url, `${ORIGIN}/launcher/halo/`);
+  assert.equal(ring.options.transparent, true); assert.equal(ring.options.webPreferences.backgroundThrottling, false);
+  const layout = layouts.at(-1);
+  assert.equal(layout.kind, 'ring'); assert.equal(layout.focus, 'first'); assert.equal(layout.satellites.length, 3);
+  assert.deepEqual(ring.getBounds(), layout.bounds);
+  assert.equal(ring.visible, false, 'shown only once the page has drawn it');
+  h.emit('halo-ready', orb, layout.seq); assert.equal(ring.visible, false);
+  h.emit('halo-ready', ring, layout.seq); assert.equal(ring.visible, true);
+  assert.deepEqual(orb.getBounds(), orbBounds, 'the orb never moves or resizes');
+  assert.equal((await h.invoke('launcher-state', orb)).ring, true);
+  assert.equal(await h.invoke('halo-layout', orb), null);
+  // A click elsewhere closes it.
+  ring.emit('blur');
+  assert.equal(layouts.at(-1), null);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(ring.visible, false);
+  // A press on the orb closes it too, and that press's click does not reopen it.
+  h.emit('launcher-ring', orb); await settle();
+  h.emit('halo-ready', ring, layouts.at(-1).seq);
+  orb.setBounds({ x: 770, y: 370, width: 72, height: 72 }); // under the pointer
+  ring.emit('blur');
+  h.emit('launcher-ring', orb); await settle();
+  assert.equal((await h.invoke('launcher-state', orb)).ring, false);
+  h.emit('launcher-ring', orb); await settle();
+  assert.equal((await h.invoke('launcher-state', orb)).ring, true);
+  // Its actions come only from the ring's own page.
+  h.emit('halo-action', orb, 'dashboard'); assert.equal(dashboard.visible, false);
+  h.emit('halo-action', ring, 'dashboard');
+  assert.equal(dashboard.visible, true); assert.equal(orb.visible, false);
+  assert.equal(h.windows.length, 4, 'the ring window is reused');
+});
+
+test('the orb starts a recording in the hidden dashboard only with consent, and the orb and its ring follow it', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1], commands = [];
+  dashboard.webContents.send = (name, value) => { if (name === 'recorder-command') commands.push(value); };
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2];
+  h.emit('launcher-ring', orb); await settle();
+  const ring = h.windows[3];
+  h.emit('halo-action', ring, 'record'); await settle();
+  assert.equal((await h.invoke('halo-layout', ring)).kind, 'record');
+  assert.equal(ring.getBounds().width, 344);
+  h.emit('launcher-record', ring, { title: 'Weekly', project: 'meetings', others: true });
+  h.emit('launcher-record', dashboard, { title: 'Weekly', project: 'meetings', others: true, consent: true });
+  h.emit('launcher-record', ring, { title: 'Weekly', project: '', others: true, consent: true });
+  assert.equal(commands.length, 0, 'no consent, not the orb, or no project');
+  h.emit('launcher-record', ring, { title: ' Weekly ', project: 'meetings', others: true, consent: true });
+  assert.equal(JSON.stringify(commands), JSON.stringify([{ type: 'start', title: 'Weekly', project: 'meetings', others: true }]));
+  assert.equal(dashboard.throttled, false, 'the hidden dashboard answers at once');
+  const heard = [];
+  for (const [name, window] of [['orb', orb], ['ring', ring]]) {
+    window.webContents.send = (message, value) => { if (message === 'recorder-state') heard.push([name, value.phase]); };
+  }
+  const report = phase => ({ phase, id: 'r1', title: 'Weekly', project: 'meetings', startedAt: 1000, others: true, error: '' });
+  h.emit('recorder-state', orb, report('recording'));
+  assert.deepEqual(heard, [], 'only the dashboard reports');
+  h.emit('recorder-state', dashboard, report('recording'));
+  assert.deepEqual(heard, [['orb', 'recording'], ['ring', 'recording']]);
+  assert.equal(await h.invoke('halo-layout', ring), null, 'the panel folds into the orb once recording');
+  assert.equal((await h.invoke('launcher-recorder', orb)).phase, 'recording');
+  assert.equal(await h.invoke('launcher-recorder', dashboard), null);
+  h.emit('launcher-record', ring, { title: 'Again', project: 'meetings', others: false, consent: true });
+  assert.equal(commands.length, 1, 'one recording at a time');
+  h.emit('launcher-ring', orb); await settle();
+  h.emit('halo-action', ring, 'stop');
+  assert.equal(commands.at(-1).type, 'stop');
+  h.emit('recorder-state', dashboard, report('idle'));
+  assert.equal(dashboard.throttled, true);
+});
+
+test('Echo folds into the orb and comes back from it in the same window', async () => {
+  const h = harness({ alreadyUp: true }); await settle();
+  const dashboard = h.windows[1];
+  await h.invoke('voice-set-companion', dashboard, true);
+  const echo = h.windows[2];
+  h.emit('win-close', dashboard); await settle();
+  const orb = h.windows[3], orbBounds = orb.getBounds();
+  assert.equal((await h.invoke('voice-companion-state', echo)).docked, true);
+  assert.equal((await h.invoke('launcher-state', orb)).echoSide, 1);
+  h.emit('voice-collapse-companion', dashboard); assert.equal(echo.visible, true);
+  h.emit('voice-collapse-companion', echo);
+  assert.equal(echo.visible, false); assert.equal(echo.destroyed, false);
+  assert.equal((await h.invoke('launcher-state', orb)).echo, false);
+  assert.equal((await h.invoke('voice-companion-state', dashboard)).open, false);
+  h.emit('launcher-ring', orb); await settle();
+  const ring = h.windows[4];
+  h.emit('halo-action', ring, 'echo'); await settle();
+  assert.equal(echo.visible, true); assert.equal(h.windows.length, 5, 'no new Echo window');
+  assert.deepEqual(orb.getBounds(), orbBounds, 'the orb stays where the user put it');
+  assert.equal((await h.invoke('launcher-state', orb)).echo, true);
+  h.emit('launcher-ring', orb); await settle();
+  h.emit('halo-action', ring, 'echo'); assert.equal(echo.visible, false);
+});
+
+test('quitting during a recording asks first, then stops it and quits once it is saved', async () => {
+  const answers = [1, 0];
+  const h = harness({ alreadyUp: true, messageBox: async () => ({ response: answers.shift() }) }); await settle();
+  const dashboard = h.windows[1], commands = [];
+  dashboard.webContents.send = (name, value) => { if (name === 'recorder-command') commands.push(value); };
+  const report = phase => ({ phase, id: 'r1', title: 'Weekly', project: 'meetings', startedAt: 1000, others: true, error: '' });
+  h.emit('recorder-state', dashboard, report('recording'));
+  h.app.quit(); await settle();
+  assert.deepEqual(h.calls.filter(call => call[0] === 'dialog'), [['dialog', 'Stop the recording and quit?']]);
+  assert.equal(h.calls.includes('quit'), false, 'Cancel keeps Imprint running');
+  h.app.quit(); await settle();
+  assert.equal(JSON.stringify(commands), '[{"type":"stop"}]');
+  assert.equal(h.calls.includes('quit'), false, 'waits for the last audio');
+  h.emit('recorder-state', dashboard, report('idle'));
+  await new Promise(resolve => setTimeout(resolve, 150)); await settle();
+  assert.equal(h.calls.includes('quit'), true);
 });

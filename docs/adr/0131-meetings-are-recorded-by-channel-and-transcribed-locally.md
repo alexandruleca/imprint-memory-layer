@@ -3,8 +3,9 @@ title: ADR 0131 — Meetings are recorded by channel and transcribed locally
 description: The dashboard records the microphone and, with the user's consent, what the computer plays, as two channels of one file kept on the device; Imprint transcribes each channel locally so the transcript says who spoke, and stores it as a replaceable source.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-04
+- Amended by: [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — a recording can start and stop from the desktop app's floating button, which relays it to the dashboard window
 - Related: [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md), [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md)
 
 ## Context

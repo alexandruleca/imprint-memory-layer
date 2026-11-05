@@ -1,5 +1,165 @@
-html:has(.imprint-launcher), body:has(.imprint-launcher) { background: transparent!important; overflow: hidden; }
-.imprint-launcher { display: grid; place-items: center; width: 100%; height: 100dvh; overflow: hidden; user-select: none; }
-.imprint-launcher button { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 1px solid #a9d4e94d; border-radius: 50%; background: #102330f5; color: #bde9fa; box-shadow: inset 0 0 15px #a7d8ee10; cursor: grab; touch-action: none; -webkit-app-region: no-drag; }
-.imprint-launcher button:active { cursor: grabbing; }
-.imprint-launcher button:focus-visible { outline: 2px solid #bde9fa; outline-offset: -4px; }
+/* The orb and its ring of actions (ADR 0135). Both are transparent desktop
+ * windows. The orb stays navy on any wallpaper; the ring and its panels follow
+ * the system's light or dark appearance. */
+html:has(.imprint-launcher), body:has(.imprint-launcher),
+html:has(.imprint-halo), body:has(.imprint-halo) { background: transparent!important; overflow: hidden; }
+
+/* ── The orb ─────────────────────────────────────────────────────────────── */
+.imprint-launcher { position: relative; display: grid; place-items: center; width: 100%; height: 100dvh; overflow: hidden; user-select: none; --level: 0; }
+.imprint-launcher .orb { position: relative; z-index: 1; display: grid; place-items: center; width: 48px; height: 48px; padding: 0;
+  border: 1px solid #a9d4e94d; border-radius: 50%; color: #bde9fa; cursor: grab; touch-action: none; -webkit-app-region: no-drag;
+  background: radial-gradient(circle at 34% 28%, #21445a 0%, #102330 60%, #0a1a24 100%);
+  box-shadow: inset 0 0 15px #a7d8ee10, 0 4px 14px #030a1073, 0 0 0 1px #00000040;
+  transition: transform 80ms linear, border-color 120ms, box-shadow 160ms; }
+.imprint-launcher .orb:active { cursor: grabbing; transform: scale(.94); }
+.imprint-launcher .orb:focus-visible { outline: 2px solid #bde9fa; outline-offset: 4px; }
+@media (hover: hover) {
+  .imprint-launcher .orb:hover { border-color: #a9d4e999; box-shadow: inset 0 0 15px #a7d8ee10, 0 4px 14px #030a1073, 0 0 18px #8bdefe40; }
+}
+.imprint-launcher[data-ring] .orb { border-color: #bde9fa; background: radial-gradient(circle at 34% 28%, #2a5570, #143042 60%, #0c2030); }
+.imprint-launcher[data-ring] .orb svg { transform: scale(.88); }
+.imprint-launcher .orb svg { transition: transform 160ms cubic-bezier(.2,.8,.2,1); }
+.orb-timer { font: 600 12px/1 var(--font-inter), system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #fff; letter-spacing: -.01em; }
+.orb-timer-long { font-size: 10.5px; }
+
+.orb-rim { position: absolute; inset: 0; width: 72px; height: 72px; margin: auto; fill: none; stroke-width: 2.5; pointer-events: none; overflow: visible; }
+.orb-rim-recording { stroke: #ff5f57; filter: drop-shadow(0 0 calc(2px + 8px * var(--level)) rgb(255 95 87 / calc(.35 + .5 * var(--level)))); transition: filter 100ms linear; }
+.orb-rim-warning { stroke: #ffb547; }
+.orb-rim-progress { stroke: #8bdefe; stroke-linecap: round; transition: stroke-dasharray 400ms ease; }
+.orb-rim-spinning { stroke: #8bdefe; stroke-linecap: round; transform-origin: 36px 36px; animation: orb-spin 1s linear infinite; }
+.orb-rim-notch { stroke: #bde9fa; stroke-linecap: round; animation: halo-fade 200ms ease both; }
+.orb-badge { position: absolute; z-index: 2; top: 10px; right: 10px; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: #ffb547; color: #1b1200; font: 700 11px/1 var(--font-inter), system-ui, sans-serif; pointer-events: none; }
+@keyframes orb-spin { to { transform: rotate(360deg); } }
+
+/* ── The ring and its panels: system appearance ──────────────────────────── */
+.imprint-halo {
+  --sat-bg: #fffffff7; --sat-line: #d4d4d4; --sat-ink: #0a0a0a; --sat-hover: #eaf6fb; --sat-shadow: 0 1px 2px #0000001a, 0 6px 18px #0000001f;
+  --accent: #0a78a6; --accent-soft: #0a78a626; --focus: #0a78a6;
+  --label-bg: #0a0a0af2; --label-ink: #fafafa; --label-line: #0a0a0a;
+  --panel-bg: #fffffffa; --panel-line: #e5e5e5; --panel-ink: #0a0a0a; --muted: #5d5d5d;
+  --field-bg: #fff; --field-line: #d4d4d4; --cta-bg: #0a0a0a; --cta-ink: #fafafa;
+  --rec: #e7000b; --err: #b10009; --err-bg: #fdecec; --meter: #ececec; --orbit: #0a78a666;
+  --panel-shadow: 0 1px 2px #0000000f, 0 12px 36px #00000024;
+  position: relative; width: 100%; height: 100dvh; overflow: hidden; user-select: none; color: var(--panel-ink);
+  font: 400 13px/1.4 var(--font-inter), system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  .imprint-halo {
+    --sat-bg: #0b1a24f2; --sat-line: #2c414f; --sat-ink: #dceaf1; --sat-hover: #13304a; --sat-shadow: 0 6px 18px #0009, 0 1px 3px #0007;
+    --accent: #8bdefe; --accent-soft: #8bdefe33; --focus: #bde9fa;
+    --label-bg: #07141df7; --label-ink: #e6f2f8; --label-line: #2c414f;
+    --panel-bg: #0a1822f7; --panel-line: #263540; --panel-ink: #dceaf1; --muted: #92a5b1;
+    --field-bg: #07141d; --field-line: #2c414f; --cta-bg: #cce7f2; --cta-ink: #15242e;
+    --rec: #ff5f57; --err: #f0bfb7; --err-bg: #3a1513; --meter: #1c2c37; --orbit: #8bdefe55;
+    --panel-shadow: 0 18px 50px #000a, 0 2px 8px #0008;
+  }
+}
+@media (prefers-contrast: more) {
+  .imprint-halo { --sat-bg: var(--panel-bg); }
+  .halo-satellite, .halo-panel, .halo-label, .halo-capsule { border-width: 2px!important; }
+}
+/* Low specificity, so each button's own colours win. */
+:where(.imprint-halo) :where(button) { font: inherit; color: inherit; -webkit-app-region: no-drag; }
+.imprint-halo :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.halo-ring { position: absolute; inset: 0; outline: none; }
+.halo-orbit { position: absolute; inset: 0; pointer-events: none; }
+.halo-orbit path { fill: none; stroke: var(--orbit); stroke-width: 1; stroke-dasharray: 2 5; animation: halo-fade 220ms ease both; }
+.halo-orb-spot { position: absolute; left: calc(var(--orb-x) - 24px); top: calc(var(--orb-y) - 24px); width: 48px; height: 48px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+
+.halo-satellite { position: absolute; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--sat-line); background: var(--sat-bg); color: var(--sat-ink); box-shadow: var(--sat-shadow); cursor: pointer;
+  animation: halo-out 220ms cubic-bezier(.34,1.56,.64,1) both; animation-delay: calc(var(--i) * 30ms); }
+/* A 46 px hit circle around the 40 px disc. */
+.halo-satellite::before { content: ""; position: absolute; inset: -3px; border-radius: 50%; }
+.halo-satellite[data-on] { border-color: var(--accent); box-shadow: var(--sat-shadow), 0 0 0 3px var(--accent-soft); }
+.halo-satellite[data-stop] { background: var(--rec); border-color: var(--rec); color: #fff; }
+.halo-satellite[aria-disabled] { opacity: .55; cursor: default; }
+@media (hover: hover) {
+  .halo-satellite:not([data-stop]):not([aria-disabled]):hover { background: var(--sat-hover); border-color: var(--accent); }
+}
+.halo-satellite:not([data-stop]):focus-visible { background: var(--sat-hover); border-color: var(--accent); }
+.halo-record-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rec) 22%, transparent); }
+.halo-live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--rec); animation: halo-breathe 2s ease-in-out infinite; }
+
+.halo-label { position: absolute; display: flex; height: 26px; pointer-events: none; }
+.halo-label[data-side=left] { justify-content: flex-end; }
+.halo-label > span { height: 26px; max-width: 150px; padding: 0 10px; overflow: hidden; border: 1px solid var(--label-line); border-radius: 13px;
+  background: var(--label-bg); color: var(--label-ink); font-weight: 500; font-size: 12px; line-height: 24px; white-space: nowrap; text-overflow: ellipsis;
+  animation: halo-label 120ms cubic-bezier(.2,.8,.2,1) both; }
+
+.halo-capsule { position: absolute; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 12px; border: 1px solid var(--rec);
+  border-radius: 16px; background: var(--sat-bg); box-shadow: var(--sat-shadow); cursor: pointer; font-weight: 600; font-variant-numeric: tabular-nums;
+  animation: halo-pop 160ms cubic-bezier(.2,.8,.2,1) 90ms both; }
+.halo-capsule[data-stop] { background: var(--rec); color: #fff; }
+.halo-capsule[data-stop] .halo-live-dot { background: #fff; }
+.halo-capsule-time { flex: 1; text-align: left; white-space: nowrap; }
+.halo-mini-meters { display: grid; gap: 3px; width: 44px; }
+.halo-mini-meters > span, .halo-meter { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--meter); }
+.halo-mini-meters i, .halo-meter i { display: block; height: 100%; background: var(--accent); transition: width 100ms linear; }
+
+.halo-panel-host { display: flex; flex-direction: column; justify-content: flex-start; height: 100dvh; padding: 12px; }
+.halo-panel-host[data-origin$=bottom] { justify-content: flex-end; }
+.halo-panel { display: grid; gap: 12px; width: 320px; padding: 12px 16px 16px; border: 1px solid var(--panel-line); border-radius: 16px;
+  background: var(--panel-bg); color: var(--panel-ink); box-shadow: var(--panel-shadow); animation: halo-panel 200ms cubic-bezier(.2,.8,.2,1) both; }
+.halo-panel header { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.halo-panel h1 { flex: 1; margin: 0; overflow: hidden; font-size: 14px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.halo-collapse { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.halo-collapse:hover { background: var(--accent-soft); color: var(--panel-ink); }
+.halo-field { display: grid; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.halo-field input { height: 34px; padding: 0 10px; border: 1px solid var(--field-line); border-radius: 8px; background: var(--field-bg); color: var(--panel-ink); font: inherit; font-size: 13px; }
+.halo-field input:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.halo-switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.halo-switch > span { display: grid; font-size: 13px; }
+.halo-switch small { color: var(--muted); font-size: 12px; }
+.halo-switch [role=switch] { position: relative; flex: none; width: 34px; height: 20px; padding: 0; border: 0; border-radius: 10px; background: var(--meter); cursor: pointer; transition: background 120ms; }
+.halo-switch [role=switch] span { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0004; transition: transform 120ms; }
+.halo-switch [role=switch][aria-checked=true] { background: var(--accent); }
+.halo-switch [role=switch][aria-checked=true] span { transform: translateX(14px); }
+.halo-consent { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--panel-line); border-radius: 10px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.halo-consent b { color: var(--panel-ink); font-weight: 600; }
+.halo-consent input { flex: none; width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--accent); }
+.halo-start, .halo-stop { display: flex; align-items: center; justify-content: center; gap: 8px; height: 38px; border: 0; border-radius: 10px; font-weight: 600; cursor: pointer; }
+.halo-start { background: var(--cta-bg); color: var(--cta-ink); }
+.halo-start:disabled { opacity: .45; cursor: default; }
+.halo-stop { background: var(--rec); color: #fff; }
+.halo-stop:disabled { opacity: .6; cursor: default; }
+.halo-hint { margin: -4px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+.halo-meta { margin: -6px 0 0; color: var(--muted); }
+.halo-meters { display: grid; gap: 8px; }
+.halo-meters > div { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.halo-meters .halo-meter { height: 6px; border-radius: 3px; }
+.halo-link { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.halo-error { display: grid; gap: 8px; padding: 10px 12px; border-radius: 10px; background: var(--err-bg); color: var(--err); font-size: 12px; }
+.halo-error p { margin: 0; }
+.halo-error div { display: flex; flex-wrap: wrap; gap: 6px; }
+.halo-error button { padding: 4px 10px; border: 1px solid currentColor; border-radius: 8px; background: transparent; cursor: pointer; }
+
+/* ── Motion ──────────────────────────────────────────────────────────────── */
+@keyframes halo-out { from { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes halo-in { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.4); } }
+@keyframes halo-fade { from { opacity: 0; } }
+@keyframes halo-label { from { opacity: 0; transform: translateX(-4px); } }
+@keyframes halo-pop { from { opacity: 0; transform: scale(.7); } }
+@keyframes halo-panel { from { opacity: 0; transform: scale(.88); } }
+@keyframes halo-panel-out { to { opacity: 0; transform: scale(.55); } }
+@keyframes halo-breathe { 50% { opacity: .35; } }
+.imprint-halo[data-closing] .halo-satellite { animation: halo-in 140ms cubic-bezier(.4,0,1,1) both; animation-delay: calc((2 - var(--i)) * 20ms); }
+.imprint-halo[data-closing] .halo-orbit, .imprint-halo[data-closing] .halo-label, .imprint-halo[data-closing] .halo-capsule { animation: none; opacity: 0; transition: opacity 100ms; }
+.imprint-halo[data-closing] .halo-panel { animation: halo-panel-out 160ms cubic-bezier(.4,0,1,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .halo-satellite, .halo-label > span, .halo-capsule, .halo-panel, .halo-orbit path { animation: halo-fade 80ms linear both!important; animation-delay: 0ms!important; }
+  .imprint-halo[data-closing] .halo-satellite, .imprint-halo[data-closing] .halo-panel { animation: none!important; opacity: 0; transition: opacity 80ms linear; }
+  .orb-rim-spinning { animation: none; stroke-dasharray: 3 5; }
+  .halo-live-dot { animation: none; }
+  .imprint-launcher .orb, .imprint-launcher .orb svg { transition: none; }
+  .imprint-launcher .orb:active { transform: none; }
+}
+
+/* The collapse arrow points at the orb. */
+.halo-panel-host[data-origin^=left] .halo-collapse svg { transform: rotate(90deg); }
+.halo-panel-host[data-origin^=right] .halo-collapse svg { transform: rotate(-90deg); }
+.halo-panel-host { overflow: hidden; }

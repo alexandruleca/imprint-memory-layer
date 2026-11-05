@@ -18,11 +18,48 @@ contextBridge.exposeInMainWorld('electronAPI', {
   beginCompanionDrag: point => ipcRenderer.send('voice-drag-start', point),
   moveCompanionDrag: point => ipcRenderer.send('voice-drag-move', point),
   endCompanionDrag: () => ipcRenderer.send('voice-drag-end'),
+  collapseCompanion: () => ipcRenderer.send('voice-collapse-companion'),
   openDashboard: () => ipcRenderer.send('launcher-open'),
   launcherMenu: () => ipcRenderer.send('launcher-menu'),
+  // The orb and its ring of actions (ADR 0135).
+  toggleLauncherRing: focus => ipcRenderer.send('launcher-ring', focus),
+  nudgeLauncher: delta => ipcRenderer.send('launcher-nudge', delta),
+  getLauncherState: () => ipcRenderer.invoke('launcher-state'),
+  onLauncherState: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('launcher-state', listener);
+    return () => ipcRenderer.removeListener('launcher-state', listener);
+  },
+  getHaloLayout: () => ipcRenderer.invoke('halo-layout'),
+  onHaloLayout: callback => {
+    const listener = (_event, layout) => callback(layout);
+    ipcRenderer.on('halo-layout', listener);
+    return () => ipcRenderer.removeListener('halo-layout', listener);
+  },
+  haloReady: seq => ipcRenderer.send('halo-ready', seq),
+  haloAction: action => ipcRenderer.send('halo-action', action),
+  haloSize: height => ipcRenderer.send('halo-size', height),
   beginLauncherDrag: point => ipcRenderer.send('launcher-drag-start', point),
   moveLauncherDrag: point => ipcRenderer.send('launcher-drag-move', point),
   endLauncherDrag: () => ipcRenderer.send('launcher-drag-end'),
+  // Meeting recordings: the dashboard records and reports; the launcher asks.
+  reportRecorder: state => ipcRenderer.send('recorder-state', state),
+  reportRecorderLevels: levels => ipcRenderer.send('recorder-levels', levels),
+  onRecorderCommand: callback => {
+    const listener = (_event, command) => callback(command);
+    ipcRenderer.on('recorder-command', listener);
+    return () => ipcRenderer.removeListener('recorder-command', listener);
+  },
+  getRecorder: () => ipcRenderer.invoke('launcher-recorder'),
+  startRecording: options => ipcRenderer.send('launcher-record', options),
+  stopRecording: () => ipcRenderer.send('launcher-record-stop'),
+  onRecorder: callback => {
+    const state = (_event, value) => callback({ state: value });
+    const levels = (_event, value) => callback({ levels: value });
+    ipcRenderer.on('recorder-state', state);
+    ipcRenderer.on('recorder-levels', levels);
+    return () => { ipcRenderer.removeListener('recorder-state', state); ipcRenderer.removeListener('recorder-levels', levels); };
+  },
   getCompanionState: () => ipcRenderer.invoke('voice-companion-state'),
   setCompanionVisible: enabled => ipcRenderer.invoke('voice-set-companion', enabled),
   onCompanionState: callback => {

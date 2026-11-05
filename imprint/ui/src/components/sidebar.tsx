@@ -27,6 +27,7 @@ import {
 import { getVersion } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
+import type { HaloLayout, LauncherRecorder, LauncherState } from "@/lib/launcher";
 
 declare global {
   interface Window {
@@ -51,9 +52,26 @@ declare global {
       beginLauncherDrag?: (point: { x: number; y: number }) => void;
       moveLauncherDrag?: (point: { x: number; y: number }) => void;
       endLauncherDrag?: () => void;
-      getCompanionState?: () => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
+      reportRecorder?: (state: LauncherRecorder) => void;
+      reportRecorderLevels?: (levels: [number, number]) => void;
+      onRecorderCommand?: (callback: (command: { type: "start"; title: string; project: string; others: boolean } | { type: "stop" }) => void) => () => void;
+      getRecorder?: () => Promise<LauncherRecorder | null>;
+      startRecording?: (options: { title: string; project: string; others: boolean; consent: true }) => void;
+      stopRecording?: () => void;
+      onRecorder?: (callback: (update: { state?: LauncherRecorder; levels?: [number, number] }) => void) => () => void;
+      collapseCompanion?: () => void;
+      toggleLauncherRing?: (focus?: "first" | "last" | null) => void;
+      nudgeLauncher?: (delta: { x: number; y: number }) => void;
+      getLauncherState?: () => Promise<LauncherState | null>;
+      onLauncherState?: (callback: (state: LauncherState) => void) => () => void;
+      getHaloLayout?: () => Promise<HaloLayout | null>;
+      onHaloLayout?: (callback: (layout: HaloLayout | null) => void) => () => void;
+      haloReady?: (seq: number) => void;
+      haloAction?: (action: "dashboard" | "echo" | "record" | "details" | "stop" | "close" | "microphone-settings") => void;
+      haloSize?: (height: number) => void;
+      getCompanionState?: () => Promise<{ open: boolean; docked?: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
       setCompanionVisible?: (visible: boolean) => Promise<{ open: boolean; pinned: boolean; shortcutAvailable?: boolean } | null>;
-      onCompanionState?: (callback: (state: { open: boolean; pinned: boolean }) => void) => () => void;
+      onCompanionState?: (callback: (state: { open: boolean; docked?: boolean; pinned: boolean }) => void) => () => void;
       watchCursor?: (callback: (point: { x: number; y: number }) => void) => () => void;
       /** The running job's progress record, which the app reads directly. */
       activity?: () => Promise<{ command: string; phase?: string; processed?: number; total?: number; unit?: string } | null>;
