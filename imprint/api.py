@@ -325,22 +325,28 @@ def api_sources(
     limit: int = 100,
 ):
     """List all indexed source files with chunk counts; conversations carry
-    the first question as their title."""
+    the first question as their title, and each source its snapshot's kind
+    and time ("" and 0 without one)."""
     from . import source_snapshots
     sources = vs.list_sources(
         project=project, lang=lang, layer=layer, limit=limit,
     )
     titles = source_snapshots.conversation_titles()
-    from .project_associations import accepted, origin
+    from .project_associations import accepted
     memberships = accepted()
-    heads = source_snapshots.list_metadata()
+    # One pass over the heads: the dashboard lists every source (ADR 0139).
+    heads: dict[str, list[dict]] = {}
+    for head in source_snapshots.list_heads():
+        heads.setdefault(head['source'], []).append(head)
     def entry(source, count):
-        owners = [meta['project'] for meta in heads if meta['source'] == source and
-                  (not project or project == meta['project'] or
-                   project in memberships.get((origin(meta), source), []))]
-        canonical = owners[0] if len(owners) == 1 else None
+        owners = [head for head in heads.get(source, ()) if
+                  not project or project == head['project'] or
+                  project in memberships.get((head['origin'], source), [])]
+        canonical = owners[0]['project'] if len(owners) == 1 else None
         return {'source': source, 'chunks': count, 'title': titles.get(source, ''),
-                'project': canonical, 'linked': bool(project and canonical is not None and canonical != project)}
+                'project': canonical, 'linked': bool(project and canonical is not None and canonical != project),
+                'kind': owners[0]['kind'] if owners else '',
+                'updated': max((head['updated_at'] for head in owners), default=0)}
     return {
         "sources": [entry(s, c) for s, c in sources],
         "total": len(sources),

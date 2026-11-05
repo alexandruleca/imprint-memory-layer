@@ -72,7 +72,7 @@ export function ProfilesPanel({ profiles, proposals, query, project, onChange, o
                 {moved} moved here automatically <ArrowRight />
               </Button>
             )}
-            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/projects/" />}>Open in Projects ↗</Button>
+            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={`/projects/?project=${encodeURIComponent(selected.project)}`} />}>Open in Projects ↗</Button>
           </div>
         </article>
       </div>

@@ -8,10 +8,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { decideProjectAssociation, enqueueCommand, getProjectAssociations, type AssociationReview } from "@/lib/api";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 
-/** Project links preserve one canonical source, independently of primary moves. */
-export function ProjectAssociations({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+/** Project links preserve one canonical source, independently of primary moves.
+ * Opened for one source (`initial`: its key and canonical project), it shows
+ * that source's links and the field to add one. */
+export function ProjectAssociations({ onClose, onChanged, initial }: {
+  onClose: () => void; onChanged: () => void; initial?: { source: string; project: string };
+}) {
   const [data, setData] = useState<AssociationReview | null>(null);
-  const [selected, setSelected] = useState("");
+  const [first] = useState(() => (initial ? JSON.stringify([initial.project, initial.source]) : ""));
+  const [selected, setSelected] = useState(first);
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -23,9 +28,10 @@ export function ProjectAssociations({ onClose, onChanged }: { onClose: () => voi
 
   useEffect(() => {
     let live = true;
-    getProjectAssociations().then((result) => { if (live) setData(result); }).catch((e) => { if (live) setError(String(e)); });
+    const [project, key] = first ? JSON.parse(first) as [string, string] : [undefined, undefined];
+    getProjectAssociations(key, project).then((result) => { if (live) setData(result); }).catch((e) => { if (live) setError(String(e)); });
     return () => { live = false; };
-  }, []);
+  }, [first]);
 
   async function refresh(value = selected) {
     const id = ++requestId.current;

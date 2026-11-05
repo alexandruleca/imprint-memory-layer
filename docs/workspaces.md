@@ -40,7 +40,7 @@ Files outside any manifest go into a fallback project named after the ingested f
 
 ## Associate one source with several projects
 
-On **Projects → Review project associations**, inspect suggested project links
+On **Projects → Project associations…**, or from a source's menu on Projects or Sources, inspect suggested project links
 and the source passages supporting them. Accept a link to make the conversation
 or file appear in that project's sources and retrieval results. Reject a
 suggestion to keep it out. Select any source to add an existing or new project
@@ -83,7 +83,7 @@ already imported into the previous workspace. See [ADR 0100](adr/0100-explicit-w
 
 ## Move memories between projects
 
-A catch-all project such as `Desktop` can be sorted afterwards. On the dashboard's **Projects** page, pick a project, select sources and choose **Move selected…**. Use **Move or merge…** to move the whole project; moving into an existing project merges into it. Either way you review what moves before confirming. From the CLI:
+A catch-all project such as `Desktop` can be sorted afterwards. On the dashboard's **Projects** page, pick a project, select sources on its **Sources** tab and choose **Move N to…**; **Sources** does the same for sources of one project. Use **Move or merge…** to move the whole project; moving into an existing project merges into it. Either way you review what moves before confirming. From the CLI:
 
 ```bash
 imprint move Desktop branding --source "Desktop/Naming Questionnaire.pdf"           # preview
@@ -250,7 +250,7 @@ imprint workspace roots add /code/shared --workspace research --allow-overlap
 imprint workspace roots remove /code/my-project --workspace research
 ```
 
-Roots resolve symlinks and use path-component boundaries. An overlap error identifies the other workspaces; `--allow-overlap` explicitly confirms sharing. The dashboard offers the same action with confirmation under **Sources → Workspace roots and cleanup** for the active workspace, and under **Manage workspaces → Edit** for any workspace. Removing a root retains indexed data. Policy is stored separately in `data/workspace-policy.sqlite3`.
+Roots resolve symlinks and use path-component boundaries. An overlap error identifies the other workspaces; `--allow-overlap` explicitly confirms sharing. The dashboard offers the same action with confirmation under **Sources → Roots** for the active workspace, and under **Manage workspaces → Edit** for any workspace. Removing a root retains indexed data. Policy is stored separately in `data/workspace-policy.sqlite3`.
 
 An ingest or refresh started from the dashboard (quick actions, Commands) that the roots would refuse is checked before it is queued. Instead of a job that fails later, the dashboard asks whether to approve the folder as a root of the active workspace and names any other workspace that already has it, so approving confirms that sharing. Once approved, the job is submitted again. Declining queues nothing.
 
@@ -278,7 +278,7 @@ imprint workspace exclusions --workspace research
 imprint workspace exclusions restore project/private-dir --source --workspace research
 ```
 
-Purge removes indexed chunks and source-linked graph facts from that workspace. Original files and other workspaces stay intact. Directory matching preserves similarly named siblings. Apply records an exclusion so refresh and sync/import cannot silently restore those sources. **Allow re-ingestion** in the dashboard, or `workspace exclusions restore`, removes that exact exclusion; reindex afterward.
+Purge removes indexed chunks and source-linked graph facts from that workspace. Original files and other workspaces stay intact. Directory matching preserves similarly named siblings. Apply records an exclusion so refresh and sync/import cannot silently restore those sources. **Allow re-ingestion** on the dashboard's **Sources → Excluded**, or `workspace exclusions restore`, removes that exact exclusion; reindex afterward.
 
 The Sources panel supports path/source selection, recursion, count/sample preview and typed workspace confirmation. MCP `purge_sources` defaults to preview; agents must obtain user confirmation and name the reviewed workspace for apply. Cleanup does not load embeddings and works on old-model collections. Partial failures remain visible and preserve the protective exclusion for retry. Backups, exported bundles and logs are not erased. See [ADR 0015](adr/0015-workspace-roots-and-source-purge.md).
 

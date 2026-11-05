@@ -62,8 +62,10 @@ test('selected sources move to a new project after review and confirmation', asy
   });
   await page.goto('/projects/');
   await page.getByRole('navigation', { name: 'Projects' }).getByRole('button', { name: /Desktop/ }).click();
-  const move = page.getByRole('button', { name: 'Move selected…' });
-  await expect(move).toBeDisabled();
+  await page.getByRole('tab', { name: 'Sources, 2' }).click();
+  // The selection bar, with Move, takes the toolbar's place once a row is selected.
+  const move = page.getByRole('button', { name: 'Move 1 to…' });
+  await expect(move).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Select Desktop/Naming Questionnaire.pdf' }).click();
   await expect(page.getByText('1 selected')).toBeVisible();
   await move.click();
@@ -94,8 +96,9 @@ test('a whole project merges into an existing one and the page follows it', asyn
     await route.fulfill({ json: { workspace: 'alpha', project: 'Desktop', target: body.target, whole: true,
       chunks: 7, sources: 2, target_exists: true, sample: [], applied: !!body.apply } });
   });
-  await page.goto('/projects/');
+  await page.goto('/projects/#sources');
   await page.getByRole('navigation', { name: 'Projects' }).getByRole('button', { name: /Desktop/ }).click();
+  await expect(page.getByRole('list', { name: 'Sources of Desktop' })).toContainText('editor.pdf');
   await page.getByRole('button', { name: 'Move or merge…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Move or merge Desktop' });
   await dialog.getByRole('combobox', { name: 'Existing project' }).click();
@@ -105,5 +108,7 @@ test('a whole project merges into an existing one and the page follows it', asyn
   await expect(dialog.getByRole('status')).toContainText('Memories saved as Desktop later');
   await dialog.getByRole('button', { name: 'Move 7 chunks' }).click();
   await expect(page.getByRole('heading', { name: 'Projects 1', exact: true })).toBeVisible();
-  await expect(page.getByText('Documents/handbook.md')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Sources of Documents' }).getByRole('listitem', { name: 'Documents/handbook.md' })).toBeVisible();
+  await expect(page).toHaveURL(/\?project=Documents#sources$/);
 });

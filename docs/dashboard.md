@@ -72,14 +72,24 @@ The strip under the title says whether it runs by itself and when it last passed
 
 ### Projects
 
-- Projects with their memory counts. A project shows its topics (each opens in Topics), kinds of memory, domains and languages as proportional bars, and a table of its sources.
-- **Move or merge…** moves the project, or selected sources, into another project after a review of what moves ([ADR 0036](adr/0036-move-memories-between-projects.md)). **Migrate…** copies or moves it to another workspace.
-- **Review project associations** lists suggested links from sources to other projects; each can be accepted, rejected or removed, and **Analyze existing sources** queues a new analysis ([ADR 0099](adr/0099-sources-can-belong-to-several-projects.md)). A source linked from another project cannot be moved.
+Projects and Sources work like Organize: tabs linked from the address, paged lists with a search, filters and checkboxes, and the same keys ([ADR 0139](adr/0139-projects-and-sources-browse-in-paged-tabs.md)).
+
+- A rail lists the projects by memory count (a select in a narrow window), with a filter. The open project is in the address (`/projects/?project=NAME`); without one, the last project opened in this browser opens, else the largest. `J` and `K` step through them.
+- The project's line gives its memories and sources, **Graph**, **Move or merge…**, which moves or merges the whole project into another after a review of what moves ([ADR 0036](adr/0036-move-memories-between-projects.md)), and **Migrate…**, which copies or moves it to another workspace.
+- **Overview** (`#overview`) shows what Organize's profile says the project is, its sources by kind (each opens them on the Sources tab), and its topics (each opens in Topics), kinds of memory, domains and languages as proportional bars.
+- **Sources** (`#sources`) lists the project's sources as the Sources page does, with **Move N to…** for the selected ones. A source linked from another project shows where it belongs and cannot be moved from here.
+- **Project associations…** lists suggested links from sources to other projects; each can be accepted, rejected or removed, and **Analyze existing sources** queues a new analysis ([ADR 0099](adr/0099-sources-can-belong-to-several-projects.md)). A source's menu opens them for just that source.
 
 ### Sources
 
-- Every indexed source with its chunk count, and a filter by title or key. A source shows where it was recorded, its tags and topics, and its chunks; each chunk can be viewed or read in context.
-- **Workspace roots and cleanup** edits the workspace's approved roots and purges indexed files or directories. A purge is previewed first and confirmed by typing the workspace name; purged paths stay excluded from ingestion until **Allow re-ingestion** ([ADR 0015](adr/0015-workspace-roots-and-source-purge.md)).
+Three tabs, linked as `/sources/#indexed`, `#excluded` and `#roots`; they act on the workspace the top bar shows.
+
+- **Indexed** lists every source of the workspace, largest first, 20 a page (10 or 50 are remembered in this browser): a conversation by its first question, a file by its name and folder, with its project, kind, age and chunks. Search titles and paths; filter by kind (conversations, files, documents, web pages, pasted content, and memories without a snapshot) and project; sort by size, recency or name.
+- **Read** (`o`) opens the source whole. A click or Enter opens its details: where it was recorded, its tags and topics, and its chunks a few at a time, each readable in place. Its menu shows it in the graph, moves it to another project, links it to another, copies or moves it to another workspace, or purges it.
+- Select sources of one project to move them together. When an ingest, a move or sync changes the workspace while the list is open, a note offers **Refresh** instead of moving rows under the cursor.
+- **Excluded** lists what purges keep out of ingestion, each with **Allow re-ingestion**. **Purge a path…**, or **Purge…** in a source's menu, previews what matches a source key or a file or directory path, and applies once the workspace's name is typed ([ADR 0015](adr/0015-workspace-roots-and-source-purge.md)).
+- **Roots** edits the folders the workspace may ingest from.
+- Keyboard: `j`/`k` move between rows, `x` selects, Enter opens a row, `o` reads it, `m` moves it, `a` allows an excluded path again, `[`/`]` change page, `/` searches, `1`–`3` switch tabs, and `?` lists them all.
 
 ### Graph
 
@@ -148,11 +158,11 @@ Echo, the voice companion ([live voice](live-voice.md)).
 
 **Reading a whole source.** Topics, Projects, Sources, Graph and a memory's **Read in context** open a conversation or file whole from its stored snapshot. A conversation shows its messages in order, with tool calls and their output, thinking and injected context folded between them; opened for a topic, its passages are marked and stepped through ([ADR 0094](adr/0094-the-dashboard-reads-whole-sources-from-their-snapshots.md)).
 
-**Lists and details.** Topics, Projects, Sources, Commands and Settings show a list beside the details. On wide screens both scroll on their own and the header stays put; below that they stack and the page scrolls.
+**Lists and details.** Topics, Commands and Settings show a list beside the details; Projects shows its rail beside the open project. On wide screens both scroll on their own and the header stays put; below that they stack and the page scrolls.
 
 **Picking a path.** Folder and file pickers browse the server's filesystem, so paths are the service's own: on a Windows installation, WSL folders are under `\\wsl.localhost\<distribution>`.
 
-**Copying or moving between workspaces.** **Migrate…** on Topics, Projects and Sources, and **Copy / move memories…** in Workspaces, copy (the default) or move memories by project, topic or source, with a dry run first.
+**Copying or moving between workspaces.** **Migrate…** on Topics and Projects, **Copy or move to a workspace…** in a source's menu on Projects and Sources, and **Copy / move memories…** in Workspaces, copy (the default) or move memories by project, topic or source, with a dry run first.
 
 ## Desktop app
 

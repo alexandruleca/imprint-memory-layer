@@ -11,7 +11,7 @@ export type Facet = { value: string; label: string; count?: number };
 export function Facets({ label, facets, value, onChange }: {
   label: string; facets: Facet[]; value: string; onChange: (value: string) => void;
 }) {
-  const text = (facet: Facet) => (facet.count === undefined || facet.value === "all" ? facet.label : `${facet.label} ${facet.count}`);
+  const text = (facet: Facet) => (facet.count === undefined || facet.value === "all" ? facet.label : `${facet.label} ${facet.count.toLocaleString()}`);
   return (
     <>
       <ToggleGroup aria-label={label} size="sm" spacing={0} value={[value]}
@@ -20,7 +20,7 @@ export function Facets({ label, facets, value, onChange }: {
         {facets.map((facet) => (
           <ToggleGroupItem key={facet.value} value={facet.value} className="h-6 rounded-md! px-2 text-xs font-normal aria-pressed:font-medium">
             {facet.label}
-            {facet.count !== undefined && facet.value !== "all" && <span className="text-muted-foreground tabular-nums">{facet.count}</span>}
+            {facet.count !== undefined && facet.value !== "all" && <span className="text-muted-foreground tabular-nums">{facet.count.toLocaleString()}</span>}
           </ToggleGroupItem>
         ))}
       </ToggleGroup>

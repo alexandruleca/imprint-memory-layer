@@ -133,6 +133,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0117](0117-the-dashboard-shows-each-agent-session-and-its-calls.md) **The dashboard shows each agent session and its calls.** Each MCP server process records its client, folder, workspace and tool calls (arguments shortened and redacted, kept 30 days) in `data/agent_activity.sqlite3`; the Agents page lists them.
 - [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) **The floating launcher is a handle with its actions around it.** While the dashboard is hidden, the Imprint button is an orb that drags everything docked to it; a click fans out Dashboard, Echo and Record in their own window toward free space; Echo folds into it; a recording starts from it in the hidden dashboard after the same consent. Amended by [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) (the orb's ear).
 - [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) **Review pages use paged tabs, and decisions reopen.** Organize and Core memories review in hash-linked tabs of paged lists, with keyboard shortcuts and optimistic decisions that can be undone; the user's moves, keeps, approvals and rejections can be reopened.
+- [ADR 0139](0139-projects-and-sources-browse-in-paged-tabs.md) **Projects and Sources browse every source in paged tabs.** Both pages use the review pages' tabs, paged lists, filters and keys; the browser lists every source of the workspace or project and pages, filters and sorts it, after the source listing reads only the snapshot columns it needs.
 
 ### Voice and Echo
 
@@ -347,6 +348,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) | 2026-11-05 | Accepted | Review pages use paged tabs, and decisions reopen |
 | [0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) | 2026-11-05 | Accepted | Echo wakes on "Hey Echo" from a hidden desktop listener |
 | [0138](0138-memories-that-wait-for-llm-tagging-travel-to-a-paired-device-that-tags.md) | 2026-11-05 | Accepted | Memories that wait for LLM tagging travel to a paired device that tags |
+| [0139](0139-projects-and-sources-browse-in-paged-tabs.md) | 2026-11-05 | Accepted | Projects and Sources browse every source in paged tabs |
 | [0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) | 2026-11-05 | Accepted | Chat keeps the conversation and drops old research first |
 
 ## How to write and maintain ADRs

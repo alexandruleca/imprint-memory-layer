@@ -15,20 +15,23 @@ test('cleanup previews before confirmation and applies to the reviewed workspace
     requests.push(body);
     await route.fulfill({ json: { ...body, chunks: 2, sources: 1, sample: [{ project: 'project', source: 'project/wrong/file.py' }] } });
   });
-  await page.goto('/sources/');
-  await page.getByText('Workspace roots and cleanup').click();
-  await page.getByLabel('Cleanup target').fill('project/wrong');
-  await page.getByRole('checkbox', { name: 'Include directory descendants' }).check();
-  await page.getByRole('button', { name: 'Preview cleanup' }).click();
-  await expect(page.getByRole('status')).toContainText('2 chunks in 1 sources');
+  await page.goto('/sources/#excluded');
+  await expect(page.getByText('Nothing is excluded.')).toBeVisible();
+  await page.getByRole('button', { name: 'Purge a path…' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Purge from alpha' });
+  await dialog.getByLabel('Cleanup target').fill('project/wrong');
+  await dialog.getByRole('checkbox', { name: 'Include directory descendants' }).check();
+  await dialog.getByRole('button', { name: 'Preview cleanup' }).click();
+  await expect(dialog.getByRole('status')).toContainText('2 chunks in 1 source');
   expect(requests).toHaveLength(1);
   expect(requests[0].apply).toBeUndefined();
-  await page.getByRole('button', { name: 'Purge from alpha…' }).click();
+  await dialog.getByRole('button', { name: 'Purge from alpha…' }).click();
   const apply = page.getByRole('button', { name: 'Purge indexed copies' });
   await expect(apply).toBeDisabled();
   await page.getByLabel('Type alpha to confirm').fill('alpha');
   await apply.click();
-  await expect(page.getByRole('status')).toContainText('Removed 2 chunks');
+  await expect(page.getByText('Removed 2 chunks from 1 source')).toBeVisible();
+  await expect(dialog).toHaveCount(0);
   expect(requests[1]).toMatchObject({ workspace: 'alpha', target: 'project/wrong', recursive: true, apply: true });
 });
 
@@ -41,8 +44,8 @@ test('overlapping root requires an explicit sharing confirmation', async ({ page
       ? { json: { workspace: 'alpha', roots: ['/project', '/shared'] } }
       : { status: 400, json: { error: 'Root overlaps workspace(s): beta. Confirm with --allow-overlap.' } });
   });
-  await page.goto('/sources/');
-  await page.getByText('Workspace roots and cleanup').click();
+  await page.goto('/sources/#roots');
+  await expect(page.getByRole('tab', { name: 'Roots, 1' })).toHaveAttribute('aria-selected', 'true');
   await page.getByLabel('Workspace root directory').fill('/shared');
   await page.getByRole('button', { name: 'Add root', exact: true }).click();
   await expect(page.getByRole('alertdialog', { name: 'Share this root across workspaces?' })).toContainText('beta');

@@ -279,6 +279,35 @@ def list_metadata(workspace=None):
             'SELECT metadata FROM heads WHERE workspace=? ORDER BY project, source', (_workspace(workspace),))]
 
 
+_heads: list = [None, []]
+
+
+def list_heads(workspace=None) -> list[dict]:
+    """Each head's source, project, kind, time and origin project, without
+    parsing its manifest: a listing of every source needs only these.
+    Treat the result as read-only; it is shared until the database changes."""
+    path = config.get_data_dir() / 'source-snapshots.sqlite3'
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return []
+    ws = _workspace(workspace)
+    key = (str(path), ws, stat.st_mtime_ns, stat.st_size)
+    if _heads[0] == key:
+        return _heads[1]
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT source, project, updated_at, json_extract(metadata, '$.kind') AS kind, "
+            "json_extract(metadata, '$.provenance.origin_project') AS origin FROM heads "
+            'WHERE workspace=? ORDER BY project, source', (ws,)).fetchall()
+    # project_associations.origin: a recorded origin, even the empty project, else the project.
+    heads = [{'source': row['source'], 'project': row['project'], 'updated_at': row['updated_at'],
+              'kind': row['kind'] or '', 'origin': row['project'] if row['origin'] is None else row['origin']}
+             for row in rows]
+    _heads[:] = [key, heads]
+    return heads
+
+
 def remove(source: str | None = None, project: str | None = None, workspace=None, *, preserve_associations=False):
     if not (config.get_data_dir() / 'source-snapshots.sqlite3').exists():
         return

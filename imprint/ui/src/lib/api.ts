@@ -81,6 +81,7 @@ import type {
   OverviewData,
   TopicOverviewData,
   TopicDetailData,
+  SourceEntry,
   SourceLineage,
   SourcesData,
   SourceSummary,
@@ -415,6 +416,21 @@ export async function listSources(params?: {
   }
   const q = qs.toString();
   return fetchAPI(`/api/sources${q ? `?${q}` : ""}`);
+}
+
+/** The most sources one listing asks for; the dashboard lists them all and
+ * pages, filters and sorts in the browser (ADR 0139). */
+export const SOURCE_LIMIT = 100_000;
+
+/** A listed source with its snapshot's kind ("conversation", "text",
+ * "extracted", "url", "inline"; "" without a snapshot) and time (0 without). */
+export type SourceRow = SourceEntry & { kind?: string; updated?: number };
+
+/** Every source of the workspace, or of one project with its linked sources. */
+export async function listAllSources(project?: string): Promise<{ sources: SourceRow[]; total: number }> {
+  const data = await listSources({ project, limit: SOURCE_LIMIT });
+  const sources = Array.isArray(data?.sources) ? data.sources : [];
+  return { sources, total: sources.length };
 }
 
 export async function getSourceSummary(sourceKey: string, project = ""): Promise<SourceSummary> {

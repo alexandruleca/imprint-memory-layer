@@ -96,6 +96,34 @@ class SourceReaderTests(SourceFixture):
         listed = {row['source']: row['title'] for row in self.api().get('/api/sources').json()['sources']}
         self.assertEqual(listed, {'conversation/a': 'Why does the list scroll apart?', 'alpha/notes.md': ''})
 
+    def test_sources_list_their_kind_project_and_snapshot_time(self):
+        self.store_conversation('conversation/a', 'alpha', user('Why does the list scroll apart?'),
+                                assistant({'type': 'text', 'text': 'Two scrollers.'}))
+        self.store('plain file text\n' * 10, source='alpha/notes.md', project='alpha')
+        with patch('imprint.embeddings.embed_document', return_value=[1., 0., 0.]):
+            vs.store('A decision an agent stored with a source string', project='beta', type='decision', source='agent/note')
+        head = ss.get('alpha/notes.md', 'alpha')['metadata']
+        rows = {row['source']: row for row in self.api().get('/api/sources', params={'limit': 100000}).json()['sources']}
+        self.assertEqual({key: (row['kind'], row['project'], row['linked']) for key, row in rows.items()},
+                         {'conversation/a': ('conversation', 'alpha', False), 'alpha/notes.md': ('text', 'alpha', False),
+                          'agent/note': ('', None, False)})
+        self.assertEqual(rows['alpha/notes.md']['updated'], head['updated_at'])
+        self.assertEqual(rows['agent/note']['updated'], 0)
+        # The heads are read again once the snapshot database changes.
+        self.store('a second file\n' * 10, source='alpha/second.md', project='alpha')
+        listed = self.api().get('/api/sources', params={'project': 'alpha', 'limit': 100000}).json()['sources']
+        self.assertEqual({row['source']: row['kind'] for row in listed},
+                         {'conversation/a': 'conversation', 'alpha/notes.md': 'text', 'alpha/second.md': 'text'})
+
+    def test_heads_list_their_origin_like_project_associations(self):
+        from imprint.project_associations import origin
+        self.store('plain file text\n' * 10, source='alpha/notes.md', project='alpha')
+        self.store_conversation('conversation/a', 'beta', user('A question'), assistant({'type': 'text', 'text': 'An answer.'}))
+        expected = sorted((meta['source'], meta['project'], meta['kind'], meta['updated_at'], origin(meta))
+                          for meta in ss.list_metadata())
+        self.assertEqual(sorted((h['source'], h['project'], h['kind'], h['updated_at'], h['origin']) for h in ss.list_heads()),
+                         expected)
+
     def test_a_topic_groups_its_memories_by_source_with_their_titles(self):
         first = self.store_conversation('conversation/a', 'alpha', user('Layout question'),
                                         *[assistant({'type': 'text', 'text': f'Answer part {i}. ' * 6}) for i in range(6)])

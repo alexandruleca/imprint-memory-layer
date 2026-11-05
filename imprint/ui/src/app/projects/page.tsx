@@ -1,79 +1,107 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderOpen, Network } from "lucide-react";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { connectSSE, getOverview, getProjectDetail, listSources } from "@/lib/api";
+import { ArrowRightLeft, Copy, Link2, Network, RefreshCw } from "lucide-react";
 import { ListSkeleton } from "@/components/loaders";
-import { FacetBars, PageHeader, PaneCount, PaneFilter, PaneItem, SplitPage } from "@/components/split-page";
-import { MigrateDialog } from "@/components/migrate-dialog";
-import { ProjectMoveDialog } from "@/components/project-move-dialog";
-import { ProjectSources } from "@/components/project-sources";
+import { MigrateDialog, type MigratePreset } from "@/components/migrate-dialog";
 import { ProjectAssociations } from "@/components/project-associations";
+import { ProjectMoveDialog } from "@/components/project-move-dialog";
+import { ProjectOverview, type ProjectDetail } from "@/components/projects/project-overview";
+import { GroupRail, GroupSelect, type RailGroup } from "@/components/review/group-rail";
+import { PAGE_SIZES } from "@/components/review/pager";
+import { CountTab, ReviewHeader } from "@/components/review/review-header";
+import { ActionButton, Announcer, RESET, ReviewEmpty, reviewTab, useAnnounce, type ReviewTabState } from "@/components/review/review-list";
+import { ShortcutsButton, ShortcutsDialog, type Shortcut } from "@/components/review/shortcuts-dialog";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
-import type { OverviewData, Project, SourceEntry } from "@/lib/types";
-import type { ProjectMove } from "@/lib/api";
+import { PurgeDialog, type PurgeTarget } from "@/components/sources/purge-dialog";
+import { SOURCE_TAB, SourceList } from "@/components/sources/source-list";
+import { StaleNote } from "@/components/sources/stale-note";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  connectSSE, getOrganize, getOverview, getProjectDetail, listAllSources, type ProjectMove, type SourceRow,
+} from "@/lib/api";
+import type { OverviewData } from "@/lib/types";
+import { useHashTab } from "@/lib/use-hash-tab";
+import { useReviewShortcuts } from "@/lib/use-review-shortcuts";
+import { useStoredNumber } from "@/lib/use-stored";
 
-type Facet = { name: string; count: number }[];
+const TABS = ["overview", "sources"] as const;
+type Tab = (typeof TABS)[number];
+const LAST = "imprint.projects.last";
+/** A data change this soon after a load is the load's own, or the action's that caused it. */
+const SETTLE_MS = 4000;
 
-interface ProjectDetail {
-  project: string;
-  count: number;
-  color: string;
-  types: Facet;
-  domains: Facet;
-  langs: Facet;
-  topics: Facet;
+const INFO = (
+  <div className="space-y-2">
+    <p className="font-medium">What Projects shows</p>
+    <p>Memories grouped by the project they belong to. Open one to see what it holds and work through its sources: read them, move some to another project, or move or merge the whole project.</p>
+    <p><span className="font-medium">Project associations</span> link a source to more projects than the one it belongs to.</p>
+    <p className="text-muted-foreground">Sources lists every project&apos;s sources together.</p>
+  </div>
+);
+
+const SHORTCUTS: Shortcut[] = [
+  [["J", "K"], "Next / previous project"], [["1", "2"], "Overview / Sources"],
+  [["j", "↓"], "Next source"], [["k", "↑"], "Previous source"], [["x"], "Select the source"],
+  [["Enter"], "Show or hide details and chunks"], [["o"], "Read the source"], [["m"], "Move to another project"],
+  [["[", "]"], "Previous / next page"], [["/"], "Search"], [["Esc"], "Clear the selection, close details"], [["?"], "This list"],
+];
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function remembered() {
+  try { return window.localStorage.getItem(LAST); } catch { return null; }
+}
+function remember(name: string) {
+  try { window.localStorage.setItem(LAST, name); } catch {}
+}
+/** The project the address names, else the last one opened in this browser. */
+function wanted() {
+  return new URLSearchParams(window.location.search).get("project") ?? remembered();
 }
 
-const DESCRIPTION = "Memories grouped by the project they belong to. Read a project's sources, or move them to another project.";
-
 export default function ProjectsPage() {
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ProjectDetail | null>(null);
-  const [sources, setSources] = useState<SourceEntry[] | null>(null);
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  // What the move dialog moves: some sources, or (null) the whole project.
-  const [moving, setMoving] = useState<{ sources: string[] | null } | null>(null);
-  const [migrateOpen, setMigrateOpen] = useState(false);
-  const [associationsOpen, setAssociationsOpen] = useState(false);
-  const [reading, setReading] = useState<ReaderTarget | null>(null);
-  const [filter, setFilter] = useState("");
-  const [error, setError] = useState("");
+  return <Announcer><Projects /></Announcer>;
+}
+
+function Projects() {
+  const root = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const selectedRef = useRef<string | null>(null);
+  const announce = useAnnounce();
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [error, setError] = useState("");
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{ project: string; detail: ProjectDetail } | null>(null);
+  const [sources, setSources] = useState<{ project: string; rows: SourceRow[]; error?: string } | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const [stale, setStale] = useState(false);
+  const [list, setList] = useState<ReviewTabState>(() => reviewTab(SOURCE_TAB));
+  const [profiles, setProfiles] = useState<Map<string, { text: string; updated: number }> | null>(null);
+  const [moving, setMoving] = useState<{ project: string; sources: string[] | null } | null>(null);
+  const [migrating, setMigrating] = useState<MigratePreset | null>(null);
+  const [associations, setAssociations] = useState<{ initial?: { source: string; project: string } } | null>(null);
+  const [purging, setPurging] = useState<PurgeTarget | null>(null);
+  const [reading, setReading] = useState<ReaderTarget | null>(null);
+  const [help, setHelp] = useState(false);
+  const [linkedTab, openTab] = useHashTab(TABS);
+  const [size, setSize] = useStoredNumber("imprint.review.page-size", 20, PAGE_SIZES);
+  const tab: Tab = linkedTab ?? "overview";
+  const loadedAt = useRef(0);
+
+  const names = useMemo(() => data?.projects.map((p) => p.name) ?? [], [data]);
+  // A project that went away (merged, moved, purged) gives way to the largest.
+  const selected = chosen && names.includes(chosen) ? chosen : names[0] ?? null;
+  const selectedRef = useRef(selected);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+
+  // The overview and the open project's facets follow every data change; its
+  // sources wait for Refresh so rows do not move under the cursor.
   const refreshing = useRef<Promise<void> | null>(null);
   const again = useRef(false);
-
-  const loadProject = useCallback(async (name: string) => {
-    const [d, s] = await Promise.all([
-      getProjectDetail(name) as Promise<ProjectDetail>,
-      listSources({ project: name, limit: 1000 }),
-    ]);
-    if (selectedRef.current !== name) return;
-    const keys = s.sources.filter((entry) => entry.source);
-    setDetail(d);
-    setSources(keys);
-    setChecked((prev) => new Set([...prev].filter((key) => keys.some((entry) => entry.source === key))));
-  }, []);
-
-  const select = useCallback((name: string | null) => {
-    selectedRef.current = name;
-    setSelected(name);
-    setDetail(null);
-    setSources(null);
-    setChecked(new Set());
-    if (name) loadProject(name).catch((e) => setError(String(e)));
-  }, [loadProject]);
-
-  // One refresh at a time; changes during one trigger a single follow-up.
   const refresh = useCallback(async () => {
     if (refreshing.current) { again.current = true; return refreshing.current; }
     const run = (async () => {
@@ -82,148 +110,219 @@ export default function ProjectsPage() {
         const overview = await getOverview();
         setData(overview);
         setError("");
+        setChosen((prev) => prev ?? wanted());
         const name = selectedRef.current;
-        if (name && !overview.projects.some((p) => p.name === name)) select(null);
-        else if (name) await loadProject(name);
+        if (name) {
+          const next = await getProjectDetail(name) as ProjectDetail;
+          if (selectedRef.current === name) setDetail({ project: name, detail: next });
+        }
       } while (again.current);
     })();
     refreshing.current = run;
     try { await run; } finally { refreshing.current = null; }
-  }, [loadProject, select]);
+  }, []);
 
-  // The API reports data changes (ingest jobs, agents, sync); reads are fresh.
   useEffect(() => {
-    refresh().catch((e) => setError(String(e)));
-    const events = connectSSE(() => { refresh().catch(() => {}); });
+    refresh().catch((e) => setError(message(e)));
+    const events = connectSSE(() => {
+      refresh().catch(() => {});
+      if (Date.now() - loadedAt.current > SETTLE_MS) setStale(true);
+    });
     return () => events.close();
   }, [refresh]);
+
+  // The open project's facets and sources, again after a move or Refresh.
+  useEffect(() => {
+    if (!selected) return;
+    let live = true;
+    getProjectDetail(selected).then((next) => { if (live) setDetail({ project: selected, detail: next as ProjectDetail }); }).catch(() => {});
+    listAllSources(selected).then(
+      (result) => {
+        if (!live) return;
+        setSources({ project: selected, rows: result.sources.filter((row) => row.source) });
+        setStale(false);
+        loadedAt.current = Date.now();
+      },
+      (e) => { if (live) setSources({ project: selected, rows: [], error: message(e) }); });
+    return () => { live = false; };
+  }, [selected, nonce]);
+
+  // Organize's profiles, once, for the Overview.
+  useEffect(() => {
+    if (tab !== "overview" || profiles) return;
+    let live = true;
+    getOrganize().then((review) => {
+      if (live) setProfiles(new Map((Array.isArray(review?.profiles) ? review.profiles : []).map((p) => [p.project, { text: p.text, updated: p.updated }])));
+    }, () => { if (live) setProfiles(new Map()); });
+    return () => { live = false; };
+  }, [tab, profiles]);
+
+  const select = useCallback((name: string) => {
+    setChosen(name);
+    setList((prev) => reviewTab({ sort: prev.sort }));
+    setStale(false);
+    remember(name);
+    window.history.replaceState(null, "", `?project=${encodeURIComponent(name)}${window.location.hash}`);
+  }, []);
+  const step = (delta: number) => {
+    if (!names.length || !selected) return;
+    const next = names[(names.indexOf(selected) + delta + names.length) % names.length];
+    select(next);
+    announce(`${next}: ${data?.projects.find((p) => p.name === next)?.count.toLocaleString()} memories`);
+  };
 
   function moved(result: ProjectMove) {
     setMoving(null);
     if (result.whole) select(result.target);
-    else setChecked(new Set());
-    refresh().catch((e) => setError(String(e)));
+    else {
+      setList((prev) => ({ ...prev, selected: new Set(), anchor: null, expanded: null }));
+      setNonce((n) => n + 1);
+    }
+    refresh().catch((e) => setError(message(e)));
   }
 
-  const header = <PageHeader title="Projects" count={data?.projects.length} description={DESCRIPTION} />;
-  const errorAlert = error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
+  useReviewShortcuts(root, {
+    J: () => step(1), K: () => step(-1), "1": () => openTab("overview"), "2": () => openTab("sources"), "?": () => setHelp(true),
+  });
 
-  if (!data) return (
-    <SplitPage header={header} list={<ListSkeleton count={12} />}>
-      {errorAlert}
-      <Skeleton className="h-64 w-full rounded-xl" />
-    </SplitPage>
+  const project = data?.projects.find((p) => p.name === selected);
+  const shownDetail = detail && detail.project === selected ? detail.detail : null;
+  const rows = sources && sources.project === selected ? sources : null;
+  const groups: RailGroup[] = (data?.projects ?? []).map((p) => ({ name: p.name, count: p.count, color: p.color }));
+
+  const read = (row: SourceRow, chunk?: number) =>
+    setReading({ source: row.source, project: row.project ?? selected, chunk, title: row.title || row.source });
+  const actions = {
+    onRead: read,
+    onMove: (row: SourceRow) => { if (selected) setMoving({ project: selected, sources: [row.source] }); },
+    onLink: (row: SourceRow) => setAssociations({ initial: { source: row.source, project: row.project ?? selected ?? "" } }),
+    onMigrate: (row: SourceRow) => setMigrating({ mode: "source", value: row.source }),
+    onPurge: (row: SourceRow) => setPurging({ target: row.source, kind: "source", recursive: false }),
+    onGraph: (row: SourceRow) => router.push(`/graph/?scope=${encodeURIComponent(`source:${row.source}`)}`),
+  };
+
+  const header = (
+    <ReviewHeader title="Projects" count={data?.projects.length} info={INFO} infoLabel="About Projects"
+      actions={<Button variant="outline" onClick={() => setAssociations({})}><Link2 /> Project associations…</Button>} />
   );
 
-  const names = data.projects.map((p) => p.name);
-  const q = filter.trim().toLowerCase();
-  const shown = q ? data.projects.filter((p) => p.name.toLowerCase().includes(q)) : data.projects;
+  const errorAlert = error && (
+    <div className="px-4 pb-3 sm:px-8">
+      <Alert variant="destructive">
+        <AlertTitle>Projects could not load: {error}</AlertTitle>
+        <AlertDescription>
+          <Button variant="outline" size="sm" className="mt-1" onClick={() => { refresh().catch((e) => setError(message(e))); }}><RefreshCw /> Try again</Button>
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+
+  let body: React.ReactNode;
+  if (!data) {
+    body = !error && (
+      <div className="grid gap-4 px-4 sm:px-8 @min-[760px]/page:grid-cols-[15rem_minmax(0,1fr)]" aria-busy="true">
+        <div className="hidden @min-[760px]/page:block"><ListSkeleton count={12} /></div>
+        <div className="space-y-3">
+          <Skeleton className="h-8 w-64" />
+          <p className="flex gap-6 border-b border-border pb-2 text-sm text-muted-foreground"><span>Overview</span><span>Sources</span></p>
+          <Skeleton className="h-48 w-full rounded-xl" />
+        </div>
+      </div>
+    );
+  } else if (!selected) {
+    body = (
+      <div className="px-4 sm:px-8">
+        <ReviewEmpty title="No projects yet."
+          description="Projects appear as memories are saved: ingest a folder or learn your conversations from Commands." />
+      </div>
+    );
+  } else {
+    body = (
+      <div className="grid min-h-0 flex-1 gap-4 px-4 pb-4 sm:px-8 lg:grid-rows-[minmax(0,1fr)] @min-[760px]/page:grid-cols-[15rem_minmax(0,1fr)]">
+        <GroupRail label="Projects" groups={groups} total={data.total} value={selected} onChange={select} allLabel={null} />
+        <section aria-label={selected} className="flex min-h-0 min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+            <GroupSelect groups={groups} total={data.total} value={selected} onChange={(next) => next && select(next)} allLabel={null} />
+            <h2 className="hidden min-w-0 items-center gap-2 text-lg font-semibold @min-[760px]/page:flex">
+              <span aria-hidden className="size-3 shrink-0 rounded-full" style={{ backgroundColor: project?.color }} />
+              <span className="truncate">{selected}</span>
+            </h2>
+            <span className="text-sm text-muted-foreground tabular-nums @max-[620px]/page:hidden">
+              {(shownDetail?.count ?? project?.count ?? 0).toLocaleString()} memories
+              {rows && !rows.error && ` · ${rows.rows.length.toLocaleString()} ${rows.rows.length === 1 ? "source" : "sources"}`}
+            </span>
+            <span className="flex-1" />
+            <div className="flex items-center gap-1">
+              <ActionButton icon={<Network />} label="Graph" hint="Show the project in the graph"
+                onClick={() => router.push(`/graph/?scope=${encodeURIComponent(`project:${selected}`)}`)} />
+              <ActionButton icon={<ArrowRightLeft />} label="Move or merge…" hint="Move or merge the whole project into another one"
+                onClick={() => setMoving({ project: selected, sources: null })} />
+              <ActionButton icon={<Copy />} label="Migrate…" hint="Copy or move the project to another workspace"
+                onClick={() => setMigrating({ mode: "project", value: selected })} />
+            </div>
+          </div>
+          <Tabs value={tab} onValueChange={(value) => openTab(value as Tab)} className="flex min-h-0 flex-1 flex-col gap-0">
+            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background lg:static">
+              <TabsList variant="line" className="h-10 min-w-0 justify-start overflow-x-auto">
+                <TabsTrigger value="overview" className="flex-none px-2.5">Overview</TabsTrigger>
+                {rows && !rows.error ? <CountTab value="sources" name="Sources" count={rows.rows.length} />
+                  : <TabsTrigger value="sources" className="flex-none px-2.5">Sources</TabsTrigger>}
+              </TabsList>
+              <span className="flex-1" />
+              <span className="@max-[520px]/page:hidden"><ShortcutsButton onClick={() => setHelp(true)} /></span>
+            </div>
+            <TabsContent value="overview" className="min-h-0 flex-1 pt-3 lg:overflow-y-auto">
+              <ProjectOverview detail={shownDetail} sources={rows ? rows.rows : null} profile={profiles?.get(selected)}
+                onTopic={(topic) => router.push(`/topics/?topic=${encodeURIComponent(topic)}`)}
+                onSources={(kind) => { setList((prev) => ({ ...prev, ...RESET, filter: kind })); openTab("sources"); }} />
+            </TabsContent>
+            <TabsContent value="sources" className="flex min-h-0 flex-1 flex-col gap-2 pt-3">
+              {stale && rows && <StaleNote busy={false} onRefresh={() => setNonce((n) => n + 1)} what="This project" />}
+              {!rows ? <div className="space-y-2" aria-busy="true"><Skeleton className="h-10 w-full rounded-xl" /><ListSkeleton count={8} /></div>
+                : rows.error ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Its sources could not load: {rows.error}</AlertTitle>
+                    <AlertDescription>
+                      <Button variant="outline" size="sm" className="mt-1" onClick={() => setNonce((n) => n + 1)}><RefreshCw /> Try again</Button>
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <SourceList sources={rows.rows} scope={selected} state={list} onState={(patch) => setList((prev) => ({ ...prev, ...patch }))}
+                    size={size} onSize={(next) => { setSize(next); setList((prev) => ({ ...prev, page: 0, reveal: false })); }}
+                    root={root} label={`Sources of ${selected}`} actions={actions}
+                    onMove={(moveRows) => setMoving({ project: selected, sources: moveRows.map((row) => row.source) })}
+                    empty={<ReviewEmpty title="No sources." description="This project holds only memories saved without one." />} />
+                )}
+            </TabsContent>
+          </Tabs>
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <SplitPage
-      header={header}
-      filter={data.projects.length > 8 ? <PaneFilter label="Filter projects" value={filter} onChange={setFilter} /> : undefined}
-      list={
-        <nav aria-label="Projects" className="space-y-0.5">
-          {shown.map((p: Project) => (
-            <PaneItem key={p.id} selected={selected === p.name} onClick={() => select(p.name)}>
-              <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: p.color }} aria-hidden />
-              <span className="min-w-0 truncate">{p.name}</span>
-              <PaneCount value={p.count} />
-            </PaneItem>
-          ))}
-          {!shown.length && <p className="px-2.5 py-6 text-center text-sm text-muted-foreground">No project matches &ldquo;{filter}&rdquo;.</p>}
-        </nav>
-      }
-    >
-      {errorAlert}
-      <div className="flex justify-end"><Button variant="outline" onClick={() => setAssociationsOpen(true)}>Review project associations</Button></div>
-      {associationsOpen && <ProjectAssociations onClose={() => setAssociationsOpen(false)} onChanged={() => { refresh().catch((e) => setError(String(e))); }} />}
-      {selected ? (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex min-w-0 items-center gap-2 text-lg">
-                <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: data.projects.find((p) => p.name === selected)?.color }} aria-hidden />
-                <span className="truncate">{selected}</span>
-              </CardTitle>
-              <CardDescription>
-                {detail ? `${detail.count.toLocaleString()} memories` : "Loading…"}
-                {sources && ` from ${sources.length.toLocaleString()} ${sources.length === 1 ? "source" : "sources"}`}
-              </CardDescription>
-              <CardAction className="flex flex-wrap justify-end gap-2">
-                <Button size="sm" variant="outline" nativeButton={false} render={<Link href={`/graph/?scope=${encodeURIComponent(`project:${selected}`)}`} />}>
-                  <Network aria-hidden /> Graph
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setMoving({ sources: null })}>
-                  Move or merge…
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setMigrateOpen(true)}>
-                  Migrate…
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              {detail ? (
-                <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
-                  <FacetBars title="Topics" items={detail.topics} onSelect={(topic) => router.push(`/topics/?topic=${encodeURIComponent(topic)}`)} />
-                  <FacetBars title="Kinds of memory" items={detail.types} />
-                  <FacetBars title="Domains" items={detail.domains} />
-                  <FacetBars title="Languages" items={detail.langs} />
-                </div>
-              ) : <Skeleton className="h-40 w-full" />}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Sources</CardTitle>
-              <CardDescription>Conversations and files. Read one whole, or select some to move.</CardDescription>
-              <CardAction className="flex items-center gap-2">
-                {checked.size > 0 && (
-                  <span className="text-xs text-muted-foreground">{checked.size} selected</span>
-                )}
-                <Button size="sm" disabled={checked.size === 0} onClick={() => setMoving({ sources: [...checked] })}>
-                  Move selected…
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              <ProjectSources sources={sources} selected={checked} onSelectedChange={setChecked}
-                onRead={(s: SourceEntry) => setReading({ source: s.source, project: s.project ?? selected, title: s.title })} />
-            </CardContent>
-          </Card>
-        </>
-      ) : (
-        <Empty className="min-h-64 border border-dashed">
-          <EmptyHeader>
-            <EmptyMedia variant="icon"><FolderOpen aria-hidden /></EmptyMedia>
-            <EmptyTitle>Select a project</EmptyTitle>
-            <EmptyDescription>See what it holds, read its sources, move some of them to another project, or merge the whole project.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+    <>
+      <div ref={root} className="@container/page flex min-h-full flex-col lg:h-full">
+        {header}
+        {errorAlert}
+        {body}
+      </div>
+      <ProjectMoveDialog open={moving !== null} project={moving?.project ?? ""} sources={moving?.sources ?? null}
+        projects={names} onClose={() => setMoving(null)} onMoved={moved} />
+      <MigrateDialog open={migrating !== null} preset={migrating ?? undefined} onClose={() => setMigrating(null)} onDone={() => setMigrating(null)} />
+      {associations && (
+        <ProjectAssociations initial={associations.initial} onClose={() => setAssociations(null)}
+          onChanged={() => { refresh().catch((e) => setError(message(e))); setNonce((n) => n + 1); }} />
       )}
-
-      {selected && (
-        <ProjectMoveDialog
-          open={moving !== null}
-          project={selected}
-          sources={moving?.sources ?? null}
-          projects={names}
-          onClose={() => setMoving(null)}
-          onMoved={moved}
-        />
-      )}
-
-      {selected && (
-        <MigrateDialog
-          open={migrateOpen}
-          preset={{ mode: "project", value: selected }}
-          onClose={() => setMigrateOpen(false)}
-          onDone={() => setMigrateOpen(false)}
-        />
-      )}
+      <PurgeDialog open={purging !== null} initial={purging} onClose={() => setPurging(null)}
+        onPurged={() => {
+          setPurging(null);
+          setList((prev) => ({ ...prev, selected: new Set(), anchor: null, expanded: null }));
+          setNonce((n) => n + 1);
+          refresh().catch((e) => setError(message(e)));
+        }} />
       <SourceReader target={reading} onClose={() => setReading(null)} />
-    </SplitPage>
+      <ShortcutsDialog open={help} onOpenChange={setHelp} shortcuts={SHORTCUTS} />
+    </>
   );
 }

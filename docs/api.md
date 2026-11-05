@@ -137,7 +137,7 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/sources` | All indexed sources with chunk counts; a conversation's `title` is its first question. |
+| GET | `/api/sources` | Indexed sources with chunk counts, most chunks first, up to `?limit=` (default 100; the dashboard asks for every one). `?project=` narrows to one project and its linked sources. Each entry has a conversation's `title` (its first question), the canonical `project` (null without a snapshot or with several owners), `linked`, the snapshot's `kind` (`conversation`, `text`, `extracted`, `url`, `inline`; `""` without one) and `updated`, its snapshot time (0 without one). See [ADR 0139](adr/0139-projects-and-sources-browse-in-paged-tabs.md). |
 | GET | `/api/sources/read` | A source's full redacted snapshot in readable blocks: a conversation's events, or a file cut where its chunks end. `?source=&project=&topic=`; each block lists the chunks covering it and is marked `match` where one carries `topic`. 404 when the source has no snapshot; 409 when `project` is needed. See [ADR 0094](adr/0094-the-dashboard-reads-whole-sources-from-their-snapshots.md). |
 | GET | `/api/sources/summary/{source_key}` | Summary metadata for one source. |
 | GET | `/api/source/{source_key}` | Chunks + tags + neighbors for one source. |
