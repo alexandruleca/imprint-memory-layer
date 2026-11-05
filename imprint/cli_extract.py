@@ -193,8 +193,8 @@ def extract(transcript_path: str, project: str = "") -> int:
     # Sort by signal count (most signals = strongest decisions), take top N
     candidates.sort(key=lambda x: -x[0])
     # The LLM classifies these later, in the background (ADR 0067).
-    from imprint.tag_backlog import deferring
-    pending = deferring()
+    from imprint.tag_backlog import marking
+    pending = marking()
     stored = 0
     for _, text in candidates[:MAX_MESSAGES]:
         tags = tagger.build_payload_tags(text, llm=False)

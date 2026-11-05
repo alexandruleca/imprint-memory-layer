@@ -65,8 +65,8 @@ def store_inline_content(
     if not chunks:
         return 0, "error: no chunks produced"
 
-    from .tag_backlog import deferring
-    pending = deferring()  # LLM tagging runs in the background (ADR 0067)
+    from .tag_backlog import marking
+    pending = marking(workspace)  # LLM tagging runs in the background, here or on a paired device (ADR 0067, 0138)
     enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records: list[dict] = []

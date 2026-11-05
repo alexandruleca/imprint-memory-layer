@@ -231,12 +231,17 @@ class BacklogTests(BacklogCase):
         self.assertEqual((payload['tag_pending'], payload['type'], payload['tagged_at']), (False, 'pattern', 9e9))
         self.assertEqual(tag_backlog.pending_count(), 0)
 
-    def test_the_marker_never_leaves_this_device(self):
+    def test_the_marker_travels_with_a_memory_until_it_is_classified(self):
+        # A paired device that tags takes it (ADR 0138); once classified, the tags travel instead.
         from imprint import sync_ws
         self.store(['local note'])
-        lines = sync_ws.stream_export_lines('default')
-        self.assertIn('local note', ''.join(lines))
-        self.assertNotIn('tag_pending', ''.join(lines))
+        lines = ''.join(sync_ws.stream_export_lines('default'))
+        self.assertIn('local note', lines)
+        self.assertIn('"tag_pending":true', lines)
+        client, coll = vs._ensure_collection(None)
+        rows, _ = client.scroll(coll, limit=10, with_payload=False)
+        vs.set_classifications(client, coll, [(rows[0].id, {'topics': ['notes']}, 'finding')])
+        self.assertNotIn('tag_pending', ''.join(sync_ws.stream_export_lines('default')))
 
 
 class WorkerTests(BacklogCase):

@@ -540,7 +540,7 @@ async def _join(ws, room_id: str, pin: str, identity: dict) -> _Channel:
 # ── Data streaming (sync, not async — called from thread) ────────
 
 MEMORY_FIELDS = ["_mid", "content", "project", "type", "tags", "source",
-                 "chunk_index", "source_mtime", "timestamp", "llm_tagged", "tagged_at"]
+                 "chunk_index", "source_mtime", "timestamp", "llm_tagged", "tagged_at", "tag_pending"]
 
 
 def memory_record(pl: dict, identity: str) -> dict:
@@ -561,6 +561,8 @@ def memory_record(pl: dict, identity: str) -> dict:
         # The classification and when it was set (ADR 0051); absent
         # until a memory is tagged after creation.
         **{key: pl[key] for key in ("llm_tagged", "tagged_at") if pl.get(key)},
+        # Waiting for LLM tagging here: a device that tags takes it (ADR 0138).
+        **({"tag_pending": True} if pl.get("tag_pending") and not pl.get("tagged_at") else {}),
     }
     vec = pl.get("_vector")
     if vec is not None:
@@ -704,6 +706,8 @@ def process_import_buffer(
                 "embedding_identity": r.get("embedding_identity"),
             }
             p.update({key: r[key] for key in TRANSFER_FIELDS + ["llm_tagged", "tagged_at", vs.FILTER_MARK] if key in r})
+            if r.get("tag_pending") is True:
+                p["tag_pending"] = True
             payloads.append(prepare(p, imported=True))
         ins, upd, sk = vs.store_batch_precomputed(payloads, workspace=workspace)
         stats["memories"]["inserted"] += int(ins)
@@ -759,10 +763,11 @@ def process_import_buffer(
                 import_memories(records)
             elif dataset == "facts":
                 import_facts(records)
-            elif dataset in ("core", "placements", "organize"):
-                from . import core_memories, organize, placement_sync
+            elif dataset in ("core", "placements", "organize", "backlog"):
+                from . import core_memories, organize, placement_sync, tag_backlog
                 stored = (core_memories.import_records(records) if dataset == "core"
                           else placement_sync.import_records(records, workspace) if dataset == "placements"
+                          else tag_backlog.adopt(records, workspace) if dataset == "backlog"
                           else organize.import_records(records, workspace))
                 held = stats.setdefault(dataset, {})
                 for key, value in stored.items():
@@ -969,7 +974,7 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
 
 
 # The record datasets a stream may carry; source snapshots travel as parts.
-_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize")
+_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize", "backlog")
 
 
 def _stream_line_ok(msg: dict, after_meta: bool) -> bool:

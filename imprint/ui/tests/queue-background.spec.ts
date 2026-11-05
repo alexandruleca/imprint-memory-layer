@@ -115,3 +115,12 @@ test('an idle slot with Organize on says it has seen every change', async ({ pag
   await expect(card(page)).toContainText('Organize has looked at every change.');
   await expect(card(page)).toContainText('LLM tagging on · Organize on');
 });
+
+test('with tagging off here, memories that wait are left to the paired device that tags them', async ({ page }) => {
+  await mockApi(page);
+  await mockQueue(page, { background: { enabled: false, tagging: false, peer: true, pending: 42739, state: 'off', resume_at: null, job: null } });
+  await page.goto('/queue/');
+  await expect(card(page)).toContainText('42,739 memories wait for LLM tagging on a paired device');
+  await expect(card(page)).not.toContainText('Turn on LLM tagging');
+  await expect(card(page)).toContainText('LLM tagging by a paired device');
+});

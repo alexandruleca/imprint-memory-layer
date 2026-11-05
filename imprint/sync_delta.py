@@ -29,10 +29,11 @@ WAIT = 600
 # Records the sender's Privacy Filter goes over between checks for a
 # stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
 FILTER_SLICE = 25
-DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize')
+DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog')
 # Datasets a device receives only when its handshake offers each: core
-# memories (ADR 0129), placement rules and Organize's proposals (ADR 0134).
-EXTRAS = ('core', 'placements', 'organize')
+# memories (ADR 0129), placement rules and Organize's proposals (ADR 0134),
+# and the memories that wait for LLM tagging (ADR 0138).
+EXTRAS = ('core', 'placements', 'organize', 'backlog')
 
 
 def offered() -> int | None:
@@ -77,8 +78,14 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
     from . import source_snapshots
     from . import vectorstore as vs
 
-    memories = {pl['_mid']: float(pl.get('tagged_at') or 0)
-                for pl in vs._scroll_all(['_mid', 'tagged_at'], workspace=workspace) if pl.get('_mid')}
+    memories: dict[str, float] = {}
+    # Memories that wait for LLM tagging (ADR 0138): a device that tags takes them.
+    backlog: dict[str, float] = {}
+    for pl in vs._scroll_all(['_mid', 'tagged_at', 'tag_pending'], workspace=workspace):
+        if pl.get('_mid'):
+            memories[pl['_mid']] = float(pl.get('tagged_at') or 0)
+            if pl.get('tag_pending') and not pl.get('tagged_at'):
+                backlog[pl['_mid']] = 0.0
     facts: dict[str, float] = {}
     try:
         from . import imprint_graph as kg
@@ -92,7 +99,8 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
     # Core memories belong to no workspace: every paired workspace carries them.
     from . import core_memories, organize, placement_sync
     return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest(),
-            'placements': placement_sync.manifest(workspace), 'organize': organize.manifest(workspace)}
+            'placements': placement_sync.manifest(workspace), 'organize': organize.manifest(workspace),
+            'backlog': backlog}
 
 
 def digest(local: dict) -> str:
@@ -190,6 +198,11 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
                     raise Stopped()
                 filtered += vs.filtered_for_peer(records[at:at + FILTER_SLICE])
             yield _stream(memories=filtered)
+
+    # After the memories, so the other device holds each one it is told waits.
+    waiting = keys.get('backlog', [])
+    for start in range(0, len(waiting), CHUNK_RECORDS * 8):
+        yield _stream(backlog=[{'id': mid} for mid in waiting[start:start + CHUNK_RECORDS * 8]])
 
     wanted_facts = set(keys.get('facts', []))
     if wanted_facts:

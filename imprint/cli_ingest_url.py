@@ -146,8 +146,8 @@ def ingest_one(url: str, project: str, known: dict, force: bool = False,
     source_key = url
 
     from imprint.config_schema import resolve
-    from imprint.tag_backlog import deferring
-    pending = deferring()  # LLM tagging runs in the background (ADR 0067)
+    from imprint.tag_backlog import marking
+    pending = marking()  # LLM tagging runs in the background, here or on a paired device (ADR 0067, 0138)
     enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records = []

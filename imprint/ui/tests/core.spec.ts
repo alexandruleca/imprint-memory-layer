@@ -53,6 +53,11 @@ test('core memories are added, proposals approved with their evidence, and retir
   await expect.poll(() => state.changes).toEqual([{ id: 'p1', state: 'active' }]);
   await expect(page.getByText('No proposals.')).toBeVisible();
   await page.getByRole('tab', { name: /Active/ }).click();
+  // Wait for the switch itself: the empty text is absent before it too, while
+  // Proposed's own Add button is still on screen.
+  await expect(page.getByRole('tab', { name: /Active/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('listitem', { name: proposal.text })).toBeVisible();
+  await expect(page.getByText('No proposals.')).toHaveCount(0);
   await expect(page.getByText('No active core memories')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Add core memory' }).click();

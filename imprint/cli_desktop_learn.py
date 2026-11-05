@@ -201,8 +201,8 @@ def _ingest_json_file(file_path: Path, project: str, source_path: str = '') -> i
         print(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
         return 0
 
-    from imprint.tag_backlog import deferring
-    pending = deferring()  # LLM tagging runs in the background (ADR 0067)
+    from imprint.tag_backlog import marking
+    pending = marking()  # LLM tagging runs in the background, here or on a paired device (ADR 0067, 0138)
     enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records: list[dict] = []

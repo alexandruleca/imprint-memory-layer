@@ -747,7 +747,7 @@ def background_state() -> dict:
     enabled = tagging or organizing
     now = time.time()
     if now - _pending_cache["at"] > 2.0:
-        _pending_cache.update(at=now, value=_pending_total())
+        _pending_cache.update(at=now, value=_pending_total(), peer=not tagging and _peer_tagging())
     # Organize's check reads several indexes per workspace; less often.
     if organizing and now - _pending_cache["organize_at"] > 10.0:
         _pending_cache.update(organize_at=now, due=_organize_due())
@@ -771,7 +771,22 @@ def background_state() -> dict:
     else:
         state = "waiting"
     return {"enabled": enabled, "tagging": tagging, "pending": pending,
+            # With tagging off here, a paired device tags what waits (ADR 0138).
+            "peer": bool(_pending_cache.get("peer")) and not tagging,
             "organize": {"enabled": organizing, "due": due}, "state": state, "job": job, "resume_at": resume_at}
+
+
+def _peer_tagging() -> bool:
+    """Whether a paired device tags this device's memories (``tagger.peer``,
+    ADR 0138), in any workspace."""
+    from .config_schema import resolve
+    if not resolve("tagger.peer")[0]:
+        return False
+    try:
+        from . import sync_pairs
+        return any(pair.get("enabled", True) and pair.get("peer_tags") is True for pair in sync_pairs.pairs())
+    except Exception:
+        return False
 
 
 async def _run_job(job: dict, after_job=None) -> None:

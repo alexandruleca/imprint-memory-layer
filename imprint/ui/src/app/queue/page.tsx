@@ -52,6 +52,7 @@ function explain(bg: BackgroundTagging): string {
   const organizing = bg.organize?.enabled ?? false;
   switch (bg.state) {
     case "off":
+      if (bg.peer && bg.pending) return `${waiting} wait for LLM tagging on a paired device. Sync takes them there and brings their tags back.`;
       return bg.pending
         ? `${waiting} wait for LLM tagging. Turn on LLM tagging (tagger.llm) in Settings to tag them here.`
         : "LLM tagging (tagger.llm) and background Organize (organize.background) are off. Memories keep their keyword and zero-shot tags.";
@@ -81,7 +82,7 @@ function parts(bg: BackgroundTagging): string {
   const due = bg.organize?.due ?? 0;
   const organize = !bg.organize?.enabled ? "Organize off"
     : due ? `Organize: ${due} ${due === 1 ? "workspace" : "workspaces"} changed` : "Organize on";
-  return `LLM tagging ${tagging ? "on" : "off"} · ${organize}`;
+  return `LLM tagging ${tagging ? "on" : bg.peer ? "by a paired device" : "off"} · ${organize}`;
 }
 
 export default function QueuePage() {

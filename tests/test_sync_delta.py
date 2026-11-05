@@ -29,10 +29,10 @@ class WantedTests(unittest.TestCase):
                   'facts': {'f2': 0.0}, 'sources': {'s1': 10.0}}
         self.assertEqual(sync_delta.wanted(local, remote),
                          {'memories': ['new', 'retagged'], 'facts': ['f1'], 'sources': [], 'core': [],
-                          'placements': [], 'organize': []})
+                          'placements': [], 'organize': [], 'backlog': []})
         # The other side then lacks nothing newer than this one holds: no ping-pong.
         self.assertEqual(sync_delta.wanted(remote, local), {'memories': ['older'], 'facts': [], 'sources': [], 'core': [],
-                                                            'placements': [], 'organize': []})
+                                                            'placements': [], 'organize': [], 'backlog': []})
 
     def test_digest_ignores_order_and_follows_versions(self):
         a = {'memories': {'x': 1.0, 'y': 2.0}, 'facts': {}, 'sources': {}}
@@ -46,12 +46,12 @@ class ManifestCodingTests(unittest.TestCase):
     def test_round_trip(self):
         local = {'memories': {'m' * 16: 1.5}, 'facts': {'["s","p","o",0]': 0.0}, 'sources': {'["p","s"]': 9.0},
                  'core': {'c' * 32: 2.0}, 'placements': {'["Desktop","Desktop/a.md"]': 3.0},
-                 'organize': {'["Desktop","Desktop/a.md"]': 4.0}}
+                 'organize': {'["Desktop","Desktop/a.md"]': 4.0}, 'backlog': {'m' * 16: 0.0}}
         self.assertEqual(sync_delta.decode(sync_delta.encode(local)), local)
-        # An older device's manifest has no core memories, rules or proposals.
+        # An older device's manifest has no core memories, rules, proposals or backlog.
         older = {key: value for key, value in local.items() if key not in sync_delta.EXTRAS}
         self.assertEqual(sync_delta.decode(sync_delta.encode(older)),
-                         {**older, 'core': {}, 'placements': {}, 'organize': {}})
+                         {**older, 'core': {}, 'placements': {}, 'organize': {}, 'backlog': {}})
 
     def test_malformed_or_oversized_manifests_are_refused(self):
         for data in (None, 'not base64!', sync_delta.encode({'memories': {'x': 'new'}}),
@@ -125,7 +125,9 @@ class ManifestTests(unittest.TestCase):
     def test_lists_what_sync_can_change_without_vectors(self):
         def scroll(fields, workspace=None, with_vectors=False):
             self.assertFalse(with_vectors)
-            return [{'_mid': 'm1', 'tagged_at': 7.5}, {'_mid': 'm2'}, {'content': 'no id'}]
+            # m2 waits for LLM tagging; m3 was tagged since, so its stale marker does not count.
+            return [{'_mid': 'm1', 'tagged_at': 7.5}, {'_mid': 'm2', 'tag_pending': True},
+                    {'_mid': 'm3', 'tagged_at': 2.0, 'tag_pending': True}, {'content': 'no id'}]
 
         conn = sqlite3.connect(':memory:')
         conn.row_factory = sqlite3.Row
@@ -144,12 +146,13 @@ class ManifestTests(unittest.TestCase):
              patch('imprint.placement_sync.manifest', return_value={'["o", ""]': 5.0}), \
              patch('imprint.organize.manifest', return_value={'["o", "s"]': 6.0}):
             local = sync_delta.manifest('ws')
-        self.assertEqual(local, {'memories': {'m1': 7.5, 'm2': 0.0},
+        self.assertEqual(local, {'memories': {'m1': 7.5, 'm2': 0.0, 'm3': 2.0},
                                  'facts': {'["a", "knows", "b", 1]': 0.0},
                                  'sources': {'["p", "s"]': 3.0},
                                  'core': {'c' * 32: 4.0},
                                  'placements': {'["o", ""]': 5.0},
-                                 'organize': {'["o", "s"]': 6.0}})
+                                 'organize': {'["o", "s"]': 6.0},
+                                 'backlog': {'m2': 0.0}})
 
 
 if __name__ == '__main__':

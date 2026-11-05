@@ -304,6 +304,8 @@ export interface BackgroundTagging {
   enabled: boolean;
   /** LLM tagging (tagger.llm) is on. */
   tagging?: boolean;
+  /** With tagging off here, a paired device tags what waits (tagger.peer, ADR 0138). */
+  peer?: boolean;
   /** Background Organize (organize.background, ADR 0132): on, and how many workspaces changed since its last pass. */
   organize?: { enabled: boolean; due: number };
   /** Memories waiting for LLM tagging, across workspaces; null when unknown. */

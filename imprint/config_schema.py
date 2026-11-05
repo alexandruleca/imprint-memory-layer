@@ -208,6 +208,7 @@ SETTINGS: list[Setting] = [
     # ── Tagger ────────────────────────────────────────────────
     Setting("tagger.zero_shot",    "IMPRINT_ZERO_SHOT_TAGS",        True,        bool, "Enable zero-shot topic tagging"),
     Setting("tagger.llm",          "IMPRINT_LLM_TAGS",              False,       bool, "Enable LLM topic tagging (replaces zero-shot)"),
+    Setting("tagger.peer",         "IMPRINT_PEER_TAGS",             True,        bool, "With LLM tagging off here, leave it to a paired device that runs it: new memories wait for its tags"),
     Setting("tagger.llm_provider", "IMPRINT_LLM_TAGGER_PROVIDER",   "local",     str,  "LLM provider: local / anthropic / openai / ollama / vllm / gemini", choices=PROVIDERS),
     Setting("tagger.llm_model",    "IMPRINT_LLM_TAGGER_MODEL",      "",          str,  "Server model override (default per provider); local uses GGUF settings",
             choices=PROVIDER_DEFAULT, custom=True),

@@ -548,8 +548,8 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
 
     snapshot = fingerprint(file_path)
     # LLM tagging is left to the background backlog (ADR 0067).
-    from imprint.tag_backlog import deferring, report
-    pending = deferring()
+    from imprint.tag_backlog import marking, report
+    pending = marking()
     enable_zero_shot = resolve("tagger.zero_shot")[0]
 
     records = []
@@ -793,8 +793,8 @@ def _main(command: str = "ingest"):
         # default). LLM tagging is not run here: with tagger.llm on, each memory
         # is marked for the background tagging backlog instead (ADR 0067).
         from imprint.config_schema import resolve
-        from imprint.tag_backlog import deferring, report
-        pending = deferring()
+        from imprint.tag_backlog import marking, report
+        pending = marking()
         enable_zero_shot = resolve("tagger.zero_shot")[0]
         max_file_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
         failures = []

@@ -35,9 +35,54 @@ _WAL_EVERY = 25
 
 
 def deferring() -> bool:
-    """Whether storing paths leave LLM tagging to the backlog (``tagger.llm``)."""
+    """Whether this device tags its backlog (``tagger.llm``)."""
     from .config_schema import resolve
     return bool(resolve("tagger.llm")[0])
+
+
+def peers_tag(workspace: str | None = None) -> bool:
+    """Whether a device this workspace is paired with said, at its last
+    sync, that it runs LLM tagging (ADR 0138)."""
+    from . import config, sync_pairs
+    ws = config.get_active_workspace() if workspace is None else workspace
+    try:
+        return any(pair.get('workspace') == ws and pair.get('enabled', True) and pair.get('peer_tags') is True
+                   for pair in sync_pairs.pairs())
+    except Exception:
+        return False
+
+
+def marking(workspace: str | None = None) -> bool:
+    """Whether storing paths mark new memories as waiting for LLM tagging:
+    when this device tags them, or, with ``tagger.peer`` on, when a paired
+    device does and sends the tags back (ADR 0138)."""
+    if deferring():
+        return True
+    from .config_schema import resolve
+    return bool(resolve("tagger.peer")[0]) and peers_tag(workspace)
+
+
+def adopt(records: list, workspace: str | None = None) -> dict:
+    """A peer's memories that wait for LLM tagging (ADR 0138): each one held
+    here and not classified yet waits here too, so a device that tags takes
+    it. One classified here is left; its tags travel back instead."""
+    from . import config, vectorstore as vs
+    ids = [r['id'] for r in records if isinstance(r, dict) and isinstance(r.get('id'), str) and 0 < len(r['id']) <= 128]
+    stats = {'waiting': 0, 'skipped': len(records) - len(ids)}
+    if not ids:
+        return stats
+    client = vs._get_client()
+    coll = config.collection_name(workspace)
+    if not client.collection_exists(coll):
+        stats['skipped'] += len(ids)
+        return stats
+    held = {pl['_mid']: pl for pl in vs.retrieve_payloads(ids, ['_mid', 'tagged_at', 'tag_pending'], workspace)}
+    marks = [vs._point_uuid(mid) for mid, pl in held.items() if not pl.get('tagged_at') and not pl.get('tag_pending')]
+    for start in range(0, len(marks), 256):
+        client.set_payload(collection_name=coll, payload={'tag_pending': True}, points=marks[start:start + 256])
+    stats['waiting'] = len(marks)
+    stats['skipped'] += len(ids) - len(marks)
+    return stats
 
 
 def _pending_filter(project: str = ""):
@@ -195,15 +240,19 @@ def _store(client, coll, vs, workspace, point, tags, kind, tagged, logged, on_ta
 
 def report(stored: int) -> None:
     """Tell whoever ran a storing command where its LLM tagging went."""
-    if stored <= 0 or not deferring():
+    here = deferring()
+    if stored <= 0 or not (here or marking()):
         return
     try:
         waiting = pending_count()
     except Exception:
         return
-    if waiting:
+    if waiting and here:
         print(f"  LLM tags: {waiting} memories wait for background tagging. The dashboard tags them "
               "while it runs; imprint retag --pending tags them now.")
+    elif waiting:
+        print(f"  LLM tags: {waiting} memories wait for a paired device that runs LLM tagging; "
+              "sync takes them there and brings the tags back.")
 
 
 # ── The dispatcher's background job ───────────────────────────

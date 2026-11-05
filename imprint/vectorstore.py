@@ -875,6 +875,8 @@ def store_batch_precomputed(records: list[dict], workspace: str | None = None) -
             "timestamp": now,
             "llm_tagged": bool(r.get("llm_tagged", False)),
             **({"tagged_at": float(r["tagged_at"])} if r.get("tagged_at") else {}),
+            # A peer's memory that waits for LLM tagging waits here too (ADR 0138).
+            **({"tag_pending": True} if r.get("tag_pending") is True and not r.get("tagged_at") else {}),
             **{key: r[key] for key in SPAN_FIELDS if key in r},
             **device.provenance(r),
         }

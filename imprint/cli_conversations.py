@@ -301,8 +301,8 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
     if before != after:
         raise OSError('Transcript changed while reading; prior snapshot retained')
     source_mtime = source_mtime or before['source_mtime']
-    from .tag_backlog import deferring
-    pending = deferring()
+    from .tag_backlog import marking
+    pending = marking()
     records = source_memory.records(document)
     for record in records:
         relevant = [event for event in document.get('events', [])

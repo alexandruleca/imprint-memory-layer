@@ -107,6 +107,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "LLM tagging has a language model give each memory a type, domains and topics, replacing the keyword domains and zero-shot topics. Ingestion does not wait for it: new memories are stored with the fast tags, marked pending, and a background job then tags them, newest first. Existing memories are only re-tagged by `imprint retag`. Which model runs, and whether text leaves the machine, is set by tagger.llm_provider.",
         "example": "true with tagger.llm_provider \"local\": richer topic labels without sending anything off the machine.",
     },
+    "tagger.peer": {
+        "help": "With tagger.llm off on this device, a paired device that runs LLM tagging tags this device's new memories instead: they are stored with the fast tags and marked waiting, sync takes them to that device, it tags them, and the tags come back. It applies once a paired device has said at a sync that it runs LLM tagging; until then, and with no paired device, nothing waits. Memories that already wait here also go to that device. Turn it off to keep this device's memories with the fast tags.",
+        "example": "true on a laptop paired with a desktop whose GPU runs LLM tagging: the laptop never loads a tagging model, and its memories still get LLM tags.",
+    },
     "tagger.llm_provider": {
         "help": "Which model does LLM tagging. \"local\" runs the bundled helper model on this computer through llama.cpp: no API key, and no network after its one-time download. \"ollama\" and \"vllm\" call a server you run, on localhost by default. \"anthropic\", \"openai\" and \"gemini\" send each chunk's text, with secrets redacted first, to that company and need ANTHROPIC_API_KEY, OPENAI_API_KEY or GOOGLE_API_KEY. Nothing happens until tagger.llm is on. recall.llm uses this provider too, but only when it is local or a loopback ollama/vllm server.",
         "example": "\"ollama\": to tag with a model you already serve through Ollama on http://localhost:11434.",

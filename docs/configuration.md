@@ -103,6 +103,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Tagger** | | |
 | `tagger.zero_shot` | `true` | Enable zero-shot topic tagging |
 | `tagger.llm` | `false` | Enable LLM tagging: memories stored by learn/ingest/refresh are classified by the dashboard's background tagging job ([tagging](tagging.md#llm-tagging-runs-in-the-background)) |
+| `tagger.peer` | `true` | With `tagger.llm` off here, leave LLM tagging to a paired device that runs it: new memories wait for its tags, which sync brings back ([ADR 0138](adr/0138-memories-that-wait-for-llm-tagging-travel-to-a-paired-device-that-tags.md)) |
 | `tagger.llm_provider` | `local` | LLM provider: anthropic / openai / ollama / vllm / gemini / local |
 | `tagger.llm_model` | — | Server model override (default per provider); local uses GGUF settings |
 | `tagger.llm_base_url` | — | LLM tagger API base URL override |

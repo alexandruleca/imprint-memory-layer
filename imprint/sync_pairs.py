@@ -228,8 +228,11 @@ async def exchange(channel, pair, peer, *, provider):
     # The manifest reads no vectors, so even a large workspace lists quickly;
     # the other device may still take a while, so wait as long as for data.
     manifest = await asyncio.to_thread(sync_delta.manifest, pair['workspace'])
+    from . import tag_backlog
     snapshot = {'digest': sync_delta.digest(manifest), 'delta': sync_delta.offered(), 'storing': sync_delta.storing_offered(),
                 **sync_delta.extras_offered(),
+                # Whether this device tags; a peer that does not leaves its memories to it (ADR 0138).
+                'tagging': tag_backlog.deferring(),
                 'last_local_digest': pair.get('local_digest'), 'last_remote_digest': pair.get('remote_digest')}
     await channel.send(snapshot)
     remote_snapshot = await channel.recv(timeout=sync_delta.WAIT)
@@ -244,6 +247,10 @@ async def exchange(channel, pair, peer, *, provider):
     pair['_delta'] = sync_delta.offered() is not None and remote_snapshot.get('delta') == sync_delta.offered()
     pair['_storing'] = remote_snapshot.get('storing') is True
     pair['_extras'] = sync_delta.extras_of(remote_snapshot)
+    peer_tags = remote_snapshot.get('tagging') is True
+    if pair.get('peer_tags') is not peer_tags:
+        update(pair['id'], peer_tags=peer_tags)
+        pair['peer_tags'] = peer_tags
     # Both endpoints must make the SAME decision. One side may have failed to
     # store/acknowledge an earlier transfer even though the other checkpointed.
     changed = (local_digest != pair.get('local_digest') or remote_digest != pair.get('remote_digest')
