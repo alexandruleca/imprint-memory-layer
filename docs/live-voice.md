@@ -232,8 +232,18 @@ Reload the dashboard after updating so its playback reports match the API.
 
 This extends playback of generated replies; it does not extend the reasoner's
 context or output-token budget. The small voice model still has its existing
-512-token generation cap. Voice history remains bounded to three completed
-exchanges, with at most 3,000 characters retained per assistant reply.
+512-token generation cap and sees the last three completed exchanges. The
+same-chat route keeps every heard message of the conversation in memory, numbered
+as Chat stores them, with the tool results of heard replies (at most 400 messages,
+3,000 characters per assistant reply and 4,000 per tool result), and fits them to
+the chat model's context as Chat does: when the conversation's text no longer
+fits, its oldest exchanges become a running summary, and the read-only
+`conversation_history` tool can search and reread any earlier message
+([long conversations](local-models.md#long-conversations),
+[ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
+Echo shows "Summarizing the earlier conversation…" and "Searching earlier in this
+conversation for …" while those run. The history and summary end with the voice
+session; nothing is written to disk.
 The same-chat route shares Chat's [sequential section analysis](local-models.md#large-chat-questions-and-evidence)
 for oversized retrieved evidence and shows its progress while it works; its
 worker count is configured under Settings → Chat. Typed voice questions retain

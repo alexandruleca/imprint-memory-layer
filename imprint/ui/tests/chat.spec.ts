@@ -60,6 +60,7 @@ test('section analysis shows progress while worker findings stay out of the answ
 async function mockChat(page: Page, options: {
   sessions?: Session[];
   messages?: Record<string, object[]>;
+  summaries?: Record<string, object>;
   status?: object;
   replies?: string[];
 }) {
@@ -90,7 +91,7 @@ async function mockChat(page: Page, options: {
       return route.fulfill({ json: { ok: true } });
     }
     const session = state.sessions.find(item => item.id === id);
-    await route.fulfill({ json: { ...session, messages: options.messages?.[id] ?? [] } });
+    await route.fulfill({ json: { ...session, messages: options.messages?.[id] ?? [], summary: options.summaries?.[id] ?? null } });
   });
   await page.route('**/api/chat/sessions/*/rename', async route => {
     const id = new URL(route.request().url()).pathname.split('/').at(-2);
@@ -279,6 +280,83 @@ test('chats can be renamed and deleted from their menu', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'What do you want to recall?' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Renamed', exact: true })).toHaveCount(0);
   expect(state.deleted).toEqual(['a']);
+});
+
+test('a summarized chat marks where its summary ends, and the summary opens to be read', async ({ page }) => {
+  const exchange = (n: number) => [
+    { seq: n * 2 - 1, role: 'user', content: `Question ${n}` },
+    { seq: n * 2, role: 'assistant', content: `Answer ${n}.` },
+  ];
+  await mockChat(page, {
+    sessions: [{ id: 'long', title: 'Long chat', created_at: now, updated_at: now }],
+    messages: { long: [1, 2, 3].flatMap(exchange) },
+    summaries: { long: { text: '- Asked question 1 (#1–#2).\n- Asked question 2 (#3–#4).', covers: 4, exchanges: 2 } },
+  });
+  await page.goto('/chat/');
+  await expect(page.getByRole('heading', { name: 'Long chat' })).toBeVisible();
+  const toggle = page.getByRole('button', { name: 'Summary of earlier conversation' });
+  await expect(toggle).toBeVisible();
+  // It sits after the second exchange, before the third.
+  const order = await page.evaluate(() => {
+    const at = (text: string) => [...document.querySelectorAll('section[aria-label="Chat"] *')]
+      .findIndex(element => element.textContent?.trim() === text);
+    return [at('Answer 2.'), at('Summary of earlier conversation'), at('Question 3')];
+  });
+  expect(order[0]).toBeLessThan(order[1]);
+  expect(order[1]).toBeLessThan(order[2]);
+  const summary = page.getByRole('region', { name: 'Summary of earlier conversation' });
+  await expect(summary).toBeHidden();
+  await toggle.click();
+  await expect(summary).toContainText("Imprint reads this summary in place of the 2 exchanges above, which no longer fit the model's context.");
+  await expect(summary.getByText('Asked question 2 (#3–#4).')).toBeVisible();
+  await toggle.click();
+  await expect(summary).toBeHidden();
+});
+
+test('a reply that summarizes shows its progress, then the summary and the lookup it made', async ({ page }) => {
+  await mockChat(page, {
+    sessions: [{ id: 'chat1', title: 'Compose file', created_at: now, updated_at: now }],
+    messages: { chat1: [
+      { seq: 1, role: 'user', content: 'Here is our compose file: billing listens on 8101' },
+      { seq: 2, role: 'assistant', content: 'Got it.' },
+    ] },
+  });
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (!String(input).endsWith('/api/chat')) return original(input, init);
+      const encoder = new TextEncoder();
+      const send = (controller: ReadableStreamDefaultController, event: object) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      const body = new ReadableStream({ start(controller) {
+        send(controller, { type: 'analysis', text: 'Summarizing the earlier conversation…' });
+        (window as unknown as { finishSummary: () => void }).finishSummary = () => {
+          send(controller, { type: 'summary', text: '- Pasted the compose file (#1–#2).', covers: 2, exchanges: 1, retry_after: 0 });
+          send(controller, { type: 'tool_call', name: 'conversation_history', args: { query: 'billing port' } });
+          send(controller, { type: 'tool_result', name: 'conversation_history', result: '#1 user · 49 characters\nHere is our compose file: billing listens on 8101' });
+          send(controller, { type: 'token', text: 'Billing listens on 8101, as your compose file says.' });
+          send(controller, { type: 'done' });
+          controller.close();
+        };
+      } });
+      return Promise.resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    };
+  });
+  await page.goto('/chat/');
+  await expect(page.getByRole('heading', { name: 'Compose file' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Summary of earlier conversation' })).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Message' }).fill('Which port does billing use?');
+  await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+  await expect(page.getByRole('status').filter({ hasText: 'Summarizing the earlier conversation…' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { finishSummary: () => void }).finishSummary());
+  await expect(page.getByText('Billing listens on 8101, as your compose file says.')).toBeVisible();
+  await expect(page.getByText('Summarizing the earlier conversation…')).toHaveCount(0);
+  const lookup = page.getByRole('button', { name: /Searched earlier in this conversation for “billing port”/ });
+  await expect(lookup).toBeVisible();
+  await lookup.click();
+  await expect(page.getByText('#1 user · 49 characters')).toBeVisible();
+  await page.getByRole('button', { name: 'Summary of earlier conversation' }).click();
+  await expect(page.getByRole('region', { name: 'Summary of earlier conversation' })).toContainText('Pasted the compose file (#1–#2).');
 });
 
 test('the chat list moves into a sheet on narrow screens', async ({ page }) => {

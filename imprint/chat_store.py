@@ -59,6 +59,16 @@ def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_messages_session
             ON chat_messages(session_id, seq);
+
+        -- The running summary of a session's earliest messages, up to and
+        -- including seq ``covers`` (ADR 0141). One row per session.
+        CREATE TABLE IF NOT EXISTS chat_summaries (
+            session_id  TEXT PRIMARY KEY REFERENCES chat_sessions(id) ON DELETE CASCADE,
+            summary     TEXT NOT NULL,
+            covers      INTEGER NOT NULL,
+            retry_after INTEGER NOT NULL DEFAULT 0,
+            updated_at  REAL NOT NULL
+        );
         """
     )
     conn.commit()
@@ -156,6 +166,43 @@ def get_messages(session_id: str, workspace: str | None = None) -> list[dict]:
                 pass
         out.append(d)
     return out
+
+
+def get_summary(session_id: str, workspace: str | None = None) -> dict | None:
+    """The session's running summary: ``text``, ``covers`` (the last message
+    seq it stands in for), ``exchanges`` (user messages it covers),
+    ``retry_after`` and ``updated_at``; None before the first one."""
+    conn = _get_conn(workspace)
+    row = conn.execute(
+        """
+        SELECT summary, covers, retry_after, updated_at,
+               (SELECT COUNT(*) FROM chat_messages m
+                WHERE m.session_id = s.session_id AND m.role = 'user' AND m.seq <= s.covers) AS exchanges
+        FROM chat_summaries s WHERE session_id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {"text": row["summary"], "covers": row["covers"], "exchanges": row["exchanges"],
+            "retry_after": row["retry_after"], "updated_at": row["updated_at"]}
+
+
+def set_summary(session_id: str, text: str, covers: int, retry_after: int = 0,
+                workspace: str | None = None) -> None:
+    """Replace the session's running summary. A session that no longer
+    exists keeps none."""
+    conn = _get_conn(workspace)
+    conn.execute(
+        """
+        INSERT INTO chat_summaries (session_id, summary, covers, retry_after, updated_at)
+        SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM chat_sessions WHERE id = ?)
+        ON CONFLICT(session_id) DO UPDATE SET summary = excluded.summary, covers = excluded.covers,
+            retry_after = excluded.retry_after, updated_at = excluded.updated_at
+        """,
+        (session_id, text, int(covers), int(retry_after), time.time(), session_id),
+    )
+    conn.commit()
 
 
 def append_message(

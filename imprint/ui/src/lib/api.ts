@@ -90,6 +90,7 @@ import type {
   ChatSession,
   ChatMessage,
   ChatStatus,
+  ChatSummary,
   ChatEvent,
   IngestionJob,
   BackgroundTagging,
@@ -554,7 +555,8 @@ export async function createChatSession() {
 }
 
 export async function getChatSession(id: string) {
-  return fetchAPI<ChatSession & { messages: ChatMessage[] }>(`/api/chat/sessions/${encodeURIComponent(id)}`);
+  return fetchAPI<ChatSession & { messages: ChatMessage[]; summary?: ChatSummary | null }>(
+    `/api/chat/sessions/${encodeURIComponent(id)}`);
 }
 
 export async function deleteChatSession(id: string) {

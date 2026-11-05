@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections import deque
 import contextlib
 import json
 import os
@@ -31,6 +30,10 @@ STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load
 TURN_TIMEOUT = 120  # Inactivity, refreshed as an active reply makes progress.
 CHAT_SETUP_TIMEOUT = 1800  # A first-time model download is not a reply.
 PLAYBACK_AHEAD = 10 * 24000  # PCM samples; pause production until playback catches up.
+# A voice conversation keeps every heard message in memory, as Chat stores
+# them, for its summary and conversation_history (ADR 0141); never on disk.
+HISTORY_LIMIT = 400  # messages; a 30-minute session rarely comes near
+TOOL_RESULT_CHARS = 4000
 # Each of Echo's looks (the voice.avatar setting) speaks in its own voice
 # (ADR 0071): the speaker the native model is asked for, and an effect the
 # dashboard applies to reply audio.
@@ -298,7 +301,19 @@ async def memory_prompt(question: str, workspace: str) -> str:
     return INSTRUCTIONS + _json({"workspace": workspace, "evidence": evidence})
 
 
-async def chat_events(question: str, history: list, workspace: str, cancelled: threading.Event):
+def tool_label(name: str, args: object) -> str:
+    """What Echo shows while a tool runs; the history lookup in plain words."""
+    from . import chat_memory
+    if name != chat_memory.TOOL:
+        return f"Checking memory · {name}"
+    query = args.get("query") if isinstance(args, dict) else None
+    if isinstance(query, str) and query.strip():
+        return f"Searching earlier in this conversation for “{query.strip()[:60]}”"
+    return "Reading earlier in this conversation"
+
+
+async def chat_events(question: str, history: list, workspace: str, cancelled: threading.Event,
+                      summary: dict | None = None):
     """Bounded thread bridge; cancellation reaches chat before its next token/tool."""
     from . import chat
     loop = asyncio.get_running_loop()
@@ -317,7 +332,7 @@ async def chat_events(question: str, history: list, workspace: str, cancelled: t
     def produce():
         try:
             for event in chat.stream_reply(history, question, workspace=workspace,
-                                            cancel_event=cancelled, read_only=True):
+                                            cancel_event=cancelled, read_only=True, summary=summary):
                 if cancelled.is_set():
                     break
                 publish(event)
@@ -410,7 +425,9 @@ async def stream(websocket: WebSocket):
         sessions.active = owned = True
         workspace, engine = lease["workspace"], lease["engine"]
         speaker, effect = VOICES[lease["voice"]]
-        history: deque = deque(maxlen=6)
+        # Every heard message, numbered, and the running summary (ADR 0141).
+        history: list[dict] = []
+        memory: dict = {"summary": None}
         await send({"type": "connecting"})
         # A closed companion must cancel a cold model load as well as an active
         # turn. HTTP/WebSocket disconnects aren't observed while awaiting only
@@ -464,9 +481,11 @@ async def stream(websocket: WebSocket):
                         return
                     await emit({"type": "state", "state": "thinking"})
                     answer = ""
+                    calls: list[dict] = []  # this reply's tool calls with their results
                     if engine == "lfm":
                         evidence = await memory_prompt(question, workspace)
-                        recent = list(history)
+                        recent = [{"role": m["role"], "content": m["content"]}
+                                  for m in history if m["role"] in ("user", "assistant")][-6:]
                         while recent and len(_json(recent)) > 3000:
                             recent = recent[2:]
                         context = _json(recent)
@@ -490,7 +509,7 @@ async def stream(websocket: WebSocket):
 
                         pending = ""
                         provisioning = False
-                        async for event in chat_events(question, list(history), workspace, flag):
+                        async for event in chat_events(question, list(history), workspace, flag, memory["summary"]):
                             kind = event["type"]
                             if provisioning and kind in {"token", "tool_call"}:
                                 turn_budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
@@ -510,7 +529,16 @@ async def stream(websocket: WebSocket):
                                     phrase, pending = pending[:end], pending[end:]
                                     await synthesize(phrase)
                             elif kind == "tool_call":
-                                await emit({"type": "tool", "name": event["name"]})
+                                calls.append(event)
+                                await emit({"type": "tool", "name": event["name"],
+                                            "text": tool_label(event["name"], event.get("args"))})
+                            elif kind == "tool_result" and calls and "result" not in calls[-1]:
+                                calls[-1] = {**calls[-1], "result": str(event.get("result", ""))[:TOOL_RESULT_CHARS]}
+                            elif kind == "summary":
+                                # The summary stands for messages already heard, so it
+                                # holds whether or not this reply is.
+                                memory["summary"] = {key: event.get(key) for key in ("text", "covers", "retry_after")}
+                                await emit({"type": "state", "state": "thinking"})
                             elif kind == "analysis":
                                 await emit({"type": "state", "state": "analyzing", "text": event["text"]})
                             elif kind in {"download_start", "download_progress", "download_complete", "load_start"}:
@@ -529,7 +557,10 @@ async def stream(websocket: WebSocket):
                     if answer.strip():
                         # A client playback acknowledgement commits assistant
                         # history; generated but unheard replies are not retained.
-                        awaiting[identifier] = (question, answer[:3000])
+                        tools = [{"role": "tool", "content": call["result"], "tool_name": call["name"],
+                                  "tool_args": call.get("args") or {}}
+                                 for call in calls if "result" in call]
+                        awaiting[identifier] = (question, answer[:3000], tools)
                     await emit({"type": "done"})
             except asyncio.CancelledError:
                 raise
@@ -538,7 +569,7 @@ async def stream(websocket: WebSocket):
                 await emit({"type": "error", "error": "Voice couldn't complete this turn. Try a shorter question or reconnect."})
                 await sessions.worker.stop()
 
-        awaiting: dict[int, tuple[str, str]] = {}
+        awaiting: dict[int, tuple[str, str, list[dict]]] = {}
         while time.monotonic() < deadline:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), 120)
@@ -559,7 +590,10 @@ async def stream(websocket: WebSocket):
             elif kind == "played":
                 item = awaiting.pop(message.get("id"), None)
                 if item:
-                    history.extend([{"role": "user", "content": item[0]}, {"role": "assistant", "content": item[1]}])
+                    heard, reply, tools = item
+                    for entry in [{"role": "user", "content": heard}, *tools, {"role": "assistant", "content": reply}]:
+                        history.append({**entry, "seq": (history[-1]["seq"] if history else 0) + 1})
+                    del history[:max(0, len(history) - HISTORY_LIMIT)]
             elif kind == "playback":
                 # A cancelled turn's late acknowledgement cannot release the
                 # next turn's credit. Progress never commits reply history.

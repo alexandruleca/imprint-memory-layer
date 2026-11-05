@@ -320,7 +320,7 @@ estimates; they do not imply a recognized speaker or an exact recording transcri
 | GET | `/api/chat/status` | Configured provider + model + readiness. For `local`, `error` reports a llama.cpp binding that does not load (a damaged installation). |
 | GET | `/api/chat/sessions` | List chat sessions. |
 | POST | `/api/chat/sessions` | Create a new session. |
-| GET | `/api/chat/sessions/{sid}` | Session transcript. |
+| GET | `/api/chat/sessions/{sid}` | Session transcript (`messages`, each with its `seq`) and `summary`: the running summary (`text`, `covers`: the last message seq it stands in for, `exchanges`: user messages covered, `retry_after`, `updated_at`), or `null` before the first one. |
 | POST | `/api/chat/sessions/{sid}/rename` | Rename session. |
 | DELETE | `/api/chat/sessions/{sid}` | Delete session. |
 | POST | `/api/chat` | Send a message. Returns an SSE stream of tokens + tool calls. |
@@ -331,7 +331,13 @@ estimates; they do not imply a recognized speaker or an exact recording transcri
   (`downloaded`, `total` bytes), `download_complete`: the model download.
 - `load_start`: the local model is being loaded into memory.
 - `analysis` (`text`): transient section-worker/synthesis progress for oversized
-  questions or evidence. Worker findings are not streamed as assistant text.
+  questions or evidence, and `Summarizing the earlier conversation…` while the
+  running summary is written. Worker findings are not streamed as assistant text.
+- `summary` (`text`, `covers`, `exchanges`, `retry_after`): the session's running
+  summary changed, before the reply's research starts. It is stored with the
+  session. After a summary that failed, `text` and `covers` are unchanged and
+  `retry_after` is the message seq to wait for before trying again. See
+  [ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md).
 - `notice` (`text`, optional `title` and `code`): an informational status, not a
   failed reply. Research completion uses `title="Finishing the answer"` and
   `code="research_complete"`, followed by final answer generation without tools.
@@ -361,6 +367,12 @@ reply-local `read_chat_section(source_id, start=0, max_chars=2000)` function;
 `max_chars` is limited to 1–4,000 and offsets are characters. Originals and IDs
 are scoped to that reply, with no filesystem or cross-workspace read authority.
 See [large chat questions and evidence](local-models.md#large-chat-questions-and-evidence).
+
+When the session has earlier messages, tool-capable replies may also call the
+read-only `conversation_history(query?, message?, start=0)` function: `query`
+searches the session's earlier messages, tool results included, and `message`
+reads one by its seq, 4,000 characters from `start`. It reads only the session
+the reply belongs to. See [long conversations](local-models.md#long-conversations).
 
 ## Streams & long-polling
 

@@ -39,6 +39,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 - Chats are listed by date; each can be renamed or deleted (deleting asks first). The last open chat is reopened.
 - Replies come from the configured chat model, local or a provider. Memory searches and reads it makes show as rows that expand to their results. The first message to a local model sets it up and shows the download and load progress.
 - A notice says when the model chats without tools, with a link to the chat settings. A reply can be stopped, copied or retried.
+- When a long chat no longer fits the model's context, its oldest exchanges are summarized ("Summarizing the earlier conversation…" shows meanwhile). A divider after the last summarized exchange, **Summary of earlier conversation**, opens the summary the model now reads in their place. The model can still look up anything said earlier in the chat; that step shows as "Searched earlier in this conversation for …" ([ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
 
 ### Topics
 

@@ -210,10 +210,20 @@ export interface ChatSession {
 }
 
 export interface ChatMessage {
+  seq?: number;
   role: "user" | "assistant" | "tool";
   content: string;
   tool_name?: string;
   tool_args?: Record<string, unknown>;
+}
+
+/** The running summary that stands in for a chat's earliest messages, up to
+ * message `covers`, once they no longer fit the model's context (ADR 0141).
+ * `exchanges` is how many of the user's messages it covers. */
+export interface ChatSummary {
+  text: string;
+  covers: number;
+  exchanges: number;
 }
 
 /** /api/chat/status. A missing local binding or model is set up by the first chat. */
@@ -235,6 +245,7 @@ export type ChatEvent =
   | { type: "load_start" }
   | { type: "notice"; text: string; title?: string; code?: string }
   | { type: "analysis"; text: string }
+  | { type: "summary"; text: string; covers: number; exchanges: number; retry_after: number }
   | { type: "token"; text: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: string }

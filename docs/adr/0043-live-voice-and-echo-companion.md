@@ -12,6 +12,7 @@ description: Explicit speech runtime, same-chat reasoning, optional VAD and a fl
   - [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md) — once the user has chosen the microphone, a conversation turns it on when it is ready; it is no longer always a separate action
   - [ADR 0092](0092-voice-generation-follows-playback.md) — pace streamed speech by playback progress and bound inactivity instead of total turn duration
   - [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — one hidden window, the "Hey Echo" listener, captures while it exists, always with an indicator; the deferred trained VAD (Silero) is used for the wake detector
+  - [ADR 0141](0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md) — the transient history of fully played replies keeps every heard message with its tool results, and a running summary, in memory for the session, instead of three exchanges
 - Related: [ADR 0042](0042-lfm-audio-cpu-experiment.md), [ADR 0024](0024-enforce-local-service-boundaries.md), [ADR 0025](0025-desktop-owned-background-service.md)
 - Restructured: 2026-10-25
 

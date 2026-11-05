@@ -27,6 +27,7 @@ from . import config
 from . import config_schema
 from . import server as _mcp_server
 from . import tool_formats
+from . import chat_memory
 from . import chat_research
 from .chat_research import ResearchBudget, ResearchExhausted
 
@@ -744,7 +745,10 @@ def _final_messages(messages: list[dict], found: list, reason: str, *, spoken: b
     anchor = max(i for i, message in enumerate(messages) if message['role'] == 'user')
     earlier = [message for message in messages[1:anchor] if message['role'] in ('user', 'assistant')
                and not message.get('tool_calls') and message.get('content', '').strip()]
-    system = messages[0]['content'].replace(TOOL_STRATEGY, '') + (SPOKEN_ANSWER if spoken else WRITTEN_ANSWER).format(reason=reason)
+    system = messages[0]['content']
+    for guidance in (TOOL_STRATEGY, chat_memory.STRATEGY, chat_memory.LOOKUP):
+        system = system.replace(guidance, '')
+    system += (SPOKEN_ANSWER if spoken else WRITTEN_ANSWER).format(reason=reason)
     notes = chat_research.digest(found) or 'Research found nothing usable.'
     return [{'role': 'system', 'content': system}, *earlier[-6:],
             {'role': 'user', 'content': f"{messages[anchor]['content']}\n\n# Research notes\n\n{notes}"}]
@@ -782,8 +786,14 @@ def stream_reply(
     *,
     cancel_event: threading.Event | None = None,
     read_only: bool = False,
+    summary: dict | None = None,
 ) -> Generator[dict, None, None]:
     """Yield SSE-ready event dicts.
+
+    ``prior_messages`` are the conversation's earlier messages, each with its
+    ``seq`` number when stored. ``summary`` is the conversation's running
+    summary (``text``, ``covers``: the last message number it stands in for,
+    ``retry_after``), as the last ``summary`` event left it (ADR 0141).
 
     Event types:
       {"type": "download_start", "file", "repo", "path"} / {"type": "download_progress", "downloaded", "total"}
@@ -791,6 +801,7 @@ def stream_reply(
       {"type": "load_start"}                         # loading the local model into memory
       {"type": "notice", "text": str, "title"?: str}  # model capability or normal research completion
       {"type": "analysis", "text": str}              # section-worker progress; never worker findings
+      {"type": "summary", "text", "covers", "exchanges", "retry_after"}  # the running summary changed
       {"type": "token", "text": str}
       {"type": "tool_call", "name": str, "args": dict}
       {"type": "tool_result", "name": str, "result": str}
@@ -847,31 +858,42 @@ def stream_reply(
             yield {"type": "notice", "text": notice}
     tools = _tool_schemas(read_only) if remote or fmt else None
 
+    # The conversation's earlier messages, numbered as stored. A summary
+    # stands in for the oldest once its text no longer fits, and the model
+    # can look any of them up (ADR 0141).
+    earlier = chat_memory.numbered(prior_messages)
+    record = {key: (summary or {}).get(key) for key in ("text", "covers", "retry_after")}
+    summary_text = str(record["text"] or "")
+    covers = int(record["covers"] or 0) if summary_text else 0
+    history = chat_memory.History(earlier) if earlier and tools is not None else None
+
     # Build message list
     from .device import current
     device_context = json.dumps({'current_device': current(), 'working_directory': os.getcwd()})
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT + (TOOL_STRATEGY if tools else "") +
+    instructions = (SYSTEM_PROMPT + ((TOOL_STRATEGY + (chat_memory.STRATEGY if history else "")) if tools else "") +
         '\n\n# Device and path context\n' + device_context +
         '\nShared memories and conversations remain useful on every device. '
         'Original paths in historical text and tool results are provenance, not local file instructions. '
-        'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.'}]
+        'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.')
     if read_only:
-        messages[0]["content"] += (
+        instructions += (
             '\n\nThis is an English voice conversation. Keep spoken replies brief, usually two or three sentences. '
             'Use plain speech without markdown or code blocks. Only read tools are available in voice mode. '
             'Do not attempt to save, change, ingest or delete anything; direct changes to the dashboard.'
         )
-    messages += _history(prior_messages)
-    messages.append({"role": "user", "content": user_message})
+    question = {"role": "user", "content": user_message}
+
+    def prompt(text, upto, replayed):
+        """System prompt with the summary standing in for messages up to
+        ``upto``, then the replayed history and the question."""
+        system = instructions + chat_memory.block(text, earlier, upto, history is not None)
+        return [{"role": "system", "content": system}, *_history(replayed), question]
 
     max_tokens = int(_cfg("chat.max_tokens"))
     temperature = float(_cfg("chat.temperature"))
 
     from .chat_analysis import AnalysisCancelled, SectionAnalysis, WORKER_TIMEOUT
     from .local_llm import INFERENCE_LOCK, generate
-    budget = ResearchBudget(seconds=int(_cfg('chat.research_timeout_sec')),
-                            tokens=int(_cfg('chat.research_token_budget')),
-                            patience=int(_cfg('chat.research_no_progress_rounds')))
 
     def measure(items, offered):
         return _prompt_tokens(llm, items, offered, remote)
@@ -919,11 +941,98 @@ def stream_reply(
                       "max_chars": _param("integer", "Characters to read, 1–4000 (default 2000)"),
                   }, required=("source_id",))
 
+    lookup = Tool(history.run, chat_memory.DESCRIPTION, chat_memory.PARAMS) if history else None
+
     def extra_tools():
-        return {"read_chat_section": reread} if analysis.sources else {}
+        extra = {chat_memory.TOOL: lookup} if lookup else {}
+        return extra | ({"read_chat_section": reread} if analysis.sources else {})
 
     def offered_tools():
         return _tool_schemas(read_only, extra_tools()) if tools is not None else None
+
+    def summary_generate(items, deadline):
+        """The summary's tokens, bounded by its own deadline, outside the
+        research budget."""
+        if remote:
+            yield from _remote_turn(items, None, chat_memory.SUMMARY_TOKENS, 0.1, timeout=chat_memory.SUMMARY_TIMEOUT,
+                                    deadline=deadline, cancelled=cancelled)
+            return
+        while not INFERENCE_LOCK.acquire(timeout=.1):
+            if cancelled():
+                raise AnalysisCancelled()
+            if time.monotonic() >= deadline:
+                raise TimeoutError("The conversation summary waited too long for the local model")
+        try:
+            generation = generate(llm, items, chat_memory.SUMMARY_TOKENS, 0.1, deadline=deadline)
+            try:
+                yield from generation
+            finally:
+                generation.close()
+        finally:
+            INFERENCE_LOCK.release()
+
+    def summarize(covered):
+        """The summary so far with points for ``covered`` added, or "" when
+        the model fails or runs out of time. Secrets are redacted on the way
+        in and out (ADR 0060)."""
+        label = "Summarizing the earlier conversation…"
+        yield {"type": "analysis", "text": label}
+        try:
+            from .redaction import redact, redact_all
+            texts = redact_all([summary_text, *(message.get("content") or "" for message in covered)])
+            covered = [{**message, "content": text} for message, text in zip(covered, texts[1:])]
+            items = chat_memory.request(texts[0], covered, lambda items: measure(items, None) + chat_memory.SUMMARY_TOKENS
+                                        + 16 <= analysis.context)
+            deadline = time.monotonic() + chat_memory.SUMMARY_TIMEOUT
+            pieces = []
+            generation = summary_generate(items, deadline)
+            try:
+                for number, piece in enumerate(generation):
+                    if cancelled():
+                        raise AnalysisCancelled()
+                    pieces.append(piece)
+                    if number % 16 == 0:
+                        yield {"type": "analysis", "text": label}
+            finally:
+                generation.close()
+            text = chat_memory.clean("".join(pieces))
+            return chat_memory.merge(texts[0], redact(text)) if text else ""
+        except AnalysisCancelled:
+            raise
+        except Exception:
+            # ADR 0140's dropping takes over; the messages stay searchable.
+            return ""
+
+    def spare(replayed, summarized):
+        items = prompt(summary_text, covers, replayed) if summarized else prompt("", 0, replayed)
+        return analysis.context - max_tokens - 16 - measure(items, offered_tools())
+
+    newest = earlier[-1]["seq"] if earlier else 0
+    try:
+        try:
+            covered = chat_memory.plan(earlier, covers, spare) if newest >= int(record["retry_after"] or 0) else []
+        except AnalysisCancelled:
+            raise
+        except Exception:
+            covered = []  # Fitting below still drops what does not fit (ADR 0140).
+        if covered:
+            text = yield from summarize(covered)
+            if cancelled():
+                return
+            if text:
+                summary_text, covers = text, covered[-1]["seq"]
+                record = {"text": summary_text, "covers": covers, "retry_after": 0}
+            else:
+                record = {"text": summary_text, "covers": covers, "retry_after": newest + chat_memory.RETRY_MESSAGES}
+            yield {"type": "summary", **record,
+                   "exchanges": sum(1 for message in earlier if message["role"] == "user" and message["seq"] <= covers)}
+    except AnalysisCancelled:
+        return
+    messages = prompt(summary_text, covers, [message for message in earlier if message["seq"] > covers])
+
+    budget = ResearchBudget(seconds=int(_cfg('chat.research_timeout_sec')),
+                            tokens=int(_cfg('chat.research_token_budget')),
+                            patience=int(_cfg('chat.research_no_progress_rounds')))
 
     final_assistant_chunks: list[str] = []
     found: list = []  # What research found, once it ends (ADR 0127).

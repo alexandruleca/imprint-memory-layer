@@ -27,7 +27,7 @@ The opt-in LLM tagger (`tagger.llm`) and the session summarizer (`summarizer.ena
 Two paths send text unchanged:
 
 - **Recall's local planning.** Its evidence is already-redacted memory, and its model runs on this computer.
-- **The dashboard chat.** What you type goes to the provider you chose, as you wrote it. Memories it reads are redacted, and memories it stores pass the write step.
+- **The dashboard chat.** What you type goes to the provider you chose, as you wrote it. Memories it reads are redacted, and memories it stores pass the write step. The running summary of a long conversation is the exception: what its summarizer reads and what it writes are redacted, so the stored summary holds no secret ([ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
 
 Whole secret files (`.env*`, SSH keys, `.key`/`.p12`/`.pfx`) are still skipped by ingest, as before.
 

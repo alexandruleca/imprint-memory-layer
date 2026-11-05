@@ -12,7 +12,7 @@ import {
   createChatSession, deleteChatSession, getChatSession, getChatSessions, getChatStatus,
   renameChatSession, streamChat,
 } from "@/lib/api";
-import type { ChatSession, ChatStatus } from "@/lib/types";
+import type { ChatSession, ChatStatus, ChatSummary } from "@/lib/types";
 import { applyEvent, pendingReply, turnsFromHistory, type AssistantTurn, type Turn } from "./_lib/turns";
 import { Composer } from "./_components/composer";
 import { Conversation } from "./_components/conversation";
@@ -83,6 +83,8 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSession[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
+  // What Imprint reads in place of the chat's earliest exchanges (ADR 0141).
+  const [summary, setSummary] = useState<ChatSummary | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
   const [status, setStatus] = useState<ChatStatus | null>(null);
   const [streaming, setStreaming] = useState(false);
@@ -109,7 +111,10 @@ export default function ChatPage() {
     setAtBottom(true);
     try {
       const chat = await getChatSession(id);
-      if (current === view.current) setTurns(turnsFromHistory(chat.messages ?? []));
+      if (current === view.current) {
+        setTurns(turnsFromHistory(chat.messages ?? []));
+        setSummary(chat.summary?.text ? chat.summary : null);
+      }
     } catch {
       if (current === view.current) startNew();
     } finally {
@@ -123,6 +128,7 @@ export default function ChatPage() {
     view.current++;
     setActiveId(null);
     setTurns([]);
+    setSummary(null);
     setLoadingChat(false);
     setListOpen(false);
     composerRef.current?.focus();
@@ -174,7 +180,11 @@ export default function ChatPage() {
         setSessions((prev) => [{ ...session, title: titleFrom(text) }, ...(prev ?? [])]);
       }
       await streamChat(id, text, (event) => {
-        if (current === view.current) updateReply((turn) => applyEvent(turn, event));
+        if (current !== view.current) return;
+        if (event.type === "summary" && event.text) {
+          setSummary({ text: event.text, covers: event.covers, exchanges: event.exchanges });
+        }
+        updateReply((turn) => applyEvent(turn, event));
       }, controller.signal);
     } catch (error) {
       if (current !== view.current) return;
@@ -282,7 +292,7 @@ export default function ChatPage() {
                     <div className="space-y-2"><Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-2/3" /></div>
                   </div>
                 ) : (
-                  <Conversation turns={turns} onRetry={retry} />
+                  <Conversation turns={turns} summary={summary} onRetry={retry} />
                 )}
               </div>
               {!atBottom && (

@@ -792,6 +792,7 @@ def api_chat_get_session(sid: str):
     if not sess:
         return JSONResponse({"error": "not found"}, status_code=404)
     sess["messages"] = chat_store.get_messages(unquote(sid))
+    sess["summary"] = chat_store.get_summary(unquote(sid))
     return sess
 
 
@@ -822,22 +823,26 @@ async def api_chat(request: Request):
         return JSONResponse({"error": "session not found"}, status_code=404)
 
     prior = chat_store.get_messages(sid)
+    summary = chat_store.get_summary(sid)
     chat_store.append_message(sid, role="user", content=user_msg)
     workspace = config.get_active_workspace()
-    return StreamingResponse(_chat_events(sid, prior, user_msg, workspace),
+    return StreamingResponse(_chat_events(sid, prior, user_msg, workspace, summary),
                              media_type="text/event-stream")
 
 
-def _chat_events(sid: str, prior: list[dict], user_msg: str, workspace: str):
-    """Stream one reply as SSE and record it in the session."""
+def _chat_events(sid: str, prior: list[dict], user_msg: str, workspace: str, summary: dict | None = None):
+    """Stream one reply as SSE and record it in the session, with the
+    running summary it updates (ADR 0141)."""
     pending_tool = None
     # The reply as streamed so far. A client that stops the reply closes
     # this generator; what it already showed stays in the conversation.
     partial, answered = [], False
     try:
-        for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace):
+        for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace, summary=summary):
             etype = ev.get("type")
-            if etype == "token":
+            if etype == "summary":
+                chat_store.set_summary(sid, ev.get("text", ""), ev.get("covers", 0), ev.get("retry_after", 0))
+            elif etype == "token":
                 partial.append(ev.get("text", ""))
             elif etype == "tool_call":
                 partial.append("\n")

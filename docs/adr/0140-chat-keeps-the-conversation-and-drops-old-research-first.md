@@ -3,9 +3,10 @@ title: ADR 0140 — Chat keeps the conversation and drops old research first
 description: When a chat prompt does not fit the model's context, earlier turns' tool exchanges go first, oldest first, then whole earlier exchanges, oldest first, instead of the whole history at once.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-05
 - Amends: [ADR 0093](0093-sequential-chat-section-analysis.md) — "old conversation history is still dropped first" now drops it a piece at a time: earlier research before anything said, then the oldest exchanges
+- Amended by: [ADR 0141](0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md) — conversation text that no longer fits at the start of a reply is summarized instead of dropped; dropping remains the fallback
 - Related: [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md), [ADR 0101](0101-chat-research-always-reserves-an-answer.md), [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md), [local models](../local-models.md)
 
 ## Context

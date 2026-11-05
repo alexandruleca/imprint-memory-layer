@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, ChevronRight, Database, FileText, Globe, Library, Search, Sparkles, Wrench } from "lucide-react";
+import { BookOpen, ChevronRight, Database, FileText, Globe, History, Library, Search, Sparkles, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
@@ -23,6 +23,13 @@ const TOOLS: Record<string, { icon: LucideIcon; describe: Describe }> = {
   kg_add: { icon: Database, describe: () => ["Recording a fact", "Recorded a fact"] },
   kg_invalidate: { icon: Database, describe: () => ["Ending a fact", "Ended a fact"] },
   ingest_url: { icon: Globe, describe: (a) => [`Fetching${named(a.url)}`, `Fetched${named(a.url)}`] },
+  // Looking back in this chat, including what its summary stands in for (ADR 0141).
+  conversation_history: { icon: History, describe: (a) =>
+    typeof a.message === "number"
+      ? [`Reading message ${a.message} of this conversation`, `Read message ${a.message} of this conversation`]
+      : typeof a.query === "string" && a.query
+        ? [`Searching earlier in this conversation for${quoted(a.query)}`, `Searched earlier in this conversation for${quoted(a.query)}`]
+        : ["Looking over this conversation", "Looked over this conversation"] },
 };
 
 /** One tool call inside a reply: a spinner while it runs, then a collapsed

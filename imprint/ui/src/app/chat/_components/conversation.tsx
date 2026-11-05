@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
-import { Check, CircleAlert, Copy, Info, RotateCcw } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Copy, History, Info, RotateCcw } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Markdown } from "@/components/markdown";
+import type { ChatSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { replyText, type AssistantTurn, type Setup, type Turn } from "../_lib/turns";
 import { SetupProgress } from "./setup-progress";
@@ -102,20 +104,61 @@ function Reply({ turn, last, onRetry }: { turn: AssistantTurn; last: boolean; on
   );
 }
 
+/** Where the summarized part of a chat ends: a quiet rule whose label opens
+ * the summary Imprint now reads in place of the exchanges above (ADR 0141). */
+function SummaryDivider({ summary }: { summary: ChatSummary }) {
+  const above = summary.exchanges === 1
+    ? "the exchange above, which no longer fits"
+    : `the ${summary.exchanges} exchanges above, which no longer fit`;
+  return (
+    <Collapsible>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" aria-hidden />
+        <CollapsibleTrigger className="group/summary flex items-center gap-1.5 rounded-md outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+          <History className="size-3.5 shrink-0" aria-hidden />
+          <span>Summary of earlier conversation</span>
+          <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[panel-open]/summary:rotate-90" aria-hidden />
+        </CollapsibleTrigger>
+        <span className="h-px flex-1 bg-border" aria-hidden />
+      </div>
+      <CollapsibleContent>
+        <section aria-label="Summary of earlier conversation" className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-xs">
+          <p className="mb-2 text-muted-foreground">
+            Imprint reads this summary in place of {above} the model&apos;s context. It can still look up what
+            was said there.
+          </p>
+          <Markdown text={summary.text} className="leading-relaxed break-words" />
+        </section>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 /** A conversation laid out like a document: the user's messages as bubbles
- * on the right, replies as plain text with their tool calls inline. */
-export function Conversation({ turns, onRetry }: { turns: Turn[]; onRetry: () => void }) {
+ * on the right, replies as plain text with their tool calls inline. A
+ * summary sits after the last exchange it covers. */
+export function Conversation({ turns, summary, onRetry }: {
+  turns: Turn[];
+  summary?: ChatSummary | null;
+  onRetry: () => void;
+}) {
+  // The user turn right after the summarized exchanges.
+  const users = turns.flatMap((turn, i) => (turn.role === "user" ? [i] : []));
+  const boundary = summary?.text && summary.exchanges > 0 ? users[summary.exchanges] : undefined;
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
-      {turns.map((turn, i) =>
-        turn.role === "user" ? (
-          <div key={i} className="flex justify-end">
-            <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
-          </div>
-        ) : (
-          <Reply key={i} turn={turn} last={i === turns.length - 1} onRetry={onRetry} />
-        ),
-      )}
+      {turns.map((turn, i) => (
+        <Fragment key={i}>
+          {i === boundary && summary && <SummaryDivider summary={summary} />}
+          {turn.role === "user" ? (
+            <div className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
+            </div>
+          ) : (
+            <Reply turn={turn} last={i === turns.length - 1} onRetry={onRetry} />
+          )}
+        </Fragment>
+      ))}
     </div>
   );
 }

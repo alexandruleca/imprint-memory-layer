@@ -73,6 +73,9 @@ export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
       return { ...turn, notice: ev.text, noticeTitle: ev.title, setup: loaded(turn.setup) };
     case "analysis":
       return { ...turn, analysis: ev.text, setup: loaded(turn.setup) };
+    case "summary":
+      // The page shows the summary itself; the reply is being written now.
+      return { ...turn, analysis: undefined };
     case "token": {
       const steps = [...turn.steps];
       const last = steps[steps.length - 1];

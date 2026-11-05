@@ -325,6 +325,21 @@ test('push-to-talk captures through AudioWorklet and sends a bounded WAV on rele
   await expect(page.getByRole('status').filter({ hasText: 'Microphone off' })).toBeVisible();
 });
 
+test('Voice says plainly when it summarizes and when it looks back in the conversation', async ({ page }) => {
+  const server = await prepare(page);
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await page.getByRole('textbox', { name: 'Type a question' }).fill('Which port was billing on?');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect.poll(() => server.controls.some(c => c.type === 'turn')).toBe(true);
+  server.send({ type: 'state', id: 1, state: 'analyzing', text: 'Summarizing the earlier conversation…' });
+  await expect(page.getByText('Summarizing the earlier conversation…')).toBeVisible();
+  server.send({ type: 'tool', id: 1, name: 'conversation_history', text: 'Searching earlier in this conversation for “billing port”' });
+  await expect(page.getByText('Searching earlier in this conversation for “billing port”')).toBeVisible();
+  server.send({ type: 'tool', id: 1, name: 'search' });
+  await expect(page.getByText('Checking memory · search')).toBeVisible();
+});
+
 test('first-time chat setup shows real download progress in Voice and ignores late progress after interruption', async ({ page }) => {
   const server = await prepare(page);
   await page.goto('/voice/');

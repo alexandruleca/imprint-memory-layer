@@ -184,6 +184,54 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertEqual("".join(spoken).strip(), reply.strip())
         self.assertTrue(all(len(part) <= 240 for part in spoken))
 
+    def test_a_voice_conversation_keeps_heard_messages_and_its_summary_in_memory_only(self):
+        # ADR 0141: every heard message, numbered as Chat stores them, tool
+        # results included; the summary is kept for the next turn; nothing on disk.
+        seen = []
+
+        async def events(question, history, workspace, cancelled, summary=None):
+            seen.append({"question": question, "history": history, "summary": summary})
+            if question == "first":
+                yield {"type": "tool_call", "name": "search", "args": {"query": "billing"}}
+                yield {"type": "tool_result", "name": "search", "result": "billing listens on 8101"}
+            else:
+                yield {"type": "tool_call", "name": "conversation_history", "args": {"query": "billing port"}}
+                yield {"type": "tool_result", "name": "conversation_history", "result": "#2 tool search: 8101"}
+                yield {"type": "summary", "text": "- Billing port (#1–#3).", "covers": 3, "retry_after": 0, "exchanges": 1}
+            yield {"type": "token", "text": f"Answer to {question}."}
+            yield {"type": "done"}
+
+        async def native(*args):
+            yield {"type": "audio", "data": "AAAAAA==", "sample_rate": 24000, "format": "pcm16"}
+
+        with patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(voice, "chat_events", side_effect=events):
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="chat")}); ws.receive_json(); ws.receive_json()
+                received = []
+                for identifier, question, played in ((1, "first", True), (2, "second", False), (3, "third", True)):
+                    ws.send_json({"type": "turn", "id": identifier, "text": question})
+                    while not received or received[-1]["type"] != "done":
+                        received.append(ws.receive_json())
+                    if played:
+                        ws.send_json({"type": "played", "id": identifier})
+                    received.append({"type": "next"})
+        self.assertIn({"type": "tool", "name": "conversation_history", "id": 2,
+                       "text": "Searching earlier in this conversation for “billing port”"}, received)
+        self.assertIn({"type": "tool", "name": "search", "id": 1, "text": "Checking memory · search"}, received)
+        first_heard = [{"role": "user", "content": "first", "seq": 1},
+                       {"role": "tool", "content": "billing listens on 8101", "tool_name": "search",
+                        "tool_args": {"query": "billing"}, "seq": 2},
+                       {"role": "assistant", "content": "Answer to first.", "seq": 3}]
+        self.assertEqual(seen[1]["history"], first_heard)
+        self.assertIsNone(seen[1]["summary"])
+        # The unheard second reply is not kept; the summary it made is.
+        self.assertEqual(seen[2]["history"], first_heard)
+        self.assertEqual(seen[2]["summary"], {"text": "- Billing port (#1–#3).", "covers": 3, "retry_after": 0})
+        self.assertEqual(list(self.root.glob("chat*.sqlite3")), [])
+
     def test_first_chat_download_has_progress_and_a_separate_budget_without_private_logs(self):
         async def events(*args):
             yield {"type": "download_start", "path": "/PRIVATE/model.gguf", "repo": "PRIVATE"}
@@ -372,7 +420,8 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
             events = [event async for event in voice.chat_events("hello", [], "alpha", cancellation)]
         self.assertEqual(events, [{"type": "token", "text": "Hello."}])
         self.assertFalse(cancellation.is_set())
-        self.assertEqual(reply.call_args.kwargs, {"workspace": "alpha", "cancel_event": cancellation, "read_only": True})
+        self.assertEqual(reply.call_args.kwargs, {"workspace": "alpha", "cancel_event": cancellation, "read_only": True,
+                                                  "summary": None})
 
 
 class VoiceChatPolicyTests(unittest.TestCase):
