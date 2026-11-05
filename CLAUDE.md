@@ -51,14 +51,14 @@ Search without `project` filter when implementing reusable patterns (auth, cachi
 - **Data**: `data/qdrant_storage/` + `data/qdrant-bin/` + `data/imprint_graph*.sqlite3` + `data/workspace.json` (gitignored)
 - **Lifecycle**: `imprint enable` / `disable` / `status`; `imprint connect` / `disconnect` only register and unregister clients (one client table in `cmd/dispatch.go`, ADR 0053)
 - **Core memories**: short user-approved preferences and standing instructions in `data/core-memories.sqlite3`, outside every workspace; the MCP server appends the active ones to its handshake instructions; agents and Organize only propose; synced as their own dataset to peers that offer it ([`core_memories.py`](imprint/core_memories.py), ADR 0129).
-- **Organize**: a queued job ([`organize.py`](imprint/organize.py)) writes `profile/<project>` notes, proposes projects for catch-all sources (folder path, identifier-like name, or a quoted local-model answer) and proposes core memories; the user reviews on the Organize page, and an accepted move is a placement rule (ADR 0130).
+- **Organize**: a queued job ([`organize.py`](imprint/organize.py)) writes `profile/<project>` notes, proposes projects for catch-all sources (folder path, identifier-like name, or a quoted local-model answer) and proposes core memories; the user reviews on the Organize page, and an accepted move is a placement rule (ADR 0130). Strong evidence (one project's folder, or one identifier named twice and no other, early in the source) moves by itself with an undo (ADR 0133). With `organize.background` on, the idle-slot background job organizes what changed after tagging (ADR 0132). Placement rules and Organize's proposals sync to peers that offer them; a peer moves its own copies by a newer rule ([`placement_sync.py`](imprint/placement_sync.py), ADR 0134).
 - **Recordings**: the dashboard records the microphone (left) and, with confirmed consent, the computer's audio (right; the desktop app's loopback) into `data/recordings/<id>/`; a queued job transcribes each channel with the audio pipeline into the replaceable source `recording/<id>` ([`recordings.py`](imprint/recordings.py), ADR 0131).
 
 ## Configuration
 
 `imprint config set <key> <value>` — persists to `data/config.json`. Precedence: env var > config.json > default. `imprint config` shows all.
 
-Key settings: `model.name`, `model.file`, `model.dim`, `model.device`, `model.gpu_device`, `model.threads`, `qdrant.host/port`, `chunker.overlap/size_code/size_prose/hard_max`, `tagger.llm/llm_provider/llm_model`, `recall.llm/llm_timeout_sec`, `redact.privacy_filter`. Env vars `IMPRINT_*` take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` are env-only.
+Key settings: `model.name`, `model.file`, `model.dim`, `model.device`, `model.gpu_device`, `model.threads`, `qdrant.host/port`, `chunker.overlap/size_code/size_prose/hard_max`, `tagger.llm/llm_provider/llm_model`, `recall.llm/llm_timeout_sec`, `organize.background/auto_move`, `redact.privacy_filter`. Env vars `IMPRINT_*` take priority. `IMPRINT_QDRANT_BIN` and `IMPRINT_DATA_DIR` are env-only.
 
 ## Project Detection
 

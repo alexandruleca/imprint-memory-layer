@@ -3,8 +3,9 @@ title: ADR 0036 — Move memories between projects
 description: Projects are placements of memories that writers named. Workspace rules, applied wherever memories are written, place them, so a move outlives refresh, learning and sync.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-24
+- Amended by: [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md) — placement rules travel to paired devices, which move their own copies by them
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (logical IDs), [ADR 0015](0015-workspace-roots-and-source-purge.md) (exclusions enforced at the same write boundary), [ADR 0016](0016-sync-direction-and-workspace-sharing.md), [ADR 0017](0017-device-provenance-and-local-project-paths.md) (provenance, project mappings), [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) (merge sync)
 - Restructured: 2026-10-25
 

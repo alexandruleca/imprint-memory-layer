@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowRight, Check, X, WandSparkles } from "lucide-react";
+import { ArrowRight, Check, Undo2, X, WandSparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,18 +12,19 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/split-page";
-import { decideOrganize, enqueueCommand, getOrganize, type OrganizeProposal, type OrganizeReview } from "@/lib/api";
+import { decideOrganize, enqueueCommand, getOrganize, undoOrganize, type OrganizeProposal, type OrganizeReview } from "@/lib/api";
 import { ago } from "@/lib/queue";
 
-const DESCRIPTION = "Organize reads the memories that sit in catch-alls (no project, Desktop, unassigned, URLs, desktop conversations) and proposes the project each belongs to, with the evidence. It also writes a short profile of each project and suggests core memories. Nothing moves until you accept it; an accepted move holds through refreshes.";
+const DESCRIPTION = "Organize reads the memories that sit in catch-alls (no project, Desktop, unassigned, URLs, desktop conversations) and finds the project each belongs to, with the evidence. A source that names exactly one project's folder, or one project's distinctive name at least twice, moves by itself and can be undone; the rest wait for you. It also writes a short profile of each project and suggests core memories. Moves hold through refreshes and reach paired devices.";
 const METHODS: Record<OrganizeProposal["method"], string> = {
   path: "Mentions its folder", name: "Names the project", "local-model": "Local model, quoted",
 };
 const originLabel = (origin: string) => origin || "No project";
 const key = (p: Pick<OrganizeProposal, "origin" | "source">) => `${p.origin}\u0000${p.source}`;
 
-function ProposalRow({ proposal, busy, onDecide }: {
+function ProposalRow({ proposal, busy, onDecide, onUndo }: {
   proposal: OrganizeProposal; busy: boolean; onDecide: (items: OrganizeProposal[], accept: boolean) => void;
+  onUndo?: (items: OrganizeProposal[]) => void;
 }) {
   return (
     <li className="space-y-1.5 px-4 py-3 sm:px-6" aria-label={proposal.source}>
@@ -31,15 +32,21 @@ function ProposalRow({ proposal, busy, onDecide }: {
         <span className="min-w-0 truncate font-mono text-xs">{proposal.source}</span>
         <Badge variant="outline">{originLabel(proposal.origin)}</Badge>
         <Badge variant="secondary">{METHODS[proposal.method]}</Badge>
+        {proposal.status === "pending" && proposal.strength === "strong" && <Badge variant="outline">Strong evidence</Badge>}
         <span className="text-xs text-muted-foreground">{proposal.chunks} {proposal.chunks === 1 ? "chunk" : "chunks"}</span>
         {proposal.status === "pending" ? (
           <div className="ml-auto flex gap-1">
             <Button size="sm" disabled={busy} onClick={() => onDecide([proposal], true)}><Check /> Move</Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDecide([proposal], false)}><X /> Keep here</Button>
           </div>
+        ) : proposal.status === "auto" && onUndo ? (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">to {proposal.target}</span>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onUndo([proposal])}><Undo2 /> Undo</Button>
+          </div>
         ) : (
-          <Badge className="ml-auto" variant={proposal.status === "accepted" ? "default" : "outline"}>
-            {proposal.status === "accepted" ? "Moved" : "Kept"}
+          <Badge className="ml-auto" variant={proposal.status === "rejected" ? "outline" : "default"}>
+            {proposal.status === "accepted" ? "Moved" : proposal.status === "auto" ? "Moved automatically" : "Kept"}
           </Badge>
         )}
       </div>
@@ -79,6 +86,19 @@ export default function OrganizePage() {
     } finally { setBusy(false); }
   }
 
+  async function undo(items: OrganizeProposal[]) {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const result = await undoOrganize(data.workspace, items.map(({ origin, source }) => ({ origin, source })));
+      for (const failure of result.failed) toast.error(`Could not move ${failure.source} back`, { description: failure.error });
+      if (result.undone) toast.success(result.undone === 1 ? "Moved back" : `Moved ${result.undone} sources back`);
+      await load();
+    } catch (e) {
+      toast.error("Could not undo the move", { description: e instanceof Error ? e.message : String(e) });
+    } finally { setBusy(false); }
+  }
+
   async function decide(items: OrganizeProposal[], accept: boolean) {
     if (!data) return;
     setBusy(true);
@@ -114,10 +134,12 @@ export default function OrganizePage() {
   );
 
   const pending = data.proposals.filter((p) => p.status === "pending");
-  const decided = data.proposals.filter((p) => p.status !== "pending");
+  const moved = data.proposals.filter((p) => p.status === "auto").sort((a, b) => (b.decided_at ?? 0) - (a.decided_at ?? 0));
+  const decided = data.proposals.filter((p) => p.status === "accepted" || p.status === "rejected");
+  const background = data.background;
   const byTarget = new Map<string, OrganizeProposal[]>();
   for (const proposal of pending) byTarget.set(proposal.target, [...(byTarget.get(proposal.target) ?? []), proposal]);
-  const summary = data.last_run ? JSON.parse(data.last_run.summary) as { profiles: number; pending: number; core: number; model: boolean } : null;
+  const summary = data.last_run ? JSON.parse(data.last_run.summary) as { profiles: number; pending: number; moved?: number; core: number; model: boolean } : null;
 
   return (
     <div className="mx-auto max-w-5xl pb-10">
@@ -125,16 +147,37 @@ export default function OrganizePage() {
       <div className="space-y-4 px-4 sm:px-8">
         <p className="text-sm text-muted-foreground" role="status">
           {data.last_run && summary
-            ? <>Last run {ago(data.last_run.finished_at)}: {summary.profiles} profiles, {summary.pending} moves to review, {summary.core} core memory proposals{summary.model ? "" : ", without the local helper"}.{" "}
+            ? <>Last run {ago(data.last_run.finished_at)}: {summary.profiles} profiles, {summary.moved ?? 0} moved, {summary.pending} moves to review, {summary.core} core memory proposals{summary.model ? "" : ", without the local helper"}.{" "}
                 {summary.core > 0 && <Link href="/core/" className="underline underline-offset-2">Review core memories</Link>}</>
             : "Organize has not run in this workspace yet."}
         </p>
+        <p className="text-sm text-muted-foreground" aria-label="How Organize runs">
+          {background?.enabled
+            ? "Runs by itself whenever the queue is idle, after background tagging, and looks only at what changed."
+            : "Runs when you start it."}{" "}
+          {background && !background.auto_move && "Every move waits for your review. "}
+          <Link href="/settings/#settings-organize" className="underline underline-offset-2">Organize settings</Link>
+        </p>
+
+        {moved.length > 0 && (
+          <Card className="gap-0 pb-0" aria-label="Moved automatically">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">Moved automatically <span className="text-sm font-normal text-muted-foreground tabular-nums">{moved.length}</span></CardTitle>
+              <CardDescription>Each named one project clearly. Undo moves a source back to where it was and keeps it there.</CardDescription>
+            </CardHeader>
+            <CardContent className="mt-4 border-t border-border px-0">
+              <ul className="divide-y divide-border">
+                {moved.map((p) => <ProposalRow key={key(p)} proposal={p} busy={busy} onDecide={() => {}} onUndo={(i) => void undo(i)} />)}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {byTarget.size === 0 ? (
           <Empty className="border border-dashed border-border">
             <EmptyHeader>
               <EmptyTitle>No moves to review</EmptyTitle>
-              <EmptyDescription>Run Organize to look for memories in catch-alls that belong to a project.</EmptyDescription>
+              <EmptyDescription>{moved.length ? "Every proposal Organize made was strong enough to apply." : "Run Organize to look for memories in catch-alls that belong to a project."}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : [...byTarget.entries()].map(([target, items]) => (

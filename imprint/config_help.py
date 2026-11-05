@@ -343,6 +343,15 @@ HELP: dict[str, dict[str, str]] = {
         "help": "How many seconds one recall waits for the local model, planning and answering together, before it returns the evidence without the model (30 by default). Only matters with recall.llm on. Raise it on a slow CPU-only machine; lower it if agents wait too long.",
         "example": "60: on a CPU-only machine where the local model needs more time to plan.",
     },
+    # ── Organize ─────────────────────────────────────────────────────────
+    "organize.background": {
+        "help": "Runs Organize by itself whenever the dashboard's queue is idle, after background tagging: it writes project profiles, finds a project for memories sitting in catch-alls such as Desktop or Code, and proposes core memories. Each pass looks only at what changed since the last one and steps aside whenever another job waits. Settings stay on each device, so turn it on where the local helper model runs best; its moves and proposals reach paired devices. Off by default.",
+        "example": "true: on the computer with the strongest GPU, so new memories are sorted into projects as they arrive.",
+    },
+    "organize.auto_move": {
+        "help": "Lets Organize move a source by itself when the evidence is strong: the source names exactly one project's registered folder, or one distinctive project name (such as checkout-service) at least twice and no other. Those moves are listed on the Organize page with an undo. Weaker proposals, including every one that rests on the local model's reading, wait for your review. On by default; off sends every proposal to review.",
+        "example": "false: to review every move yourself before anything changes project.",
+    },
     # ── Workspaces and updates ───────────────────────────────────────────
     "workspace.unassigned": {
         "help": "The workspace (a separate set of memories) used by agent sessions that no project assigns one, such as desktop app chats, or folders without an approved .imprint/workspace.json or workspace root. Empty (the default) uses whichever workspace is active in the CLI and dashboard at the time; set it to keep such sessions in one fixed workspace. It resets to empty if that workspace is removed.",

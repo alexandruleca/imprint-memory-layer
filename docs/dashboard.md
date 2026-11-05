@@ -56,9 +56,11 @@ Short statements about you that every agent session receives at its start: prefe
 
 ### Organize
 
-**Run Organize** queues a job that writes a short profile of each project, proposes a project for memories sitting in catch-alls (no project, Desktop, Code, unassigned, URLs, desktop conversations), and proposes core memories ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). **Without the local helper** keeps to the folder-path and project-name evidence.
+**Run Organize** queues a job that writes a short profile of each project, finds a project for memories sitting in catch-alls (no project, Desktop, Code, unassigned, URLs, desktop conversations), and proposes core memories ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). **Without the local helper** keeps to the folder-path and project-name evidence. With `organize.background` on, Organize also runs by itself when the queue is idle, after background tagging, and looks only at what changed ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)); the page says which.
 
-- Proposals are grouped by target project, each with its evidence: the project's folder path, its name, or a quote the local model found. **Move** or **Keep here** decides one; **Move all** or **Keep all** a group. A move is a placement rule, so it holds through refreshes.
+- **Moved automatically** lists the sources Organize moved by itself because the evidence was strong: the source names exactly one project's folder, or one distinctive project name at least twice and no other, early in what it says. **Undo** moves one back and keeps it there ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)). `organize.auto_move` off sends these to review too.
+- The other proposals are grouped by target project, each with its evidence: the project's folder path, its name, or a quote the local model found. **Move** or **Keep here** decides one; **Move all** or **Keep all** a group. A move is a placement rule, so it holds through refreshes.
+- Moves, proposals and decisions reach paired devices ([ADR 0134](adr/0134-placement-rules-and-organize-proposals-sync.md)).
 - **Project profiles** shows what each project is about; search and chat find the profiles too.
 
 ### Projects
@@ -85,7 +87,7 @@ Imprint runs one job at a time ([ADR 0064](adr/0064-single-slot-command-queue-an
 
 - **Running** shows the current job with its progress, newest output line, full output on request and **Cancel**.
 - **Up next** lists waiting jobs; each can be removed. A job that absorbed identical requests shows how many.
-- **Background tagging** shows the LLM tagging backlog's state in one line, with **Resume now** when it waits ([ADR 0067](adr/0067-background-llm-tagging-that-yields-to-every-job.md)).
+- **Background work** shows the state of LLM tagging and background Organize, which fill idle time: memories waiting for tagging, workspaces Organize has not seen as they are, and **Resume now** when it waits after a cancel or failure ([ADR 0067](adr/0067-background-llm-tagging-that-yields-to-every-job.md), [ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)).
 - **History** lists finished jobs. Any job opens a panel with its parameters, workspace, times, process, command and output.
 
 ### Commands

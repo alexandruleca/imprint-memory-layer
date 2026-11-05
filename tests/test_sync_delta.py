@@ -28,9 +28,11 @@ class WantedTests(unittest.TestCase):
         remote = {'memories': {'retagged': 3.0, 'older': 4.0, 'same': 2.0},
                   'facts': {'f2': 0.0}, 'sources': {'s1': 10.0}}
         self.assertEqual(sync_delta.wanted(local, remote),
-                         {'memories': ['new', 'retagged'], 'facts': ['f1'], 'sources': [], 'core': []})
+                         {'memories': ['new', 'retagged'], 'facts': ['f1'], 'sources': [], 'core': [],
+                          'placements': [], 'organize': []})
         # The other side then lacks nothing newer than this one holds: no ping-pong.
-        self.assertEqual(sync_delta.wanted(remote, local), {'memories': ['older'], 'facts': [], 'sources': [], 'core': []})
+        self.assertEqual(sync_delta.wanted(remote, local), {'memories': ['older'], 'facts': [], 'sources': [], 'core': [],
+                                                            'placements': [], 'organize': []})
 
     def test_digest_ignores_order_and_follows_versions(self):
         a = {'memories': {'x': 1.0, 'y': 2.0}, 'facts': {}, 'sources': {}}
@@ -43,11 +45,13 @@ class WantedTests(unittest.TestCase):
 class ManifestCodingTests(unittest.TestCase):
     def test_round_trip(self):
         local = {'memories': {'m' * 16: 1.5}, 'facts': {'["s","p","o",0]': 0.0}, 'sources': {'["p","s"]': 9.0},
-                 'core': {'c' * 32: 2.0}}
+                 'core': {'c' * 32: 2.0}, 'placements': {'["Desktop","Desktop/a.md"]': 3.0},
+                 'organize': {'["Desktop","Desktop/a.md"]': 4.0}}
         self.assertEqual(sync_delta.decode(sync_delta.encode(local)), local)
-        # An older device's manifest has no core memories.
-        older = {key: value for key, value in local.items() if key != 'core'}
-        self.assertEqual(sync_delta.decode(sync_delta.encode(older)), {**older, 'core': {}})
+        # An older device's manifest has no core memories, rules or proposals.
+        older = {key: value for key, value in local.items() if key not in sync_delta.EXTRAS}
+        self.assertEqual(sync_delta.decode(sync_delta.encode(older)),
+                         {**older, 'core': {}, 'placements': {}, 'organize': {}})
 
     def test_malformed_or_oversized_manifests_are_refused(self):
         for data in (None, 'not base64!', sync_delta.encode({'memories': {'x': 'new'}}),
@@ -136,12 +140,16 @@ class ManifestTests(unittest.TestCase):
              patch.object(imprint_graph, '_connection', connection), \
              patch.object(source_snapshots, 'list_metadata',
                           return_value=[{'project': 'p', 'source': 's', 'updated_at': 3}]), \
-             patch.object(core_memories, 'manifest', return_value={'c' * 32: 4.0}):
+             patch.object(core_memories, 'manifest', return_value={'c' * 32: 4.0}), \
+             patch('imprint.placement_sync.manifest', return_value={'["o", ""]': 5.0}), \
+             patch('imprint.organize.manifest', return_value={'["o", "s"]': 6.0}):
             local = sync_delta.manifest('ws')
         self.assertEqual(local, {'memories': {'m1': 7.5, 'm2': 0.0},
                                  'facts': {'["a", "knows", "b", 1]': 0.0},
                                  'sources': {'["p", "s"]': 3.0},
-                                 'core': {'c' * 32: 4.0}})
+                                 'core': {'c' * 32: 4.0},
+                                 'placements': {'["o", ""]': 5.0},
+                                 'organize': {'["o", "s"]': 6.0}})
 
 
 if __name__ == '__main__':

@@ -29,9 +29,9 @@ test('the running job and how far it is show above every page and open the queue
 
 test('background tagging shows while it runs, and nothing shows when the queue is idle', async ({ page }) => {
   await mockApi(page, { background: { enabled: true, pending: 9, state: 'running', resume_at: null,
-    job: { ...learn, id: 'bg1', command: 'tag-backlog', label: 'Background tagging', phase: 'llm_tagging', processed: 4, total: 13, unit: 'memories' } } });
+    job: { ...learn, id: 'bg1', command: 'tag-backlog', label: 'Background work', phase: 'llm_tagging', processed: 4, total: 13, unit: 'memories' } } });
   await page.goto('/search/');
-  await expect(page.getByRole('link', { name: /^Background tagging · LLM tagging · 4\/13 memories/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Background work · LLM tagging · 4\/13 memories/ })).toBeVisible();
 
   await page.unroute('**/api/queue?**');
   await page.route('**/api/queue?**', route => route.fulfill({ json: { active: null, queued: [], recent: [] } }));

@@ -688,6 +688,21 @@ async def api_organize_decide(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
+@app.post('/api/organize/undo')
+async def api_organize_undo(request: Request):
+    """Move sources Organize moved by itself back, and keep them there (ADR 0133)."""
+    from . import organize
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get('items'), list) or not body.get('workspace'):
+            raise ValueError('The workspace and items (origin and source of each move) are required')
+        result = await asyncio.to_thread(organize.undo, body['workspace'], body['items'])
+        reset_cache()
+        return result
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
 # ── Core memories (ADR 0129) ───────────────────────────────────
 
 @app.get('/api/core')
@@ -1204,9 +1219,10 @@ def api_config_reset(key: str):
 
 
 def _tagging_settings_changed(key: str) -> None:
-    """Turning LLM tagging on, or fixing its provider, lets background
-    tagging start or retry at once (ADR 0067)."""
-    if key.startswith("tagger."):
+    """Turning LLM tagging or background Organize on, or fixing the
+    provider, lets the background job start or retry at once (ADR 0067,
+    0132)."""
+    if key.startswith(("tagger.", "organize.")):
         job_queue.backlog_changed()
 
 

@@ -123,7 +123,8 @@ class CoreMemoryTests(unittest.TestCase):
         async def run(core):
             import asyncio
             async for _ in sync_delta.reconcile(Channel(), 'ws', local, provider=True, provider_sends=True,
-                                                consumer_sends=False, cancel=asyncio.Event(), result={}, core=core):
+                                                consumer_sends=False, cancel=asyncio.Event(), result={},
+                                                extras=frozenset({'core'} if core else ())):
                 pass
 
         import asyncio

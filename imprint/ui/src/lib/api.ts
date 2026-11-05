@@ -248,7 +248,7 @@ export function deleteRecording(id: string) {
   return fetchAPI<{ deleted: boolean }>(`/api/recordings/${id}`, { method: "DELETE" });
 }
 
-// ── Organize (ADR 0130) ─────────────────────────────────────────
+// ── Organize (ADR 0130, 0132, 0133) ─────────────────────────────
 
 export interface OrganizeProposal {
   workspace: string;
@@ -258,18 +258,24 @@ export interface OrganizeProposal {
   target: string;
   /** How the target was found: a registered folder path, the project's name, or the local model's quote. */
   method: "path" | "name" | "local-model";
+  /** "strong" evidence moves by itself while organize.auto_move is on (ADR 0133). */
+  strength: "strong" | "weak" | "";
   evidence: { quote: string }[];
   preview: string;
   chunks: number;
-  status: "pending" | "accepted" | "rejected";
+  /** "auto": Organize moved it by itself; it can be undone. */
+  status: "pending" | "accepted" | "rejected" | "auto";
   created_at: number;
   decided_at: number | null;
+  updated_at?: number;
 }
 export interface OrganizeReview {
   workspace: string;
   proposals: OrganizeProposal[];
   profiles: { project: string; text: string; updated: number }[];
   last_run: { finished_at: number; summary: string } | null;
+  /** organize.background and organize.auto_move, and when the last background pass finished. */
+  background?: { enabled: boolean; auto_move: boolean; last_pass: number | null };
 }
 
 export function getOrganize() {
@@ -279,6 +285,12 @@ export function getOrganize() {
 export function decideOrganize(workspace: string, items: { origin: string; source: string }[], accept: boolean) {
   return fetchAPI<{ decided: number; failed: { origin: string; source: string; error: string }[] }>(
     "/api/organize/decide", { method: "POST", body: JSON.stringify({ workspace, items, accept }) });
+}
+
+/** Move sources Organize moved by itself back, and keep them there. */
+export function undoOrganize(workspace: string, items: { origin: string; source: string }[]) {
+  return fetchAPI<{ undone: number; failed: { origin: string; source: string; error: string }[] }>(
+    "/api/organize/undo", { method: "POST", body: JSON.stringify({ workspace, items }) });
 }
 
 // ── Core memories (ADR 0129) ────────────────────────────────────

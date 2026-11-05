@@ -622,6 +622,36 @@ def _pending_total() -> int | None:
         return None
 
 
+def _organizing() -> bool:
+    """Whether Organize runs in the background (ADR 0132)."""
+    try:
+        from . import organize
+        return organize.background_enabled()
+    except Exception:
+        return False
+
+
+def _organize_due() -> int:
+    """Workspaces with something new for background Organize."""
+    try:
+        from . import organize
+        return organize.background_due()
+    except Exception:
+        return 0
+
+
+def _work_total() -> int | None:
+    """What the background job has to do: memories waiting for LLM tagging
+    while it is on, and workspaces Organize has not seen as they are."""
+    try:
+        tagging = _pending_total() if tag_backlog.deferring() else 0
+    except Exception:
+        tagging = None
+    if tagging is None:
+        return None
+    return tagging + (_organize_due() if _organizing() else 0)
+
+
 def _held(pending: int) -> bool:
     if time.time() < _background["hold_until"]:
         return True
@@ -633,7 +663,7 @@ def _startable_backlog() -> int | None:
     LLM tagging is on, no job runs or waits, no other process holds the lock,
     nothing holds it back, and memories wait."""
     try:
-        if not tag_backlog.deferring():
+        if not tag_backlog.deferring() and not _organizing():
             return None
     except Exception:
         return None
@@ -644,7 +674,7 @@ def _startable_backlog() -> int | None:
             return None
     if queue_lock.read_holder() is not None:
         return None
-    pending = _pending_total()
+    pending = _work_total()
     if not pending or _held(pending):
         return None
     _background["hold_count"] = None
@@ -673,7 +703,7 @@ async def _run_background_if_due(after_job) -> bool:
     _background["due"] = time.time() + BACKLOG_POLL_SECONDS
     status = (get_job(job_id) or {}).get("status")
     if status == "cancelled":
-        _background["hold_count"] = await loop.run_in_executor(None, _pending_total)
+        _background["hold_count"] = await loop.run_in_executor(None, _work_total)
     elif status == "failed":
         _background["hold_until"] = time.time() + FAILURE_PAUSE_SECONDS
     return True
@@ -704,34 +734,44 @@ def _prune_background(keep: int = _KEEP_BACKGROUND_RUNS) -> None:
             (_logs_dir() / f"{job_id}.log").unlink()
 
 
-_pending_cache: dict[str, Any] = {"at": 0.0, "value": None}
+_pending_cache: dict[str, Any] = {"at": 0.0, "value": None, "organize_at": 0.0, "due": 0}
 
 
 def background_state() -> dict:
-    """What the Queue page shows of background tagging: whether LLM tagging
-    is on, how many memories wait across workspaces, and its state."""
-    enabled = bool(tag_backlog.deferring())
+    """What the Queue page shows of the background job: whether LLM tagging
+    and background Organize are on, how many memories wait for tagging
+    across workspaces, how many workspaces have something new for Organize,
+    and its state."""
+    tagging = bool(tag_backlog.deferring())
+    organizing = _organizing()
+    enabled = tagging or organizing
     now = time.time()
     if now - _pending_cache["at"] > 2.0:
         _pending_cache.update(at=now, value=_pending_total())
+    # Organize's check reads several indexes per workspace; less often.
+    if organizing and now - _pending_cache["organize_at"] > 10.0:
+        _pending_cache.update(organize_at=now, due=_organize_due())
     pending = _pending_cache["value"]
+    due = _pending_cache["due"] if organizing else 0
+    work = ((pending or 0) if tagging else 0) + due
     job = background_job()
     resume_at = None
     if not enabled:
         state = "off"
     elif job and job["status"] == "running":
         state = "running"
-    elif not pending:
+    elif not work:
         state = "idle"
     elif now < _background["hold_until"]:
         state, resume_at = "failed", _background["hold_until"]
-    elif _background["hold_count"] is not None and pending == _background["hold_count"]:
+    elif _background["hold_count"] is not None and work == _background["hold_count"]:
         state = "paused"
     elif job and job["status"] == "yielded":
         state = "yielded"
     else:
         state = "waiting"
-    return {"enabled": enabled, "pending": pending, "state": state, "job": job, "resume_at": resume_at}
+    return {"enabled": enabled, "tagging": tagging, "pending": pending,
+            "organize": {"enabled": organizing, "due": due}, "state": state, "job": job, "resume_at": resume_at}
 
 
 async def _run_job(job: dict, after_job=None) -> None:
@@ -923,6 +963,8 @@ def _build_argv(command: str, body: dict, *, job_id: str | None = None) -> list[
         return [sys.executable, '-m', 'imprint.project_associations', *build_command_args(command, body)]
     if command == 'organize':
         return [sys.executable, '-m', 'imprint.organize', *build_command_args(command, body)]
+    if command == 'apply-placements':
+        return [sys.executable, '-m', 'imprint.placement_sync']
     if command == 'transcribe-recording':
         if not re.fullmatch(r'[a-f0-9]{32}', str(body.get('id', ''))):
             raise ValueError('transcribe-recording requires a recording ID')

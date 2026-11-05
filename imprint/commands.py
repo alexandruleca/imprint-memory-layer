@@ -114,7 +114,7 @@ DIALOG_FLOWS = frozenset({'wipe', 'migrate', 'workspace', 'wsl'})
 ALLOWED = frozenset(command['name'] for command in CATALOG) | DIALOG_FLOWS
 
 # Names for the queued jobs the Commands page does not offer.
-OTHER_LABELS = {'tag-backlog': 'Background tagging', 'wipe': 'Wipe workspace', 'migrate': 'Copy or move memories',
+OTHER_LABELS = {'tag-backlog': 'Background work', 'apply-placements': 'Place memories by synced moves', 'wipe': 'Wipe workspace', 'migrate': 'Copy or move memories',
                 'workspace': 'Change workspaces', 'wsl': 'WSL profile', 'transcribe-recording': 'Transcribe a recording'}
 
 

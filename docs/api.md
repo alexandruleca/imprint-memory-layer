@@ -140,8 +140,9 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | GET | `/api/core` | Every core memory, the session budget and how much of it the ones for every project use ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)). |
 | POST | `/api/core` | A core memory the user wrote: `{text, kind, scope}`, active at once. |
 | PATCH | `/api/core/{id}` | Edit `text`, `kind` or `scope`, or set `state` to `active` (approve, restore) or `retired`. |
-| GET | `/api/organize` | Project profiles, placement proposals and the last organize run ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). The job itself is `POST /api/commands/organize` (`{no_model: true}` to skip the local model). |
+| GET | `/api/organize` | Project profiles, placement proposals (moved automatically ones as `auto`), the last organize run and `background` (`organize.background`, `organize.auto_move`, the last background pass) ([ADR 0130](adr/0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md)). The job itself is `POST /api/commands/organize` (`{no_model: true}` to skip the local model). |
 | POST | `/api/organize/decide` | `{workspace, items: [{origin, source}], accept}`: move (a placement rule) or keep proposals. |
+| POST | `/api/organize/undo` | `{workspace, items: [{origin, source}]}`: move sources Organize moved by itself back, and keep them there ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)). |
 | GET | `/api/recordings` | Recordings, newest first ([ADR 0131](adr/0131-meetings-are-recorded-by-channel-and-transcribed-locally.md)). |
 | POST | `/api/recordings` | Start one: `{title, project, others, consent: true}`; refused without consent. |
 | POST | `/api/recordings/{id}/audio` | The next piece of its audio (raw WebM/Opus bytes). |
@@ -184,7 +185,7 @@ already waiting: `job_id` is that job and nothing new is queued
 | GET | `/api/commands` | The Commands page catalog (`imprint/commands.py`): each command's label, group, fields and confirmation, plus `clients` from `imprint clients --json`. 502 when the CLI cannot list them. |
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
 | GET | `/api/queue` | Active + queued + recent jobs, and `background`: background LLM tagging's state, the memories waiting for it and its running or latest run ([queue](queue.md#http-api)). Each job carries `label`, `params` and `workspace`: its name and arguments in the command catalog's words (`commands.describe`). |
-| POST | `/api/queue/background/resume` | Start background tagging again after a cancel or a failure. |
+| POST | `/api/queue/background/resume` | Start background work (tagging, then background Organize) again after a cancel or a failure. |
 | GET | `/api/agents` | The MCP sessions of every client, connected ones first, and `clients`: the same totalled by client ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). `?limit=` (default 100). |
 | GET | `/api/agents/{id}/calls` | One session and its tool calls, newest first: tool, start, duration, outcome, shortened and redacted arguments. `?limit=` (default 200) and `?before=<call id>` page back. |
 | GET | `/api/jobs/{id}` | Job status + exit code, named like the queue's jobs. |

@@ -29,7 +29,10 @@ WAIT = 600
 # Records the sender's Privacy Filter goes over between checks for a
 # stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
 FILTER_SLICE = 25
-DATASETS = ('memories', 'facts', 'sources', 'core')
+DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize')
+# Datasets a device receives only when its handshake offers each: core
+# memories (ADR 0129), placement rules and Organize's proposals (ADR 0134).
+EXTRAS = ('core', 'placements', 'organize')
 
 
 def offered() -> int | None:
@@ -44,10 +47,16 @@ def storing_offered() -> bool:
     return True
 
 
-def core_offered() -> bool:
-    """Whether this device exchanges core memories (ADR 0129). A device that
-    does not say so gets none: its importer refuses the dataset."""
-    return True
+def extras_offered() -> dict[str, bool]:
+    """The extra datasets this device exchanges, as its handshake says them
+    (``core``: ADR 0129). A device that does not offer one is sent none of
+    it: its importer would refuse the dataset."""
+    return {dataset: True for dataset in EXTRAS}
+
+
+def extras_of(snapshot: dict) -> frozenset:
+    """The extra datasets a peer's handshake offers."""
+    return frozenset(dataset for dataset in EXTRAS if snapshot.get(dataset) is True)
 MANIFEST_BYTES = 256 * 1024 * 1024
 
 
@@ -81,8 +90,9 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
                 facts[_fact_key(row)] = 0.0
     sources = {_source_key(meta): float(meta['updated_at']) for meta in source_snapshots.list_metadata(workspace)}
     # Core memories belong to no workspace: every paired workspace carries them.
-    from . import core_memories
-    return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest()}
+    from . import core_memories, organize, placement_sync
+    return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest(),
+            'placements': placement_sync.manifest(workspace), 'organize': organize.manifest(workspace)}
 
 
 def digest(local: dict) -> str:
@@ -129,17 +139,18 @@ def decode(data: object) -> dict[str, dict[str, float]]:
     return {dataset: remote.get(dataset, {}) for dataset in DATASETS}
 
 
-def _stream(memories=(), facts=(), snapshot=(), core=()) -> list[str]:
-    """A complete small stream, the format a full sync sends. Core memories
-    only go to a device that offers them (``core_offered``)."""
-    datasets = {'memories': len(memories), 'facts': len(facts), **({'core': len(core)} if core else {})}
+def _stream(memories=(), facts=(), snapshot=(), **extras) -> list[str]:
+    """A complete small stream, the format a full sync sends. The extra
+    datasets (``EXTRAS``) only go to a device that offers them."""
+    extras = {dataset: list(records) for dataset, records in extras.items() if records}
+    datasets = {'memories': len(memories), 'facts': len(facts), **{d: len(r) for d, r in extras.items()}}
     frames = [{'kind': 'meta', 'datasets': datasets, 'vectors': True}]
     if memories:
         frames.append({'kind': 'batch', 'dataset': 'memories', 'seq': 1, 'records': list(memories)})
     if facts:
         frames.append({'kind': 'batch', 'dataset': 'facts', 'seq': 1, 'records': list(facts)})
-    if core:
-        frames.append({'kind': 'batch', 'dataset': 'core', 'seq': 1, 'records': list(core)})
+    for dataset, records in extras.items():
+        frames.append({'kind': 'batch', 'dataset': dataset, 'seq': 1, 'records': records})
     frames.extend(snapshot)
     frames.append({'kind': 'done'})
     return [json.dumps(frame, separators=(',', ':')) for frame in frames]
@@ -157,6 +168,14 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
     from . import source_snapshots, sync_ws
     from . import vectorstore as vs
     from .device import TRANSFER_FIELDS
+
+    # Rules first: the memories that follow are placed by them on arrival.
+    from . import organize, placement_sync
+    for dataset, export in (('placements', placement_sync.export), ('organize', organize.export)):
+        if keys.get(dataset):
+            records = export(workspace, keys[dataset])
+            for start in range(0, len(records), CHUNK_RECORDS):
+                yield _stream(**{dataset: records[start:start + CHUNK_RECORDS]})
 
     identity = config.embedding_identity()
     mids = keys.get('memories', [])
@@ -199,13 +218,13 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
 
 async def reconcile(channel, workspace: str, local: dict, *, provider: bool, provider_sends: bool,
                     consumer_sends: bool, cancel: asyncio.Event, result: dict, storing: bool = False,
-                    core: bool = False):
+                    extras: frozenset = frozenset()):
     """Swap manifests, then send what the other device lacks: the provider's
     records first, then the consumer's. Yields ``progress`` events, and a
     ``storing`` status while either side stores a chunk; sets
     ``result['received']`` to what this side stored. ``storing``: the other
-    device takes ``storing`` frames (``storing_offered``). ``core``: it
-    exchanges core memories (``core_offered``); otherwise none are sent."""
+    device takes ``storing`` frames (``storing_offered``). ``extras``: the
+    extra datasets it exchanges (``extras_of``); of the others none are sent."""
     if provider:
         await channel.send({'kind': 'manifest', 'data': encode(local)})
         remote = decode((await channel.recv(timeout=WAIT)).get('data'))
@@ -217,8 +236,9 @@ async def reconcile(channel, workspace: str, local: dict, *, provider: bool, pro
             continue
         if sender_is_provider == provider:
             keys = wanted(local, remote)
-            if not core:
-                keys['core'] = []
+            for dataset in EXTRAS:
+                if dataset not in extras:
+                    keys[dataset] = []
             async for event in _send(channel, workspace, keys, cancel):
                 yield event
         else:
@@ -330,10 +350,11 @@ async def _receive(channel, workspace: str, keys: dict, cancel: asyncio.Event, r
         if 'sources' in stored['stats']:
             stats['sources'] = {'imported': stats.get('sources', {}).get('imported', 0)
                                 + stored['stats']['sources']['imported']}
-        if 'core' in stored['stats']:
-            held = stats.setdefault('core', {'inserted': 0, 'updated': 0, 'skipped': 0})
-            for key, value in stored['stats']['core'].items():
-                held[key] += value
+        for dataset in EXTRAS:
+            if dataset in stored['stats']:
+                held = stats.setdefault(dataset, {})
+                for key, value in stored['stats'][dataset].items():
+                    held[key] = held.get(key, 0) + value
         await channel.send({'kind': 'ack', 'seq': seq})
         result['received'] = stats
         for dataset in totals:

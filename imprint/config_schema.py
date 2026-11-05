@@ -301,6 +301,14 @@ SETTINGS: list[Setting] = [
     Setting("recall.llm",             "IMPRINT_RECALL_LLM",         False, bool, "Let the local model plan recall reads and answer from the evidence (tagger provider local, or ollama/vllm on loopback)"),
     Setting("recall.llm_timeout_sec", "IMPRINT_RECALL_LLM_TIMEOUT", 30,    int,  "Seconds one recall waits for the local model before returning the evidence without it"),
 
+    # ── Organize (ADR 0130, 0132, 0133) ───────────────────────
+    # Background: the queue's idle slot runs it after background tagging.
+    # Auto move: placements with strong evidence apply without review.
+    Setting("organize.background", "IMPRINT_ORGANIZE_BACKGROUND", False, bool,
+            "Organize new and changed memories in the background when the queue is idle"),
+    Setting("organize.auto_move",  "IMPRINT_ORGANIZE_AUTO_MOVE",  True,  bool,
+            "Move sources with strong evidence without review; weaker proposals still wait"),
+
     # ── Workspace selection (ADR 0072) ────────────────────────
     # A project's .imprint/workspace.json, approved on this device, or its
     # roots choose a session's workspace. This covers the rest: desktop app

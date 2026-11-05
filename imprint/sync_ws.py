@@ -759,12 +759,14 @@ def process_import_buffer(
                 import_memories(records)
             elif dataset == "facts":
                 import_facts(records)
-            elif dataset == "core":
-                from . import core_memories
-                stored = core_memories.import_records(records)
-                held = stats.setdefault("core", {"inserted": 0, "updated": 0, "skipped": 0})
+            elif dataset in ("core", "placements", "organize"):
+                from . import core_memories, organize, placement_sync
+                stored = (core_memories.import_records(records) if dataset == "core"
+                          else placement_sync.import_records(records, workspace) if dataset == "placements"
+                          else organize.import_records(records, workspace))
+                held = stats.setdefault(dataset, {})
                 for key, value in stored.items():
-                    held[key] += value
+                    held[key] = held.get(key, 0) + value
 
     snapshot_import.finish()
     if snapshot_import.imported:
@@ -966,6 +968,10 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
             return
 
 
+# The record datasets a stream may carry; source snapshots travel as parts.
+_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize")
+
+
 def _stream_line_ok(msg: dict, after_meta: bool) -> bool:
     """A data stream is one meta line (with vectors), batches of records,
     source snapshot parts, then done. The importer checks the parts' order,
@@ -974,12 +980,12 @@ def _stream_line_ok(msg: dict, after_meta: bool) -> bool:
     if kind == "meta":
         datasets = msg.get("datasets")
         return (not after_meta and msg.get("vectors") is True and isinstance(datasets, dict)
-                and all(k in ("memories", "facts", "core") and type(v) is int and v >= 0 for k, v in datasets.items()))
+                and all(k in _STREAM_DATASETS and type(v) is int and v >= 0 for k, v in datasets.items()))
     if not after_meta:
         return False
     if kind == "batch":
         records = msg.get("records")
-        if msg.get("dataset") not in ("memories", "facts", "core") or not isinstance(records, list):
+        if msg.get("dataset") not in _STREAM_DATASETS or not isinstance(records, list):
             return False
         if not all(isinstance(r, dict) for r in records):
             return False
@@ -1121,7 +1127,7 @@ async def serve_session(
                                                             provider_sends=pull, consumer_sends=push,
                                                             cancel=cancel, result=result,
                                                             storing=pairing.get("_storing", False),
-                                                            core=pairing.get("_core", False)):
+                                                            extras=pairing.get("_extras", frozenset())):
                         yield event
                     unfinished = False
                     if push:
@@ -1325,7 +1331,7 @@ async def receive_session(
                                                         provider_sends=plan.pull, consumer_sends=plan.push,
                                                         cancel=cancel, result=result,
                                                         storing=pairing.get("_storing", False),
-                                                        core=pairing.get("_core", False)):
+                                                        extras=pairing.get("_extras", frozenset())):
                     yield event
                 if plan.pull:
                     pull_stats = result.get("received")

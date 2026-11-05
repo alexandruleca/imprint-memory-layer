@@ -12,7 +12,7 @@ from imprint import cli_viz, config, core_memories, imprint_graph as kg, organiz
 from imprint import workspace_policy as policy
 
 
-class OrganizeTests(unittest.TestCase):
+class Fixture(unittest.TestCase):
     """In-memory Qdrant in a temporary data directory, as ProjectStoreTests."""
 
     def setUp(self):
@@ -53,6 +53,9 @@ class OrganizeTests(unittest.TestCase):
     def pending(self):
         return {(p['origin'], p['source']): p for p in organize.review()['proposals'] if p['status'] == 'pending'}
 
+
+
+class OrganizeTests(Fixture):
     def test_identifier_matches_are_proposed_and_nothing_moves_until_accepted(self):
         summary = organize.run(use_model=False)
         self.assertEqual((summary['model'], summary['pending'], summary['profiles']), (False, 2, 0))
@@ -156,6 +159,197 @@ class OrganizeTests(unittest.TestCase):
             organize.run()
         texts = {m['text']: m['evidence'] for m in core_memories.list_all()}
         self.assertEqual(texts['Keeps commits small'][0]['quote'], 'keep commits small')
+
+
+class ConfidenceTests(Fixture):
+    """Strong evidence moves by itself, weaker waits (ADR 0133)."""
+
+    def setUp(self):
+        super().setUp()
+        vs.store_batch([{'content': 'Retry plan for checkout-service: checkout-service books twice, then gives up.',
+                         'project': 'Desktop', 'source': 'Desktop/retry.txt'},
+                        {'content': 'Compare checkout-service with echo-ui and the old checkout-service flow.',
+                         'project': 'Desktop', 'source': 'Desktop/compare.txt'}])
+        self.workspace = organize._workspace()
+
+    def statuses(self):
+        return {p['source']: (p['status'], p['strength']) for p in organize.review()['proposals']}
+
+    def test_a_strong_match_moves_by_itself_and_can_be_undone(self):
+        summary = organize.run(use_model=False)
+        self.assertEqual(summary['moved'], 1)
+        statuses = self.statuses()
+        self.assertEqual(statuses['Desktop/retry.txt'], ('auto', 'strong'))
+        # Named once, or next to another project: review.
+        self.assertEqual(statuses['Desktop/call.txt'], ('pending', 'weak'))
+        self.assertEqual(statuses['Desktop/compare.txt'], ('pending', 'weak'))
+        self.assertIn(('Desktop/retry.txt', 'checkout-service'), self.placed())
+        with policy._db() as conn:
+            self.assertEqual(projects._placement_rules(conn, self.workspace)[('Desktop', 'Desktop/retry.txt')],
+                             'checkout-service')
+        self.assertEqual(organize.undo(self.workspace, [{'origin': 'Desktop', 'source': 'Desktop/retry.txt'}]),
+                         {'undone': 1, 'failed': []})
+        self.assertIn(('Desktop/retry.txt', 'Desktop'), self.placed())
+        self.assertEqual(self.statuses()['Desktop/retry.txt'][0], 'rejected')
+        organize.run(use_model=False)
+        self.assertIn(('Desktop/retry.txt', 'Desktop'), self.placed())  # Not moved again.
+        self.assertEqual(organize.undo(self.workspace, [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}])['failed'][0]['error'],
+                         'not moved by Organize')
+
+    def test_two_named_projects_or_auto_move_off_wait_for_review(self):
+        vs.store_batch([{'content': 'Port the engine-3d renderer into checkout-service, engine-3d first.',
+                         'project': 'engine-3d', 'source': 'src/engine.c'},
+                        {'content': 'engine-3d and checkout-service, engine-3d and checkout-service.',
+                         'project': 'Desktop', 'source': 'Desktop/both.txt'}])
+        with patch.dict(os.environ, {'IMPRINT_ORGANIZE_AUTO_MOVE': '0'}):
+            self.assertEqual(organize.run(use_model=False)['moved'], 0)
+        statuses = self.statuses()
+        self.assertEqual(statuses['Desktop/retry.txt'], ('pending', 'strong'))
+        self.assertEqual(statuses['Desktop/both.txt'], ('pending', 'weak'))
+
+    def test_a_source_that_names_its_project_only_deep_inside_waits(self):
+        # An export file bundling many conversations: the first is unrelated.
+        bundle = 'Weather in Prague in January, packing lists and recipes. ' * 1000
+        vs.store_batch([{'content': bundle + ' Then checkout-service, and checkout-service again.',
+                         'project': 'Desktop', 'source': 'Desktop/export.json'}])
+        organize.run(use_model=False)
+        self.assertEqual(self.statuses()['Desktop/export.json'], ('pending', 'weak'))
+
+    def test_a_registered_folder_is_strong_evidence(self):
+        folder = Path(self.data.name) / 'echo'
+        folder.mkdir()
+        policy.map_project('echo-ui', str(folder))
+        vs.store(content=f'Opened {folder.resolve()}/src/avatar.ts to fix the avatar.', project='Desktop',
+                 source='Desktop/avatar.txt')
+        organize.run(use_model=False)
+        self.assertEqual(self.statuses()['Desktop/avatar.txt'], ('auto', 'strong'))
+        self.assertIn(('Desktop/avatar.txt', 'echo-ui'), self.placed())
+
+
+class BackgroundTests(Fixture):
+    """Organize in the queue's idle slot: only what changed, and it steps
+    aside (ADR 0132)."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch.dict(os.environ, {'IMPRINT_ORGANIZE_BACKGROUND': '1'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_pass_runs_only_when_something_changed(self):
+        self.assertEqual(organize.background_due(), 1)
+        with patch.object(organize, '_model_available', return_value=False):
+            self.assertEqual(organize.background(lambda: False), 0)
+            self.assertEqual(organize.background_due(), 0)
+            self.assertEqual(len(self.pending()), 2)
+            self.assertEqual(organize.review()['background']['enabled'], True)
+            vs.store(content='Another checkout-service note for later.', project='Desktop', source='Desktop/later.txt')
+            self.assertEqual(organize.background_due(), 1)
+        with patch.dict(os.environ, {'IMPRINT_ORGANIZE_BACKGROUND': '0'}):
+            self.assertEqual(organize.background_due(), 0)
+
+    def test_a_waiting_job_stops_the_pass_and_the_next_one_resumes(self):
+        from imprint.tag_backlog import YIELDED
+        with patch.object(organize, '_model_available', return_value=False):
+            self.assertEqual(organize.background(lambda: True), YIELDED)
+            self.assertEqual(organize.background_due(), 1)  # Not recorded as done.
+            self.assertEqual(organize.background(lambda: False), 0)
+        self.assertEqual(len(self.pending()), 2)
+
+    def test_the_model_is_asked_once_per_source_profile_and_preference(self):
+        vs.store(content='Prefers answers that lead with the result.', project='', type='preference', source='note/style')
+        asked = []
+
+        def ask(llm, prompt, schema, max_tokens):
+            asked.append(next(iter(schema['properties'])))
+            if 'profile' in schema['properties']:
+                return {'profile': 'A project in this workspace with its own code and notes.', 'topics': []}
+            return {}
+
+        with patch.object(organize, '_model_available', return_value=True), \
+                patch.object(organize, '_model', return_value=object()), \
+                patch.object(organize, '_ask', side_effect=ask):
+            self.assertEqual(organize.background(lambda: False), 0)
+            first = sorted(asked)
+            self.assertEqual(first.count('profile'), 2)
+            self.assertIn('statement', first)
+            asked.clear()
+            # Its own profiles changed what it watches: one more pass finds
+            # nothing for the model, and then nothing is due.
+            self.assertEqual(organize.background(lambda: False), 0)
+            self.assertEqual(organize.background_due(), 0)
+            with organize._db() as conn:
+                conn.execute('DELETE FROM passes')
+            self.assertEqual(organize.background(lambda: False), 0)
+        self.assertEqual(asked, [])
+
+    def test_a_pass_with_nothing_for_the_model_does_not_load_it(self):
+        with patch.object(organize, '_model_available', return_value=True), \
+                patch.object(organize, '_model', side_effect=AssertionError('loaded')), \
+                patch.object(organize, '_stale', return_value=[]):
+            vs.store_batch([{'content': 'A note that names no project at all.', 'project': 'Desktop',
+                             'source': 'Desktop/plain.txt'}])
+            with organize._db() as conn:  # Every source already looked at with the model.
+                for group in organize.catch_all_sources(organize._workspace()):
+                    text, _ = organize._source_text(group, organize._workspace())
+                    fingerprint = organize.hashlib.sha256(organize.json.dumps(
+                        [text, sorted(organize._candidates(organize._workspace())), True]).encode()).hexdigest()
+                    organize._write(conn, workspace=organize._workspace(), origin=group['origin'],
+                                    source=group['source'], status='none', fingerprint=fingerprint, chunks=1)
+            self.assertEqual(organize.background(lambda: False), 0)
+
+    def test_the_idle_slot_runs_organize_after_tagging(self):
+        from imprint import queue, tag_backlog
+        with patch.object(organize, '_model_available', return_value=False), \
+                patch.object(tag_backlog, 'deferring', return_value=False), \
+                patch.object(queue, 'foreground_waiting', return_value=False):
+            self.assertEqual(queue._work_total(), 1)
+            self.assertEqual(tag_backlog._organize(), 0)
+            self.assertEqual(queue._work_total(), 0)
+            state = queue.background_state()
+        self.assertEqual((state['enabled'], state['tagging'], state['organize']['enabled']), (True, False, True))
+
+
+class ProposalSyncTests(Fixture):
+    """Proposals and decisions reach paired devices; the newest wins (ADR 0134)."""
+
+    def test_proposals_travel_and_the_newer_decision_wins(self):
+        organize.run(use_model=False)
+        workspace = organize._workspace()
+        config.register_workspace('peer')
+        manifest = organize.manifest(workspace)
+        records = organize.export(workspace, manifest)
+        self.assertEqual(len(records), len(manifest))
+        self.assertEqual(organize.import_records(records, 'peer'), {'inserted': len(records), 'updated': 0, 'skipped': 0})
+        self.assertEqual(organize.import_records(records, 'peer')['skipped'], len(records))
+        self.assertEqual(organize.manifest('peer'), manifest)
+        organize.decide(workspace, [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}], accept=False)
+        newer = organize.export(workspace, organize.manifest(workspace))
+        self.assertEqual(organize.import_records(newer, 'peer')['updated'], 1)
+        peer = {p['source']: p['status'] for p in organize.review('peer')['proposals']}
+        self.assertEqual(peer['Desktop/call.txt'], 'rejected')
+
+    def test_a_decision_within_one_clock_tick_still_reaches_the_peer(self):
+        config.register_workspace('peer')
+        workspace = organize._workspace()
+        with patch('time.time', return_value=1000.0):
+            organize.run(use_model=False)
+            organize.import_records(organize.export(workspace, organize.manifest(workspace)), 'peer')
+            organize.decide(workspace, [{'origin': 'Desktop', 'source': 'Desktop/call.txt'}], accept=False)
+            stats = organize.import_records(organize.export(workspace, organize.manifest(workspace)), 'peer')
+        self.assertEqual(stats['updated'], 1)
+
+    def test_a_peers_proposal_is_checked_and_redacted(self):
+        good = {'origin': 'Desktop', 'source': 'Desktop/x.txt', 'target': 'checkout-service', 'method': 'name',
+                'evidence': [{'quote': 'token ghp_' + 'a' * 36}], 'preview': 'key ghp_' + 'b' * 36, 'chunks': 1,
+                'status': 'pending', 'fingerprint': '', 'created_at': 1.0, 'decided_at': None, 'updated_at': 2.0,
+                'strength': 'weak'}
+        bad = [{**good, 'status': 'done'}, {**good, 'target': ' x'}, {**good, 'source': ''},
+               {**good, 'evidence': 'quote'}, {**good, 'updated_at': None}, {**good, 'fingerprint': 'zz'}, 'text']
+        self.assertEqual(organize.import_records([good, *bad], organize._workspace()),
+                         {'inserted': 1, 'updated': 0, 'skipped': len(bad)})
+        stored = organize.review()['proposals'][0]
+        self.assertNotIn('ghp_', stored['preview'] + stored['evidence'][0]['quote'])
 
 
 if __name__ == '__main__':

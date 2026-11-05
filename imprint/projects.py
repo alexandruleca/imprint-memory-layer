@@ -179,7 +179,24 @@ def _project_type(manifest: str) -> str:
 
 def _placement_rules(conn, workspace: str) -> dict[tuple[str, str], str]:
     return {(project, source): target for project, source, target in conn.execute(
-        'SELECT project, source, target FROM placements WHERE workspace=?', (workspace,))}
+        "SELECT project, source, target FROM placements WHERE workspace=? AND target!=''", (workspace,))}
+
+
+def _save_rules(conn, workspace: str, old: dict, new: dict) -> None:
+    """Write the rules that changed between ``old`` and ``new``. A removed
+    rule stays as an empty target with its time, so the removal reaches
+    paired devices like any other change (ADR 0134). Each change is stamped
+    after the one it replaces, even within one tick of a coarse clock, so
+    a peer always takes it."""
+    import time
+    now = time.time()
+    for key in set(old) | set(new):
+        if old.get(key) != new.get(key):
+            held = conn.execute("SELECT updated_at FROM placements WHERE workspace=? AND project=? AND source=?",
+                                (workspace, *key)).fetchone()
+            stamp = max(now, float(held[0] or 0) + 0.001) if held else now
+            conn.execute("INSERT OR REPLACE INTO placements (workspace, project, source, target, updated_at) "
+                         "VALUES (?, ?, ?, ?, ?)", (workspace, *key, new.get(key, ""), stamp))
 
 
 def placement(origin: str, source: str, rules: dict[tuple[str, str], str]) -> str:
@@ -254,7 +271,7 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
     leaves duplicates, never losses; applying again finishes it.
     """
     from qdrant_client import models as qm
-    from . import config, vectorstore as vs, workspace_policy as policy
+    from . import vectorstore as vs, workspace_policy as policy
     from .device import origin_project
     ws = policy.workspace_name(workspace)
     # Memories stored without a project can leave it source by source (ADR
@@ -300,15 +317,54 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
     # Rules first, like purge's exclusion: a write that lands while points are
     # rewritten is already placed in the target.
     with policy._db() as conn:
-        rules = _moved_rules(_placement_rules(conn, ws), project, target, pairs, sources is None)
-        conn.execute("DELETE FROM placements WHERE workspace=?", (ws,))
-        conn.executemany("INSERT INTO placements VALUES (?, ?, ?, ?)",
-                         [(ws, origin, source, value) for (origin, source), value in rules.items()])
+        old = _placement_rules(conn, ws)
+        rules = _moved_rules(old, project, target, pairs, sources is None)
+        _save_rules(conn, ws, old, rules)
+    _apply_rules(ws, rules, {project}, sources)
+    vs._wal_log("move", workspace=ws, project=project, target=target, chunks=chunks,
+                sources=len(moved_sources))
+    return result
+
+
+def _apply_rules(workspace: str, rules: dict, projects: set[str] | None = None,
+                 sources: list[str] | None = None) -> int:
+    """Rewrite the memories, and source snapshots, that ``rules`` place in
+    another project than the one they sit in: those in ``projects`` (every
+    project when None), narrowed to ``sources``. Each memory keeps its
+    vector, source key and provenance and takes the ID of its new project;
+    the old copy goes. Graph facts reference source keys, which do not
+    change. An interrupted run leaves duplicates, never losses, and running
+    again finishes it. Returns how many memories moved."""
+    from qdrant_client import models as qm
+    from . import config, source_snapshots, vectorstore as vs
+    from .device import origin_project
     from .project_associations import accepted
-    associations = accepted(ws)
-    for points in scan(with_payload=True, with_vectors=True):
-        rewritten, retired = [], []
+    if projects is not None and not projects:
+        return 0
+    must = []
+    if projects is not None:
+        must.append(qm.FieldCondition(key="project", match=qm.MatchAny(any=sorted(projects))))
+    if sources is not None:
+        must.append(qm.FieldCondition(key="source", match=qm.MatchAny(any=sorted(sources))))
+    client, coll = vs._ensure_collection(workspace)
+    stale, origins, offset = [], {}, None
+    while True:
+        points, offset = client.scroll(collection_name=coll, scroll_filter=qm.Filter(must=must) if must else None,
+                                       limit=256, offset=offset, with_payload=["project", "source", "origin_project"],
+                                       with_vectors=False)
         for point in points:
+            payload = point.payload or {}
+            origin, source = origin_project(payload), payload.get("source", "")
+            origins.setdefault((payload.get("project", ""), source), origin)
+            if placement(origin, source, rules) != payload.get("project", ""):
+                stale.append(point.id)
+        if offset is None:
+            break
+    associations = accepted(workspace) if stale else {}
+    for start in range(0, len(stale), 256):
+        rewritten = []
+        for point in client.retrieve(collection_name=coll, ids=stale[start:start + 256], with_payload=True,
+                                     with_vectors=True):
             payload = point.payload or {}
             origin = origin_project(payload)
             placed = placement(origin, payload.get("source", ""), rules)
@@ -317,36 +373,62 @@ def move(project: str, target: str, sources: list[str] | None = None, *,
             rewritten.append(qm.PointStruct(id=vs._point_uuid(memory_id), vector=vector, payload={
                 **payload, "_mid": memory_id, "project": placed, "origin_project": origin,
                 "related_projects": sorted(set(associations.get((origin, payload.get('source', '')), [])) - {placed})}))
-            retired.append(point.id)
         if not rewritten:
             continue
-        vs._persist_points(client, coll, rewritten, ws)
+        vs._persist_points(client, coll, rewritten, workspace)
         kept = {point.id for point in rewritten}
         client.delete(collection_name=coll, wait=True, points_selector=qm.PointIdsList(
-            points=[point_id for point_id in retired if point_id not in kept]))
-    with vs._cache_lock:
-        vs._id_caches.pop(coll, None)
-    from . import source_snapshots
-    for metadata in source_snapshots.list_metadata(ws):
-        if metadata['project'] == project and (sources is None or metadata['source'] in sources):
-            snapshot = source_snapshots.get(metadata['source'], project, ws)
-            source_snapshots.publish(source_snapshots.rehome(snapshot, target), ws)
-            source_snapshots.remove(metadata['source'], project, ws, preserve_associations=True)
-    vs._wal_log("move", workspace=ws, project=project, target=target, chunks=chunks,
-                sources=len(moved_sources))
-    return result
+            points=[point_id for point_id in stale[start:start + 256] if point_id not in kept]))
+    if stale:
+        with vs._cache_lock:
+            vs._id_caches.pop(coll, None)
+    for metadata in source_snapshots.list_metadata(workspace):
+        if (projects is not None and metadata['project'] not in projects) or (
+                sources is not None and metadata['source'] not in sources):
+            continue
+        origin = (origins.get((metadata['project'], metadata['source']))
+                  or (metadata.get('provenance') or {}).get('origin_project') or metadata['project'])
+        placed = placement(origin, metadata['source'], rules)
+        if placed != metadata['project']:
+            snapshot = source_snapshots.get(metadata['source'], metadata['project'], workspace)
+            source_snapshots.publish(source_snapshots.rehome(snapshot, placed), workspace)
+            source_snapshots.remove(metadata['source'], metadata['project'], workspace, preserve_associations=True)
+    return len(stale)
+
+
+def unplace(origin: str, source: str, *, workspace: str | None = None) -> dict:
+    """Drop the rule that places one source of ``origin`` on its own: its
+    memories go back where the origin's other memories are. Organize's undo
+    of a move it made itself (ADR 0133)."""
+    from . import vectorstore as vs, workspace_policy as policy
+    ws = policy.workspace_name(workspace)
+    with policy._db() as conn:
+        old = _placement_rules(conn, ws)
+        if (origin, source) not in old:
+            return {"workspace": ws, "moved": 0}
+        rules = {key: value for key, value in old.items() if key != (origin, source)}
+        _save_rules(conn, ws, old, rules)
+    moved = _apply_rules(ws, rules, {old[(origin, source)]}, [source])
+    vs._wal_log("move", workspace=ws, project=old[(origin, source)], target=placement(origin, source, rules),
+                chunks=moved, sources=1)
+    return {"workspace": ws, "moved": moved, "project": placement(origin, source, rules)}
+
+
+def locked(action: str, function, *args, **options):
+    """Run ``function`` holding the ingestion lock, as moves and purges do."""
+    from . import queue_lock
+    fd = queue_lock.acquire(action, "", block=False)
+    if fd is None:
+        raise ValueError("An ingestion or maintenance job is running; retry after it finishes")
+    try:
+        return function(*args, **options)
+    finally:
+        queue_lock.release(fd)
 
 
 def run_move(project: str, target: str, sources: list[str] | None = None, **options) -> dict:
     """API entry point; shares the ingestion lock like purge."""
-    from . import queue_lock
-    fd = queue_lock.acquire("move", "", block=False)
-    if fd is None:
-        raise ValueError("An ingestion or maintenance job is running; retry the move after it finishes")
-    try:
-        return move(project, target, sources, **options)
-    finally:
-        queue_lock.release(fd)
+    return locked("move", move, project, target, sources, **options)
 
 
 def main():

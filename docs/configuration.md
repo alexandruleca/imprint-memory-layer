@@ -163,6 +163,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Recall (MCP tool)** | | |
 | `recall.llm` | `false` | Let the local model plan recall reads and answer from the evidence |
 | `recall.llm_timeout_sec` | `30` | Seconds one recall waits for the local model (planning and answering together) |
+| `organize.background` | `false` | Organize new and changed memories when the queue is idle, after background tagging ([ADR 0132](adr/0132-organize-runs-in-the-idle-slot-after-background-tagging.md)) |
+| `organize.auto_move` | `true` | Move catch-all sources with strong evidence without review; weaker proposals still wait ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)) |
 | **Workspace selection** | | |
 | `workspace.unassigned` | — (the active workspace) | Workspace for agent sessions outside an assigned project, such as desktop app chats. Choices are this device's workspaces; deleting the chosen one resets it. Env `IMPRINT_UNASSIGNED_WORKSPACE`. See [workspace per project](workspaces.md#workspace-per-project) |
 | **Updates** | | |

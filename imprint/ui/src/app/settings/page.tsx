@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
   ArrowUpCircle, Bot, Boxes, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
-  Scissors, ShieldCheck, SquareTerminal, Tags, type LucideIcon,
+  Scissors, ShieldCheck, SquareTerminal, Tags, WandSparkles, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -32,6 +32,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   associations: { title: "Project associations", desc: "Linking a source to other projects it mentions, so its memories show up in their searches too, and where conversations without a known project folder go.", icon: FolderTree },
   chat: { title: "Chat", desc: "The dashboard's chat, where a model answers questions by searching your memory: which model, where it runs (on this computer or a remote provider), and how long and how much it may research per answer.", icon: MessageSquare },
   summarizer: { title: "Session summaries", desc: "An optional step that, after each agent session, has a model write a recap and save the session's decisions, bug causes, patterns and facts as memories. Off by default, and local unless you choose a remote provider.", icon: ScrollText },
+  organize: { title: "Organize", desc: "Sorting memories into projects: whether it runs by itself when the queue is idle, and whether moves with strong evidence apply without review. Its moves and proposals reach paired devices.", icon: WandSparkles },
   recall: { title: "Recall", desc: "The recall tool lets agents run several memory lookups in one call; optionally, a model on this computer plans those lookups and answers with citations.", icon: Search },
   workspace: {
     title: "Workspace selection",

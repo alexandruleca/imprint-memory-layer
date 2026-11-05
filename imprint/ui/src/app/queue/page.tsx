@@ -19,7 +19,7 @@ import { useFollowOutput } from "@/lib/use-follow-output";
 import { cn } from "@/lib/utils";
 import type { BackgroundTagging, BackgroundTaggingState, QueueJob, QueueJobStatus } from "@/lib/types";
 
-const DESCRIPTION = "Imprint runs one job at a time, in the order they were asked for. Background tagging fills the time in between and steps aside for anything else.";
+const DESCRIPTION = "Imprint runs one job at a time, in the order they were asked for. Background work (LLM tagging, then Organize) fills the time in between and steps aside for anything else.";
 
 const STATUS: Record<QueueJobStatus, { label: string; icon: React.ElementType; className: string }> = {
   running: { label: "Running", icon: Spinner, className: "text-foreground" },
@@ -48,24 +48,40 @@ const STATE_LABEL: Record<BackgroundTaggingState, string> = {
 
 function explain(bg: BackgroundTagging): string {
   const waiting = bg.pending != null ? memories(bg.pending) : "Memories";
+  const tagging = bg.tagging ?? bg.enabled;
+  const organizing = bg.organize?.enabled ?? false;
   switch (bg.state) {
     case "off":
       return bg.pending
         ? `${waiting} wait for LLM tagging. Turn on LLM tagging (tagger.llm) in Settings to tag them here.`
-        : "LLM tagging (tagger.llm) is off. Memories keep their keyword and zero-shot tags.";
+        : "LLM tagging (tagger.llm) and background Organize (organize.background) are off. Memories keep their keyword and zero-shot tags.";
     case "running":
-      return "Tagging the newest memories first. It steps aside between memories whenever another job is waiting.";
+      return bg.job?.phase === "organize"
+        ? "Organizing what changed: project profiles, moves and core memory proposals. It steps aside between sources whenever another job is waiting."
+        : "Tagging the newest memories first. It steps aside between memories whenever another job is waiting.";
     case "yielded":
       return "Stepped aside for another job; it resumes when the queue is idle.";
     case "waiting":
       return "Starts when no other job runs or waits.";
     case "paused":
-      return `Cancelled with ${waiting.toLowerCase()} waiting. It resumes when more memories wait.`;
+      return tagging && bg.pending
+        ? `Cancelled with ${waiting.toLowerCase()} waiting. It resumes when more memories wait.`
+        : "Cancelled. It resumes when new memories arrive.";
     case "failed":
       return `The last run failed; see its output in History.${bg.resume_at ? ` It retries at ${new Date(bg.resume_at * 1000).toLocaleTimeString()}.` : ""}`;
     case "idle":
-      return "Every memory stored with LLM tagging on has its LLM tags.";
+      return [tagging && "Every memory stored with LLM tagging on has its LLM tags.",
+              organizing && "Organize has looked at every change."].filter(Boolean).join(" ");
   }
+}
+
+/** Which parts of the background work are on (ADR 0067, 0132). */
+function parts(bg: BackgroundTagging): string {
+  const tagging = bg.tagging ?? bg.enabled;
+  const due = bg.organize?.due ?? 0;
+  const organize = !bg.organize?.enabled ? "Organize off"
+    : due ? `Organize: ${due} ${due === 1 ? "workspace" : "workspaces"} changed` : "Organize on";
+  return `LLM tagging ${tagging ? "on" : "off"} · ${organize}`;
 }
 
 export default function QueuePage() {
@@ -179,8 +195,9 @@ function Merged({ job }: { job: QueueJob }) {
   );
 }
 
-/** Background LLM tagging (ADR 0067): learn and ingest leave LLM tags to it,
- * and it gives way to every other job. A running pass shows under Running. */
+/** Background work: LLM tagging (ADR 0067), which learn and ingest leave
+ * LLM tags to, then Organize when it runs in the background (ADR 0132). It
+ * gives way to every other job. A running pass shows under Running. */
 function Background({ bg, onOpen }: { bg: BackgroundTagging; onOpen: (job: QueueJob) => void }) {
   const [resuming, setResuming] = useState(false);
 
@@ -189,22 +206,23 @@ function Background({ bg, onOpen }: { bg: BackgroundTagging; onOpen: (job: Queue
     try {
       await resumeBackgroundTagging();
     } catch (e) {
-      toast.error("Could not resume background tagging", { description: e instanceof Error ? e.message : String(e) });
+      toast.error("Could not resume background work", { description: e instanceof Error ? e.message : String(e) });
     } finally {
       setResuming(false);
     }
   }
 
   return (
-    <section role="region" aria-labelledby="background-tagging-title" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
+    <section role="region" aria-labelledby="background-work-title" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
       <Sparkles className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="flex flex-wrap items-center gap-2 text-sm">
-          <span id="background-tagging-title" className="font-medium">Background tagging</span>
+          <span id="background-work-title" className="font-medium">Background work</span>
           <Badge variant={bg.state === "failed" ? "destructive" : "secondary"} className="text-[10px]">{STATE_LABEL[bg.state]}</Badge>
           {bg.pending != null && bg.pending > 0 && <span className="text-xs text-muted-foreground tabular-nums">{memories(bg.pending)} waiting</span>}
         </p>
         <p className="text-xs text-muted-foreground">{explain(bg)}</p>
+        <p className="text-xs text-muted-foreground">{parts(bg)}</p>
       </div>
       {(bg.state === "paused" || bg.state === "failed") && (
         <Button variant="outline" size="sm" onClick={resume} disabled={resuming}>

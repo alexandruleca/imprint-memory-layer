@@ -300,7 +300,12 @@ export interface QueueJob {
 export type BackgroundTaggingState = "off" | "running" | "yielded" | "waiting" | "paused" | "failed" | "idle";
 
 export interface BackgroundTagging {
+  /** LLM tagging or background Organize is on. */
   enabled: boolean;
+  /** LLM tagging (tagger.llm) is on. */
+  tagging?: boolean;
+  /** Background Organize (organize.background, ADR 0132): on, and how many workspaces changed since its last pass. */
+  organize?: { enabled: boolean; due: number };
   /** Memories waiting for LLM tagging, across workspaces; null when unknown. */
   pending: number | null;
   state: BackgroundTaggingState;

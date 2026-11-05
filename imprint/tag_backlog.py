@@ -211,25 +211,48 @@ def report(stored: int) -> None:
 
 def run(job_id: str = "") -> int:
     """The background job: hold the lock as a preemptible holder, tag every
-    workspace's backlog, yield when a job is queued. Returns the exit code."""
+    workspace's backlog, then, with ``organize.background`` on, organize
+    what changed (ADR 0132); yield when a job is queued. Returns the exit
+    code."""
     from . import queue_lock
     from .progress import clear_progress
     descriptor = queue_lock.acquire(COMMAND, job_id, preemptible=True)
     if descriptor is None:
-        print("Another job holds the queue; background tagging waits for it.", flush=True)
+        print("Another job holds the queue; background work waits for it.", flush=True)
         return YIELDED
     try:
-        return _tag_all()
+        code = _tag_all()
+        if code == YIELDED:
+            return code
+        organized = _organize()
+        return organized if organized == YIELDED else max(code, organized)
     finally:
         clear_progress()
         queue_lock.release(descriptor)
+
+
+def _organize() -> int:
+    from . import organize, queue
+    if not organize.background_enabled():
+        return 0
+
+    def stop() -> bool:
+        return queue.foreground_waiting() or not organize.background_enabled()
+
+    try:
+        code = organize.background(stop)
+    except Exception as error:  # noqa: BLE001 - the run's log says why
+        print(f"Organize failed: {error}", flush=True)
+        return 1
+    if code == YIELDED:
+        print("Organize yielded to a queued job; it resumes when the queue is idle.", flush=True)
+    return code
 
 
 def _tag_all() -> int:
     from . import queue, tagger
     from .progress import write_progress
     if not deferring():
-        print("LLM tagging is off (tagger.llm); nothing to tag.", flush=True)
         return 0
     backlog = {name: count for name, count in pending_by_workspace().items() if count}
     total = sum(backlog.values())

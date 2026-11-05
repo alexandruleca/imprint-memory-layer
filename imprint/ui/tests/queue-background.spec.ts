@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// The Queue page shows background tagging apart from the jobs (ADR 0067); a
-// running pass shows under Running like any other job.
+// The Queue page shows background work (LLM tagging, then Organize) apart from
+// the jobs (ADR 0067, 0132); a running pass shows under Running like any other job.
 
 const now = Date.now() / 1000;
 const job = (over: Record<string, unknown>) => ({
@@ -9,7 +9,7 @@ const job = (over: Record<string, unknown>) => ({
   pid: null, pgid: null, exit_code: null, error: null, created_at: now - 60, started_at: null, ended_at: null, ...over,
 });
 const tagging = (over: Record<string, unknown>) => ({
-  id: 'bg1', command: 'tag-backlog', label: 'Background tagging', params: [], workspace: null,
+  id: 'bg1', command: 'tag-backlog', label: 'Background work', params: [], workspace: null,
   status: 'running', body: {}, pid: 4242, pgid: 4242, exit_code: null,
   error: null, created_at: now - 120, started_at: now - 120, ended_at: null, ...over,
 });
@@ -30,8 +30,8 @@ async function mockQueue(page: Page, data: Record<string, unknown>) {
   await page.route('**/api/queue?**', route => route.fulfill({ json: { active: null, queued: [], recent: [], ...data } }));
 }
 
-const card = (page: Page) => page.getByRole('region', { name: 'Background tagging', exact: true });
-const running = (page: Page) => page.getByRole('region', { name: 'Running: Background tagging' });
+const card = (page: Page) => page.getByRole('region', { name: 'Background work', exact: true });
+const running = (page: Page) => page.getByRole('region', { name: 'Running: Background work' });
 
 test('shows background tagging running apart from the jobs, with its progress and cancel', async ({ page }) => {
   await mockApi(page);
@@ -45,7 +45,7 @@ test('shows background tagging running apart from the jobs, with its progress an
   await expect(card(page)).toContainText('Running');
   await expect(card(page)).toContainText('1,234 memories waiting');
   await expect(card(page)).toContainText('steps aside between memories');
-  await expect(running(page).getByRole('progressbar', { name: 'Background tagging progress' })).toBeVisible();
+  await expect(running(page).getByRole('progressbar', { name: 'Background work progress' })).toBeVisible();
   await expect(running(page)).toContainText('40 of 1,274 memories');
   await expect(running(page).getByRole('button', { name: 'Cancel job' })).toBeVisible();
   await expect(card(page).getByRole('button', { name: 'Cancel job' })).toHaveCount(0);
@@ -90,4 +90,28 @@ test('tagging off names the setting that runs it', async ({ page }) => {
   await page.goto('/queue/');
   await expect(card(page)).toContainText('Off');
   await expect(card(page)).toContainText('Turn on LLM tagging (tagger.llm)');
+});
+
+test('Organize runs after tagging in the same slot and says what it does', async ({ page }) => {
+  await mockApi(page);
+  await mockQueue(page, {
+    background: {
+      enabled: true, tagging: false, organize: { enabled: true, due: 1 }, pending: 0, state: 'running', resume_at: null,
+      job: tagging({ phase: 'organize', processed: 1, total: 4, unit: 'steps' }),
+    },
+  });
+  await page.goto('/queue/');
+  await expect(card(page)).toContainText('Organizing what changed');
+  await expect(card(page)).toContainText('LLM tagging off · Organize: 1 workspace changed');
+});
+
+test('an idle slot with Organize on says it has seen every change', async ({ page }) => {
+  await mockApi(page);
+  await mockQueue(page, {
+    background: { enabled: true, tagging: true, organize: { enabled: true, due: 0 }, pending: 0, state: 'idle', resume_at: null, job: null },
+  });
+  await page.goto('/queue/');
+  await expect(card(page)).toContainText('Up to date');
+  await expect(card(page)).toContainText('Organize has looked at every change.');
+  await expect(card(page)).toContainText('LLM tagging on · Organize on');
 });
