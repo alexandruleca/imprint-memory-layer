@@ -307,30 +307,57 @@ export function reopenOrganize(workspace: string, items: OrganizeItem[], init?: 
     "/api/organize/reopen", { method: "POST", body: JSON.stringify({ workspace, items }), ...init });
 }
 
-// ── Core memories (ADR 0129) ────────────────────────────────────
+// ── Core memories (ADR 0129, 0143) ──────────────────────────────
 
 export type CoreKind = "preference" | "instruction" | "fact";
 export type CoreState = "proposed" | "active" | "retired";
+/** "guideline": sent to every agent session while active; "record": a
+ * specific statement kept for reference and search, never sent (ADR 0143). */
+export type CoreTier = "guideline" | "record";
+/** How a conflict was settled: the newer kept (the older retired), the older
+ * kept (the newer retired) or both kept. */
+export type CoreKeep = "newer" | "older" | "both";
+/** An older core memory the newer one contradicts, and the model's reason. */
+export interface CoreConflict {
+  id: string;
+  reason: string;
+  /** "" while open. */
+  resolution: "" | CoreKeep;
+}
 export interface CoreMemory {
   id: string;
   text: string;
   kind: CoreKind;
   /** "*" for every project, else a project name. */
   scope: string;
+  /** Records are only "active" (kept) or "retired"; guidelines are also "proposed". */
   state: CoreState;
+  tier: CoreTier;
+  /** A proposed guideline's: the id of the active guideline it would
+   * replace; approving it retires that one. "" otherwise. */
+  amends: string;
+  /** A guideline's: the ids of the records it generalises; [] for records. */
+  covers: string[];
+  /** On the newer core memory: the older ones it contradicts. A record's
+   * entry is open while its resolution is ""; a proposed rewrite's (its id is
+   * the guideline it amends) while the proposal is still proposed. */
+  conflicts: CoreConflict[];
   evidence: { memory_id?: string; source?: string; project?: string; quote?: string }[];
   /** "user", "agent" or "organize". */
   origin: string;
   created_at: number;
   updated_at: number;
   approved_at: number | null;
+  /** The device it was recorded or written on. */
+  device: string;
 }
 export interface CoreMemories {
   memories: CoreMemory[];
-  /** Characters of core memories each session receives. */
+  /** Tokens of guidelines each session receives. */
   budget: number;
-  /** Characters the ones for every project take of it. */
+  /** Tokens the active guidelines for every project take of it. */
   used: number;
+  kinds: CoreKind[];
   max_text: number;
 }
 
@@ -338,12 +365,26 @@ export function getCoreMemories() {
   return fetchAPI<CoreMemories>("/api/core");
 }
 
-export function addCoreMemory(text: string, kind: CoreKind, scope: string) {
-  return fetchAPI<CoreMemory>("/api/core", { method: "POST", body: JSON.stringify({ text, kind, scope }) });
+/** Write a guideline, active at once; `covers` names the records it
+ * generalises ("Make a guideline" from recorded core memories). */
+export function addCoreMemory(text: string, kind: CoreKind, scope: string, covers?: string[]) {
+  return fetchAPI<CoreMemory>("/api/core", {
+    method: "POST", body: JSON.stringify({ text, kind, scope, ...(covers?.length ? { covers } : {}) }),
+  });
+}
+
+/** Settle a record's open conflicts with the older records it contradicts:
+ * keep the newer (the older ones retire), the older (this one retires) or
+ * both. "open" undoes a settlement: what it retired comes back. */
+export function resolveCoreConflict(id: string, keep: CoreKeep | "open", init?: { keepalive?: boolean }) {
+  return fetchAPI<{ changed: CoreMemory[] }>(`/api/core/${encodeURIComponent(id)}/resolve`,
+                                             { method: "POST", body: JSON.stringify({ keep }), ...init });
 }
 
 /** Edit, approve, retire or restore one; `state: "proposed"` returns a
- * proposal an agent or Organize made to the proposals (an undo, ADR 0136). */
+ * proposal Organize made to the proposals (an undo, ADR 0136). Approving an
+ * amendment retires the guideline it amends, and returning it to the
+ * proposals restores that one, on the server. */
 export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "text" | "kind" | "scope" | "state">>,
                                  init?: { keepalive?: boolean }) {
   return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change), ...init });

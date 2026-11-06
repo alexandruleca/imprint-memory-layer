@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Pencil, RotateCcw, X } from "lucide-react";
+import { BookOpenText, Check, ChevronDown, ChevronRight, Pencil, RotateCcw, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -18,20 +18,46 @@ export const KINDS: { value: CoreKind; label: string }[] = [
 export const EVERYWHERE = "*";
 export const scopeLabel = (scope: string) => (scope === EVERYWHERE ? "Every project" : scope);
 
-/** What a core memory takes of every session's budget when it applies to
- * every project: its line, "- text", and the line break (core_memories.used_budget). */
-export const budgetCost = (text: string) => text.length + 3;
+export const isRecord = (memory: CoreMemory) => memory.tier === "record";
 
-/** How many every-project core memories do not fit in a session, the way
- * core_memories.session_text fills it: oldest first, until the budget ends. */
+/** What a guideline takes of a session's budget, in tokens of about four
+ * characters: its line, "- text" (with " (in project)" for one project),
+ * and the line break (core_memories.used_budget). */
+export function tokenCost(text: string, scope: string = EVERYWHERE) {
+  const line = scope === EVERYWHERE ? text : `${text} (in ${scope})`;
+  return Math.ceil((line.length + 3) / 4);
+}
+
+const tokens = (n: number) => `${n.toLocaleString()} ${n === 1 ? "token" : "tokens"}`;
+
+/** How many active every-project guidelines do not fit in a session, the
+ * way core_memories.session_text fills it: oldest first, until the budget
+ * ends. Records are never sent, so they never count. */
 export function overflow(memories: CoreMemory[], budget: number) {
-  const every = memories.filter((m) => m.state === "active" && m.scope === EVERYWHERE).sort((a, b) => a.created_at - b.created_at);
+  const every = memories.filter((m) => !isRecord(m) && m.state === "active" && m.scope === EVERYWHERE)
+    .sort((a, b) => a.created_at - b.created_at);
   let used = 0;
   for (let i = 0; i < every.length; i++) {
-    if (used + every[i].text.length + 3 > budget) return every.length - i;
-    used += every[i].text.length + 3;
+    const cost = tokenCost(every[i].text);
+    if (used + cost > budget) return every.length - i;
+    used += cost;
   }
   return 0;
+}
+
+/** The records a guideline generalises that are still listed. */
+export const coveredBy = (memory: CoreMemory, byId: ReadonlyMap<string, CoreMemory>) =>
+  memory.covers.map((id) => byId.get(id)).filter((m): m is CoreMemory => !!m);
+
+/** The guideline a proposal would replace, while it is listed. */
+export const amended = (memory: CoreMemory, byId: ReadonlyMap<string, CoreMemory>) =>
+  (memory.amends ? byId.get(memory.amends) : undefined);
+
+/** Where a core memory came from: its own evidence, else, for a guideline,
+ * the evidence of the records it generalises. */
+export function sourceOf(memory: CoreMemory, byId: ReadonlyMap<string, CoreMemory>) {
+  return memory.evidence.find((e) => e.source)
+    ?? coveredBy(memory, byId).flatMap((m) => m.evidence).find((e) => e.source);
 }
 
 export function originText(memory: CoreMemory) {
@@ -91,6 +117,10 @@ export interface CoreRowOptions {
   budget: number;
   used: number;
   editing: boolean;
+  /** Every core memory by id: what a guideline generalises, what a proposal replaces. */
+  byId: ReadonlyMap<string, CoreMemory>;
+  /** Records an active guideline generalises. */
+  covered: ReadonlySet<string>;
   error?: string;
   onState: (state: CoreState) => void;
   onEdit: (on: boolean) => void;
@@ -98,18 +128,60 @@ export interface CoreRowOptions {
   onKind: (kind: CoreKind) => void;
   onScope: (scope: string) => void;
   onRetry: () => void;
+  /** Show or hide what the row generalises. */
+  onExpand: () => void;
+  /** A record's "Make a guideline". */
+  onGuideline: () => void;
+  onRead: () => void;
 }
 
-/** One core memory as a review row (spec §5): the text, then its quote,
- * where it came from, what it costs a session and its age; kind and scope
- * beside the actions, under the text below 620 px. */
+/** What approving a proposal adds to the sessions it applies to: its cost,
+ * less that of the guideline it replaces there. */
+function approvalCost(memory: CoreMemory, replaces: CoreMemory | undefined) {
+  const cost = tokenCost(memory.text, memory.scope);
+  return replaces?.state === "active" && replaces.scope === memory.scope ? cost - tokenCost(replaces.text, replaces.scope) : cost;
+}
+
+/** "+N tokens" a proposal adds to a session, and whether that passes the budget. */
+export function CostNote({ memory, replaces, used, budget }: {
+  memory: CoreMemory; replaces: CoreMemory | undefined; used: number; budget: number;
+}) {
+  const cost = approvalCost(memory, replaces);
+  const over = memory.scope === EVERYWHERE && cost > 0 && used + cost > budget;
+  return (
+    <span className={over ? "font-medium text-amber-700" : undefined}
+      title={memory.scope === EVERYWHERE ? "Tokens approving it adds to every session" : `Tokens approving it adds to sessions in ${memory.scope}`}>
+      {cost < 0 ? `−${tokens(-cost)}` : `+${tokens(cost)}`}{over && " · over budget"}
+    </span>
+  );
+}
+
+/** A record's conflicts with older records that are not settled yet. */
+export const openConflicts = (memory: CoreMemory) => memory.conflicts.filter((c) => !c.resolution);
+
+/** Whether a core memory waits on Conflicts: an active record that
+ * contradicts older ones, or Organize's rewrite of a guideline after newer
+ * statements contradicted it, while it is proposed. */
+export function isConflict(memory: CoreMemory) {
+  if (isRecord(memory)) return memory.state === "active" && openConflicts(memory).length > 0;
+  return memory.state === "proposed" && !!memory.amends && memory.conflicts.length > 0;
+}
+
+/** One core memory as a review row (spec §5): the text, what a proposal
+ * replaces, then its quote, where it came from, what it costs a session,
+ * what it generalises and its age; kind and scope beside the actions, under
+ * the text below 620 px. Expanded, a guideline lists the recorded core
+ * memories it generalises. */
 export function coreRow(memory: CoreMemory, ctx: RowContext, o: CoreRowOptions): RowParts {
+  const record = isRecord(memory);
   const quote = memory.evidence.find((e) => e.quote)?.quote;
   const label = `“${memory.text.slice(0, 40)}”`;
-  const cost = budgetCost(memory.text);
-  const over = o.used + cost > o.budget;
+  const covers = record ? [] : coveredBy(memory, o.byId);
+  const replaces = memory.state === "proposed" ? amended(memory, o.byId) : undefined;
+  const source = sourceOf(memory, o.byId);
   const when = memory.state === "proposed" ? `proposed ${ago(memory.created_at)}`
-    : memory.state === "active" ? `added ${ago(memory.approved_at ?? memory.updated_at)}` : `retired ${ago(memory.updated_at)}`;
+    : memory.state === "retired" ? `retired ${ago(memory.updated_at)}`
+      : record ? `recorded ${ago(memory.created_at)}` : `added ${ago(memory.approved_at ?? memory.updated_at)}`;
   const edit = memory.state !== "retired" && !o.editing && (
     <ActionButton key="edit" icon={<Pencil />} label="Edit" hint="Edit (E)" variant="ghost" tabIndex={ctx.tabIndex}
       onClick={() => o.onEdit(true)} className="[&>span]:sr-only px-1.5" />
@@ -123,23 +195,65 @@ export function coreRow(memory: CoreMemory, ctx: RowContext, o: CoreRowOptions):
   ) : memory.state === "active" ? (
     <>
       {edit}
+      {record && (
+        <ActionButton icon={<Sparkles />} label="Make a guideline" hint="Make a guideline from it (G)" tabIndex={ctx.tabIndex} onClick={o.onGuideline} />
+      )}
       <ActionButton icon={<X />} label="Retire" hint="Retire (R)" tabIndex={ctx.tabIndex} onClick={() => o.onState("retired")} />
     </>
   ) : <ActionButton icon={<RotateCcw />} label="Restore" hint="Restore (A)" tabIndex={ctx.tabIndex} onClick={() => o.onState("active")} />;
+  const details = ctx.expanded && !o.editing && (covers.length > 0 || source) ? (
+    <div className="mt-1 space-y-2 rounded-lg border border-border bg-background p-3 text-sm">
+      {covers.length > 0 && (
+        <div role="group" aria-label="Recorded core memories it generalises" className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Recorded core memories it generalises</p>
+          {covers.map((m) => (
+            <p key={m.id} className="border-l-2 border-border pl-2 leading-relaxed">
+              {m.text}{m.state === "retired" && <span className="text-xs text-muted-foreground"> · retired</span>}
+            </p>
+          ))}
+        </div>
+      )}
+      {source && (
+        <Button variant="outline" size="sm" tabIndex={ctx.tabIndex} onClick={o.onRead}>
+          <BookOpenText /> Read where it came from <Kbd>O</Kbd>
+        </Button>
+      )}
+    </div>
+  ) : undefined;
   return {
     body: (
       <>
         {o.editing
           ? <CoreEditor memory={memory} maxText={o.maxText} onSave={o.onSave} onCancel={() => o.onEdit(false)} />
           : <p className={ctx.expanded ? "text-sm leading-relaxed" : "line-clamp-2 text-sm leading-relaxed"}>{memory.text}</p>}
+        {replaces && (
+          <div role="group" aria-label="Replaces" className="mt-1.5 rounded-r-md border-l-2 border-amber-600/60 bg-muted/60 px-2 py-1 text-xs leading-relaxed">
+            <span className="font-medium text-foreground">Replaces</span>{" "}
+            <span className="text-muted-foreground">{replaces.text}</span>
+          </div>
+        )}
         <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          {memory.state === "retired" && (
+            <Badge variant="secondary" className="h-4 px-1.5 text-[11px]">{record ? "Recorded" : "Guideline"}</Badge>
+          )}
           {quote && <span className="min-w-0 italic">“{quote}”</span>}
           <Badge variant="outline" className="h-4 px-1.5 text-[11px] font-normal">{originText(memory)}</Badge>
-          {memory.state === "proposed" && memory.scope === EVERYWHERE && (
-            <span className={over ? "font-medium text-amber-700" : undefined} title="Characters this takes of every session's budget">
-              +{cost} chars{over && " · over budget"}
-            </span>
+          {record && memory.state === "active" && o.covered.has(memory.id) && (
+            <Badge variant="outline" className="h-4 px-1.5 text-[11px] font-normal">In a guideline</Badge>
           )}
+          {record && isConflict(memory) && (
+            <Badge variant="outline" className="h-4 border-amber-600/50 px-1.5 text-[11px] font-normal text-amber-800 dark:text-amber-300">
+              Conflicts with an earlier one
+            </Badge>
+          )}
+          {covers.length > 0 && (
+            <button type="button" aria-expanded={ctx.expanded} tabIndex={ctx.tabIndex} onClick={o.onExpand}
+              className="inline-flex items-center gap-0.5 rounded-sm whitespace-nowrap underline underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              {ctx.expanded ? <ChevronDown className="size-3" aria-hidden /> : <ChevronRight className="size-3" aria-hidden />}
+              Generalises {covers.length} recorded
+            </button>
+          )}
+          {memory.state === "proposed" && !record && <CostNote memory={memory} replaces={replaces} used={o.used} budget={o.budget} />}
           <span>{when}</span>
         </p>
       </>
@@ -149,6 +263,7 @@ export function coreRow(memory: CoreMemory, ctx: RowContext, o: CoreRowOptions):
         onKind={o.onKind} onScope={o.onScope} />
     ) : undefined,
     actions,
+    details,
     error: o.error ? <RowError message={o.error} tabIndex={ctx.tabIndex} onRetry={o.onRetry} /> : undefined,
   };
 }
