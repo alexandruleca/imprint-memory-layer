@@ -109,6 +109,25 @@ def strip_wake(text: str) -> str:
     return rest.lstrip(" \t\n,.;:!?-—").strip()[:2000]
 
 
+# Said alone during a reply, these stop it in any conversation (ADR 0145).
+STOP_PHRASES = {
+    "stop", "cancel", "stop it", "stop that", "stop talking", "cancel that", "never mind", "nevermind",
+    "ok stop", "okay stop", "be quiet", "quiet",
+}
+
+
+def stop_phrase(text: str) -> bool:
+    """A whole utterance asking Echo to stop the reply: "stop", "cancel", "never mind, Echo", "stop please"."""
+    words = [w for w, _, _ in _tokens(text)]
+    if words and words[-1] in {"please"}:
+        words = words[:-1]
+    if words and words[-1] in {"echo", "ecco", "eko"}:
+        words = words[:-1]
+    if words and words[0] in {"echo", "ecco", "eko"}:
+        words = words[1:]
+    return 0 < len(words) <= 3 and " ".join(words) in STOP_PHRASES
+
+
 def end_phrase(text: str) -> bool:
     """A whole utterance asking Echo to stop: "stop", "thanks, Echo", "that's all"."""
     words = [w for w, _, _ in _tokens(text)]

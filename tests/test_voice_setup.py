@@ -54,11 +54,11 @@ class SetupBoundaryTests(unittest.TestCase):
             start.assert_called_once_with()
 
     def test_setup_and_voice_cannot_run_concurrently(self):
-        voice.sessions.active = True
+        voice.sessions.claimed = True  # a window holds the conversation
         with patch.object(setup.setup, "start") as start:
             self.assertEqual(self.client.post("/api/voice/setup", headers=self.origin).status_code, 409)
             start.assert_not_called()
-        voice.sessions.active = False
+        voice.sessions.claimed = False
         with patch.object(setup.setup, "snapshot", return_value={"busy": True}):
             response = self.client.post("/api/voice/sessions", json={"engine": "lfm"}, headers=self.origin)
             self.assertEqual(response.status_code, 409)

@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+from collections import deque
+import difflib
 import json
 import os
 from pathlib import Path
@@ -114,10 +116,12 @@ class Worker:
             raise
 
     async def stop(self) -> None:
-        if self.client:
-            await self.client.aclose()
-            self.client = None
+        # Both are let go before the first await, so a start that runs meanwhile
+        # launches a new worker instead of adopting the one being stopped.
+        client, self.client = self.client, None
         process, self.process = self.process, None
+        if client:
+            await client.aclose()
         if process and process.stdin:
             process.stdin.close()
         if process and process.poll() is None:
@@ -163,8 +167,27 @@ class Worker:
 class Sessions:
     def __init__(self):
         self.leases: dict[str, dict] = {}
-        self.active = False
         self.worker = Worker()
+        # One worker request at a time: a question heard during a reply is
+        # transcribed between its sentences (ADR 0145).
+        self.speech = asyncio.Lock()
+        # The one voice conversation. It outlives the window that holds it
+        # (ADR 0145); `claimed` covers a window connecting to it.
+        self.conversation: Conversation | None = None
+        self.claimed = False
+
+    @property
+    def active(self) -> bool:
+        """A window holds the conversation, or is connecting to it."""
+        return self.claimed or bool(self.current() and self.current().socket)
+
+    def current(self) -> Conversation | None:
+        """The conversation, unless it has been without a window and idle for too long."""
+        conversation = self.conversation
+        if (conversation and not self.claimed and conversation.socket is None and not conversation.busy()
+                and time.monotonic() - conversation.detached_at > DETACHED_KEEP):
+            self.conversation = conversation = None
+        return conversation
 
     def issue(self, workspace: str, origin: str, engine: str, voice: str = "echo") -> str:
         now = time.monotonic()
@@ -220,7 +243,7 @@ def setup_status(request: Request):
 async def setup_start(request: Request):
     check_setup_origin(request, mutate=True)
     await empty_setup_body(request)
-    if sessions.active:
+    if sessions.active or (sessions.current() and sessions.current().busy()):
         raise HTTPException(409, "Stop your voice conversation before setting up Echo")
     if not voice_runtime.supported():
         raise HTTPException(409, "Voice is unavailable on this platform")
@@ -373,14 +396,16 @@ async def chat_events(question: str, history: list, workspace: str, cancelled: t
 
 
 class PlaybackWindow:
-    """Per-turn audio credit, released only by completed client playback."""
+    """Per-turn audio credit, released only by completed client playback, or
+    for good once the window playing it goes away (ADR 0145)."""
     def __init__(self):
         self.sent = 0
         self.played = 0
+        self.released = False
         self.changed = asyncio.Event()
 
     async def reserve(self, encoded: str) -> None:
-        while self.sent - self.played >= PLAYBACK_AHEAD:
+        while not self.released and self.sent - self.played >= PLAYBACK_AHEAD:
             self.changed.clear()
             await self.changed.wait()
         self.sent += len(base64.b64decode(encoded, validate=True)) // 2
@@ -391,6 +416,477 @@ class PlaybackWindow:
         self.played = samples
         self.changed.set()
 
+    def release(self) -> None:
+        self.released = True
+        self.changed.set()
+
+
+# ── Questions run to completion (ADR 0145) ────────────────────────────────
+# A conversation belongs to the API, not to the window that asked: closing,
+# hiding or switching windows only detaches it, and speech during a reply
+# waits its turn. Only the user's explicit stop cancels a reply.
+DETACHED_KEEP = 1800  # seconds a conversation is kept without a window
+QUEUE_LIMIT = 4  # questions waiting behind the one being answered
+KEPT_TURNS = 8  # recent exchanges a returning window is shown
+SPEECH_WORDS = re.compile(r"[a-z0-9']+")
+# What recognizers write for sounds that are not words: "[cough]", "(laughs)", "*sigh*".
+SOUND_LABELS = re.compile(r"\[[^\]]*\]|\([^)]*\)|\*[^*]*\*")
+FILLERS = {"um", "umm", "uh", "uhh", "uhm", "hmm", "hm", "mm", "mmm", "mhm", "ah", "ahh", "oh", "er", "erm", "eh", "huh"}
+
+
+def speech_words(text: str) -> list[str]:
+    return [word.strip("'") for word in SPEECH_WORDS.findall(SOUND_LABELS.sub(" ", text.lower())) if word.strip("'")]
+
+
+def unheard(text: str) -> bool:
+    """Nothing to answer: no words, or only fillers and sound labels such as "[cough]"."""
+    return all(word in FILLERS for word in speech_words(text))
+
+
+def echoes(text: str, answer: str) -> bool:
+    """Speech that began while Echo played its answer and is mostly one run of
+    that answer's words: Echo hearing itself through the speakers."""
+    heard, said = speech_words(text), speech_words(answer)
+    if len(heard) < 3 or not said:
+        return False
+    match = difflib.SequenceMatcher(None, said, heard, autojunk=False).find_longest_match(0, len(said), 0, len(heard))
+    return match.size >= .8 * len(heard)
+
+
+class Turn:
+    """One question and its answer, recorded apart from any window."""
+    def __init__(self, identifier: int, message: dict):
+        self.id = identifier
+        self.message = message
+        self.spoken = bool(message.get("audio"))
+        self.question = "" if self.spoken else message.get("text", "").strip()
+        self.replay = message.get("of") if message.get("type") == "replay" else None
+        self.flag = threading.Event()  # set by an explicit cancel
+        self.heard: asyncio.Task | None = None  # a spoken question's transcription
+        self.waited = False  # queued behind another turn
+        self.ends = False  # a wake conversation's goodbye, taken when its turn comes
+        self.state = "queued"  # queued, running, done, cancelled, failed, ignored
+        self.answer = ""
+        self.detail = ""
+        self.error = ""
+        self.away = False  # finished with no window attached
+
+    def snapshot(self) -> dict:
+        return {"id": self.id, "user": self.question, "answer": self.answer, "state": self.state,
+                "detail": self.detail, "error": self.error, "away": self.away}
+
+
+class Conversation:
+    """The voice conversation: every heard message, the running summary and
+    recent turns. A window attaches to watch and hear it, and detaching never
+    stops a reply; the reply's text is kept, and its audio waits for nobody."""
+
+    def __init__(self, lease: dict):
+        self.workspace, self.engine, self.voice = lease["workspace"], lease["engine"], lease["voice"]
+        # Every message of every answered question, numbered, and the running summary (ADR 0141).
+        self.history: list[dict] = []
+        self.summary: dict | None = None
+        self.turns: dict[int, Turn] = {}
+        self.queue: deque[Turn] = deque()
+        self.current: Turn | None = None
+        self.task: asyncio.Task | None = None
+        self.runner: asyncio.Task | None = None
+        self.socket = None  # the attached window's sender
+        self.playback = PlaybackWindow()
+        self.last_id = 0
+        self.successor: dict | None = None  # another model or voice, once the work in progress is done
+        self.detached_at = time.monotonic()
+        self.ended = False
+
+    def matches(self, lease: dict) -> bool:
+        return (self.workspace, self.engine, self.voice) == (lease["workspace"], lease["engine"], lease["voice"])
+
+    def busy(self) -> bool:
+        return self.current is not None or bool(self.queue)
+
+    def snapshot(self) -> dict:
+        shown = [turn.snapshot() for turn in self.turns.values() if turn.replay is None and turn.state != "ignored"]
+        return {"workspace": self.workspace, "engine": self.engine, "voice": self.voice,
+                "attached": self.socket is not None, "busy": self.busy(), "last_id": self.last_id,
+                "turns": shown[-KEPT_TURNS:]}
+
+    def ready(self, resumed: bool) -> dict:
+        snapshot = self.snapshot()
+        return {"type": "ready", "workspace": self.workspace, "engine": self.engine, "voice": self.voice,
+                "effect": VOICES[self.voice][1], "resumed": resumed, "last_id": self.last_id,
+                "busy": snapshot["busy"], "turns": snapshot["turns"]}
+
+    def attach(self, send) -> None:
+        self.socket = send
+        # The new window counts the current reply's audio from here.
+        self.playback.release()
+        self.playback = PlaybackWindow()
+
+    def detach(self, send) -> None:
+        if self.socket is not send:
+            return
+        self.socket = None
+        self.detached_at = time.monotonic()
+        # Nobody plays the rest, so generation stops waiting for playback.
+        self.playback.release()
+
+    async def send(self, event: dict) -> None:
+        send = self.socket
+        if send is None:
+            return
+        try:
+            await send(event)
+        except Exception:  # noqa: BLE001 — a window that went away; the reply carries on
+            self.detach(send)
+
+    async def emit(self, turn: Turn, event: dict) -> None:
+        """Record a turn's progress, then show it to the attached window."""
+        kind = event["type"]
+        if kind == "user":
+            turn.question = event["text"]
+        elif kind == "text":
+            turn.answer += event["text"]
+        elif kind in {"state", "tool"}:
+            turn.detail = event.get("text", "")
+        elif kind == "audio":
+            window = self.playback
+            if self.socket is None:
+                return
+            await window.reserve(event["data"])
+            if window is not self.playback or self.socket is None:
+                return  # its window went away while it waited
+        await self.send({**event, "id": turn.id})
+
+    def record(self, turn: Turn) -> None:
+        self.turns[turn.id] = turn
+        self.last_id = turn.id
+        finished = [key for key, kept in self.turns.items() if kept.state not in {"queued", "running"}]
+        for key in finished[:max(0, len(self.turns) - KEPT_TURNS)]:
+            del self.turns[key]
+
+    def ahead_of(self, turn: Turn) -> bool:
+        """Another question is being answered, or waits before this one."""
+        if self.current is not None and self.current is not turn:
+            return True
+        waiting = list(self.queue)
+        return (waiting.index(turn) if turn in waiting else len(waiting)) > 0
+
+    def drop(self, turn: Turn, state: str) -> None:
+        turn.state = state
+        if turn in self.queue:
+            self.queue.remove(turn)
+
+    async def intake(self, turn: Turn) -> None:
+        """A new question waits behind the one being answered instead of
+        replacing it; a spoken one is transcribed meanwhile, so noise, Echo
+        hearing itself and "stop" are known before its turn."""
+        if len(self.queue) >= QUEUE_LIMIT:
+            await self.send({"type": "error", "id": turn.id, "error": "Echo already has questions waiting. Ask again once it answers them."})
+            self.last_id = turn.id
+            return
+        self.record(turn)
+        turn.waited = self.busy()
+        self.queue.append(turn)
+        if turn.waited:
+            await self.send({"type": "queued", "id": turn.id, "position": len(self.queue)})
+        if turn.spoken:
+            turn.heard = asyncio.create_task(self.listen(turn))
+        elif turn.replay is None and not await self.decide(turn, turn.question):
+            return
+        self.start()
+
+    async def listen(self, turn: Turn) -> str | None:
+        """Transcribe a spoken question once the worker is free, then decide
+        whether it is one. A failed transcription is tried once more."""
+        text = ""
+        try:
+            content = await audio_content(turn.message["audio"])
+            for attempt in range(2):
+                try:
+                    text = ""
+                    async with sessions.speech:
+                        if turn.flag.is_set():
+                            return None
+                        async for event in sessions.worker.stream("Perform ASR.", content):
+                            if event["type"] == "text":
+                                text += event["text"]
+                    break
+                except (VoiceMemoryError, httpx.HTTPError, OSError, ValueError):
+                    if attempt or turn.flag.is_set():
+                        raise
+        except (VoiceMemoryError, httpx.HTTPError, OSError, ValueError):
+            if turn.flag.is_set():
+                return None
+            self.drop(turn, "failed")
+            turn.error = "Echo couldn't hear that question. Please ask again."
+            await self.send({"type": "error", "id": turn.id, "error": turn.error})
+            return None
+        return turn.question if await self.decide(turn, text.strip()) else None
+
+    def echo_of_answer(self, question: str) -> bool:
+        answers = [kept.answer for kept in self.turns.values() if kept.answer and kept.replay is None][-2:]
+        return any(echoes(question, answer) for answer in answers)
+
+    async def decide(self, turn: Turn, question: str) -> bool:
+        """Whether a question is asked. Noise and Echo's own voice are
+        ignored; a stop said alone stops the reply and what waits (ADR 0145);
+        a wake conversation's goodbye ends it (ADR 0137)."""
+        if turn.spoken and (unheard(question) or len(question) > 2000
+                            or (turn.message.get("overlap") is True and self.echo_of_answer(question))):
+            reason = "echo" if not unheard(question) and len(question) <= 2000 else "unheard"
+            self.drop(turn, "ignored")
+            await self.send({"type": "ignored", "id": turn.id, "reason": reason})
+            return False
+        await self.emit(turn, {"type": "user", "text": question})
+        voiced = turn.spoken or turn.message.get("wake") is True
+        stop = voiced and wake.stop_phrase(question)
+        end = turn.message.get("wake") is True and wake.end_phrase(question)
+        if stop:
+            for identifier in await self.cancel(keep=turn):
+                await self.send({"type": "cancelled", "id": identifier})
+            await self.send({"type": "stopped", "id": turn.id})
+        if end and (stop or not self.ahead_of(turn)):
+            self.drop(turn, "ignored")
+            await self.send({"type": "end", "id": turn.id})
+            return False
+        if stop:
+            self.drop(turn, "ignored")
+            return False
+        turn.ends = end
+        return True
+
+    def start(self) -> None:
+        if self.runner is None or self.runner.done():
+            self.runner = asyncio.create_task(self.run())
+
+    async def run(self) -> None:
+        """Answer queued questions in order, whichever window is attached."""
+        while not self.ended:
+            while self.queue and not self.ended:
+                turn = self.queue.popleft()
+                if turn.state != "queued":
+                    continue
+                self.current, turn.state = turn, "running"
+                self.playback.release()
+                self.playback = PlaybackWindow()
+                if turn.waited:
+                    await self.send({"type": "start", "id": turn.id})
+                self.task = asyncio.create_task(self.answer(turn))
+                await asyncio.wait({self.task})
+                self.task = self.current = None
+                if turn.state == "running":
+                    turn.state = "done"
+                turn.away = self.socket is None and turn.state in {"done", "failed"}
+            if self.successor and not self.ended:
+                # Another model or voice was chosen meanwhile; it starts afresh (ADR 0071).
+                lease, self.successor = self.successor, None
+                self.workspace, self.engine, self.voice = lease["workspace"], lease["engine"], lease["voice"]
+                self.history, self.summary = [], None
+                await self.send(self.ready(False))
+            if self.socket is None and not sessions.claimed and not self.queue and not self.ended:
+                await sessions.worker.stop()  # held only while a window or a question needs it
+            if not self.queue:
+                return
+
+    async def cancel(self, identifier: int | None = None, *, keep: Turn | None = None) -> list[int]:
+        """The user's stop: the current reply and every waiting question, or
+        just the turn named. Native inference stops with it, prefill included."""
+        stopped = []
+        for turn in list(self.queue):
+            if turn is keep or (identifier is not None and turn.id != identifier):
+                continue
+            self.drop(turn, "cancelled")
+            turn.flag.set()
+            if turn.heard and not turn.heard.done() and turn.heard is not asyncio.current_task():
+                turn.heard.cancel()
+            stopped.append(turn.id)
+        current, task = self.current, self.task
+        if current is not None and current is not keep and (identifier is None or current.id == identifier):
+            current.flag.set()
+            current.state = "cancelled"
+            if task and task is not asyncio.current_task():
+                task.cancel()
+                await asyncio.wait({task})
+            stopped.append(current.id)
+        # A window connecting meanwhile is booting the worker for itself.
+        if (identifier is None or stopped) and (self.socket is not None or not sessions.claimed):
+            await sessions.worker.stop()
+        return stopped
+
+    async def end(self) -> None:
+        """The conversation ends, by the user's choice: nothing of it is kept."""
+        if self.ended:
+            return
+        self.ended = True
+        if sessions.conversation is self:
+            sessions.conversation = None
+        await self.cancel()
+        tasks = [task for task in (self.runner, *(turn.heard for turn in self.turns.values()))
+                 if task and not task.done() and task is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks)
+        self.history, self.turns, self.summary = [], {}, None
+
+    async def speak(self, text: str, emit) -> None:
+        """Read text aloud in bounded phrases, unless no window would hear it."""
+        speaker = VOICES[self.voice][0]
+        while text.strip():
+            end = min(len(text), 240)
+            if end < len(text):
+                end = text.rfind(" ", 0, end) or end
+                if end < 1:
+                    end = 240
+            part, text = text[:end], text[end:]
+            if self.socket is None:
+                continue  # the text is kept; nobody would hear the audio
+            async with sessions.speech:
+                async for audio in sessions.worker.stream(f"Perform TTS. Use the {speaker} voice.", part):
+                    if audio["type"] == "audio":
+                        await emit(audio)
+
+    async def answer(self, turn: Turn) -> None:
+        flag, budget = turn.flag, None
+
+        async def emit(event):
+            if flag.is_set():
+                return
+            await self.emit(turn, event)
+            # An active long reply is healthy. Bound stalls rather than its
+            # total generation/playback time (ADR 0092).
+            if budget is not None and event["type"] != "provision":
+                budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
+        try:
+            async with asyncio.timeout(TURN_TIMEOUT) as budget:
+                if turn.heard is not None:
+                    if not turn.heard.done():
+                        await emit({"type": "state", "state": "transcribing"})
+                    if await turn.heard is None:
+                        if turn.state == "running":
+                            turn.state = "ignored"
+                        return
+                if turn.ends:
+                    await emit({"type": "end"})
+                    turn.state = "ignored"
+                    return
+                if turn.replay is not None:
+                    original = self.turns.get(turn.replay)
+                    if original is None or not original.answer.strip():
+                        raise VoiceMemoryError("That answer is no longer available.")
+                    await self.speak(original.answer, emit)
+                    await emit({"type": "done"})
+                    return
+                question = turn.question
+                await emit({"type": "state", "state": "thinking"})
+                answer = ""
+                calls: list[dict] = []  # this reply's tool calls with their results
+                speaker = VOICES[self.voice][0]
+                if self.engine == "lfm":
+                    evidence = await memory_prompt(question, self.workspace)
+                    recent = [{"role": m["role"], "content": m["content"]}
+                              for m in self.history if m["role"] in ("user", "assistant")][-6:]
+                    while recent and len(_json(recent)) > 3000:
+                        recent = recent[2:]
+                    context = _json(recent)
+                    content = f"{evidence}\nRecent conversation (may be interrupted): {context}\nQuestion: {question}"
+                    async with sessions.speech:
+                        async for event in sessions.worker.stream(f"Respond with interleaved text and audio. Use the {speaker} voice.", content):
+                            if event["type"] == "text":
+                                answer += event["text"]
+                            await emit(event)
+                else:
+                    pending = ""
+                    provisioning = False
+                    async for event in chat_events(question, list(self.history), self.workspace, flag, self.summary):
+                        kind = event["type"]
+                        if provisioning and kind in {"token", "tool_call"}:
+                            budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
+                            provisioning = False
+                        if kind == "error":
+                            raise VoiceMemoryError("The chat model could not reply. Open Chat to check its setup.")
+                        if kind == "token":
+                            text = event["text"]
+                            answer += text
+                            pending += text
+                            await emit({"type": "text", "text": text})
+                            # Speak bounded phrases as chat streams, retaining the
+                            # dashboard's local reasoning model and read tools.
+                            boundary = re.search(r"[.!?]\s|\n|.{180}\s", pending)
+                            if boundary and len(pending) >= 35:
+                                end = boundary.end()
+                                phrase, pending = pending[:end], pending[end:]
+                                await self.speak(phrase, emit)
+                        elif kind == "tool_call":
+                            calls.append(event)
+                            await emit({"type": "tool", "name": event["name"],
+                                        "text": tool_label(event["name"], event.get("args"))})
+                        elif kind == "tool_result" and calls and "result" not in calls[-1]:
+                            calls[-1] = {**calls[-1], "result": str(event.get("result", ""))[:TOOL_RESULT_CHARS]}
+                        elif kind == "summary":
+                            # The summary stands for messages already answered,
+                            # so it holds whether or not this reply completes.
+                            self.summary = {key: event.get(key) for key in ("text", "covers", "retry_after")}
+                            await emit({"type": "state", "state": "thinking"})
+                        elif kind == "analysis":
+                            await emit({"type": "state", "state": "analyzing", "text": event["text"]})
+                        elif kind in {"download_start", "download_progress", "download_complete", "load_start"}:
+                            if kind == "download_start" and not provisioning:
+                                budget.reschedule(asyncio.get_running_loop().time() + CHAT_SETUP_TIMEOUT)
+                                provisioning = True
+                            stage = "download" if kind in {"download_start", "download_progress"} else "load"
+                            progress = {"type": "provision", "stage": stage}
+                            for name in ("downloaded", "total"):
+                                value = event.get(name)
+                                if type(value) is int and 0 <= value <= 1_000_000_000_000:
+                                    progress[name] = value
+                            await emit(progress)
+                    if pending.strip():
+                        await self.speak(pending, emit)
+                if flag.is_set():
+                    return
+                if answer.strip():
+                    # A completed reply joins the history whether or not it was
+                    # played to the end: its text is on screen (ADR 0145).
+                    tools = [{"role": "tool", "content": call["result"], "tool_name": call["name"],
+                              "tool_args": call.get("args") or {}}
+                             for call in calls if "result" in call]
+                    for entry in [{"role": "user", "content": question}, *tools, {"role": "assistant", "content": answer[:3000]}]:
+                        self.history.append({**entry, "seq": (self.history[-1]["seq"] if self.history else 0) + 1})
+                    del self.history[:max(0, len(self.history) - HISTORY_LIMIT)]
+                turn.state = "done"
+                await emit({"type": "done"})
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 — a failed reply says so and can be asked again
+            budget = None
+            turn.state = "failed"
+            turn.error = (str(error) if isinstance(error, VoiceMemoryError)
+                          else "Echo couldn't finish this answer. Try again, or ask a shorter question.")
+            await emit({"type": "error", "error": turn.error})
+            await sessions.worker.stop()
+
+
+@router.get("/conversation")
+def conversation_status(request: Request):
+    """What a returning window shows before it reconnects: the recent turns,
+    whether a reply is still being written and whether a window holds it."""
+    check_setup_origin(request)
+    conversation = sessions.current()
+    return {"conversation": conversation.snapshot() if conversation else None}
+
+
+def valid_turn(message: dict, last_id: int) -> bool:
+    identifier = message.get("id")
+    if type(identifier) is not int or identifier <= last_id:
+        return False
+    if message.get("type") == "replay":
+        return type(message.get("of")) is int and set(message) <= {"type", "id", "of"}
+    text, audio = message.get("text", ""), message.get("audio", "")
+    return (type(message.get("wake", False)) is bool and type(message.get("overlap", False)) is bool
+            and isinstance(text, str) and isinstance(audio, str)
+            and bool(text.strip()) != bool(audio) and len(text) <= 2000)
+
 
 @router.websocket("/stream")
 async def stream(websocket: WebSocket):
@@ -398,28 +894,13 @@ async def stream(websocket: WebSocket):
         await websocket.close(code=1008)
         return
     await websocket.accept()
-    owned = False
-    turn_task: asyncio.Task | None = None
-    cancel_flag = threading.Event()
-    turn_id = 0
-    playback: PlaybackWindow | None = None
+    conversation: Conversation | None = None
+    claimed = False
     send_lock = asyncio.Lock()
 
     async def send(event):
         async with send_lock:
             await asyncio.wait_for(websocket.send_json(event), 5)
-
-    async def cancel(force=False):
-        nonlocal turn_task
-        cancel_flag.set()
-        running = bool(turn_task and not turn_task.done())
-        if turn_task:
-            turn_task.cancel()
-            await asyncio.gather(turn_task, return_exceptions=True)
-            turn_task = None
-        # Also stop native inference, including prefill, and discard all context.
-        if force or running:
-            await sessions.worker.stop()
 
     try:
         auth = await asyncio.wait_for(websocket.receive_text(), 5)
@@ -435,16 +916,24 @@ async def stream(websocket: WebSocket):
             raise VoiceMemoryError("Voice is already open in another window. Stop it there first.")
         if voice_setup.setup.snapshot()["busy"]:
             raise VoiceMemoryError("Wait for Echo setup to finish before starting voice.")
-        sessions.active = owned = True
-        workspace, engine = lease["workspace"], lease["engine"]
-        speaker, effect = VOICES[lease["voice"]]
-        # Every heard message, numbered, and the running summary (ADR 0141).
-        history: list[dict] = []
-        memory: dict = {"summary": None}
+        sessions.claimed = claimed = True
+        # A window that comes back picks up the conversation it left, its
+        # reply included (ADR 0145). An idle one set up for another workspace,
+        # model or voice gives way to a new conversation (ADR 0071); a busy one
+        # finishes first.
+        conversation = sessions.current()
+        if conversation is not None and not conversation.matches(lease) and not conversation.busy():
+            await conversation.end()
+            conversation = None
+        resumed = conversation is not None
+        if conversation is None:
+            conversation = sessions.conversation = Conversation(lease)
+        elif not conversation.matches(lease):
+            conversation.successor = lease
         await send({"type": "connecting"})
-        # A closed companion must cancel a cold model load as well as an active
-        # turn. HTTP/WebSocket disconnects aren't observed while awaiting only
-        # the worker's readiness probe.
+        # A closed companion must cancel a cold model load. HTTP/WebSocket
+        # disconnects aren't observed while awaiting only the worker's
+        # readiness probe.
         boot = asyncio.create_task(sessions.worker.start())
         disconnected = asyncio.create_task(websocket.receive_text())
         try:
@@ -458,136 +947,15 @@ async def stream(websocket: WebSocket):
                 if not task.done():
                     task.cancel()
             await asyncio.gather(boot, disconnected, return_exceptions=True)
-        await send({"type": "ready", "workspace": workspace, "engine": engine, "voice": lease["voice"], "effect": effect})
+        conversation.attach(send)
+        sessions.claimed = claimed = False
+        await send(conversation.ready(resumed))
         deadline = time.monotonic() + 1800
-
-        async def turn(identifier: int, message: dict, flag: threading.Event, audio_window: PlaybackWindow):
-            turn_budget = None
-
-            async def emit(event):
-                if not flag.is_set():
-                    if event["type"] == "audio":
-                        await audio_window.reserve(event["data"])
-                    await send({**event, "id": identifier})
-                    # An active long reply is healthy. Bound stalls rather than
-                    # its total generation/playback time (ADR 0092).
-                    if turn_budget is not None and event["type"] != "provision":
-                        turn_budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
-            try:
-                async with asyncio.timeout(TURN_TIMEOUT) as turn_budget:
-                    question = message.get("text", "").strip()
-                    if message.get("audio"):
-                        content = await audio_content(message["audio"])
-                        await emit({"type": "state", "state": "transcribing"})
-                        question = ""
-                        async for event in sessions.worker.stream("Perform ASR.", content):
-                            if event["type"] == "text":
-                                question += event["text"]
-                        question = question.strip()
-                    if not question or len(question) > 2000:
-                        raise VoiceMemoryError("I didn't catch a short question. Please try again.")
-                    await emit({"type": "user", "text": question})
-                    # A conversation "Hey Echo" started ends when asked to (ADR 0137);
-                    # the request never reaches the reasoning model.
-                    if message.get("wake") is True and wake.end_phrase(question):
-                        await emit({"type": "end"})
-                        return
-                    await emit({"type": "state", "state": "thinking"})
-                    answer = ""
-                    calls: list[dict] = []  # this reply's tool calls with their results
-                    if engine == "lfm":
-                        evidence = await memory_prompt(question, workspace)
-                        recent = [{"role": m["role"], "content": m["content"]}
-                                  for m in history if m["role"] in ("user", "assistant")][-6:]
-                        while recent and len(_json(recent)) > 3000:
-                            recent = recent[2:]
-                        context = _json(recent)
-                        content = f"{evidence}\nRecent conversation (may be interrupted): {context}\nQuestion: {question}"
-                        async for event in sessions.worker.stream(f"Respond with interleaved text and audio. Use the {speaker} voice.", content):
-                            if event["type"] == "text":
-                                answer += event["text"]
-                            await emit(event)
-                    else:
-                        async def synthesize(phrase: str):
-                            while phrase.strip():
-                                end = min(len(phrase), 240)
-                                if end < len(phrase):
-                                    end = phrase.rfind(" ", 0, end) or end
-                                    if end < 1:
-                                        end = 240
-                                part, phrase = phrase[:end], phrase[end:]
-                                async for audio in sessions.worker.stream(f"Perform TTS. Use the {speaker} voice.", part):
-                                    if audio["type"] == "audio":
-                                        await emit(audio)
-
-                        pending = ""
-                        provisioning = False
-                        async for event in chat_events(question, list(history), workspace, flag, memory["summary"]):
-                            kind = event["type"]
-                            if provisioning and kind in {"token", "tool_call"}:
-                                turn_budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
-                                provisioning = False
-                            if kind == "error":
-                                raise VoiceMemoryError("The chat model could not reply. Open Chat to check its setup.")
-                            if kind == "token":
-                                text = event["text"]
-                                answer += text
-                                pending += text
-                                await emit({"type": "text", "text": text})
-                                # Speak bounded phrases as chat streams, retaining the
-                                # dashboard's local reasoning model and read tools.
-                                boundary = re.search(r"[.!?]\s|\n|.{180}\s", pending)
-                                if boundary and len(pending) >= 35:
-                                    end = boundary.end()
-                                    phrase, pending = pending[:end], pending[end:]
-                                    await synthesize(phrase)
-                            elif kind == "tool_call":
-                                calls.append(event)
-                                await emit({"type": "tool", "name": event["name"],
-                                            "text": tool_label(event["name"], event.get("args"))})
-                            elif kind == "tool_result" and calls and "result" not in calls[-1]:
-                                calls[-1] = {**calls[-1], "result": str(event.get("result", ""))[:TOOL_RESULT_CHARS]}
-                            elif kind == "summary":
-                                # The summary stands for messages already heard, so it
-                                # holds whether or not this reply is.
-                                memory["summary"] = {key: event.get(key) for key in ("text", "covers", "retry_after")}
-                                await emit({"type": "state", "state": "thinking"})
-                            elif kind == "analysis":
-                                await emit({"type": "state", "state": "analyzing", "text": event["text"]})
-                            elif kind in {"download_start", "download_progress", "download_complete", "load_start"}:
-                                if kind == "download_start" and not provisioning:
-                                    turn_budget.reschedule(asyncio.get_running_loop().time() + CHAT_SETUP_TIMEOUT)
-                                    provisioning = True
-                                stage = "download" if kind in {"download_start", "download_progress"} else "load"
-                                progress = {"type": "provision", "stage": stage}
-                                for name in ("downloaded", "total"):
-                                    value = event.get(name)
-                                    if type(value) is int and 0 <= value <= 1_000_000_000_000:
-                                        progress[name] = value
-                                await emit(progress)
-                        if pending.strip():
-                            await synthesize(pending)
-                    if answer.strip():
-                        # A client playback acknowledgement commits assistant
-                        # history; generated but unheard replies are not retained.
-                        tools = [{"role": "tool", "content": call["result"], "tool_name": call["name"],
-                                  "tool_args": call.get("args") or {}}
-                                 for call in calls if "result" in call]
-                        awaiting[identifier] = (question, answer[:3000], tools)
-                    await emit({"type": "done"})
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                turn_budget = None
-                await emit({"type": "error", "error": "Voice couldn't complete this turn. Try a shorter question or reconnect."})
-                await sessions.worker.stop()
-
-        awaiting: dict[int, tuple[str, str, list[dict]]] = {}
         while time.monotonic() < deadline:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), 120)
             except TimeoutError:
-                if turn_task and not turn_task.done():
+                if conversation.busy():
                     continue
                 raise
             if len(raw) > MAX_MESSAGE:
@@ -597,36 +965,27 @@ async def stream(websocket: WebSocket):
                 raise VoiceMemoryError("Invalid voice message.")
             kind = message.get("type")
             if kind == "cancel":
-                await cancel(force=True)
-                awaiting.clear()
-                await send({"type": "cancelled", "id": turn_id})
-            elif kind == "played":
-                item = awaiting.pop(message.get("id"), None)
-                if item:
-                    heard, reply, tools = item
-                    for entry in [{"role": "user", "content": heard}, *tools, {"role": "assistant", "content": reply}]:
-                        history.append({**entry, "seq": (history[-1]["seq"] if history else 0) + 1})
-                    del history[:max(0, len(history) - HISTORY_LIMIT)]
-            elif kind == "playback":
-                # A cancelled turn's late acknowledgement cannot release the
-                # next turn's credit. Progress never commits reply history.
-                if message.get("id") == turn_id and playback is not None:
-                    playback.acknowledge(message.get("samples"))
-            elif kind == "turn":
                 identifier = message.get("id")
-                if (type(identifier) is not int or identifier <= turn_id
-                        or type(message.get("wake", False)) is not bool
-                        or not isinstance(message.get("text", ""), str)
-                        or not isinstance(message.get("audio", ""), str)
-                        or bool(message.get("text", "").strip()) == bool(message.get("audio"))
-                        or len(message.get("text", "")) > 2000):
+                if identifier is not None and type(identifier) is not int:
+                    raise VoiceMemoryError("Invalid voice control.")
+                stopped = await conversation.cancel(identifier)
+                for turn_id in stopped or [identifier if identifier is not None else conversation.last_id]:
+                    await send({"type": "cancelled", "id": turn_id})
+            elif kind == "played":
+                pass  # A completed reply is kept when it completes (ADR 0145).
+            elif kind == "playback":
+                # A finished or cancelled turn's late acknowledgement cannot
+                # release the next turn's credit.
+                current = conversation.current
+                if current is not None and message.get("id") == current.id:
+                    conversation.playback.acknowledge(message.get("samples"))
+            elif kind in {"turn", "replay"}:
+                if not valid_turn(message, conversation.last_id):
                     raise VoiceMemoryError("Invalid voice turn.")
-                await cancel()
-                awaiting.clear()
-                turn_id = identifier
-                cancel_flag = threading.Event()
-                playback = PlaybackWindow()
-                turn_task = asyncio.create_task(turn(turn_id, message, cancel_flag, playback))
+                await conversation.intake(Turn(message["id"], message))
+            elif kind == "end":
+                await conversation.end()
+                break
             else:
                 raise VoiceMemoryError("Unknown voice control.")
     except (WebSocketDisconnect, TimeoutError, RuntimeError):
@@ -638,9 +997,18 @@ async def stream(websocket: WebSocket):
         with contextlib.suppress(Exception):
             await send({"type": "error", "error": "Voice session unavailable or expired. Reconnect from the local dashboard."})
     finally:
-        if owned:
-            await cancel(force=True)
-            sessions.active = False
+        if claimed:
+            sessions.claimed = False
+        if conversation is not None and not conversation.ended:
+            conversation.detach(send)
+            if conversation.socket is None and not conversation.busy():
+                if not any(turn.state != "ignored" for turn in conversation.turns.values()):
+                    # Nothing was asked, so there is nothing to come back to.
+                    conversation.ended = True
+                    if sessions.conversation is conversation:
+                        sessions.conversation = None
+                if not sessions.claimed:
+                    await sessions.worker.stop()  # held again when a window or a question needs it
         with contextlib.suppress(Exception):
             await websocket.close()
 
@@ -956,6 +1324,8 @@ async def shutdown() -> None:
     voice_setup.setup.cancel()
     wake_setup.cancel()
     sessions.leases.clear()
+    if sessions.conversation is not None:
+        await sessions.conversation.end()
     wake_sessions.leases.clear()
     await sessions.worker.stop()
     if wake_sessions.worker:

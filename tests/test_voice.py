@@ -184,9 +184,10 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertEqual("".join(spoken).strip(), reply.strip())
         self.assertTrue(all(len(part) <= 240 for part in spoken))
 
-    def test_a_voice_conversation_keeps_heard_messages_and_its_summary_in_memory_only(self):
-        # ADR 0141: every heard message, numbered as Chat stores them, tool
-        # results included; the summary is kept for the next turn; nothing on disk.
+    def test_a_voice_conversation_keeps_answered_messages_and_its_summary_in_memory_only(self):
+        # ADR 0141: every message, numbered as Chat stores them, tool results
+        # included; the summary is kept for the next turn; nothing on disk.
+        # ADR 0145: a completed reply is kept whether or not it was played.
         seen = []
 
         async def events(question, history, workspace, cancelled, summary=None):
@@ -227,8 +228,12 @@ class VoiceBoundaryTests(unittest.TestCase):
                        {"role": "assistant", "content": "Answer to first.", "seq": 3}]
         self.assertEqual(seen[1]["history"], first_heard)
         self.assertIsNone(seen[1]["summary"])
-        # The unheard second reply is not kept; the summary it made is.
-        self.assertEqual(seen[2]["history"], first_heard)
+        # The second reply completed without being played to the end; it is kept, with its summary.
+        self.assertEqual(seen[2]["history"], first_heard + [
+            {"role": "user", "content": "second", "seq": 4},
+            {"role": "tool", "content": "#2 tool search: 8101", "tool_name": "conversation_history",
+             "tool_args": {"query": "billing port"}, "seq": 5},
+            {"role": "assistant", "content": "Answer to second.", "seq": 6}])
         self.assertEqual(seen[2]["summary"], {"text": "- Billing port (#1–#3).", "covers": 3, "retry_after": 0})
         self.assertEqual(list(self.root.glob("chat*.sqlite3")), [])
 
@@ -338,6 +343,304 @@ class VoiceBoundaryTests(unittest.TestCase):
                 stop.assert_awaited()
 
 
+class VoiceRunsToCompletionTests(unittest.TestCase):
+    """A question runs until it is answered or explicitly stopped (ADR 0145)."""
+    token = VoiceBoundaryTests.token
+
+    def setUp(self):
+        VoiceBoundaryTests.setUp(self)
+        # One event loop for every window, as the API has; without it each
+        # socket gets its own loop, which ends with the socket.
+        self.client.__enter__()
+        self.addCleanup(self.client.__exit__, None, None, None)
+    ORIGIN = {"Origin": "http://127.0.0.1:8420"}
+
+    def connect(self, engine="chat"):
+        token = self.token(engine=engine)
+        ws = self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers=self.ORIGIN)
+        return token, ws
+
+    def open(self, ws, token):
+        ws.send_json({"token": token})
+        self.assertEqual(ws.receive_json()["type"], "connecting")
+        ready = ws.receive_json()
+        self.assertEqual(ready["type"], "ready")
+        return ready
+
+    def until(self, ws, done):
+        events = []
+        while not events or not done(events[-1]):
+            events.append(ws.receive_json())
+        return events
+
+    def snapshot(self):
+        response = self.client.get("/api/voice/conversation")
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["conversation"]
+
+    def wait_for(self, check):
+        import time
+        deadline = time.monotonic() + slack(10)
+        while not (result := check()) and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(result)
+        return result
+
+    def fixtures(self, answers, transcripts=None, spoken=None):
+        """chat_events answering each question from `answers`: tokens, event
+        dicts, and threading.Events it waits on until set. The worker
+        transcribes audio by `transcripts` and speaks every phrase briefly."""
+        flags, histories = {}, {}
+
+        async def events(question, history, workspace, cancelled, summary=None):
+            flags[question], histories[question] = cancelled, history
+            for part in answers[question]:
+                if isinstance(part, threading.Event):
+                    while not part.is_set():
+                        await asyncio.sleep(.01)
+                elif isinstance(part, dict):
+                    yield part
+                else:
+                    yield {"type": "token", "text": part}
+            yield {"type": "done"}
+
+        async def native(system, content):
+            if system == "Perform ASR.":
+                yield {"type": "text", "text": (transcripts or {})[content[0]["input_audio"]["data"]]}
+                return
+            if spoken is not None:
+                spoken.append(content)
+            yield {"type": "audio", "data": "AAAAAA==", "sample_rate": 24000, "format": "pcm16"}
+        worker = voice.sessions.worker
+        for patcher in (patch.object(worker, "start", new_callable=AsyncMock),
+                        patch.object(worker, "stop", new_callable=AsyncMock),
+                        patch.object(worker, "stream", side_effect=native),
+                        patch.object(voice, "chat_events", side_effect=events)):
+            patcher.start(); self.addCleanup(patcher.stop)
+        return flags, histories
+
+    def speech(self, text, transcripts):
+        """A distinct short WAV the fixture worker hears as `text`."""
+        samples = (0.1, -0.1) + (0.01 * (len(transcripts) + 1),)
+        encoded = base64.b64encode(wav_bytes(samples)).decode()
+        transcripts[encoded] = text
+        return encoded
+
+    def test_a_reply_outlives_its_window_and_the_next_window_shows_it(self):
+        release = threading.Event()
+        _, histories = self.fixtures({"Where is billing?": ["Billing is on ", release, "port 8101."], "And staging?": ["Same port."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.assertFalse(self.open(ws, token)["resumed"])
+            ws.send_json({"type": "turn", "id": 1, "text": "Where is billing?"})
+            self.until(ws, lambda event: event["type"] == "text")
+        # The window closed mid-reply: the reply goes on and is kept.
+        release.set()
+        finished = self.wait_for(lambda: (lambda shown: shown if shown and shown["turns"][-1]["state"] == "done" else None)(self.snapshot()))
+        self.assertEqual(finished["turns"][-1], {"id": 1, "user": "Where is billing?", "answer": "Billing is on port 8101.",
+                                                 "state": "done", "detail": "", "error": "", "away": True})
+        self.assertFalse(finished["attached"])
+        voice.sessions.worker.stop.assert_awaited()  # nobody holds it while nothing runs
+        token, socket = self.connect()
+        with socket as ws:
+            ready = self.open(ws, token)
+            self.assertTrue(ready["resumed"])
+            self.assertEqual((ready["last_id"], ready["turns"][-1]["answer"], ready["turns"][-1]["away"]), (1, "Billing is on port 8101.", True))
+            ws.send_json({"type": "turn", "id": 2, "text": "And staging?"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual([m["content"] for m in histories["And staging?"]], ["Where is billing?", "Billing is on port 8101."])
+        self.assertEqual(list(self.root.glob("chat*.sqlite3")), [])
+
+    def test_a_window_that_comes_back_mid_reply_sees_its_progress_and_the_rest(self):
+        release = threading.Event()
+        self.fixtures({"Long one?": ["The first part. ", release, "The second part."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "Long one?"})
+            self.until(ws, lambda event: event["type"] == "text")
+        token, socket = self.connect()
+        with socket as ws:
+            ready = self.open(ws, token)
+            self.assertTrue(ready["resumed"] and ready["busy"])
+            self.assertEqual((ready["turns"][-1]["state"], ready["turns"][-1]["answer"]), ("running", "The first part. "))
+            release.set()
+            events = self.until(ws, lambda event: event["type"] == "done")
+        self.assertIn({"type": "text", "text": "The second part.", "id": 1}, events)
+        self.assertTrue(any(event["type"] == "audio" for event in events))  # it speaks again for the window that came back
+        self.assertFalse(self.snapshot()["turns"][-1]["away"])
+
+    def test_a_question_during_a_reply_waits_its_turn_instead_of_cancelling_it(self):
+        release = threading.Event()
+        flags, _ = self.fixtures({"first": ["First answer.", release], "second": ["Second answer."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "first"})
+            self.until(ws, lambda event: event["type"] == "text")
+            ws.send_json({"type": "turn", "id": 2, "text": "second"})
+            self.assertEqual(ws.receive_json(), {"type": "queued", "id": 2, "position": 1})
+            self.assertEqual(ws.receive_json(), {"type": "user", "text": "second", "id": 2})
+            release.set()
+            events = self.until(ws, lambda event: event["type"] == "done" and event["id"] == 2)
+        order = [(event["type"], event["id"]) for event in events if event["type"] in {"done", "start", "cancelled"}]
+        self.assertEqual(order, [("done", 1), ("start", 2), ("done", 2)])
+        self.assertFalse(flags["first"].is_set())
+        self.assertEqual([turn["state"] for turn in self.snapshot()["turns"]], ["done", "done"])
+
+    def test_noise_is_ignored_and_a_spoken_stop_stops_the_reply_and_what_waits(self):
+        release, transcripts = threading.Event(), {}
+        flags, _ = self.fixtures({"first": ["Working on it.", release], "queued": ["never"]}, transcripts)
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "first"})
+            self.until(ws, lambda event: event["type"] == "text")
+            for identifier, heard in ((2, "[cough]"), (3, "Um..."), (4, "")):
+                ws.send_json({"type": "turn", "id": identifier, "audio": self.speech(heard, transcripts)})
+                self.assertEqual(ws.receive_json(), {"type": "queued", "id": identifier, "position": 1})
+                self.assertEqual(ws.receive_json(), {"type": "ignored", "id": identifier, "reason": "unheard"})
+            ws.send_json({"type": "turn", "id": 5, "text": "queued"})
+            self.until(ws, lambda event: event["type"] == "user")
+            self.assertFalse(flags["first"].is_set())  # still answering
+            ws.send_json({"type": "turn", "id": 6, "audio": self.speech("Stop, please.", transcripts)})
+            events = self.until(ws, lambda event: event["type"] == "stopped")
+        self.assertIn({"type": "user", "text": "Stop, please.", "id": 6}, events)
+        self.assertEqual(sorted(event["id"] for event in events if event["type"] == "cancelled"), [1, 5])
+        self.assertEqual(events[-1], {"type": "stopped", "id": 6})
+        self.assertTrue(flags["first"].is_set())
+        self.assertNotIn("queued", flags)
+        self.assertEqual([turn["state"] for turn in self.snapshot()["turns"]], ["cancelled", "cancelled"])
+
+    def test_echo_hearing_itself_while_it_speaks_is_not_a_question(self):
+        transcripts = {}
+        self.fixtures({"port?": ["Billing listens on port 8101 in staging."], "Which port is billing on?": ["8101."]}, transcripts)
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "port?"})
+            self.until(ws, lambda event: event["type"] == "done")
+            ws.send_json({"type": "turn", "id": 2, "overlap": True, "audio": self.speech("listens on port 8101 in staging", transcripts)})
+            self.assertEqual(self.until(ws, lambda event: event["type"] == "ignored")[-1], {"type": "ignored", "id": 2, "reason": "echo"})
+            ws.send_json({"type": "turn", "id": 3, "overlap": True, "audio": self.speech("Which port is billing on?", transcripts)})
+            events = self.until(ws, lambda event: event["type"] == "done")
+        self.assertIn({"type": "text", "text": "8101.", "id": 3}, events)
+
+    def test_only_an_explicit_cancel_stops_and_one_waiting_question_can_be_withdrawn(self):
+        release = threading.Event()
+        flags, _ = self.fixtures({"first": ["One.", release], "second": ["Two."], "third": ["Three."], "fourth": ["Four.", threading.Event()]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "first"})
+            self.until(ws, lambda event: event["type"] == "text")
+            for identifier, text in ((2, "second"), (3, "third")):
+                ws.send_json({"type": "turn", "id": identifier, "text": text})
+                self.until(ws, lambda event: event["type"] == "user")
+            ws.send_json({"type": "cancel", "id": 2})
+            self.assertEqual(ws.receive_json(), {"type": "cancelled", "id": 2})
+            self.assertFalse(flags["first"].is_set())
+            release.set()
+            events = self.until(ws, lambda event: event["type"] == "done" and event["id"] == 3)
+            self.assertNotIn(2, [event["id"] for event in events])
+            ws.send_json({"type": "turn", "id": 4, "text": "fourth"})
+            self.until(ws, lambda event: event["type"] == "text")
+            ws.send_json({"type": "cancel"})
+            self.assertEqual(ws.receive_json(), {"type": "cancelled", "id": 4})
+        self.assertNotIn("second", flags)
+        self.assertTrue(flags["fourth"].is_set())
+
+    def test_ending_the_conversation_keeps_nothing_and_the_next_window_starts_afresh(self):
+        self.fixtures({"hello": ["Hi."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "hello"})
+            self.until(ws, lambda event: event["type"] == "done")
+            ws.send_json({"type": "end"})
+            with self.assertRaises(WebSocketDisconnect):
+                ws.receive_json()
+        self.assertIsNone(self.snapshot())
+        token, socket = self.connect()
+        with socket as ws:
+            ready = self.open(ws, token)
+        self.assertEqual((ready["resumed"], ready["turns"], ready["last_id"]), (False, [], 0))
+        self.assertIsNone(self.snapshot())  # nothing was asked in that one
+
+    def test_another_model_takes_over_once_the_reply_in_progress_is_answered(self):
+        release = threading.Event()
+        self.fixtures({"first": ["Done soon.", release]})
+        token, socket = self.connect("chat")
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "first"})
+            self.until(ws, lambda event: event["type"] == "text")
+        token, socket = self.connect("lfm")
+        with socket as ws:
+            ready = self.open(ws, token)
+            self.assertEqual((ready["resumed"], ready["engine"], ready["busy"]), (True, "chat", True))
+            release.set()
+            events = self.until(ws, lambda event: event["type"] == "ready")
+        self.assertEqual([event["type"] for event in events if event["type"] in {"done", "ready"}], ["done", "ready"])
+        self.assertEqual((events[-1]["engine"], events[-1]["resumed"]), ("lfm", False))
+        self.assertEqual(voice.sessions.conversation.history, [])
+
+    def test_a_finished_answer_can_be_heard_again_without_asking_again(self):
+        spoken = []
+        self.fixtures({"hello": ["Hello there, this is the whole answer."]}, spoken=spoken)
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "hello"})
+            self.until(ws, lambda event: event["type"] == "done")
+            spoken.clear()
+            ws.send_json({"type": "replay", "id": 2, "of": 1})
+            events = self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual("".join(spoken), "Hello there, this is the whole answer.")
+        self.assertTrue(all(event["id"] == 2 for event in events))
+        self.assertEqual(len(voice.sessions.conversation.history), 2)
+        self.assertEqual([turn["id"] for turn in self.snapshot()["turns"]], [1])
+
+    def test_a_failed_reply_says_so_and_the_next_question_still_runs(self):
+        self.fixtures({"broken": [{"type": "error", "error": "model crashed"}], "again": ["Fine now."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "broken"})
+            error = self.until(ws, lambda event: event["type"] == "error")[-1]
+            self.assertEqual(error, {"type": "error", "id": 1, "error": "The chat model could not reply. Open Chat to check its setup."})
+            ws.send_json({"type": "turn", "id": 2, "text": "again"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual([(turn["state"], turn["error"] != "") for turn in self.snapshot()["turns"]], [("failed", True), ("done", False)])
+
+    def test_a_conversation_without_a_window_is_forgotten_after_a_while(self):
+        self.fixtures({"hello": ["Hi."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "hello"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertIsNotNone(self.snapshot())
+        with patch.object(voice, "DETACHED_KEEP", 0):
+            self.assertIsNone(self.snapshot())
+        self.assertEqual(self.client.get("/api/voice/conversation", headers={"Origin": "https://evil.test"}).status_code, 403)
+
+    def test_what_counts_as_noise_an_echo_or_a_stop(self):
+        from imprint import wake
+        for text in ("", "  ", "[cough]", "(clears throat)", "Um.", "hmm, uh", "*sigh*"):
+            self.assertTrue(voice.unheard(text), text)
+        for text in ("Stop", "what", "Um, which port?"):
+            self.assertFalse(voice.unheard(text), text)
+        answer = "Billing listens on port 8101 in staging, and 8102 in production."
+        self.assertTrue(voice.echoes("listens on port 8101 in staging", answer))
+        self.assertFalse(voice.echoes("which port is billing on", answer))
+        self.assertFalse(voice.echoes("8101", answer))  # too short to tell
+        for text in ("Stop.", "stop please", "Cancel!", "Never mind, Echo.", "Echo, stop", "OK stop", "stop talking"):
+            self.assertTrue(wake.stop_phrase(text), text)
+        for text in ("Stop the billing service", "don't stop", "Thanks", "please continue", ""):
+            self.assertFalse(wake.stop_phrase(text), text)
+
+
 class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_audio_window_waits_for_playback_and_rejects_invented_progress(self):
         window = voice.PlaybackWindow()
@@ -354,6 +657,16 @@ class VoiceValidationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(window.sent - window.played, 2)
         with self.assertRaises(VoiceMemoryError):
             window.acknowledge(0)
+
+    async def test_a_released_window_stops_waiting_for_playback(self):
+        window = voice.PlaybackWindow()
+        window.sent = voice.PLAYBACK_AHEAD
+        pending = asyncio.create_task(window.reserve("AAAAAA=="))
+        await asyncio.sleep(0)
+        self.assertFalse(pending.done())
+        window.release()  # the window playing it went away (ADR 0145)
+        await asyncio.wait_for(pending, slack(10))
+        await asyncio.wait_for(window.reserve("AAAAAA=="), slack(10))
 
     async def test_cancelling_audio_wait_drops_blocked_generation(self):
         window = voice.PlaybackWindow()
