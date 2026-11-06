@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 import time
 import unittest
 from pathlib import Path
@@ -130,7 +131,8 @@ class CoreMemoryTests(unittest.TestCase):
     def test_older_stores_become_tiers_without_new_stamps(self):
         """What the user wrote becomes a guideline, the rest records, and a
         record is no proposal; every device moves its rows the same way."""
-        with sqlite3.connect(self.data / 'core-memories.sqlite3') as conn:
+        # Closed, not only committed: Windows cannot remove an open database.
+        with closing(sqlite3.connect(self.data / 'core-memories.sqlite3')) as conn, conn:
             conn.execute('CREATE TABLE core (id TEXT PRIMARY KEY, text TEXT NOT NULL, kind TEXT NOT NULL, '
                          'scope TEXT NOT NULL, state TEXT NOT NULL, evidence TEXT NOT NULL, origin TEXT NOT NULL, '
                          'created_at REAL NOT NULL, updated_at REAL NOT NULL, approved_at REAL, device TEXT NOT NULL)')

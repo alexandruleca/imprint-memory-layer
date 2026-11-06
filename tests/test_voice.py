@@ -635,7 +635,8 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
             ws.send_json({"type": "turn", "id": 1, "text": "hello"})
             self.until(ws, lambda event: event["type"] == "done")
         self.assertIsNotNone(self.snapshot())
-        with patch.object(voice, "DETACHED_KEEP", 0):
+        # Below zero: on Windows the monotonic clock may not have moved yet.
+        with patch.object(voice, "DETACHED_KEEP", -1):
             self.assertIsNone(self.snapshot())
         self.assertEqual(self.client.get("/api/voice/conversation", headers={"Origin": "https://evil.test"}).status_code, 403)
 
