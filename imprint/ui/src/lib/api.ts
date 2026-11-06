@@ -616,6 +616,8 @@ export async function renameChatSession(id: string, title: string) {
 /** Stream one reply; resolves when the server closes the stream. Aborting
  * `signal` stops the reply (the server keeps what was already streamed) and
  * rejects with an AbortError. */
+/** Ask in a chat and watch the reply. Aborting `signal` only stops watching:
+ * the reply goes on in the API until it is answered or stopped (ADR 0145). */
 export async function streamChat(
   sessionId: string,
   message: string,
@@ -628,6 +630,21 @@ export async function streamChat(
     body: JSON.stringify({ session_id: sessionId, message }),
     signal,
   });
+  await readChatEvents(res, onEvent);
+}
+
+/** Watch the reply being written in a chat, from its first event. */
+export async function followChat(sessionId: string, onEvent: (ev: ChatEvent) => void, signal: AbortSignal): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}/reply`, { signal });
+  await readChatEvents(res, onEvent);
+}
+
+/** The user's stop: the one thing that cancels a chat reply. */
+export async function stopChat(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }).catch(() => {});
+}
+
+async function readChatEvents(res: Response, onEvent: (ev: ChatEvent) => void) {
   if (!res.ok || !res.body) {
     const detail = await res.json().catch(() => ({}));
     throw new Error(detail.error || `Request failed (${res.status})`);

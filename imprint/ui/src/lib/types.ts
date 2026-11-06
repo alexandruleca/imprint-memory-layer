@@ -207,6 +207,8 @@ export interface ChatSession {
   created_at: number;
   updated_at: number;
   message_count?: number;
+  /** A reply is being written in this chat (ADR 0145). */
+  replying?: boolean;
 }
 
 export interface ChatMessage {

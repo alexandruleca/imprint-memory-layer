@@ -88,6 +88,12 @@ function Row({ session, active, onSelect, onRename, onDelete }: {
       >
         {session.title}
       </button>
+      {session.replying && !active && (
+        // The reply goes on while another chat is open (ADR 0145).
+        <span className="mr-1 size-1.5 shrink-0 animate-pulse rounded-full bg-primary" title="Still answering">
+          <span className="sr-only">Still answering</span>
+        </span>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

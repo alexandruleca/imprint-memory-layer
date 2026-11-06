@@ -232,8 +232,10 @@ test('a failed reply offers retry, which asks again', async ({ page }) => {
   expect(state.chatBodies.map(body => body.message)).toEqual(['hello', 'hello']);
 });
 
-test('stop ends a reply that is still running', async ({ page }) => {
+test('stop ends a reply that is still running, and asks the API to stop it', async ({ page }) => {
   await mockChat(page, { sessions: [{ id: 'chat1', title: 'Slow', created_at: now, updated_at: now }] });
+  const stops: string[] = [];
+  await page.route('**/api/chat/sessions/*/stop', route => { stops.push(new URL(route.request().url()).pathname); return route.fulfill({ json: { ok: true } }); });
   await page.route('**/api/chat', async route => {
     await new Promise(resolve => setTimeout(resolve, slack(10_000)));  // longer than Stop takes
     await route.fulfill({ contentType: 'text/event-stream', body: sse({ type: 'done' }) }).catch(() => {});
@@ -246,6 +248,61 @@ test('stop ends a reply that is still running', async ({ page }) => {
   await page.getByRole('button', { name: 'Stop reply' }).click();
   await expect(page.getByText('Stopped')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send message' })).toBeVisible();
+  // Closing the stream alone would only stop watching; the reply is stopped in the API (ADR 0145).
+  expect(stops).toEqual(['/api/chat/sessions/chat1/stop']);
+});
+
+test('a reply goes on while another chat is open, and its chat shows it whole when opened again', async ({ page }) => {
+  const messages: Record<string, object[]> = { other: [{ role: 'user', content: 'Hello' }, { role: 'assistant', content: 'Hi.' }] };
+  const state = await mockChat(page, {
+    sessions: [
+      { id: 'billing', title: 'Billing', created_at: now, updated_at: now },
+      { id: 'other', title: 'Other chat', created_at: now - 60, updated_at: now - 60 },
+    ],
+    messages,
+  });
+  const stops: string[] = [];
+  await page.route('**/api/chat/sessions/*/stop', route => { stops.push(route.request().url()); return route.fulfill({ json: { ok: true } }); });
+  await page.route('**/api/chat/sessions/*/reply', route => route.fulfill({ contentType: 'text/event-stream', body: sse(
+    { type: 'tool_call', name: 'search', args: { query: 'billing port' } },
+    { type: 'tool_result', name: 'search', result: 'billing: 8101' },
+    { type: 'token', text: 'Billing is on ' },
+    { type: 'token', text: 'port 8101.' },
+    { type: 'assistant_message', text: 'Billing is on port 8101.' },
+    { type: 'done' },
+  ) }));
+  // The first reply streams one token, then waits; leaving aborts only the watching.
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (!String(input).endsWith('/api/chat')) return original(input, init);
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({ start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"token","text":"Billing is on "}\n\n'));
+        init?.signal?.addEventListener('abort', () => controller.error(new DOMException('The watching stopped', 'AbortError')));
+      } });
+      return Promise.resolve(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    };
+  });
+  await page.goto('/chat/');
+  await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Message' }).fill('Which port is billing on?');
+  await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+  await expect(page.getByText('Billing is on')).toBeVisible();
+  // The API now has the question and a reply still being written.
+  messages.billing = [{ role: 'user', content: 'Which port is billing on?' },
+    { role: 'tool', content: 'billing: 8101', tool_name: 'search', tool_args: { query: 'billing port' } }];
+  state.sessions = state.sessions.map(session => session.id === 'billing' ? { ...session, replying: true } : session);
+  await page.getByRole('button', { name: 'Other chat', exact: true }).click();
+  await expect(page.getByText('Hi.', { exact: true })).toBeVisible();
+  await expect(page.getByTitle('Still answering')).toBeVisible();
+  await expect(page.getByText('Stopped')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Billing', exact: true }).click();
+  await expect(page.getByText('Billing is on port 8101.', { exact: true })).toBeVisible();
+  // Replayed from its start once: one search row, not the stored one again.
+  await expect(page.getByRole('button', { name: /Searched memory for “billing port”/ })).toHaveCount(1);
+  await expect(page.getByText('Stopped')).toHaveCount(0);
+  expect(stops).toEqual([]);
 });
 
 test('chats can be renamed and deleted from their menu', async ({ page }) => {

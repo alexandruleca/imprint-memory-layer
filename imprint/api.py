@@ -36,7 +36,7 @@ from . import config
 from . import vectorstore as vs
 from . import imprint_graph as kg
 from . import chat as chat_mod
-from . import chat_store
+from . import chat_replies, chat_store
 from . import commands
 from . import queue as job_queue
 from . import updates
@@ -131,6 +131,7 @@ async def _start_queue_dispatcher():
 async def _stop_sync_worker():
     from .voice_api import shutdown
     await shutdown()
+    chat_replies.stop_all()
     task = getattr(app.state, 'sync_worker', None)
     if task:
         task.cancel()
@@ -797,7 +798,8 @@ def api_chat_status():
 
 @app.get("/api/chat/sessions")
 def api_chat_sessions():
-    return {"sessions": chat_store.list_sessions()}
+    return {"sessions": [{**session, "replying": chat_replies.current(session["id"]) is not None}
+                         for session in chat_store.list_sessions()]}
 
 
 @app.post("/api/chat/sessions")
@@ -814,7 +816,25 @@ def api_chat_get_session(sid: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     sess["messages"] = chat_store.get_messages(unquote(sid))
     sess["summary"] = chat_store.get_summary(unquote(sid))
+    # A reply still being written is watched from /reply (ADR 0145).
+    sess["replying"] = chat_replies.current(unquote(sid)) is not None
     return sess
+
+
+@app.get("/api/chat/sessions/{sid}/reply")
+async def api_chat_reply(sid: str):
+    """The reply being written in this chat, from its first event: a page that
+    comes back sees everything so far, then the rest as it comes (ADR 0145)."""
+    reply = chat_replies.current(unquote(sid))
+    if reply is None:
+        return JSONResponse({"error": "no reply is being written"}, status_code=404)
+    return StreamingResponse(_watch(reply), media_type="text/event-stream")
+
+
+@app.post("/api/chat/sessions/{sid}/stop")
+def api_chat_stop(sid: str):
+    """The user's stop: the only thing that cancels a reply (ADR 0145)."""
+    return {"ok": chat_replies.stop(unquote(sid))}
 
 
 @app.post("/api/chat/sessions/{sid}/rename")
@@ -843,23 +863,47 @@ async def api_chat(request: Request):
     if not sess:
         return JSONResponse({"error": "session not found"}, status_code=404)
 
+    if chat_replies.current(sid) is not None:
+        return JSONResponse({"error": "A reply is still being written in this chat. Stop it or wait for it."}, status_code=409)
     prior = chat_store.get_messages(sid)
     summary = chat_store.get_summary(sid)
-    chat_store.append_message(sid, role="user", content=user_msg)
     workspace = config.get_active_workspace()
-    return StreamingResponse(_chat_events(sid, prior, user_msg, workspace, summary),
-                             media_type="text/event-stream")
+    try:
+        # The reply runs on its own thread: the request only watches it, so a
+        # closed tab or another chat never stops it (ADR 0145).
+        reply = chat_replies.start(sid, lambda cancel: _chat_events(sid, prior, user_msg, workspace, summary, cancel),
+                                   prepare=lambda: chat_store.append_message(sid, role="user", content=user_msg))
+    except chat_replies.Busy:
+        return JSONResponse({"error": "A reply is still being written in this chat. Stop it or wait for it."}, status_code=409)
+    return StreamingResponse(_watch(reply), media_type="text/event-stream")
 
 
-def _chat_events(sid: str, prior: list[dict], user_msg: str, workspace: str, summary: dict | None = None):
+async def _watch(reply: chat_replies.Reply):
+    """Every event of a reply from the first, as SSE, until it ends. Leaving
+    stops only the watching; a keep-alive lets a closed connection notice."""
+    seen = 0
+    while True:
+        batch, finished = await asyncio.to_thread(reply.wait, seen, 1.0)
+        seen += len(batch)
+        for event in batch:
+            yield event
+        if finished and seen >= len(reply.events):
+            return
+        if not batch:
+            yield ": keep-alive\n\n"
+
+
+def _chat_events(sid: str, prior: list[dict], user_msg: str, workspace: str, summary: dict | None = None,
+                 cancel: threading.Event | None = None):
     """Stream one reply as SSE and record it in the session, with the
     running summary it updates (ADR 0141)."""
     pending_tool = None
-    # The reply as streamed so far. A client that stops the reply closes
-    # this generator; what it already showed stays in the conversation.
+    # The reply as streamed so far. When the user stops the reply (or this
+    # generator is closed), what was already shown stays in the conversation.
     partial, answered = [], False
+    options = {"cancel_event": cancel} if cancel is not None else {}
     try:
-        for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace, summary=summary):
+        for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace, summary=summary, **options):
             etype = ev.get("type")
             if etype == "summary":
                 chat_store.set_summary(sid, ev.get("text", ""), ev.get("covers", 0), ev.get("retry_after", 0))

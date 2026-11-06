@@ -9,10 +9,10 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LogoMark } from "@/components/logo-mark";
 import {
-  createChatSession, deleteChatSession, getChatSession, getChatSessions, getChatStatus,
-  renameChatSession, streamChat,
+  createChatSession, deleteChatSession, followChat, getChatSession, getChatSessions, getChatStatus,
+  renameChatSession, stopChat, streamChat,
 } from "@/lib/api";
-import type { ChatSession, ChatStatus, ChatSummary } from "@/lib/types";
+import type { ChatEvent, ChatMessage, ChatSession, ChatStatus, ChatSummary } from "@/lib/types";
 import { applyEvent, pendingReply, turnsFromHistory, type AssistantTurn, type Turn } from "./_lib/turns";
 import { Composer } from "./_components/composer";
 import { Conversation } from "./_components/conversation";
@@ -36,6 +36,13 @@ function rememberChat(id: string | null) {
     if (id) localStorage.setItem(LAST_CHAT, id);
     else localStorage.removeItem(LAST_CHAT);
   } catch {}
+}
+
+/** The stored messages of a chat whose reply is still being written, without
+ * what that reply already stored: watching it replays those from its start. */
+function beforeReply(messages: ChatMessage[]): ChatMessage[] {
+  const last = messages.findLastIndex((message) => message.role === "user");
+  return last < 0 ? messages : messages.slice(0, last + 1);
 }
 
 /** The server titles a chat after its first line; show the same at once. */
@@ -90,6 +97,8 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
+  // Watching the open chat's reply. Aborting it only stops watching; the
+  // reply goes on in the API until it is answered or stopped (ADR 0145).
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -108,11 +117,16 @@ export default function ChatPage() {
     rememberChat(id);
     setListOpen(false);
     setLoadingChat(true);
+    setStreaming(false);
     setAtBottom(true);
+    let replying = false;
     try {
       const chat = await getChatSession(id);
       if (current === view.current) {
-        setTurns(turnsFromHistory(chat.messages ?? []));
+        // A reply still being written is shown from its start and followed (ADR 0145).
+        replying = !!chat.replying;
+        const messages = chat.messages ?? [];
+        setTurns(replying ? [...turnsFromHistory(beforeReply(messages)), pendingReply()] : turnsFromHistory(messages));
         setSummary(chat.summary?.text ? chat.summary : null);
       }
     } catch {
@@ -121,10 +135,12 @@ export default function ChatPage() {
       if (current === view.current) setLoadingChat(false);
     }
     composerRef.current?.focus();
+    if (replying && current === view.current) await watch(current, (onEvent, signal) => followChat(id, onEvent, signal));
   }
 
   function startNew() {
     abortRef.current?.abort();
+    setStreaming(false);
     view.current++;
     setActiveId(null);
     setTurns([]);
@@ -161,25 +177,14 @@ export default function ChatPage() {
     });
   }
 
-  async function send(text: string) {
-    if (streaming) return;
-    const current = view.current;
+  /** Watch a reply in the open chat until it ends, the user stops it, or
+   * another chat is shown (which stops only the watching). */
+  async function watch(current: number, open: (onEvent: (event: ChatEvent) => void, signal: AbortSignal) => Promise<void>) {
     const controller = new AbortController();
     abortRef.current = controller;
     setStreaming(true);
-    setAtBottom(true);
-    setTurns((prev) => [...prev, { role: "user", text }, pendingReply()]);
     try {
-      let id = activeId;
-      if (!id) {
-        const session = await createChatSession();
-        id = session.id;
-        if (current !== view.current) return;
-        setActiveId(id);
-        rememberChat(id);
-        setSessions((prev) => [{ ...session, title: titleFrom(text) }, ...(prev ?? [])]);
-      }
-      await streamChat(id, text, (event) => {
+      await open((event) => {
         if (current !== view.current) return;
         if (event.type === "summary" && event.text) {
           setSummary({ text: event.text, covers: event.covers, exchanges: event.exchanges });
@@ -192,13 +197,57 @@ export default function ChatPage() {
       else updateReply((turn) => ({ ...turn, error: error instanceof Error ? error.message : String(error) }));
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
-      if (current === view.current) updateReply((turn) => ({ ...turn, streaming: false }));
-      setStreaming(false);
+      if (current === view.current) {
+        updateReply((turn) => ({ ...turn, streaming: false }));
+        setStreaming(false);
+      }
       refreshSessions();
       // The first reply may have downloaded the model.
       getChatStatus().then(setStatus).catch(() => {});
     }
   }
+
+  async function send(text: string) {
+    if (streaming) return;
+    const current = view.current;
+    setStreaming(true);
+    setAtBottom(true);
+    setTurns((prev) => [...prev, { role: "user", text }, pendingReply()]);
+    let id = activeId;
+    try {
+      if (!id) {
+        const session = await createChatSession();
+        id = session.id;
+        if (current !== view.current) return;
+        setActiveId(id);
+        rememberChat(id);
+        setSessions((prev) => [{ ...session, title: titleFrom(text) }, ...(prev ?? [])]);
+      }
+    } catch (error) {
+      if (current !== view.current) return;
+      updateReply((turn) => ({ ...turn, streaming: false, error: error instanceof Error ? error.message : String(error) }));
+      setStreaming(false);
+      return;
+    }
+    const chat = id;
+    await watch(current, (onEvent, signal) => streamChat(chat, text, onEvent, signal));
+  }
+
+  /** The user's stop: the API stops the reply, and this page stops watching. */
+  function stop() {
+    if (activeId) void stopChat(activeId);
+    abortRef.current?.abort();
+  }
+
+  // Leaving the page stops watching; the reply goes on (ADR 0145).
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  // A reply that goes on in another chat shows in the list until it ends.
+  useEffect(() => {
+    if (!sessions?.some((session) => session.replying)) return;
+    const timer = setInterval(refreshSessions, 3000);
+    return () => clearInterval(timer);
+  }, [sessions]);
 
   function retry() {
     const lastUser = turns.findLast((turn) => turn.role === "user");
@@ -262,7 +311,7 @@ export default function ChatPage() {
               </p>
             </div>
             <Composer ref={composerRef} autoFocus model={model} streaming={streaming} onSend={send}
-              onStop={() => abortRef.current?.abort()} className="max-w-2xl" />
+              onStop={stop} className="max-w-2xl" />
             <div className="flex flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((suggestion) => (
                 <Button key={suggestion} variant="outline" size="sm" className="rounded-full font-normal"
@@ -310,7 +359,7 @@ export default function ChatPage() {
             <div className="mx-auto w-full max-w-3xl space-y-2 px-4 pb-4">
               {status?.error && <SetupNotice status={status} />}
               <Composer ref={composerRef} model={model} streaming={streaming} onSend={send}
-                onStop={() => abortRef.current?.abort()} />
+                onStop={stop} />
             </div>
           </>
         )}
