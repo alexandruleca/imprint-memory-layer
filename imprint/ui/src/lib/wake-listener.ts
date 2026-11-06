@@ -177,10 +177,12 @@ export class WakeListener {
 }
 
 /** The microphone chosen in Voice settings, or the system default when it is gone.
- * No echo cancellation (nothing of Imprint's plays while it listens) and no gain
- * control (it would lift the room floor the gate adapts to). */
+ * No echo cancellation (nothing of Imprint's plays while it listens). Gain
+ * control is on, as for Echo's own capture: without it many Windows
+ * microphones deliver speech below the gate's floor, and it never opens; the
+ * gate still follows the room's noise. */
 async function openMicrophone(device: string) {
-  const audio = { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: false };
+  const audio = { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true };
   if (!device) return navigator.mediaDevices.getUserMedia({ audio, video: false });
   try {
     return await navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: device } }, video: false });

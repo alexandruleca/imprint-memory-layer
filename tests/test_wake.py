@@ -82,6 +82,19 @@ class AudioTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     wake.samples(bad, wake.PROBE_SECONDS)
 
+    def test_quiet_speech_is_raised_for_the_detector_and_loud_speech_left_as_it_is(self):
+        # A Windows microphone without gain control delivered speech far below full scale.
+        import numpy as np
+        quiet = (np.sin(np.linspace(0, 200, 16000)) * 0.02).astype(np.float32)
+        raised = wake.louder(quiet)
+        self.assertAlmostEqual(float(np.max(np.abs(raised))), 0.2, places=3, msg="at most 10x")
+        louder_input = (np.sin(np.linspace(0, 200, 16000)) * 0.1).astype(np.float32)
+        self.assertAlmostEqual(float(np.max(np.abs(wake.louder(louder_input)))), wake.TARGET_PEAK, places=3)
+        loud = (np.sin(np.linspace(0, 200, 16000)) * 0.8).astype(np.float32)
+        self.assertIs(wake.louder(loud), loud)
+        silence = np.zeros(16000, dtype=np.float32)
+        self.assertIs(wake.louder(silence), silence)
+
     def test_the_budget_checks_bursts_after_a_pause_and_stops_at_twice_its_size(self):
         now = [0.0]
         budget = wake.Budget(2.5, clock=lambda: now[0])

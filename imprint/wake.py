@@ -131,7 +131,21 @@ def samples(data: bytes, max_seconds: float):
             raw = reader.readframes(frames)
     except (wave.Error, EOFError) as error:
         raise ValueError("Invalid WAV audio.") from error
-    return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768
+    return louder(np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768)
+
+
+# Quiet speech is raised to this peak before the detector hears it, by at most
+# MAX_GAIN: Whisper writes little or nothing for audio far below full scale.
+TARGET_PEAK, MAX_GAIN = 0.5, 10.0
+
+
+def louder(audio):
+    """A quiet recording raised toward TARGET_PEAK; a loud one as it is."""
+    import numpy as np
+    peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+    if peak <= 0.0 or peak >= TARGET_PEAK:
+        return audio
+    return (audio * min(MAX_GAIN, TARGET_PEAK / peak)).astype(np.float32)
 
 
 class Budget:
