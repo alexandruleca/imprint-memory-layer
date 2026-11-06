@@ -567,6 +567,20 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
         self.assertEqual((ready["resumed"], ready["turns"], ready["last_id"]), (False, [], 0))
         self.assertIsNone(self.snapshot())  # nothing was asked in that one
 
+    def test_a_window_without_the_conversation_ends_it_unless_another_window_holds_it(self):
+        self.fixtures({"hello": ["Hi."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "hello"})
+            self.until(ws, lambda event: event["type"] == "done")
+            self.assertEqual(self.client.post("/api/voice/conversation/end", headers=self.ORIGIN).status_code, 409)
+        self.assertIsNotNone(self.snapshot())
+        self.assertEqual(self.client.post("/api/voice/conversation/end").status_code, 403)
+        response = self.client.post("/api/voice/conversation/end", headers=self.ORIGIN)
+        self.assertEqual((response.status_code, response.json()), (200, {"conversation": None}))
+        self.assertIsNone(self.snapshot())
+
     def test_another_model_takes_over_once_the_reply_in_progress_is_answered(self):
         release = threading.Event()
         self.fixtures({"first": ["Done soon.", release]})

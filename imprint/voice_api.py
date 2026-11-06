@@ -876,6 +876,20 @@ def conversation_status(request: Request):
     return {"conversation": conversation.snapshot() if conversation else None}
 
 
+@router.post("/conversation/end")
+async def conversation_end(request: Request):
+    """End the conversation from a window that is not connected to it. The
+    window that holds it ends it over its own connection."""
+    check_setup_origin(request, mutate=True)
+    await empty_setup_body(request)
+    conversation = sessions.current()
+    if conversation is not None and (conversation.socket is not None or sessions.claimed):
+        raise HTTPException(409, "Voice is open in another window. End it there.")
+    if conversation is not None:
+        await conversation.end()
+    return {"conversation": None}
+
+
 def valid_turn(message: dict, last_id: int) -> bool:
     identifier = message.get("id")
     if type(identifier) is not int or identifier <= last_id:

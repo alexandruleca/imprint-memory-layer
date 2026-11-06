@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDownToDot, ArrowUpRight, Download, Mic, MicOff, Pin, Settings2, Square, X, AudioLines } from "lucide-react";
+import { ArrowDownToDot, ArrowUpRight, Download, Mic, MicOff, Pin, Play, RotateCcw, Settings2, Square, X, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { MicrophoneAccessError, VoiceClient, initialVoice, microphoneAccessAllows, microphoneProblem, type VoiceMode, type VoiceSnapshot } from "@/lib/voice-client";
+import { MicrophoneAccessError, VoiceClient, initialVoice, microphoneAccessAllows, microphoneProblem, replying, type VoiceMode, type VoiceSnapshot, type VoiceTurn } from "@/lib/voice-client";
 import { downloadWakeModel, cancelWakeDownload, useWakeState, wakeStatus, wakeSummary } from "@/lib/wake";
 import { readVoicePreferences, saveVoicePreferences } from "@/lib/voice-preferences";
 import { API_BASE } from "@/lib/api-base";
@@ -22,6 +22,55 @@ import "@/styles/voice.css";
 
 const EchoAvatar = dynamic(() => import("./echo-avatar"), { ssr: false });
 type RuntimeStatus = { configured: boolean; installed: boolean; supported: boolean; chat_provider: string; workspace: string };
+type TurnActions = { retry: (id: number) => void; replay: (id: number) => void; withdraw: (id: number) => void };
+
+/** A turn's state in plain words, with what can be done about it (ADR 0145). */
+function TurnStatus({ turn, voice, last, actions }: { turn: VoiceTurn; voice: VoiceSnapshot; last: boolean; actions: TurnActions }) {
+  const connected = voice.connected;
+  if (turn.state === "queued") return <p className="voice-turn-status">
+    <span>Waits for the answer before it</span>
+    {connected && <Button variant="ghost" size="xs" aria-label="Remove waiting question" onClick={() => actions.withdraw(turn.id)}><X/> Remove</Button>}
+  </p>;
+  // What Echo is doing shows under its head; here only that it has not answered yet.
+  if (turn.state === "thinking") return turn.answer ? null : <p className="voice-turn-status">Thinking…</p>;
+  if (turn.state === "stopped") return <p className="voice-turn-status">Stopped</p>;
+  if (turn.state === "failed") return <p className="voice-turn-status" data-alert>
+    <span>{turn.error || "Echo couldn't finish this answer."}</span>
+    {connected && turn.user && <Button variant="ghost" size="xs" onClick={() => actions.retry(turn.id)}><RotateCcw/> Try again</Button>}
+  </p>;
+  const speaking = voice.phase === "speaking";
+  if (!turn.answer.trim() || (!turn.away && !(last && connected && !speaking))) return null;
+  return <p className="voice-turn-status">
+    {turn.away && <span>Answered while Echo was away</span>}
+    {connected && !speaking && <Button variant="ghost" size="xs" onClick={() => actions.replay(turn.id)}><Play/> {turn.away ? "Play answer" : "Play again"}</Button>}
+  </p>;
+}
+
+/** The conversation's recent questions and answers, oldest first. The small
+ * window shows the newest exchange with one line per waiting question
+ * ("latest"); its settings panel lists them all without the notice ("panel"). */
+function Turns({ voice, actions, variant = "full" }: { voice: VoiceSnapshot; actions: TurnActions; variant?: "full" | "latest" | "panel" }) {
+  const lastDone = voice.turns.findLast(turn => turn.state === "done")?.id;
+  const latest = variant === "latest";
+  const shown = latest ? voice.turns.filter((turn, index) => index === voice.turns.length - 1 || turn.state === "queued"
+    || turn.state === "thinking") : voice.turns;
+  if (!shown.length) return null;
+  const spokenQuestion = (turn: VoiceTurn) => turn.user || (turn.spoken ? "Your spoken question" : "");
+  return <>{voice.resumed && variant !== "panel" && <p className="voice-turn-note" role="status">Picked up where you left off</p>}
+  <ol className={latest ? "voice-transcript voice-latest" : "voice-transcript"} aria-label="Conversation">
+    {shown.map(turn => latest && turn.state === "queued"
+      ? <li key={turn.id} className="voice-turn voice-turn-next" data-state="queued">
+        <p className="voice-turn-status"><span>Next: {spokenQuestion(turn)}</span>
+          {voice.connected && <Button variant="ghost" size="icon-xs" aria-label="Remove waiting question" title="Remove" onClick={() => actions.withdraw(turn.id)}><X/></Button>}</p>
+      </li>
+      : <li key={turn.id} className="voice-turn" data-state={turn.state}>
+        <p className="voice-user">{spokenQuestion(turn)}</p>
+        {turn.answer && <p className="voice-answer">{turn.answer}</p>}
+        {!turn.answer && turn.state === "done" && <p className="voice-answer">…</p>}
+        <TurnStatus turn={turn} voice={voice} last={turn.id === lastDone} actions={actions}/>
+      </li>)}
+  </ol></>;
+}
 
 export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [voice, setVoice] = useState<VoiceSnapshot>({ ...initialVoice });
@@ -75,6 +124,9 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       setDesktop(!!window.electronAPI?.openCompanion);
       setEngine(preferences.engine); setRememberMicrophone(preferences.microphoneEnabled);
       setInputDevice(preferences.inputDevice); setOutputDevice(preferences.outputDevice);
+      // A reply that went on without this window is picked up, or shown if it finished (ADR 0145).
+      engineRef.current = preferences.engine;
+      if (!document.hidden) void client.current?.restore(preferences.engine);
     }, 0);
     // The main process owns the window, so pinning shows the state it reports.
     function companion(state: { pinned: boolean; docked?: boolean; shortcutAvailable?: boolean } | null) {
@@ -115,13 +167,15 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
           if (session.text !== null) woken({ type: "question", id: session.id, text: session.text });
         }).catch(() => {});
     }
-    function hidden() { if (document.hidden) client.current?.stop(); }
+    // Hidden, the page lets go of the microphone and the conversation; a reply
+    // in progress goes on in the API, and showing the page picks it up (ADR 0145).
+    function hidden() { if (document.hidden) client.current?.detach(); else void client.current?.restore(engineRef.current); }
     function blur() { client.current?.release(false); }
-    function transfer() { if (!compact) client.current?.stop(); }
+    function transfer() { if (!compact) client.current?.detach(); }
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("blur", blur);
     window.addEventListener("imprint:stop-dashboard-voice", transfer);
-    return () => { clearTimeout(timer); controller.abort(); unsubscribe?.(); unsubscribeWake?.(); client.current?.stop(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
+    return () => { clearTimeout(timer); controller.abort(); unsubscribe?.(); unsubscribeWake?.(); client.current?.detach(); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("blur", blur); window.removeEventListener("imprint:stop-dashboard-voice", transfer); };
   }, [compact]);
   useEffect(() => { engineRef.current = engine; }, [engine]);
   // While this page holds the microphone, the desktop app's wake listener pauses (ADR 0137).
@@ -136,6 +190,10 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
     && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
   const active = voice.connected || voice.phase === "connecting";
+  // Echo is answering, has questions waiting, or is reading an answer aloud.
+  const busy = voice.connected && (replying(voice) || voice.phase === "speaking");
+  const actions: TurnActions = { retry: id => client.current?.retry(id), replay: id => client.current?.replay(id),
+    withdraw: id => client.current?.withdraw(id) };
   /** Turn on "Hey Echo": after the explanation, the OS consent step (ADR 0069), then
    * the one-time model download, then the desktop app starts listening (ADR 0137). */
   async function turnOnWake() {
@@ -183,7 +241,8 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     wakeId.current = null;
   }
   // A session keeps the voice and reasoning model it started with (ADR 0071),
-  // so changing either during one starts a new session; its history is transient.
+  // so changing either reconnects; the API finishes the reply in progress
+  // first, then starts the new conversation (ADR 0145).
   async function chooseLook(next: string) {
     const previous = avatar;
     setAvatar(next);
@@ -223,9 +282,9 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     <input ref={input} aria-label="Type a question" placeholder="Or type a thought…" value={text} maxLength={2000} onChange={event => setText(event.target.value)}/>
     <Button type="submit" variant="ghost" size="icon-sm" aria-label="Send question" disabled={!text.trim()}><ArrowUpRight size={17}/></Button>
   </form>;
-  const transcript = (voice.user || voice.answer) && <div className="voice-transcript"><p className="voice-user">{voice.user}</p><p>{voice.answer || "…"}</p></div>;
+  const transcript = <Turns voice={voice} actions={actions} variant={compact ? "panel" : "full"}/>;
   function popout() {
-    client.current?.stop();
+    client.current?.detach();
     if (window.electronAPI?.openCompanion) window.electronAPI.openCompanion();
     else window.open("/companion/", "imprint-echo", "popup,width=380,height=560");
   }
@@ -282,16 +341,15 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
             </div>
             {compact && ready && textForm}{compact && ready && transcript}
             {compact && <div className="voice-option-actions">
-              {active && <><Button variant="ghost" aria-label="Interrupt reply" onClick={() => client.current?.interrupt()}><Square size={14}/> Interrupt</Button>
-                <Button variant="ghost" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={14}/> Stop</Button></>}
+              {(active || voice.resumable) && <Button variant="ghost" onClick={() => client.current?.stop()}><MicOff size={14}/> End conversation</Button>}
               {desktop && <Button variant="ghost" aria-label={pinned ? "Unpin companion" : "Keep companion on top"} aria-pressed={pinned} className="voice-pin" onClick={() => window.electronAPI?.pinCompanion(!pinned)}><Pin size={14} fill={pinned ? "currentColor" : "none"}/> {pinned ? "On top" : "Keep on top"}</Button>}
-              <Button variant="ghost" aria-label="Close companion" onClick={() => { client.current?.stop(); if (window.electronAPI?.closeCompanion) window.electronAPI.closeCompanion(); else window.close(); }}><X size={14}/> Close</Button>
+              <Button variant="ghost" aria-label="Close companion" onClick={() => { client.current?.detach(); if (window.electronAPI?.closeCompanion) window.electronAPI.closeCompanion(); else window.close(); }}><X size={14}/> Close</Button>
             </div>}
             {compact && desktop && <small className="voice-hint">Drag Echo to move it; with the dashboard hidden, Echo and the Imprint button move together, and Echo can fold into the button. {shortcutAvailable ? `${shortcut} recalls Echo.` : "Recall Echo from the Imprint tray menu."}</small>}
           </PopoverContent>
         </Popover>
         {compact && desktop && docked && <Button variant="ghost" size="icon-sm" aria-label="Collapse Echo into the Imprint button" title="Collapse into the Imprint button"
-          onClick={() => { client.current?.stop(); window.electronAPI?.collapseCompanion?.(); }}><ArrowDownToDot size={16}/></Button>}
+          onClick={() => { client.current?.detach(); window.electronAPI?.collapseCompanion?.(); }}><ArrowDownToDot size={16}/></Button>}
       </div>
     </header>
     {!compact && <div className="voice-intro"><span className="voice-eyebrow">A LITTLE PRESENCE. A FAMILIAR VOICE.</span><h1>Your thoughts,<br/> <em>in conversation.</em></h1><p>A quiet companion for your local Imprint memory.</p></div>}
@@ -311,8 +369,11 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         <Button variant="ghost" aria-pressed={voice.mode === "handsfree"} onClick={() => chooseMode("handsfree")}>Hands-free</Button>
       </div>
       <div className="voice-primary-controls">
-        {!active ? <Button className="voice-start" disabled={!ready} onClick={() => void client.current?.start(engine)}><AudioLines size={18}/> Start conversation</Button>
-          : voice.phase === "connecting" ? <Button className="voice-start" onClick={() => client.current?.stop()}>Connecting… · Cancel</Button>
+        {!active ? <>
+            <Button className="voice-start" disabled={!ready} onClick={() => void client.current?.start(engine)}><AudioLines size={18}/> {voice.resumable ? "Continue conversation" : "Start conversation"}</Button>
+            {voice.resumable && !compact && <Button variant="ghost" size="icon-lg" aria-label="End conversation" title="End conversation" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>}
+          </>
+          : voice.phase === "connecting" ? <Button className="voice-start" onClick={() => client.current?.detach()}>Connecting… · Cancel</Button>
           : <>
             {!voice.microphone ? <Button className="voice-start" onClick={() => void client.current?.enableMicrophone().then(on => { if (on) remember(true); })}><Mic size={18}/> Enable microphone</Button>
               : voice.mode === "ptt" ? <Button className={`voice-start voice-hold ${voice.held ? "held" : ""}`} aria-label="Hold to talk" aria-pressed={voice.held}
@@ -322,13 +383,19 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
                 onKeyDown={event => { if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); client.current?.hold(); } }}
                 onKeyUp={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); client.current?.release(); } }}
                 onBlur={() => client.current?.release(false)}><Mic size={18}/>{voice.held ? "Release to send" : "Hold to talk"}</Button>
-              : <Button className="voice-start" onClick={() => client.current?.interrupt()}><Mic size={18}/> Listening · interrupt</Button>}
-            {!compact && <><Button variant="ghost" size="icon-lg" aria-label="Interrupt reply" onClick={() => client.current?.interrupt()}><Square size={16}/></Button>
-              <Button variant="ghost" size="icon-lg" aria-label="Stop conversation and microphone" onClick={() => client.current?.stop()}><MicOff size={18}/></Button></>}
+              : <span className="voice-start voice-listening"><Mic size={18}/> {voice.phase === "listening" ? "Hearing you" : "Listening"}</span>}
+            {/* Stopping is the one way to cancel a reply, so it sits beside the talk button (ADR 0145). */}
+            {busy && <Button variant="outline" size={compact ? "icon-sm" : "lg"} className="voice-stop" aria-label="Stop reply" title="Stop reply"
+              onClick={() => client.current?.stopReply()}><Square size={compact ? 13 : 15} fill="currentColor"/>{!compact && " Stop reply"}</Button>}
+            {!compact && <Button variant="ghost" size="icon-lg" aria-label="End conversation" title="End conversation" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>}
           </>}
       </div>
       {compact && <VoiceChatSetup preparation={voice.preparation} compact/>}
-      <p className="voice-privacy" role="status" data-alert={voice.phase === "error" || !!voice.microphoneError || undefined}>{voice.phase === "error" ? voice.detail : voice.microphoneError || (voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak to start, speak again to interrupt" : "Mic armed · hold button or focused Space key" : "Microphone off · English · runs locally")}</p>
+      {compact && <Turns voice={voice} actions={actions} variant="latest"/>}
+      <p className="voice-privacy" role="status" data-alert={voice.phase === "error" || !!voice.microphoneError || undefined}>{voice.phase === "error" ? voice.detail
+        : voice.microphoneError || (voice.elsewhere && !active ? "Echo is open in another window."
+        : voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak anytime; say “stop” to stop a reply" : "Mic armed · hold button or focused Space key"
+        : "Microphone off · English · runs locally")}</p>
       {voice.microphoneSettings && desktop && <Button variant="outline" className="voice-settings-link" onClick={() => void window.electronAPI?.openMicrophoneSettings?.()}>Open microphone settings</Button>}
       {!compact && textForm}{!compact && transcript}
       {!compact && picker && <div className="voice-look"><span>Echo&apos;s look and voice</span>{picker(true)}</div>}

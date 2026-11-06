@@ -17,44 +17,63 @@ vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.Sc
 const { VoiceGate, encodeWav } = exportsObject;
 const frame = (volume = 0) => Float32Array.from({ length: 960 }, (_, i) => Math.sin(i * .15) * volume);
 
-test('long replies report completed playback and acknowledge history only after the final audio', () => {
+test('long replies report completed playback per turn and need no history acknowledgement', () => {
   const client = new exportsObject.VoiceClient(() => {}), controls = [], scheduled = [];
   client.context = {
     currentTime: 0, destination: {},
     createBuffer: (_channels, samples, rate) => ({ duration: samples / rate, getChannelData: () => new Float32Array(samples) }),
     createAnalyser: () => ({ connect() {}, getFloatTimeDomainData(values) { values.fill(0); } }),
+    createGain: () => ({ gain: { value: 1, setTargetAtTime() {} }, connect() {}, disconnect() {} }),
     createBufferSource: () => {
       const source = { connect() {}, disconnect() {}, start(at) { this.end = at + this.buffer.duration; }, stop() {} };
       scheduled.push(source);
       return source;
     },
   };
+  const turn = id => ({ id, user: 'q', answer: '', state: 'thinking', detail: '', error: '', away: false, spoken: false });
   client.socket = { readyState: 1, send: data => controls.push(JSON.parse(data)) };
   client.snapshot.connected = true;
-  client.accepted = 1;
+  client.snapshot.turns = [turn(1)];
+  client.running = 1;
   const data = Buffer.alloc(24000 * 2 * 2).toString('base64');
   for (let i = 0; i < 40; i++) {
     client.receive({ type: 'audio', id: 1, data });
     if (i === 39) client.receive({ type: 'done', id: 1 });
     client.tick();
-    assert.equal(controls.filter(c => c.type === 'played').length, 0);
     const source = scheduled.at(-1);
     client.context.currentTime = source.end;
     source.onended();
   }
-  client.tick();
   assert.equal(controls.filter(c => c.type === 'playback').length, 40);
   assert.equal(controls.filter(c => c.type === 'playback').at(-1).samples, 80 * 24000);
-  assert.deepEqual(controls.filter(c => c.type === 'played'), [{ type: 'played', id: 1 }]);
-  assert.equal(controls.filter(c => c.type === 'cancel').length, 0);
+  // A completed reply is kept by the API without a playback acknowledgement (ADR 0145).
+  assert.equal(controls.filter(c => c.type === 'played' || c.type === 'cancel').length, 0);
+  assert.equal(client.snapshot.phase, 'ready');
 
-  client.accepted = 2;
+  // The next turn counts its own audio from zero; a callback already queued
+  // when the user pressed Stop reply sends nothing.
+  client.snapshot.turns = [...client.snapshot.turns, turn(2)];
+  client.running = 2;
   client.receive({ type: 'audio', id: 2, data });
   const late = scheduled.at(-1).onended;
-  client.interrupt();
+  client.stopReply();
+  assert.deepEqual(controls.at(-1), { type: 'cancel' });
   const count = controls.length;
-  late(); // A callback already queued when interruption happened.
+  late();
   assert.equal(controls.length, count);
+  assert.equal(client.snapshot.turns.at(-1).state, 'stopped');
+});
+
+test('an utterance remembers how much of it was voiced, so a cough is told from a question', () => {
+  const gate = new VoiceGate();
+  let result;
+  for (let i = 0; i < 6; i++) result = gate.feed(frame(.08), false, .016);
+  for (let i = 0; i < 30 && !result.complete; i++) result = gate.feed(frame(), false, .016);
+  assert.ok(result.complete);
+  assert.ok(result.voiced < exportsObject.MIN_SPOKEN_FRAMES);
+  for (let i = 0; i < 40; i++) result = gate.feed(frame(.08), false, .016);
+  for (let i = 0; i < 30 && !result.complete; i++) result = gate.feed(frame(), false, .016);
+  assert.ok(result.voiced >= exportsObject.MIN_SPOKEN_FRAMES);
 });
 
 test('VAD rejects silence and a short click; speech retains pre-roll and ends after silence', () => {

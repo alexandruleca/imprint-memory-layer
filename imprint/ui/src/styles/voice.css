@@ -725,3 +725,28 @@
 .voice-wake-progress { display: grid; gap: 6px; font-size: 12px; }
 .voice-wake-progress progress { width: 100%; height: 6px; }
 .voice-wake-error { margin: 0; font-size: 12px; color: var(--destructive); }
+
+/* Turns of the conversation (ADR 0145): each question, its answer and what can be done about it. */
+:where(.voice-transcript) { list-style: none; padding: 0; }
+.voice-turn + .voice-turn { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--echo-line); }
+.voice-turn .voice-user { margin-bottom: 4px; }
+.voice-turn .voice-answer { margin: 0; user-select: text; }
+.voice-turn[data-state=queued] .voice-user,.voice-turn[data-state=stopped] .voice-answer { color: var(--echo-faint); }
+.voice-turn-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 0; font-size: 10px; line-height: 1.5; color: var(--echo-muted); white-space: normal; }
+.voice-turn-status[data-alert] { color: var(--echo-error); }
+.voice-turn-status button { height: 22px; padding: 0 7px; font-size: 10px; color: var(--echo-ink); }
+.voice-turn-status button:hover { background: var(--echo-hover); }
+.voice-turn-note { margin: 10px 0 0; text-align: center; font-size: 10px; color: var(--echo-glow); }
+/* Listening hands-free is a state, not a button. */
+.voice-listening { display: inline-flex; align-items: center; justify-content: center; cursor: default; }
+.voice-listening:hover { background: var(--echo-cta)!important; }
+.voice-stop { border-radius: 24px!important; color: var(--echo-ink)!important; border-color: var(--echo-line-strong)!important; background: var(--echo-panel)!important; }
+.voice-stop:hover { background: var(--echo-hover)!important; }
+.voice-surface:not(.voice-compact) .voice-stop { height: 43px; padding: 0 18px; font-size: 12px; gap: 8px; }
+/* The small window shows the newest exchange under its controls, so an answer stays readable. */
+.voice-compact .voice-latest { flex: 0 1 auto; margin: 6px 0 0; max-height: 124px; overflow: auto; padding: 7px 10px; border-radius: 10px;
+  background: var(--echo-panel); font-size: 10.5px; line-height: 1.45; user-select: text; }
+.voice-compact .voice-latest .voice-turn + .voice-turn { margin-top: 6px; padding-top: 6px; }
+.voice-turn-next .voice-turn-status { margin: 0; flex-wrap: nowrap; justify-content: space-between; }
+.voice-turn-next .voice-turn-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-turn-next .voice-turn-status button { flex: 0 0 auto; width: 22px; padding: 0; }
