@@ -62,3 +62,12 @@ JSON edits preserve custom server options/environment. Owned hook edits retain o
 `imprint doctor --json --probe-mcp` initializes the installed server and discovers tools without loading an embedding model or editing profiles. A registered entry is not proof of a host-side trusted connection. The diagnostic currently checks the primary Codex profile, not every client/profile. Missing venv is an actionable failure; a daemon not yet started or a client not detected is distinguished from a broken check.
 
 Required client registration, managed rule and hook write failures exit nonzero rather than continuing to a setup-success banner. Missing optional clients still skip, and advisory optional runtime features can degrade with a warning. Installer completion therefore reflects required configuration failures.
+
+## Tool calls clients get slightly wrong
+
+Agents call Imprint's tools with arguments other memory servers take. The server runs such a call instead of failing it:
+
+- An argument a tool does not take is left out, and the result names it. `store` keeps a text one in the note as a line (`Reason: …`), since what an agent says beside a memory belongs to it; a number such as `importance` is dropped.
+- `store` takes `tags` as comma-separated text or as a list.
+
+A client starts Imprint's server once and keeps that process for as long as it runs, so after `imprint update` it still runs the old version. The first tool result after the installed files change says so; restart the client, or reload its MCP servers (Cursor: Settings → MCP), to use the new one.

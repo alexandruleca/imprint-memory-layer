@@ -47,6 +47,54 @@ class MCPContractTests(unittest.TestCase):
              patch('imprint.tagger.build_payload_tags', return_value={}):
             self.assertIn('Stored [id]', str(asyncio.run(call()).content))
 
+    def test_arguments_a_tool_does_not_take_are_ignored_and_named_instead_of_failing_the_call(self):
+        # Cursor's agent added `importance`; an older server also met `title` this way.
+        import asyncio
+
+        async def call(name, arguments):
+            async with Client(server.mcp) as client:
+                return await client.call_tool(name, arguments)
+        with patch.object(server.vs, 'store', return_value='id') as persist, \
+             patch('imprint.tagger.build_payload_tags', return_value={}):
+            result = asyncio.run(call('store', {'title': 'PAG Datadog cohort monitors PR #64', 'type': 'finding',
+                                                'project': 'SwagProductAnalyticsGateway', 'importance': 70,
+                                                'content': 'Separate draft PR #64 adds Datadog monitors.'}))
+        text = str(result.content)
+        self.assertIn('Stored [id]', text)
+        self.assertIn('Ignored arguments store does not take: importance.', text)
+        self.assertTrue(persist.call_args.kwargs['content'].startswith('PAG Datadog cohort monitors PR #64'))
+        # Text an agent puts beside the memory stays in it; tags may come as a list.
+        with patch.object(server.vs, 'store', return_value='id') as persist, \
+             patch('imprint.tagger.build_payload_tags', return_value={}):
+            result = asyncio.run(call('store', {'title': 'st stubs', 'type': 'decision', 'project': 'service-devtool',
+                                                'content': 'SBP is a shopware-adapter Double.', 'evidence': 'shopware.go',
+                                                'reason': 'Adaptation guidance for the PAG rebase', 'importance': 70,
+                                                'tags': ['st', 'nps', 'local-dev']}))
+        text = str(result.content)
+        self.assertIn('Kept in the note as text, since store does not take them: reason.', text)
+        self.assertIn('Ignored arguments store does not take: importance.', text)
+        self.assertEqual(persist.call_args.kwargs['content'],
+                         'st stubs\n\nSBP is a shopware-adapter Double.\n\nReason: Adaptation guidance for the PAG rebase'
+                         '\n\nEvidence: shopware.go')
+        self.assertEqual(sorted(persist.call_args.kwargs['tags']['domain']), ['local-dev', 'nps', 'st'])
+        # A validation alias still counts as an argument the tool takes.
+        self.assertEqual(server._accepted_arguments(asyncio.run(server.mcp.get_tool('get_memory'))),
+                         {'memory_id', 'id', 'start', 'max_chars', 'workspace'})
+
+    def test_a_server_running_older_code_than_installed_says_so_once(self):
+        import asyncio
+
+        async def call():
+            async with Client(server.mcp) as client:
+                return str((await client.call_tool('store', {'content': 'A decision.'})).content)
+        notice = [middleware for middleware in server.mcp.middleware if isinstance(middleware, server._StaleNotice)][0]
+        self.addCleanup(setattr, notice, 'told', False)
+        with patch.object(server.vs, 'store', return_value='id'), patch('imprint.tagger.build_payload_tags', return_value={}):
+            self.assertNotIn('was updated', asyncio.run(call()))
+            with patch.object(server, '_code_stamp', return_value=(1, 1)):
+                self.assertIn('Imprint was updated after this server started', asyncio.run(call()))
+                self.assertNotIn('was updated', asyncio.run(call()), 'said once')
+
     def test_invalid_search_does_not_initialize_models(self):
         with patch.object(server.vs, 'search') as search:
             self.assertIn('Error', server.search('   '))

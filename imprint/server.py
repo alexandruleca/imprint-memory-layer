@@ -181,6 +181,98 @@ class _ActivityLog(Middleware):
 
 mcp.add_middleware(_ActivityLog())
 
+
+def _accepted_arguments(tool) -> set[str] | None:
+    """Argument names a tool takes: its schema's, plus validation aliases
+    (``get_memory`` takes ``id``). None when it takes anything."""
+    import inspect
+    schema = getattr(tool, 'parameters', None) or {}
+    if not isinstance(schema.get('properties'), dict) or schema.get('additionalProperties') not in (None, False):
+        return None
+    names = set(schema['properties'])
+    function = getattr(tool, 'fn', None)
+    if function is not None:
+        for parameter in inspect.signature(function).parameters.values():
+            for meta in getattr(parameter.annotation, '__metadata__', ()):
+                alias = getattr(meta, 'validation_alias', None)
+                names.update(alias.choices if hasattr(alias, 'choices') else [alias] if isinstance(alias, str) else [])
+    return {name for name in names if isinstance(name, str)}
+
+
+class _UnknownArguments(Middleware):
+    """A call with arguments a tool does not take runs without them and says
+    which it ignored, instead of failing: agents pass fields other memory
+    servers take (``importance``), and a server started before an update
+    meets arguments added since."""
+
+    async def on_call_tool(self, context, call_next):
+        message = context.message
+        arguments = dict(message.arguments or {})
+        try:
+            accepted = _accepted_arguments(await mcp.get_tool(message.name))
+        except Exception:
+            accepted = None
+        unknown = sorted(set(arguments) - accepted) if accepted is not None else []
+        if not unknown:
+            return await call_next(context)
+        kept = {key: value for key, value in arguments.items() if key in accepted}
+        # What an agent says beside a memory (a reason, a rationale) belongs to
+        # it: store keeps text arguments as lines of the note.
+        noted = [key for key in unknown if isinstance(arguments[key], str) and arguments[key].strip()] \
+            if message.name == 'store' and isinstance(kept.get('content'), str) else []
+        if noted:
+            lines = '\n'.join(f"{key.replace('_', ' ').capitalize()}: {arguments[key].strip()}" for key in noted)
+            kept['content'] = f"{kept['content'].rstrip()}\n\n{lines}"
+        result = await call_next(context.copy(message=message.model_copy(update={'arguments': kept})))
+        if not isinstance(result, ToolResult):
+            return result
+        dropped = [key for key in unknown if key not in noted]
+        note = ' '.join(filter(None, [
+            noted and f"Kept in the note as text, since {message.name} does not take them: {', '.join(noted)}.",
+            dropped and f"Ignored arguments {message.name} does not take: {', '.join(dropped)}."]))
+        structured = result.structured_content
+        if isinstance(structured, dict) and isinstance(structured.get('result'), str):
+            structured = {**structured, 'result': f'{structured["result"]}\n{note}'}
+        return ToolResult(content=[*result.content, TextContent(type='text', text=note)],
+                          structured_content=structured, meta=result.meta)
+
+
+mcp.add_middleware(_UnknownArguments())
+
+
+def _code_stamp():
+    """This module's file as installed now; an update replaces it."""
+    from pathlib import Path
+    try:
+        stat = Path(__file__).stat()
+        return stat.st_mtime_ns, stat.st_size
+    except OSError:
+        return None
+
+
+_LOADED_CODE = _code_stamp()
+
+
+class _StaleNotice(Middleware):
+    """A client keeps the server process it started for as long as it runs,
+    so after an update it still runs the old code. Say so once, with the
+    first tool result after the installed files changed."""
+
+    told = False
+
+    async def on_call_tool(self, context, call_next):
+        result = await call_next(context)
+        if self.told or _LOADED_CODE is None or _code_stamp() in (None, _LOADED_CODE) or not isinstance(result, ToolResult):
+            return result
+        self.told = True
+        note = ("Imprint was updated after this server started, so this session still runs the old version. "
+                "Restart the client, or reload its MCP servers, to use the new one.")
+        return ToolResult(content=[*result.content, TextContent(type='text', text=note)],
+                          structured_content=result.structured_content, meta=result.meta)
+
+
+mcp.add_middleware(_StaleNotice())
+
 # Similarity threshold (0-1 scale, higher = better). Below this = noise.
 RELEVANCE_THRESHOLD = 0.2
 
@@ -672,7 +764,7 @@ def store(
     content: Annotated[str, Field(min_length=1, max_length=20000)],
     project: str = "",
     type: str = "",
-    tags: str = "",
+    tags: str | list[str] = "",
     source: str = "",
     workspace: str = "",
     title: str = "",
@@ -686,7 +778,7 @@ def store(
         content: The note — specific, reasoning included
         project: Project name (optional)
         type: decision, pattern, finding, bug, architecture, milestone, preference (auto if blank)
-        tags: Optional comma-separated domain tags; preserved alongside local tags
+        tags: Optional domain tags, comma-separated or a list; preserved alongside local tags
         source: File path or conversation topic (optional)
         workspace: Target workspace (optional)
         title: Short headline (optional); stored as the note's first line
@@ -695,6 +787,9 @@ def store(
     ws, err = _validate_ws(workspace)
     if err:
         return err
+    # Agents send a list as often as the comma-separated text.
+    if isinstance(tags, list):
+        tags = ",".join(str(tag) for tag in tags)
     statement = (title or content).strip()
     # Agents often send a headline and their evidence as separate arguments.
     # Both become part of the stored text rather than failing the call.
