@@ -332,6 +332,10 @@ test('push-to-talk captures through AudioWorklet and sends a bounded WAV on rele
   expect(wav.readUInt32LE(24)).toBe(24000);
   expect(wav.length).toBeGreaterThan(4000);
   expect(wav.length).toBeLessThan(1440044);
+  // Nothing recognizable in a deliberate hold: said plainly, with nothing left waiting (ADR 0145).
+  server.send({ type: 'ignored', id: 1, reason: 'unheard' });
+  await expect(page.locator('.voice-caption')).toContainText("I didn't catch that. Try again.");
+  await expect(page.locator('.voice-turn')).toHaveCount(0);
   await page.getByRole('button', { name: 'End conversation' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Microphone off' })).toBeVisible();
 });

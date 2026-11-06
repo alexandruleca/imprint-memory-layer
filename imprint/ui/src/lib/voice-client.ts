@@ -683,10 +683,12 @@ export class VoiceClient {
         return;
       case "ignored": {
         // Noise, or Echo hearing itself: not a question, and nothing to show.
-        const deliberate = this.snapshot.mode === "ptt" && !this.busy;
+        // Held deliberately while nothing else ran: say it was not heard.
+        const others = this.snapshot.turns.filter(turn => turn.id !== id);
+        const deliberate = this.snapshot.mode === "ptt" && !others.some(turn => turn.state === "thinking" || turn.state === "queued");
         if (this.running === id) this.running = 0;
         this.note = deliberate && event.reason === "unheard" ? "I didn't catch that. Try again." : "";
-        this.refresh({ turns: this.snapshot.turns.filter(turn => turn.id !== id) });
+        this.refresh({ turns: others });
         return;
       }
       case "stopped":
