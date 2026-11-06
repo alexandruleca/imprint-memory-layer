@@ -219,7 +219,7 @@ companion until the next attempt, and typing keeps working.
 [ADR 0069](adr/0069-echo-opens-the-microphone-only-on-the-users-intent.md)
 records these choices.
 
-## Talk and interrupt
+## Talk, wait and stop
 
 Chat replies are split into phrases of at most 240 characters and synthesized
 sequentially as text arrives. Playback reports completed PCM samples to the API;
@@ -233,8 +233,8 @@ Reload the dashboard after updating so its playback reports match the API.
 This extends playback of generated replies; it does not extend the reasoner's
 context or output-token budget. The small voice model still has its existing
 512-token generation cap and sees the last three completed exchanges. The
-same-chat route keeps every heard message of the conversation in memory, numbered
-as Chat stores them, with the tool results of heard replies (at most 400 messages,
+same-chat route keeps every answered message of the conversation in memory, numbered
+as Chat stores them, with the tool results of completed replies (at most 400 messages,
 3,000 characters per assistant reply and 4,000 per tool result), and fits them to
 the chat model's context as Chat does: when the conversation's text no longer
 fits, its oldest exchanges become a running summary, and the read-only
@@ -242,8 +242,8 @@ fits, its oldest exchanges become a running summary, and the read-only
 ([long conversations](local-models.md#long-conversations),
 [ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
 Echo shows "Summarizing the earlier conversation…" and "Searching earlier in this
-conversation for …" while those run. The history and summary end with the voice
-session; nothing is written to disk.
+conversation for …" while those run. The history and summary end with the
+conversation; nothing is written to disk.
 The same-chat route shares Chat's [sequential section analysis](local-models.md#large-chat-questions-and-evidence)
 for oversized retrieved evidence and shows its progress while it works; its
 worker count is configured under Settings → Chat. Typed voice questions retain
@@ -266,24 +266,57 @@ device and room. Speaker echo/noise can still trigger the energy VAD. Headphones
 are useful for the initial hands-free trial; real speaker/room testing is still
 required before calling hands-free robust.
 
-On speech onset, push-to-talk press, Interrupt or a new typed question, the client
-immediately stops all scheduled audio, invalidates the generation ID and asks the
-API to cancel. Late chunks cannot restart playback. The API cancels the task and
-terminates only its owned speech process, including native prefill, then reloads
-it for a fresh turn. A normal completed turn keeps the model warm. Chat generation
-receives a cancellation event, checks it before subsequent tokens/tools and closes
-its token iterator; in-process model loading/prefill or an already executing read
-cannot be forcibly interrupted safely. A chat model download continues in its
-provisioning job, which a later question can join.
+**A question runs until it is answered or you stop it**
+([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)). Switching between push to talk and
+hands-free never touches the reply. Speaking, holding to talk or typing while
+Echo answers sends the next question, which waits its turn; Echo shows it as
+waiting (in the floating Echo, "Next: …") with **Remove**, and answers it after
+the current reply, up to four in a row. While you speak over Echo, its voice is
+lowered, never cut, and the answer stays on screen; **Play again** reads a
+finished answer aloud once more.
 
-Only fully played replies enter the bounded in-memory conversation history.
-Interrupted, generated-but-unheard replies do not. Switching workspaces in another
-window does not redirect the current voice session; stop and restart to adopt a
-new workspace. One voice window owns the worker at a time. A session expires after
-30 minutes and disconnects after two minutes without controls. Hidden/minimized
-pages stop the microphone and connection; ordinary window blur only cancels a
-held push-to-talk recording, so a visible floating hands-free companion can remain
-useful while another application has focus.
+Not every sound is a question. Speech with less than about a quarter of a second
+of voice never leaves the page. A spoken question is transcribed as soon as the
+speech worker is free between sentences; if it holds no words, only fillers or
+sound labels ("um", "[cough]"), it is ignored. If it began while Echo was
+speaking and mostly repeats a run of Echo's own answer, Echo heard itself through
+the speakers and ignores it. "Stop", "cancel", "never mind" and the like, said
+alone, stop the reply and everything waiting, as **Stop reply** does. A spoken
+stop is heard once the sentence being spoken is ready (with the small voice
+model, once its reply is written); **Stop reply** is immediate.
+
+**Stop reply** sits beside the talk button whenever Echo is answering, has
+questions waiting or is speaking. It silences the reply, cancels it in the API
+and drops what waits; the API terminates only its owned speech process, including
+native prefill, then reloads it for a fresh turn. Chat generation receives a
+cancellation event, checks it before subsequent tokens/tools and closes its token
+iterator; in-process model loading/prefill or an already executing read cannot
+be forcibly interrupted safely. A chat model download continues in its
+provisioning job, which a later question can join. **End conversation** stops
+the reply and forgets the conversation. A reply that fails says why and offers
+**Try again**.
+
+Every completed reply joins the bounded in-memory conversation history, whether
+or not it was played to the end; a stopped one does not.
+
+**The conversation outlives its window.** It belongs to Imprint's local service,
+not to the page: hiding, minimizing or folding Echo, closing it, floating it
+from the Voice page or a dropped connection releases the microphone and lets go
+of the conversation, and the reply goes on, its text kept and its speech
+skipped. Showing Echo again, or opening Voice or the floating Echo, picks it
+up: a reply still being written continues there ("Picked up where you left
+off"), and one that finished meanwhile is shown, "Answered while Echo was away",
+with **Play answer**. Otherwise the page offers **Continue conversation**.
+Picking up never turns the microphone on. The service forgets a conversation 30
+minutes after its window left with nothing running, and when it stops. One
+window holds the conversation at a time; another shows "Echo is open in another
+window". The speech worker is held only while a window or a question needs it.
+Switching workspaces in another window does not redirect the conversation; end
+it and start again to adopt a new workspace. A connection lasts at most 30
+minutes and closes after two minutes without controls while nothing runs.
+Ordinary window blur only cancels a held push-to-talk recording, so a visible
+floating hands-free companion can remain useful while another application has
+focus.
 
 ## Hey Echo
 
@@ -310,7 +343,9 @@ whatever push-to-talk choice you made for conversations you start yourself. It
 ends after `voice.wake.idle_seconds` (15 s by default) without you speaking
 once Echo has answered, or when you say “stop”, “that's all” or “thanks,
 Echo”; Echo then goes back where it was: folded into the button, closed, or
-open. Click or type in Echo during it, and it stays an ordinary conversation.
+open. Said while Echo is still answering, “stop” stops the reply at once, and a
+goodbye ends the conversation once the reply is answered. Click or type in Echo
+during it, and it stays an ordinary conversation.
 
 **While it listens.** A hidden window holds the microphone. Whenever it
 exists, the Imprint button shows a small dot at its lower left (hollow when
@@ -369,14 +404,17 @@ display and focus it. The tray’s **Float Echo** action also recalls it if the 
 reserves the shortcut. Recall never enables the microphone. Close Echo independently
 of the dashboard.
 [Anime hologram preview](assets/voice/echo-anime-companion.png).
-Opening it stops the dashboard voice session; start the companion explicitly.
+Opening it moves the dashboard's conversation to the companion: a reply in
+progress continues there; otherwise start or continue it in the companion.
 The tray also exposes Float Echo. In an ordinary browser this opens a compact
 popup; desktop transparency, dragging and pinning require the Electron shell.
 
 Only talking stays on the companion's screen: **Push to talk**/**Hands-free**,
-the current action and the status line. The **Companion settings** button opens
-the rest: Echo's look, the reasoning model, the hands-free speech threshold, the
-question field and transcript, **Interrupt**, **Stop**, **Keep on top** (which
+the current action, **Stop reply** while Echo answers, the newest question and
+answer with what waits, and the status line. The **Companion settings** button
+opens the rest: Echo's look, the reasoning model, the hands-free speech
+threshold, the question field and the whole transcript, **End conversation**,
+**Keep on top** (which
 shows whether Echo is pinned) and **Close**, plus how to move and recall Echo.
 Settings close with Escape or a click outside; while they are open, a press on
 the head closes them instead of moving the window. The Voice page has the same
@@ -398,9 +436,9 @@ text read aloud and the small model's interleaved replies. Echo's robotic effect
 is a continuous 70 Hz ring modulation with light quantization, applied to reply
 audio in the dashboard; it keeps reply length and never touches the microphone.
 No extra model, service or dependency is involved. A conversation keeps the voice
-and reasoning model it started with: changing either during one ends it and
-starts a new one once the old one has released the speech worker (waiting up to
-eight seconds), and the short conversation history starts over. How natural each
+and reasoning model it started with: changing either starts a new conversation,
+with its history starting over, once the reply in progress is answered (at once
+when none runs). How natural each
 voice sounds, whether the small model keeps the speaker through interleaved
 replies, and how intelligible the robotic effect is still need listening tests.
 [ADR 0071](adr/0071-each-look-speaks-in-its-own-voice.md) records this.

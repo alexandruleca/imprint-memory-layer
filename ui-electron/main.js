@@ -831,8 +831,9 @@ function notifyCompanion() {
   }
   notifyLauncher();
 }
-// Echo folds into the orb: the window hides and keeps its place; its page stops
-// the conversation and the microphone when hidden (ADR 0069, 0135).
+// Echo folds into the orb: the window hides and keeps its place; hidden, its page
+// releases the microphone and lets go of the conversation, whose reply goes on in
+// the API and is picked up when Echo shows again (ADR 0069, 0135, 0145).
 function collapseCompanion() {
   if (!echoVisible()) return;
   saveCompanionBounds(); companionWin.hide(); notifyCompanion();

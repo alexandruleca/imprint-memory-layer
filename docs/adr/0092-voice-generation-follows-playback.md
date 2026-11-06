@@ -3,10 +3,11 @@ title: ADR 0092 — Voice generation follows playback
 description: Completed playback releases audio credit and active voice replies use an inactivity timeout.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
 - Scope: live voice playback and generation pacing
 - Amends: [ADR 0043](0043-live-voice-and-echo-companion.md) — pace streamed speech by playback progress and bound inactivity instead of total turn duration
+- Amended by: [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — the `played` acknowledgement no longer commits history; a reply's playback credit is released for good when the window playing it goes away
 
 ## Context
 

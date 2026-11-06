@@ -39,6 +39,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 - Chats are listed by date; each can be renamed or deleted (deleting asks first). The last open chat is reopened.
 - Replies come from the configured chat model, local or a provider. Memory searches and reads it makes show as rows that expand to their results. The first message to a local model sets it up and shows the download and load progress.
 - A notice says when the model chats without tools, with a link to the chat settings. A reply can be stopped, copied or retried.
+- A reply goes on when you open another chat, leave the page or lose the connection; the list marks a chat still answering, and opening it shows the reply so far and the rest as it comes. Only **Stop reply** stops it. Replies are written one at a time: a question in another chat waits, and says so ([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)).
 - When a long chat no longer fits the model's context, its oldest exchanges are summarized ("Summarizing the earlier conversation…" shows meanwhile). A divider after the last summarized exchange, **Summary of earlier conversation**, opens the summary the model now reads in their place. The model can still look up anything said earlier in the chat; that step shows as "Searched earlier in this conversation for …" ([ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
 
 ### Topics
@@ -152,9 +153,9 @@ Records a call or meeting: your microphone and, if you choose, what this compute
 Echo, the voice companion ([live voice](live-voice.md)).
 
 - The first visit sets Echo up: **Download & set up Echo** fetches its runtime and models, with its progress.
-- **Start conversation** starts talking, by push to talk or hands-free; a reply can be interrupted, and a thought can also be typed.
+- **Start conversation** starts talking, by push to talk or hands-free, and a thought can also be typed. Switching between them, speaking or typing during a reply never cancels it: the new question waits its turn, shown as waiting with **Remove**. **Stop reply**, beside the talk button, or "stop" said alone, is the one way to cancel a reply; **End conversation** forgets the conversation. A failed reply offers **Try again**, and a finished one **Play again** ([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)).
 - **Companion settings** picks the reasoning model (the chat model, or the small LFM voice model), the microphone and speaker, and the microphone options; the picker chooses Echo's look and voice.
-- **Float Echo** opens Echo in its own small window: the desktop companion window, or a browser popup. Voice stops when the page is hidden.
+- **Float Echo** opens Echo in its own small window: the desktop companion window, or a browser popup. Hiding the page, floating Echo or closing it releases the microphone; the conversation goes on in the service, and the next window picks up a reply in progress or shows one that finished meanwhile, without turning the microphone on.
 
 ## Shared behavior
 

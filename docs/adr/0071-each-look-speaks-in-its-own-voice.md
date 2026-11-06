@@ -3,9 +3,10 @@ title: ADR 0071 — Each look speaks in its own voice
 description: The voice.avatar look also chooses Echo's voice, the native model's speaker on both reasoning routes plus a robotic effect for Echo; a session keeps the voice it started with.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-25
 - Scope: implementation; how the voices sound is unvalidated (see Validation)
+- Amended by: [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — a new look or reasoning model chosen during a reply takes over once that reply is answered, instead of ending it
 - Related: [ADR 0043](0043-live-voice-and-echo-companion.md), [ADR 0054](0054-echo-looks-declare-their-motion.md), [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)
 
 ## Context

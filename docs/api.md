@@ -25,7 +25,8 @@ return the canonical owner. Destructive operations still target primary owners.
 See [project organization](workspaces.md#associate-one-source-with-several-projects).
 
 Experimental voice routes are documented in [Echo voice companion](live-voice.md):
-`GET /api/voice/status`, `POST /api/voice/sessions` and `WS /api/voice/stream`.
+`GET /api/voice/status`, `POST /api/voice/sessions`, `WS /api/voice/stream`,
+`GET /api/voice/conversation` and `POST /api/voice/conversation/end`.
 Voice requires exact same-origin loopback access and a one-use session capability;
 the native speech listener is private to the API. The capability pins the
 workspace, the reasoning `engine` (`chat` or `lfm`) and the voice of the
@@ -35,6 +36,29 @@ event reports that `voice` and its `effect` (`robot` for Echo, otherwise
 takes a new session. A `turn` may carry `"wake": true` (a conversation "Hey Echo"
 started); a whole utterance like "stop" then ends it with an `end` event instead
 of an answer.
+
+The conversation belongs to the API, not to the socket
+([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)): a closed socket detaches it and its reply
+goes on, text kept and audio skipped. The next session attaches to it; `ready`
+then carries `resumed`, `busy`, `last_id` (the next `turn` id must be greater)
+and `turns` (recent turns: `id`, `user`, `answer`, `state` of `queued`,
+`running`, `done`, `cancelled` or `failed`, `detail`, `error`, and `away` when it
+finished with no socket). A session for another engine, look or workspace starts
+a new conversation, after the reply in progress if one runs (a second `ready`).
+A `turn` sent during a reply waits: `queued` (`position`), later `start`. A spoken
+`turn` may carry `"overlap": true` (speech began while Echo's audio played); after
+transcription it can come back `ignored` (`reason`: `unheard` for noise, `echo` for
+Echo's own words) or, said alone as "stop" or "cancel", stop the reply and what
+waits (`cancelled` for each, then `stopped`). `{"type": "cancel"}` stops the reply
+and every waiting turn; with an `id`, only that turn. `{"type": "replay", "id", "of"}`
+reads finished turn `of` aloud again. `{"type": "end"}` ends and forgets the
+conversation and closes the socket. A completed reply is kept without the client's
+`played` acknowledgement, which is accepted and ignored. `GET /api/voice/conversation`
+returns `{"conversation": null}` or the conversation's `attached`, `busy`,
+`engine`, `workspace`, `voice`, `last_id` and `turns`, without starting the
+worker; `POST /api/voice/conversation/end` (same-origin, empty body) ends one no
+socket holds and answers `409` while one does. The API forgets a conversation 30
+minutes after its socket left with nothing running.
 
 The desktop app's "Hey Echo" listener ([ADR 0137](adr/0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md))
 uses `GET /api/voice/wake/status` (whether the pinned `tiny.en` model is
@@ -319,12 +343,14 @@ estimates; they do not imply a recognized speaker or an exact recording transcri
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/chat/status` | Configured provider + model + readiness. For `local`, `error` reports a llama.cpp binding that does not load (a damaged installation). |
-| GET | `/api/chat/sessions` | List chat sessions. |
+| GET | `/api/chat/sessions` | List chat sessions, each with `replying` while a reply is being written in it. |
 | POST | `/api/chat/sessions` | Create a new session. |
-| GET | `/api/chat/sessions/{sid}` | Session transcript (`messages`, each with its `seq`) and `summary`: the running summary (`text`, `covers`: the last message seq it stands in for, `exchanges`: user messages covered, `retry_after`, `updated_at`), or `null` before the first one. |
+| GET | `/api/chat/sessions/{sid}` | Session transcript (`messages`, each with its `seq`) and `summary`: the running summary (`text`, `covers`: the last message seq it stands in for, `exchanges`: user messages covered, `retry_after`, `updated_at`), or `null` before the first one; `replying` while a reply is being written. |
+| GET | `/api/chat/sessions/{sid}/reply` | The reply being written, as the same SSE stream as `/api/chat`, from its first event; `404` when none is. |
+| POST | `/api/chat/sessions/{sid}/stop` | Stop the reply being written (`{"ok": false}` when none is). The only thing that cancels it. |
 | POST | `/api/chat/sessions/{sid}/rename` | Rename session. |
 | DELETE | `/api/chat/sessions/{sid}` | Delete session. |
-| POST | `/api/chat` | Send a message. Returns an SSE stream of tokens + tool calls. |
+| POST | `/api/chat` | Send a message. Returns an SSE stream of tokens + tool calls. The reply runs in the API: closing the stream only stops watching it ([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)). `409` while a reply is being written in the session. Replies are written one at a time; one that waits for another chat's first sends `analysis` "Waiting for the reply in another chat to finish…". |
 
 `/api/chat` events, in order of appearance:
 

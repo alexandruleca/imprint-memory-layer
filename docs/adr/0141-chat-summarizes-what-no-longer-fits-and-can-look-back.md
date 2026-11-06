@@ -3,12 +3,13 @@ title: ADR 0141 — Chat summarizes what no longer fits and can look back throug
 description: When a conversation's own text no longer fits the model's context, its oldest exchanges are summarized into a running summary kept with the session, and the model can search and reread every earlier message of the conversation with a read-only conversation_history tool; voice keeps both in memory only.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-05
 - Scope: dashboard Chat and Echo's same-chat voice route; the small LFM voice engine keeps its own short context
 - Amends:
   - [ADR 0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) — conversation text that no longer fits is summarized instead of dropped; dropping remains the fallback when the summary cannot be written
   - [ADR 0043](0043-live-voice-and-echo-companion.md) — a voice conversation keeps every heard message, with its tool results, and a running summary in memory, instead of its last three exchanges
+- Amended by: [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — voice keeps every completed reply in its history, played to the end or not
 - Related: [ADR 0093](0093-sequential-chat-section-analysis.md), [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0059](0059-chat-speaks-each-models-native-tool-protocol.md), [ADR 0102](0102-chat-research-follows-progress-and-resource-budgets.md), [local models](../local-models.md), [live voice](../live-voice.md)
 
 ## Context

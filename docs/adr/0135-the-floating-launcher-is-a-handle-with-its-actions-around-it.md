@@ -8,7 +8,9 @@ description: While the dashboard is hidden, the Imprint button is an orb that dr
 - Amends:
   - [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md) — a click on the launcher opens its actions instead of the dashboard; Echo docks on the orb's open side and slides along it instead of moving the orb; Echo can fold into the orb, which hides its window
   - [ADR 0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) — a recording can start and stop from the orb; the desktop app relays it to the dashboard window, which moves to the Recordings page to capture
-- Amended by: [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — the orb shows an "ear" dot while the "Hey Echo" listener exists, and a pulse when it hears the phrase
+- Amended by:
+  - [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — the orb shows an "ear" dot while the "Hey Echo" listener exists, and a pulse when it hears the phrase
+  - [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — folded, Echo's page releases the microphone and lets go of the conversation, which goes on in the API and is picked up when Echo shows again, instead of stopping it
 - Related: [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md), [ADR 0089](0089-one-progress-record-for-the-running-job.md), [dashboard](../dashboard.md), [live voice](../live-voice.md)
 
 ## Context

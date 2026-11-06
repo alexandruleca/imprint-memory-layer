@@ -13,6 +13,7 @@ description: Explicit speech runtime, same-chat reasoning, optional VAD and a fl
   - [ADR 0092](0092-voice-generation-follows-playback.md) — pace streamed speech by playback progress and bound inactivity instead of total turn duration
   - [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — one hidden window, the "Hey Echo" listener, captures while it exists, always with an indicator; the deferred trained VAD (Silero) is used for the wake detector
   - [ADR 0141](0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md) — the transient history of fully played replies keeps every heard message with its tool results, and a running summary, in memory for the session, instead of three exchanges
+  - [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — speech onset, push-to-talk and a new question no longer flush playback or cancel the reply: a question waits its turn and only an explicit stop cancels; completed replies join the history whether or not they were played; hidden pages release capture and detach from a conversation that goes on in the API
 - Related: [ADR 0042](0042-lfm-audio-cpu-experiment.md), [ADR 0024](0024-enforce-local-service-boundaries.md), [ADR 0025](0025-desktop-owned-background-service.md)
 - Restructured: 2026-10-25
 
