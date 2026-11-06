@@ -209,6 +209,8 @@ export interface ChatSession {
   message_count?: number;
   /** A reply is being written in this chat (ADR 0145). */
   replying?: boolean;
+  /** Where it started: the Chat page, or a conversation with Echo (ADR 0146). */
+  kind?: "chat" | "voice";
 }
 
 export interface ChatMessage {

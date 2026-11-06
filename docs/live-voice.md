@@ -26,9 +26,10 @@ Voice is **read-only**. The chat adapter offers the model only the read tools,
 rejects any write call, and directs writes to the dashboard. The small-model
 prompt likewise has no write interface.
 Evidence is untrusted reference material; prompting is not a guarantee against
-model prompt injection or incorrect answers. No recorded audio, transcripts or
-conversation files are persisted by the live session. Explicit offline exports
-from the [earlier CLI](lfm-audio-prototype.md) remain separate.
+model prompt injection or incorrect answers. No recorded audio or native prompt
+log is kept. The text of each conversation is saved in Chat history on this device
+unless you turn that off ([saved conversations](#saved-conversations)). Explicit
+offline exports from the [earlier CLI](lfm-audio-prototype.md) remain separate.
 
 ## First-time setup in Imprint
 
@@ -233,7 +234,7 @@ Reload the dashboard after updating so its playback reports match the API.
 This extends playback of generated replies; it does not extend the reasoner's
 context or output-token budget. The small voice model still has its existing
 512-token generation cap and sees the last three completed exchanges. The
-same-chat route keeps every answered message of the conversation in memory, numbered
+same-chat route keeps every answered message of the conversation, numbered
 as Chat stores them, with the tool results of completed replies (at most 400 messages,
 3,000 characters per assistant reply and 4,000 per tool result), and fits them to
 the chat model's context as Chat does: when the conversation's text no longer
@@ -242,8 +243,10 @@ fits, its oldest exchanges become a running summary, and the read-only
 ([long conversations](local-models.md#long-conversations),
 [ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
 Echo shows "Summarizing the earlier conversation…" and "Searching earlier in this
-conversation for …" while those run. The history and summary end with the
-conversation; nothing is written to disk.
+conversation for …" while those run. While saving is on, the history and summary
+are saved with the conversation's chat, numbered as Chat stores them
+([saved conversations](#saved-conversations)); otherwise they end with the
+conversation.
 The same-chat route shares Chat's [sequential section analysis](local-models.md#large-chat-questions-and-evidence)
 for oversized retrieved evidence and shows its progress while it works; its
 worker count is configured under Settings → Chat. Typed voice questions retain
@@ -296,8 +299,9 @@ provisioning job, which a later question can join. **End conversation** stops
 the reply and forgets the conversation. A reply that fails says why and offers
 **Try again**.
 
-Every completed reply joins the bounded in-memory conversation history, whether
-or not it was played to the end; a stopped one does not.
+Every completed reply joins the bounded conversation history, whether or not it
+was played to the end; a reply stopped or failed partway joins it as far as it
+got, as in Chat.
 
 **The conversation outlives its window.** It belongs to Imprint's local service,
 not to the page: hiding, minimizing or folding Echo, closing it, floating it
@@ -308,7 +312,8 @@ up: a reply still being written continues there ("Picked up where you left
 off"), and one that finished meanwhile is shown, "Answered while Echo was away",
 with **Play answer**. Otherwise the page offers **Continue conversation**.
 Picking up never turns the microphone on. The service forgets a conversation 30
-minutes after its window left with nothing running, and when it stops. One
+minutes after its window left with nothing running, and when it stops; what was
+saved stays in Chat history. One
 window holds the conversation at a time; another shows "Echo is open in another
 window". The speech worker is held only while a window or a question needs it.
 Switching workspaces in another window does not redirect the conversation; end
@@ -317,6 +322,43 @@ minutes and closes after two minutes without controls while nothing runs.
 Ordinary window blur only cancels a held push-to-talk recording, so a visible
 floating hands-free companion can remain useful while another application has
 focus.
+
+## Saved conversations
+
+Echo saves each conversation in **Chat history**, as text on this device
+([ADR 0146](adr/0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md)):
+
+- **What is saved.** Each answered exchange: your question as Echo heard it, the
+  memory searches of the reply and its answer, with the running summary of a long
+  conversation. The conversation becomes one chat, titled after its first
+  question and marked with Echo's sound-wave icon in the Chat list. A reply
+  stopped partway is saved as far as it got.
+- **What is not.** Audio, the "Hey Echo" checks, noise, Echo hearing itself, a
+  spoken "stop", and answers played again.
+- **Where.** Chat history lives in the workspace's database on this device. It is
+  not synced to paired devices, and Imprint does not learn memories from it.
+  Delete a chat on the Chat page; if Echo is still talking, the rest of that
+  conversation is not saved.
+
+**Turning it off.** Switch off **Save conversations in Chat history** in
+Companion settings, or set `voice.save_conversations` to `false`. Off stops
+saving the conversation in progress from its next answer; on saves your next
+conversation. The status line under the controls says "saved in Chat" or "not
+saved".
+
+**Carrying a chat on.** Any chat, typed or spoken, can be continued by voice:
+
+- **Earlier chats**, beside **Start conversation**, lists the eight most recent
+  chats. Choose one to continue it.
+- On the Chat page, **Continue with Echo** opens Voice with **Continue
+  “title”**; the conversation starts when you click it, and ✕ starts a new one
+  instead.
+
+Echo reads the chat's messages and summary, shows its last exchanges
+("Continuing “title”"), and adds what you say next to that chat. Continue a
+spoken conversation by typing on the Chat page the same way. Changing Echo's
+look or reasoning model keeps the conversation and its chat; another workspace
+starts a new one.
 
 ## Hey Echo
 
@@ -366,7 +408,8 @@ checks them with Silero voice detection and the speech model and answers yes or
 no. Nothing is written to disk or logged, and the words of anything that was not
 “Hey Echo” are never returned or kept. After a wake, the rest of that sentence
 is transcribed the same way and becomes the question; from there it is an
-ordinary Echo conversation, which keeps nothing either. If the microphone is
+ordinary Echo conversation, saved in Chat history like any other unless you turn
+that off ([saved conversations](#saved-conversations)). If the microphone is
 refused or missing, listening stops until you turn it on again.
 
 **What it costs.** Measured on an Apple M3: the hidden window and the audio
@@ -435,10 +478,10 @@ The native model is asked for the look's speaker on both reasoning routes: Chat
 text read aloud and the small model's interleaved replies. Echo's robotic effect
 is a continuous 70 Hz ring modulation with light quantization, applied to reply
 audio in the dashboard; it keeps reply length and never touches the microphone.
-No extra model, service or dependency is involved. A conversation keeps the voice
-and reasoning model it started with: changing either starts a new conversation,
-with its history starting over, once the reply in progress is answered (at once
-when none runs). How natural each
+No extra model, service or dependency is involved. Changing the look or the
+reasoning model switches the conversation to them once the reply in progress is
+answered (at once when none runs); the conversation keeps its history and its
+saved chat ([ADR 0146](adr/0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md)). How natural each
 voice sounds, whether the small model keeps the speaker through interleaved
 replies, and how intelligible the robotic effect is still need listening tests.
 [ADR 0071](adr/0071-each-look-speaks-in-its-own-voice.md) records this.

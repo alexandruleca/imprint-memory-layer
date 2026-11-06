@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from imprint import chat, voice_api as voice, voice_runtime
+from imprint import chat, chat_store, voice_api as voice, voice_runtime
 from imprint.voice_memory import VoiceMemoryError
 from emulation import slack
 from test_chat_stream import call_chunk, remote_provider, text_chunk, tool
@@ -37,8 +37,10 @@ class VoiceBoundaryTests(unittest.TestCase):
         binary = voice_runtime.native_binary(self.root); binary.parent.mkdir(parents=True); binary.write_bytes(b"fixture")
         for patcher in [patch.dict(os.environ, {"IMPRINT_DATA_DIR": str(self.root), "IMPRINT_VOICE_RUNTIME_DIR": str(self.root)}),
                         patch.object(voice.voice_runtime, "supported", return_value=True),
-                        patch.object(voice, "sessions", voice.Sessions())]:
+                        patch.object(voice, "sessions", voice.Sessions()),
+                        patch.dict(chat_store._conns, clear=True)]:
             patcher.start(); self.addCleanup(patcher.stop)
+        self.addCleanup(chat_store._close_all)  # Windows cannot delete an open database
         app = FastAPI()
         app.include_router(voice.router)
         self.client = TestClient(app, base_url="http://127.0.0.1:8420", client=("127.0.0.1", 1234))
@@ -184,10 +186,11 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertEqual("".join(spoken).strip(), reply.strip())
         self.assertTrue(all(len(part) <= 240 for part in spoken))
 
-    def test_a_voice_conversation_keeps_answered_messages_and_its_summary_in_memory_only(self):
+    def test_a_voice_conversation_keeps_answered_messages_and_its_summary_and_saves_them_as_a_chat(self):
         # ADR 0141: every message, numbered as Chat stores them, tool results
-        # included; the summary is kept for the next turn; nothing on disk.
+        # included; the summary is kept for the next turn.
         # ADR 0145: a completed reply is kept whether or not it was played.
+        # ADR 0146: Chat history holds the same messages, numbers and summary.
         seen = []
 
         async def events(question, history, workspace, cancelled, summary=None):
@@ -235,6 +238,34 @@ class VoiceBoundaryTests(unittest.TestCase):
              "tool_args": {"query": "billing port"}, "seq": 5},
             {"role": "assistant", "content": "Answer to second.", "seq": 6}])
         self.assertEqual(seen[2]["summary"], {"text": "- Billing port (#1–#3).", "covers": 3, "retry_after": 0})
+        [saved] = chat_store.list_sessions()
+        self.assertEqual((saved["kind"], saved["title"], saved["message_count"]), ("voice", "first", 9))
+        history = voice.stored_chat(saved["id"], "default")[1]
+        self.assertEqual(history[:6], seen[2]["history"])
+        self.assertEqual([(m["role"], m["content"], m["seq"]) for m in history[6:]],
+                         [("user", "third", 7), ("tool", "#2 tool search: 8101", 8), ("assistant", "Answer to third.", 9)])
+        self.assertEqual(chat_store.get_summary(saved["id"])["text"], "- Billing port (#1–#3).")
+
+    def test_with_saving_off_a_voice_conversation_writes_nothing(self):
+        async def events(question, history, workspace, cancelled, summary=None):
+            yield {"type": "token", "text": "Answer."}
+            yield {"type": "done"}
+
+        async def native(*args):
+            yield {"type": "audio", "data": "AAAAAA==", "sample_rate": 24000, "format": "pcm16"}
+
+        with patch.dict(os.environ, {"IMPRINT_VOICE_SAVE_CONVERSATIONS": "false"}), \
+                patch.object(voice.sessions.worker, "start", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stop", new_callable=AsyncMock), \
+                patch.object(voice.sessions.worker, "stream", side_effect=native), \
+                patch.object(voice, "chat_events", side_effect=events):
+            with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers={"Origin": "http://127.0.0.1:8420"}) as ws:
+                ws.send_json({"token": self.token(engine="chat")}); ws.receive_json()
+                self.assertFalse(ws.receive_json()["saving"])
+                ws.send_json({"type": "turn", "id": 1, "text": "hello"})
+                while ws.receive_json()["type"] != "done":
+                    pass
+        self.assertEqual(len(voice.sessions.conversation.history), 2)
         self.assertEqual(list(self.root.glob("chat*.sqlite3")), [])
 
     def test_first_chat_download_has_progress_and_a_separate_budget_without_private_logs(self):
@@ -449,7 +480,6 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
             ws.send_json({"type": "turn", "id": 2, "text": "And staging?"})
             self.until(ws, lambda event: event["type"] == "done")
         self.assertEqual([m["content"] for m in histories["And staging?"]], ["Where is billing?", "Billing is on port 8101."])
-        self.assertEqual(list(self.root.glob("chat*.sqlite3")), [])
 
     def test_a_window_that_comes_back_mid_reply_sees_its_progress_and_the_rest(self):
         release = threading.Event()
@@ -550,7 +580,7 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
         self.assertNotIn("second", flags)
         self.assertTrue(flags["fourth"].is_set())
 
-    def test_ending_the_conversation_keeps_nothing_and_the_next_window_starts_afresh(self):
+    def test_ending_the_conversation_forgets_it_and_the_next_window_starts_afresh(self):
         self.fixtures({"hello": ["Hi."]})
         token, socket = self.connect()
         with socket as ws:
@@ -581,7 +611,7 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
         self.assertEqual((response.status_code, response.json()), (200, {"conversation": None}))
         self.assertIsNone(self.snapshot())
 
-    def test_another_model_takes_over_once_the_reply_in_progress_is_answered(self):
+    def test_another_model_takes_over_once_the_reply_in_progress_is_answered_and_keeps_the_conversation(self):
         release = threading.Event()
         self.fixtures({"first": ["Done soon.", release]})
         token, socket = self.connect("chat")
@@ -597,7 +627,14 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
             events = self.until(ws, lambda event: event["type"] == "ready")
         self.assertEqual([event["type"] for event in events if event["type"] in {"done", "ready"}], ["done", "ready"])
         self.assertEqual((events[-1]["engine"], events[-1]["resumed"]), ("lfm", False))
-        self.assertEqual(voice.sessions.conversation.history, [])
+        # Saved conversations carry on in another look or model (ADR 0146).
+        self.assertEqual([m["content"] for m in voice.sessions.conversation.history], ["first", "Done soon."])
+        self.assertEqual(len(chat_store.list_sessions()), 1)
+        token, socket = self.connect("chat")  # an idle conversation switches at once
+        with socket as ws:
+            ready = self.open(ws, token)
+        self.assertEqual((ready["resumed"], ready["engine"], ready["last_id"]), (True, "chat", 1))
+        self.assertEqual(len(voice.sessions.conversation.history), 2)
 
     def test_a_finished_answer_can_be_heard_again_without_asking_again(self):
         spoken = []
@@ -639,6 +676,137 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
         with patch.object(voice, "DETACHED_KEEP", -1):
             self.assertIsNone(self.snapshot())
         self.assertEqual(self.client.get("/api/voice/conversation", headers={"Origin": "https://evil.test"}).status_code, 403)
+
+    # ── Saved in Chat history, and carried on from it (ADR 0146) ──────────
+    def saved(self):
+        """Each chat in Chat history: its kind and its messages as (role, content)."""
+        return [(session["kind"], [(m["role"], m["content"]) for m in chat_store.get_messages(session["id"])])
+                for session in chat_store.list_sessions()]
+
+    def test_answered_questions_are_saved_as_a_voice_chat_and_noise_and_replays_are_not(self):
+        transcripts = {}
+        self.fixtures({"first": ["One."], "second": ["Two."]}, transcripts)
+        token, socket = self.connect()
+        with socket as ws:
+            self.assertTrue(self.open(ws, token)["saving"])
+            ws.send_json({"type": "turn", "id": 1, "text": "first"})
+            self.until(ws, lambda event: event["type"] == "done")
+            ws.send_json({"type": "turn", "id": 2, "audio": self.speech("[cough]", transcripts)})
+            self.until(ws, lambda event: event["type"] == "ignored")
+            ws.send_json({"type": "replay", "id": 3, "of": 1})
+            self.until(ws, lambda event: event["type"] == "done")
+            ws.send_json({"type": "turn", "id": 4, "text": "second"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual(self.saved(), [("voice", [("user", "first"), ("assistant", "One."),
+                                                   ("user", "second"), ("assistant", "Two.")])])
+        self.assertEqual(chat_store.list_sessions()[0]["title"], "first")
+
+    def test_a_stopped_reply_is_saved_as_far_as_it_got_and_the_next_question_sees_it(self):
+        _, histories = self.fixtures({"long": ["The first part.", threading.Event()], "next": ["Next."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "long"})
+            self.until(ws, lambda event: event["type"] == "text")
+            ws.send_json({"type": "cancel"})
+            self.until(ws, lambda event: event["type"] == "cancelled")
+            ws.send_json({"type": "turn", "id": 2, "text": "next"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual([m["content"] for m in histories["next"]], ["long", "The first part."])
+        self.assertEqual(self.saved(), [("voice", [("user", "long"), ("assistant", "The first part."),
+                                                   ("user", "next"), ("assistant", "Next.")])])
+
+    def test_turning_saving_off_stops_saving_at_once_and_on_saves_the_next_conversation(self):
+        self.fixtures({"kept": ["Saved."], "private": ["Not saved."], "later": ["Saved later."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "kept"})
+            self.until(ws, lambda event: event["type"] == "done")
+            with patch.dict(os.environ, {"IMPRINT_VOICE_SAVE_CONVERSATIONS": "false"}):
+                ws.send_json({"type": "turn", "id": 2, "text": "private"})
+                self.until(ws, lambda event: event["type"] == "done")
+            ws.send_json({"type": "turn", "id": 3, "text": "later"})  # on again: this conversation stays unsaved
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual(self.saved(), [("voice", [("user", "kept"), ("assistant", "Saved.")])])
+        self.assertFalse(self.snapshot()["saving"])
+        self.client.post("/api/voice/conversation/end", headers=self.ORIGIN)
+        token, socket = self.connect()
+        with socket as ws:
+            self.assertTrue(self.open(ws, token)["saving"])
+            ws.send_json({"type": "turn", "id": 1, "text": "later"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual(len(self.saved()), 2)
+
+    def stored(self, *exchanges, summary=None):
+        """A chat in Chat history with these (question, answer) exchanges."""
+        sid = chat_store.create_session()
+        for question, answer in exchanges:
+            chat_store.append_message(sid, "user", question)
+            chat_store.append_message(sid, "assistant", answer)
+        if summary:
+            chat_store.set_summary(sid, summary, 2)
+        return sid
+
+    def test_a_chat_from_history_is_carried_on_and_its_new_exchanges_are_added_to_it(self):
+        sid = self.stored(("Where is billing?", "Port 8101."), ("And auth?", "Port 8102."), summary="- Billing (#1–#2).")
+        _, histories = self.fixtures({"And staging?": ["Same ports."]})
+        flags = {}
+
+        async def events(question, history, workspace, cancelled, summary=None):
+            flags["summary"], flags["history"] = summary, history
+            yield {"type": "token", "text": "Same ports."}
+            yield {"type": "done"}
+        voice.chat_events.side_effect = events
+        token = self.token(engine="chat", chat=sid)
+        with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers=self.ORIGIN) as ws:
+            ready = self.open(ws, token)
+            self.assertEqual(ready["chat"], {"id": sid, "title": "Where is billing?"})
+            self.assertEqual(ready["last_id"], 0)
+            self.assertEqual([(t["id"], t["user"], t["answer"], t["state"]) for t in ready["turns"]],
+                             [(-2, "Where is billing?", "Port 8101.", "done"), (-1, "And auth?", "Port 8102.", "done")])
+            ws.send_json({"type": "turn", "id": 1, "text": "And staging?"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual([(m["content"], m["seq"]) for m in flags["history"]],
+                         [("Where is billing?", 1), ("Port 8101.", 2), ("And auth?", 3), ("Port 8102.", 4)])
+        self.assertEqual(flags["summary"], {"text": "- Billing (#1–#2).", "covers": 2, "retry_after": 0})
+        self.assertEqual(self.saved(), [("chat", [("user", "Where is billing?"), ("assistant", "Port 8101."),
+                                                  ("user", "And auth?"), ("assistant", "Port 8102."),
+                                                  ("user", "And staging?"), ("assistant", "Same ports.")])])
+
+    def test_another_chat_takes_the_place_of_an_idle_conversation(self):
+        sid = self.stored(("Old question?", "Old answer."))
+        self.fixtures({"hello": ["Hi."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "hello"})
+            self.until(ws, lambda event: event["type"] == "done")
+        token = self.token(engine="chat", chat=sid)
+        with self.client.websocket_connect("ws://127.0.0.1:8420/api/voice/stream", headers=self.ORIGIN) as ws:
+            ready = self.open(ws, token)
+        self.assertEqual((ready["resumed"], ready["chat"]["id"]), (False, sid))
+        self.assertEqual([turn["user"] for turn in ready["turns"]], ["Old question?"])
+        # The conversation it replaced was saved; it stays in Chat history.
+        self.assertEqual(sorted(kind for kind, _ in self.saved()), ["chat", "voice"])
+
+    def test_a_chat_that_does_not_exist_cannot_be_carried_on(self):
+        for chat, status in (("missing", 404), (7, 400), ("", 400), ("x" * 65, 400)):
+            response = self.client.post("/api/voice/sessions", json={"engine": "chat", "chat": chat}, headers=self.ORIGIN)
+            self.assertEqual(response.status_code, status, chat)
+
+    def test_deleting_the_chat_stops_saving_the_conversation(self):
+        self.fixtures({"first": ["One."], "second": ["Two."]})
+        token, socket = self.connect()
+        with socket as ws:
+            self.open(ws, token)
+            ws.send_json({"type": "turn", "id": 1, "text": "first"})
+            self.until(ws, lambda event: event["type"] == "done")
+            chat_store.delete_session(chat_store.list_sessions()[0]["id"])
+            ws.send_json({"type": "turn", "id": 2, "text": "second"})
+            self.until(ws, lambda event: event["type"] == "done")
+        self.assertEqual(self.saved(), [])
+        self.assertFalse(self.snapshot()["saving"])
 
     def test_what_counts_as_noise_an_echo_or_a_stop(self):
         from imprint import wake
@@ -882,7 +1050,8 @@ class VoiceLookTests(unittest.TestCase):
                         ws.receive_json()
                         ready = ws.receive_json()
                         self.assertEqual((ready["type"], ready["voice"], ready["effect"]), ("ready", look, effect))
-                        ws.send_json({"type": "turn", "id": 1, "text": "Hello"})
+                        # The look changes; the conversation carries on and so does its numbering.
+                        ws.send_json({"type": "turn", "id": ready["last_id"] + 1, "text": "Hello"})
                         while ws.receive_json()["type"] != "done":
                             pass
                     self.assertTrue(prompts)

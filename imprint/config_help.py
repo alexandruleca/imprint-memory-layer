@@ -256,6 +256,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "How long, in seconds, a conversation that \"Hey Echo\" started waits for you to speak again after Echo's reply, before it ends and Echo goes back where it was (15 by default, 5 to 120). Only wake-started conversations end this way; saying \"stop\" or \"that's all\" ends one at once. Turning \"Hey Echo\" on or off is a choice in Echo's settings in the desktop app, not a setting here.",
         "example": "30: if you often pause to think before a follow-up question.",
     },
+    "voice.save_conversations": {
+        "help": "Whether Echo saves its conversations in Chat history (on by default). Each answered exchange is saved as text on this device: your question as Echo heard it, the memory searches of the reply and its answer. Audio, \"Hey Echo\" checks and noise never are. Chat history is not synced and Imprint does not learn memories from it; delete a conversation on the Chat page. Turning this off stops saving the conversation in progress from its next answer; turning it on saves your next conversation. Also a switch in Echo's Companion settings.",
+        "example": "false: if you want Echo to forget each conversation once you end it or leave it for 30 minutes.",
+    },
     # ── Chat ─────────────────────────────────────────────────────────────
     "chat.provider": {
         "help": "Which model answers in chat. \"local\" (the default) runs a bundled llama.cpp model on this computer, and nothing leaves the machine. \"ollama\" and \"vllm\" use a model server you run, on localhost by default. \"anthropic\", \"openai\" and \"gemini\" send your messages, the system prompt (which includes this device's name and working directory) and the memory excerpts chat looks up to that company, and need ANTHROPIC_API_KEY, OPENAI_API_KEY or GOOGLE_API_KEY in the environment. Voice conversations with the chat engine need \"local\".",

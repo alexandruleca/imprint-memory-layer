@@ -7,11 +7,13 @@ import contextlib
 from collections import deque
 import difflib
 import json
+import logging
 import os
 from pathlib import Path
 import re
 import secrets
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -26,6 +28,7 @@ from .http_security import local_host, local_origin, loopback_address
 from .voice_memory import INSTRUCTIONS, VoiceMemoryError, _json
 
 router = APIRouter(prefix="/api/voice")
+log = logging.getLogger(__name__)
 MAX_MESSAGE = 2_000_000
 MAX_AUDIO = 1_440_044  # 30 seconds, mono PCM16/24 kHz plus WAV header
 STARTUP_TIMEOUT = 120  # Includes full asset verification as well as native load.
@@ -189,13 +192,14 @@ class Sessions:
             self.conversation = conversation = None
         return conversation
 
-    def issue(self, workspace: str, origin: str, engine: str, voice: str = "echo") -> str:
+    def issue(self, workspace: str, origin: str, engine: str, voice: str = "echo", chat: str | None = None) -> str:
         now = time.monotonic()
         self.leases = {key: value for key, value in self.leases.items() if value["expires"] > now}
         if len(self.leases) >= 8:
             raise HTTPException(429, "Too many pending voice sessions")
         token = secrets.token_urlsafe(32)
-        self.leases[token] = {"workspace": workspace, "origin": origin, "engine": engine, "voice": voice, "expires": now + 30}
+        self.leases[token] = {"workspace": workspace, "origin": origin, "engine": engine, "voice": voice, "chat": chat,
+                              "expires": now + 30}
         return token
 
     def consume(self, token: str, origin: str) -> dict | None:
@@ -272,21 +276,28 @@ async def create_session(request: Request):
         payload = json.loads(body)
         workspace = payload.get("workspace", config.get_active_workspace())
         engine = payload.get("engine", "chat")
+        # A chat from Chat history to carry on (ADR 0146); none starts afresh.
+        chat = payload.get("chat")
         if (not isinstance(workspace, str) or config.validate_workspace_name(workspace)
                 or workspace not in config.get_known_workspaces() or not isinstance(engine, str)
-                or engine not in {"chat", "lfm"}):
+                or engine not in {"chat", "lfm"}
+                or (chat is not None and (not isinstance(chat, str) or not 0 < len(chat) <= 64))):
             raise ValueError()
     except (ValueError, AttributeError):
-        raise HTTPException(400, "Invalid workspace or voice engine") from None
+        raise HTTPException(400, "Invalid workspace, voice engine or chat") from None
     if engine == "chat" and config_schema.resolve("chat.provider")[0] != "local":
         raise HTTPException(409, "Select a local chat provider or use the small voice model")
     if voice_setup.setup.snapshot()["busy"]:
         raise HTTPException(409, "Echo setup is still running")
     if not status()["installed"] or not status()["supported"]:
         raise HTTPException(409, "Build and configure the local voice runtime first")
+    if chat is not None:
+        from . import chat_store
+        if await asyncio.to_thread(chat_store.get_session, chat, workspace) is None:
+            raise HTTPException(404, "That chat no longer exists")
     # The capability pins the look's voice as well; a new look takes a new session.
     voice = look_voice(config_schema.resolve("voice.avatar")[0])
-    return {"token": sessions.issue(workspace, origin, engine, voice), "workspace": workspace, "expires_in": 30}
+    return {"token": sessions.issue(workspace, origin, engine, voice, chat), "workspace": workspace, "expires_in": 30}
 
 
 def check_socket(websocket: WebSocket) -> bool:
@@ -453,6 +464,38 @@ def echoes(text: str, answer: str) -> bool:
     return match.size >= .8 * len(heard)
 
 
+def saving_enabled() -> bool:
+    """Echo's conversations are saved in Chat history unless the user turned that off (ADR 0146)."""
+    return bool(config_schema.resolve("voice.save_conversations")[0])
+
+
+def stored_chat(chat: str, workspace: str) -> tuple[dict | None, list[dict], dict | None]:
+    """A chat from Chat history as a voice conversation holds it: the session,
+    its messages numbered as stored, and its running summary (ADR 0141)."""
+    from . import chat_store
+    session = chat_store.get_session(chat, workspace)
+    if session is None:
+        return None, [], None
+    history = [{key: message[key] for key in ("role", "content", "tool_name", "tool_args", "seq")
+                if message.get(key) is not None}
+               for message in chat_store.get_messages(chat, workspace)]
+    summary = chat_store.get_summary(chat, workspace)
+    if summary is not None:
+        summary = {key: summary.get(key) for key in ("text", "covers", "retry_after")}
+    return session, history, summary
+
+
+def exchanges(history: list[dict]) -> list[tuple[str, str]]:
+    """Each question with the answer that followed it; tool results are left out."""
+    pairs: list[list[str]] = []
+    for message in history:
+        if message["role"] == "user":
+            pairs.append([message["content"], ""])
+        elif message["role"] == "assistant" and pairs:
+            pairs[-1][1] = f"{pairs[-1][1]}\n\n{message['content']}".strip()
+    return [(question, answer) for question, answer in pairs]
+
+
 class Turn:
     """One question and its answer, recorded apart from any window."""
     def __init__(self, identifier: int, message: dict):
@@ -470,6 +513,8 @@ class Turn:
         self.detail = ""
         self.error = ""
         self.away = False  # finished with no window attached
+        self.loaded = False  # an exchange of the chat this conversation carries on (ADR 0146)
+        self.kept = False  # its exchange is in the history
 
     def snapshot(self) -> dict:
         return {"id": self.id, "user": self.question, "answer": self.answer, "state": self.state,
@@ -479,7 +524,9 @@ class Turn:
 class Conversation:
     """The voice conversation: every heard message, the running summary and
     recent turns. A window attaches to watch and hear it, and detaching never
-    stops a reply; the reply's text is kept, and its audio waits for nobody."""
+    stops a reply; the reply's text is kept, and its audio waits for nobody.
+    While saving is on, its exchanges are also saved as a chat in Chat
+    history, or added to the chat it carries on (ADR 0146)."""
 
     def __init__(self, lease: dict):
         self.workspace, self.engine, self.voice = lease["workspace"], lease["engine"], lease["voice"]
@@ -494,12 +541,54 @@ class Conversation:
         self.socket = None  # the attached window's sender
         self.playback = PlaybackWindow()
         self.last_id = 0
-        self.successor: dict | None = None  # another model or voice, once the work in progress is done
+        self.successor: dict | None = None  # another look, model or chat, once the work in progress is done
         self.detached_at = time.monotonic()
         self.ended = False
+        self.chat: str | None = None  # its chat in Chat history, once saved or when carried on
+        self.title = ""  # the title of the chat it carries on
+        self.continued = False
+        # Read when it starts: turning saving off stops it at once, turning it
+        # on saves the next conversation (ADR 0146).
+        self.saving = saving_enabled()
+
+    async def load(self, chat: str | None) -> None:
+        """Start afresh, or carry on a chat from Chat history: its messages and
+        summary become this conversation's, and its last exchanges show as
+        turns. A chat deleted meanwhile starts afresh."""
+        self.history, self.summary, self.chat, self.title, self.continued = [], None, None, "", False
+        if chat is None:
+            return
+        session, history, summary = await asyncio.to_thread(stored_chat, chat, self.workspace)
+        if session is None:
+            return
+        self.chat, self.title, self.continued = chat, session["title"], True
+        self.history, self.summary = history[-HISTORY_LIMIT:], summary
+        # Below zero, so they never take an id the window numbers its questions with.
+        shown = exchanges(history)[-KEPT_TURNS:]
+        for index, (question, answer) in enumerate(shown):
+            turn = Turn(index - len(shown), {"text": question})
+            turn.answer, turn.state, turn.loaded, turn.kept = answer, "done", True, True
+            self.turns[turn.id] = turn
+
+    def carries_on(self, lease: dict) -> bool:
+        """The lease asks for this conversation: the same workspace, and no other chat."""
+        return lease["workspace"] == self.workspace and lease.get("chat") in (None, self.chat)
 
     def matches(self, lease: dict) -> bool:
-        return (self.workspace, self.engine, self.voice) == (lease["workspace"], lease["engine"], lease["voice"])
+        return self.carries_on(lease) and (self.engine, self.voice) == (lease["engine"], lease["voice"])
+
+    async def switch(self, lease: dict) -> None:
+        """Take another look or model, or start the conversation the lease asks
+        for. A new look or model keeps the conversation and its chat, now that
+        it is saved (ADR 0146, amending ADR 0071)."""
+        carried = self.carries_on(lease)
+        self.workspace, self.engine, self.voice = lease["workspace"], lease["engine"], lease["voice"]
+        if carried:
+            return
+        if lease.get("chat") is not None:
+            self.turns.clear()  # another chat's exchanges take their place
+        await self.load(lease.get("chat"))
+        self.saving = saving_enabled()
 
     def busy(self) -> bool:
         return self.current is not None or bool(self.queue)
@@ -508,13 +597,60 @@ class Conversation:
         shown = [turn.snapshot() for turn in self.turns.values() if turn.replay is None and turn.state != "ignored"]
         return {"workspace": self.workspace, "engine": self.engine, "voice": self.voice,
                 "attached": self.socket is not None, "busy": self.busy(), "last_id": self.last_id,
-                "turns": shown[-KEPT_TURNS:]}
+                "turns": shown[-KEPT_TURNS:], "chat": self.carried(), "saving": self.saving}
+
+    def carried(self) -> dict | None:
+        """The chat from Chat history this conversation carries on, if any."""
+        return {"id": self.chat, "title": self.title} if self.continued else None
 
     def ready(self, resumed: bool) -> dict:
         snapshot = self.snapshot()
         return {"type": "ready", "workspace": self.workspace, "engine": self.engine, "voice": self.voice,
                 "effect": VOICES[self.voice][1], "resumed": resumed, "last_id": self.last_id,
-                "busy": snapshot["busy"], "turns": snapshot["turns"]}
+                "busy": snapshot["busy"], "turns": snapshot["turns"], "chat": snapshot["chat"],
+                "saving": snapshot["saving"]}
+
+    def remember(self, entries: list[dict]) -> None:
+        """Add an exchange to the history and, while saving is on, to its chat
+        in Chat history. Runs off the event loop, except for a stopped reply."""
+        for entry in entries:
+            self.history.append({**entry, "seq": (self.history[-1]["seq"] if self.history else 0) + 1})
+        del self.history[:max(0, len(self.history) - HISTORY_LIMIT)]
+        self.saving = self.saving and saving_enabled()
+        if not self.saving:
+            return
+        from . import chat_store
+        try:
+            if self.chat is None:
+                self.chat = chat_store.create_session(self.workspace, kind="voice")
+            for entry in entries:
+                chat_store.append_message(self.chat, role=entry["role"], content=entry["content"],
+                                          tool_name=entry.get("tool_name"), tool_args=entry.get("tool_args"),
+                                          workspace=self.workspace)
+            if chat_store.last_seq(self.chat, self.workspace) != self.history[-1]["seq"]:
+                # Chat added to this chat meanwhile: carry on from what it holds.
+                self.history = stored_chat(self.chat, self.workspace)[1][-HISTORY_LIMIT:]
+        except sqlite3.IntegrityError:
+            # The user deleted the chat: nothing more of this conversation is saved.
+            self.saving = False
+        except (sqlite3.Error, OSError) as error:
+            log.warning("Echo could not save its conversation in Chat history: %s", error)
+
+    def remember_summary(self) -> None:
+        if self.saving and self.chat is not None and self.summary is not None and saving_enabled():
+            from . import chat_store
+            try:
+                chat_store.set_summary(self.chat, self.summary.get("text") or "", self.summary.get("covers") or 0,
+                                       self.summary.get("retry_after") or 0, workspace=self.workspace)
+            except (sqlite3.Error, OSError) as error:
+                log.warning("Echo could not save its conversation summary: %s", error)
+
+    def keep_partial(self, turn: Turn) -> None:
+        """A reply stopped or failed partway is kept as far as it got, as Chat keeps one."""
+        if turn.kept or turn.replay is not None or not turn.question.strip() or not turn.answer.strip():
+            return
+        turn.kept = True
+        self.remember([{"role": "user", "content": turn.question}, {"role": "assistant", "content": turn.answer.strip()[:3000]}])
 
     def attach(self, send) -> None:
         self.socket = send
@@ -678,10 +814,9 @@ class Conversation:
                     turn.state = "done"
                 turn.away = self.socket is None and turn.state in {"done", "failed"}
             if self.successor and not self.ended:
-                # Another model or voice was chosen meanwhile; it starts afresh (ADR 0071).
+                # Another look, model, workspace or chat was chosen meanwhile (ADR 0071, 0146).
                 lease, self.successor = self.successor, None
-                self.workspace, self.engine, self.voice = lease["workspace"], lease["engine"], lease["voice"]
-                self.history, self.summary = [], None
+                await self.switch(lease)
                 await self.send(self.ready(False))
             if self.socket is None and not sessions.claimed and not self.queue and not self.ended:
                 await sessions.worker.stop()  # held only while a window or a question needs it
@@ -714,7 +849,8 @@ class Conversation:
         return stopped
 
     async def end(self) -> None:
-        """The conversation ends, by the user's choice: nothing of it is kept."""
+        """The conversation ends, by the user's choice: the API forgets it, and
+        what was saved stays in Chat history (ADR 0146)."""
         if self.ended:
             return
         self.ended = True
@@ -827,6 +963,7 @@ class Conversation:
                             # The summary stands for messages already answered,
                             # so it holds whether or not this reply completes.
                             self.summary = {key: event.get(key) for key in ("text", "covers", "retry_after")}
+                            await asyncio.to_thread(self.remember_summary)
                             await emit({"type": "state", "state": "thinking"})
                         elif kind == "analysis":
                             await emit({"type": "state", "state": "analyzing", "text": event["text"]})
@@ -844,6 +981,7 @@ class Conversation:
                     if pending.strip():
                         await self.speak(pending, emit)
                 if flag.is_set():
+                    self.keep_partial(turn)
                     return
                 if answer.strip():
                     # A completed reply joins the history whether or not it was
@@ -851,15 +989,17 @@ class Conversation:
                     tools = [{"role": "tool", "content": call["result"], "tool_name": call["name"],
                               "tool_args": call.get("args") or {}}
                              for call in calls if "result" in call]
-                    for entry in [{"role": "user", "content": question}, *tools, {"role": "assistant", "content": answer[:3000]}]:
-                        self.history.append({**entry, "seq": (self.history[-1]["seq"] if self.history else 0) + 1})
-                    del self.history[:max(0, len(self.history) - HISTORY_LIMIT)]
+                    turn.kept = True
+                    await asyncio.to_thread(self.remember, [{"role": "user", "content": question}, *tools,
+                                                            {"role": "assistant", "content": answer[:3000]}])
                 turn.state = "done"
                 await emit({"type": "done"})
         except asyncio.CancelledError:
+            self.keep_partial(turn)
             raise
         except Exception as error:  # noqa: BLE001 — a failed reply says so and can be asked again
             budget = None
+            self.keep_partial(turn)
             turn.state = "failed"
             turn.error = (str(error) if isinstance(error, VoiceMemoryError)
                           else "Echo couldn't finish this answer. Try again, or ask a shorter question.")
@@ -932,16 +1072,20 @@ async def stream(websocket: WebSocket):
             raise VoiceMemoryError("Wait for Echo setup to finish before starting voice.")
         sessions.claimed = claimed = True
         # A window that comes back picks up the conversation it left, its
-        # reply included (ADR 0145). An idle one set up for another workspace,
-        # model or voice gives way to a new conversation (ADR 0071); a busy one
-        # finishes first.
+        # reply included (ADR 0145). Another look or model carries it on; an
+        # idle one in another workspace, or asked to carry on another chat,
+        # gives way to a new conversation (ADR 0146); a busy one finishes first.
         conversation = sessions.current()
         if conversation is not None and not conversation.matches(lease) and not conversation.busy():
-            await conversation.end()
-            conversation = None
+            if conversation.carries_on(lease):
+                await conversation.switch(lease)
+            else:
+                await conversation.end()
+                conversation = None
         resumed = conversation is not None
         if conversation is None:
             conversation = sessions.conversation = Conversation(lease)
+            await conversation.load(lease.get("chat"))
         elif not conversation.matches(lease):
             conversation.successor = lease
         await send({"type": "connecting"})
@@ -1016,7 +1160,7 @@ async def stream(websocket: WebSocket):
         if conversation is not None and not conversation.ended:
             conversation.detach(send)
             if conversation.socket is None and not conversation.busy():
-                if not any(turn.state != "ignored" for turn in conversation.turns.values()):
+                if not any(turn.state != "ignored" and not turn.loaded for turn in conversation.turns.values()):
                     # Nothing was asked, so there is nothing to come back to.
                     conversation.ended = True
                     if sessions.conversation is conversation:

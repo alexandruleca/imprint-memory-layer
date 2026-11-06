@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDownToDot, ArrowUpRight, Download, Mic, MicOff, Pin, Play, RotateCcw, Settings2, Square, X, AudioLines } from "lucide-react";
+import { ArrowDownToDot, ArrowUpRight, Download, History, MessageSquare, Mic, MicOff, Pin, Play, RotateCcw, Settings2, Square, X, AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { MicrophoneAccessError, VoiceClient, initialVoice, microphoneAccessAllows, microphoneProblem, replying, type VoiceMode, type VoiceSnapshot, type VoiceTurn } from "@/lib/voice-client";
+import { MicrophoneAccessError, VoiceClient, initialVoice, microphoneAccessAllows, microphoneProblem, replying, type CarriedChat, type VoiceMode, type VoiceSnapshot, type VoiceTurn } from "@/lib/voice-client";
 import { downloadWakeModel, cancelWakeDownload, useWakeState, wakeStatus, wakeSummary } from "@/lib/wake";
 import { readVoicePreferences, saveVoicePreferences } from "@/lib/voice-preferences";
 import { API_BASE } from "@/lib/api-base";
@@ -16,8 +16,8 @@ import { useVoiceSetup } from "@/lib/voice-setup";
 import { useAudioDevices, type AudioDevice } from "@/lib/audio-devices";
 import { VoiceSetup, VoiceChatSetup } from "@/components/voice-setup";
 import { AvatarPicker } from "@/components/avatar-picker";
-import { getConfig, setConfigValue } from "@/lib/api";
-import type { ConfigChoice } from "@/lib/types";
+import { getChatSession, getChatSessions, getConfig, setConfigValue } from "@/lib/api";
+import type { ChatSession, ConfigChoice } from "@/lib/types";
 import "@/styles/voice.css";
 
 const EchoAvatar = dynamic(() => import("./echo-avatar"), { ssr: false });
@@ -57,6 +57,7 @@ function Turns({ voice, actions, variant = "full" }: { voice: VoiceSnapshot; act
   if (!shown.length) return null;
   const spokenQuestion = (turn: VoiceTurn) => turn.user || (turn.spoken ? "Your spoken question" : "");
   return <>{voice.resumed && variant !== "panel" && <p className="voice-turn-note" role="status">Picked up where you left off</p>}
+  {voice.chat && !voice.resumed && variant !== "panel" && <p className="voice-turn-note">Continuing “{voice.chat.title}”</p>}
   <ol className={latest ? "voice-transcript voice-latest" : "voice-transcript"} aria-label="Conversation">
     {shown.map(turn => latest && turn.state === "queued"
       ? <li key={turn.id} className="voice-turn voice-turn-next" data-state="queued">
@@ -70,6 +71,34 @@ function Turns({ voice, actions, variant = "full" }: { voice: VoiceSnapshot; act
         <TurnStatus turn={turn} voice={voice} last={turn.id === lastDone} actions={actions}/>
       </li>)}
   </ol></>;
+}
+
+/** Earlier chats from Chat history, newest first; choosing one carries it on (ADR 0146). */
+function EarlierChats({ compact, onChoose }: { compact: boolean; onChoose: (chat: CarriedChat) => void }) {
+  const [open, setOpen] = useState(false);
+  const [chats, setChats] = useState<ChatSession[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  function toggle(next: boolean) {
+    setOpen(next);
+    if (!next) return;
+    setFailed(false);
+    void getChatSessions().then(({ sessions }) => setChats((sessions ?? []).slice(0, 8))).catch(() => { setChats([]); setFailed(true); });
+  }
+  return <Popover open={open} onOpenChange={toggle}>
+    <PopoverTrigger render={<Button variant="ghost" size={compact ? "icon-sm" : "lg"} aria-label="Continue an earlier chat" title="Continue an earlier chat"/>}>
+      <History size={compact ? 15 : 17}/>{!compact && " Earlier chats"}</PopoverTrigger>
+    <PopoverContent align="center" className={`voice-options voice-chats ${compact ? "voice-options-compact" : ""}`} aria-label="Earlier chats">
+      <PopoverTitle>Continue an earlier chat</PopoverTitle>
+      {chats === null ? <p className="voice-chats-note">Loading…</p>
+        : failed ? <p className="voice-chats-note">Chat history couldn&apos;t be loaded.</p>
+        : !chats.length ? <p className="voice-chats-note">No chats yet. Conversations with Echo and chats on the Chat page appear here.</p>
+        : <ul>{chats.map(chat => <li key={chat.id}>
+          <button type="button" onClick={() => { setOpen(false); onChoose({ id: chat.id, title: chat.title }); }}>
+            {chat.kind === "voice" ? <AudioLines size={14} role="img" aria-label="Echo conversation"/> : <MessageSquare size={14} role="img" aria-label="Chat"/>}
+            <span>{chat.title}</span>
+          </button></li>)}</ul>}
+    </PopoverContent>
+  </Popover>;
 }
 
 export function VoiceSurface({ compact = false }: { compact?: boolean }) {
@@ -99,6 +128,10 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const [wakeProgress, setWakeProgress] = useState(0);
   const [wakeError, setWakeError] = useState("");
   const [idleSeconds, setIdleSeconds] = useState(15);
+  // The voice.save_conversations setting (ADR 0146); null until it is known.
+  const [saveChats, setSaveChats] = useState<boolean | null>(null);
+  // A chat the Chat page sent here to carry on (/voice/?chat=…); it starts on the user's click.
+  const [chosenChat, setChosenChat] = useState<CarriedChat | null>(null);
   const engineRef = useRef<"chat" | "lfm">("chat");
   const idleRef = useRef(15);
   const wakeId = useRef<number | null>(null);
@@ -140,7 +173,11 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       const setting = config.settings?.find(s => s.key === "voice.avatar");
       setLooks(setting?.choices ?? []);
       setAvatar(String(setting?.value || "echo"));
-    }).catch(() => setAvatar("echo"));
+      const saving = config.settings?.find(s => s.key === "voice.save_conversations");
+      setSaveChats(saving ? saving.value !== false : true);
+    }).catch(() => { setAvatar("echo"); setSaveChats(true); });
+    const requested = compact ? null : new URLSearchParams(location.search).get("chat");
+    if (requested) void getChatSession(requested).then(chat => { if (chat?.id) setChosenChat({ id: chat.id, title: chat.title }); }).catch(() => {});
     // In the floating Echo, "Hey Echo" starts a conversation and hands over its
     // question; when that conversation ends by itself, Echo goes back where it was.
     const voiceClient = client.current;
@@ -253,6 +290,20 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     ? (compactPicker: boolean) => <AvatarPicker choices={looks} value={avatar} onChange={look => void chooseLook(look)} compact={compactPicker}/>
     : null;
   function chooseMode(value: VoiceMode) { client.current?.setMode(value); saveVoicePreferences({ mode: value }); }
+  /** Start a conversation, or carry on a chat from Chat history (ADR 0146). */
+  function begin(chat?: CarriedChat | null) {
+    setChosenChat(null);
+    if (!compact && new URLSearchParams(location.search).has("chat")) history.replaceState(null, "", location.pathname);
+    void client.current?.start(engine, chat ? { chat: chat.id } : {});
+  }
+  /** Saving in Chat history: off stops the conversation in progress at once, on saves the next one. */
+  async function chooseSaving(on: boolean) {
+    const previous = saveChats;
+    setSaveChats(on);
+    try { await setConfigValue("voice.save_conversations", on); } catch { setSaveChats(previous); }
+  }
+  // Whether what is said now ends up in Chat history.
+  const saved = saveChats !== false && (!(voice.connected || voice.resumable) || voice.saving);
   function chooseEngine(value: "chat" | "lfm") {
     setEngine(value); saveVoicePreferences({ engine: value });
     if (active) void client.current?.start(value);
@@ -328,6 +379,10 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
               {!devices.labelled && <small>Device names appear once the microphone is allowed.</small>}
               <label className="voice-check"><Checkbox aria-label="Use microphone for conversations" checked={rememberMicrophone} onCheckedChange={remember}/>Use microphone for conversations</label>
               <small>Remembered on this device. Starting a conversation turns the microphone on, after the system allows it; push-to-talk stays silent until you hold it.</small>
+              <label className="voice-check"><Switch aria-label="Save conversations in Chat history" checked={saveChats !== false} disabled={saveChats === null}
+                onCheckedChange={on => void chooseSaving(on)}/>Save conversations in Chat history</label>
+              <small>{saveChats === false ? "Off. Echo forgets a conversation once you end it or leave it for 30 minutes."
+                : "As text on this device, where Chat can open and delete them; audio is never saved. Turning this off stops saving at once."}</small>
               {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
               <label className="voice-check voice-wake-switch"><Switch aria-label="Listen for “Hey Echo”" checked={!!wake?.enabled} disabled={!desktop || !ready || wakeBusy !== null}
                 onCheckedChange={on => { if (!on) { void window.electronAPI?.setWake?.({ enabled: false }); return; } setOptionsOpen(false); setWakeError(""); setWakeSheet(true); }}/>Listen for “Hey Echo”</label>
@@ -370,8 +425,12 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </div>
       <div className="voice-primary-controls">
         {!active ? <>
-            <Button className="voice-start" disabled={!ready} onClick={() => void client.current?.start(engine)}><AudioLines size={18}/> {voice.resumable ? "Continue conversation" : "Start conversation"}</Button>
-            {voice.resumable && !compact && <Button variant="ghost" size="icon-lg" aria-label="End conversation" title="End conversation" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>}
+            {chosenChat
+              ? <Button className="voice-start" disabled={!ready} onClick={() => begin(chosenChat)}><AudioLines size={18}/> <span className="voice-start-label">Continue “{chosenChat.title}”</span></Button>
+              : <Button className="voice-start" disabled={!ready} onClick={() => begin()}><AudioLines size={18}/> {voice.resumable ? "Continue conversation" : "Start conversation"}</Button>}
+            {chosenChat && <Button variant="ghost" size={compact ? "icon-sm" : "icon-lg"} aria-label="Start a new conversation instead" title="Start a new conversation instead" onClick={() => setChosenChat(null)}><X size={16}/></Button>}
+            {!chosenChat && <EarlierChats compact={compact} onChoose={begin}/>}
+            {voice.resumable && !compact && !chosenChat && <Button variant="ghost" size="icon-lg" aria-label="End conversation" title="End conversation" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>}
           </>
           : voice.phase === "connecting" ? <Button className="voice-start" onClick={() => client.current?.detach()}>Connecting… · Cancel</Button>
           : <>
@@ -395,7 +454,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       <p className="voice-privacy" role="status" data-alert={voice.phase === "error" || !!voice.microphoneError || undefined}>{voice.phase === "error" ? voice.detail
         : voice.microphoneError || (voice.elsewhere && !active ? "Echo is open in another window."
         : voice.microphone ? voice.mode === "handsfree" ? "Mic on · speak anytime; say “stop” to stop a reply" : "Mic armed · hold button or focused Space key"
-        : "Microphone off · English · runs locally")}</p>
+        : `Microphone off · English · runs locally · ${saved ? "saved in Chat" : "not saved"}`)}</p>
       {voice.microphoneSettings && desktop && <Button variant="outline" className="voice-settings-link" onClick={() => void window.electronAPI?.openMicrophoneSettings?.()}>Open microphone settings</Button>}
       {!compact && textForm}{!compact && transcript}
       {!compact && picker && <div className="voice-look"><span>Echo&apos;s look and voice</span>{picker(true)}</div>}
@@ -411,7 +470,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         <ul className="voice-wake-points">
           <li>The microphone stays on while the Imprint app runs. The Imprint button shows a dot, and your system shows its microphone indicator, the whole time.</li>
           <li>When you speak, the first two seconds are checked on this computer by a small speech model, then discarded. Nothing is stored or sent anywhere.</li>
-          <li>After “Hey Echo”, the rest of what you say becomes your question. Echo listens hands-free until {idleSeconds} seconds of quiet or until you say “stop”.</li>
+          <li>After “Hey Echo”, the rest of what you say becomes your question. Echo listens hands-free until {idleSeconds} seconds of quiet or until you say “stop”. Like any conversation with Echo, it is saved as text in Chat history unless you turn that off in Companion settings.</li>
           <li>Listening pauses during recordings, Echo conversations, screen lock and sleep. Pause it or turn it off from the button, the tray or the top bar.</li>
           <li>Turning it on downloads a 78 MB English speech model once.</li>
         </ul>

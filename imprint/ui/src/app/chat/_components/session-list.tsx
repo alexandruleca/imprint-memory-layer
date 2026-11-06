@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { MoreHorizontal, Pencil, SquarePen, Trash2 } from "lucide-react";
+import { AudioLines, MoreHorizontal, Pencil, SquarePen, Trash2 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -84,9 +84,13 @@ function Row({ session, active, onSelect, onRename, onDelete }: {
         type="button"
         onClick={onSelect}
         aria-current={active ? "page" : undefined}
-        className={cn("min-w-0 flex-1 truncate rounded-lg px-2.5 py-1.5 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50", active && "font-medium")}
+        className={cn("flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50", active && "font-medium")}
       >
-        {session.title}
+        {session.kind === "voice" && (
+          // A conversation with Echo (ADR 0146).
+          <AudioLines className="size-3.5 shrink-0 text-muted-foreground" role="img" aria-label="Echo conversation" />
+        )}
+        <span className="min-w-0 truncate">{session.title}</span>
       </button>
       {session.replying && !active && (
         // The reply goes on while another chat is open (ADR 0145).

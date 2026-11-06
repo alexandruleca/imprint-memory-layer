@@ -901,3 +901,71 @@ test('the floating Echo keeps the newest answer and what waits on screen, with S
   await page.getByRole('button', { name: 'Companion settings' }).click();
   await expect(page.getByRole('dialog', { name: 'Companion settings' }).locator('.voice-turn[data-state=stopped]')).toHaveCount(2);
 });
+
+// ── Saved in Chat history, and carried on from it (ADR 0146) ─────────────
+async function sessionBodies(page: Page) {
+  const bodies: object[] = [];
+  await page.route('**/api/voice/sessions', route => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({ json: { token: 'fixture-capability', workspace: 'default' } });
+  });
+  return bodies;
+}
+
+test('an earlier chat is carried on: Echo shows its last exchanges and numbers new questions after them', async ({ page }) => {
+  const server = await prepare(page, { ready: { chat: { id: 'c1', title: 'Where is billing?' }, last_id: 0,
+    turns: [{ id: -1, user: 'Where is billing?', answer: 'Port 8101.', state: 'done' }] } });
+  const bodies = await sessionBodies(page);
+  await page.route('**/api/chat/sessions', route => route.fulfill({ json: { sessions: [
+    { id: 'c1', title: 'Where is billing?', created_at: 1, updated_at: 2, kind: 'voice' },
+    { id: 'c2', title: 'Typed chat', created_at: 1, updated_at: 1, kind: 'chat' }] } }));
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Continue an earlier chat' }).click();
+  const picker = page.getByRole('dialog', { name: 'Continue an earlier chat' });
+  await expect(picker.getByRole('button')).toHaveCount(2);
+  await expect(picker.getByRole('img', { name: 'Echo conversation' })).toHaveCount(1);
+  await picker.getByRole('button', { name: /Where is billing\?/ }).click();
+  await expect.poll(() => bodies).toEqual([{ engine: 'chat', chat: 'c1' }]);
+  await expect(page.getByText('Continuing “Where is billing?”')).toBeVisible();
+  await expect(page.locator('.voice-transcript')).toContainText('Port 8101.');
+  await page.getByRole('textbox', { name: 'Type a question' }).fill('And staging?');
+  await page.getByRole('button', { name: 'Send question' }).click();
+  await expect.poll(() => server.controls.find(c => c.type === 'turn')).toMatchObject({ id: 1, text: 'And staging?' });
+});
+
+test('Continue with Echo from Chat waits for a click, and can start a new conversation instead', async ({ page }) => {
+  await prepare(page, { ready: { chat: { id: 'c1', title: 'Typed chat' } } });
+  const bodies = await sessionBodies(page);
+  await page.route('**/api/chat/sessions/c1', route => route.fulfill({ json: { id: 'c1', title: 'Typed chat', created_at: 1, updated_at: 1, messages: [] } }));
+  await page.goto('/voice/?chat=c1');
+  await page.getByRole('button', { name: 'Start a new conversation instead' }).click();
+  await expect(page.getByRole('button', { name: 'Start conversation' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue an earlier chat' })).toBeVisible();
+  await page.goto('/voice/?chat=c1');
+  const start = page.getByRole('button', { name: 'Continue “Typed chat”' });
+  await expect(start).toBeVisible();
+  expect(bodies).toEqual([]);
+  await start.click();
+  await expect.poll(() => bodies).toEqual([{ engine: 'chat', chat: 'c1' }]);
+  await expect(page).toHaveURL(/\/voice\/$/);
+});
+
+test('Companion settings turn saving in Chat history off; the idle line says whether Echo saves', async ({ page }) => {
+  await prepare(page);
+  const puts: unknown[] = [];
+  await page.route('**/api/config', route => route.fulfill({ json: { settings: [{ key: 'voice.save_conversations', value: true }] } }));
+  await page.route('**/api/config/voice.save_conversations', route => {
+    puts.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true, value: false } });
+  });
+  await page.goto('/voice/');
+  await expect(page.getByRole('status').filter({ hasText: 'runs locally · saved in Chat' })).toBeVisible();
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  const toggle = page.getByRole('switch', { name: 'Save conversations in Chat history' });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect.poll(() => puts).toEqual([{ value: false }]);
+  await expect(page.getByText('Off. Echo forgets a conversation once you end it or leave it for 30 minutes.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('status').filter({ hasText: 'runs locally · not saved' })).toBeVisible();
+});

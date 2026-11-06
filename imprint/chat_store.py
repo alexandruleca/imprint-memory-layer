@@ -2,7 +2,8 @@
 
 Per-workspace database (`chat.sqlite3` or `chat_{ws}.sqlite3`) sitting in the
 imprint data directory. Stores session metadata and full message transcripts so
-conversations survive dashboard restart.
+conversations survive dashboard restart. A session's ``kind`` says where it
+started: ``chat`` on the Chat page, ``voice`` in Echo (ADR 0146).
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ import uuid
 from pathlib import Path
 
 from . import config
+from .private_store import add_column
+
+KINDS = ("chat", "voice")
 
 _conns: dict[str, sqlite3.Connection] = {}
 
@@ -71,6 +75,8 @@ def _get_conn(workspace: str | None = None) -> sqlite3.Connection:
         );
         """
     )
+    # Where a session started; older databases have only Chat sessions.
+    add_column(conn, "chat_sessions", "kind", "TEXT NOT NULL DEFAULT 'chat'")
     conn.commit()
     _conns[ws] = conn
     return conn
@@ -90,13 +96,15 @@ atexit.register(_close_all)
 
 # ── Sessions ─────────────────────────────────────────────────
 
-def create_session(workspace: str | None = None, title: str = "New chat") -> str:
+def create_session(workspace: str | None = None, title: str = "New chat", kind: str = "chat") -> str:
+    if kind not in KINDS:
+        raise ValueError(f"Unknown chat kind: {kind}")
     conn = _get_conn(workspace)
     sid = uuid.uuid4().hex
     now = time.time()
     conn.execute(
-        "INSERT INTO chat_sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        (sid, title, now, now),
+        "INSERT INTO chat_sessions (id, title, created_at, updated_at, kind) VALUES (?, ?, ?, ?, ?)",
+        (sid, title, now, now, kind),
     )
     conn.commit()
     return sid
@@ -106,7 +114,7 @@ def list_sessions(workspace: str | None = None, limit: int = 100) -> list[dict]:
     conn = _get_conn(workspace)
     rows = conn.execute(
         """
-        SELECT s.id, s.title, s.created_at, s.updated_at,
+        SELECT s.id, s.title, s.created_at, s.updated_at, s.kind,
                (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS message_count
         FROM chat_sessions s
         ORDER BY s.updated_at DESC
@@ -120,7 +128,7 @@ def list_sessions(workspace: str | None = None, limit: int = 100) -> list[dict]:
 def get_session(session_id: str, workspace: str | None = None) -> dict | None:
     conn = _get_conn(workspace)
     row = conn.execute(
-        "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id = ?",
+        "SELECT id, title, created_at, updated_at, kind FROM chat_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     return dict(row) if row else None
@@ -166,6 +174,14 @@ def get_messages(session_id: str, workspace: str | None = None) -> list[dict]:
                 pass
         out.append(d)
     return out
+
+
+def last_seq(session_id: str, workspace: str | None = None) -> int:
+    """The number of the session's latest message; 0 when it has none."""
+    row = _get_conn(workspace).execute(
+        "SELECT COALESCE(MAX(seq), 0) AS last FROM chat_messages WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    return row["last"]
 
 
 def get_summary(session_id: str, workspace: str | None = None) -> dict | None:

@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowDown, CircleAlert, Info, PanelLeft } from "lucide-react";
+import { ArrowDown, AudioLines, CircleAlert, Info, PanelLeft } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LogoMark } from "@/components/logo-mark";
+import { cn } from "@/lib/utils";
 import {
   createChatSession, deleteChatSession, followChat, getChatSession, getChatSessions, getChatStatus,
   renameChatSession, stopChat, streamChat,
@@ -298,7 +299,14 @@ export default function ChatPage() {
           <Button variant="ghost" size="icon-sm" className="md:hidden" aria-label="Show chats" onClick={() => setListOpen(true)}>
             <PanelLeft />
           </Button>
-          <h2 className="truncate text-sm font-medium">{title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h2>
+          {activeId && !draft && (
+            // Echo carries the chat on, by voice; what it says is added here (ADR 0146).
+            <Link href={`/voice/?chat=${encodeURIComponent(activeId)}`}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "shrink-0 text-muted-foreground")}>
+              <AudioLines /> Continue with Echo
+            </Link>
+          )}
         </header>
 
         {draft ? (

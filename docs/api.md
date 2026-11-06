@@ -43,8 +43,9 @@ goes on, text kept and audio skipped. The next session attaches to it; `ready`
 then carries `resumed`, `busy`, `last_id` (the next `turn` id must be greater)
 and `turns` (recent turns: `id`, `user`, `answer`, `state` of `queued`,
 `running`, `done`, `cancelled` or `failed`, `detail`, `error`, and `away` when it
-finished with no socket). A session for another engine, look or workspace starts
-a new conversation, after the reply in progress if one runs (a second `ready`).
+finished with no socket). A session for another engine or look carries the
+conversation on with it; one for another workspace starts a new conversation,
+after the reply in progress if one runs (a second `ready`).
 A `turn` sent during a reply waits: `queued` (`position`), later `start`. A spoken
 `turn` may carry `"overlap": true` (speech began while Echo's audio played); after
 transcription it can come back `ignored` (`reason`: `unheard` for noise, `echo` for
@@ -55,10 +56,21 @@ reads finished turn `of` aloud again. `{"type": "end"}` ends and forgets the
 conversation and closes the socket. A completed reply is kept without the client's
 `played` acknowledgement, which is accepted and ignored. `GET /api/voice/conversation`
 returns `{"conversation": null}` or the conversation's `attached`, `busy`,
-`engine`, `workspace`, `voice`, `last_id` and `turns`, without starting the
-worker; `POST /api/voice/conversation/end` (same-origin, empty body) ends one no
-socket holds and answers `409` while one does. The API forgets a conversation 30
-minutes after its socket left with nothing running.
+`engine`, `workspace`, `voice`, `last_id`, `turns`, `chat` and `saving`, without
+starting the worker; `POST /api/voice/conversation/end` (same-origin, empty body)
+ends one no socket holds and answers `409` while one does. The API forgets a
+conversation 30 minutes after its socket left with nothing running.
+
+While `voice.save_conversations` is on, each answered exchange is also written to
+Chat history as a chat of `kind` `voice`, numbered as Chat stores messages, with
+its running summary ([ADR 0146](adr/0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md)).
+`ready` and the conversation report `saving` (whether this conversation is
+saved). `POST /api/voice/sessions` takes an optional `chat` (a Chat history
+session id, at most 64 characters) to carry that chat on: its messages and
+summary become the conversation's, `ready.chat` is `{"id", "title"}` and
+`ready.turns` holds its last exchanges with ids below zero, so `last_id` stays
+the client's own. An unknown chat answers `404`; another chat takes over an
+idle conversation at once and a busy one after its reply.
 
 The desktop app's "Hey Echo" listener ([ADR 0137](adr/0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md))
 uses `GET /api/voice/wake/status` (whether the pinned `tiny.en` model is
@@ -343,7 +355,7 @@ estimates; they do not imply a recognized speaker or an exact recording transcri
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/chat/status` | Configured provider + model + readiness. For `local`, `error` reports a llama.cpp binding that does not load (a damaged installation). |
-| GET | `/api/chat/sessions` | List chat sessions, each with `replying` while a reply is being written in it. |
+| GET | `/api/chat/sessions` | List chat sessions, each with its `kind` (`chat`, or `voice` for a conversation with Echo) and `replying` while a reply is being written in it. |
 | POST | `/api/chat/sessions` | Create a new session. |
 | GET | `/api/chat/sessions/{sid}` | Session transcript (`messages`, each with its `seq`) and `summary`: the running summary (`text`, `covers`: the last message seq it stands in for, `exchanges`: user messages covered, `retry_after`, `updated_at`), or `null` before the first one; `replying` while a reply is being written. |
 | GET | `/api/chat/sessions/{sid}/reply` | The reply being written, as the same SSE stream as `/api/chat`, from its first event; `404` when none is. |

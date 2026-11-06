@@ -6,7 +6,9 @@ description: The voice.avatar look also chooses Echo's voice, the native model's
 - Status: Amended
 - Date: 2026-10-25
 - Scope: implementation; how the voices sound is unvalidated (see Validation)
-- Amended by: [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — a new look or reasoning model chosen during a reply takes over once that reply is answered, instead of ending it
+- Amended by:
+  - [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — a new look or reasoning model chosen during a reply takes over once that reply is answered, instead of ending it
+  - [ADR 0146](0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md) — a new look or reasoning model keeps the conversation's history and its chat instead of clearing them, now that the conversation is saved
 - Related: [ADR 0043](0043-live-voice-and-echo-companion.md), [ADR 0054](0054-echo-looks-declare-their-motion.md), [ADR 0070](0070-companion-moves-with-the-launcher-and-keeps-options-in-settings.md)
 
 ## Context

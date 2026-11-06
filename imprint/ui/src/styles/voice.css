@@ -702,6 +702,19 @@
 .voice-settings-link { display: flex; margin: 0 auto 14px; font-size: 11px; }
 .voice-compact .voice-settings-link { height: 28px; margin: 0 auto 6px; font-size: 10px; background: var(--echo-panel); border-color: var(--echo-line-strong); color: var(--echo-ink); }
 
+/* Earlier chats (ADR 0146): recent chats from Chat history in a panel like
+ * Companion settings; choosing one carries it on. */
+.voice-chats { width: min(280px, calc(100vw - 24px)); gap: 8px; }
+.voice-chats ul { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.voice-chats li button { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; font-size: 11px; color: var(--echo-ink); text-align: left; cursor: pointer; }
+.voice-chats li button:hover { background: var(--echo-hover); }
+.voice-chats li button:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--echo-glow); }
+.voice-chats li button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-chats li svg { flex-shrink: 0; color: var(--echo-muted); }
+.voice-chats-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--echo-faint); }
+.voice-start-label { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-compact .voice-start-label { max-width: 150px; }
+
 /* "Hey Echo" (ADR 0137): the switch in Companion settings, the caption of a
  * wake-started conversation, and the explanation before turning it on. */
 .voice-options .voice-settings .voice-wake-switch { margin-top: 4px; }

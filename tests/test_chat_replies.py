@@ -119,5 +119,40 @@ class ChatRepliesOutliveTheirRequestTests(unittest.TestCase):
         self.assertEqual(events(lines)[-1], {"type": "done"})
 
 
+class ChatKindTests(unittest.TestCase):
+    """A chat records where it started: the Chat page or Echo (ADR 0146)."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = directory.name
+        for patcher in (patch.dict(os.environ, {"IMPRINT_DATA_DIR": directory.name}),
+                        patch.dict(chat_store._conns, clear=True)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(chat_store._close_all)
+
+    def test_an_older_database_lists_its_chats_as_chat_and_echo_adds_voice_ones(self):
+        import sqlite3
+        from contextlib import closing
+        with closing(sqlite3.connect(os.path.join(self.root, "chat.sqlite3"))) as conn, conn:
+            conn.execute("CREATE TABLE chat_sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+                         " created_at REAL NOT NULL, updated_at REAL NOT NULL)")
+            conn.execute("INSERT INTO chat_sessions VALUES ('old', 'Before', 1, 1)")
+        voice = chat_store.create_session(kind="voice")
+        self.assertEqual({session["id"]: session["kind"] for session in chat_store.list_sessions()},
+                         {"old": "chat", voice: "voice"})
+        self.assertEqual(chat_store.get_session(voice)["kind"], "voice")
+        with self.assertRaises(ValueError):
+            chat_store.create_session(kind="audio")
+        client = TestClient(api.app, base_url="http://127.0.0.1:8420", client=("127.0.0.1", 1234))
+        self.addCleanup(client.close)
+        listed = client.get("/api/chat/sessions").json()["sessions"]
+        self.assertEqual(sorted(session["kind"] for session in listed), ["chat", "voice"])
+        self.assertEqual(chat_store.last_seq(voice), 0)
+        chat_store.append_message(voice, "user", "Hello")
+        self.assertEqual(chat_store.last_seq(voice), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { slack } from './slack';
 
-type Session = { id: string; title: string; created_at: number; updated_at: number };
+type Session = { id: string; title: string; created_at: number; updated_at: number; kind?: 'chat' | 'voice' };
 
 const now = Date.now() / 1000;
 const LOCAL = { provider: 'local', model_path: '', model_file: 'Qwen3.5-4B-Q4_K_M.gguf', error: null };
@@ -425,4 +425,21 @@ test('the chat list moves into a sheet on narrow screens', async ({ page }) => {
   await page.getByRole('button', { name: 'Show chats' }).click();
   await expect(page.getByRole('dialog').getByRole('navigation', { name: 'Chats' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('a conversation with Echo is marked, and the open chat can be carried on with Echo (ADR 0146)', async ({ page }) => {
+  await mockChat(page, {
+    sessions: [
+      { id: 'spoken', title: 'Where is billing?', created_at: now, updated_at: now, kind: 'voice' },
+      { id: 'typed', title: 'Typed chat', created_at: now - 60, updated_at: now - 60, kind: 'chat' },
+    ],
+    messages: { spoken: [{ role: 'user', content: 'Where is billing?' }, { role: 'assistant', content: 'Port 8101.' }] },
+  });
+  await page.goto('/chat/');
+  const list = page.getByRole('navigation', { name: 'Chats' });
+  await expect(list.getByRole('img', { name: 'Echo conversation' })).toHaveCount(1);
+  await expect(list.getByRole('button', { name: 'Echo conversation Where is billing?' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Continue with Echo' })).toHaveAttribute('href', '/voice/?chat=spoken');
+  await list.getByRole('button', { name: 'Typed chat', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Continue with Echo' })).toHaveAttribute('href', '/voice/?chat=typed');
 });

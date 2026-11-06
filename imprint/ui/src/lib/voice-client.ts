@@ -34,10 +34,15 @@ export type VoiceSnapshot = {
   resumable: boolean;
   /** Another window holds the conversation. */
   elsewhere: boolean;
+  /** The chat from Chat history this conversation carries on (ADR 0146). */
+  chat: CarriedChat | null;
+  /** Its exchanges are saved in Chat history. */
+  saving: boolean;
 };
+export type CarriedChat = { id: string; title: string };
 export const initialVoice: VoiceSnapshot = { phase: "idle", detail: "Ready when you are", connected: false,
   microphone: false, microphoneError: "", microphoneSettings: false, mode: "ptt", held: false, workspace: "", preparation: null,
-  wake: false, turns: [], ducked: false, resumed: false, resumable: false, elsewhere: false };
+  wake: false, turns: [], ducked: false, resumed: false, resumable: false, elsewhere: false, chat: null, saving: true };
 
 /** Echo is answering, or has questions waiting. */
 export const replying = (voice: VoiceSnapshot) => voice.turns.some(turn => turn.state === "thinking" || turn.state === "queued");
@@ -182,7 +187,8 @@ const turnState = (state?: string): VoiceTurnState => state === "running" ? "thi
   : state === "cancelled" ? "stopped" : state === "queued" || state === "done" || state === "failed" ? state : "done";
 
 /** What the API keeps of the conversation for a window that comes back (ADR 0145). */
-export type VoiceConversation = { attached: boolean; busy: boolean; engine: string; turns: ServerTurn[] } | null;
+export type VoiceConversation = { attached: boolean; busy: boolean; engine: string; turns: ServerTurn[];
+  chat?: CarriedChat | null; saving?: boolean } | null;
 export async function conversationStatus(): Promise<VoiceConversation> {
   const response = await fetch(`${API_BASE}/api/voice/conversation`, { signal: AbortSignal.timeout(3000) });
   if (!response.ok) return null;
@@ -325,8 +331,9 @@ export class VoiceClient {
   private fail(message: string) { this.detach(); this.update({ phase: "error", detail: message }); }
 
   /** Connect to the API's conversation, starting one or picking the open one up
-   * (ADR 0145). `resume` comes back to it without turning the microphone on. */
-  async start(engine: "chat" | "lfm", options: { wake?: { idleSeconds: number }; resume?: boolean } = {}) {
+   * (ADR 0145). `resume` comes back to it without turning the microphone on;
+   * `chat` carries on that chat from Chat history (ADR 0146). */
+  async start(engine: "chat" | "lfm", options: { wake?: { idleSeconds: number }; resume?: boolean; chat?: string } = {}) {
     this.detach(); this.stopped = false; this.engine = engine;
     this.quiet = !!options.resume;
     const epoch = ++this.epoch;
@@ -362,7 +369,8 @@ export class VoiceClient {
         if (this.stopped || epoch !== this.epoch) return;
       }
       this.update({ detail: "Connecting locally…" });
-      const response = await fetch(`${API_BASE}/api/voice/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine }) });
+      const response = await fetch(`${API_BASE}/api/voice/sessions`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options.chat ? { engine, chat: options.chat } : { engine }) });
       if (!response.ok) { const error = await response.json(); throw new Error(error.detail || "Voice is unavailable."); }
       const session = await response.json();
       if (this.stopped || epoch !== this.epoch) return;
@@ -404,7 +412,8 @@ export class VoiceClient {
       return;
     }
     const turns = conversation.turns.map(turn => this.fromServer(turn));
-    this.update({ turns, elsewhere: conversation.attached, resumable: !conversation.attached && turns.length > 0 });
+    this.update({ turns, elsewhere: conversation.attached, resumable: !conversation.attached && turns.length > 0,
+      chat: conversation.chat ?? null, saving: conversation.saving ?? this.snapshot.saving });
     if (!conversation.attached && conversation.busy) await this.start(engine, { resume: true });
   }
   /** Connected, or connecting. */
@@ -621,7 +630,7 @@ export class VoiceClient {
   }
   private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string;
     stage?: string; downloaded?: number; total?: number; effect?: string | null; engine?: string; resumed?: boolean; last_id?: number;
-    turns?: ServerTurn[]; reason?: string }) {
+    turns?: ServerTurn[]; reason?: string; chat?: CarriedChat | null; saving?: boolean }) {
     if (event.type === "connecting") { this.update({ detail: "Loading local voice…" }); return; }
     if (event.type === "ready") { this.ready(event); return; }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
@@ -702,19 +711,23 @@ export class VoiceClient {
   }
   /** Output for a turn the user stopped is never shown or played. */
   private stale(id: number) { return this.snapshot.turns.find(turn => turn.id === id)?.state === "stopped"; }
-  private ready(event: { workspace?: string; effect?: string | null; resumed?: boolean; last_id?: number; turns?: ServerTurn[] }) {
+  private ready(event: { workspace?: string; effect?: string | null; resumed?: boolean; last_id?: number; turns?: ServerTurn[];
+    chat?: CarriedChat | null; saving?: boolean }) {
     this.effect = event.effect ?? null;
+    this.id = Math.max(this.id, event.last_id ?? 0);
+    const chat = event.chat ?? null, saving = event.saving ?? this.snapshot.saving;
     if (this.snapshot.connected) {
-      // The API switched to another model or voice once the reply was answered.
-      this.refresh({ workspace: event.workspace });
+      // The API switched to another look, model or chat once the reply was
+      // answered; another chat brings its own exchanges (ADR 0146).
+      const other = chat?.id !== this.snapshot.chat?.id && Array.isArray(event.turns);
+      this.refresh({ workspace: event.workspace, chat, saving, ...other ? { turns: event.turns!.map(turn => this.fromServer(turn)) } : {} });
       return;
     }
-    this.id = Math.max(this.id, event.last_id ?? 0);
     const turns = Array.isArray(event.turns) ? event.turns.map(turn => this.fromServer(turn)) : this.snapshot.turns;
     this.running = turns.find(turn => turn.state === "thinking")?.id ?? 0;
     this.counts.clear(); this.reconnected = false;
     const resumed = !!event.resumed && turns.some(turn => turn.state === "thinking" || turn.state === "queued" || turn.away);
-    this.refresh({ connected: true, workspace: event.workspace, turns, resumed, resumable: false, elsewhere: false });
+    this.refresh({ connected: true, workspace: event.workspace, turns, resumed, resumable: false, elsewhere: false, chat, saving });
     const question = this.question; this.question = undefined;
     if (question) this.submit({ text: question });
     if ((this.armMicrophone && !this.quiet) || this.wakeSession) void this.enableMicrophone();
@@ -789,7 +802,7 @@ export class VoiceClient {
     if (this.socket?.readyState === WebSocket.OPEN) this.send({ type: "end" });
     else if (this.snapshot.resumable) void this.forget();
     this.detach();
-    this.update({ turns: [], resumable: false, elsewhere: false });
+    this.update({ turns: [], resumable: false, elsewhere: false, chat: null });
   }
   /** End a conversation this window is not connected to. */
   private async forget() {
