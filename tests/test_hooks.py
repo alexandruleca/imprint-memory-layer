@@ -15,15 +15,40 @@ class HookTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(ENTRY), action, str(data_dir)],
                               input=json.dumps(payload), text=True, capture_output=True)
 
-    def test_session_isolation_and_safe_paths(self):
+    def test_a_read_before_searching_is_never_refused_and_reminds_once(self):
+        # ADR 0142: the reminder replaces the old gate, which refused the read (exit 2).
         with tempfile.TemporaryDirectory(prefix="imprint's hook ") as directory:
             root = Path(directory)
-            payload = {'session_id': '../../outside'}
-            self.assertEqual(self.run_hook('pre-read', root, payload).returncode, 2)
-            self.assertEqual(self.run_hook('post-search', root, payload).returncode, 0)
-            self.assertEqual(self.run_hook('pre-read', root, payload).returncode, 0)
-            self.assertEqual(self.run_hook('pre-read', root, {'session_id': 'other'}).returncode, 2)
-            self.assertEqual(len(list((root / '.sessions').iterdir())), 1)
+            payload = {'hook_event_name': 'PreToolUse', 'session_id': '../../outside', 'tool_name': 'Read'}
+            first = self.run_hook('pre-read', root, payload)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            output = json.loads(first.stdout)['hookSpecificOutput']
+            self.assertEqual(output['hookEventName'], 'PreToolUse')
+            self.assertNotIn('permissionDecision', output)
+            self.assertIn("Prefer searching it with Imprint's search tool", output['additionalContext'])
+            again = self.run_hook('pre-read', root, payload)
+            self.assertEqual((again.returncode, again.stdout), (0, ''), 'once per session')
+            # A session that searched first is not reminded at all.
+            self.assertEqual(self.run_hook('post-search', root, {'session_id': 'other'}).returncode, 0)
+            searched = self.run_hook('pre-read', root, {'hook_event_name': 'PreToolUse', 'session_id': 'other'})
+            self.assertEqual((searched.returncode, searched.stdout), (0, ''))
+            # Session names never become paths outside the sessions folder.
+            self.assertTrue(all(path.parent == root / '.sessions' for path in (root / '.sessions').iterdir()))
+
+    def test_cursor_reads_are_allowed_silently_and_reminded_after_the_result(self):
+        # Cursor's preToolUse only allows or denies (bad output denies), so it says nothing;
+        # its postToolUse hook carries the reminder as additional_context.
+        with tempfile.TemporaryDirectory() as directory:
+            payload = {'hook_event_name': 'preToolUse', 'conversation_id': 'c1', 'cursor_version': '2.1', 'tool_name': 'Read'}
+            before = self.run_hook('pre-read', directory, payload)
+            self.assertEqual((before.returncode, before.stdout), (0, ''))
+            after = self.run_hook('cursor-post-read', directory, {**payload, 'hook_event_name': 'postToolUse'})
+            self.assertEqual(after.returncode, 0, after.stderr)
+            self.assertIn("Imprint's search tool", json.loads(after.stdout)['additional_context'])
+            self.assertEqual(self.run_hook('cursor-post-read', directory, {**payload, 'hook_event_name': 'postToolUse'}).stdout, '')
+            # Cursor's sessions are told apart by conversation_id.
+            other = self.run_hook('cursor-post-read', directory, {**payload, 'conversation_id': 'c2'})
+            self.assertIn('additional_context', json.loads(other.stdout))
 
     def test_reminder_and_stop_emit_valid_json(self):
         with tempfile.TemporaryDirectory() as directory:

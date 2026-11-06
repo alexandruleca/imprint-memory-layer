@@ -48,3 +48,7 @@ func CursorPreCompactCommand(bp Paths) string   { return command(bp, "cursor-pre
 func SessionStartCommand(bp Paths) string       { return command(bp, "session-start") }
 func PostSearchSentinelCommand(bp Paths) string { return command(bp, "post-search") }
 func PreReadGateCommand(bp Paths) string        { return command(bp, "pre-read") }
+
+// CursorPostReadCommand reminds a Cursor session that reads before searching
+// Imprint, after the read (ADR 0142): Cursor's preToolUse can only allow or deny.
+func CursorPostReadCommand(bp Paths) string { return command(bp, "cursor-post-read") }

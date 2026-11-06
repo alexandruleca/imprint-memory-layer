@@ -74,3 +74,37 @@ func TestNilSpecValueRemovesTheKeyAndKeepsOtherOptions(t *testing.T) {
 		t.Fatalf("created %s", content)
 	}
 }
+
+// Imprint's Cursor entries for different matchers of one event coexist, and
+// the retired read gate's preToolUse entry goes without touching others.
+func TestOwnedCursorHooksKeepOtherMatchersAndRetireTheReadGate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hooks.json")
+	gate := "'/py' '/app/imprint/hook_entry.py' pre-read '/data'"
+	user := "/usr/local/bin/audit-reads"
+	if err := WriteJSON(path, map[string]any{"version": 1, "hooks": map[string]any{
+		"preToolUse": []any{map[string]any{"command": gate, "matcher": "Read|Grep"}, map[string]any{"command": user}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	search := "'/py' '/app/imprint/hook_entry.py' post-search '/data'"
+	reminder := "'/py' '/app/imprint/hook_entry.py' cursor-post-read '/data'"
+	for _, step := range [][2]string{{"MCP:search", search}, {"Read|Grep", reminder}, {"MCP:search", search}} {
+		if err := SetOwnedCursorHook(path, "postToolUse", step[0], step[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if removed, err := RemoveOwnedCursorHooks(path, "preToolUse"); err != nil || removed != 1 {
+		t.Fatalf("removed %d, %v", removed, err)
+	}
+	data, err := ReadJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := data["hooks"].(map[string]any)
+	if post := hooks["postToolUse"].([]any); len(post) != 2 {
+		t.Fatalf("postToolUse = %v", post)
+	}
+	if pre := hooks["preToolUse"].([]any); len(pre) != 1 || pre[0].(map[string]any)["command"] != user {
+		t.Fatalf("preToolUse = %v", pre)
+	}
+}

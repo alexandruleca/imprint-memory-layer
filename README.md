@@ -120,11 +120,13 @@ Re-running `install.sh` also works and now prompts before overwriting an existin
 
 | Target        | Wired into                                         | Config file                                                                           | Enforcement         |
 |---------------|-----------------------------------------------------|----------------------------------------------------------------------------------------|---------------------|
-| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Hard (PreToolUse)   |
-| `cursor`      | Cursor IDE (MCP + always-on rule)                  | `~/.cursor/mcp.json` + `~/.cursor/rules/imprint.mdc`                                   | Text-only (rule)    |
+| `claude-code` | Claude Code CLI (MCP + hooks + global `CLAUDE.md`) | `~/.claude/settings.json` + MCP registered via `claude mcp add`                        | Instructions + a once-per-session reminder (PreToolUse) |
+| `cursor`      | Cursor IDE (MCP + always-on rule + hooks)          | `~/.cursor/mcp.json` + `~/.cursor/rules/imprint.mdc` + `~/.cursor/hooks.json`          | Rule + a once-per-session reminder (postToolUse) |
 | `codex`       | OpenAI Codex CLI                                   | `~/.codex/config.toml` (`[mcp_servers.imprint]`)                                       | Text-only           |
 | `copilot`     | GitHub Copilot — VS Code (1.143+), Copilot CLI, JetBrains | `~/.copilot/mcp-config.json` + `copilot-instructions.md` + `hooks/imprint.json` (honors `COPILOT_HOME`) | Instructions + SessionStart/Stop hooks |
 | `cline`       | Cline 4 — VS Code extension and forks, CLI, JetBrains, desktop | `~/.cline/data/settings/cline_mcp_settings.json` + `~/.cline/rules/imprint.md` (honors `CLINE_DIR`, `CLINE_DATA_DIR`, `CLINE_MCP_SETTINGS_PATH`) | Text-only (rule) |
+
+No hook refuses a tool: an agent that reads files before searching Imprint is reminded once per session to prefer searching first, and carries on either way ([ADR 0142](docs/adr/0142-agents-are-reminded-to-search-imprint-never-refused.md)).
 
 `imprint disable` is symmetric — it tears down the MCP entry from every config file above that still exists (the venv and data are always preserved so re-enabling is fast).
 

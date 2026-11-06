@@ -82,7 +82,14 @@ func SetupCursor(backend func() backendPaths) {
 		// `user_message` as a save-context nudge to the user.
 		{"preCompact", "", hooks.CursorPreCompactCommand(hp)},
 		{"postToolUse", "MCP:search", hooks.PostSearchSentinelCommand(hp)},
-		{"preToolUse", "Read|Grep", hooks.PreReadGateCommand(hp)},
+		// A read before any Imprint search gets one reminder, never a refusal (ADR 0142).
+		{"postToolUse", "Read|Grep", hooks.CursorPostReadCommand(hp)},
+	}
+	// The read gate that refused reads (exit 2) is gone; drop its preToolUse entry.
+	if removed, err := jsonutil.RemoveOwnedCursorHooks(hooksPath, "preToolUse"); err != nil {
+		output.Fail("Could not remove the old preToolUse hook: " + err.Error())
+	} else if removed > 0 {
+		output.Success("Removed the old preToolUse read gate")
 	}
 	hooksOK := 0
 	for _, h := range cursorHooks {

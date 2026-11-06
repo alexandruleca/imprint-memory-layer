@@ -55,14 +55,12 @@ func TestHookCommandsExecuteWithSpacesAndApostrophes(t *testing.T) {
 		}
 		return err
 	}
-	if err := run(PreReadGateCommand(bp)); err == nil {
-		t.Fatal("unsearched session should be gated")
-	}
-	if err := run(PostSearchSentinelCommand(bp)); err != nil {
-		t.Fatal(err)
-	}
-	if err := run(PreReadGateCommand(bp)); err != nil {
-		t.Fatal(err)
+	// A read before searching is reminded, never refused (ADR 0142).
+	for _, command := range []string{PreReadGateCommand(bp), PostSearchSentinelCommand(bp), PreReadGateCommand(bp),
+		CursorPostReadCommand(bp)} {
+		if err := run(command); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

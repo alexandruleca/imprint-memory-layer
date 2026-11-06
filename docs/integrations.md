@@ -63,6 +63,10 @@ JSON edits preserve custom server options/environment. Owned hook edits retain o
 
 Required client registration, managed rule and hook write failures exit nonzero rather than continuing to a setup-success banner. Missing optional clients still skip, and advisory optional runtime features can degrade with a warning. Installer completion therefore reflects required configuration failures.
 
+## Reminders, not gates
+
+Claude Code (and Claude Code inside WSL) and Cursor get a hook that reminds an agent, once per session, to prefer searching Imprint before it reads or greps files, if the session has not searched yet. It never refuses the tool, so automated agents (Cursor's Bugbot, scripted `cursor-agent` runs) and sessions where Imprint is unavailable carry on. Claude Code shows the reminder beside the read's result (`PreToolUse` `additionalContext`); Cursor, whose `preToolUse` hook can only allow or deny, gets it after the result (`postToolUse` `additional_context`). Setup removes the earlier Cursor `preToolUse` gate ([ADR 0142](adr/0142-agents-are-reminded-to-search-imprint-never-refused.md)).
+
 ## Tool calls clients get slightly wrong
 
 Agents call Imprint's tools with arguments other memory servers take. The server runs such a call instead of failing it:

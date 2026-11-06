@@ -122,6 +122,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0124](0124-opencode-sessions-are-exported-from-its-database.md) **OpenCode is a client; its sessions are exported from its database and learned when idle.** Setup registers a local MCP server and a listed instructions file in OpenCode's global `opencode.json` (not `AGENTS.md`) and a plugin that starts the learner when a session goes idle; learning exports each session from OpenCode's SQLite database to a transcript in Imprint's data directory.
 - [ADR 0091](0091-wsl-homes-with-a-connected-client-get-the-imprint-command.md) **WSL homes with a connected client get the imprint command.** `imprint wsl setup` puts the Windows bridge's CLI in the home's `~/.local/bin/imprint`, keeps any other `imprint` there (a Linux installation's link, for one), and removes it with the home's last registration.
 - [ADR 0129](0129-core-memories-are-user-approved-and-start-every-session.md) **Core memories are user-approved and start every session.** Short statements of the user's preferences and standing instructions, approved by the user, kept apart from ordinary memories, synced to paired devices and appended to the MCP server's handshake instructions. Amended by [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) (a proposal can return to proposed).
+- [ADR 0142](0142-agents-are-reminded-to-search-imprint-never-refused.md) **Agents are reminded to search Imprint, never refused.** The read hook reminds a session that has not searched Imprint, once, to prefer searching first, and always lets Read, Grep and Glob run; Cursor gets the reminder after the read.
 
 ### Dashboard and desktop
 
@@ -352,6 +353,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0139](0139-projects-and-sources-browse-in-paged-tabs.md) | 2026-11-05 | Accepted | Projects and Sources browse every source in paged tabs |
 | [0140](0140-chat-keeps-the-conversation-and-drops-old-research-first.md) | 2026-11-05 | Amended by [ADR 0141](0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md) | Chat keeps the conversation and drops old research first |
 | [0141](0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md) | 2026-11-05 | Accepted | Chat summarizes what no longer fits and can look back through the conversation |
+| [0142](0142-agents-are-reminded-to-search-imprint-never-refused.md) | 2026-11-06 | Accepted | Agents are reminded to search Imprint, never refused |
 
 ## How to write and maintain ADRs
 

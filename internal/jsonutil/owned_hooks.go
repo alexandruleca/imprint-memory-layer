@@ -68,6 +68,8 @@ func SetOwnedHookWithMatcher(path, event, matcher, command string, timeout int, 
 	return WriteJSON(path, data)
 }
 
+// SetOwnedCursorHook replaces Imprint's entry for one event and matcher,
+// keeping other handlers and Imprint's entries for other matchers.
 func SetOwnedCursorHook(path, event, matcher, command string) error {
 	data, err := ReadJSON(path)
 	if err != nil {
@@ -86,7 +88,8 @@ func SetOwnedCursorHook(path, event, matcher, command string) error {
 	for _, value := range entries {
 		entry, ok := value.(map[string]any)
 		cmd, _ := entry["command"].(string)
-		if !ok || !isImprintCommand(cmd) && cmd != command {
+		existing, _ := entry["matcher"].(string)
+		if !ok || cmd != command && (!isImprintCommand(cmd) || existing != matcher) {
 			keep = append(keep, value)
 		}
 	}
@@ -99,4 +102,39 @@ func SetOwnedCursorHook(path, event, matcher, command string) error {
 		data["version"] = 1
 	}
 	return WriteJSON(path, data)
+}
+
+// RemoveOwnedCursorHooks drops Imprint's entries for one event, keeping other
+// handlers; it reports how many it removed.
+func RemoveOwnedCursorHooks(path, event string) (int, error) {
+	data, err := ReadJSON(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	hooks, ok := data["hooks"].(map[string]any)
+	if !ok {
+		return 0, nil
+	}
+	entries, _ := hooks[event].([]any)
+	keep := make([]any, 0, len(entries))
+	for _, value := range entries {
+		entry, ok := value.(map[string]any)
+		cmd, _ := entry["command"].(string)
+		if !ok || !isImprintCommand(cmd) {
+			keep = append(keep, value)
+		}
+	}
+	removed := len(entries) - len(keep)
+	if removed == 0 {
+		return 0, nil
+	}
+	if len(keep) == 0 {
+		delete(hooks, event)
+	} else {
+		hooks[event] = keep
+	}
+	return removed, WriteJSON(path, data)
 }

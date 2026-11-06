@@ -1092,8 +1092,9 @@ func setupShellAlias(name, targetPath string) {
 //   - PreCompact:  block + force a save before context compression
 //   - SessionStart: inject reminder telling Claude to call wake_up + search
 //   - PostToolUse(mcp__imprint__search): mark per-session sentinel
-//   - PreToolUse(Read|Grep|Glob): block until the session sentinel exists,
-//     forcing the model to call mcp__imprint__search first
+//   - PreToolUse(Read|Grep|Glob): until the session has searched Imprint,
+//     remind the model once to prefer mcp__imprint__search; never refuse the
+//     read (ADR 0142)
 func setupHooks(settingsPath string, bp backendPaths) {
 	hp := hooks.Paths{ProjectDir: bp.ProjectDir, VenvPython: bp.VenvPython, DataDir: bp.DataDir}
 

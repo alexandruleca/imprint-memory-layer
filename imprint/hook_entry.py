@@ -108,14 +108,43 @@ def main():
         print('{}')  # Valid Stop output for clients requiring a JSON object.
         return 0
     # Hash untrusted session identifiers instead of treating them as paths.
-    session = hashlib.sha256(str(payload.get('session_id', 'default')).encode()).hexdigest()
+    # Cursor names its session conversation_id.
+    key = payload.get('session_id') or payload.get('conversation_id') or 'default'
+    session = hashlib.sha256(str(key).encode()).hexdigest()
     sentinel = Path(data_dir) / '.sessions' / session
     if action == 'post-search':
         sentinel.parent.mkdir(parents=True, exist_ok=True)
         sentinel.touch()
-    elif action == 'pre-read' and not sentinel.exists():
-        print('Imprint: search prior context before Read/Grep/Glob.', file=sys.stderr)
-        return 2
+    elif action in {'pre-read', 'cursor-post-read'}:
+        return read_reminder(action, payload, sentinel)
+    return 0
+
+
+READ_REMINDER = ("Imprint may already hold context for this: earlier decisions, findings and conversations. "
+                 "Prefer searching it with Imprint's search tool before reading or grepping further; "
+                 "if Imprint is unavailable, carry on.")
+
+
+def read_reminder(action, payload, sentinel):
+    """Remind a session that reads before searching Imprint, once; never
+    refuse the read (ADR 0142). Claude Code shows the reminder beside the
+    read's result; Cursor's permission hook can only allow or deny, so
+    there it comes from a postToolUse hook instead."""
+    reminded = sentinel.with_name(sentinel.name + '.reminded')
+    if sentinel.exists() or reminded.exists():
+        return 0
+    cursor = action == 'cursor-post-read' or payload.get('hook_event_name') == 'preToolUse' or 'cursor_version' in payload
+    if action == 'pre-read' and cursor:
+        return 0
+    try:
+        reminded.parent.mkdir(parents=True, exist_ok=True)
+        reminded.touch()
+    except OSError:
+        pass
+    if cursor:
+        print(json.dumps({'additional_context': READ_REMINDER}))
+    else:
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'additionalContext': READ_REMINDER}}))
     return 0
 
 
