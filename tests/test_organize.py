@@ -1,5 +1,5 @@
-"""Organize: reviewed placement proposals, project profiles and core memory
-candidates (ADR 0130)."""
+"""Organize: reviewed placement proposals, project profiles, recorded core
+memories (ADR 0130) and the guidelines drafted from them (ADR 0143)."""
 import os
 import tempfile
 import unittest
@@ -141,17 +141,18 @@ class OrganizeTests(Fixture):
         self.assertEqual((proposal['target'], proposal['method'], proposal['evidence']),
                          ('echo-ui', 'local-model', [{'quote': 'A grocery list: milk, eggs'}]))
 
-    def test_preferences_become_core_memory_proposals(self):
+    def test_preferences_become_recorded_core_memories(self):
         vs.store(content='Prefers answers that lead with the result.', project='checkout-service', type='preference',
                  source='note/style')
         vs.store(content='The user said: keep commits small. ' + 'Context. ' * 60, project='', type='preference',
                  source='note/commits')
         organize.run(use_model=False)
-        self.assertEqual([(m['text'], m['origin'], m['state']) for m in core_memories.list_all()],
-                         [('Prefers answers that lead with the result.', 'organize', 'proposed')])
+        self.assertEqual([(m['text'], m['origin'], m['state'], m['tier']) for m in core_memories.list_all()],
+                         [('Prefers answers that lead with the result.', 'organize', 'active', 'record')])
 
         def ask(llm, prompt, schema, max_tokens):
             if 'statement' in schema['properties'] and 'keep commits small' in prompt:
+                self.assertIn('A question the user asked, or a topic they asked about, is not a preference', prompt)
                 return {'statement': 'Keeps commits small', 'quote': 'keep commits small'}
             return {}
 
@@ -460,3 +461,202 @@ class ProposalSyncTests(Fixture):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def _subject_vectors(texts):
+    """Recipes, travel and everything else as three directions."""
+    import numpy as np
+    rows = []
+    for text in texts:
+        text = text.lower()
+        rows.append([1., 0., 0.] if 'recipe' in text else [0., 0., 1.] if 'travel' in text else [0., 1., 0.])
+    return np.array(rows)
+
+
+class GuidelineTests(unittest.TestCase):
+    """Organize drafts guidelines from recorded core memories (ADR 0143)."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        for item in (patch.object(config, 'get_data_dir', return_value=Path(directory.name)),
+                     patch.object(core_memories, '_device', return_value='device-a'),
+                     patch.object(organize, '_vectors', side_effect=_subject_vectors)):
+            item.start()
+            self.addCleanup(item.stop)
+        self.asked = []
+        self.answers = {}
+
+    def ask(self, llm, prompt, schema, max_tokens):
+        name = next(iter(schema['properties']))
+        kind = {'merges': 'merge', 'conflicts': 'conflict', 'changed': 'confirm'}.get(name) or (
+            'draft' if 'kind' in schema['properties'] else 'rewrite')
+        self.asked.append(kind)
+        answer = self.answers.get(kind, {})
+        return answer(prompt) if callable(answer) else answer
+
+    def run_pass(self):
+        with patch.object(organize, '_ask', side_effect=self.ask):
+            return organize.propose_guidelines(object())['proposed']
+
+    def records(self, *texts):
+        """Records made one second apart, oldest first."""
+        clock = iter(range(1000, 2000))
+        with patch('imprint.core_memories.time.time', side_effect=lambda: float(next(clock))):
+            return [core_memories.record(text) for text in texts]
+
+    def test_alike_records_are_drafted_into_one_guideline_and_looked_at_once(self):
+        gluten = core_memories.record('Prefers gluten-free recipes')
+        lactose = core_memories.record('Prefers lactose-free recipes')
+        core_memories.record('Asks about soda sugar')
+        self.answers['draft'] = {'guideline': 'When suggesting recipes, keep them gluten-free and lactose-free.',
+                                 'kind': 'instruction', 'covers': [1, 2, 9]}
+        self.assertEqual(self.run_pass(), 1)
+        self.assertEqual(self.asked, ['conflict', 'draft'])  # A lone record is no group.
+        (proposal,) = core_memories.list_all('proposed')
+        self.assertEqual((proposal['tier'], proposal['kind'], proposal['origin'], sorted(proposal['covers'])),
+                         ('guideline', 'instruction', 'organize', sorted([gluten['id'], lactose['id']])))
+        self.assertEqual(self.run_pass(), 0)
+        self.assertEqual(self.asked, ['conflict', 'draft'])
+        self.assertEqual(organize.propose_guidelines(None), {'proposed': 0, 'conflicts': 0})
+
+    def test_a_draft_must_generalise_two_records(self):
+        core_memories.record('Prefers gluten-free recipes')
+        core_memories.record('Prefers lactose-free recipes')
+        self.answers['draft'] = {'guideline': 'Keep recipes gluten-free.', 'kind': 'preference', 'covers': [1]}
+        self.assertEqual(self.run_pass(), 0)
+        self.assertEqual(core_memories.list_all(tier='guideline'), [])
+
+    def test_a_new_record_like_an_approved_guidelines_is_offered_as_a_rewrite(self):
+        first = core_memories.record('Prefers gluten-free recipes')
+        second = core_memories.record('Prefers lactose-free recipes')
+        self.answers['draft'] = {'guideline': 'Keep recipes gluten-free and lactose-free.', 'kind': 'preference',
+                                 'covers': [1, 2]}
+        self.run_pass()
+        (guideline,) = core_memories.list_all('proposed')
+        core_memories.update(guideline['id'], state='active')
+        egg = core_memories.record('Prefers egg-free recipes')
+        self.answers['rewrite'] = lambda prompt: (
+            self.assertIn('Keep recipes gluten-free and lactose-free.', prompt)
+            or {'guideline': 'Keep recipes gluten-free, lactose-free and egg-free.', 'covers': [1]})
+        self.asked.clear()
+        self.assertEqual(self.run_pass(), 1)
+        self.assertEqual(self.asked, ['rewrite'])
+        (rewrite,) = core_memories.list_all('proposed')
+        self.assertEqual((rewrite['amends'], sorted(rewrite['covers'])),
+                         (guideline['id'], sorted([first['id'], second['id'], egg['id']])))
+        # Another one revises the waiting rewrite instead of adding a second.
+        nut = core_memories.record('Prefers nut-free recipes')
+        self.answers['rewrite'] = {'guideline': 'Keep recipes free of gluten, lactose, eggs and nuts.', 'covers': [1]}
+        self.assertEqual(self.run_pass(), 1)
+        (revised,) = core_memories.list_all('proposed')
+        self.assertEqual((revised['id'], revised['text']), (rewrite['id'], 'Keep recipes free of gluten, lactose, eggs and nuts.'))
+        self.assertIn(nut['id'], revised['covers'])
+        # An unchanged answer proposes nothing.
+        core_memories.record('Prefers simple recipes')
+        self.answers['rewrite'] = {'guideline': revised['text'], 'covers': [1]}
+        self.assertEqual(self.run_pass(), 0)
+
+    def test_drafts_that_repeat_each_other_are_merged(self):
+        ids = [core_memories.record(text)['id'] for text in
+               ('Prefers gluten-free recipes', 'Prefers lactose-free recipes', 'Prefers short travel', 'Prefers quiet travel')]
+        drafts = iter(['Keep recipes simple.', 'Keep travel calm.'])
+        self.answers['draft'] = lambda prompt: {'guideline': next(drafts), 'kind': 'preference', 'covers': [1, 2]}
+        self.answers['merge'] = {'merges': [{'numbers': [1, 2, 7], 'guideline': 'Keep recipes and travel simple.'}]}
+        self.assertEqual(self.run_pass(), 1)
+        self.assertEqual(self.asked, ['conflict', 'draft', 'conflict', 'draft', 'merge'])
+        (proposal,) = core_memories.list_all('proposed')
+        self.assertEqual((proposal['text'], sorted(proposal['covers'])), ('Keep recipes and travel simple.', sorted(ids)))
+
+    def test_the_device_that_tags_for_the_pair_drafts_for_it(self):
+        core_memories.record('Prefers gluten-free recipes')
+        with patch.object(organize, '_model_available', return_value=True), \
+                patch('imprint.tag_backlog.deferring', return_value=False), \
+                patch('imprint.sync_pairs.pairs', return_value=[{'enabled': True, 'peer_tags': True}]):
+            self.assertFalse(organize.guidelines_due())
+        with patch.object(organize, '_model_available', return_value=True), \
+                patch('imprint.tag_backlog.deferring', return_value=False), \
+                patch('imprint.sync_pairs.pairs', return_value=[{'enabled': True, 'peer_tags': False}]):
+            self.assertTrue(organize.guidelines_due())
+        with patch.object(organize, '_model_available', return_value=False):
+            self.assertFalse(organize.guidelines_due())
+
+    def test_records_group_by_average_likeness_up_to_the_cap(self):
+        import numpy as np
+        similarity = np.array([[1, .9, .2, .2], [.9, 1, .2, .2], [.2, .2, 1, .7], [.2, .2, .7, 1]])
+        self.assertEqual(sorted(map(sorted, organize._groups(similarity, 0.55, 12))), [[0, 1], [2, 3]])
+        self.assertEqual(sorted(map(sorted, organize._groups(similarity, 0.8, 12))), [[0, 1], [2], [3]])
+        self.assertEqual(len(organize._groups(np.ones((5, 5)), 0.55, 2)), 3)
+        self.assertEqual(organize._groups(np.zeros((0, 0)), 0.55, 2), [])
+
+    def test_a_newer_record_that_contradicts_an_older_one_is_flagged_for_the_user(self):
+        quiet, lively, short = self.records('Prefers quiet travel', 'Prefers lively travel', 'Prefers short travel')
+
+        def conflicts(prompt):
+            self.assertLess(prompt.index('Prefers quiet travel'), prompt.index('Prefers lively travel'))
+            return {'conflicts': [{'older': 1, 'newer': 2, 'reason': 'Group check'}, 'junk', {'older': 1, 'newer': 3},
+                                  {'older': 3, 'newer': 1, 'reason': 'backwards'}, {'older': 1, 'newer': 9, 'reason': 'x'}]}
+
+        def confirm(prompt):
+            # Only the pair the confirmation keeps is flagged.
+            if 'NEWER: Prefers lively travel' in prompt:
+                self.assertIn('EARLIER: Prefers quiet travel', prompt)
+                return {'changed': True, 'reason': 'Now wants lively places'}
+            return {'changed': False, 'reason': 'Both can hold'}
+
+        self.answers['conflict'] = conflicts
+        self.answers['confirm'] = confirm
+        self.answers['draft'] = lambda prompt: (self.assertIn('where they disagree, follow the newest', prompt)
+                                                or {'guideline': '', 'kind': 'preference', 'covers': []})
+        with patch.object(organize, '_ask', side_effect=self.ask):
+            self.assertEqual(organize.propose_guidelines(object()), {'proposed': 0, 'conflicts': 1})
+        self.assertEqual(self.asked, ['conflict', 'confirm', 'confirm', 'draft'])
+        flagged = core_memories.get(lively['id'])
+        self.assertEqual(flagged['conflicts'], [{'id': quiet['id'], 'reason': 'Now wants lively places', 'resolution': ''}])
+        self.assertEqual(core_memories.get(short['id'])['conflicts'], [])
+        # Keeping the newer retires the older; undoing brings it back.
+        changed = {r['id']: r['state'] for r in core_memories.resolve(lively['id'], 'newer')}
+        self.assertEqual(changed, {lively['id']: 'active', quiet['id']: 'retired'})
+        self.assertEqual(core_memories.open_conflicts(core_memories.get(lively['id'])), [])
+        core_memories.resolve(lively['id'], 'open')
+        self.assertEqual(core_memories.get(quiet['id'])['state'], 'active')
+        self.assertEqual(len(core_memories.open_conflicts(core_memories.get(lively['id']))), 1)
+        # Keeping the older retires this one; keeping both retires nothing.
+        core_memories.resolve(lively['id'], 'older')
+        self.assertEqual(core_memories.get(lively['id'])['state'], 'retired')
+        core_memories.resolve(lively['id'], 'open')
+        self.assertEqual(core_memories.get(lively['id'])['state'], 'active')
+        core_memories.resolve(lively['id'], 'both')
+        self.assertEqual({core_memories.get(i)['state'] for i in (quiet['id'], lively['id'])}, {'active'})
+        # A pair noted once, settled or not, is not noted again.
+        self.assertFalse(core_memories.flag_conflict(lively['id'], quiet['id'], 'again'))
+        with self.assertRaisesRegex(ValueError, 'with conflicts'):
+            core_memories.resolve(short['id'], 'newer')
+        with self.assertRaisesRegex(ValueError, 'keep is'):
+            core_memories.resolve(lively['id'], 'mine')
+
+    def test_a_rewrite_that_contradicts_an_approved_guideline_is_a_conflict(self):
+        self.records('Prefers short travel', 'Prefers quiet travel')
+        self.answers['draft'] = {'guideline': 'Keep travel short and quiet.', 'kind': 'preference', 'covers': [1, 2]}
+        self.run_pass()
+        (guideline,) = core_memories.list_all('proposed')
+        core_memories.update(guideline['id'], state='active')
+        self.records('Prefers long travel now')
+        self.answers['rewrite'] = {'guideline': 'Plan long, quiet trips.', 'covers': [1], 'contradicts': True,
+                                   'reason': 'Now prefers long trips'}
+        self.assertEqual(self.run_pass(), 1)
+        (rewrite,) = core_memories.list_all('proposed')
+        self.assertEqual((rewrite['amends'], rewrite['conflicts']),
+                         (guideline['id'], [{'id': guideline['id'], 'reason': 'Now prefers long trips', 'resolution': ''}]))
+        # Overwrite is approving it; leave as is, rejecting it.
+        core_memories.update(rewrite['id'], state='active')
+        self.assertEqual(core_memories.get(guideline['id'])['state'], 'retired')
+
+    def test_a_failing_model_ends_the_pass_and_leaves_its_records_for_the_next(self):
+        self.records('Prefers gluten-free recipes', 'Prefers lactose-free recipes')
+        with patch.object(organize, '_ask', side_effect=RuntimeError('llama_decode returned -3')):
+            self.assertEqual(organize.propose_guidelines(object()), {'proposed': 0, 'conflicts': 0})
+        self.answers['draft'] = {'guideline': 'Keep recipes gluten-free and lactose-free.', 'kind': 'preference',
+                                 'covers': [1, 2]}
+        self.assertEqual(self.run_pass(), 1)
+

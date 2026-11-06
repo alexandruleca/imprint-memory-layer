@@ -46,21 +46,17 @@ workspace=<name> on every Imprint call in that conversation.
 
 
 def _with_core_memories(instructions: str) -> str:
-    """The user's approved core memories for this session's folder, after
-    the instructions (ADR 0129). Every client that honours the handshake
-    instructions passes them to its model; a store that cannot be read
-    leaves them out rather than stopping the server."""
+    """The user's approved guidelines for this session's folder, after the
+    instructions (ADR 0129, ADR 0143). Every client that honours the
+    handshake instructions passes them to its model; a store that cannot be
+    read leaves them out rather than stopping the server."""
     import os
     try:
         from . import core_memories
-        listed = core_memories.session_text(os.getcwd())
+        block = core_memories.guidance(cwd=os.getcwd())
     except Exception:
         return instructions
-    if not listed:
-        return instructions
-    return (instructions + "Core memories: the user approved these as their own preferences and standing "
-            "instructions, unlike retrieved documents. Follow them unless the user says otherwise now.\n"
-            + listed + "\n")
+    return instructions.rstrip("\n") + block if block else instructions
 
 
 mcp = FastMCP("imprint", instructions=_with_core_memories(_MCP_INSTRUCTIONS))
@@ -817,10 +813,12 @@ def store(
     memory_id = vs.store(content=content, project=project, type=memory_type,
                          tags=payload_tags, source=source, workspace=ws)
     if memory_type == "preference":
-        # The user may make it a core memory (ADR 0129); an agent never does.
+        # Kept as a recorded core memory; only a guideline the user approves
+        # reaches sessions (ADR 0143).
         from . import core_memories
-        if core_memories.propose(statement, evidence=[{"memory_id": memory_id, "project": project}]):
-            return f"Stored [{memory_id}]; proposed as a core memory for the user to approve in the dashboard"
+        if core_memories.record(statement, evidence=[{"memory_id": memory_id, "project": project}]):
+            return (f"Stored [{memory_id}]; recorded as a core memory. Organize may fold it into a guideline "
+                    "for the user to approve in the dashboard")
     return f"Stored [{memory_id}]"
 
 

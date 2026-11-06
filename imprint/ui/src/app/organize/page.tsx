@@ -9,7 +9,7 @@ import { PlacementsPanel, inTab, type PlacementTab, type PlacementsContext } fro
 import { ProfilesPanel } from "@/components/organize/profiles-panel";
 import { parseKey, proposalKey, proposalName, originLabel, type OrganizeKind, type OrganizeStatus } from "@/components/organize/proposal-row";
 import { RunButton } from "@/components/organize/run-button";
-import { StatusStrip, lastRunText, organizeJob } from "@/components/organize/status-strip";
+import { StatusStrip, coreCounts, lastRunText, organizeJob } from "@/components/organize/status-strip";
 import { PAGE_SIZES } from "@/components/review/pager";
 import { CountTab, ReviewHeader } from "@/components/review/review-header";
 import { Announcer, RESET, reviewTab, type ReviewTabState } from "@/components/review/review-list";
@@ -37,7 +37,7 @@ const INFO = (
     <p className="font-medium">How Organize decides</p>
     <p>Organize finds the project each memory in a catch-all belongs to (no project, Desktop, unassigned, URLs, desktop conversations), with the evidence.</p>
     <p><span className="font-medium">Moves by itself</span> when a source names only one project&apos;s folder, or only one project&apos;s distinctive name at least twice, in its opening 50,000 characters. Each can be moved back.</p>
-    <p><span className="font-medium">Waits for you</span> otherwise, including every local-model placement. It also writes project profiles and suggests core memories, which you approve on Core memories.</p>
+    <p><span className="font-medium">Waits for you</span> otherwise, including every local-model placement. It also writes project profiles, records core memories and drafts guidelines from them, which you approve on Core memories.</p>
     <p className="text-muted-foreground">Moves hold through refreshes and reach paired devices.</p>
   </div>
 );
@@ -95,7 +95,7 @@ export default function OrganizePage() {
   const [order, setOrder] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [arrived, setArrived] = useState(0);
   const [stamps, setStamps] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const [core, setCore] = useState<number | null>(null);
+  const [core, setCore] = useState<{ proposals: number; conflicts: number } | null>(null);
   const [tabs, setTabs] = useState<Record<PlacementTab, ReviewTabState>>(() => ({
     review: reviewTab({ group: null }), moved: reviewTab(), decided: reviewTab(),
   }));
@@ -159,7 +159,7 @@ export default function OrganizePage() {
     try { absorb(await getOrganize(), finished); }
     catch (e) { setError(message(e)); }
     getCoreMemories().then((c) => {
-      setCore(Array.isArray(c?.memories) ? c.memories.filter((m) => m.state === "proposed").length : null);
+      setCore(Array.isArray(c?.memories) ? coreCounts(c.memories) : null);
     }).catch(() => {});
   }, [absorb]);
   useEffect(() => { reload.current = () => void load(); }, [load]);
@@ -167,7 +167,7 @@ export default function OrganizePage() {
     let live = true;
     getOrganize().then((next) => { if (live) absorb(next, false); }, (e) => { if (live) setError(message(e)); });
     getCoreMemories().then((c) => {
-      if (live) setCore(Array.isArray(c?.memories) ? c.memories.filter((m) => m.state === "proposed").length : null);
+      if (live) setCore(Array.isArray(c?.memories) ? coreCounts(c.memories) : null);
     }).catch(() => {});
     return () => { live = false; };
   }, [absorb]);
@@ -288,7 +288,7 @@ export default function OrganizePage() {
           </div>
         )) : (
           <>
-            <StatusStrip review={data} running={job} lock={lock} core={core} arrived={arrived} />
+            <StatusStrip review={data} running={job} lock={lock} core={core?.proposals ?? null} conflicts={core?.conflicts ?? 0} arrived={arrived} />
             <Tabs value={tab} onValueChange={(value) => { openTab(value as Tab); setArrived(0); }} className="flex min-h-0 flex-1 flex-col gap-0">
               <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background px-4 sm:px-8 lg:static">
                 <TabsList variant="line" className="h-10 min-w-0 justify-start overflow-x-auto">

@@ -68,7 +68,7 @@ The public relay at `wss://sync.alexandruleca.com` is the default — pass `--re
 
 ### Core memories
 
-Core memories ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)) belong to no workspace, so every paired workspace's sync carries them. Each is one record, and the newest change wins: approving, retiring or editing one on any device holds on all of them. A device sends them only to a peer whose handshake offers them; older releases neither send nor receive them and keep syncing as before. Meeting recordings' audio never syncs; their transcripts do, as ordinary memories.
+Core memories ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)), guidelines and records alike ([ADR 0143](adr/0143-agents-receive-generalised-guidelines-core-memories-are-kept-as-records.md)), belong to no workspace, so every paired workspace's sync carries them. Each is one record, and the newest change wins: approving, retiring or editing one on any device holds on all of them. A device sends them only to a peer whose handshake offers them and says it tells guidelines from records (`core_tiers`); a release before that would give every record to its sessions, so it is sent none, though its own still arrive and take the tier their origin gives. Only the device that runs LLM tagging for a pair drafts guidelines in the background, so two devices do not propose the same ones. Meeting recordings' audio never syncs; their transcripts do, as ordinary memories.
 
 ### Automatic sync between paired devices
 

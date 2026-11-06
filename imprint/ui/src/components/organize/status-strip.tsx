@@ -8,19 +8,38 @@ import { ago } from "@/lib/queue";
 import type { QueueJob } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export type RunSummary = { profiles: number; pending: number; moved?: number; core: number; model: boolean };
+/** An Organize run: ``core`` counts the core memories it recorded, ``guidelines``
+ * the guidelines it proposed (ADR 0143; runs before it have none). */
+export type RunSummary = { profiles: number; pending: number; moved?: number; core: number; guidelines?: number;
+  conflicts?: number; model: boolean };
+
+type CoreCounted = { state: string; tier?: string; conflicts?: { resolution?: string }[] };
+
+/** What waits on Core memories: guideline proposals, and conflicts the user
+ * has not settled (ADR 0144): a newer record against older ones, or a rewrite
+ * against an approved guideline. A conflicting rewrite counts as a conflict. */
+export function coreCounts(memories: CoreCounted[]) {
+  const open = (m: CoreCounted) => (m.conflicts ?? []).some((c) => !c.resolution)
+    && (m.state === "proposed" || (m.tier === "record" && m.state === "active"));
+  return {
+    proposals: memories.filter((m) => m.state === "proposed" && !open(m)).length,
+    conflicts: memories.filter(open).length,
+  };
+}
 
 export function runSummary(review: OrganizeReview | null): RunSummary | null {
   if (!review?.last_run) return null;
   try { return JSON.parse(review.last_run.summary) as RunSummary; } catch { return null; }
 }
 
-/** "Last run 2 min ago: 46 profiles · 142 moved · 91 to review · 3 core memory proposals". */
+/** "Last run 2 min ago: 46 profiles · 142 moved · 91 to review · 12 core memories recorded · 3 guidelines proposed". */
 export function lastRunText(review: OrganizeReview) {
   const summary = runSummary(review);
   if (!review.last_run || !summary) return "Organize has not run in this workspace yet.";
   return `Last run ${ago(review.last_run.finished_at)}: ${summary.profiles} profiles · ${summary.moved ?? 0} moved · `
-    + `${summary.pending} to review · ${summary.core} core memory proposals${summary.model ? "" : " · without the local helper"}`;
+    + `${summary.pending} to review · ${summary.core} core memories recorded · ${summary.guidelines ?? 0} guidelines proposed`
+    + (summary.conflicts ? ` · ${summary.conflicts} ${summary.conflicts === 1 ? "conflict" : "conflicts"} to settle` : "")
+    + (summary.model ? "" : " · without the local helper");
 }
 
 /** The running Organize job, queued or in the background (ADR 0132). */
@@ -32,15 +51,17 @@ export function organizeJob(queue: { active: QueueJob | null; background?: { sta
 }
 
 /** Whether Organize runs by itself and moves strong matches, what it is doing
- * now, what holds moves back, the last run and the core memory proposals
+ * now, what holds moves back, the last run and the guideline proposals
  * waiting on the Core memories page. */
-export function StatusStrip({ review, running, lock, core, arrived }: {
+export function StatusStrip({ review, running, lock, core, conflicts = 0, arrived }: {
   review: OrganizeReview;
   running: QueueJob | null;
   /** The job holding the ingestion lock, which moves wait for. */
   lock: string | null;
-  /** Core memory proposals waiting, live from /api/core. */
+  /** Guideline proposals waiting, live from /api/core. */
   core: number | null;
+  /** Core memory conflicts the user has not settled (ADR 0144). */
+  conflicts?: number;
   /** Proposals that arrived while the page was open. */
   arrived: number;
 }) {
@@ -84,10 +105,16 @@ export function StatusStrip({ review, running, lock, core, arrived }: {
         {lock && <span className="text-amber-700">· Moves wait while {lock} runs; Keep here still works</span>}
         {arrived > 0 && <span className="text-muted-foreground">· {arrived} new {arrived === 1 ? "proposal" : "proposals"} arrived</span>}
         <span className="flex-1" />
+        {conflicts > 0 && (
+          <Link href="/core/#conflicts" className="inline-flex items-center gap-1 font-medium text-amber-700 underline underline-offset-2">
+            {conflicts} {conflicts === 1 ? "conflict" : "conflicts"} to settle
+            <ArrowRight className="size-3.5" aria-hidden />
+          </Link>
+        )}
         {!!core && (
           <Link href="/core/#proposed" className="inline-flex items-center gap-1 underline underline-offset-2">
             <Sparkles className="size-3.5" aria-hidden />
-            {core} core <span className="@max-[620px]/page:hidden">memory</span> {core === 1 ? "proposal" : "proposals"}
+            {core} <span className="@max-[620px]/page:hidden">guideline</span> {core === 1 ? "proposal" : "proposals"}
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>
         )}

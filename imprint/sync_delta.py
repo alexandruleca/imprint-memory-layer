@@ -51,13 +51,19 @@ def storing_offered() -> bool:
 def extras_offered() -> dict[str, bool]:
     """The extra datasets this device exchanges, as its handshake says them
     (``core``: ADR 0129). A device that does not offer one is sent none of
-    it: its importer would refuse the dataset."""
-    return {dataset: True for dataset in EXTRAS}
+    it: its importer would refuse the dataset. ``core_tiers``: this device
+    tells guidelines from recorded core memories (ADR 0143)."""
+    return {**{dataset: True for dataset in EXTRAS}, 'core_tiers': True}
 
 
 def extras_of(snapshot: dict) -> frozenset:
-    """The extra datasets a peer's handshake offers."""
-    return frozenset(dataset for dataset in EXTRAS if snapshot.get(dataset) is True)
+    """The extra datasets a peer's handshake offers. Core memories go only
+    to a peer that tells guidelines from records: an older one would hand
+    every record to its sessions as an approved core memory (ADR 0143)."""
+    offered = {dataset for dataset in EXTRAS if snapshot.get(dataset) is True}
+    if snapshot.get('core_tiers') is not True:
+        offered.discard('core')
+    return frozenset(offered)
 MANIFEST_BYTES = 256 * 1024 * 1024
 
 

@@ -724,12 +724,12 @@ async def api_organize_reopen(request: Request):
         return JSONResponse({'error': str(error)}, status_code=400)
 
 
-# ── Core memories (ADR 0129) ───────────────────────────────────
+# ── Core memories (ADR 0129, ADR 0143) ─────────────────────────
 
 @app.get('/api/core')
 def api_core_memories():
-    """Every core memory, and how much of a session's budget the ones for
-    every project take."""
+    """Every core memory, guidelines and records, and how many of a
+    session's estimated tokens the guidelines for every project take."""
     from . import core_memories
     return {'memories': core_memories.list_all(), 'budget': core_memories.SESSION_BUDGET,
             'used': core_memories.used_budget(), 'kinds': list(core_memories.KINDS),
@@ -738,14 +738,18 @@ def api_core_memories():
 
 @app.post('/api/core')
 async def api_add_core_memory(request: Request):
-    """A core memory the user wrote: active at once."""
+    """A guideline the user wrote, active at once; ``covers`` names the
+    recorded core memories it was made from."""
     from . import core_memories
     try:
         body = await request.json()
         if not isinstance(body, dict):
             raise ValueError('A core memory object is required')
+        covers = body.get('covers') or []
+        if not isinstance(covers, list):
+            raise ValueError('covers is a list of recorded core memory ids')
         return await asyncio.to_thread(core_memories.add, body.get('text'), body.get('kind', 'preference'),
-                                       body.get('scope', core_memories.EVERYWHERE))
+                                       body.get('scope', core_memories.EVERYWHERE), covers)
     except (ValueError, RuntimeError) as error:
         return JSONResponse({'error': str(error)}, status_code=400)
 
@@ -761,6 +765,23 @@ async def api_change_core_memory(memory_id: str, request: Request):
             raise ValueError('A change object is required')
         changes = {key: body[key] for key in ('text', 'kind', 'scope', 'state') if key in body}
         return await asyncio.to_thread(core_memories.update, memory_id, **changes)
+    except KeyError:
+        return JSONResponse({'error': 'core memory not found'}, status_code=404)
+    except (ValueError, RuntimeError) as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.post('/api/core/{memory_id}/resolve')
+async def api_resolve_core_conflict(memory_id: str, request: Request):
+    """Settle a newer recorded core memory's conflicts with older ones:
+    ``{keep: newer | older | both}``, or ``open`` to undo (ADR 0143).
+    Returns ``{changed: [...]}``, every core memory it changed."""
+    from . import core_memories
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A resolution object is required')
+        return {'changed': await asyncio.to_thread(core_memories.resolve, memory_id, body.get('keep'))}
     except KeyError:
         return JSONResponse({'error': 'core memory not found'}, status_code=404)
     except (ValueError, RuntimeError) as error:

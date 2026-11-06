@@ -132,7 +132,8 @@ class PlacementSyncTests(ProjectStoreTests):
             asyncio.run(run(sync_delta.extras_of({'core': True, 'placements': True, 'organize': True, 'other': True})))
         self.assertEqual([(keys['placements'], keys['organize']) for keys in sent],
                          [([], []), (['["o", ""]'], ['["o", "s"]'])])
-        self.assertEqual(sync_delta.extras_offered(), {'core': True, 'placements': True, 'organize': True, 'backlog': True})
+        self.assertEqual(sync_delta.extras_offered(), {'core': True, 'placements': True, 'organize': True, 'backlog': True,
+                                                       'core_tiers': True})
         # An importer checks the stream's datasets.
         self.assertTrue(sync_ws._stream_line_ok({'kind': 'meta', 'vectors': True, 'datasets': {'placements': 1}}, False))
         self.assertFalse(sync_ws._stream_line_ok({'kind': 'meta', 'vectors': True, 'datasets': {'other': 1}}, False))

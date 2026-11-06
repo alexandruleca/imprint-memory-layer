@@ -298,7 +298,20 @@ async def memory_prompt(question: str, workspace: str) -> str:
     from . import server
     evidence = await asyncio.to_thread(server.search, query=question, workspace=workspace,
                                        detail="compact", max_chars=1600, limit=5)
-    return INSTRUCTIONS + _json({"workspace": workspace, "evidence": evidence})
+    return INSTRUCTIONS + await asyncio.to_thread(_guidelines) + _json({"workspace": workspace, "evidence": evidence})
+
+
+# Estimated tokens of the user's guidelines the speech model's prompt holds
+# (ADR 0143): a smaller share than a chat's, beside the retrieved evidence.
+SPEECH_GUIDELINES = 750
+
+
+def _guidelines() -> str:
+    from . import core_memories
+    try:
+        return core_memories.guidance(SPEECH_GUIDELINES, searchable=False).lstrip("\n")
+    except Exception:
+        return ""
 
 
 def tool_label(name: str, args: object) -> str:

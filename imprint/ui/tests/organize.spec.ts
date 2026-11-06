@@ -21,14 +21,17 @@ async function mockOrganize(page: Page, extra: Proposal[] = [], background = { e
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/core', route => route.fulfill({ json: {
-    memories: [{ state: 'proposed' }, { state: 'proposed' }, { state: 'active' }], budget: 2000, used: 0, max_text: 600,
+    memories: [{ state: 'proposed' }, { state: 'proposed' }, { state: 'active' },
+      { state: 'active', tier: 'record', conflicts: [{ id: 'a', reason: 'Changed', resolution: '' }] },
+      { state: 'active', tier: 'record', conflicts: [{ id: 'b', reason: 'Settled', resolution: 'both' }] }],
+    budget: 3000, used: 0, max_text: 600,
   } }));
   await page.route('**/api/organize', route => {
     state.loads++;
     return route.fulfill({ json: {
       workspace: 'default', proposals: state.proposals,
       profiles: [{ project: 'echo-ui', text: 'Project profile: echo-ui\n\nThe voice companion\'s 3D head.', updated: 1 }],
-      last_run: { finished_at: Date.now() / 1000 - 120, summary: JSON.stringify({ profiles: 1, pending: 3, moved: 1, core: 2, model: true }) },
+      last_run: { finished_at: Date.now() / 1000 - 120, summary: JSON.stringify({ profiles: 1, pending: 3, moved: 1, core: 5, guidelines: 2, conflicts: 1, model: true }) },
       background,
     } });
   });
@@ -64,9 +67,10 @@ const reviewList = (page: Page) => page.getByRole('list', { name: 'Moves to revi
 test('proposals are reviewed by target, one at a time or all at once', async ({ page }) => {
   const state = await mockOrganize(page);
   await page.goto('/organize/');
-  await expect(page.getByLabel('Last run')).toContainText('1 profiles · 1 moved · 3 to review · 2 core memory proposals');
+  await expect(page.getByLabel('Last run')).toContainText('1 profiles · 1 moved · 3 to review · 5 core memories recorded · 2 guidelines proposed · 1 conflict to settle');
   await expect(page.getByLabel('How Organize runs')).toContainText('Runs when you start it.');
-  await expect(page.getByRole('link', { name: /2 core memory proposals/ })).toHaveAttribute('href', '/core/#proposed');
+  await expect(page.getByRole('link', { name: /2 guideline proposals/ })).toHaveAttribute('href', '/core/#proposed');
+  await expect(page.getByRole('link', { name: '1 conflict to settle' })).toHaveAttribute('href', '/core/#conflicts');
   await expect(page.getByRole('tab', { name: 'To review, 3' })).toHaveAttribute('aria-selected', 'true');
   // The largest group opens first.
   const checkout = page.locator('[aria-label="Moves to checkout-service"]');

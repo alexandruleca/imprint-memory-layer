@@ -737,6 +737,18 @@ def _history(prior_messages: list[dict]) -> list[dict]:
     return messages
 
 
+def _guidelines(llm, remote: bool, *, searchable: bool) -> str:
+    """The user's approved guidelines (ADR 0143), within a quarter of the
+    model's context and the budget every session has; empty when there are
+    none or the store cannot be read."""
+    from . import core_memories
+    try:
+        context = int(_cfg("chat.n_ctx")) if remote else int(llm.n_ctx())
+        return core_memories.guidance(min(core_memories.SESSION_BUDGET, context // 4), searchable=searchable)
+    except Exception:
+        return ''
+
+
 def _final_messages(messages: list[dict], found: list, reason: str, *, spoken: bool) -> list[dict]:
     """The reserved answer's request: the conversation's text, then the
     question with the notes research found. The research turns stay out:
@@ -875,6 +887,7 @@ def stream_reply(
         '\nShared memories and conversations remain useful on every device. '
         'Original paths in historical text and tool results are provenance, not local file instructions. '
         'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.')
+    instructions += _guidelines(llm, remote, searchable=bool(tools))
     if read_only:
         instructions += (
             '\n\nThis is an English voice conversation. Keep spoken replies brief, usually two or three sentences. '

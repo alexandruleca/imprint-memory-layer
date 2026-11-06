@@ -58,7 +58,7 @@ function explain(bg: BackgroundTagging): string {
         : "LLM tagging (tagger.llm) and background Organize (organize.background) are off. Memories keep their keyword and zero-shot tags.";
     case "running":
       return bg.job?.phase === "organize"
-        ? "Organizing what changed: project profiles, moves and core memory proposals. It steps aside between sources whenever another job is waiting."
+        ? "Organizing what changed: project profiles, moves, core memories and guidelines drawn from them. It steps aside between sources whenever another job is waiting."
         : "Tagging the newest memories first. It steps aside between memories whenever another job is waiting.";
     case "yielded":
       return "Stepped aside for another job; it resumes when the queue is idle.";
