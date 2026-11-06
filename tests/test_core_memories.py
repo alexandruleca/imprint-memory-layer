@@ -33,8 +33,10 @@ class CoreMemoryTests(unittest.TestCase):
         self.assertEqual(recorded['evidence'], [{'memory_id': 'm1', 'quote': 'keep it short'}])
         proposed = core_memories.propose_guideline('Keep answers concise', covers=[recorded['id'], 'not-an-id'])
         self.assertEqual((proposed['state'], proposed['tier'], proposed['covers']), ('proposed', 'guideline', [recorded['id']]))
-        self.assertEqual([(r['tier'], r['state']) for r in core_memories.list_all()],
-                         [('record', 'active'), ('guideline', 'active'), ('guideline', 'proposed')])
+        # Active before proposed; rows made within one clock tick keep no order.
+        listed = [(r['tier'], r['state']) for r in core_memories.list_all()]
+        self.assertCountEqual(listed[:2], [('record', 'active'), ('guideline', 'active')])
+        self.assertEqual(listed[2], ('guideline', 'proposed'))
         made = core_memories.add('Keep every answer short', covers=[recorded['id']])
         self.assertEqual(made['covers'], [recorded['id']])
 
