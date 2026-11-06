@@ -42,6 +42,9 @@ class Reply:
 
 _lock = threading.Lock()
 _replies: dict[str, Reply] = {}
+# One reply is written at a time: leaving a chat mid-reply makes a second one
+# easy to start, and the local model is not safe to run from two threads.
+_writing = threading.Lock()
 
 
 class Busy(Exception):
@@ -54,11 +57,12 @@ def current(sid: str) -> Reply | None:
 
 
 def start(sid: str, produce: Callable[[threading.Event], Iterable[str]],
-          prepare: Callable[[], None] | None = None) -> Reply:
+          prepare: Callable[[], None] | None = None, waiting: str | None = None) -> Reply:
     """Write a reply on its own thread. `produce` gets the reply's stop and
     yields its events; nothing a watcher does can stop it. `prepare` runs
     once the session is claimed and before the reply starts, so the
-    question is recorded before anything of its answer."""
+    question is recorded before anything of its answer. While another
+    chat's reply is written, this one waits and first emits `waiting`."""
     with _lock:
         if sid in _replies:
             raise Busy(sid)
@@ -72,10 +76,19 @@ def start(sid: str, produce: Callable[[threading.Event], Iterable[str]],
             raise
 
     def run() -> None:
+        writing = False
         try:
-            for event in produce(reply.cancel):
-                reply.emit(event)
+            writing = _writing.acquire(blocking=False)
+            if not writing and waiting:
+                reply.emit(waiting)
+            while not writing and not reply.cancel.is_set():
+                writing = _writing.acquire(timeout=.2)
+            if writing:
+                for event in produce(reply.cancel):
+                    reply.emit(event)
         finally:
+            if writing:
+                _writing.release()
             with _lock:
                 if _replies.get(sid) is reply:
                     del _replies[sid]

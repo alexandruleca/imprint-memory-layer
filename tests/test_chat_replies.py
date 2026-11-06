@@ -88,6 +88,20 @@ class ChatRepliesOutliveTheirRequestTests(unittest.TestCase):
         self.assertEqual([event["type"] for event in rest], ["token", "assistant_message", "done"])
         self.assertEqual(self.client.get(f"/api/chat/sessions/{self.sid}/reply").status_code, 404)
 
+    def test_a_reply_in_another_chat_waits_for_the_one_being_written_and_says_so(self):
+        self.ask()
+        other = chat_store.create_session()
+        with self.client.stream("POST", "/api/chat", json={"session_id": other, "message": "Second?"}) as response:
+            lines = response.iter_lines()
+            first = next(line for line in lines if line.startswith("data: "))
+            self.assertEqual(json.loads(first[6:]), {"type": "analysis", "text": "Waiting for the reply in another chat to finish…"})
+            self.assertEqual(len(self.cancelled), 1)  # the model is not asked twice at once
+            self.release.set()
+            rest = events(list(lines))
+        self.assertEqual(rest[-1], {"type": "done"})
+        self.assertEqual(len(self.cancelled), 2)
+        self.assertEqual([m["role"] for m in chat_store.get_messages(other)], ["user", "assistant"])
+
     def test_only_the_users_stop_cancels_and_what_was_written_stays(self):
         self.ask()
         self.assertEqual(self.client.post("/api/chat", json={"session_id": self.sid, "message": "Again?"}).status_code, 409)

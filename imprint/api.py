@@ -872,10 +872,14 @@ async def api_chat(request: Request):
         # The reply runs on its own thread: the request only watches it, so a
         # closed tab or another chat never stops it (ADR 0145).
         reply = chat_replies.start(sid, lambda cancel: _chat_events(sid, prior, user_msg, workspace, summary, cancel),
-                                   prepare=lambda: chat_store.append_message(sid, role="user", content=user_msg))
+                                   prepare=lambda: chat_store.append_message(sid, role="user", content=user_msg),
+                                   waiting=_WAITING)
     except chat_replies.Busy:
         return JSONResponse({"error": "A reply is still being written in this chat. Stop it or wait for it."}, status_code=409)
     return StreamingResponse(_watch(reply), media_type="text/event-stream")
+
+
+_WAITING = f"data: {json.dumps({'type': 'analysis', 'text': 'Waiting for the reply in another chat to finish…'})}\n\n"
 
 
 async def _watch(reply: chat_replies.Reply):
