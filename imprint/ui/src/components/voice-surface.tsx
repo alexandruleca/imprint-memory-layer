@@ -379,10 +379,6 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
               {!devices.labelled && <small>Device names appear once the microphone is allowed.</small>}
               <label className="voice-check"><Checkbox aria-label="Use microphone for conversations" checked={rememberMicrophone} onCheckedChange={remember}/>Use microphone for conversations</label>
               <small>Remembered on this device. Starting a conversation turns the microphone on, after the system allows it; push-to-talk stays silent until you hold it.</small>
-              <label className="voice-check"><Switch aria-label="Save conversations in Chat history" checked={saveChats !== false} disabled={saveChats === null}
-                onCheckedChange={on => void chooseSaving(on)}/>Save conversations in Chat history</label>
-              <small>{saveChats === false ? "Off. Echo forgets a conversation once you end it or leave it for 30 minutes."
-                : "As text on this device, where Chat can open and delete them; audio is never saved. Turning this off stops saving at once."}</small>
               {voice.mode === "handsfree" && <label>Speech threshold <input type="range" aria-label="Speech detection threshold" min="8" max="60" defaultValue="16" onChange={event => { if (client.current) client.current.sensitivity = +event.target.value / 1000; }}/><small>Raise if room noise interrupts</small></label>}
               <label className="voice-check voice-wake-switch"><Switch aria-label="Listen for “Hey Echo”" checked={!!wake?.enabled} disabled={!desktop || !ready || wakeBusy !== null}
                 onCheckedChange={on => { if (!on) { void window.electronAPI?.setWake?.({ enabled: false }); return; } setOptionsOpen(false); setWakeError(""); setWakeSheet(true); }}/>Listen for “Hey Echo”</label>
@@ -393,6 +389,10 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
                   : wake.listening && <Button variant="ghost" onClick={() => window.electronAPI?.controlWake?.("pause")}>Pause for 1 hour</Button>}
                 {wake.reason === "blocked" && <Button variant="ghost" onClick={() => void window.electronAPI?.openMicrophoneSettings?.()}>Open microphone settings</Button>}
               </div>}
+              <label className="voice-check"><Switch aria-label="Save conversations in Chat history" checked={saveChats !== false} disabled={saveChats === null}
+                onCheckedChange={on => void chooseSaving(on)}/>Save conversations in Chat history</label>
+              <small>{saveChats === false ? "Off. Echo forgets a conversation once you end it or leave it for 30 minutes."
+                : "As text on this device, where Chat can open and delete them; audio is never saved. Turning this off stops saving at once."}</small>
             </div>
             {compact && ready && textForm}{compact && ready && transcript}
             {compact && <div className="voice-option-actions">

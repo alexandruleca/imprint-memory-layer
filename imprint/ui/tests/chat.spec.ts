@@ -433,7 +433,10 @@ test('a conversation with Echo is marked, and the open chat can be carried on wi
       { id: 'spoken', title: 'Where is billing?', created_at: now, updated_at: now, kind: 'voice' },
       { id: 'typed', title: 'Typed chat', created_at: now - 60, updated_at: now - 60, kind: 'chat' },
     ],
-    messages: { spoken: [{ role: 'user', content: 'Where is billing?' }, { role: 'assistant', content: 'Port 8101.' }] },
+    messages: {
+      spoken: [{ role: 'user', content: 'Where is billing?' }, { role: 'assistant', content: 'Port 8101.' }],
+      typed: [{ role: 'user', content: 'Typed chat' }, { role: 'assistant', content: 'A typed answer.' }],
+    },
   });
   await page.goto('/chat/');
   const list = page.getByRole('navigation', { name: 'Chats' });
@@ -441,5 +444,6 @@ test('a conversation with Echo is marked, and the open chat can be carried on wi
   await expect(list.getByRole('button', { name: 'Echo conversation Where is billing?' })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('link', { name: 'Continue with Echo' })).toHaveAttribute('href', '/voice/?chat=spoken');
   await list.getByRole('button', { name: 'Typed chat', exact: true }).click();
+  await expect(page.getByText('A typed answer.')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Continue with Echo' })).toHaveAttribute('href', '/voice/?chat=typed');
 });
