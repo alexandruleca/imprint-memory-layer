@@ -35,7 +35,7 @@ class SpellingTests(unittest.TestCase):
         self.assertEqual(os_path(verbatim, platform='win32'), verbatim)
         posix = '/home/' + 'a' * 300
         self.assertEqual(os_path(posix, platform='linux'), posix)
-        self.assertEqual(os_path(Path(posix), platform='darwin'), posix)
+        self.assertEqual(os_path(Path(posix), platform='darwin'), str(Path(posix)))
         self.assertEqual(plain(posix), posix)
 
 
@@ -48,11 +48,11 @@ class _Mapped:
         self.logical, self.real = logical, real
 
     def os_path(self, path, **_):
-        text = os.fspath(path)
+        text = os.path.normpath(os.fspath(path))
         return self.real + text[len(self.logical):] if text.startswith(self.logical) else text
 
     def plain(self, path):
-        text = os.fspath(path)
+        text = os.path.normpath(os.fspath(path))
         return self.logical + text[len(self.real):] if text.startswith(self.real) else text
 
 
@@ -61,7 +61,8 @@ class ReadingTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.real = os.path.realpath(directory.name)
-        self.logical = '/unreachable-' + os.urandom(4).hex()
+        # Spelled as this platform's Path spells it: \\unreachable-… on Windows.
+        self.logical = os.path.normpath('/unreachable-' + os.urandom(4).hex())
         self.mapped = _Mapped(self.logical, self.real)
         os.makedirs(os.path.join(self.real, 'deep', 'er'))
         Path(self.real, 'deep', 'er', 'app.py').write_text('x = 1\n')
