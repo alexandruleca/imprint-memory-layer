@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from . import device
+from .long_paths import os_path, realpath
 
 _SECRET_NAMES = {'.env', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519'}
 
@@ -19,24 +21,26 @@ def secret_name(name: str) -> bool:
 
 def allowed_source(path: str | Path, root: str | Path | None = None) -> bool:
     path = Path(path)
-    resolved = path.resolve()
+    resolved = Path(realpath(path))
     if secret_name(path.name) or secret_name(resolved.name):
         return False
-    return root is None or resolved.is_relative_to(Path(root).resolve())
+    return root is None or resolved.is_relative_to(Path(realpath(root)))
 
 
 def fingerprint(path: str | Path) -> dict:
+    # Read through the extended-length spelling; record the usual one (ADR 0147).
     path = Path(path)
-    before = path.stat()
+    native = Path(os_path(path))
+    before = native.stat()
     digest = hashlib.sha256()
-    with path.open('rb') as stream:
+    with native.open('rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(block)
-    after = path.stat()
+    after = native.stat()
     if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
         raise OSError(f'Source changed while reading: {path}')
     return {'source_hash': digest.hexdigest(), 'source_size': after.st_size,
-            'source_mtime': after.st_mtime, 'source_path': str(path.resolve()),
+            'source_mtime': after.st_mtime, 'source_path': realpath(path),
             'source_device': device.current(), 'source_path_local': True}
 
 
@@ -60,15 +64,15 @@ def unchanged(current: dict, stored: dict | None) -> bool:
 
 def missing_sources(states: dict[str, dict], roots: list[str]) -> list[str]:
     """Only prune recorded local paths actually gone from a successfully scanned root."""
-    resolved = [Path(root).resolve() for root in roots]
+    resolved = [Path(realpath(root)) for root in roots]
     missing = []
     for source, state in states.items():
         if not state.get('source_path') or not device.local_source(state):
             continue
         # Normalize both sides: macOS exposes /var through /private/var, and
         # older provenance may retain an equivalent noncanonical spelling.
-        path = Path(state['source_path']).resolve()
-        if any(path.is_relative_to(root) for root in resolved) and not path.exists():
+        path = Path(realpath(state['source_path']))
+        if any(path.is_relative_to(root) for root in resolved) and not os.path.exists(os_path(path)):
             missing.append(source)
     return missing
 

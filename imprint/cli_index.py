@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from imprint import tagger, vectorstore as vs
 from imprint import extractors
 from imprint.progress import Task
+from imprint.long_paths import os_path
 from imprint.source_state import (allowed_source, secret_name, fingerprint, stamp_records, unchanged, missing_sources,
                                   extraction_profile, no_text_reason, known_no_text, remember_no_text)
 from imprint._cli_signals import install as _install_signals
@@ -265,7 +266,7 @@ def _in_git_repository(dir_path: str) -> bool:
     """Whether dir_path or a folder above it holds a .git entry (a directory,
     or the file of a worktree or submodule), found without running git."""
     path = os.path.abspath(dir_path)
-    while not os.path.lexists(os.path.join(path, ".git")):
+    while not os.path.lexists(os_path(os.path.join(path, ".git"))):
         parent = os.path.dirname(path)
         if parent == path:
             return False
@@ -335,7 +336,7 @@ def scan_dir(dir_path, exclude_paths=None):
     double-indexed). They are spelled from the same root as dir_path, as
     find_projects returns them.
     """
-    if not os.path.isdir(dir_path):
+    if not os.path.isdir(os_path(dir_path)):
         raise NotADirectoryError(f"Index root is not a readable directory: {dir_path}")
     # Resolve doc/image gates once per scan — avoids reloading config per file.
     doc_exts = _enabled_doc_formats()
@@ -363,17 +364,20 @@ def scan_dir(dir_path, exclude_paths=None):
     pending = [(dir_path, "")]
     while pending:
         directory, prefix = pending.pop()
-        with os.scandir(directory) as entries:
+        # Listed through the extended-length spelling, so a tree deeper than
+        # MAX_PATH on Windows is walked; paths keep their usual form (ADR 0147).
+        with os.scandir(os_path(directory)) as entries:
             for entry in entries:
                 if _is_link(entry):
                     continue
                 name, rel = entry.name, prefix + entry.name
+                path = os.path.join(directory, name)
                 if entry.is_dir():
                     if (name not in SKIP_DIRS
                             and not name.startswith('.')
                             and (git_dirs is None or rel in git_dirs)
                             and rel not in excluded):
-                        pending.append((entry.path, rel + "/"))
+                        pending.append((path, rel + "/"))
                     continue
                 # Known secret files (.env*, private keys) are never indexed.
                 if name in SKIP_FILES or secret_name(name):
@@ -385,7 +389,7 @@ def scan_dir(dir_path, exclude_paths=None):
                     continue
                 if git_files is not None and rel not in git_files:
                     continue
-                files.append((rel, entry.path))
+                files.append((rel, path))
     return files
 
 
@@ -516,7 +520,7 @@ def _parse_file_flags(argv: list[str]) -> tuple[str | None, str | None, list[str
 
 def ingest_single_file(file_path: str, project: str, batch_size: int = 32, *, force: bool = False):
     """Index a single file into the vector store."""
-    if not os.path.isfile(file_path):
+    if not os.path.isfile(os_path(file_path)):
         print(f"  {C_YELLOW}File not found:{C_RESET} {file_path}")
         sys.exit(1)
 
@@ -555,7 +559,7 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
     records = []
     source_document = None
     from . import source_memory, audio_ingest
-    mtime = os.path.getmtime(file_path)
+    mtime = os.path.getmtime(os_path(file_path))
     source_key = f"{project}/{rel}"
     profile = extraction_profile(file_path)
     reason = None
@@ -567,7 +571,7 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
         try:
             if reason is None:
                 with audio_ingest.reporting(task):
-                    doc_list = extractors.dispatch_by_ext(file_path, **({'force': True} if force else {}))
+                    doc_list = extractors.dispatch_by_ext(os_path(file_path), **({'force': True} if force else {}))
         except extractors.ExtractorUnavailable as e:
             task.note(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
             sys.exit(1)
@@ -616,7 +620,7 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
         max_bytes = max(1, int(resolve("ingest.max_file_bytes")[0]))
         if snapshot["source_size"] > max_bytes:
             raise ValueError(f"File exceeds ingest.max_file_bytes ({max_bytes}); prior chunks retained")
-        with open(file_path, 'r', encoding='utf-8', newline='') as f:
+        with open(os_path(file_path), 'r', encoding='utf-8', newline='') as f:
             content = f.read(max_bytes + 1)
         source_document = source_memory.document(content, kind='text')
         content = source_document['text']
@@ -856,13 +860,13 @@ def _main(command: str = "ingest"):
                     try:
                         from . import audio_ingest
                         with audio_ingest.reporting(task):
-                            doc_list = extractors.dispatch_by_ext(fpath, **({'force': True} if force else {}))
+                            doc_list = extractors.dispatch_by_ext(os_path(fpath), **({'force': True} if force else {}))
                     except extractors.ExtractorUnavailable as e:
                         raise RuntimeError(str(e)) from e
                     except extractors.ExtractionError as e:
                         raise RuntimeError(str(e)) from e
 
-                    mtime = os.path.getmtime(fpath)
+                    mtime = os.path.getmtime(os_path(fpath))
                     source_key = f"{project}/{rel}"
                     from . import source_memory
                     doc_list = [item for item in doc_list if item.text.strip()]
@@ -891,7 +895,7 @@ def _main(command: str = "ingest"):
                 else:
                     if snapshot["source_size"] > max_file_bytes:
                         raise ValueError(f"File exceeds ingest.max_file_bytes ({max_file_bytes}); prior chunks retained")
-                    with open(fpath, 'r', encoding='utf-8', newline='') as f:
+                    with open(os_path(fpath), 'r', encoding='utf-8', newline='') as f:
                         content = f.read(max_file_bytes + 1)
                     from . import source_memory
                     source_document = source_memory.document(content, kind='text')
@@ -903,7 +907,7 @@ def _main(command: str = "ingest"):
                     chunks = chunk_file(content, rel, chunk_mode=None)
                     if not chunks:
                         raise ValueError("Chunker produced no chunks for nonempty text")
-                    mtime = os.path.getmtime(fpath)
+                    mtime = os.path.getmtime(os_path(fpath))
                     source_key = f"{project}/{rel}"
                     records = _chunks_to_records(chunks, project, rel, source_key, mtime, {}, None)
                     from .chunker import _CODE_LANG
