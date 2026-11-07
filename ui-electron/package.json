@@ -73,7 +73,10 @@
       "category": "public.app-category.developer-tools",
       "identity": "-",
       "hardenedRuntime": false,
-      "extendInfo": { "NSMicrophoneUsageDescription": "Imprint uses your microphone for conversations with your local voice companion when you enable it." }
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Imprint uses your microphone for conversations with your local voice companion when you enable it.",
+        "NSAudioCaptureUsageDescription": "Imprint records what this computer plays, such as the other people on a call, when you record a meeting with the computer's audio."
+      }
     },
     "linux": {
       "target": [

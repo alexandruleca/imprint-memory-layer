@@ -25,12 +25,25 @@ function audioPermission(contents, permission, details, origin, windows, listene
   return details?.mediaType === 'audio';
 }
 // Recording a meeting takes what this computer plays (ADR 0131): the
-// dashboard window's Recordings page asks for the screen with its audio, and
-// gets the system's audio loopback. The screen's video is stopped at once.
+// dashboard window's Recordings page asks for a screen capture with its audio,
+// and gets the system's audio loopback. Electron asks the session's permission
+// handler first, as "display-capture"; this is the one page it may grant.
+function displayCapturePermission(contents, permission, details, origin, dashboard) {
+  if (permission !== 'display-capture' || !contents || !dashboard || dashboard.webContents !== contents
+      || !onPage(contents.getURL(), origin, ['/recordings']) || details?.isMainFrame === false) return false;
+  if (details?.requestingUrl && !onPage(details.requestingUrl, origin, ['/recordings'])) return false;
+  return !details?.mediaTypes || details.mediaTypes.includes('audio');
+}
 function systemAudioCapture(request, origin, dashboard) {
   const frame = request?.frame;
   return !!frame && !!dashboard && frame === dashboard.webContents?.mainFrame
     && onPage(frame.url, origin, ['/recordings']) && request.audioRequested === true;
+}
+// What answers that request: the system's audio, and as the video, which the
+// page stops at once, the dashboard page itself. Capturing the page needs no
+// screen-recording permission on macOS and no screen picker on Linux.
+function systemAudioStreams(request, origin, dashboard) {
+  return systemAudioCapture(request, origin, dashboard) ? { video: request.frame, audio: 'loopback' } : null;
 }
 function clipboardWritePermission(contents, permission, details, origin, windows) {
   if (permission !== 'clipboard-sanitized-write' || !contents
@@ -61,5 +74,5 @@ function microphoneSettingsURL(platform) {
   return platform === 'darwin' ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
     : platform === 'win32' ? 'ms-settings:privacy-microphone' : null;
 }
-module.exports = { voicePage, listenerPage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
-  requestMicrophoneAccess, microphoneSettingsURL };
+module.exports = { voicePage, listenerPage, audioPermission, displayCapturePermission, systemAudioCapture, systemAudioStreams,
+  clipboardWritePermission, macMicrophoneConsent, requestMicrophoneAccess, microphoneSettingsURL };

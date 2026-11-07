@@ -1,8 +1,8 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { voicePage, listenerPage, audioPermission, systemAudioCapture, clipboardWritePermission, macMicrophoneConsent,
-  requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
+const { voicePage, listenerPage, audioPermission, displayCapturePermission, systemAudioCapture, systemAudioStreams,
+  clipboardWritePermission, macMicrophoneConsent, requestMicrophoneAccess, microphoneSettingsURL } = require('./voice-permissions');
 test('microphone permission is audio-only, main-frame-only, current app voice surface only', () => {
   const origin = 'http://127.0.0.1:8420';
   const contents = { getURL: () => `${origin}/voice/` };
@@ -39,6 +39,31 @@ test('only the dashboard window\'s Recordings page gets the system audio', () =>
   assert.equal(systemAudioCapture(request(mainFrame), origin, dashboard), false);
   assert.equal(systemAudioCapture(request(null), origin, dashboard), false);
   assert.equal(systemAudioCapture(request(mainFrame), origin, null), false);
+});
+test('the Recordings page may ask for a screen capture, which brings the system audio and its own page, nothing else', () => {
+  const origin = 'http://127.0.0.1:8420';
+  const contents = { getURL: () => `${origin}/recordings/` };
+  const dashboard = { webContents: contents };
+  const details = { isMainFrame: true, mediaTypes: ['audio', 'video'], requestingUrl: `${origin}/recordings/` };
+  const check = (permission, extra = {}, sender = contents) =>
+    displayCapturePermission(sender, permission, { ...details, ...extra }, origin, dashboard);
+  // What Electron 45 sends for getDisplayMedia({ video: true, audio: true }).
+  assert.equal(check('display-capture'), true);
+  assert.equal(check('display-capture', { mediaTypes: undefined }), true);  // a permission check carries no media types
+  assert.equal(check('display-capture', { mediaTypes: ['video'] }), false);  // nothing to record
+  assert.equal(check('media'), false);
+  assert.equal(check('display-capture', { isMainFrame: false }), false);
+  assert.equal(check('display-capture', { requestingUrl: 'https://evil.example/recordings/' }), false);
+  assert.equal(check('display-capture', {}, { getURL: contents.getURL }), false);  // another window
+  assert.equal(displayCapturePermission(contents, 'display-capture', details, origin, null), false);
+  contents.getURL = () => `${origin}/voice/`;
+  assert.equal(check('display-capture', { requestingUrl: `${origin}/voice/` }), false);
+  // The answer: the system's loopback, and the page itself as the video, never the screen.
+  const mainFrame = { url: `${origin}/recordings/` };
+  const frame = { webContents: { mainFrame } };
+  assert.deepEqual(systemAudioStreams({ frame: mainFrame, audioRequested: true }, origin, frame), { video: mainFrame, audio: 'loopback' });
+  assert.equal(systemAudioStreams({ frame: mainFrame, audioRequested: false }, origin, frame), null);
+  assert.equal(systemAudioStreams({ frame: { url: mainFrame.url }, audioRequested: true }, origin, frame), null);
 });
 test('existing dashboard copy actions can write text; clipboard reads and foreign windows remain denied', () => {
   const origin = 'http://127.0.0.1:8420';

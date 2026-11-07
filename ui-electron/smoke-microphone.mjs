@@ -64,6 +64,24 @@ try {
         catch (error) { return error.name; }
       }), 'NotAllowedError');
     }
+    // A meeting recording's computer audio (ADR 0131): only the Recordings page
+    // may ask for a screen capture, and its request reaches the loopback. The
+    // machine may have no audio output to loop back, so any outcome but a
+    // refusal counts.
+    const display = async () => page.evaluate(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        const tracks = stream.getTracks().map(track => track.kind).sort();
+        stream.getTracks().forEach(track => track.stop());
+        return tracks;
+      } catch (error) { return error.name; }
+    });
+    await page.goto(origin + '/voice/');
+    assert.equal(await display(), 'NotAllowedError');
+    await page.goto(origin + '/recordings/');
+    const recording = await display();
+    assert.notEqual(recording, 'NotAllowedError');
+    console.log(JSON.stringify({ recordingsDisplayCapture: recording }));
   }
   console.log(JSON.stringify({ platform: process.platform, productionPermissionHandlers: true,
     syntheticCapture: process.platform !== 'darwin', permissionUIBypass: false,

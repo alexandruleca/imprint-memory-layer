@@ -55,13 +55,28 @@ export function levels(): [number, number] {
   return [level(live.analysers[0]), level(live.analysers[1])];
 }
 
+/** The desktop app's loopback came without sound to record. On macOS that is
+ * a missing or refused permission: the track then arrives already ended. */
+class ComputerAudioError extends Error {
+  constructor() {
+    super(window.electronAPI?.platform === "darwin"
+      ? "macOS did not let Imprint record the computer's audio. Allow Imprint under System Settings → Privacy & Security → "
+        + "Screen & System Audio Recording, in System Audio Recording Only, or record your microphone only."
+      : "The computer's audio could not be recorded. Try again, or record your microphone only.");
+  }
+}
+
 /** The computer's audio: the desktop app hands over its loopback, a browser
  * lets the user pick a tab or screen to share with its audio. */
 async function computerAudio(): Promise<MediaStream | null> {
   if (!navigator.mediaDevices?.getDisplayMedia) return null;
   const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   display.getVideoTracks().forEach((track) => track.stop());
-  const audio = display.getAudioTracks();
+  const audio = display.getAudioTracks().filter((track) => track.readyState === "live");
+  if (!audio.length && window.electronAPI) {
+    display.getTracks().forEach((track) => track.stop());
+    throw new ComputerAudioError();
+  }
   return audio.length ? new MediaStream(audio) : null;
 }
 

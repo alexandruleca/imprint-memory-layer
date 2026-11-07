@@ -97,7 +97,7 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
     <Card>
       <CardHeader>
         <CardTitle>New recording</CardTitle>
-        <CardDescription>The microphone is the one chosen in Voice → Companion settings. On Windows the desktop app records what the computer plays directly; a browser asks which tab or screen to share, with its audio.</CardDescription>
+        <CardDescription>The microphone is the one chosen in Voice → Companion settings. The desktop app records what the computer plays directly (macOS asks you to allow it once); a browser asks which tab or screen to share, with its audio.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">

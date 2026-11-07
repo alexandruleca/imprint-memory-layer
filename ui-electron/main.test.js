@@ -371,6 +371,34 @@ test('Windows grants the microphone to both voice windows; request and check han
   assert.equal(check(dashboard, { mediaType: 'audio' }), false);
 });
 
+test('a meeting recording gets the computer audio: display-capture is granted and answered on Recordings only', async () => {
+  // Electron 45 asks the permission handler for getDisplayMedia as "display-capture"
+  // before the display-media handler; refusing it there failed every recording with
+  // the computer's audio as NotAllowedError. macOS asks no microphone consent for it.
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    const h = harness({ alreadyUp: true, platform, mediaStatus: 'denied' }); await settle();
+    const origin = 'http://127.0.0.1:8420';
+    const dashboard = h.windows[1];
+    dashboard.url = `${origin}/recordings/`;
+    const mainFrame = { get url() { return dashboard.url; } };
+    dashboard.webContents.mainFrame = mainFrame;
+    const details = () => ({ securityOrigin: `${origin}/`, requestingUrl: dashboard.url, isMainFrame: true, mediaTypes: ['audio', 'video'] });
+    const request = window => new Promise(resolve => h.calls.request(window.webContents, 'display-capture', resolve, details()));
+    const answer = request => { let streams = 'unanswered'; h.calls.display(request, value => { streams = value; }); return streams; };
+    assert.equal(await request(dashboard), true, platform);
+    assert.equal(h.calls.check(dashboard.webContents, 'display-capture', origin, { requestingUrl: dashboard.url, isMainFrame: true }), true);
+    assert.deepEqual(answer({ frame: mainFrame, audioRequested: true, videoRequested: true }), { video: mainFrame, audio: 'loopback' });
+    assert.equal(answer({ frame: mainFrame, audioRequested: false, videoRequested: true }), null);
+    assert.equal(answer({ frame: { url: dashboard.url }, audioRequested: true, videoRequested: true }), null);
+    let thrown = false;
+    h.calls.display({ frame: mainFrame, audioRequested: true }, () => { thrown = true; throw new TypeError('frame destroyed'); });
+    assert.equal(thrown, true);
+    dashboard.url = `${origin}/voice/`;
+    assert.equal(await request(dashboard), false);
+    assert.equal(answer({ frame: mainFrame, audioRequested: true, videoRequested: true }), null);
+  }
+});
+
 test('cancel during startup prevents service spawn or dashboard opening', async () => {
   const h = harness();
   await Promise.resolve();

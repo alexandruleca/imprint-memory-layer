@@ -1,14 +1,14 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen, desktopCapturer, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
 const { execFile } = require('node:child_process');
 const { dashboardURL, sameOrigin, externalURL } = require('./navigation');
 const { DesktopService } = require('./service');
-const { voicePage, listenerPage, audioPermission, clipboardWritePermission, macMicrophoneConsent,
-  requestMicrophoneAccess, microphoneSettingsURL, systemAudioCapture } = require('./voice-permissions');
+const { voicePage, listenerPage, audioPermission, displayCapturePermission, clipboardWritePermission, macMicrophoneConsent,
+  requestMicrophoneAccess, microphoneSettingsURL, systemAudioStreams } = require('./voice-permissions');
 const { SHORTCUT, fitBounds, fitLauncher, point, dragBounds, clientPoint, trayImage, dockCompanion, orbSide, haloLayout } = require('./companion');
 const { desktopRuntime } = require('./runtime');
 const { readActivity, describeActivity } = require('./activity');
@@ -1038,6 +1038,8 @@ app.whenReady().then(() => {
   });
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) { callback(true); return; }
+    // A meeting recording's computer audio (ADR 0131); the display-media handler below picks what it gets.
+    if (displayCapturePermission(contents, permission, details, UI_ORIGIN, win)) { callback(true); return; }
     if (!audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin], wake.win)) { callback(false); return; }
     if (process.platform !== 'darwin') { callback(true); return; }
     void macMicrophoneConsent(systemPreferences).then(granted => {
@@ -1046,15 +1048,14 @@ app.whenReady().then(() => {
   });
   // Meeting recordings take the system's audio without a picker; any other
   // screen-capture request is refused (ADR 0131).
+  // null refuses; the callback throws when the page has gone meanwhile, and the request is refused then too.
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    if (!systemAudioCapture(request, UI_ORIGIN, win)) { callback({}); return; }
-    desktopCapturer.getSources({ types: ['screen'] })
-      .then(([source]) => callback(source ? { video: source, audio: 'loopback' } : {}))
-      .catch(() => callback({}));
+    try { callback(systemAudioStreams(request, UI_ORIGIN, win)); } catch { /* refused */ }
   });
   session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
     if (!sameOrigin(requestingOrigin, UI_ORIGIN)) return false;
     if (clipboardWritePermission(contents, permission, details, UI_ORIGIN, [win, companionWin])) return true;
+    if (displayCapturePermission(contents, permission, details, UI_ORIGIN, win)) return true;
     return audioPermission(contents, permission, details, UI_ORIGIN, [win, companionWin], wake.win)
       && (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('microphone') === 'granted');
   });

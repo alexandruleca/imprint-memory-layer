@@ -4,10 +4,12 @@ test.use({ launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake
 type Rec = Record<string, unknown> & { id: string; status: string };
 
 // Mirrors imprint/api.py's /api/recordings. The computer's audio is an
-// oscillator in place of the screen capture, with or without its audio track.
-async function mockRecordings(page: Page, { computerAudio = true, recordings = [] as Rec[] } = {}) {
+// oscillator in place of the screen capture, with or without its audio track,
+// or with one already ended, as macOS gives the desktop app without permission.
+async function mockRecordings(page: Page, { computerAudio = true as boolean | 'ended', desktop = '', recordings = [] as Rec[] } = {}) {
   const state = { recordings, starts: [] as object[], pieces: 0, stops: [] as object[], transcribed: [] as string[], deleted: [] as string[] };
-  await page.addInitScript((withAudio: boolean) => {
+  await page.addInitScript(({ withAudio, platform }: { withAudio: boolean | 'ended'; platform: string }) => {
+    if (platform) Object.assign(window, { electronAPI: { platform } });
     navigator.mediaDevices.enumerateDevices = async () => [];
     navigator.mediaDevices.getDisplayMedia = async () => {
       const canvas = Object.assign(document.createElement('canvas'), { width: 4, height: 4 });
@@ -17,11 +19,13 @@ async function mockRecordings(page: Page, { computerAudio = true, recordings = [
         const tone = context.createOscillator();
         const out = context.createMediaStreamDestination();
         tone.connect(out); tone.start();
-        tracks.push(...out.stream.getAudioTracks());
+        const audio = out.stream.getAudioTracks();
+        if (withAudio === 'ended') audio.forEach((track) => track.stop());
+        tracks.push(...audio);
       }
       return new MediaStream(tracks);
     };
-  }, computerAudio);
+  }, { withAudio: computerAudio, platform: desktop });
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 1, projects: [['checkout-service', 3]], langs: [], domains: [], types: [], topics: [], layers: [] } }));
@@ -96,6 +100,21 @@ test('without the computer\'s audio only the microphone is recorded, and says so
   expect(state.starts).toEqual([expect.objectContaining({ others: false })]);
   await page.getByRole('button', { name: 'Stop and transcribe' }).click();
   await expect(page.getByRole('button', { name: 'Start recording' })).toBeVisible();
+});
+
+test('the desktop app on macOS says how to allow the computer\'s audio instead of recording silence', async ({ page }) => {
+  const state = await mockRecordings(page, { computerAudio: 'ended', desktop: 'darwin' });
+  await page.goto('/recordings/');
+  await page.getByRole('checkbox', { name: 'Everyone knows it is being recorded' }).click();
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'macOS did not let Imprint' })).toContainText('Screen & System Audio Recording');
+  await expect(page.getByRole('button', { name: 'Start recording' })).toBeEnabled();
+  expect(state.starts).toEqual([]);
+  // Without the computer's audio, the microphone alone records.
+  await page.getByRole('switch', { name: "Include the computer's audio" }).click();
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(page.getByText('Only your microphone is being recorded.')).toBeVisible();
+  expect(state.starts).toEqual([expect.objectContaining({ others: false })]);
 });
 
 test('recordings show their transcript, can be transcribed again, finished after an interruption and deleted', async ({ page }) => {
