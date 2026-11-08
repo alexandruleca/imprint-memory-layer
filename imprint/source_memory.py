@@ -79,11 +79,14 @@ def attach(doc: dict, records: list[dict], *, prefix: str = '', base: int = 0, c
     return records
 
 
-def records(doc: dict, *, prefix: str = '', code: bool = False) -> list[dict]:
+def records(doc: dict, *, prefix: str = '', code: bool = False,
+            cuts: list[tuple[int, int]] | None = None) -> list[dict]:
+    """Chunk records over the document: ``spans`` unless the caller gives
+    its own covering ``cuts`` (long conversation tool events, ADR 0162)."""
     return [{'content': prefix + doc['text'][start:end], 'chunk_index': i,
              'source_start': start, 'source_end': end, 'source_prefix': prefix,
              'source_format': FORMAT_VERSION}
-            for i, (start, end) in enumerate(spans(doc['text'], code=code, prefix=prefix))]
+            for i, (start, end) in enumerate(spans(doc['text'], code=code, prefix=prefix) if cuts is None else cuts)]
 
 
 def reconstruct(chunks: list[dict], total_chars: int) -> str:

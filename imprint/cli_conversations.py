@@ -303,7 +303,9 @@ def index_transcript(transcript_path: str, source_mtime: float = 0.0,
     source_mtime = source_mtime or before['source_mtime']
     from .tag_backlog import marking
     pending = marking()
-    records = source_memory.records(document)
+    # A long tool output or call is one chunk, embedded from a reduced view (ADR 0162).
+    from .long_events import chunk_spans
+    records = source_memory.records(document, cuts=chunk_spans(document['text'], document.get('events', [])))
     for record in records:
         relevant = [event for event in document.get('events', [])
                     if event['end'] > record['source_start'] and event['start'] < record['source_end']]

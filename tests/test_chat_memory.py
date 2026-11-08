@@ -202,7 +202,9 @@ class LocalSummaryReplyTests(unittest.TestCase):
         self.assertNotIn("summary", [event["type"] for event in events])
         messages = model.requests[0]["messages"]
         self.assertIn("- Plan alpha noted (#1–#2).", messages[0]["content"])
-        self.assertEqual([m["content"] for m in messages[1:]], ["and beta", "Noted beta.", "what next?"])
+        # The current time follows the question (ADR 0161).
+        self.assertEqual([m["content"].split("\n\n" + chat.TIME_NOTE)[0] for m in messages[1:]],
+                         ["and beta", "Noted beta.", "what next?"])
 
     def test_a_summary_that_runs_out_of_time_falls_back_to_dropping_and_waits_before_trying_again(self):
         prior = self.conversation()

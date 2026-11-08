@@ -138,9 +138,110 @@ def _before(deadline: float | None) -> None:
         raise TimeoutError("local model time limit reached")
 
 
+# Evaluated stable prompt prefixes kept in memory (ADR 0161). A hybrid model
+# (Qwen3.5's linear-attention layers) cannot roll its context back to a
+# shorter prefix, so every new chat turn recomputed the instructions and tool
+# definitions; restoring a saved state skips them.
+CHECKPOINTS = 2
+CHECKPOINT_MIN_TOKENS = 256
+
+
+class _Checkpoint:
+    __slots__ = ("tokens", "data", "size")
+
+    def __init__(self, tokens, data, size):
+        self.tokens, self.data, self.size = tokens, data, size
+
+
+def _common(a, b) -> int:
+    import numpy as np
+    n = min(len(a), len(b))
+    if not n:
+        return 0
+    differ = np.flatnonzero(np.asarray(a[:n]) != np.asarray(b[:n]))
+    return int(differ[0]) if len(differ) else n
+
+
+def _rolls_back(llm) -> bool:
+    """Whether llama.cpp can cut this model's live context back to any prefix."""
+    return not (getattr(llm, "_is_hybrid", False) or getattr(llm, "_is_recurrent", False))
+
+
+def _save(llm, tokens) -> _Checkpoint:
+    """The context's state only. Llama.save_state also copies the logits
+    array, n_batch × vocabulary floats (about 250 MB for Qwen3.5)."""
+    import ctypes
+    import llama_cpp
+    ctx = llm._ctx.ctx
+    size = int(llama_cpp.llama_state_get_size(ctx))
+    data = (ctypes.c_uint8 * size)()
+    written = int(llama_cpp.llama_state_get_data(ctx, data, size))
+    if not 0 < written <= size:
+        raise RuntimeError("could not copy the model state")
+    return _Checkpoint(tuple(tokens), data, written)
+
+
+def _restore(llm, checkpoint: _Checkpoint) -> None:
+    import llama_cpp
+    if int(llama_cpp.llama_state_set_data(llm._ctx.ctx, checkpoint.data, checkpoint.size)) != checkpoint.size:
+        raise RuntimeError("could not restore the model state")
+    count = len(checkpoint.tokens)
+    llm.input_ids[:count] = checkpoint.tokens
+    llm.n_tokens = count
+    # The suffix evaluated next refreshes the logits before sampling.
+    llm._requires_eval = True
+
+
+def _stable_tokens(llm, stable: str, tools, tokens: list[int]) -> int:
+    """How many leading prompt tokens the stable text and tools render to:
+    the prompt's shared prefix with a rendering of only them (and a
+    placeholder question, since some templates require one)."""
+    try:
+        head = llm._imprint_formatter(messages=[{"role": "system", "content": stable},
+                                                {"role": "user", "content": "\x00"}], tools=tools).prompt
+        return _common(llm.tokenize(head.encode(), add_bos=False, special=True), tokens)
+    except Exception:
+        return 0
+
+
+def _resume(llm, tokens: list[int], stable: int) -> None:
+    """Leave the context so that evaluating ``tokens`` starts as late as it can.
+
+    llama.cpp keeps the live context's shared prefix when the prompt extends
+    it, or for attention-only models any shared prefix. When a saved
+    checkpoint covers more, it is restored. Otherwise, when the first
+    ``stable`` tokens (the instructions and tools) are not kept, they are
+    evaluated alone and saved before the rest. Any failure resets the context
+    and drops the checkpoints: the prompt is then evaluated in full."""
+    try:
+        live = llm._input_ids
+        common = _common(live, tokens)
+        kept = common if common == len(live) or _rolls_back(llm) else 0
+        saved = getattr(llm, "_imprint_checkpoints", [])
+        # A checkpoint shorter than the prompt: the suffix evaluated after it
+        # refreshes the logits, where an exact match would need a rollback.
+        best = max((c for c in saved if kept < len(c.tokens) < len(tokens)
+                    and _common(c.tokens, tokens) == len(c.tokens)), key=lambda c: len(c.tokens), default=None)
+        if best is not None:
+            _restore(llm, best)
+            saved.remove(best)
+            saved.insert(0, best)
+            return
+        if stable >= CHECKPOINT_MIN_TOKENS and stable > kept and stable < len(tokens):
+            llm.reset()
+            llm.eval(tokens[:stable])
+            llm._imprint_checkpoints = [_save(llm, tokens[:stable]), *saved][:CHECKPOINTS]
+    except Exception:
+        llm._imprint_checkpoints = []
+        try:
+            llm.reset()
+        except Exception:
+            pass
+
+
 def generate(llm, messages: list[dict], max_tokens: int, temperature: float, *,
              tools: list[dict] | None = None, schema: dict | None = None,
-             deadline: float | None = None):
+             deadline: float | None = None, stable: str | None = None):
     """Stream one assistant turn as text; the caller holds INFERENCE_LOCK.
 
     The model's chat template renders the messages and tools, and generation
@@ -148,14 +249,22 @@ def generate(llm, messages: list[dict], max_tokens: int, temperature: float, *,
     because tool-call grammars such as Mistral's [TOOL_CALLS] are written with
     them. A schema constrains the output with a grammar. A ``time.monotonic()``
     deadline raises TimeoutError instead of starting after it, or of
-    generating past it. Prompt processing itself is not interruptible."""
+    generating past it. Prompt processing itself is not interruptible.
+
+    ``stable`` is the start of the system message that later requests repeat
+    (chat's instructions): the prompt up to its end, with the tools, is kept
+    evaluated in memory and restored for them (ADR 0161)."""
     from llama_cpp import LlamaGrammar, llama_vocab_is_eog
     _before(deadline)
     messages = fit_messages(llm, messages, max_tokens, tools)
     prompt = llm._imprint_formatter(messages=messages, tools=tools).prompt
     grammar = LlamaGrammar.from_json_schema(json.dumps(schema), verbose=False) if schema else None
     text = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    tokens = llm.generate(llm.tokenize(prompt.encode(), add_bos=False, special=True),
+    prompt_tokens = llm.tokenize(prompt.encode(), add_bos=False, special=True)
+    if (stable and hasattr(llm, "_ctx") and messages and messages[0].get("role") == "system"
+            and messages[0]["content"].startswith(stable)):
+        _resume(llm, prompt_tokens, _stable_tokens(llm, stable, tools, prompt_tokens))
+    tokens = llm.generate(prompt_tokens,
                           temp=temperature, top_k=40, top_p=0.95, min_p=0.05, repeat_penalty=1.1,
                           grammar=grammar)
     try:

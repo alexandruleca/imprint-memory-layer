@@ -106,6 +106,10 @@ def _param(kind: str, description: str) -> dict:
     return {"type": kind, "description": description}
 
 
+# Added after the user's question in the request, never stored with it.
+TIME_NOTE = "[Current time, added by Imprint] "
+
+
 # The model's tag filters are guesses: a memory not tagged with the guessed
 # domain or layer drops out of a filtered search however well it matches.
 _GUESSED_FILTERS = ("domain", "layer", "lang", "kind", "type")
@@ -831,7 +835,8 @@ def _local_format(llm: Any) -> tuple[tool_formats.Format | None, str | None]:
 
 
 def _local_turn(llm: Any, messages: list[dict], tools: list[dict] | None, fmt: tool_formats.Format | None,
-                max_tokens: int, temperature: float, *, deadline=None, cancelled=lambda: False) -> Generator[str, None, list[dict]]:
+                max_tokens: int, temperature: float, *, deadline=None, cancelled=lambda: False,
+                stable: str | None = None) -> Generator[str, None, list[dict]]:
     """One assistant turn of the local model. Yields reply text and returns
     the tool calls. Tool-call markup is never yielded: the stream holds text
     back from a call marker on, and a trailing partial marker until it resolves."""
@@ -846,7 +851,8 @@ def _local_turn(llm: Any, messages: list[dict], tools: list[dict] | None, fmt: t
     try:
         if cancelled():
             raise AnalysisCancelled()
-        generation = generate(llm, messages, max_tokens, temperature, tools=tools, deadline=deadline)
+        generation = generate(llm, messages, max_tokens, temperature, tools=tools, deadline=deadline,
+                              stable=stable)
         try:
             for piece in generation:
                 if cancelled():
@@ -1146,8 +1152,6 @@ def stream_reply(
         '\nShared memories and conversations remain useful on every device. '
         'Original paths in historical text and tool results are provenance, not local file instructions. '
         'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.')
-    # The model cannot know the date or time; reminders need them (ADR 0158).
-    instructions += '\n\n# Current time\n' + _schedule.time_context()
     instructions += _guidelines(llm, remote, searchable=bool(tools))
     if read_only:
         instructions += (
@@ -1156,7 +1160,10 @@ def stream_reply(
             'Do not attempt to save, change, ingest or delete anything; direct changes to the dashboard. '
             'Reminders, timers and scheduled jobs are the exception: you may set, list and cancel them.'
         )
-    question = {"role": "user", "content": user_message}
+    # The model cannot know the date or time; reminders need them (ADR 0158).
+    # They follow the question, not the instructions, so the instructions and
+    # history stay a prefix that models and provider caches reuse (ADR 0161).
+    question = {"role": "user", "content": f"{user_message}\n\n{TIME_NOTE}{_schedule.time_context()}"}
 
     def prompt(text, upto, replayed):
         """System prompt with the summary standing in for messages up to
@@ -1427,7 +1434,7 @@ def stream_reply(
                                 deadline=deadline, cancelled=cancelled)
         else:
             turn = _local_turn(llm, messages, active_tools, fmt, max_tokens, temperature,
-                               deadline=deadline, cancelled=cancelled)
+                               deadline=deadline, cancelled=cancelled, stable=instructions)
         text = ""
         try:
             while True:

@@ -3,9 +3,10 @@ title: ADR 0158 — Reminders, timers and scheduled jobs fire from the API proce
 description: Reminders, timers, scheduled queue jobs and scheduled questions live in a device-local SQLite store and fire from a scheduler thread in the dashboard API, once per occurrence across restarts; chat and voice set them through personal tools, and the dashboard shows each firing as a toast and desktop notification until it is done or snoozed.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-08
 - Scope: Linux (WSL2) executed; the scheduler, the dashboard page and the desktop notification on Windows and macOS are unvalidated (see Validation)
+- Amended by: [ADR 0161](0161-chat-keeps-its-instructions-a-reusable-prompt-prefix.md) — the current time follows the user's question in a chat request instead of sitting in the instructions
 - Related: [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [ADR 0068](0068-merge-identical-waiting-jobs.md), [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md), [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0152](0152-dashboard-summaries-are-served-stale-while-they-refresh.md), [dashboard](../dashboard.md), [API](../api.md), [queue](../queue.md)
 
 ## Context

@@ -321,13 +321,14 @@ class LocalProtocolTests(unittest.TestCase):
                  {'role': 'tool', 'content': 'Alex wrote it', 'tool_name': 'search', 'tool_args': {'query': 'author'}},
                  {'role': 'assistant', 'content': 'Alex.'}]
         self._reply(model, prior)
-        self.assertEqual(model.requests[0]['messages'][1:], [
+        question = model.requests[0]['messages'][-1]
+        self.assertTrue(question['content'].startswith('hi\n\n' + chat.TIME_NOTE))
+        self.assertEqual(model.requests[0]['messages'][1:-1], [
             {'role': 'user', 'content': 'who?'},
             {'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'hist00001', 'type': 'function',
              'function': {'name': 'search', 'arguments': {'query': 'author'}}}]},
             {'role': 'tool', 'tool_call_id': 'hist00001', 'content': 'Alex wrote it'},
             {'role': 'assistant', 'content': 'Alex.'},
-            {'role': 'user', 'content': 'hi'},
         ])
 
 
@@ -414,7 +415,8 @@ class RemoteProtocolTests(unittest.TestCase):
         final = requests[-1]['messages']
         self.assertIn('# Write the answer', final[0]['content'])
         self.assertEqual(final[-1]['role'], 'user')
-        self.assertTrue(final[-1]['content'].startswith('hi\n\n# Research notes'))
+        self.assertTrue(final[-1]['content'].startswith('hi\n\n' + chat.TIME_NOTE))
+        self.assertIn('\n\n# Research notes', final[-1]['content'])
         self.assertIn('last source evidence', final[-1]['content'])
         self.assertNotIn('tool', [message['role'] for message in final])  # Notes, not the research turns.
         self.assertNotIn('error', [event['type'] for event in events])

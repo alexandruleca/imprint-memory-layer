@@ -109,7 +109,8 @@ def _embed_raw(texts: list[str]) -> np.ndarray:
 
 def embed_document(text: str) -> list[float]:
     """Embed a document into a dense vector."""
-    return _embed_raw([text[:_PRETRIM_CHARS]])[0].tolist()
+    from .long_events import embedding_text
+    return _embed_raw([embedding_text(text)[:_PRETRIM_CHARS]])[0].tolist()
 
 
 def embed_query(text: str) -> list[float]:
@@ -132,7 +133,9 @@ def embed_documents_batch(texts: list[str], batch_size: int | None = None) -> li
     size = batch_size or default_batch_size()
     if size < 1:
         raise ValueError("Embedding batch size must be positive")
-    pretrimmed = [t[:_PRETRIM_CHARS] for t in texts]
+    # A long conversation tool event is embedded from its reduced view (ADR 0162).
+    from .long_events import embedding_text
+    pretrimmed = [embedding_text(t)[:_PRETRIM_CHARS] for t in texts]
     order = sorted(range(len(pretrimmed)), key=lambda i: len(pretrimmed[i]))
     vectors: list[list[float] | None] = [None] * len(pretrimmed)
     for start in range(0, len(order), size):

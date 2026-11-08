@@ -1445,6 +1445,10 @@ def file_chunks(
             break
         lines.append(f"--- chunk {c['chunk_index']} ---")
         lines.append(c["content"][:12000])
+        if len(c["content"]) > 12000 and c.get("id"):
+            # A long conversation tool event is one chunk (ADR 0162).
+            from .mcp_output import expand_hint
+            lines.append(expand_hint(c["id"], 0, 12000, len(c["content"])))
         used += len(c["content"])
         lines.append("")
 

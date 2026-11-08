@@ -343,8 +343,13 @@ class ChatToolTests(Case):
         client, patches = remote_provider([text_chunk("Hello.")])
         with patches[0], patches[1], patches[2], patch.object(schedule, "_now", return_value=at("2026-11-08T14:05")):
             list(chat.stream_reply([], "hi"))
-        system = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
-        self.assertIn("# Current time\nIt is Sunday 8 November 2026 (2026-11-08), 14:05", system)
+        messages = client.chat.completions.create.call_args.kwargs["messages"]
+        # After the question, so the instructions stay a reusable prefix (ADR 0161).
+        self.assertNotIn("It is Sunday", messages[0]["content"])
+        self.assertEqual(messages[-1]["content"],
+                         "hi\n\n" + chat.TIME_NOTE + "It is Sunday 8 November 2026 (2026-11-08), 14:05 local time, "
+                         "time zone Europe/Bucharest (UTC+02:00). Give reminder times as local ISO-8601 date-times, "
+                         "like 2026-11-08T10:00, or as durations.")
 
 
 if __name__ == "__main__":
