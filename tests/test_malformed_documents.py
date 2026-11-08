@@ -20,7 +20,7 @@ class MalformedFileTests(unittest.TestCase):
         if isinstance(data, bytes):
             path.write_bytes(data)
         else:
-            path.write_text(data, encoding='utf-8')
+            path.write_text(data, encoding='utf-8', newline='')  # As given, on Windows too.
         return str(path)
 
 
