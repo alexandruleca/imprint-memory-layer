@@ -5,7 +5,9 @@ description: Same-origin API access, explicit search states, provenance and nati
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) — the native dialog primitive is replaced by the shadcn (Base UI) `Dialog` and `AlertDialog`
+- Amended by:
+  - [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md) — the native dialog primitive is replaced by the shadcn (Base UI) `Dialog` and `AlertDialog`
+  - [ADR 0154](0154-the-dashboard-and-desktop-app-follow-a-light-dark-or-system-theme.md) — the dashboard's theme, light only until then, becomes light, dark or the system's
 - Restructured: 2026-10-25
 
 ## Context

@@ -142,7 +142,7 @@ side by side.
 
 ### Overview & stats
 
-Dashboard statistics, overview and graph requests against a collection with a mismatched embedding profile, or nonempty unversioned embeddings, return HTTP **409** with `{"error": "embedding_profile_conflict", "collection": "memories", "detail": "…"}`. The detail explains how to rebuild explicitly; the stored collection is preserved. `/api/ping` can still return 200 because the API itself is healthy. Workspace creation and switching remain available so the dashboard can recover in a fresh workspace. See [rebuilding an index](embeddings.md#rebuild-after-upgrading), [ADR 0010](adr/0010-qwen-defaults-and-explicit-reindex.md) and [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md).
+Dashboard statistics, summary, overview and graph requests against a collection with a mismatched embedding profile, or nonempty unversioned embeddings, return HTTP **409** with `{"error": "embedding_profile_conflict", "collection": "memories", "detail": "…"}`. The detail explains how to rebuild explicitly; the stored collection is preserved. `/api/ping` can still return 200 because the API itself is healthy. Workspace creation and switching remain available so the dashboard can recover in a fresh workspace. See [rebuilding an index](embeddings.md#rebuild-after-upgrading), [ADR 0010](adr/0010-qwen-defaults-and-explicit-reindex.md) and [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -151,7 +151,9 @@ Dashboard statistics, overview and graph requests against a collection with a mi
 | POST | `/api/update` | Start `imprint update -y` detached; it restarts this server once the release is installed. 400 when this installation cannot update or is current, 409 while an update or job is running. |
 | POST | `/api/restart` | Finish in-flight requests and exit with status 75; the desktop app or `imprint ui` that started the server starts it again with the installed code (`imprint ui restart` uses this, [ADR 0050](./adr/0050-registered-dashboard-server-and-supervised-restart.md)). 409 when the app is not served by Imprint's launcher. |
 | GET | `/api/stats` | Aggregate counts per project, type, and language. |
-| GET | `/api/overview` | Bubble-chart overview. Repeat `?type=` for multi-filter. |
+| GET | `/api/dashboard` | The Home summary of the active workspace from its snapshot: totals, real counts of projects, sources, topics and languages, their largest groups, memories per month, memories in the last 7 days, the tagging backlog and recently added sources, with `workspace`, `built_at`, `age`, `stale` and `refreshing`. A stale snapshot is answered at once while a newer one is built; `?fresh=1` waits for an up-to-date one ([ADR 0152](adr/0152-dashboard-summaries-are-served-stale-while-they-refresh.md)). |
+| GET | `/api/projects` | Every project of the active workspace, largest first, as `{name, count, color}` (a source linked to several projects counts in each), and the workspace's `total`. What the dashboard's project rails, filters and pickers read: one facet, plus one exact count per project with linked sources, so it stays cheap while the workspace is written. Cached until the next write. |
+| GET | `/api/overview` | Bubble-chart overview: each project's types, top domains and languages, plus global facets. Repeat `?type=` for multi-filter. Three facets per project, so pages that only need names and counts read `/api/projects`. |
 | GET | `/api/timeline` | Recent activity feed. `?project=`, `?limit=`. |
 | GET | `/api/cross-project` | Project-to-project similarity matrix. |
 
@@ -184,9 +186,10 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 |---|---|---|
 | GET | `/api/project/{name}` | Counts by type, domain, language and topic for one project. |
 | POST | `/api/projects/move` | Preview, or apply, moving a project's memories (`sources: [keys]`, or all of them) to `target`. Apply needs `apply: true` and the `workspace` the preview returned. See [ADR 0036](adr/0036-move-memories-between-projects.md). |
-| GET | `/api/topics` | Topic facet counts. |
-| GET | `/api/topic/{name}` | Every memory tagged with one topic, grouped by the source it came from (titled, largest group first), and its projects. `?project=` limits it to one project. |
-| GET | `/api/graph` | Graph walk. `?scope=root\|project:X\|topic:X\|source:X\|chunk:X&depth=1..3`. |
+| GET | `/api/topics` | One page of topics with their counts and top projects. `?q=` keeps names containing it (any case), `sort=count\|name`, `offset`, `limit` (1–500, default 100); the response adds `matched`, `topic_count`, `offset`, `limit`, `sort` and `q` ([ADR 0150](adr/0150-topics-page-on-the-server-and-workspace-copies-are-previewed.md)). |
+| GET | `/api/topic/{name}` | Every memory tagged with one topic, grouped by the source it came from (titled, largest group first), its projects and `source_count`. `?project=` limits it to one project; `limit` (1–200) and `offset` return one page of sources, and `q` keeps sources whose key or title contains it ([ADR 0150](adr/0150-topics-page-on-the-server-and-workspace-copies-are-previewed.md)). |
+| POST | `/api/migrate/preview` | What copying or moving `values` (1–200 names) of one `mode` (`project`, `topic` or `source`) from workspace `from` to `to` takes: per value and in all (`total`, each memory once), its sources and projects, and how many the target already holds (`existing`). Changes nothing; the `migrate` command applies ([ADR 0150](adr/0150-topics-page-on-the-server-and-workspace-copies-are-previewed.md)). |
+| GET | `/api/graph` | Graph walk. `?scope=root\|project:X\|topic:X\|source:X\|chunk:X&depth=1..3`. Returns `nodes`, `edges`, `center` and `more` (kinds listed only up to their cap); cached until the workspace's data changes ([ADR 0148](adr/0148-the-graph-draws-itself-on-a-canvas-and-as-a-star-system.md)). The dashboard's `search:X` scope is built from `/api/search` in the browser. |
 
 ### Core memories, Organize and recordings
 
@@ -243,11 +246,13 @@ already waiting: `job_id` is that job and nothing new is queued
 | POST | `/api/commands/{command}` | Enqueue a command. See below for the allowlist. |
 | GET | `/api/queue` | Active + queued + recent jobs, and `background`: background LLM tagging's state, the memories waiting for it and its running or latest run ([queue](queue.md#http-api)). Each job carries `label`, `params` and `workspace`: its name and arguments in the command catalog's words (`commands.describe`). |
 | POST | `/api/queue/background/resume` | Start background work (tagging, then background Organize) again after a cancel or a failure. |
-| GET | `/api/agents` | The MCP sessions of every client, connected ones first, and `clients`: the same totalled by client ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)). `?limit=` (default 100). |
+| GET | `/api/queue/history` | Finished jobs a page at a time, newest first (`limit`, `before` cursor, `status`), with counts per period for `bounds` and each job's waiting or running `twin` ([queue](queue.md#http-api)). |
+| GET | `/api/agents` | The MCP sessions of every client ([ADR 0117](adr/0117-the-dashboard-shows-each-agent-session-and-its-calls.md)), one page at a time ([ADR 0151](adr/0151-agent-sessions-page-by-last-activity-with-a-cursor.md)): `running` (connected sessions, on the first page only), `sessions` (the others, most recently active first), `next` (a cursor, or `null` on the last page), `total` (finished sessions that match) and `clients` (every session totalled by client). `?limit=` (default 50, at most 500), `?before=<next>` for the following page (400 when malformed), `?client=` (a name as `clients` gives it, `Unknown client` for none) and `?q=` (text in the folder, workspace or client). |
 | GET | `/api/agents/{id}/calls` | One session and its tool calls, newest first: tool, start, duration, outcome, shortened and redacted arguments. `?limit=` (default 200) and `?before=<call id>` page back. |
 | GET | `/api/jobs/{id}` | Job status + exit code, named like the queue's jobs. |
 | GET | `/api/jobs/{id}/stream` | SSE stream of live stdout/stderr. |
 | POST | `/api/jobs/{id}/cancel` | SIGTERM the job (SIGKILL after 3 s). |
+| POST | `/api/jobs/{id}/retry` | Queue a finished job again with the same command, arguments and workspace; an identical waiting job absorbs it (ADR 0068). |
 
 **Allowlisted commands:** the catalog's (`learn`, `ingest`, `refresh`,
 `ingest-url`, `refresh-urls`, `retag`, `scrub`, `sync`, `connect`, `disconnect`,
@@ -261,7 +266,9 @@ install into or stop the running dashboard (`setup`, `enable`, `profile`,
 [queue](queue.md#allowed-commands).
 
 `migrate` takes `from`, `to`, one of `project` / `topic` / `source`, and the
-booleans `copy` (keep the source's memories; `--copy`) and `dry_run`.
+booleans `copy` (keep the source's memories; `--copy`) and `dry_run`. The
+dashboard counts a selection with `POST /api/migrate/preview` first and then
+queues one `migrate` job per selected project, topic or source.
 
 `ingest` and `refresh` take the path as `dir`. A `dir` the workspace's approved
 roots would refuse is rejected before anything is queued, with 409

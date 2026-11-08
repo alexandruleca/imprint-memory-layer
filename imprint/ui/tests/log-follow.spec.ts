@@ -41,9 +41,9 @@ const nextFrame = (page: Page) => page.evaluate(() => new Promise(resolve => req
 
 test('a job log follows its output without moving the page and pauses while scrolled up', async ({ page }) => {
   await mockApi(page);
-  await page.route('**/api/queue**', route => route.fulfill({ json: {
-    active: null, queued: [], recent: Array.from({ length: 30 }, (_, i) => job(i, 'done')),
-  } }));
+  const recent = Array.from({ length: 30 }, (_, i) => job(i, 'done'));
+  await page.route('**/api/queue**', route => route.fulfill({ json: { active: null, queued: [], recent } }));
+  await page.route('**/api/queue/history**', route => route.fulfill({ json: { jobs: recent, next: null, total: 30, counts: null } }));
   await page.goto('/queue/');
   // The reader has scrolled down the page to a job and opens its output.
   const show = page.getByRole('button', { name: /Show details$/ }).nth(15);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Disc3, FileText, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 import {
@@ -19,11 +19,13 @@ import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/split-page";
 import { clock } from "@/components/recording-indicator";
 import {
-  deleteRecording, deleteRecordingAudio, getRecordings, getRecordingTranscript, getStats, recordingAudioUrl,
+  deleteRecording, deleteRecordingAudio, getRecordings, getRecordingTranscript, recordingAudioUrl,
   stopRecording, transcribeRecording, type Recording,
 } from "@/lib/api";
 import { levels, startMeeting, stopMeeting, useRecorder } from "@/lib/recorder";
 import { readVoicePreferences } from "@/lib/voice-preferences";
+import { useProjectNames } from "@/lib/use-projects";
+import { useCached } from "@/lib/use-cached";
 
 const DESCRIPTION = "Record a call or meeting: your microphone and, if you choose, what this computer plays (the other people). Imprint keeps the audio on this device, transcribes it locally with who said what, and makes the transcript searchable like any memory.";
 const STATUS: Record<Recording["status"], { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
@@ -169,28 +171,32 @@ function Row({ recording, live, onChange, onTranscript, onDelete }: {
 
 export default function RecordingsPage() {
   const recorder = useRecorder();
-  const [data, setData] = useState<{ recordings: Recording[]; default_project: string } | null>(null);
-  const [error, setError] = useState("");
-  const [projects, setProjects] = useState<string[]>([]);
+  // The list shows at once from the last answer (ADR 0152), and is read
+  // again every few seconds while a recording records or transcribes.
+  const list = useCached("recordings", getRecordings);
+  const data = list.data ?? null;
+  const error = list.error ? list.error.message : "";
+  const projects = useProjectNames({ order: "name" }).names;
   const [transcript, setTranscript] = useState<{ title: string; text: string } | null>(null);
   const [deleting, setDeleting] = useState<{ recording: Recording; audioOnly: boolean } | null>(null);
 
-  const load = async () => {
-    try { setData(await getRecordings()); setError(""); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  };
+  const { refresh } = list;
+  const load = refresh;
   const busy = data?.recordings.some((r) => r.status === "stopped" || r.status === "transcribing");
+  const live = busy || recorder.phase !== "idle";
+  // A recording that starts or stops is listed at once.
+  const recorderMark = `${recorder.phase}|${recorder.stopped}`;
+  const lastMark = useRef(recorderMark);
   useEffect(() => {
-    let live = true;
-    const poll = () => getRecordings().then(
-      (d) => { if (live) setData(d); },
-      (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); },
-    );
-    void poll();
-    getStats().then((s) => { if (live) setProjects(s.projects.map(([name]) => name).filter(Boolean).sort()); }).catch(() => {});
-    const timer = busy || recorder.phase !== "idle" ? setInterval(poll, POLL_MS) : undefined;
-    return () => { live = false; clearInterval(timer); };
-  }, [busy, recorder.phase, recorder.stopped]);
+    if (lastMark.current === recorderMark) return;
+    lastMark.current = recorderMark;
+    void refresh();
+  }, [recorderMark, refresh]);
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => void refresh(), POLL_MS);
+    return () => clearInterval(timer);
+  }, [live, refresh]);
 
   async function showTranscript(recording: Recording) {
     const result = await attempt(() => getRecordingTranscript(recording.id), "Could not open the transcript");
@@ -207,7 +213,7 @@ export default function RecordingsPage() {
 
   return (
     <div className="mx-auto max-w-4xl pb-10">
-      <PageHeader title="Recordings" count={data?.recordings.length} description={DESCRIPTION} />
+      <PageHeader title="Recordings" count={data?.recordings.length} description={DESCRIPTION} updating={list.refreshing && !live} />
       <div className="space-y-4 px-4 sm:px-8">
         {data ? <Start projects={projects} defaultProject={data.default_project} /> : <Skeleton className="h-48 w-full rounded-xl" />}
         {error && <p role="alert" className="text-sm text-destructive">Could not load recordings: {error}</p>}

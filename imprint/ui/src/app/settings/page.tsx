@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { getConfig, getFsRoots, resetConfigValue, setConfigValue } from "@/lib/api";
+import { useCached } from "@/lib/use-cached";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader, PaneHeading, PaneLink, SplitPage } from "@/components/split-page";
@@ -77,25 +78,27 @@ function matches(s: ConfigSetting, query: string) {
   return query.split(/\s+/).every((word) => text.includes(word));
 }
 
+const NO_SETTINGS: ConfigSetting[] = [];
+
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<ConfigSetting[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // Configuration is the installation's, the same in every workspace. It is
+  // kept in memory only and not fetched again on focus, so a row being
+  // edited never changes under the cursor (ADR 0152).
+  const config = useCached("config", getConfig, { global: true, persist: false, revalidateOnFocus: false, revalidateOnJobs: false });
+  const settings = config.data?.settings ?? NO_SETTINGS;
+  const loading = config.loading;
+  const error = config.error && !config.data ? config.error.message : "";
   const [query, setQuery] = useState("");
   const hash = useHash();
   const [windows, setWindows] = useState(false);
   const deviceSections = DEVICE_SECTIONS.filter((section) => section.id !== "wsl" || windows);
 
   async function load() {
-    setSettings((await getConfig()).settings);
+    config.mutate(await getConfig());
   }
 
   useEffect(() => {
     getFsRoots().then((roots) => setWindows(roots.platform === "Windows")).catch(() => {});
-    getConfig()
-      .then((d) => setSettings(d.settings))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
   }, []);
 
   // Rows confirm success inline. Secret values never appear in these
@@ -125,6 +128,7 @@ export default function SettingsPage() {
   const header = (
     <PageHeader
       title="Settings"
+      updating={config.refreshing}
       description={<>Saved to this device&apos;s <code className="rounded bg-muted px-1 text-xs">config.json</code>. Environment variables take precedence. Running servers apply changes when they restart.</>}
       actions={
         <InputGroup className="w-full bg-card sm:w-72">

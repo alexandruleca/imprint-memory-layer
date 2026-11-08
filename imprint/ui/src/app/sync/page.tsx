@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Hint } from "@/components/hint";
 import { PairedDevices } from "@/components/paired-devices";
+import { Pager } from "@/components/review/pager";
 import { toast } from "sonner";
 import { Spinner } from "@/components/loaders";
 import { SyncProgressGroup } from "@/components/sync-progress";
@@ -93,9 +94,10 @@ type Tone = "neutral" | "waiting" | "success" | "danger";
 
 const TONES: Record<Tone, string> = {
   neutral: "border-border bg-muted text-foreground",
-  waiting: "border-amber-600/25 bg-amber-50 text-amber-800",
-  success: "border-emerald-600/25 bg-emerald-50 text-emerald-800",
-  danger: "border-red-600/25 bg-red-50 text-red-700",
+  waiting: "border-warning/30 bg-warning/10 text-warning",
+  success: "border-success/30 bg-success/10 text-success",
+  // Red text keeps AA only on a plain card, not on a red tint.
+  danger: "border-destructive/40 bg-card text-destructive",
 };
 
 function statusTone(status: string): Tone {
@@ -176,7 +178,7 @@ function CopyButton({ text }: { text: string }) {
     <Hint label="Copy">
       <Button variant="ghost" size="icon-sm" onClick={copy} aria-label="Copy code">
         {copied ? (
-          <Check className="text-emerald-700" aria-hidden />
+          <Check className="text-success" aria-hidden />
         ) : (
           <Copy className="text-muted-foreground" aria-hidden />
         )}
@@ -227,7 +229,7 @@ function ExportCard() {
           )}
         </Button>
         {message && (
-          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-emerald-700"}`}>
+          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-success"}`}>
             {message}
           </p>
         )}
@@ -311,7 +313,7 @@ function ImportCard() {
           )}
         </Button>
         {message && (
-          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-emerald-700"}`}>
+          <p className={`text-xs ${state === "error" ? "text-destructive" : "text-success"}`}>
             {message}
           </p>
         )}
@@ -998,6 +1000,9 @@ function originBadge(origin: string) {
   return map[origin] || map.unknown;
 }
 
+/** Indexed exports per page of the history. */
+const EXPORTS_PER_PAGE = 10;
+
 function DesktopExportsCard() {
   const [history, setHistory] = useState<DesktopExportEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1005,6 +1010,10 @@ function DesktopExportsCard() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastScan, setLastScan] = useState<DesktopScanResult | null>(null);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(history.length / EXPORTS_PER_PAGE));
+  const current = Math.min(page, pages - 1);
+  const shown = history.slice(current * EXPORTS_PER_PAGE, (current + 1) * EXPORTS_PER_PAGE);
 
   const reloadHistory = useCallback(async () => {
     try {
@@ -1102,7 +1111,7 @@ function DesktopExportsCard() {
             </div>
             <div className="flex gap-3">
               <span className="text-muted-foreground w-36">Newly indexed</span>
-              <span className={lastScan.indexed_zips > 0 ? "text-emerald-700" : ""}>
+              <span className={lastScan.indexed_zips > 0 ? "text-success" : ""}>
                 {lastScan.indexed_zips}
               </span>
             </div>
@@ -1137,7 +1146,8 @@ function DesktopExportsCard() {
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="max-h-64 overflow-y-auto rounded-xl border border-border">
+            <div className="@container/page">
+            <div className="overflow-x-auto rounded-xl border border-border">
               <Table className="text-xs">
                 <TableHeader>
                   <TableRow>
@@ -1148,7 +1158,7 @@ function DesktopExportsCard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map((e) => {
+                  {shown.map((e) => {
                     const fileName = e.path.split("/").pop() || e.path;
                     return (
                       <TableRow key={e.path + e.indexed_at}>
@@ -1161,7 +1171,7 @@ function DesktopExportsCard() {
                           {fileName}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{e.chunks}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                        <TableCell className="text-right tabular-nums text-muted-foreground" title={new Date(e.indexed_at * 1000).toLocaleString()}>
                           {relativeTime(e.indexed_at)}
                         </TableCell>
                       </TableRow>
@@ -1169,6 +1179,8 @@ function DesktopExportsCard() {
                   })}
                 </TableBody>
               </Table>
+            </div>
+            {pages > 1 && <Pager page={current} pages={pages} size={EXPORTS_PER_PAGE} shown={shown.length} total={history.length} onPage={setPage} />}
             </div>
           )}
         </div>
@@ -1212,7 +1224,7 @@ export default function SyncPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-6 py-8 sm:px-10">
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-10 sm:py-8">
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Sync</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
@@ -1222,15 +1234,15 @@ export default function SyncPage() {
       </header>
 
       <Tabs value={section} onValueChange={(value) => open(value as Section)} className="gap-6">
-        <TabsList variant="line" className="w-full justify-start border-b border-border">
-          <TabsTrigger value="paired" className="flex-none px-3">
-            <Link2 className="size-3.5" /> Paired devices
+        <TabsList variant="line" className="w-full justify-start overflow-x-auto border-b border-border">
+          <TabsTrigger value="paired" className="flex-none px-2.5 sm:px-3">
+            <Link2 className="hidden size-3.5 sm:block" /> Paired devices
           </TabsTrigger>
-          <TabsTrigger value="live" className="flex-none px-3">
-            <Radio className="size-3.5" /> Live sync
+          <TabsTrigger value="live" className="flex-none px-2.5 sm:px-3">
+            <Radio className="hidden size-3.5 sm:block" /> Live sync
           </TabsTrigger>
-          <TabsTrigger value="snapshots" className="flex-none px-3">
-            <Archive className="size-3.5" /> Snapshots
+          <TabsTrigger value="snapshots" className="flex-none px-2.5 sm:px-3">
+            <Archive className="hidden size-3.5 sm:block" /> Snapshots
           </TabsTrigger>
         </TabsList>
 

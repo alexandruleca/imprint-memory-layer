@@ -55,13 +55,14 @@ from .cli_viz import (
     build_topic_overview,
     build_topic_detail,
     build_source_read,
-    build_graph_scope,
+    get_graph_scope,
     get_neighbors,
     get_memory,
     data_fingerprint,
     reset_cache,
     _get_overview,
     _get_project_detail,
+    _get_project_list,
     _build_global_filter,
 )
 
@@ -118,6 +119,19 @@ from .voice_api import router as voice_router
 app.include_router(voice_router)
 
 
+@app.middleware("http")
+async def invalidate_summaries_after_writes(request: Request, call_next):
+    # A dashboard write (move, purge, organize, sync import, …) can change
+    # counts without growing the WAL; the Home summary is rebuilt after it
+    # instead of waiting for its maximum age (ADR 0152).
+    response = await call_next(request)
+    if (request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path.startswith("/api/")
+            and response.status_code < 400):
+        from . import dashboard_summary
+        dashboard_summary.invalidate()
+    return response
+
+
 @app.on_event("startup")
 async def _start_queue_dispatcher():
     job_queue.recover_on_startup()
@@ -171,6 +185,14 @@ def api_overview(
     return _get_overview(filters)
 
 
+@app.get("/api/projects")
+def api_projects():
+    """Every project of the active workspace with its memory count and colour,
+    largest first, and the workspace's total. Cheaper than /api/overview,
+    which also counts each project's types, domains and languages."""
+    return _get_project_list()
+
+
 @app.get("/api/project/{name:path}")
 def api_project(name: str):
     return _get_project_detail(unquote(name))
@@ -218,6 +240,15 @@ def api_neighbors(id: str = "", k: int = 10):
 @app.get("/api/stats")
 def api_stats():
     return build_stats()
+
+
+@app.get("/api/dashboard")
+def api_dashboard(fresh: bool = False):
+    """The Home page's summary of the active workspace, from its snapshot
+    (ADR 0152): answered at once, marked ``stale`` while a newer one is
+    built. ``fresh`` waits for an up-to-date one."""
+    from . import dashboard_summary
+    return dashboard_summary.get(wait=None if fresh else dashboard_summary.WAIT)
 
 
 @app.get("/api/version")
@@ -389,19 +420,26 @@ def api_topics(
     lang: list[str] | None = Query(None),
     domain: list[str] | None = Query(None),
     layer: list[str] | None = Query(None),
+    q: str = Query("", max_length=200),
+    sort: str = Query("count", pattern="^(count|name)$"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
 ):
+    """One page of topics, searched by name and sorted (ADR 0150)."""
     filters = _parse_filters(type, lang, domain, layer)
-    return build_topic_overview(filters)
+    return build_topic_overview(filters, q=q, sort=sort, offset=offset, limit=limit)
 
 
 @app.get("/api/topic/{name:path}")
-def api_topic(name: str, project: str | None = None):
-    return build_topic_detail(unquote(name), project)
+def api_topic(name: str, project: str | None = None, offset: int = Query(0, ge=0),
+              limit: int | None = Query(None, ge=1, le=200), q: str = Query("", max_length=200)):
+    """A topic's memories by source; ``limit`` pages the sources (ADR 0150)."""
+    return build_topic_detail(unquote(name), project, offset=offset, limit=limit, q=q)
 
 
 @app.get("/api/graph")
 def api_graph(scope: str = "root", depth: int = 1):
-    return build_graph_scope(unquote(scope), max(1, min(int(depth or 1), 3)))
+    return get_graph_scope(unquote(scope), max(1, min(int(depth or 1), 3)))
 
 
 # ── Workspaces ─────────────────────────────────────────────────
@@ -525,6 +563,21 @@ async def api_projects_move(request: Request):
             raise ValueError('sources must be a list of source keys, or left out to move the whole project')
         return await asyncio.to_thread(run_move, body.get('project'), body.get('target'), sources,
                                        workspace=body.get('workspace'), apply=body.get('apply', False))
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.post('/api/migrate/preview')
+async def api_migrate_preview(request: Request):
+    """How many memories copying or moving projects, topics or sources to
+    another workspace would take, and how many the target already holds.
+    Changes nothing; the migrate command applies (ADR 0150)."""
+    from .cli_migrate import preview
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A preview object is required')
+        return await asyncio.to_thread(preview, body.get('from'), body.get('to'), body.get('mode'), body.get('values'))
     except ValueError as error:
         return JSONResponse({'error': str(error)}, status_code=400)
 
@@ -1124,13 +1177,34 @@ def api_queue(recent_limit: int = 20):
     }
 
 
+@app.get("/api/queue/history")
+def api_queue_history(limit: int = 25, before: str | None = None, bounds: str = "", status: str | None = None):
+    """Jobs that ended, newest first, a page at a time: ``next`` is the
+    ``before`` of the following page. ``bounds``, comma-separated period
+    starts in epoch seconds, newest first, adds ``counts`` per period and
+    for everything older (the Queue page's Today, Yesterday and so on).
+    ``status`` (done, failed or cancelled) keeps the jobs that ended so."""
+    try:
+        starts = [float(value) for value in bounds.split(",") if value.strip()]
+        history = job_queue.list_history(limit=limit, before=before, bounds=starts, status=status)
+    except ValueError as error:
+        return JSONResponse({"error": f"Invalid history request: {error}"}, status_code=400)
+    return {**history, "jobs": [_described(job) for job in history["jobs"]]}
+
+
 @app.get("/api/agents")
-def api_agents(limit: int = 100):
-    """The agents that used this Imprint's MCP server: each session, connected
-    ones first, and the same grouped by client (ADR 0117)."""
+def api_agents(limit: int = 50, before: str | None = None, client: str | None = None, q: str | None = None):
+    """The agents that used this Imprint's MCP server (ADR 0117): the
+    connected sessions (``running``, first page only), one page of the
+    others by last activity (``sessions``, ``next`` cursor for ``before``,
+    ``total``; ADR 0151), optionally of one ``client`` or matching ``q``,
+    and every session totalled by client (``clients``)."""
     from . import agent_activity
-    sessions = agent_activity.list_sessions(limit)
-    return {"sessions": sessions, "clients": agent_activity.clients(sessions)}
+    try:
+        page = agent_activity.page_sessions(limit, before, client=client, query=q)
+    except ValueError:
+        return JSONResponse({"error": "Invalid cursor"}, status_code=400)
+    return {**page, "clients": agent_activity.client_totals()}
 
 
 @app.get("/api/agents/{session_id}/calls")
@@ -1191,6 +1265,27 @@ async def api_job_stream(job_id: str):
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/api/jobs/{job_id}/retry")
+def api_job_retry(job_id: str):
+    """Queue a finished job again with the same command, arguments and
+    workspace. Replies like ``POST /api/commands/{command}`` plus
+    ``retry_of``; an identical waiting job absorbs it (ADR 0068). 404 for an
+    unknown job, 409 for one still waiting or running, or whose folder is no
+    longer an approved root (``code: root_not_approved``)."""
+    try:
+        submitted = job_queue.resubmit(job_id)
+    except LookupError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    except job_queue.NotRetryable as error:
+        return JSONResponse({"error": str(error)}, status_code=409)
+    except job_queue.RootNotApproved as error:
+        return JSONResponse({'error': str(error), 'code': 'root_not_approved', 'workspace': error.workspace,
+                             'root': error.root, 'overlaps': error.overlaps}, status_code=409)
+    except ValueError as error:
+        return JSONResponse({"error": str(error)}, status_code=400)
+    return _queued(submitted)
 
 
 @app.post("/api/jobs/{job_id}/cancel")
@@ -1336,6 +1431,8 @@ def _optional_tool_changed(key: str, value) -> None:
 
 def _after_job(command: str, status: str) -> None:
     """Refresh this server after a queued job changed what it serves."""
+    from . import dashboard_summary
+    dashboard_summary.invalidate()  # Even a failed job may have stored some.
     if status != "done":
         return
     if command in ("wipe", "migrate", "workspace", "retag", "scrub"):
@@ -1350,6 +1447,8 @@ def _reset_after_wipe():
     kg._close_all()
     # The wiped store restarts its WAL and point count, so forget cached views
     reset_cache()
+    from . import dashboard_summary
+    dashboard_summary.reset()
 
 
 @app.get("/api/commands")
@@ -1409,6 +1508,12 @@ async def api_run_command(command: str, request: Request):
                              'root': error.root, 'overlaps': error.overlaps}, status_code=409)
     except ValueError as error:
         return JSONResponse({'error': str(error)}, status_code=400)
+    return _queued(submitted)
+
+
+def _queued(submitted: dict) -> dict:
+    """A submission's reply: its job, its place in the queue (0 when it
+    runs next or now) and whether it joined an identical waiting job."""
     job_id = submitted["job_id"]
     snapshot = job_queue.list_queue(recent_limit=0)
     position = 0
@@ -1417,7 +1522,7 @@ async def api_run_command(command: str, request: Request):
             (i for i, j in enumerate(snapshot["queued"]) if j["id"] == job_id),
             len(snapshot["queued"]),
         )
-    return {"job_id": job_id, "position": position, "merged": submitted["merged"]}
+    return {**submitted, "position": position}
 
 
 # ── Sync ───────────────────────────────────────────────────────

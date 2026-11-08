@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { Maximize, Shuffle, SlidersHorizontal, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { Maximize, Share2, Shuffle, SlidersHorizontal, Sparkles, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { Hint } from "@/components/hint";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -10,9 +10,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import type { GraphForces } from "./graph-canvas";
+import type { GraphForces } from "./graph-model";
+
+export type GraphMode = "graph" | "stars";
 
 export interface GraphSettings {
+  /** The flat graph, or the animated star system. */
+  mode: GraphMode;
   showLabels: boolean;
   showEdges: boolean;
   depth: number;
@@ -25,10 +29,17 @@ const BREADTH = [
   { depth: 3, label: "Most" },
 ];
 
-function ToolButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
+function ToolButton({ icon: Icon, label, onClick, pressed }: { icon: LucideIcon; label: string; onClick: () => void; pressed?: boolean }) {
   return (
     <Hint label={label} side="left">
-      <Button variant="ghost" size="icon" onClick={onClick} aria-label={label} className="text-muted-foreground">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onClick}
+        aria-label={label}
+        aria-pressed={pressed}
+        className={pressed ? "bg-accent text-foreground" : "text-muted-foreground"}
+      >
         <Icon aria-hidden />
       </Button>
     </Hint>
@@ -58,6 +69,9 @@ export function GraphToolbar({
 
   return (
     <div className="flex flex-col gap-0.5 rounded-xl border border-border bg-card/90 p-1 shadow-lg backdrop-blur" role="toolbar" aria-label="Graph view" aria-orientation="vertical">
+      <ToolButton icon={Share2} label="Graph view" pressed={settings.mode === "graph"} onClick={() => set({ mode: "graph" })} />
+      <ToolButton icon={Sparkles} label="Star view" pressed={settings.mode === "stars"} onClick={() => set({ mode: "stars" })} />
+      <Separator className="mx-1.5 my-0.5 data-horizontal:w-auto" />
       <ToolButton icon={ZoomIn} label="Zoom in" onClick={() => onZoom(1.3)} />
       <ToolButton icon={ZoomOut} label="Zoom out" onClick={() => onZoom(1 / 1.3)} />
       <ToolButton icon={Maximize} label="Fit to view" onClick={onFit} />

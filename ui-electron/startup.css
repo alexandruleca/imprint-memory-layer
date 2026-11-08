@@ -1,5 +1,5 @@
 * { box-sizing: border-box; }
-body { margin: 0; background: #09090b; color: #e4e4e7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-app-region: drag; }
+body { margin: 0; background: #0a0a0a; color: #e4e4e7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-app-region: drag; }
 main { height: 100vh; padding: 28px 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; }
 h1, p { margin: 0; }
 h1 { font-size: 25px; font-weight: 650; letter-spacing: -0.8px; }
@@ -15,3 +15,15 @@ button:focus-visible { outline: 2px solid #a78bfa; outline-offset: 3px; }
 [hidden] { display: none !important; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #spinner { animation: none; } }
+/* The app follows the dashboard's theme choice (ADR 0154), so this follows it too. */
+@media (prefers-color-scheme: light) {
+  body { background: #fafafa; color: #0a0a0a; }
+  #status { color: #404040; }
+  #hint { color: #525252; }
+  #spinner { border-color: #e5e5e5; border-top-color: #6d28d9; }
+  button { border-color: #d4d4d4; background: #fff; color: #0a0a0a; }
+  button:hover { background: #f0f0f0; }
+  button:focus-visible { outline-color: #6d28d9; }
+  #close { background: transparent; }
+  #retry { background: #6d28d9; border-color: #6d28d9; color: #fff; }
+}

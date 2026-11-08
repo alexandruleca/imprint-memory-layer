@@ -58,6 +58,12 @@ export interface Facets {
   layers?: [string, number][];
 }
 
+/** GET /api/projects: what project rails, filters and pickers need. */
+export interface ProjectList {
+  projects: Pick<Project, "name" | "count" | "color">[];
+  total: number;
+}
+
 export interface OverviewData {
   projects: Project[];
   total: number;
@@ -65,11 +71,23 @@ export interface OverviewData {
   facets: Facets;
 }
 
+/** One page of topics (GET /api/topics, ADR 0150). */
 export interface TopicOverviewData {
   topics: Topic[];
+  /** Memories tagged with the matched topics, counted once per topic. */
   total: number;
+  /** Topics the search kept; the pages cover these. */
+  matched: number;
+  /** Every topic in the workspace. */
+  topic_count: number;
+  offset: number;
+  limit: number;
+  sort: TopicSort;
+  q: string;
   facets: Facets;
 }
+
+export type TopicSort = "count" | "name";
 
 /** A topic's memories from one source, in source order. */
 export interface TopicSource {
@@ -88,8 +106,13 @@ export interface TopicDetailData {
   project: string | null;
   total: number;
   projects: [string, number][];
-  /** Largest group first. */
+  /** Largest group first; with a limit, only that page. */
   sources: TopicSource[];
+  /** Groups the search kept (every group without one). */
+  source_count: number;
+  /** Present when the sources are paged. */
+  offset?: number;
+  limit?: number;
 }
 
 /** One readable piece of a source: a conversation event, or a run of a file
@@ -306,6 +329,19 @@ export interface QueueJob {
   elapsed?: number;
   percent?: number;
   eta_seconds?: number | null;
+  /** In history: an identical job waiting or running now, which a retry
+   * would join or follow (ADR 0068). */
+  twin?: { id: string; status: "queued" | "running" } | null;
+}
+
+/** GET /api/queue/history: a page of finished jobs, newest first. */
+export interface QueueHistory {
+  jobs: QueueJob[];
+  /** The `before` cursor of the next (older) page; null on the last. */
+  next: string | null;
+  total: number;
+  /** Jobs per requested period, then everything older; null without bounds. */
+  counts: number[] | null;
 }
 
 /** Background LLM tagging (ADR 0067): `off` while tagger.llm is off; `running`;
@@ -354,6 +390,8 @@ export interface GraphNode {
   project?: string;
   content?: string;
   chunk_index?: number;
+  /** A search hit's place in the results, from 1 (graph search scopes only). */
+  rank?: number;
 }
 
 export interface GraphEdge {
@@ -369,6 +407,8 @@ export interface GraphScopeData {
   center: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** Kinds this scope shows only the largest of: more exist than are listed. */
+  more?: GraphNodeKind[];
 }
 
 // ── Sync types ─────────────────────────────────────────────────

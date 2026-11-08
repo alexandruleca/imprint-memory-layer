@@ -14,7 +14,7 @@ function Swatch({ kind }: { kind: GraphNodeKind }) {
     return <span className="size-3 rounded-full bg-[conic-gradient(#ff6b6b,#fbbf24,#34d399,#38bdf8,#a78bfa,#f472b6,#ff6b6b)]" aria-hidden />;
   }
   if (kind === "topic") {
-    return <span className="size-3 rounded-full border-[1.5px]" style={{ borderColor: color, background: `${color}1a` }} aria-hidden />;
+    return <span className="size-3 rounded-full border-[1.5px]" style={{ borderColor: color, background: `color-mix(in oklab, ${color} 10%, transparent)` }} aria-hidden />;
   }
   return <span className="size-2.5 rounded-full" style={{ background: color }} aria-hidden />;
 }
@@ -23,7 +23,7 @@ function EdgeSample({ kind }: { kind: GraphEdgeKind }) {
   const style = EDGE_KINDS[kind];
   return (
     <svg width="18" height="8" viewBox="0 0 18 8" aria-hidden className="shrink-0">
-      <line x1="1" y1="4" x2={style.arrow ? 13 : 17} y2="4" stroke={style.color ?? "#737373"} strokeWidth="1.5" strokeDasharray={style.dash?.join(" ")} />
+      <line x1="1" y1="4" x2={style.arrow ? 13 : 17} y2="4" stroke={style.color ?? "var(--muted-foreground)"} strokeWidth="1.5" strokeDasharray={style.dash?.join(" ")} />
       {style.arrow && <path d="M12 1 L17 4 L12 7 Z" fill={style.color} />}
     </svg>
   );
@@ -35,6 +35,8 @@ export function GraphLegend({
   onToggle,
   edgeKinds,
   shown,
+  more = [],
+  onMore,
 }: {
   /** Nodes of each kind in this scope, before hiding. */
   counts: Record<GraphNodeKind, number>;
@@ -42,7 +44,12 @@ export function GraphLegend({
   onToggle: (kind: GraphNodeKind) => void;
   edgeKinds: GraphEdgeKind[];
   shown: { nodes: number; edges: number };
+  /** Kinds the scope lists only the largest of. */
+  more?: GraphNodeKind[];
+  /** Raise "Items per group", when that would list more. */
+  onMore?: () => void;
 }) {
+  const limited = KIND_ORDER.filter((k) => more.includes(k) && counts[k] > 0);
   const kinds = KIND_ORDER.filter((k) => counts[k] > 0);
   return (
     <div className="w-48 rounded-xl border border-border bg-card/90 p-2 text-xs shadow-lg backdrop-blur">
@@ -82,6 +89,14 @@ export function GraphLegend({
       <p className="mt-2 border-t border-border px-1.5 pt-1.5 text-[11px] text-muted-foreground">
         {shown.nodes} nodes · {shown.edges} connections
       </p>
+      {limited.length > 0 && (
+        <p className="mt-1 px-1.5 text-[11px] text-muted-foreground">
+          Largest {limited.map((k) => KINDS[k].plural.toLowerCase()).join(" and ")} only.
+          {onMore && (
+            <Button variant="link" size="xs" onClick={onMore} className="ml-1 h-auto px-0 text-[11px]">Show more</Button>
+          )}
+        </p>
+      )}
     </div>
   );
 }

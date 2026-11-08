@@ -30,11 +30,13 @@ import { Spinner } from "@/components/loaders";
 import { PageHeader, PaneHeading, PaneItem, SplitPage } from "@/components/split-page";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
 import {
-  getCommandCatalog, getStats, streamCommand,
-  type CatalogCommand, type ClientTarget, type CommandCatalog, type CommandField,
+  getCommandCatalog, streamCommand,
+  type CatalogCommand, type ClientTarget, type CommandField,
 } from "@/lib/api";
 import { useFollowOutput } from "@/lib/use-follow-output";
 import { cn } from "@/lib/utils";
+import { useProjectNames } from "@/lib/use-projects";
+import { useCached } from "@/lib/use-cached";
 
 // The commands, their fields and the clients come from GET /api/commands
 // (imprint/commands.py and `imprint clients`); only their icons live here.
@@ -67,31 +69,27 @@ function describe(field: CommandField, value: string | boolean | undefined, clie
 }
 
 export default function CommandsPage() {
-  const [catalog, setCatalog] = useState<CommandCatalog | null>(null);
-  const [catalogError, setCatalogError] = useState("");
+  // The catalog is the installation's (the same in every workspace); it shows
+  // at once from the last answer and is fetched again when a job ends (ADR 0152).
+  // A failed reload keeps the catalog already shown; only a first load fails the page.
+  const cachedCatalog = useCached("commands", getCommandCatalog, { global: true });
+  const catalog = cachedCatalog.data ?? null;
+  const catalogError = cachedCatalog.error && !catalog ? cachedCatalog.error.message : "";
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [params, setParams] = useState<Params>({});
   const [output, setOutput] = useState("");
   const [run, setRun] = useState<Run>({ state: "idle" });
-  const [projects, setProjects] = useState<string[]>([]);
+  const projects = useProjectNames().names;
   const [browsing, setBrowsing] = useState<Extract<CommandField, { kind: "path" }> | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
   const controller = useRef<ReturnType<typeof streamCommand> | null>(null);
   const running = run.state === "running";
 
-  // A failed reload keeps the catalog already shown; only a first load fails the page.
-  const loadCatalog = useCallback(() => {
-    getCommandCatalog()
-      .then((c) => { setCatalog(c); setCatalogError(""); })
-      .catch((e) => setCatalogError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  const { refresh: refreshCatalog } = cachedCatalog;
+  const loadCatalog = useCallback(() => { void refreshCatalog(); }, [refreshCatalog]);
 
-  useEffect(() => {
-    loadCatalog();
-    getStats().then((s) => setProjects((s.projects ?? []).map(([name]) => name))).catch(() => {});
-    return () => controller.current?.abort();
-  }, [loadCatalog]);
+  useEffect(() => () => controller.current?.abort(), []);
 
   const log = useFollowOutput(output);
 
@@ -161,6 +159,7 @@ export default function CommandsPage() {
       header={
         <PageHeader
           title="Commands"
+          updating={cachedCatalog.refreshing}
           description="Run Imprint's CLI commands on this device, and connect or disconnect your AI clients. Jobs run one at a time through the queue."
           actions={
             <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/queue/" />}>
@@ -328,7 +327,7 @@ function RunBadge({ run }: { run: Run }) {
     return <Badge variant="secondary" className="gap-1"><Spinner className="size-3" />Running</Badge>;
   }
   if (run.state === "done" && run.code === 0) {
-    return <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">Succeeded</Badge>;
+    return <Badge variant="secondary" className="bg-success/10 text-success">Succeeded</Badge>;
   }
   if (run.state === "cancelled") return <Badge variant="outline">Cancelled</Badge>;
   return <Badge variant="destructive">{run.state === "done" ? `Failed, exit ${run.code}` : "Failed"}</Badge>;

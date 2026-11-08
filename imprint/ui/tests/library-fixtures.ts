@@ -108,7 +108,7 @@ export async function mockLibrary(page: Page, lib: Library, options: {
   await page.route('**/api/stream', route => route.fulfill({ status: 204 }));
   await page.route('**/api/queue**', route => route.fulfill({ json: { active: null, queued: [], recent: [] } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'alpha', workspaces: ['alpha', 'beta'] } }));
-  await page.route('**/api/overview', route => route.fulfill({ json: { projects: lib.projects, total: lib.total, version: 1, facets: {} } }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: { projects: lib.projects, total: lib.total, version: 1, facets: {} } }));
   await page.route('**/api/project/*', route => {
     const name = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
     return route.fulfill({ json: detail(name, lib.projects.find(p => p.name === name)?.count ?? 0) });

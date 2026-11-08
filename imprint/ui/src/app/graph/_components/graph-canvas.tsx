@@ -1,397 +1,691 @@
 "use client";
 
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import type { EdgeData, Graph, IPointerEvent, NodeData } from "@antv/g6";
-import type { GraphEdge, GraphNode, GraphNodeKind } from "@/lib/types";
-import { CANVAS, EDGE_KINDS, KINDS, nodeColor, nodeSize, shortLabel } from "./graph-style";
+import { useEffect, useImperativeHandle, useRef } from "react";
+import { EDGE_KINDS, nodeColor, readGraphTheme, shortLabel, type GraphTheme } from "./graph-style";
+import { ForceModel, prefersReducedMotion, type GraphDebug, type GraphViewProps, type SimNode } from "./graph-model";
+import { GraphTooltip, type TooltipHandle } from "./graph-tooltip";
 
-export interface GraphForces {
-  repel: number;
-  collide: number;
-  centerStrength: number;
-}
-
-export interface GraphCanvasHandle {
-  zoomBy(ratio: number): void;
-  fit(): void;
-  relayout(): void;
-  /** Center a node, zooming in to a readable size if needed. */
-  focus(id: string): void;
-}
-
-interface Props {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  showLabels: boolean;
-  showEdges: boolean;
-  forces: GraphForces;
-  selectedId: string | null;
-  /** Nodes matching the find query; null when there is no query. */
-  matches: Set<string> | null;
-  /** Fraction of the canvas height covered from below (a bottom sheet);
-   * focused nodes are centered in the part above it. */
-  insetBottom: number;
-  onSelect: (id: string | null) => void;
-  onOpen: (id: string) => void;
-  ref?: Ref<GraphCanvasHandle>;
-}
-
-interface Hover {
-  node: GraphNode;
-  /** Pointer position and canvas size, in px. */
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-const LINK_DISTANCE: Record<string, number> = { contains: 90, relates: 150, sequence: 36, similar: 90 };
-const KIND_DEPTH: Record<GraphNodeKind, number> = { chunk: 1, source: 2, topic: 3, project: 4 };
-const VIEW_ANIMATION = { duration: 350, easing: "ease-in-out" };
+export type { GraphCanvasHandle, GraphForces } from "./graph-model";
 
 const PADDING = 48;
+const ZOOM_MIN = 0.15, ZOOM_MAX = 4;
+const VIEW_MS = 350;
+const FADE_MS = 220;
+/** Labels beyond this many are dropped, lowest priority first. */
+const LABEL_CAP = 400;
+const MATCH = "#f59e0b";
+/** Past this many nodes the canvas trades detail for frame time. */
+const LARGE = 800;
 
-/** Show a graph at its natural size, zooming out only when it does not
- * fit, so a small scope is not blown up to fill the screen. */
-async function frame(graph: Graph, animate: boolean) {
-  const animation = animate ? VIEW_ANIMATION : false;
-  await graph.zoomTo(1, false);
-  const [width, height] = graph.getSize();
-  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const n of graph.getNodeData()) {
-    const { min, max } = graph.getElementRenderBounds(n.id);
-    [minX, minY, maxX, maxY] = [Math.min(minX, min[0]), Math.min(minY, min[1]), Math.max(maxX, max[0]), Math.max(maxY, max[1])];
+interface Camera { k: number; x: number; y: number }
+
+const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
+/** Paths grouped by style, drawn with one stroke or fill per group. */
+class Batches {
+  private groups = new Map<string, { path: Path2D; color: string; alpha: number; width: number; dash?: number[] }>();
+
+  path(color: string, alpha: number, width = 0, dash?: number[]): Path2D {
+    const a = Math.round(alpha * 50) / 50;
+    const key = `${color}|${a}|${width}|${dash?.join(",") ?? ""}`;
+    let group = this.groups.get(key);
+    if (!group) this.groups.set(key, group = { path: new Path2D(), color, alpha: a, width, dash });
+    return group.path;
   }
-  const fits = maxX - minX <= width - 2 * PADDING && maxY - minY <= height - 2 * PADDING;
-  await (fits ? graph.fitCenter(animation) : graph.fitView(undefined, animation));
+
+  stroke(ctx: CanvasRenderingContext2D) {
+    for (const g of this.groups.values()) {
+      if (g.alpha <= 0) continue;
+      ctx.globalAlpha = g.alpha;
+      ctx.strokeStyle = g.color;
+      ctx.lineWidth = g.width;
+      ctx.setLineDash(g.dash ?? []);
+      ctx.stroke(g.path);
+    }
+    ctx.setLineDash([]);
+    this.groups.clear();
+  }
+
+  fill(ctx: CanvasRenderingContext2D) {
+    for (const g of this.groups.values()) {
+      if (g.alpha <= 0) continue;
+      ctx.globalAlpha = g.alpha;
+      ctx.fillStyle = g.color;
+      ctx.fill(g.path);
+    }
+    this.groups.clear();
+  }
 }
 
-// d3-force hands the forces its own node and link copies; `_original` is
-// the graph element each one was made from (@antv/layout's LayoutNode).
-interface ForceNode { _original: { data?: { size?: number } } }
-interface ForceLink { _original: { data?: { kind?: string } } }
+/**
+ * The graph drawn on one 2D canvas. Nothing is retained per element: each
+ * frame strokes the edges, fills the nodes and places the labels that fit,
+ * and frames are drawn only while something changes (the layout settling,
+ * the camera moving, a hover or a state). The layout is stepped a few
+ * milliseconds per frame, so it never blocks input.
+ */
+class GraphView {
+  readonly canvas = document.createElement("canvas");
+  private ctx: CanvasRenderingContext2D;
+  model: ForceModel;
+  private theme: GraphTheme;
+  private font: string;
+  private cam: Camera = { k: 1, x: 0, y: 0 };
+  private anim: { from: Camera; to: Camera; start: number } | null = null;
+  private w = 0;
+  private h = 0;
+  private dpr = 1;
+  private raf = 0;
+  private dirty = true;
+  /** The first layout of new data runs before anything is drawn. */
+  private settling = false;
+  private settleStart = 0;
+  private revealAt = 0;
+  /** Frame the camera once the layout settles: false, "instant" or "animate". */
+  private pendingFrame: false | "instant" | "animate" = false;
+  private hasDrawn = false;
+  private widths = new Map<string, number>();
+  hover: SimNode | null = null;
+  selectedId: string | null = null;
+  matches: Set<string> | null = null;
+  emphasis: Map<string, number> | null = null;
+  showLabels = true;
+  showEdges = true;
+  insetBottom = 0;
+  insetLeft = 0;
+  labelsDrawn = 0;
+  onFrame: () => void = () => {};
 
-function layoutOptions(forces: GraphForces) {
-  return {
-    type: "d3-force" as const,
-    link: { distance: (link: ForceLink) => LINK_DISTANCE[link._original.data?.kind ?? ""] ?? 110, strength: 0.45 },
-    // Larger nodes push harder, so hubs get room around them.
-    manyBody: { strength: (node: ForceNode) => -forces.repel * (0.35 + (node._original.data?.size ?? 20) / 80) },
-    // Collision uses each node's rendered size plus this spacing.
-    nodeSpacing: forces.collide * 2,
-    collide: { strength: 0.9 },
-    // Gravity toward the middle keeps disconnected nodes from drifting off.
-    x: { strength: forces.centerStrength },
-    y: { strength: forces.centerStrength },
-    alphaDecay: 0.035,
-    animation: false,
+  /** Laid out, drawn and with the camera at rest. */
+  get settled(): boolean {
+    return !this.settling && !this.model.running && !this.anim && !this.pendingFrame;
+  }
+
+  constructor(private container: HTMLElement, model: ForceModel) {
+    this.model = model;
+    this.ctx = this.canvas.getContext("2d")!;
+    this.canvas.className = "absolute inset-0 size-full touch-none select-none";
+    this.canvas.setAttribute("aria-hidden", "true");
+    container.appendChild(this.canvas);
+    this.theme = readGraphTheme(container);
+    this.font = getComputedStyle(document.body).fontFamily;
+    this.resize();
+  }
+
+  destroy() {
+    cancelAnimationFrame(this.raf);
+    clearTimeout(this.labelTimer);
+    this.model.stop();
+    this.canvas.remove();
+  }
+
+  resize() {
+    const { clientWidth: w, clientHeight: h } = this.container;
+    if (!w || !h) return;
+    const first = !this.w;
+    // A large graph draws to a coarser backing store: fill rate, not
+    // geometry, is what a full-screen canvas at 2x pays for.
+    this.dpr = Math.min(window.devicePixelRatio || 1, this.model.nodes.length > LARGE ? 1.25 : 2);
+    this.canvas.width = Math.round(w * this.dpr);
+    this.canvas.height = Math.round(h * this.dpr);
+    // Keep the middle of the view where it was.
+    if (!first) { this.cam.x += (w - this.w) / 2; this.cam.y += (h - this.h) / 2; }
+    else this.cam = { k: 1, x: w / 2, y: h / 2 };
+    this.w = w; this.h = h;
+    this.invalidate();
+  }
+
+  retheme() {
+    this.theme = readGraphTheme(this.container);
+    this.invalidate();
+  }
+
+  get dark(): boolean {
+    return this.theme.dark;
+  }
+
+  setData(nodes: GraphViewProps["nodes"], edges: GraphViewProps["edges"]) {
+    const animate = this.hasDrawn;
+    const wasLarge = this.model.nodes.length > LARGE;
+    this.model.setData(nodes, edges);
+    this.hover = null;
+    if (wasLarge !== this.model.nodes.length > LARGE) this.resize();
+    this.beginSettle(animate ? "animate" : "instant");
+    // Report the new state now: nothing is drawn until the layout settles.
+    this.onFrame();
+  }
+
+  /** Lay out without drawing, then show the result framed. */
+  private beginSettle(frame: "instant" | "animate") {
+    this.settling = true;
+    this.settleStart = performance.now();
+    this.pendingFrame = frame;
+    this.kick();
+  }
+
+  relayout() {
+    // A fresh arrangement: scatter around the current middle and settle.
+    for (const n of this.model.nodes) {
+      n.x += (Math.random() - 0.5) * 60;
+      n.y += (Math.random() - 0.5) * 60;
+    }
+    this.model.reheat(1);
+    if (prefersReducedMotion()) this.beginSettle("animate");
+    else { this.pendingFrame = "animate"; this.kick(); }
+  }
+
+  setForces(forces: GraphViewProps["forces"]) {
+    this.model.setForces(forces);
+    if (prefersReducedMotion()) this.beginSettle("animate");
+    else this.kick();
+  }
+
+  invalidate() {
+    this.dirty = true;
+    this.kick();
+  }
+
+  private kick() {
+    if (!this.raf) this.raf = requestAnimationFrame(this.loop);
+  }
+
+  private loop = (now: number) => {
+    this.raf = 0;
+    let busy = false;
+    if (this.model.running) {
+      if (this.settling) {
+        // Up to ~12 ms of layout a frame keeps the page responsive; a graph
+        // still moving after 1.5 s (3 s when large) is shown moving.
+        const large = this.model.nodes.length > LARGE;
+        this.model.step(large ? 20 : 12);
+        if (!this.model.running || now - this.settleStart > (large ? 3000 : 1500)) this.reveal(now);
+      } else {
+        this.model.step(6);
+        this.dirty = true;
+      }
+      busy = true;
+    } else if (this.settling) {
+      this.reveal(now);
+    }
+    if (!this.model.running && this.pendingFrame && !this.settling) {
+      this.frame(this.pendingFrame === "animate");
+      this.pendingFrame = false;
+    }
+    if (this.anim) {
+      const t = Math.min(1, (now - this.anim.start) / VIEW_MS), e = ease(t);
+      const { from, to } = this.anim;
+      this.cam = { k: from.k + (to.k - from.k) * e, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e };
+      if (t >= 1) this.anim = null;
+      this.dirty = true;
+      busy = true;
+    }
+    if (this.revealAt) {
+      // The frame after the fade ends draws at full opacity.
+      this.dirty = true;
+      if (now - this.revealAt >= FADE_MS) this.revealAt = 0;
+      else busy = true;
+    }
+    if (this.dirty) {
+      this.dirty = false;
+      this.draw(now);
+    }
+    if (busy) this.kick();
   };
+
+  private reveal(now: number) {
+    this.settling = false;
+    // The first graph appears in place; later ones are framed, then shown.
+    if (this.pendingFrame) {
+      this.frame(this.pendingFrame === "animate" && this.hasDrawn);
+      // Shown before the layout settled: frame it again once it has,
+      // unless the camera is moved by hand first.
+      this.pendingFrame = this.model.running ? "animate" : false;
+    }
+    this.revealAt = prefersReducedMotion() ? 0 : now;
+    this.dirty = true;
+  }
+
+  // ── Camera ─────────────────────────────────────────────────────────
+
+  private moveTo(to: Camera, animate: boolean) {
+    to.k = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, to.k));
+    if (animate && !prefersReducedMotion()) this.anim = { from: { ...this.cam }, to, start: performance.now() };
+    else { this.anim = null; this.cam = to; }
+    this.invalidate();
+  }
+
+  /** Show the graph at its natural size, zooming out only when it does not
+   * fit, so a small scope is not blown up to fill the screen. */
+  frame(animate: boolean) {
+    const b = this.model.bounds();
+    if (!b || !this.w) return;
+    const bw = b.maxX - b.minX, bh = b.maxY - b.minY;
+    const [left, width] = this.free();
+    const k = Math.min(1, (width - 2 * PADDING) / Math.max(bw, 1), (this.h - 2 * PADDING) / Math.max(bh, 1));
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    const kk = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k));
+    this.moveTo({ k: kk, x: left + width / 2 - cx * kk, y: this.h / 2 - cy * kk }, animate);
+  }
+
+  /** The part of the canvas no panel covers: [left, width] in px. */
+  private free(): [number, number] {
+    const left = Math.min(this.insetLeft, this.w * 0.6);
+    return [left, this.w - left];
+  }
+
+  fit() {
+    const b = this.model.bounds();
+    if (!b || !this.w) return;
+    const [left, width] = this.free();
+    const k = Math.min((width - 2 * PADDING) / Math.max(b.maxX - b.minX, 1), (this.h - 2 * PADDING) / Math.max(b.maxY - b.minY, 1));
+    const kk = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k));
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    this.moveTo({ k: kk, x: left + width / 2 - cx * kk, y: this.h / 2 - cy * kk }, true);
+  }
+
+  zoomAt(px: number, py: number, factor: number, animate = false) {
+    this.movedAt = performance.now();
+    if (!this.settling) this.pendingFrame = false;
+    const base = this.anim?.to ?? this.cam;
+    const k = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, base.k * factor));
+    const f = k / base.k;
+    this.moveTo({ k, x: px - (px - base.x) * f, y: py - (py - base.y) * f }, animate);
+  }
+
+  zoomBy(ratio: number) {
+    this.zoomAt(this.w / 2, this.h / 2, ratio, true);
+  }
+
+  /** When the camera last moved by hand. */
+  private movedAt = 0;
+  private labelTimer = 0;
+
+  panBy(dx: number, dy: number) {
+    this.movedAt = performance.now();
+    this.pendingFrame = false;
+    this.anim = null;
+    this.cam = { ...this.cam, x: this.cam.x + dx, y: this.cam.y + dy };
+    this.invalidate();
+  }
+
+  focus(id: string) {
+    const n = this.model.byId.get(id);
+    if (!n) return;
+    if (!this.settling) this.pendingFrame = false;
+    const k = Math.max(this.cam.k, 1);
+    const inset = this.insetBottom * this.h;
+    const [left, width] = this.free();
+    this.moveTo({ k, x: left + width / 2 - n.x * k, y: (this.h - inset) / 2 - n.y * k }, true);
+  }
+
+  toWorld(px: number, py: number): [number, number] {
+    return [(px - this.cam.x) / this.cam.k, (py - this.cam.y) / this.cam.k];
+  }
+
+  screenOf(id: string): [number, number] | null {
+    const n = this.model.byId.get(id);
+    return n ? [n.x * this.cam.k + this.cam.x, n.y * this.cam.k + this.cam.y] : null;
+  }
+
+  /** The topmost node under a point (px), with a few px of slack. */
+  nodeAt(px: number, py: number): SimNode | null {
+    if (this.settling) return null;
+    const [wx, wy] = this.toWorld(px, py);
+    const slack = 4 / this.cam.k;
+    const nodes = this.model.nodes;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      const r = n.r + slack, dx = n.x - wx, dy = n.y - wy;
+      if (dx * dx + dy * dy <= r * r) return n;
+    }
+    return null;
+  }
+
+  // ── Drawing ────────────────────────────────────────────────────────
+
+  private textWidth(text: string, weight: number, size: number): number {
+    const key = `${weight}|${text}`;
+    let w = this.widths.get(key);
+    if (w === undefined) {
+      this.ctx.font = `${weight} 100px ${this.font}`;
+      w = this.ctx.measureText(text).width;
+      if (this.widths.size > 20000) this.widths.clear();
+      this.widths.set(key, w);
+    }
+    return (w * size) / 100;
+  }
+
+  private draw(now: number) {
+    const { ctx, dpr, w, h, cam, theme, model } = this;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // While the first layout of new data runs, the previous picture stays.
+    if (this.settling) return;
+    ctx.clearRect(0, 0, w, h);
+    if (model.nodes.length) this.hasDrawn = true;
+    const fade = this.revealAt ? Math.min(1, (now - this.revealAt) / FADE_MS) : 1;
+    const hoverSet = this.hover ? model.adjacency.get(this.hover.id) : null;
+    const hoverId = this.hover?.id;
+    const { matches, selectedId } = this;
+    const { emphasis } = this;
+    const alphaOf = (id: string) => {
+      let a = matches ? (matches.has(id) ? 1 : 0.12) : emphasis && !emphasis.has(id) ? 0.5 : 1;
+      if (hoverId && id !== hoverId && !hoverSet?.has(id)) a = Math.min(a, 0.4);
+      return a * fade;
+    };
+    // The visible world, with a margin for halos and labels.
+    const m = 40 / cam.k;
+    const [x0, y0] = this.toWorld(0, 0), [x1, y1] = this.toWorld(w, h);
+    const outside = (x: number, y: number, r: number) => x + r < x0 - m || x - r > x1 + m || y + r < y0 - m || y - r > y1 + m;
+
+    ctx.setTransform(dpr * cam.k, 0, 0, dpr * cam.k, dpr * cam.x, dpr * cam.y);
+    ctx.lineCap = "round";
+
+    // Strokes and fills are batched by style: a frame is a few paths, not
+    // one canvas state change per element.
+    const strokes = new Batches(), fills = new Batches();
+    if (this.showEdges) {
+      for (const l of model.links) {
+        const s = l.source, t = l.target;
+        if ((s.x < x0 - m && t.x < x0 - m) || (s.x > x1 + m && t.x > x1 + m) || (s.y < y0 - m && t.y < y0 - m) || (s.y > y1 + m && t.y > y1 + m)) continue;
+        const kind = EDGE_KINDS[l.edge.kind];
+        const fromProject = s.node.kind === "project";
+        let a = kind.color ? 0.7 : fromProject ? 0.45 : 0.3;
+        if (matches && !(matches.has(s.id) && matches.has(t.id))) a = 0.03;
+        else if (hoverId) a = s.id === hoverId || t.id === hoverId ? 0.85 : 0.12;
+        if (selectedId && (s.id === selectedId || t.id === selectedId)) a = Math.max(a, 0.8);
+        const color = kind.color ?? (fromProject ? s.node.color : theme.edge);
+        const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1;
+        // Lines meet the node outlines, so arrows and rings stay clean.
+        const ux = dx / len, uy = dy / len;
+        const ex = t.x - ux * (t.r + (kind.arrow ? 1 : 0)), ey = t.y - uy * (t.r + (kind.arrow ? 1 : 0));
+        const path = strokes.path(color, a * fade, Math.round((0.6 + l.strength * 1.6) * 4) / 4, kind.dash);
+        path.moveTo(s.x + ux * s.r, s.y + uy * s.r);
+        path.lineTo(kind.arrow ? ex - ux * 5 : ex, kind.arrow ? ey - uy * 5 : ey);
+        if (kind.arrow && len > s.r + t.r + 6) {
+          const head = fills.path(color, a * fade);
+          head.moveTo(ex, ey);
+          head.lineTo(ex - ux * 6 - uy * 3.2, ey - uy * 6 + ux * 3.2);
+          head.lineTo(ex - ux * 6 + uy * 3.2, ey - uy * 6 - ux * 3.2);
+          head.closePath();
+        }
+      }
+      strokes.stroke(ctx);
+      fills.fill(ctx);
+    }
+
+    // Nodes layer by kind (chunks underneath); within a layer, halos, then
+    // fills, then outlines.
+    const halos = new Batches(), outlines = new Batches();
+    const circle = (path: Path2D, n: SimNode) => { path.moveTo(n.x + n.r, n.y); path.arc(n.x, n.y, n.r, 0, Math.PI * 2); };
+    // Below a few px a node is a dot: a square costs a fraction of an arc
+    // to fill, and outlines and halos would not show.
+    const dotBelow = 2.5 / cam.k, detailBelow = 3.5 / cam.k;
+    const flush = () => { halos.stroke(ctx); fills.fill(ctx); outlines.stroke(ctx); };
+    let layer = -1;
+    for (const n of model.nodes) {
+      if (outside(n.x, n.y, n.r)) continue;
+      if (n.depth !== layer) { flush(); layer = n.depth; }
+      const node = n.node;
+      // Search hits are drawn in ink, their rank cut out of them.
+      const color = node.rank !== undefined ? theme.focusRing : theme.kind[node.kind] || nodeColor(node);
+      const a = alphaOf(n.id);
+      const strong = node.kind === "project" || !!node.focus;
+      const topic = node.kind === "topic";
+      const fill = topic ? 0.1 : node.kind === "project" ? 0.95 : 0.85;
+      if (n.r < dotBelow && !matches?.has(n.id) && n.id !== selectedId && n.id !== hoverId) {
+        fills.path(color, a * Math.max(fill, 0.6)).rect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
+        continue;
+      }
+      if (matches?.has(n.id)) circle(halos.path(MATCH, 0.5 * fade, 12), n);
+      if (n.id === selectedId) circle(halos.path(theme.focusRing, 0.22 * a, 14), n);
+      else if (n.id === hoverId) circle(halos.path(color, 0.2 * a, 8), n);
+      else if (strong) circle(halos.path(color, 0.16 * a, node.focus ? 16 : 10), n);
+      circle(fills.path(color, a * fill), n);
+      if (n.id === selectedId || node.focus) circle(outlines.path(theme.focusRing, a, 2.5), n);
+      else if (topic && n.r >= detailBelow) circle(outlines.path(color, a, 1.5), n);
+    }
+    flush();
+
+    // A search's hits carry their rank.
+    if (emphasis && cam.k >= 0.6) {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = theme.labelHalo;
+      for (const n of model.nodes) {
+        const rank = n.node.rank;
+        if (rank === undefined || n.r * cam.k < 6 || outside(n.x, n.y, n.r)) continue;
+        ctx.globalAlpha = alphaOf(n.id);
+        ctx.font = `600 ${Math.min(n.r * 1.05, 11)}px ${this.font}`;
+        ctx.fillText(String(rank), n.x, n.y + 0.5);
+      }
+    }
+
+    // A large graph drops its labels while the camera moves and places
+    // them again when it stops.
+    const moving = model.nodes.length > LARGE && (!!this.anim || now - this.movedAt < 160);
+    if (moving && !this.labelTimer) this.labelTimer = window.setTimeout(() => { this.labelTimer = 0; this.invalidate(); }, 180);
+    this.labelsDrawn = this.showLabels && !moving ? this.drawLabels(alphaOf) : 0;
+    ctx.globalAlpha = 1;
+    this.onFrame();
+  }
+
+  /** Labels in screen space at a readable size, placed by priority and
+   * skipped where they would overlap one already placed. */
+  private drawLabels(alphaOf: (id: string) => number): number {
+    const { ctx, dpr, cam, theme, w, h, model } = this;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const scale = Math.min(1.2, Math.max(0.85, cam.k));
+    const forced = (n: SimNode) => n.id === this.hover?.id || n.id === this.selectedId || !!n.node.focus || !!this.matches?.has(n.id);
+    const candidates: SimNode[] = [];
+    for (const n of model.nodes) {
+      const sx = n.x * cam.k + cam.x, sy = n.y * cam.k + cam.y;
+      if (sx < -150 || sx > w + 150 || sy < -40 || sy > h + 40) continue;
+      // Tiny far-away nodes go unlabelled until zoomed in.
+      if (!forced(n) && n.r * cam.k < 3 && n.node.kind === "chunk") continue;
+      candidates.push(n);
+    }
+    candidates.sort((a, b) => Number(forced(b)) - Number(forced(a)) || b.priority - a.priority);
+    const cell = 80;
+    const grid = new Map<number, Array<[number, number, number, number]>>();
+    const placed: Array<{ n: SimNode; x: number; y: number; size: number; weight: number; text: string }> = [];
+    for (const n of candidates) {
+      if (placed.length >= LABEL_CAP) break;
+      const strong = n.node.kind === "project" || !!n.node.focus;
+      const weight = strong || n.id === this.selectedId ? 600 : 400;
+      const size = (strong ? 12 : 10.5) * scale;
+      const text = shortLabel(n.node.label);
+      const tw = this.textWidth(text, weight, size);
+      const x = n.x * cam.k + cam.x, y = n.y * cam.k + cam.y + n.r * cam.k + 3;
+      const rect: [number, number, number, number] = [x - tw / 2 - 2, y, x + tw / 2 + 2, y + size + 3];
+      const cx0 = Math.floor(rect[0] / cell), cx1 = Math.floor(rect[2] / cell), cy0 = Math.floor(rect[1] / cell), cy1 = Math.floor(rect[3] / cell);
+      let clear = true;
+      for (let gx = cx0; gx <= cx1 && clear; gx++) {
+        for (let gy = cy0; gy <= cy1 && clear; gy++) {
+          for (const r of grid.get(gx * 100003 + gy) ?? []) {
+            if (r[0] < rect[2] && r[2] > rect[0] && r[1] < rect[3] && r[3] > rect[1]) { clear = false; break; }
+          }
+        }
+      }
+      if (!clear && !forced(n)) continue;
+      for (let gx = cx0; gx <= cx1; gx++) for (let gy = cy0; gy <= cy1; gy++) {
+        const key = gx * 100003 + gy;
+        const list = grid.get(key);
+        if (list) list.push(rect); else grid.set(key, [rect]);
+      }
+      placed.push({ n, x, y, size, weight, text });
+    }
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = theme.labelHalo;
+    ctx.fillStyle = theme.label;
+    // Halos cost a second text pass; past a few hundred labels they go.
+    const halo = placed.length < 250;
+    for (const p of placed) {
+      ctx.globalAlpha = alphaOf(p.n.id);
+      ctx.font = `${p.weight} ${p.size}px ${this.font}`;
+      if (halo) ctx.strokeText(p.text, p.x, p.y);
+      ctx.fillText(p.text, p.x, p.y);
+    }
+    return placed.length;
+  }
 }
 
 export function GraphCanvas({
-  nodes, edges, showLabels, showEdges, forces, selectedId, matches, insetBottom, onSelect, onOpen, ref,
-}: Props) {
+  nodes, edges, showLabels, showEdges, forces, selectedId, matches, emphasis, insetBottom, insetLeft, onSelect, onOpen, ref,
+}: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<Graph | null>(null);
-  const [ready, setReady] = useState(false);
-  const [hover, setHover] = useState<Hover | null>(null);
-  const rendered = useRef(false);
-
-  // Latest props for the G6 callbacks and effects that must not re-run
-  // the layout when they change.
-  const latest = useRef({ nodes, edges, showLabels, showEdges, forces, selectedId, matches, insetBottom, onSelect, onOpen });
-  useEffect(() => {
-    latest.current = { nodes, edges, showLabels, showEdges, forces, selectedId, matches, insetBottom, onSelect, onOpen };
-  });
+  const viewRef = useRef<GraphView | null>(null);
+  const tooltip = useRef<TooltipHandle>(null);
+  const latest = useRef({ onSelect, onOpen, forces });
+  useEffect(() => { latest.current = { onSelect, onOpen, forces }; });
 
   useImperativeHandle(ref, () => ({
-    zoomBy: (ratio) => { void graphRef.current?.zoomBy(ratio, VIEW_ANIMATION); },
-    fit: () => { void graphRef.current?.fitView(undefined, VIEW_ANIMATION); },
-    relayout: () => {
-      const graph = graphRef.current;
-      if (graph) void graph.layout().then(() => frame(graph, true));
-    },
-    focus: (id) => {
-      const graph = graphRef.current;
-      if (!graph) return;
-      void (async () => {
-        if (graph.getZoom() < 1) await graph.zoomTo(1, VIEW_ANIMATION);
-        await graph.focusElement(id, VIEW_ANIMATION);
-        const inset = latest.current.insetBottom * graph.getSize()[1];
-        if (inset) await graph.translateBy([0, -inset / 2], VIEW_ANIMATION);
-      })();
-    },
+    zoomBy: (ratio) => viewRef.current?.zoomBy(ratio),
+    fit: () => viewRef.current?.fit(),
+    relayout: () => viewRef.current?.relayout(),
+    focus: (id) => viewRef.current?.focus(id),
   }), []);
 
-  // One G6 instance for the component's lifetime.
+  // One view for the component's lifetime, with its own input handling.
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    let disposed = false;
-    let graph: Graph | null = null;
-    const font = getComputedStyle(document.body).fontFamily;
+    const container = containerRef.current!;
+    const view = new GraphView(container, new ForceModel(latest.current.forces));
+    viewRef.current = view;
+    const canvas = view.canvas;
+    const debug: GraphDebug = { screenOf: (id) => view.screenOf(id), labels: 0, renderer: "canvas-2d" };
+    (container as HTMLElement & { graphDebug?: GraphDebug }).graphDebug = debug;
+    view.onFrame = () => {
+      debug.labels = view.labelsDrawn;
+      debug.dark = view.dark;
+      container.dataset.ready = view.settled ? "true" : "settling";
+      container.dataset.nodes = String(view.model.nodes.length);
+    };
 
-    import("@antv/g6").then(({ Graph }) => {
-      if (disposed) return;
-      graph = new Graph({
-        container,
-        width: container.clientWidth || 800,
-        height: container.clientHeight || 600,
-        theme: "light",
-        background: "transparent",
-        padding: PADDING,
-        zoomRange: [0.15, 4],
-        node: {
-          type: "circle",
-          style: { labelFontFamily: font },
-          state: {
-            active: { opacity: 1, halo: true, haloLineWidth: 8, haloStrokeOpacity: 0.2 },
-            // A fade, not a hide: the rest of the graph stays readable around a hovered node.
-            inactive: { opacity: 0.4 },
-            dim: { opacity: 0.12 },
-            match: { halo: true, haloStroke: "#f59e0b", haloStrokeOpacity: 0.5, haloLineWidth: 12, opacity: 1 },
-            selected: { stroke: CANVAS.focusRing, lineWidth: 2.5, halo: true, haloStroke: CANVAS.focusRing, haloStrokeOpacity: 0.22, haloLineWidth: 14, labelFontWeight: 600 },
-          },
-        },
-        edge: {
-          type: "line",
-          state: {
-            active: { strokeOpacity: 0.85 },
-            inactive: { strokeOpacity: 0.12 },
-            dim: { strokeOpacity: 0.03 },
-            related: { strokeOpacity: 0.8 },
-          },
-        },
-        layout: layoutOptions(latest.current.forces),
-        behaviors: [
-          "drag-canvas",
-          "zoom-canvas",
-          { type: "drag-element-force" },
-          // Only nodes: in a dense graph the pointer crosses edges constantly, and
-          // restating every element on each crossing made the whole graph flicker.
-          { type: "hover-activate", enable: (event: IPointerEvent) => event.targetType === "node",
-            degree: 1, state: "active", inactiveState: "inactive", animation: false },
-          {
-            type: "auto-adapt-label",
-            padding: 2,
-            throttle: 80,
-            // Bigger nodes keep their labels when labels would overlap.
-            sortNode: (a: NodeData, b: NodeData) =>
-              Math.sign(Number(b.data?.priority ?? 0) - Number(a.data?.priority ?? 0)) as -1 | 0 | 1,
-          },
-        ],
-      });
-      graphRef.current = graph;
+    const pointers = new Map<number, { x: number; y: number }>();
+    let press: { id: number; x: number; y: number; node: SimNode | null; moved: boolean } | null = null;
+    let pinch = 0;
+    const local = (e: { clientX: number; clientY: number }) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    const setHover = (node: SimNode | null, x: number, y: number) => {
+      if (view.hover === node) { if (node) tooltip.current?.move(x, y); return; }
+      view.hover = node;
+      canvas.style.cursor = node ? "pointer" : "";
+      tooltip.current?.show(node?.node ?? null, x, y);
+      view.invalidate();
+    };
+    const onDown = (e: PointerEvent) => {
+      const p = local(e);
+      pointers.set(e.pointerId, p);
+      canvas.setPointerCapture(e.pointerId);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinch = Math.hypot(a.x - b.x, a.y - b.y);
+        if (press?.node) view.model.release(press.node);
+        press = null;
+        return;
+      }
+      press = { id: e.pointerId, ...p, node: view.nodeAt(p.x, p.y), moved: false };
+    };
+    const onMove = (e: PointerEvent) => {
+      const p = local(e);
+      const prev = pointers.get(e.pointerId);
+      if (prev) pointers.set(e.pointerId, p);
+      if (pointers.size === 2 && prev) {
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinch) view.zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / pinch);
+        pinch = d;
+        return;
+      }
+      if (press && press.id === e.pointerId && prev) {
+        if (!press.moved && Math.hypot(p.x - press.x, p.y - press.y) > 3) {
+          press.moved = true;
+          setHover(null, p.x, p.y);
+        }
+        if (!press.moved) return;
+        if (press.node) {
+          const [wx, wy] = view.toWorld(p.x, p.y);
+          view.model.drag(press.node, wx, wy);
+          view.invalidate();
+        } else {
+          view.panBy(p.x - prev.x, p.y - prev.y);
+        }
+        return;
+      }
+      if (e.pointerType === "mouse" || e.pointerType === "pen") setHover(view.nodeAt(p.x, p.y), p.x, p.y);
+    };
+    const onUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch = 0;
+      if (!press || press.id !== e.pointerId) return;
+      const { node, moved } = press;
+      press = null;
+      if (node && moved) { view.model.release(node); view.invalidate(); return; }
+      if (!moved) latest.current.onSelect(node?.id ?? null);
+    };
+    const onCancel = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (press?.node) view.model.release(press.node);
+      press = null;
+    };
+    const onLeave = () => { if (!press) setHover(null, 0, 0); };
+    const onDouble = (e: MouseEvent) => {
+      const p = local(e);
+      const node = view.nodeAt(p.x, p.y);
+      if (node) latest.current.onOpen(node.id);
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const p = local(e);
+      const delta = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+      // A trackpad pinch arrives as a wheel with ctrlKey and small deltas.
+      view.zoomAt(p.x, p.y, Math.exp(-delta * (e.ctrlKey ? 0.01 : 0.0015)));
+      setHover(null, p.x, p.y);
+    };
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointercancel", onCancel);
+    canvas.addEventListener("pointerleave", onLeave);
+    canvas.addEventListener("dblclick", onDouble);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
-      const nodeOf = (event: IPointerEvent) => {
-        const id = (event.target as { id?: string } | null)?.id;
-        return id ? latest.current.nodes.find((n) => n.id === id) : undefined;
-      };
-      const pointAt = (event: IPointerEvent) => {
-        const rect = container.getBoundingClientRect();
-        return { x: event.client.x - rect.left, y: event.client.y - rect.top, width: rect.width, height: rect.height };
-      };
-      graph.on("node:click", (event: IPointerEvent) => {
-        const node = nodeOf(event);
-        if (node) latest.current.onSelect(node.id);
-      });
-      graph.on("canvas:click", () => latest.current.onSelect(null));
-      graph.on("node:dblclick", (event: IPointerEvent) => {
-        const node = nodeOf(event);
-        if (node) latest.current.onOpen(node.id);
-      });
-      graph.on("node:pointerenter", (event: IPointerEvent) => {
-        const node = nodeOf(event);
-        if (node) setHover({ node, ...pointAt(event) });
-      });
-      graph.on("node:pointermove", (event: IPointerEvent) => {
-        setHover((h) => (h ? { ...h, ...pointAt(event) } : h));
-      });
-      graph.on("node:pointerleave", () => setHover(null));
-      graph.on("node:dragstart", () => setHover(null));
-      graph.on("canvas:dragstart", () => setHover(null));
-      setReady(true);
-    });
-
-    const resize = new ResizeObserver(() => {
-      if (container.clientWidth && container.clientHeight) graph?.resize(container.clientWidth, container.clientHeight);
-    });
+    const resize = new ResizeObserver(() => view.resize());
     resize.observe(container);
+    // Follow the theme: a class or style change on the root, or the OS scheme.
+    const themeObserver = new MutationObserver(() => view.retheme());
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    const scheme = matchMedia("(prefers-color-scheme: dark)");
+    const onScheme = () => view.retheme();
+    scheme.addEventListener("change", onScheme);
     return () => {
-      disposed = true;
       resize.disconnect();
-      graph?.destroy();
-      graphRef.current = null;
-      rendered.current = false;
+      themeObserver.disconnect();
+      scheme.removeEventListener("change", onScheme);
+      view.destroy();
+      viewRef.current = null;
+      delete (container as HTMLElement & { graphDebug?: GraphDebug }).graphDebug;
     };
   }, []);
 
-  // New data: restyle everything and run the layout, starting nodes the
-  // graph already showed from where they were.
+  // New data: lay it out (nodes the graph showed start where they were).
+  useEffect(() => { viewRef.current?.setData(nodes, edges); }, [nodes, edges]);
+  useEffect(() => { viewRef.current?.setForces(forces); }, [forces]);
   useEffect(() => {
-    const graph = graphRef.current;
-    if (!ready || !graph) return;
-    const { showLabels, showEdges, forces } = latest.current;
-    const known = new Map<string, { x: number; y: number }>();
-    if (rendered.current) {
-      for (const n of graph.getNodeData()) {
-        const [x, y] = graph.getElementPosition(n.id);
-        known.set(n.id, { x, y });
-      }
-    }
-    const maxCount = { project: 1, topic: 1, source: 1, chunk: 1 } as Record<GraphNodeKind, number>;
-    for (const n of nodes) maxCount[n.kind] = Math.max(maxCount[n.kind], n.count);
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const maxWeight: Record<string, number> = {};
-    for (const e of edges) maxWeight[e.kind] = Math.max(maxWeight[e.kind] ?? 1, e.weight);
-
-    const nodeData: NodeData[] = nodes.map((n) => {
-      const size = nodeSize(n, maxCount);
-      const color = nodeColor(n);
-      const ring = n.kind === "topic";
-      const strong = n.kind === "project" || !!n.focus;
-      return {
-        id: n.id,
-        data: { kind: n.kind, size, priority: (n.focus ? 10 : 0) + KIND_DEPTH[n.kind] + size / 100 },
-        style: {
-          ...known.get(n.id),
-          size,
-          // The base every state change returns to.
-          opacity: 1,
-          fill: color,
-          fillOpacity: ring ? 0.1 : n.kind === "project" ? 0.95 : 0.85,
-          stroke: n.focus ? CANVAS.focusRing : color,
-          lineWidth: n.focus ? 2.5 : ring ? 1.5 : 0,
-          halo: strong,
-          haloStroke: color,
-          haloStrokeOpacity: 0.16,
-          haloLineWidth: n.focus ? 16 : 10,
-          labelText: showLabels ? shortLabel(n.label) : "",
-          labelPlacement: "bottom",
-          labelOffsetY: 3,
-          labelFill: CANVAS.label,
-          labelFontSize: strong ? 12 : 10.5,
-          labelFontWeight: strong ? 600 : 400,
-          labelStroke: CANVAS.labelHalo,
-          labelLineWidth: 3,
-          zIndex: KIND_DEPTH[n.kind] + (n.focus ? 10 : 0),
-          cursor: "pointer",
-        },
-      };
-    });
-    const edgeData: EdgeData[] = edges.map((e) => {
-      const kind = EDGE_KINDS[e.kind];
-      const from = byId.get(e.source);
-      const fromProject = from?.kind === "project";
-      return {
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        data: { kind: e.kind },
-        style: {
-          stroke: kind.color ?? (fromProject ? from.color : CANVAS.edge),
-          strokeOpacity: kind.color ? 0.7 : fromProject ? 0.45 : 0.3,
-          lineWidth: 0.6 + (e.weight / (maxWeight[e.kind] ?? 1)) * 1.6,
-          lineDash: kind.dash,
-          endArrow: !!kind.arrow,
-          endArrowSize: 6,
-          visibility: showEdges ? "visible" : "hidden",
-        },
-      };
-    });
-
-    graph.setLayout(layoutOptions(forces));
-    graph.setData({ nodes: nodeData, edges: edgeData });
-    let current = true;
-    const animate = rendered.current;
-    void graph.render().then(async () => {
-      if (!current) return;
-      rendered.current = true;
-      applyStates(graph, latest.current.selectedId, latest.current.matches, edges);
-      await frame(graph, animate);
-    });
-    return () => { current = false; };
-  }, [ready, nodes, edges]);
-
-  // Labels and edges change styles only: no new layout.
-  useEffect(() => {
-    const graph = graphRef.current;
-    if (!graph || !rendered.current) return;
-    graph.updateNodeData(latest.current.nodes.map((n) => ({ id: n.id, style: { labelText: showLabels ? shortLabel(n.label) : "" } })));
-    graph.updateEdgeData(latest.current.edges.map((e) => ({ id: e.id, style: { visibility: showEdges ? "visible" : "hidden" } })));
-    void graph.draw();
-  }, [showLabels, showEdges]);
-
-  useEffect(() => {
-    const graph = graphRef.current;
-    if (!graph || !rendered.current) return;
-    graph.setLayout(layoutOptions(forces));
-    void graph.layout();
-  }, [forces]);
-
-  useEffect(() => {
-    const graph = graphRef.current;
-    if (graph && rendered.current) applyStates(graph, selectedId, matches, latest.current.edges);
-  }, [selectedId, matches]);
+    const view = viewRef.current;
+    if (!view) return;
+    Object.assign(view, { showLabels, showEdges, selectedId, matches, emphasis, insetBottom, insetLeft });
+    view.invalidate();
+  }, [showLabels, showEdges, selectedId, matches, emphasis, insetBottom, insetLeft]);
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="absolute inset-0" />
-      {hover && <NodeTooltip hover={hover} />}
-    </div>
-  );
-}
-
-/** Selection and find results as element states; hover-activate adds and
- * removes its own states on top of these. */
-function applyStates(graph: Graph, selectedId: string | null, matches: Set<string> | null, edges: GraphEdge[]) {
-  const states: Record<string, string[]> = {};
-  for (const n of graph.getNodeData()) {
-    const s: string[] = [];
-    if (matches) s.push(matches.has(n.id) ? "match" : "dim");
-    if (n.id === selectedId) s.push("selected");
-    states[n.id] = s;
-  }
-  for (const e of edges) {
-    const s: string[] = [];
-    if (matches && !(matches.has(e.source) && matches.has(e.target))) s.push("dim");
-    if (selectedId && (e.source === selectedId || e.target === selectedId)) s.push("related");
-    states[e.id] = s;
-  }
-  void graph.setElementState(states, false);
-}
-
-function NodeTooltip({ hover }: { hover: Hover }) {
-  const { node } = hover;
-  const kind = KINDS[node.kind];
-  const width = 240;
-  // Open away from the canvas edges.
-  const flipX = hover.x + 16 + width > hover.width;
-  const flipY = hover.y + 90 > hover.height;
-  const detail =
-    node.kind === "chunk"
-      ? [node.chunk_index !== undefined ? `Chunk #${node.chunk_index}` : "Chunk", node.project].filter(Boolean).join(" · ")
-      : `${kind.label}${node.count > 0 ? ` · ${node.count.toLocaleString()} ${node.count === 1 ? "memory" : "memories"}` : ""}`;
-  return (
-    <div
-      role="tooltip"
-      className="pointer-events-none absolute z-30 rounded-lg border border-border bg-popover/95 px-3 py-2 text-xs shadow-xl backdrop-blur"
-      style={{
-        maxWidth: width,
-        left: flipX ? undefined : hover.x + 16,
-        right: flipX ? hover.width - hover.x + 16 : undefined,
-        top: flipY ? undefined : hover.y + 16,
-        bottom: flipY ? hover.height - hover.y + 16 : undefined,
-      }}
-    >
-      <div className="flex items-center gap-2 font-medium text-popover-foreground">
-        <span className="size-2 shrink-0 rounded-full" style={{ background: nodeColor(node) }} />
-        <span className="line-clamp-2 break-words">{node.label}</span>
-      </div>
-      <p className="mt-0.5 text-muted-foreground">{detail}</p>
-      <p className="mt-1 text-[11px] text-muted-foreground/70">
-        {node.kind === "chunk" ? "Double-click to read" : "Double-click to open"}
-      </p>
+      <div ref={containerRef} className="absolute inset-0" data-graph-view="graph" />
+      <GraphTooltip ref={tooltip} />
     </div>
   );
 }

@@ -12,6 +12,29 @@ HELPER_REPO = "unsloth/Qwen3.5-4B-GGUF"
 HELPER_FILE = "Qwen3.5-4B-Q4_K_M.gguf"
 HELPER_REVISION = "e87f176479d0855a907a41277aca2f8ee7a09523"
 HELPER_SHA256 = "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
+# The larger local chat model, opt-in through chat.local_model (ADR 0153):
+# Qwen3.5-35B-A3B, a mixture of experts with about 3B of its 35B parameters
+# active per token. Same quantization as the helper; 22.0 GB, so it is
+# offered only on machines with enough memory.
+CHAT_MOE_REPO = "unsloth/Qwen3.5-35B-A3B-GGUF"
+CHAT_MOE_FILE = "Qwen3.5-35B-A3B-Q4_K_M.gguf"
+CHAT_MOE_REVISION = "bc014a17be43adabd7066b7a86075ff935c6a4e2"
+CHAT_MOE_SHA256 = "3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375"
+CHAT_MOE_BYTES = 22_016_023_168
+# Total memory below which the dashboard offers the MoE as unavailable: its
+# weights, the context, the embedding model and the rest of the system.
+CHAT_MOE_MIN_MEMORY = 30 * 1024 ** 3
+
+# Files Imprint downloads at a fixed revision and verifies by checksum.
+PINNED = {
+    (HELPER_REPO, HELPER_FILE): (HELPER_REVISION, HELPER_SHA256),
+    (CHAT_MOE_REPO, CHAT_MOE_FILE): (CHAT_MOE_REVISION, CHAT_MOE_SHA256),
+}
+
+
+def pinned(repo: str, filename: str) -> tuple[str, str] | None:
+    """(revision, sha256) of a file Imprint pins, else None."""
+    return PINNED.get((repo, filename))
 # OpenAI Privacy Filter (Apache-2.0), opt-in secret redaction (ADR 0060).
 # The q4 ONNX export (float32 activations, 4-bit weights): as fast as q4f16
 # on the CPU, and its labels on CUDA match the CPU's. The q4f16 export's

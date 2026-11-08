@@ -10,7 +10,7 @@ async function mockApi(page: Page, overlaps: string[] = []) {
   await page.route('**/api/ping', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/version', route => route.fulfill({ json: { version: 'test' } }));
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 1, projects: [], langs: [], domains: [], types: [], topics: [] } }));
-  await page.route('**/api/overview', route => route.fulfill({ json: { projects: [], total_memories: 1, total_facts: 0 } }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: { projects: [], total_memories: 1, total_facts: 0 } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'alpha', workspaces: ['alpha', 'beta'] } }));
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [] } }));
   await mockCatalog(page);

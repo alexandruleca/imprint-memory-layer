@@ -8,6 +8,7 @@ import { VoiceSetupIndicator } from "@/components/voice-setup";
 import { ActivityIndicator } from "@/components/activity-indicator";
 import { RecordingIndicator } from "@/components/recording-indicator";
 import { WakeIndicator } from "@/components/wake-indicator";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /** App-wide controls above every page. In the frameless desktop window the
  * bar's empty space is a drag handle (globals.css). The handle is an empty
@@ -24,6 +25,7 @@ export function TopBar() {
       <CompanionToggle />
       <VoiceSetupIndicator />
       <UpdateButton />
+      <ThemeToggle />
       <WorkspaceSwitcher />
     </header>
   );

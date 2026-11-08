@@ -82,9 +82,17 @@ def project_counts(workspace=None, filt=None, limit=200):
     related = {hit.value for hit in client.facet(coll, 'related_projects', facet_filter=filt, limit=limit).hits}
     # Ordinary primary-only facets stay cheap. Only names with related members
     # need a union count, including names absent from the primary facet page.
-    for name in related:
+    def union(name):
         scope = qm.Filter(must=[project_filter(name), *([filt] if filt else [])])
-        counts[name] = client.count(coll, count_filter=scope, exact=True).count
+        return name, client.count(coll, count_filter=scope, exact=True).count
+    if len(related) > 1:
+        # One exact count each: ask several at once so many linked projects
+        # do not add up to seconds.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(related))) as pool:
+            counts.update(pool.map(union, sorted(related)))
+    else:
+        counts.update(map(union, related))
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
 
 

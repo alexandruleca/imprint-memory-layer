@@ -29,7 +29,7 @@ export function Heartbeat() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [retry]);
   if (!offline) return null;
-  return <div role="status" aria-live="polite" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 rounded-lg border border-amber-500/50 bg-background p-4 shadow-xl max-w-lg text-sm flex gap-3 items-center">
+  return <div role="status" aria-live="polite" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 rounded-lg border border-warning/50 bg-popover text-popover-foreground p-4 shadow-xl max-w-lg text-sm flex gap-3 items-center">
     {activity
       ? <p>Imprint is busy: {describeJob(activity)}. The dashboard reconnects when it is done.</p>
       : <p>Local service is unavailable. Start Imprint or wait for it to reconnect.</p>}

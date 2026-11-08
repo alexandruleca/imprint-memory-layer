@@ -167,7 +167,7 @@ function Reader({ target }: { target: ReaderTarget }) {
         {data?.details.media === "audio" && <p className="text-xs text-muted-foreground">Machine transcript · speakers unidentified</p>}
         {target.topic && data && (
           <div className="flex flex-wrap items-center gap-2 text-xs" role="status">
-            <span className="size-2.5 rounded-sm bg-amber-200 ring-1 ring-amber-400" aria-hidden />
+            <span className="size-2.5 rounded-sm bg-mark-strong ring-1 ring-mark-edge" aria-hidden />
             {passages.length ? (
               <>
                 <span>
@@ -205,8 +205,8 @@ function Reader({ target }: { target: ReaderTarget }) {
             {items.map((item, i) => (
               <div key={item.key} ref={bind(item.key)} data-match={item.match || undefined}
                 className={cn("relative scroll-mt-4 rounded-lg py-1 pl-4",
-                  item.match && "before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-amber-400",
-                  focused.has(i) && "bg-amber-50")}>
+                  item.match && "before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-mark-edge",
+                  focused.has(i) && "bg-mark/60")}>
                 {item.type === "message" ? <Message block={item.block} />
                   : item.type === "activity" ? <Activity steps={item.steps} open={open.has(item.key)} onOpen={(on) => toggle(item.key, on)} /> : null}
               </div>
@@ -216,7 +216,7 @@ function Reader({ target }: { target: ReaderTarget }) {
           <pre className="p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words sm:p-6">
             {items.map((item, i) => (
               <span key={item.key} ref={bind(item.key)}
-                className={cn("scroll-mt-4", item.match && "rounded-sm bg-amber-100", focused.has(i) && "bg-amber-200")}>
+                className={cn("scroll-mt-4", item.match && "rounded-sm bg-mark", focused.has(i) && "bg-mark-strong")}>
                 {item.type === "text" && item.block.text}
               </span>
             ))}
@@ -380,7 +380,7 @@ function StepRow({ step }: { step: Step }) {
           <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           <span className="shrink-0 font-medium">{name}</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{summary}</span>
-          {step.match && <Badge variant="outline" className="shrink-0 border-amber-300 bg-amber-100 text-[10px] text-amber-900">match</Badge>}
+          {step.match && <Badge variant="outline" className="shrink-0 border-mark-edge bg-mark text-[10px] text-foreground">match</Badge>}
           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/step:rotate-90" aria-hidden />
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-2 py-2 pl-6">{body}</CollapsibleContent>

@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { Updating } from "@/components/updating";
 
 /** A page's title, with its count, a sentence on what it is for and its actions. */
-export function PageHeader({ title, count, description, actions, className }: {
+export function PageHeader({ title, count, description, actions, className, updating }: {
   title: string;
   count?: number;
+  /** A newer answer is on its way: shows "Updating…" beside the title. */
+  updating?: boolean;
   description?: React.ReactNode;
   actions?: React.ReactNode;
   className?: string;
@@ -18,10 +21,13 @@ export function PageHeader({ title, count, description, actions, className }: {
   return (
     <header className={cn("flex flex-wrap items-end justify-between gap-x-6 gap-y-3 px-4 pt-6 pb-4 sm:px-8", className)}>
       <div className="min-w-0 space-y-1">
-        <h1 className="flex items-baseline gap-2 text-2xl font-semibold tracking-tight">
-          {title}
-          {count !== undefined && <span className="text-base font-normal text-muted-foreground tabular-nums">{count.toLocaleString()}</span>}
-        </h1>
+        <div className="flex flex-wrap items-center gap-x-3">
+          <h1 className="flex items-baseline gap-2 text-2xl font-semibold tracking-tight">
+            {title}
+            {count !== undefined && <span className="text-base font-normal text-muted-foreground tabular-nums">{count.toLocaleString()}</span>}
+          </h1>
+          {updating !== undefined && <Updating show={updating} />}
+        </div>
         {description && <p className="max-w-2xl text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -35,11 +41,13 @@ export function PageHeader({ title, count, description, actions, className }: {
  * between the same top and bottom edges, so neither drags the other out of
  * line. Narrower screens stack them and the page scrolls; the list is capped
  * there so the details stay reachable. */
-export function SplitPage({ header, list, filter, children, listWidth = "18rem", fill = false }: {
+export function SplitPage({ header, list, filter, listFooter, children, listWidth = "18rem", fill = false }: {
   header: React.ReactNode;
   list: React.ReactNode;
   /** Above the list, outside its scroll pane. */
   filter?: React.ReactNode;
+  /** Below the list, outside its scroll pane: its pager. */
+  listFooter?: React.ReactNode;
   children: React.ReactNode;
   listWidth?: string;
   /** The details lay themselves out in the pane's full height (a log that
@@ -58,6 +66,7 @@ export function SplitPage({ header, list, filter, children, listWidth = "18rem",
           <ScrollArea className="max-h-72 rounded-xl bg-card ring-1 ring-foreground/10 lg:max-h-none lg:min-h-0 lg:flex-1">
             <div className="p-1.5">{list}</div>
           </ScrollArea>
+          {listFooter}
         </div>
         {fill ? (
           <div className="flex min-w-0 flex-col gap-4 lg:min-h-0">{children}</div>

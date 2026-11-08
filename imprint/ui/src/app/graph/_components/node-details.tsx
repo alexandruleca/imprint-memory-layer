@@ -46,7 +46,7 @@ export function NodeDetails({
   return (
     <aside aria-label={`${kind.label} details`} className="flex max-h-full flex-col overflow-hidden rounded-xl border border-border bg-card/95 shadow-2xl backdrop-blur">
       <div className="flex items-start gap-3 border-b border-border p-4">
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: `${color}26`, color }}>
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: `color-mix(in oklab, ${color} 15%, transparent)`, color }}>
           <Icon className="size-4.5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">

@@ -1,5 +1,6 @@
 "use client";
 
+import { Updating } from "@/components/updating";
 import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,8 +10,10 @@ import { cn } from "@/lib/utils";
 
 /** A review page's one-line header: the title, its count, an ⓘ popover
  * with what the page is for, and the actions. */
-export function ReviewHeader({ title, count, info, infoLabel, actions }: {
+export function ReviewHeader({ title, count, info, infoLabel, actions, updating }: {
   title: string; count?: number; info?: ReactNode; infoLabel?: string; actions?: ReactNode;
+  /** A newer answer is on its way: shows "Updating…" beside the title. */
+  updating?: boolean;
 }) {
   return (
     <header className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 pt-4 pb-3 sm:px-8">
@@ -26,6 +29,7 @@ export function ReviewHeader({ title, count, info, infoLabel, actions }: {
           <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] text-sm">{info}</PopoverContent>
         </Popover>
       )}
+      {updating !== undefined && <Updating show={updating} />}
       {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
   );

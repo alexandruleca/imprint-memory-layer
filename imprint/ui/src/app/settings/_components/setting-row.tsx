@@ -21,6 +21,7 @@ const WORDS: Record<string, string> = {
 
 /** "tagger.local.n_gpu_layers" → "GPU layers" */
 export function settingTitle(key: string) {
+  if (key === "chat.local_model") return "Local chat model";
   if (key === "chat.analysis_workers") return "Sequential analysis workers";
   if (key === "chat.research_timeout_sec") return "Research time budget (seconds)";
   if (key === "chat.research_token_budget") return "Research token budget";
@@ -105,7 +106,7 @@ export function SettingRow({ setting: s, onSave, onReset }: Props) {
             {busy ? (
               <Spinner className="size-3.5 text-muted-foreground" />
             ) : saved ? (
-              <span role="status" className="text-emerald-700 dark:text-emerald-400">
+              <span role="status" className="text-success">
                 <Check className="size-4" />
                 <span className="sr-only">Saved</span>
               </span>
@@ -120,7 +121,7 @@ export function SettingRow({ setting: s, onSave, onReset }: Props) {
         </div>
         {fromEnv && <p className="text-xs text-muted-foreground @2xl:pr-10 @2xl:text-right">{s.env} is set in the environment and takes precedence.</p>}
         {current?.unavailable && (
-          <p role="alert" className="flex items-start gap-1.5 text-xs text-amber-700 @2xl:justify-end @2xl:pr-10 @2xl:text-right dark:text-amber-400">
+          <p role="alert" className="flex items-start gap-1.5 text-xs text-warning @2xl:justify-end @2xl:pr-10 @2xl:text-right">
             <AlertTriangle className="mt-px size-3.5 shrink-0" />
             {current.unavailable}
           </p>
@@ -145,7 +146,7 @@ function Explanation({ id, help, example }: { id: string; help?: string; example
           {help && <p>{help}</p>}
           {example && (
             <p className="flex items-start gap-1.5 text-muted-foreground">
-              <Lightbulb className="mt-px size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+              <Lightbulb className="mt-px size-3.5 shrink-0 text-warning" aria-hidden />
               <span><span className="font-medium text-foreground">Example:</span> {example}</span>
             </p>
           )}
@@ -199,7 +200,7 @@ function ChoiceControl({ id, setting: s, disabled, save }: ControlProps) {
               <span className="flex min-w-0 flex-col whitespace-normal">
                 <span>{c.label}</span>
                 {(c.unavailable || c.detail) && (
-                  <span className={cn("text-xs", c.unavailable ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+                  <span className={cn("text-xs", c.unavailable ? "text-warning" : "text-muted-foreground")}>
                     {c.unavailable || c.detail}
                   </span>
                 )}

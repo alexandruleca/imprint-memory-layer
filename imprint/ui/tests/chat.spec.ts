@@ -73,6 +73,8 @@ async function mockChat(page: Page, options: {
   const replies = [...(options.replies ?? [])];
   await page.route('**/api/ping', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/version', route => route.fulfill({ json: { version: 'test' } }));
+  // Chats are the active workspace's: the list waits until the page knows which one.
+  await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/chat/status', route =>
     route.fulfill({ json: options.status ?? { ...LOCAL, installed: true, model_ready: true } }));
   await page.route('**/api/chat/sessions', async route => {

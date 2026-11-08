@@ -37,10 +37,16 @@ async function mockApi(page: Page) {
   await page.route('**/api/version', route => route.fulfill({ json: { version: 'test' } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/stream', route => route.fulfill({ status: 204 }));
-  await page.route('**/api/topics', route => route.fulfill({ json: {
-    topics: [{ id: 't1', name: 'layout', count: 3, topProjects: [], topLangs: [], color: '#000' }], total: 1, facets: {},
+  await page.route('**/api/topics?**', route => route.fulfill({ json: {
+    topics: [{ id: 't1', name: 'layout', count: 3, topProjects: [], topLangs: [], color: '#000' }], total: 3,
+    matched: 1, topic_count: 1, offset: 0, limit: 50, sort: 'count', q: '', facets: {},
   } }));
-  await page.route('**/api/topic/*', route => route.fulfill({ json: detail }));
+  // The server pages and filters a topic's sources (ADR 0150).
+  await page.route('**/api/topic/*', route => {
+    const project = new URL(route.request().url()).searchParams.get('project');
+    const sources = detail.sources.filter((s) => project === null || s.project === project);
+    return route.fulfill({ json: { ...detail, project, sources, source_count: sources.length } });
+  });
   await page.route('**/api/sources/read?**', route => {
     const params = new URL(route.request().url()).searchParams;
     reads.push(params);

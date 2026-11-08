@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Network, RotateCw, Search as SearchIcon, X } from "lucide-react";
-import { getGraphScope, getMemory, getTopicDetail } from "@/lib/api";
+import { ChevronDown, ChevronUp, CornerDownLeft, Network, RotateCw, Search as SearchIcon, X } from "lucide-react";
+import { getGraphScope, getMemory, getTopicDetail, searchMemories } from "@/lib/api";
 import { ChunkDialog, type ChunkPreview } from "@/components/chunk-dialog";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import { GraphSkeleton, Spinner } from "@/components/loaders";
@@ -14,19 +16,25 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGr
 import { Kbd } from "@/components/ui/kbd";
 import type { GraphEdge, GraphEdgeKind, GraphNode, GraphNodeKind, GraphScopeData, TopicSource } from "@/lib/types";
 import { GraphBreadcrumbs, scopeKind, type ScopeCrumb } from "./_components/breadcrumbs";
-import { GraphCanvas, type GraphCanvasHandle, type GraphForces } from "./_components/graph-canvas";
+import { GraphCanvas } from "./_components/graph-canvas";
+import type { GraphCanvasHandle, GraphForces } from "./_components/graph-model";
+import { StarCanvas } from "./_components/star-canvas";
 import { GraphLegend } from "./_components/graph-legend";
 import { GraphToolbar, type GraphSettings } from "./_components/graph-toolbar";
 import { NodeDetails } from "./_components/node-details";
 import { KINDS } from "./_components/graph-style";
+import { filtersFrom, hitStrengths, isSearchScope, NO_FILTERS, searchHref, searchQuery, searchScopeData, SEARCH_PREFIX } from "./_components/graph-search";
+import { SearchResults } from "./_components/search-results";
 
 const DEFAULT_FORCES: GraphForces = { repel: 900, collide: 14, centerStrength: 0.06 };
-const DEFAULT_SETTINGS: GraphSettings = { showLabels: true, showEdges: true, depth: 1, forces: DEFAULT_FORCES };
+const DEFAULT_SETTINGS: GraphSettings = { mode: "graph", showLabels: true, showEdges: true, depth: 1, forces: DEFAULT_FORCES };
 const STORAGE_KEY = "imprint:graph:v2";
 const ROOT: ScopeCrumb = { scope: "root", label: "Overview" };
 const EDGE_ORDER: GraphEdgeKind[] = ["contains", "relates", "sequence", "similar"];
 /** Height of the details bottom sheet on narrow screens, as a fraction of the canvas. */
 const SHEET_HEIGHT = 0.55;
+/** Hits a search scope asks for at each "Items per group" setting. */
+const SEARCH_LIMIT: Record<number, number> = { 1: 30, 2: 50, 3: 80 };
 
 interface SavedState {
   settings?: Partial<GraphSettings>;
@@ -52,7 +60,8 @@ function scopeFromUrl(): string {
   return new URLSearchParams(window.location.search).get("scope") || "root";
 }
 
-function crumbFor(scope: string): ScopeCrumb {
+function crumbFor(scope: string, params = new URLSearchParams(window.location.search)): ScopeCrumb {
+  if (isSearchScope(scope)) return { scope, label: `“${searchQuery(scope)}”`, filters: filtersFrom(params) };
   const value = scope.slice(scope.indexOf(":") + 1);
   const kind = scopeKind(scope);
   return { scope, label: kind === "source" ? value.split("/").pop() || value : kind === "chunk" ? "Chunk" : value };
@@ -67,21 +76,36 @@ function scopeOf(node: GraphNode): string {
 
 export default function GraphPage() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
-  return mounted ? <GraphPageContent /> : <GraphSkeleton />;
+  return mounted ? <Suspense fallback={<GraphSkeleton />}><GraphPageFromUrl /></Suspense> : <GraphSkeleton />;
 }
 
-function GraphPageContent() {
+/** The address the page opened with. After a client-side navigation (a
+ * link from Search or Topics) window.location can still be the old page's
+ * when the graph first renders; the router's search params are not. */
+function GraphPageFromUrl() {
+  const params = useSearchParams();
+  const [initial] = useState(() => new URLSearchParams(params.toString()));
+  return <GraphPageContent initial={initial} />;
+}
+
+function GraphPageContent({ initial }: { initial: URLSearchParams }) {
   const canvas = useRef<GraphCanvasHandle>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const narrow = useNarrow();
   const [saved] = useState(savedState);
   const [trail, setTrail] = useState<ScopeCrumb[]>(() => {
-    const scope = scopeFromUrl();
-    return scope === "root" ? [ROOT] : [ROOT, crumbFor(scope)];
+    const scope = initial.get("scope") || "root";
+    return scope === "root" ? [ROOT] : [ROOT, crumbFor(scope, initial)];
   });
   const [settings, setSettings] = useState<GraphSettings>(() => {
     const s = { ...DEFAULT_SETTINGS, ...saved.settings };
-    return { ...s, depth: [1, 2, 3].includes(s.depth) ? s.depth : 1, forces: { ...DEFAULT_FORCES, ...saved.settings?.forces } };
+    // Saved state from before the star view has no mode: it opens the graph.
+    return {
+      ...s,
+      mode: s.mode === "stars" ? "stars" : "graph",
+      depth: [1, 2, 3].includes(s.depth) ? s.depth : 1,
+      forces: { ...DEFAULT_FORCES, ...saved.settings?.forces },
+    };
   });
   const [hidden, setHidden] = useState<Set<GraphNodeKind>>(() => new Set((saved.hidden ?? []).filter((k) => k in KINDS)));
   const [graphResult, setGraphResult] = useState<{ key: string; data: GraphScopeData | null; error?: string }>({ key: "", data: null });
@@ -99,20 +123,37 @@ function GraphPageContent() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings, hidden: [...hidden] })); } catch {}
   }, [settings, hidden]);
 
-  const scope = trail[trail.length - 1].scope;
-  const graphKey = `${scope}:${settings.depth}:${reload}`;
+  const crumb = trail[trail.length - 1];
+  const scope = crumb.scope;
+  const searching = isSearchScope(scope);
+  const filters = crumb.filters ?? NO_FILTERS;
+  const graphKey = `${scope}:${settings.depth}:${reload}:${searching ? JSON.stringify(filters) : ""}`;
   const loading = graphResult.key !== graphKey;
   // While a scope loads, the previous graph stays on screen.
   const data = graphResult.data;
 
   useEffect(() => {
     let cancelled = false;
-    getGraphScope(scope, settings.depth).then((result) => {
+    // A search scope is the hybrid search's hits and their provenance; the
+    // (cached) overview lends the projects their colours.
+    const load = isSearchScope(scope)
+      ? Promise.all([
+        searchMemories(searchQuery(scope), { ...filters, limit: SEARCH_LIMIT[settings.depth] ?? 30 }),
+        getGraphScope("root", 1).catch(() => null),
+      ]).then(([hits, overview]) => {
+        const colors = new Map((overview?.nodes ?? []).filter((n) => n.kind === "project").map((n) => [n.label, n.color]));
+        const result = searchScopeData(scope, hits.nodes, colors);
+        return hits.nodes.length >= (SEARCH_LIMIT[settings.depth] ?? 30) ? { ...result, more: ["chunk" as const] } : result;
+      })
+      : getGraphScope(scope, settings.depth);
+    load.then((result) => {
       if (!cancelled) setGraphResult({ key: graphKey, data: result });
     }).catch((error) => {
       if (!cancelled) setGraphResult((prev) => ({ key: graphKey, data: prev.data, error: error instanceof Error ? error.message : String(error) }));
     });
     return () => { cancelled = true; };
+    // graphKey covers the filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, settings.depth, graphKey]);
 
   // Back/forward move along the trail; an unknown scope starts a new one.
@@ -131,8 +172,9 @@ function GraphPageContent() {
   }, []);
 
   const goTo = useCallback((next: ScopeCrumb[]) => {
-    const target = next[next.length - 1].scope;
-    window.history.pushState(null, "", target === "root" ? window.location.pathname : `?scope=${encodeURIComponent(target)}`);
+    const last = next[next.length - 1], target = last.scope;
+    window.history.pushState(null, "", target === "root" ? window.location.pathname
+      : isSearchScope(target) ? searchHref(searchQuery(target), last.filters, "") : `?scope=${encodeURIComponent(target)}`);
     setTrail(next);
     setSelectedId(null);
     setNeighborhood(false);
@@ -226,21 +268,34 @@ function GraphPageContent() {
     select(matchList[next].id);
   }, [matchIndex, matchList, select]);
 
-  // "/" finds, Escape clears the query, then the selection.
+  /** Run the hybrid search as a scope of its own, after the overview. */
+  const runSearch = useCallback((text: string) => {
+    const q = text.trim();
+    if (q.length < 2) return;
+    goTo([ROOT, { scope: `${SEARCH_PREFIX}${q}`, label: `“${q}”`, filters: NO_FILTERS }]);
+  }, [goTo]);
+
+  // "/" finds, Escape clears the query, then the selection. The ref is
+  // updated at once, so a second Escape before React re-renders still
+  // reaches the selection.
+  const escape = useRef({ query, selectedId, blocked: false });
+  useEffect(() => { escape.current = { query, selectedId, blocked: !!chunkDialog || !!reading }; });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (chunkDialog || reading) return;
+      const state = escape.current;
+      if (state.blocked) return;
       const typing = event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]");
       if (event.key === "/" && !typing) {
         event.preventDefault();
         findRef.current?.focus();
       } else if (event.key === "Escape") {
-        if (query) { setQuery(""); setMatchIndex(-1); } else if (selectedId) setSelectedId(null);
+        if (state.query) { state.query = ""; setQuery(""); setMatchIndex(-1); }
+        else if (state.selectedId) { state.selectedId = null; setSelectedId(null); }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [chunkDialog, reading, query, selectedId]);
+  }, []);
 
   const centerNode = data?.nodes.find((n) => n.id === data.center);
   const crumbs = trail.map((c, i) => (i === trail.length - 1 && centerNode && !loading ? { ...c, label: centerNode.label } : c));
@@ -248,6 +303,31 @@ function GraphPageContent() {
   const kind = scopeKind(scope);
   const empty = !loading && !graphResult.error && data && data.nodes.length === 0;
   const allHidden = data && data.nodes.length > 0 && visible.nodes.length === 0;
+  const breadthApplies = searching || kind === "project" || kind === "topic" || kind === "source";
+  const emphasis = useMemo(() => (searching && data ? hitStrengths(data.nodes) : null), [searching, data]);
+  const hits = useMemo(() => (searching && data ? data.nodes.filter((n) => n.rank !== undefined).sort((a, b) => a.rank! - b.rank!) : []), [searching, data]);
+  // On a phone the results are a sheet until a node is selected.
+  const resultsSheet = searching && narrow && !selected;
+  const stars = settings.mode === "stars";
+  const onStarsUnavailable = useCallback((reason: string) => {
+    setSettings((s) => ({ ...s, mode: "graph" }));
+    toast.error("The star view needs WebGL", { description: `Showing the graph instead. ${reason}`.trim() });
+  }, []);
+  const view = {
+    nodes: visible.nodes,
+    edges: visible.edges,
+    showLabels: settings.showLabels,
+    showEdges: settings.showEdges,
+    forces: settings.forces,
+    selectedId,
+    matches,
+    emphasis,
+    insetBottom: narrow && (selected || resultsSheet) ? SHEET_HEIGHT : 0,
+    // The results panel: 20rem wide, 0.75rem from the edge.
+    insetLeft: searching && !narrow ? 21 * 16 : 0,
+    onSelect: narrow ? select : setSelectedId,
+    onOpen: openById,
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -262,9 +342,17 @@ function GraphPageContent() {
             ref={findRef}
             value={query}
             onChange={(e) => { setQuery(e.target.value); setMatchIndex(-1); }}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); stepMatch(e.shiftKey ? -1 : 1); } }}
-            placeholder="Find in graph"
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              // Enter steps through names on screen; with none, or with
+              // Ctrl/⌘, it searches every memory.
+              if (e.metaKey || e.ctrlKey || !matchList?.length) runSearch(query);
+              else stepMatch(e.shiftKey ? -1 : 1);
+            }}
+            placeholder="Find, or search memories"
             aria-label="Find in graph"
+            aria-describedby="graph-find-hint"
           />
           <InputGroupAddon align="inline-end">
             {matchList ? (
@@ -274,6 +362,7 @@ function GraphPageContent() {
                 </InputGroupText>
                 <InputGroupButton size="icon-xs" aria-label="Previous match" onClick={() => stepMatch(-1)} disabled={!matchList.length}><ChevronUp aria-hidden /></InputGroupButton>
                 <InputGroupButton size="icon-xs" aria-label="Next match" onClick={() => stepMatch(1)} disabled={!matchList.length}><ChevronDown aria-hidden /></InputGroupButton>
+                <InputGroupButton size="icon-xs" aria-label="Search all memories" title="Search all memories (Ctrl/⌘ Enter)" onClick={() => runSearch(query)} disabled={query.trim().length < 2}><CornerDownLeft aria-hidden /></InputGroupButton>
                 <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => { setQuery(""); setMatchIndex(-1); }}><X aria-hidden /></InputGroupButton>
               </>
             ) : (
@@ -281,27 +370,18 @@ function GraphPageContent() {
             )}
           </InputGroupAddon>
         </InputGroup>
+        <span id="graph-find-hint" className="sr-only">Typing marks matching names in the graph and Enter steps through them. With no match, or with Ctrl or Command, Enter searches all memories.</span>
       </header>
 
-      <div className="relative flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,#ffffff,var(--background)_75%)]">
-        <GraphCanvas
-          ref={canvas}
-          nodes={visible.nodes}
-          edges={visible.edges}
-          showLabels={settings.showLabels}
-          showEdges={settings.showEdges}
-          forces={settings.forces}
-          selectedId={selectedId}
-          matches={matches}
-          insetBottom={narrow && selected ? SHEET_HEIGHT : 0}
-          onSelect={narrow ? select : setSelectedId}
-          onOpen={openById}
-        />
+      <div className="relative flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,var(--card),var(--background)_75%)]">
+        {stars
+          ? <StarCanvas ref={canvas} {...view} onUnavailable={onStarsUnavailable} />
+          : <GraphCanvas ref={canvas} {...view} />}
 
         {!data && !graphResult.error && <div className="absolute inset-0 grid"><GraphSkeleton /></div>}
         {((loading && data) || openingChunk) && (
           <div className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 text-xs text-muted-foreground shadow-lg backdrop-blur" role="status">
-            <Spinner className="size-3.5" /> {openingChunk ? "Opening chunk…" : `Loading ${kind ? KINDS[kind].label.toLowerCase() : "overview"}…`}
+            <Spinner className="size-3.5" /> {openingChunk ? "Opening chunk…" : searching ? "Searching memories…" : `Loading ${kind ? KINDS[kind].label.toLowerCase() : "overview"}…`}
           </div>
         )}
         {!loading && graphResult.error && (
@@ -314,7 +394,7 @@ function GraphPageContent() {
             </AlertAction>
           </Alert>
         )}
-        {empty && (
+        {empty && !searching && (
           <CenteredNote
             title={scope === "root" ? "No memories in this workspace yet" : "Nothing to show here"}
             description={scope === "root" ? (
@@ -337,14 +417,30 @@ function GraphPageContent() {
           </div>
         )}
 
+        {searching && !(narrow && selected) && (
+          <div className={resultsSheet ? "absolute inset-x-2 bottom-2 z-20 flex max-h-[55%]" : "absolute bottom-3 left-3 top-3 z-20 flex w-80"}>
+            <SearchResults
+              query={searchQuery(scope)}
+              hits={loading ? [] : hits}
+              loading={loading && !graphResult.error}
+              selectedId={selectedId}
+              searchPageHref={`/search/?${new URLSearchParams({ q: searchQuery(scope), ...(filters.project ? { project: filters.project } : {}), ...(filters.type ? { type: filters.type } : {}), ...(filters.mode === "semantic" ? { mode: "semantic" } : {}) })}`}
+              onPick={select}
+              onOpen={open}
+            />
+          </div>
+        )}
+
         {data && data.nodes.length > 0 && (
-          <div className={`absolute bottom-3 left-3 z-10 ${selected ? "hidden sm:block" : ""}`}>
+          <div className={`absolute bottom-3 left-3 z-10 ${searching ? "hidden sm:block sm:left-[21.5rem]" : selected ? "hidden sm:block" : ""}`}>
             <GraphLegend
               counts={counts}
               hidden={hidden}
               onToggle={(k) => setHidden((h) => { const next = new Set(h); if (next.has(k)) next.delete(k); else next.add(k); return next; })}
               edgeKinds={edgeKinds}
               shown={{ nodes: visible.nodes.length, edges: settings.showEdges ? visible.edges.length : 0 }}
+              more={data.more ?? []}
+              onMore={breadthApplies && settings.depth < 3 ? () => setSettings((s) => ({ ...s, depth: s.depth + 1 })) : undefined}
             />
           </div>
         )}
@@ -353,11 +449,11 @@ function GraphPageContent() {
           <GraphToolbar
             settings={settings}
             onSettings={setSettings}
-            breadthApplies={kind === "project" || kind === "topic" || kind === "source"}
+            breadthApplies={breadthApplies}
             onZoom={(r) => canvas.current?.zoomBy(r)}
             onFit={() => canvas.current?.fit()}
             onRelayout={() => canvas.current?.relayout()}
-            onReset={() => { setSettings(DEFAULT_SETTINGS); setHidden(new Set()); }}
+            onReset={() => { setSettings((s) => ({ ...DEFAULT_SETTINGS, mode: s.mode })); setHidden(new Set()); }}
           />
         </div>
 

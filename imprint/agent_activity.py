@@ -185,16 +185,93 @@ _SESSION_COLUMNS = """
 """
 
 
-def list_sessions(limit: int = 100) -> list[dict]:
-    """Connected sessions first, then the most recently active."""
+def _cursor(session: dict) -> str:
+    return f"{session['last_seen']!r}|{session['id']}"
+
+
+def _parse_cursor(cursor: str) -> tuple[float, str]:
+    """``<last_seen>|<id>`` from a page's ``next``; ValueError when malformed."""
+    seen, sep, sid = cursor.partition("|")
+    if not sep or not sid:
+        raise ValueError("cursor must be <last_seen>|<id>")
+    return float(seen), sid
+
+
+def _filters(client: str | None, query: str | None) -> tuple[str, list]:
+    """SQL conditions for a client name (as ``clients`` names it) and a
+    case-insensitive substring of the folder, workspace or client."""
+    sql, params = "", []
+    if client:
+        sql += " AND COALESCE(s.client, 'Unknown client') = ?"
+        params.append(client)
+    if query and query.strip():
+        like = "%" + query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        sql += (" AND (s.directory LIKE ? ESCAPE '\\' OR s.workspace LIKE ? ESCAPE '\\'"
+                " OR COALESCE(s.client, 'Unknown client') LIKE ? ESCAPE '\\')")
+        params += [like, like, like]
+    return sql, params
+
+
+def page_sessions(limit: int = 50, before: str | None = None, *, client: str | None = None,
+                  query: str | None = None) -> dict:
+    """One page of the session history (ADR 0151).
+
+    ``running`` holds every connected session, on the first page only, so
+    they stay at the top whatever the history holds. ``sessions`` holds the
+    others, most recently active first, ordered by ``(last_seen, id)``; a
+    finished session's ``last_seen`` no longer changes, so ``next`` (pass
+    it back as ``before``) resumes exactly where the page ended even while
+    new sessions arrive. ``total`` counts the history that matches.
+    """
+    empty = {"running": [], "sessions": [], "next": None, "total": 0}
+    if not _db_path().exists():
+        return empty
+    conn = _connect()
+    where, params = _filters(client, query)
+    open_rows = conn.execute(
+        f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s WHERE s.ended_at IS NULL{where}"
+        " ORDER BY s.last_seen DESC, s.id DESC", params).fetchall()
+    running = [s for s in map(_session, open_rows) if s["connected"]]
+    live = [s["id"] for s in running]
+    not_live = f" AND s.id NOT IN ({','.join('?' * len(live))})" if live else ""
+    total = conn.execute(f"SELECT COUNT(*) FROM agent_sessions s WHERE 1=1{where}{not_live}",
+                         [*params, *live]).fetchone()[0]
+    page_sql = f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s WHERE 1=1{where}{not_live}"
+    page_params = [*params, *live]
+    if before:
+        seen, sid = _parse_cursor(before)
+        page_sql += " AND (s.last_seen < ? OR (s.last_seen = ? AND s.id < ?))"
+        page_params += [seen, seen, sid]
+    limit = max(1, min(limit, 500))
+    rows = conn.execute(page_sql + " ORDER BY s.last_seen DESC, s.id DESC LIMIT ?",
+                        [*page_params, limit + 1]).fetchall()
+    sessions = [_session(row) for row in rows[:limit]]
+    return {
+        "running": [] if before else running,
+        "sessions": sessions,
+        "next": _cursor(sessions[-1]) if len(rows) > limit else None,
+        "total": total,
+    }
+
+
+def client_totals() -> list[dict]:
+    """Every session totalled by client: sessions, connected, calls, errors
+    and last activity, the clients with connected sessions first."""
     if not _db_path().exists():
         return []
-    rows = _connect().execute(
-        f"SELECT {_SESSION_COLUMNS} FROM agent_sessions s ORDER BY s.last_seen DESC LIMIT ?",
-        (max(1, min(limit, 500)),),
+    conn = _connect()
+    live = {row["id"] for row in conn.execute("SELECT id, pid FROM agent_sessions WHERE ended_at IS NULL")
+            if is_alive(row["pid"])}
+    rows = conn.execute(
+        """
+        SELECT s.id, COALESCE(s.client, 'Unknown client') AS client, s.last_seen,
+               COALESCE(c.calls, 0) AS calls, COALESCE(c.errors, 0) AS errors
+        FROM agent_sessions s
+        LEFT JOIN (SELECT session_id, COUNT(*) AS calls, SUM(ok = 0) AS errors
+                   FROM agent_calls GROUP BY session_id) c ON c.session_id = s.id
+        """
     ).fetchall()
-    sessions = [_session(row) for row in rows]
-    return sorted(sessions, key=lambda s: (not s["connected"], -s["last_seen"]))
+    return clients([{**dict(row), "connected": row["id"] in live} for row in rows])
 
 
 def get_session(session_id: str) -> dict | None:
@@ -220,7 +297,8 @@ def session_calls(session_id: str, limit: int = 200, before: int | None = None) 
 
 
 def clients(sessions: list[dict]) -> list[dict]:
-    """Sessions grouped by client: how many are connected, calls, last seen."""
+    """Sessions grouped by client: how many are connected, calls, last seen.
+    ``client_totals`` applies it to every recorded session."""
     grouped: dict[str, dict] = {}
     for s in sessions:
         name = s["client"] or "Unknown client"

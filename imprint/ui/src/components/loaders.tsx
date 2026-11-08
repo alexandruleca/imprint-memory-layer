@@ -2,34 +2,41 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner as SpinnerIcon } from "@/components/ui/spinner";
 
+/** The Home page's shape while its first summary loads. */
 export function DashboardSkeleton() {
   return (
-    <div className="p-8 space-y-8">
-      <Skeleton className="h-9 w-48" />
-      <div className="grid grid-cols-4 gap-5">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i} className="relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1 bg-muted-foreground/20" />
-            <CardHeader className="pb-2 pl-5">
-              <Skeleton className="h-4 w-24" />
-            </CardHeader>
-            <CardContent className="pl-5">
-              <Skeleton className="h-9 w-20" />
-            </CardContent>
-          </Card>
-        ))}
+    <div className="space-y-6" role="status" aria-label="Loading dashboard">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <Card className="gap-6 px-6 py-5">
+          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-12 w-44" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+            <Skeleton className="h-24 w-full md:max-w-sm" />
+          </div>
+        </Card>
+        <div className="grid grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="gap-2 px-4 py-3.5">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-7 w-16" />
+            </Card>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-6">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
           <Card key={i}>
             <CardHeader>
               <Skeleton className="h-4 w-20" />
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-2.5">
               {Array.from({ length: 5 }).map((_, j) => (
-                <div key={j} className="flex items-center gap-2">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-4 flex-1" />
+                <div key={j} className="flex items-center gap-3">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-2 flex-1" />
                   <Skeleton className="h-3 w-10" />
                 </div>
               ))}

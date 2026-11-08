@@ -24,9 +24,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs";
 import {
-  changeWorkspaceRoot, connectSSE, getOverview, getWorkspaces, getWorkspaceScope, listAllSources, SOURCE_LIMIT,
-  type ProjectMove, type SourceRow, type WorkspaceScope,
+  changeWorkspaceRoot, connectSSE, getWorkspaces, getWorkspaceScope, listAllSources, SOURCE_LIMIT,
+  type ProjectMove, type SourceRow,
 } from "@/lib/api";
+import { useCached } from "@/lib/use-cached";
+import { useProjectNames } from "@/lib/use-projects";
 import { useHashTab } from "@/lib/use-hash-tab";
 import { useReviewShortcuts } from "@/lib/use-review-shortcuts";
 import { useStoredNumber } from "@/lib/use-stored";
@@ -58,54 +60,44 @@ const SETTLE_MS = 4000;
 export default function SourcesPage() {
   const root = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const [data, setData] = useState<{ sources: SourceRow[]; total: number } | null>(null);
-  const [error, setError] = useState("");
-  const [scope, setScope] = useState<WorkspaceScope | null>(null);
-  const [scopeError, setScopeError] = useState("");
-  const [projects, setProjects] = useState<string[]>([]);
-  const [stale, setStale] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  // The list shows the last answer at once (ADR 0152) but is fetched again
+  // only on open and Refresh, so rows do not move under the cursor; a data
+  // change offers Refresh instead.
+  const list = useCached("sources", () => listAllSources(), { revalidateOnFocus: false, revalidateOnJobs: false });
+  const data = list.data ?? null;
+  const error = list.error && !data ? message(list.error) : "";
+  const reloading = list.refreshing;
+  const scopeCache = useCached("workspace-scope", () => getWorkspaces().then((ws) => getWorkspaceScope(ws.active)),
+    { workspaceOf: (answer) => answer.workspace });
+  const scope = scopeCache.data ?? null;
+  const scopeError = scopeCache.error && !scope ? message(scopeCache.error) : "";
+  const setScope = scopeCache.mutate;
+  const { names: projects, refresh: refreshProjects } = useProjectNames();
+  /** When the API last reported a data change, and the list a change was made to (associations). */
+  const [changedAt, setChangedAt] = useState(0);
+  const [markedAt, setMarkedAt] = useState<number | null>(null);
+  const stale = !!list.updatedAt && (changedAt - list.updatedAt > SETTLE_MS || markedAt === list.updatedAt);
   const [tabs, setTabs] = useState<Record<ListTab, ReviewTabState>>(() => ({ indexed: reviewTab(SOURCE_TAB), excluded: reviewTab() }));
   const [reading, setReading] = useState<ReaderTarget | null>(null);
   const [moving, setMoving] = useState<{ project: string; sources: string[] } | null>(null);
-  const [migrating, setMigrating] = useState<string | null>(null);
+  const [migrating, setMigrating] = useState<string[] | null>(null);
   const [linking, setLinking] = useState<{ source: string; project: string } | null>(null);
   const [purging, setPurging] = useState<{ initial: PurgeTarget | null } | null>(null);
   const [allowing, setAllowing] = useState(false);
   const [help, setHelp] = useState(false);
   const [linkedTab, openTab] = useHashTab(TABS);
   const [size, setSize] = useStoredNumber("imprint.review.page-size", 20, PAGE_SIZES);
-  const loadedAt = useRef(0);
   const tab: Tab = linkedTab ?? "indexed";
 
-  const absorb = useCallback((list: { sources: SourceRow[]; total: number }, names: string[] | null) => {
-    setData(list);
-    setError("");
-    setStale(false);
-    loadedAt.current = Date.now();
-    if (names) setProjects(names);
+  useEffect(() => {
+    const events = connectSSE(() => setChangedAt(Date.now()));
+    return () => events.close();
   }, []);
 
-  useEffect(() => {
-    let live = true;
-    Promise.all([listAllSources(), getOverview().catch(() => null)])
-      .then(([list, overview]) => { if (live) absorb(list, overview ? overview.projects.map((p) => p.name) : null); },
-            (e) => { if (live) setError(message(e)); });
-    getWorkspaces().then((ws) => getWorkspaceScope(ws.active))
-      .then((next) => { if (live) setScope(next); }, (e) => { if (live) setScopeError(message(e)); });
-    const events = connectSSE(() => { if (Date.now() - loadedAt.current > SETTLE_MS) setStale(true); });
-    return () => { live = false; events.close(); };
-  }, [absorb]);
-
+  const { refresh: refreshList } = list;
   const reload = useCallback(async () => {
-    setReloading(true);
-    try {
-      const [list, overview] = await Promise.all([listAllSources(), getOverview().catch(() => null)]);
-      absorb(list, overview ? overview.projects.map((p) => p.name) : null);
-    } catch (e) {
-      setError(message(e));
-    } finally { setReloading(false); }
-  }, [absorb]);
+    await Promise.all([refreshList(), refreshProjects()]);
+  }, [refreshList, refreshProjects]);
 
   const patchTab = useCallback((which: ListTab, patch: Partial<ReviewTabState>) => {
     setTabs((prev) => ({ ...prev, [which]: { ...prev[which], ...patch } }));
@@ -146,7 +138,7 @@ export default function SourcesPage() {
     onRead: read,
     onMove: (row: SourceRow) => { if (row.project) setMoving({ project: row.project, sources: [row.source] }); },
     onLink: (row: SourceRow) => setLinking({ source: row.source, project: row.project ?? "" }),
-    onMigrate: (row: SourceRow) => setMigrating(row.source),
+    onMigrate: (row: SourceRow) => setMigrating([row.source]),
     onPurge: (row: SourceRow) => setPurging({ initial: { target: row.source, kind: "source", recursive: false } }),
     onGraph: (row: SourceRow) => router.push(`/graph/?scope=${encodeURIComponent(`source:${row.source}`)}`),
   };
@@ -160,7 +152,7 @@ export default function SourcesPage() {
   return (
     <Announcer>
       <div ref={root} className="@container/page flex min-h-full flex-col lg:h-full">
-        <ReviewHeader title="Sources" count={data?.total} info={INFO} infoLabel="About Sources" />
+        <ReviewHeader title="Sources" count={data?.total} info={INFO} infoLabel="About Sources" updating={reloading} />
         {error && (
           <div className="px-4 pb-3 sm:px-8">
             <Alert variant="destructive">
@@ -192,6 +184,7 @@ export default function SourcesPage() {
                 <SourceList sources={data.sources} state={tabs.indexed} onState={(patch) => patchTab("indexed", patch)}
                   size={size} onSize={onSize} root={root} label="Indexed sources" actions={actions}
                   onMove={(rows) => setMoving({ project: rows[0].project ?? "", sources: rows.map((row) => row.source) })}
+                  onMigrate={setMigrating}
                   empty={(
                     <ReviewEmpty title="Nothing is indexed yet."
                       description={<>Ingest a project or learn your conversations from <Link href="/commands/" className="underline underline-offset-2">Commands</Link>.</>} />
@@ -216,9 +209,9 @@ export default function SourcesPage() {
       </div>
       <ProjectMoveDialog open={moving !== null} project={moving?.project ?? ""} sources={moving?.sources ?? null}
         projects={projects} onClose={() => setMoving(null)} onMoved={moved} />
-      <MigrateDialog open={migrating !== null} preset={{ mode: "source", value: migrating ?? "" }}
+      <MigrateDialog open={migrating !== null} preset={{ mode: "source", values: migrating ?? [] }}
         onClose={() => setMigrating(null)} onDone={() => setMigrating(null)} />
-      {linking && <ProjectAssociations initial={linking} onClose={() => setLinking(null)} onChanged={() => setStale(true)} />}
+      {linking && <ProjectAssociations initial={linking} onClose={() => setLinking(null)} onChanged={() => setMarkedAt(list.updatedAt)} />}
       <PurgeDialog open={purging !== null} initial={purging?.initial} onClose={() => setPurging(null)}
         onPurged={(result) => {
           setPurging(null);

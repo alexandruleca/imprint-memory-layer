@@ -1,11 +1,12 @@
-/* Echo follows the dashboard's light theme. The desktop companion floats over
- * other windows, so .voice-compact keeps a dark glass palette. The settings
+/* Echo follows the dashboard's theme, light or dark (ADR 0154). The desktop
+ * companion floats over other windows, so .voice-compact keeps a dark glass
+ * palette in both. The settings
  * panel is portaled out of the surface, so it carries the same palettes. */
 .voice-surface,.voice-options {
   --echo-bg: var(--background);
   --echo-ink: var(--foreground);
   --echo-muted: var(--muted-foreground);
-  --echo-faint: oklch(0.62 0 0);
+  --echo-faint: oklch(0.53 0 0);
   --echo-accent: #0a78a6;
   --echo-glow: #2fb3e8;
   --echo-halo: #2fb3e81c;
@@ -19,6 +20,16 @@
   --echo-cta-hover: oklch(0.3 0 0);
   --echo-error: var(--destructive);
   --echo-shadow: 0 1px 2px #0000000a, 0 8px 28px #0000000d;
+}
+.dark .voice-surface:not(.voice-compact),.dark .voice-options:not(.voice-options-compact) {
+  --echo-faint: oklch(0.66 0 0);
+  --echo-accent: #8bd3f0;
+  --echo-glow: #5cc6f2;
+  --echo-halo: #5cc6f222;
+  --echo-line-strong: oklch(0.36 0 0);
+  --echo-selected: #10283a;
+  --echo-cta-hover: oklch(0.84 0 0);
+  --echo-shadow: 0 1px 2px #0006, 0 8px 28px #0005;
 }
 .voice-surface {
   position: relative;

@@ -123,7 +123,7 @@ export function WslProfiles() {
                   <li key={c.name} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                     <span className="min-w-28 text-sm font-medium">{profile.label}</span>
                     {c.enrolled ? (
-                      <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">Enrolled</Badge>
+                      <Badge variant="secondary" className="bg-success/10 text-success">Enrolled</Badge>
                     ) : (
                       <span className="text-xs text-muted-foreground">{c.profile ? "Not enrolled" : "No profile"}</span>
                     )}
@@ -154,7 +154,7 @@ export function WslProfiles() {
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <span className="text-sm font-medium">{job.title}</span>
             {job.state === "running" && <Badge variant="secondary" className="gap-1"><Spinner className="size-3" />Running</Badge>}
-            {job.state === "done" && <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">Succeeded</Badge>}
+            {job.state === "done" && <Badge variant="secondary" className="bg-success/10 text-success">Succeeded</Badge>}
             {job.state === "failed" && <Badge variant="destructive">Failed</Badge>}
           </div>
           <ScrollArea className="h-40 bg-muted/30" viewportRef={log}>

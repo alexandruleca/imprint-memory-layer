@@ -156,10 +156,10 @@ export function QuickIngest() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Add to memory</CardTitle>
+      <CardHeader className="max-sm:has-data-[slot=card-action]:grid-cols-1">
+        <CardTitle><h2>Add to memory</h2></CardTitle>
         <CardDescription>Index something new. It runs in the queue, one job at a time.</CardDescription>
-        <CardAction>
+        <CardAction className="max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:-ml-2.5 max-sm:justify-self-start">
           <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/commands/" />} className="text-muted-foreground">
             Refresh, retag and more <ArrowRight aria-hidden />
           </Button>
@@ -171,7 +171,7 @@ export function QuickIngest() {
           spacing={2}
           value={active ? [active] : []}
           onValueChange={(value) => selectAction(value[0])}
-          className="grid w-full grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
+          className="grid w-full grid-cols-2 sm:grid-cols-3 xl:grid-cols-5"
         >
           {ACTIONS.map((a) => {
             const Icon = a.icon;
@@ -187,7 +187,7 @@ export function QuickIngest() {
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{a.label}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">{a.desc}</span>
+                  <span className="hidden truncate text-[11px] text-muted-foreground sm:block">{a.desc}</span>
                 </span>
               </ToggleGroupItem>
             );
@@ -268,8 +268,8 @@ export function QuickIngest() {
             </div>
 
             {status.kind === "enqueued" && (
-              <Alert role="status" className="border-emerald-600/30 bg-emerald-50">
-                <CheckCircle2 className="text-emerald-700" aria-hidden />
+              <Alert role="status" className="border-success/30 bg-success/10">
+                <CheckCircle2 className="text-success" aria-hidden />
                 <AlertDescription className="flex items-center gap-2 text-xs text-foreground">
                   <span className="flex-1">
                     {status.merged ? (
@@ -289,7 +289,7 @@ export function QuickIngest() {
                   </span>
                   <Link
                     href="/queue"
-                    className="text-emerald-700 no-underline underline-offset-2 hover:underline shrink-0"
+                    className="text-success no-underline underline-offset-2 hover:underline shrink-0"
                   >
                     view queue
                   </Link>

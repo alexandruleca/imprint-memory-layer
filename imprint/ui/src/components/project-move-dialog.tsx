@@ -120,7 +120,7 @@ function ProjectMoveDialogContent({ project, sources, projects, onClose, onMoved
               </ul>
             )}
             <p className="text-xs text-muted-foreground">
-              To undo, move them back. Paired devices keep their own project layout.
+              To undo, move them back. Paired devices make the same move when they next sync.
             </p>
           </div>
         )}

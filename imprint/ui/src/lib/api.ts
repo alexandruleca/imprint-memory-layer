@@ -79,8 +79,10 @@ export class ApiError extends Error {
 
 import type {
   OverviewData,
+  ProjectList,
   TopicOverviewData,
   TopicDetailData,
+  TopicSort,
   SourceEntry,
   SourceLineage,
   SourcesData,
@@ -96,6 +98,7 @@ import type {
   BackgroundTagging,
   QueueJob,
   QueueResponse,
+  QueueHistory,
   GraphScopeData,
 } from "./types";
 
@@ -108,6 +111,12 @@ export async function getOverview(filters?: Record<string, string[]>): Promise<O
   }
   const qs = params.toString();
   return fetchAPI(`/api/overview${qs ? `?${qs}` : ""}`);
+}
+
+/** Every project with its memory count and colour, largest first (GET /api/projects). */
+export async function getProjects(): Promise<ProjectList> {
+  const list = await fetchAPI<Partial<ProjectList>>("/api/projects");
+  return { projects: Array.isArray(list?.projects) ? list.projects : [], total: list?.total ?? 0 };
 }
 
 export async function getProjectDetail(name: string) {
@@ -412,21 +421,57 @@ export async function getTimeline(project = "", limit = 500) {
 
 // ── Topics ─────────────────────────────────────────────────────
 
-export async function getTopics(filters?: Record<string, string[]>): Promise<TopicOverviewData> {
+/** One page of topics, searched by name and sorted on the server (ADR 0150). */
+export async function getTopics(
+  page: { q?: string; sort?: TopicSort; offset?: number; limit?: number } = {},
+  filters?: Record<string, string[]>,
+  signal?: AbortSignal,
+): Promise<TopicOverviewData> {
   const params = new URLSearchParams();
   if (filters) {
     for (const [key, vals] of Object.entries(filters)) {
       vals.forEach((v) => params.append(key, v));
     }
   }
+  if (page.q) params.set("q", page.q);
+  if (page.sort) params.set("sort", page.sort);
+  if (page.offset) params.set("offset", String(page.offset));
+  if (page.limit) params.set("limit", String(page.limit));
   const qs = params.toString();
-  return fetchAPI(`/api/topics${qs ? `?${qs}` : ""}`);
+  return fetchAPI(`/api/topics${qs ? `?${qs}` : ""}`, { signal });
 }
 
-/** A topic's memories grouped by source; `project` limits them to one project. */
-export async function getTopicDetail(name: string, project?: string | null): Promise<TopicDetailData> {
-  const q = project == null ? "" : `?project=${encodeURIComponent(project)}`;
-  return fetchAPI(`/api/topic/${encodeURIComponent(name)}${q}`);
+/** A topic's memories grouped by source; `project` limits them to one project.
+ * With `limit` only that page of sources comes, optionally searched by `q`. */
+export async function getTopicDetail(
+  name: string, project?: string | null,
+  page?: { offset?: number; limit?: number; q?: string }, signal?: AbortSignal,
+): Promise<TopicDetailData> {
+  const params = new URLSearchParams();
+  if (project != null) params.set("project", project);
+  if (page?.limit) params.set("limit", String(page.limit));
+  if (page?.offset) params.set("offset", String(page.offset));
+  if (page?.q) params.set("q", page.q);
+  const qs = params.toString();
+  return fetchAPI(`/api/topic/${encodeURIComponent(name)}${qs ? `?${qs}` : ""}`, { signal });
+}
+
+export type MigrateMode = "project" | "topic" | "source";
+export type MigratePreview = {
+  from: string; to: string; mode: MigrateMode;
+  /** False when the target is a new workspace the run would create. */
+  target_exists: boolean;
+  /** Memories selected, each counted once. */
+  total: number;
+  /** Of those, how many the target already holds (rewritten, not duplicated). */
+  existing: number;
+  sources: number;
+  projects: [string, number][];
+  items: { value: string; memories: number; sources: number }[];
+};
+/** Count what copying or moving `values` between workspaces would take; changes nothing. */
+export function previewMigrate(body: { from: string; to: string; mode: MigrateMode; values: string[] }, signal?: AbortSignal) {
+  return fetchAPI<MigratePreview>("/api/migrate/preview", { method: "POST", body: JSON.stringify(body), signal });
 }
 
 /** A source's full snapshot in readable blocks, marked where `topic` applies. */
@@ -550,7 +595,7 @@ export function migrateContent(
     dryRun?: boolean;
   },
   onEvent: (ev: Record<string, unknown>) => void,
-): AbortController {
+): ReturnType<typeof streamCommand> {
   return streamCommand(
     "migrate",
     {
@@ -759,6 +804,19 @@ export async function enqueueCommand(
   }
 }
 
+/** Queue a finished job again: same command, arguments and workspace
+ * (POST /api/jobs/{id}/retry). Like enqueueCommand it joins an identical
+ * waiting job, and asks to approve a root the workspace no longer has. */
+export async function retryJob(jobId: string): Promise<QueuedJob & { retry_of: string }> {
+  try {
+    return await fetchAPI(`/api/jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST", body: JSON.stringify({}) });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.body.code !== "root_not_approved") throw error;
+    if (!(await requestRootApproval(error.body as RootRequest))) throw error;
+    return retryJob(jobId);
+  }
+}
+
 export async function cancelJob(
   jobId: string,
 ): Promise<{ ok: boolean; was_running?: boolean; error?: string }> {
@@ -770,6 +828,19 @@ export async function cancelJob(
 
 export async function getQueue(recentLimit = 20): Promise<QueueResponse> {
   return fetchAPI(`/api/queue?recent_limit=${recentLimit}`);
+}
+
+/** One page of finished jobs, newest first. `before` is the previous
+ * page's `next`; `status` keeps one outcome; `bounds` (period starts in epoch seconds, newest first)
+ * adds `counts` per period and for everything older. */
+export async function getQueueHistory({ limit = 25, before, bounds, status }: {
+  limit?: number; before?: string | null; bounds?: number[]; status?: "done" | "failed" | "cancelled";
+} = {}): Promise<QueueHistory> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (status) query.set("status", status);
+  if (before) query.set("before", before);
+  if (bounds?.length) query.set("bounds", bounds.map((b) => Math.floor(b)).join(","));
+  return fetchAPI(`/api/queue/history?${query}`);
 }
 
 /** Start background tagging again after a cancel or a failure. */
@@ -962,11 +1033,60 @@ export type AgentCall = {
   ok: number; error: string | null; arguments: string | null; result_chars: number | null;
 };
 
-export function getAgents(limit = 100) {
-  return fetchAPI<{ sessions: AgentSession[]; clients: AgentClient[] }>(`/api/agents?limit=${limit}`);
+/** One page of agent sessions (ADR 0151): `running` (connected, first page
+ * only), `sessions` (the rest by last activity), `next` (pass as `before`
+ * for the page after), `total` (matching history) and `clients` (totals of
+ * every session). */
+export type AgentsPage = { running: AgentSession[]; sessions: AgentSession[]; next: string | null; total: number; clients: AgentClient[] };
+export function getAgents({ limit = 50, before, client, q }: { limit?: number; before?: string; client?: string; q?: string } = {}) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (before) qs.set("before", before);
+  if (client) qs.set("client", client);
+  if (q) qs.set("q", q);
+  return fetchAPI<AgentsPage>(`/api/agents?${qs}`);
 }
 export function getAgentCalls(sessionId: string, before?: number, limit = 100) {
   const qs = new URLSearchParams({ limit: String(limit) });
   if (before !== undefined) qs.set("before", String(before));
   return fetchAPI<{ session: AgentSession; calls: AgentCall[] }>(`/api/agents/${encodeURIComponent(sessionId)}/calls?${qs}`);
+}
+
+// ── Home summary (ADR 0152) ────────────────────────────────────
+
+/** A workspace at a glance: GET /api/dashboard, served from a snapshot. */
+export type DashboardSummary = {
+  workspace: string;
+  total: number;
+  project_count: number;
+  /** The largest groups, [name, memories], largest first (at most 10 each). */
+  projects: [string, number][];
+  types: [string, number][];
+  langs: [string, number][];
+  lang_count: number;
+  domains: [string, number][];
+  domain_count: number;
+  layers: [string, number][];
+  topics: [string, number][];
+  topic_count: number;
+  source_count: number;
+  /** Memories waiting for background LLM tagging. */
+  tag_pending: number;
+  /** Memories stored in the last 7 days. */
+  added_7d: number;
+  /** Memories stored per calendar month, the last 12, oldest first ("2026-11"). */
+  timeline: { month: string; count: number }[];
+  /** Sources of the newest memories, newest first. */
+  recent: { source: string; project: string; type: string; timestamp: number | null; memories: number; title: string }[];
+  /** When the snapshot was built (epoch seconds) and its age in seconds when served. */
+  built_at: number;
+  age: number;
+  /** A newer snapshot is due or being built; ask again shortly. */
+  stale: boolean;
+  refreshing: boolean;
+  refresh_error?: string;
+};
+
+/** The active workspace's summary; `fresh` waits for an up-to-date one. */
+export function getDashboard({ fresh = false }: { fresh?: boolean } = {}) {
+  return fetchAPI<DashboardSummary>(`/api/dashboard${fresh ? "?fresh=1" : ""}`);
 }

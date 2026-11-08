@@ -30,7 +30,7 @@ def cli_arguments(arguments, distribution, mounts=''):
         indexes = range(1, len(result))
     elif result[:2] == ['workspace', 'map']:
         indexes = [3] if len(result) > 3 else []
-    elif result[:2] == ['config', 'set'] and len(result) > 3 and result[2] in {'chat.model_path', 'tagger.local.model_path'}:
+    elif result[:2] == ['config', 'set'] and len(result) > 3 and result[2] in {'chat.model_path', 'chat.local_model', 'tagger.local.model_path'}:
         indexes = [3]
     elif result and result[0] == 'learn':
         indexes = [i + 1 for i, arg in enumerate(result[:-1]) if arg == '--path']

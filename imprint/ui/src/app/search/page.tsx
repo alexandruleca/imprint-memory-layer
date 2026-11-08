@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { SearchIcon } from "lucide-react";
+import { Network, SearchIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -16,6 +16,7 @@ import { CardGridSkeleton, Spinner } from "@/components/loaders";
 import { ChunkDialog } from "@/components/chunk-dialog";
 import { SourceReader, type ReaderTarget } from "@/components/source-reader";
 import type { MemoryNode } from "@/lib/types";
+import { searchHref } from "../graph/_components/graph-search";
 
 // "All types" is no type filter; Base UI keeps null for "nothing selected".
 const TYPES = [
@@ -57,7 +58,10 @@ export default function SearchPage() {
 
   async function doSearch(event: React.FormEvent) {
     event.preventDefault();
-    const text = query.trim();
+    await run(query.trim(), { project: project.trim(), type, mode });
+  }
+
+  async function run(text: string, filters: { project: string; type: string; mode: "hybrid" | "semantic" }) {
     if (!text) return;
     request.current?.abort();
     const controller = new AbortController();
@@ -70,7 +74,7 @@ export default function SearchPage() {
     setResults([]);
     setSubmitted(text);
     try {
-      const data = await searchMemories(text, { project: project.trim(), type, mode, signal: controller.signal });
+      const data = await searchMemories(text, { ...filters, signal: controller.signal });
       if (controller.signal.aborted) return;
       setResults(data.nodes);
       setSelected(data.nodes[0] ?? null);
@@ -80,6 +84,20 @@ export default function SearchPage() {
       if (!controller.signal.aborted) setLoading(false);
     }
   }
+
+  // The graph's results link here with ?q= and its filters: search at once,
+  // after the first render (the page is prerendered without an address).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q")?.trim();
+    if (!q) return;
+    const given = { project: params.get("project") ?? "", type: params.get("type") ?? "", mode: params.get("mode") === "semantic" ? "semantic" as const : "hybrid" as const };
+    const timer = setTimeout(() => {
+      setQuery(q); setProject(given.project); setType(given.type); setMode(given.mode);
+      void run(q, given);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   async function openFull() {
     if (!selected || opening) return;
@@ -136,9 +154,16 @@ export default function SearchPage() {
         </div>
       </form>
       {error && <Alert variant="destructive" aria-label="Search error">{error} Submit the search to retry.</Alert>}
-      <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-        {loading ? `Searching for “${submitted}”…` : submitted && !error ? `${results.length} ${results.length === 1 ? "result" : "results"} for “${submitted}”` : "Your memories stay in the selected workspace."}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+          {loading ? `Searching for “${submitted}”…` : submitted && !error ? `${results.length} ${results.length === 1 ? "result" : "results"} for “${submitted}”` : "Your memories stay in the selected workspace."}
+        </p>
+        {submitted && !loading && !error && results.length > 0 && (
+          <Link href={searchHref(submitted, { project: project.trim(), type, mode })} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <Network aria-hidden /> Open in graph
+          </Link>
+        )}
+      </div>
       {/* Results flow with the page; beside them the details stay in view. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5" aria-busy={loading}>
         <section aria-label="Search results" className="space-y-2">

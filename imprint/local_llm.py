@@ -24,12 +24,13 @@ def download(repo: str, filename: str, target: Path, progress_cb=None) -> Path:
     from .downloads import verify_archive
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    pinned = repo == profiles.HELPER_REPO and filename == profiles.HELPER_FILE
-    revision = profiles.HELPER_REVISION if pinned else "main"
+    pin = profiles.pinned(repo, filename)
+    pinned = pin is not None
+    revision, sha256 = pin if pin else ("main", None)
     with FileLock(str(target) + ".lock"):
         if target.exists():
             if pinned:
-                verify_archive(target, profiles.HELPER_SHA256)
+                verify_archive(target, sha256)
             return target
         fd, name = tempfile.mkstemp(dir=target.parent, suffix=".part")
         import os
@@ -50,7 +51,7 @@ def download(repo: str, filename: str, target: Path, progress_cb=None) -> Path:
                         if progress_cb:
                             progress_cb(done, total)
             if pinned:
-                verify_archive(tmp, profiles.HELPER_SHA256)
+                verify_archive(tmp, sha256)
             tmp.replace(target)
         finally:
             tmp.unlink(missing_ok=True)
@@ -94,6 +95,16 @@ def load(path: Path, n_ctx: int, n_gpu_layers: int, *, expected_sha256: str | No
             raise
         _models[key] = llm
         return llm
+
+
+def release(path: Path) -> None:
+    """Forget every loaded configuration of ``path``. A caller still holding
+    the model (a reply in progress) keeps it until it is done; the weights
+    are freed when the last reference goes."""
+    resolved = str(Path(path).resolve())
+    with _load_lock:
+        for key in [key for key in _models if key[0] == resolved]:
+            del _models[key]
 
 
 def fit_messages(llm, messages: list[dict], max_tokens: int, tools: list[dict] | None = None) -> list[dict]:

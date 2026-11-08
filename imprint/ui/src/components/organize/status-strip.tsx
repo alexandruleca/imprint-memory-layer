@@ -102,11 +102,11 @@ export function StatusStrip({ review, running, lock, core, conflicts = 0, arrive
           : <span>Every move waits for your review.</span>}
         <span aria-hidden className="text-muted-foreground">·</span>
         <Link href="/settings/#settings-organize" className="underline underline-offset-2">Settings ↗</Link>
-        {lock && <span className="text-amber-700">· Moves wait while {lock} runs; Keep here still works</span>}
+        {lock && <span className="text-warning">· Moves wait while {lock} runs; Keep here still works</span>}
         {arrived > 0 && <span className="text-muted-foreground">· {arrived} new {arrived === 1 ? "proposal" : "proposals"} arrived</span>}
         <span className="flex-1" />
         {conflicts > 0 && (
-          <Link href="/core/#conflicts" className="inline-flex items-center gap-1 font-medium text-amber-700 underline underline-offset-2">
+          <Link href="/core/#conflicts" className="inline-flex items-center gap-1 font-medium text-warning underline underline-offset-2">
             {conflicts} {conflicts === 1 ? "conflict" : "conflicts"} to settle
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>

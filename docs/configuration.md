@@ -144,6 +144,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chat.provider` | `local` | Chat provider: local / vllm / openai / ollama / gemini / anthropic |
 | `chat.model` | — | Model name for remote providers (default per provider) |
 | `chat.base_url` | — | Base URL override for OpenAI-compat providers |
+| `chat.local_model` | `default` | Local chat model: `default` (Qwen3.5 4B through `chat.model_repo`/`chat.model_file`/`chat.model_path`), `qwen3.5-35b-a3b` (pinned 22 GB MoE, offered with 32 GB of memory), or a custom GGUF: a path, `<owner>/<repo>/<file>.gguf` or a Hugging Face file URL ([ADR 0153](adr/0153-chat-offers-a-larger-qwen-moe-and-custom-models.md)) |
 | `chat.model_repo` | `unsloth/Qwen3.5-4B-GGUF` | HF repo for GGUF auto-download (local provider) |
 | `chat.model_file` | `Qwen3.5-4B-Q4_K_M.gguf` | GGUF filename within the repo |
 | `chat.model_path` | — | Absolute path to a local GGUF (overrides repo/file) |

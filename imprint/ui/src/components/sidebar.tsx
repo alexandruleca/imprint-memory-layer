@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { LogoMark } from "./logo-mark";
 import {
   LayoutDashboard,
@@ -25,6 +25,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
+import { useCached } from "@/lib/use-cached";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/hint";
 import type { HaloLayout, LauncherRecorder, LauncherState } from "@/lib/launcher";
@@ -42,6 +43,8 @@ declare global {
       quit: () => void;
       minimize: () => void;
       maximize: () => void;
+      /** The desktop app follows the dashboard's theme choice (ADR 0154). */
+      setTheme?: (choice: "light" | "dark" | "system") => void;
       openCompanion: () => void;
       closeCompanion: () => void;
       pinCompanion: (pinned: boolean) => void;
@@ -236,17 +239,12 @@ function TrafficLights() {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [version, setVersion] = useState<string>("");
+  // The same in every workspace; kept across pages and reloads (ADR 0152).
+  const version = useCached("version", getVersion, { global: true, revalidateOnFocus: false, revalidateOnJobs: false, dedupeMs: 60_000 }).data?.version ?? "";
   const collapsedRaw = useSyncExternalStore(subscribeCollapsed, readCollapsed, () => "");
   const collapsed = useMemo(() => parseCollapsed(collapsedRaw), [collapsedRaw]);
 
   const isElectron = useSyncExternalStore(() => () => {}, () => !!window.electronAPI?.isElectron, () => false);
-
-  useEffect(() => {
-    getVersion()
-      .then((d) => setVersion(d.version))
-      .catch(() => setVersion(""));
-  }, []);
 
   return (
     <aside className="w-16 sm:w-56 border-r border-border bg-card flex flex-col shrink-0 overflow-y-auto z-30">
@@ -308,8 +306,8 @@ export function Sidebar() {
           </Hint>
         </div>
       )}
-      <div className="p-3 border-t border-border text-xs text-muted-foreground">
-        Imprint {version ? version : "…"}
+      <div className="truncate border-t border-border p-3 text-center text-[11px] text-muted-foreground sm:text-left sm:text-xs" title={version ? `Imprint ${version}` : undefined}>
+        <span className="hidden sm:inline">Imprint </span>{version || "…"}
       </div>
     </aside>
   );

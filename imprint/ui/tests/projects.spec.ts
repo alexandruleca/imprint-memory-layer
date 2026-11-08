@@ -35,7 +35,7 @@ test('a project created by a finished job appears without a reload', async ({ pa
   let changed = false;
   let announce!: () => void;
   const ready = new Promise<void>(resolve => { announce = resolve; });
-  await page.route('**/api/overview', route => route.fulfill({
+  await page.route('**/api/{overview,projects}', route => route.fulfill({
     json: changed ? overview(project('Desktop', 7), project('fresh', 3)) : overview(project('Desktop', 7)),
   }));
   await page.route('**/api/stream', async route => {
@@ -52,7 +52,7 @@ test('a project created by a finished job appears without a reload', async ({ pa
 
 test('selected sources move to a new project after review and confirmation', async ({ page }) => {
   await quietStream(page);
-  await page.route('**/api/overview', route => route.fulfill({ json: overview(project('Desktop', 7), project('Documents', 3)) }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: overview(project('Desktop', 7), project('Documents', 3)) }));
   const requests: Record<string, unknown>[] = [];
   await page.route('**/api/projects/move', async route => {
     const body = route.request().postDataJSON();
@@ -87,7 +87,7 @@ test('selected sources move to a new project after review and confirmation', asy
 test('a whole project merges into an existing one and the page follows it', async ({ page }) => {
   await quietStream(page);
   let merged = false;
-  await page.route('**/api/overview', route => route.fulfill({
+  await page.route('**/api/{overview,projects}', route => route.fulfill({
     json: merged ? overview(project('Documents', 10)) : overview(project('Desktop', 7), project('Documents', 3)),
   }));
   await page.route('**/api/projects/move', async route => {

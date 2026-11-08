@@ -24,13 +24,14 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs";
 import {
-  addCoreMemory, changeCoreMemory, getCoreMemories, getStats, resolveCoreConflict,
+  addCoreMemory, changeCoreMemory, getCoreMemories, resolveCoreConflict,
   type CoreKeep, type CoreKind, type CoreMemories, type CoreMemory,
 } from "@/lib/api";
 import { useHashTab } from "@/lib/use-hash-tab";
 import { useReviewShortcuts } from "@/lib/use-review-shortcuts";
 import { useStoredNumber } from "@/lib/use-stored";
 import { useDecisions } from "@/lib/write-queue";
+import { useProjectNames } from "@/lib/use-projects";
 
 const INFO = (
   <div className="space-y-2">
@@ -289,7 +290,7 @@ export default function CoreMemoriesPage() {
   const root = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<CoreMemories | null>(null);
   const [error, setError] = useState("");
-  const [projects, setProjects] = useState<string[]>([]);
+  const projects = useProjectNames({ order: "name" }).names;
   const [tabs, setTabs] = useState<Record<Tab, ReviewTabState>>(
     () => Object.fromEntries(TABS.map((t) => [t, reviewTab()])) as Record<Tab, ReviewTabState>);
   const [editing, setEditing] = useState<string | null>(null);
@@ -341,7 +342,6 @@ export default function CoreMemoriesPage() {
   useEffect(() => {
     let live = true;
     getCoreMemories().then((next) => { if (live) absorb(next); }, (e) => { if (live) setError(message(e)); });
-    getStats().then((s) => { if (live) setProjects(s.projects.map(([name]) => name).filter(Boolean).sort()); }).catch(() => {});
     return () => { live = false; };
   }, [absorb]);
 
@@ -484,7 +484,7 @@ export default function CoreMemoriesPage() {
             <div className="mx-4 mb-3 space-y-1.5 sm:mx-8">
               <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span>Each session receives up to {data.budget.toLocaleString()} tokens of guidelines</span>
-                <span className={left ? "font-medium text-amber-700 tabular-nums" : "tabular-nums"}>
+                <span className={left ? "font-medium text-warning tabular-nums" : "tabular-nums"}>
                   {shownUsed.toLocaleString()} used by the guidelines for every project
                   {left > 0 && ` · ${left} every-project ${left === 1 ? "guideline doesn't" : "guidelines don't"} fit in a session`}
                 </span>

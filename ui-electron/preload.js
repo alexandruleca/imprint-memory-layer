@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   quit:       () => ipcRenderer.send('app-quit'),
   minimize:   () => ipcRenderer.send('win-minimize'),
   maximize:   () => ipcRenderer.send('win-maximize'),
+  // The dashboard's theme choice: 'light', 'dark' or 'system' (ADR 0154).
+  setTheme:   choice => ipcRenderer.send('theme-set', choice),
   openCompanion: () => ipcRenderer.send('voice-open-companion'),
   closeCompanion: () => ipcRenderer.send('voice-close-companion'),
   pinCompanion: pinned => ipcRenderer.send('voice-pin-companion', pinned),

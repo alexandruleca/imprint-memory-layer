@@ -6,7 +6,7 @@ test('project suggestions show evidence, persist decisions and queue optional lo
   await page.route('**/api/workspaces', r => r.fulfill({ json: { active: 'alpha', workspaces: ['alpha'] } }));
   await page.route('**/api/queue**', r => r.fulfill({ json: { active: null, queued: [], recent: [] } }));
   await page.route('**/api/stream', r => r.fulfill({ status: 204 }));
-  await page.route('**/api/overview', r => r.fulfill({ json: { projects: [], total: 0, facets: {} } }));
+  await page.route('**/api/{overview,projects}', r => r.fulfill({ json: { projects: [], total: 0, facets: {} } }));
   const decisions: Record<string, unknown>[] = [];
   const scans: Record<string, unknown>[] = [];
   let status = 'suggested';
@@ -52,7 +52,7 @@ test('linked sources identify their canonical project and cannot be moved from a
   await page.route('**/api/workspaces', r => r.fulfill({ json: { active: 'alpha', workspaces: ['alpha'] } }));
   await page.route('**/api/queue**', r => r.fulfill({ json: { active: null, queued: [], recent: [] } }));
   await page.route('**/api/stream', r => r.fulfill({ status: 204 }));
-  await page.route('**/api/overview', r => r.fulfill({ json: { projects: [{ name: 'repository-a', id: 'p1', count: 2, color: '#abcdef', types: {}, topDomains: [], topLangs: [] }], total: 2, facets: {} } }));
+  await page.route('**/api/{overview,projects}', r => r.fulfill({ json: { projects: [{ name: 'repository-a', id: 'p1', count: 2, color: '#abcdef', types: {}, topDomains: [], topLangs: [] }], total: 2, facets: {} } }));
   await page.route('**/api/project/repository-a', r => r.fulfill({ json: { count: 2, types: [], domains: [], langs: [], topics: [] } }));
   await page.route('**/api/sources?**', r => r.fulfill({ json: { sources: [{ source: 'conversation/shared', project: 'unassigned', linked: true, chunks: 2 }] } }));
   await page.goto('/projects/#sources');
@@ -74,7 +74,7 @@ test('a source opens the associations of just that source from its row', async (
   await page.route('**/api/workspaces', r => r.fulfill({ json: { active: 'alpha', workspaces: ['alpha'] } }));
   await page.route('**/api/queue**', r => r.fulfill({ json: { active: null, queued: [], recent: [] } }));
   await page.route('**/api/stream', r => r.fulfill({ status: 204 }));
-  await page.route('**/api/overview', r => r.fulfill({ json: { projects: [{ name: 'repository-a', id: 'p1', count: 2, color: '#abcdef', types: {}, topDomains: [], topLangs: [] }], total: 2, facets: {} } }));
+  await page.route('**/api/{overview,projects}', r => r.fulfill({ json: { projects: [{ name: 'repository-a', id: 'p1', count: 2, color: '#abcdef', types: {}, topDomains: [], topLangs: [] }], total: 2, facets: {} } }));
   await page.route('**/api/project/repository-a', r => r.fulfill({ json: { count: 2, types: [], domains: [], langs: [], topics: [] } }));
   await page.route('**/api/sources?**', r => r.fulfill({ json: { sources: [{ source: 'repository-a/notes.md', project: 'repository-a', linked: false, chunks: 2, kind: 'text' }] } }));
   const asked: URLSearchParams[] = [];

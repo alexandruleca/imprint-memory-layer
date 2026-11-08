@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_ended ON jobs(ended_at DESC, id DESC);
 """
 
 
@@ -196,7 +197,7 @@ def enqueue(command: str, body: dict | None) -> str:
     return submit(command, body)["job_id"]
 
 
-def submit(command: str, body: dict | None) -> dict:
+def submit(command: str, body: dict | None, workspace: str | None = None) -> dict:
     """Queue a job, or merge it into an identical job that is still waiting.
 
     Returns ``{"job_id", "merged"}``. Identical means the same command, the
@@ -204,11 +205,13 @@ def submit(command: str, body: dict | None) -> dict:
     Only waiting jobs absorb a submission: one identical to the running job
     queues a single follow-up, because the running job may have read its
     inputs before whatever prompted the new request (ADR 0068).
+    ``workspace`` overrides the body's and the active workspace (a retry
+    runs in the workspace of the job it repeats).
     """
     _init_db()
     # Capture the workspace now, rather than when this job eventually runs.
     from .workspace_policy import unapproved_root, workspace_name
-    workspace = workspace_name((body or {}).get('workspace'))
+    workspace = workspace_name(workspace or (body or {}).get('workspace'))
     # The dashboard names the path in `dir` (see build_command_args). Argv the
     # CLI passes through is checked when the job runs, as a direct call would be.
     if command in ("ingest", "refresh") and (body or {}).get("dir"):
@@ -364,6 +367,94 @@ def list_queue(recent_limit: int = 20) -> dict:
         "queued": [_row_to_dict(r) for r in queued],
         "recent": [_row_to_dict(r) for r in recent],
     }
+
+
+FINISHED = ("done", "failed", "cancelled")
+_HISTORY_MAX = 100
+
+
+def _twins(conn) -> dict[str, dict]:
+    """The waiting and running jobs by what makes a submission the same
+    job (``dedupe_key``): a retry of a finished job joins its waiting twin,
+    or follows its running one (ADR 0068)."""
+    twins: dict[str, dict] = {}
+    for row in conn.execute("SELECT id, command, body_json, status FROM jobs WHERE status IN ('queued','running') "
+                            "AND command!=? ORDER BY status='running' DESC, created_at", (BACKGROUND,)):
+        key = dedupe_key(row["command"], _row_to_dict(row)["body"])
+        if key is not None:
+            twins.setdefault(key, {"id": row["id"], "status": row["status"]})
+    return twins
+
+
+def list_history(limit: int = 25, before: str | None = None, bounds: Iterable[float] = (),
+                 status: str | None = None) -> dict:
+    """One page of the jobs that ended, newest first, after the ``before``
+    cursor (``"<ended_at>:<id>"``, the previous page's ``next``).
+
+    ``bounds`` are period starts, newest first (the dashboard's Today,
+    Yesterday, This week and so on in the viewer's time zone); ``counts``
+    then holds how many jobs ended in each period and before the last, so
+    a group's header can count the jobs it holds on every page. A start
+    later than an earlier one is an empty period. Each job names an
+    identical job that waits or runs as ``twin``, which a retry would join
+    or follow. ``status`` keeps the jobs that ended so (``total`` and
+    ``counts`` too). Background tagging runs are reported apart.
+    """
+    _init_db()
+    limit = max(1, min(int(limit), _HISTORY_MAX))
+    if status is not None and status not in FINISHED:
+        raise ValueError(f"status must be one of {', '.join(FINISHED)}")
+    statuses = (status,) if status else FINISHED
+    finished = f"status IN ({','.join('?' * len(statuses))}) AND command!=?"
+    where, args = finished, [*statuses, BACKGROUND]
+    if before:
+        ended, _, job_id = before.partition(":")
+        where += " AND (ended_at < ? OR (ended_at = ? AND id < ?))"
+        args += [float(ended), float(ended), job_id]
+    starts: list[float] = []
+    for start in bounds:
+        starts.append(min(float(start), starts[-1]) if starts else float(start))
+    with _db_lock, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM jobs WHERE {where} ORDER BY ended_at DESC, id DESC LIMIT ?",
+                            (*args, limit + 1)).fetchall()
+        total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {finished}", (*statuses, BACKGROUND)).fetchone()[0]
+        counts = None
+        if starts:
+            edges = [float("inf"), *starts, float("-inf")]
+            counts = [conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {finished} AND ended_at >= ? AND ended_at < ?",
+                                   (*statuses, BACKGROUND, low, high)).fetchone()[0]
+                      if low < high else 0
+                      for high, low in zip(edges, edges[1:])]
+        twins = _twins(conn)
+    jobs = [_row_to_dict(row) for row in rows[:limit]]
+    for job in jobs:
+        key = dedupe_key(job["command"], job["body"])
+        job["twin"] = twins.get(key) if key is not None else None
+    last = jobs[-1] if len(rows) > limit else None
+    return {"jobs": jobs, "next": f"{last['ended_at']!r}:{last['id']}" if last else None,
+            "total": total, "counts": counts}
+
+
+class NotRetryable(ValueError):
+    """A job that cannot be run again: still waiting or running, or
+    background work, which resumes by itself."""
+
+
+def resubmit(job_id: str) -> dict:
+    """Queue a finished job again: the same command and arguments in the
+    workspace it ran in. It goes through ``submit``, so it joins an
+    identical waiting job instead of queueing a second one (ADR 0068).
+    Raises LookupError for an unknown job, NotRetryable, or what ``submit``
+    raises (an unapproved root, a workspace that no longer exists)."""
+    job = get_job(job_id)
+    if job is None:
+        raise LookupError(job_id)
+    if job["command"] == BACKGROUND:
+        raise NotRetryable("Background work resumes by itself; use Resume now on the Queue page.")
+    if job["status"] not in FINISHED:
+        raise NotRetryable(f"The job is {job['status']}.")
+    body = {key: value for key, value in job["body"].items() if key not in ("_merged", "_workspace")}
+    return {**submit(job["command"], body, workspace=job["body"].get("_workspace")), "retry_of": job_id}
 
 
 def cancel(job_id: str) -> dict:

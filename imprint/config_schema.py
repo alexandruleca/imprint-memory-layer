@@ -16,7 +16,9 @@ never echoed back.
 from __future__ import annotations
 
 import json
+import ntpath
 import os
+import re
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import tool_formats
+from . import model_profiles
 from .model_profiles import EMBEDDING_REPO, HELPER_REPO, HELPER_FILE
 
 
@@ -163,6 +166,65 @@ TOOL_FORMATS = (Choice("auto", "Auto", "Detected from the model's chat template"
 PROVIDERS = (Choice("local", "Local", "Bundled llama.cpp model"), Choice("anthropic", "Anthropic"),
              Choice("openai", "OpenAI"), Choice("gemini", "Gemini"), Choice("ollama", "Ollama"),
              Choice("vllm", "vLLM"))
+# chat.local_model's named choices (ADR 0153); anything else is a custom GGUF.
+CHAT_MODEL_DEFAULT = "default"
+CHAT_MODEL_MOE = "qwen3.5-35b-a3b"
+_HF_FILE_URL = re.compile(r"https?://(?:www\.)?(?:huggingface\.co|hf\.co)/([^/\s]+/[^/\s]+)/(?:resolve|blob)/[^/\s]+/(\S+)")
+
+
+def local_chat_model(raw: Any) -> str:
+    """A named chat model, or a custom GGUF: a local path, ``owner/repo/file.gguf``
+    or a Hugging Face file URL (stored as ``owner/repo/file.gguf``)."""
+    value = str(raw).strip()
+    if value in (CHAT_MODEL_DEFAULT, CHAT_MODEL_MOE):
+        return value
+    if match := _HF_FILE_URL.fullmatch(value.split("?", 1)[0]):
+        value = f"{match[1]}/{match[2]}"
+    if not value.lower().endswith(".gguf"):
+        raise ValueError("expected default, qwen3.5-35b-a3b, a .gguf file path, "
+                         "<owner>/<repo>/<file>.gguf or a Hugging Face file URL")
+    if os.path.isabs(value) or ntpath.isabs(value):
+        return value
+    parts = value.split("/")
+    if len(parts) < 3 or not all(parts) or ".." in parts:
+        raise ValueError("a Hugging Face model is <owner>/<repo>/<file>.gguf")
+    return value
+
+
+def total_memory() -> int | None:
+    """This computer's physical memory in bytes, None when it cannot be read."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class _Status(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            status = _Status(dwLength=ctypes.sizeof(_Status))
+            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return None
+            return int(status.ullTotalPhys)
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _chat_models() -> tuple[Choice, ...]:
+    memory = total_memory()
+    short = memory is not None and memory < model_profiles.CHAT_MOE_MIN_MEMORY
+    size = f"{model_profiles.CHAT_MOE_BYTES / 1e9:.0f} GB"
+    return (
+        Choice(CHAT_MODEL_DEFAULT, "Qwen3.5 4B (default)",
+               "Fast on any machine · about 2.7 GB · chat.model_repo / chat.model_file / chat.model_path"),
+        Choice(CHAT_MODEL_MOE, "Qwen3.5 35B-A3B (MoE)",
+               f"Better answers, about as fast per token · {size} download · needs 32 GB of memory",
+               unavailable=(f"Needs 32 GB of memory; this computer has {memory / 1024 ** 3:.0f} GB" if short else "")),
+    )
+
+
 GPU_LAYERS = (Choice(-1, "All layers"), Choice(0, "None", "CPU only"))
 
 
@@ -274,6 +336,9 @@ SETTINGS: list[Setting] = [
     Setting("chat.model",          "IMPRINT_CHAT_MODEL",          "",                               str,   "Model name for remote providers (default per provider)",
             choices=PROVIDER_DEFAULT, custom=True),
     Setting("chat.base_url",       "IMPRINT_CHAT_BASE_URL",       "",                               str,   "Base URL override for OpenAI-compat providers"),
+    Setting("chat.local_model",    "IMPRINT_CHAT_LOCAL_MODEL",    CHAT_MODEL_DEFAULT,               local_chat_model,
+            "Local chat model: the default, the larger Qwen3.5 MoE, or a custom GGUF (a path, <owner>/<repo>/<file>.gguf or a Hugging Face file URL)",
+            choices=_chat_models, custom=True),
     Setting("chat.model_repo",     "IMPRINT_CHAT_MODEL_REPO",     HELPER_REPO,                      str,   "HF repo for GGUF auto-download (local provider)"),
     Setting("chat.model_file",     "IMPRINT_CHAT_MODEL_FILE",     HELPER_FILE,                      str,   "GGUF filename within repo (local provider)"),
     Setting("chat.model_path",     "IMPRINT_CHAT_MODEL_PATH",     "",                               str,   "Absolute path to GGUF (overrides repo/file, local provider)"),

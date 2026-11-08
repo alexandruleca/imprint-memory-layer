@@ -110,10 +110,7 @@ def build_overview(filters: dict | None = None) -> dict:
     # Project facets
     project_facets = _facet("project", 100, global_filter)
 
-    projects = []
-    for name, count in project_facets:
-        if not name:
-            continue
+    def describe(name: str, count: int) -> dict:
         proj_must = [project_filter(name)]
         if global_filter and global_filter.must:
             proj_must.extend(global_filter.must)
@@ -123,7 +120,7 @@ def build_overview(filters: dict | None = None) -> dict:
         domain_in_proj = _facet("tags.domain", 10, proj_filter)
         lang_in_proj = _facet("tags.lang", 5, proj_filter)
 
-        projects.append({
+        return {
             "id": f"proj_{name}",
             "name": name,
             "count": count,
@@ -131,7 +128,13 @@ def build_overview(filters: dict | None = None) -> dict:
             "color": _project_color(name),
             "topDomains": [v for v, _ in domain_in_proj[:5] if v],
             "topLangs": [v for v, _ in lang_in_proj[:3] if v],
-        })
+        }
+
+    # Three facets per project: ask Qdrant for several projects at once.
+    from concurrent.futures import ThreadPoolExecutor
+    named = [(name, count) for name, count in project_facets if name]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        projects = list(pool.map(lambda item: describe(*item), named))
 
     return {
         "projects": sorted(projects, key=lambda p: -p["count"]),
@@ -144,6 +147,23 @@ def build_overview(filters: dict | None = None) -> dict:
             "layers": [(v, c) for v, c in layer_facets if v],
         },
     }
+
+
+def build_project_list(workspace: str | None = None) -> dict:
+    """Every project with its memory count and colour, largest first, and the
+    workspace's total: what the dashboard's project rails, filters and pickers
+    need. One facet (two with linked sources) instead of build_overview's
+    three per project, so it stays cheap while the workspace is written."""
+    client, coll = vs._ensure_collection(workspace)
+    try:
+        total = client.get_collection(coll).points_count or 0
+    except Exception:
+        return {"projects": [], "total": 0}
+    if total == 0:
+        return {"projects": [], "total": 0}
+    projects = [{"name": name, "count": count, "color": _project_color(name)}
+                for name, count in _facet("project", 100_000, workspace=workspace) if name]
+    return {"projects": projects, "total": total}
 
 
 def _build_global_filter(filters: dict) -> qm.Filter | None:
@@ -592,10 +612,17 @@ def build_source_lineage(source_key: str, workspace: str | None = None) -> dict:
     filt = qm.Filter(must=[
         qm.FieldCondition(key="source", match=qm.MatchValue(value=source_key)),
     ])
-    points, _ = client.scroll(
-        coll, scroll_filter=filt, limit=500,
-        with_payload=True, with_vectors=False,
-    )
+    # Points scroll in id order, not chunk order: read every page before
+    # sorting, or a long source would show a scattered sample of its chunks.
+    points, offset = [], None
+    while True:
+        page, offset = client.scroll(
+            coll, scroll_filter=filt, limit=500, offset=offset,
+            with_payload=True, with_vectors=False,
+        )
+        points.extend(page)
+        if offset is None:
+            break
     chunks = []
     for p in points:
         pay = p.payload or {}
@@ -620,32 +647,62 @@ def build_source_lineage(source_key: str, workspace: str | None = None) -> dict:
 
 # ── Topic overview ─────────────────────────────────────────────────
 
-def build_topic_overview(filters: dict | None = None) -> dict:
-    """Topic-level aggregation.  Returns bubble data grouped by topics."""
+TOPIC_SORTS = ("count", "name")
+#: Every topic's count is one facet request; this bounds it far above any
+#: workspace seen (thousands of topics), not at the 100 the page once showed.
+_TOPIC_FACET_LIMIT = 100_000
+
+
+def build_topic_overview(filters: dict | None = None, q: str = "", sort: str = "count",
+                         offset: int = 0, limit: int = 100) -> dict:
+    """One page of the workspace's topics (ADR 0150).
+
+    Every topic is counted from the facet index; ``q`` keeps the names that
+    contain it (case-insensitive), ``sort`` orders them by count (largest
+    first) or name, and ``offset``/``limit`` cut the page. Only the page's
+    topics get their per-topic project and language breakdown. ``matched``
+    is how many topics the search kept, ``topic_count`` how many there are.
+    """
     client, coll = vs._ensure_collection()
     filt = _build_global_filter(filters) if filters else None
+    if sort not in TOPIC_SORTS:
+        raise ValueError(f"sort must be one of {', '.join(TOPIC_SORTS)}")
+    offset, limit = max(0, int(offset)), max(1, int(limit))
 
-    # Facet by topics
-    topic_facets = _facet("tags.topics", 100, filt)
-    if not topic_facets:
-        return {"topics": [], "total": 0, "facets": {}}
+    every = [(name, count) for name, count in _facet("tags.topics", _TOPIC_FACET_LIMIT, filt) if name]
+    needle = q.strip().lower()
+    matched = [(name, count) for name, count in every if needle in name.lower()] if needle else every
+    if sort == "name":
+        matched.sort(key=lambda item: (item[0].lower(), item[0]))
+    else:
+        matched.sort(key=lambda item: (-item[1], item[0].lower()))
+    page = {
+        "total": sum(count for _, count in matched),
+        "matched": len(matched),
+        "topic_count": len(every),
+        "offset": offset,
+        "limit": limit,
+        "sort": sort,
+        "q": q,
+    }
+    if not every:
+        return {"topics": [], **page, "facets": {}}
 
     topics = []
-    for name, count in topic_facets:
-        if not name:
-            continue
-        # Per-topic sub-facets
-        topic_filter = qm.Filter(must=[
-            qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=name)),
-        ])
+    for name, count in matched[offset:offset + limit]:
+        # Per-topic sub-facets, for this page only
+        topic_must = [qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=name))]
+        if filt and filt.must:
+            topic_must.extend(filt.must)
+        topic_filter = qm.Filter(must=topic_must)
         proj_facets = _facet("project", 5, topic_filter)
         lang_facets = _facet("tags.lang", 3, topic_filter)
         topics.append({
             "id": f"topic_{name}",
             "name": name,
             "count": count,
-            "topProjects": [p for p, _ in proj_facets],
-            "topLangs": [l for l, _ in lang_facets],
+            "topProjects": [p for p, _ in proj_facets if p],
+            "topLangs": [l for l, _ in lang_facets if l],
             "color": _project_color(name),
         })
 
@@ -655,61 +712,96 @@ def build_topic_overview(filters: dict | None = None) -> dict:
         "langs": _facet("tags.lang", 30, filt),
         "domains": _facet("tags.domain", 50, filt),
     }
-
-    total = sum(t["count"] for t in topics)
-    return {"topics": topics, "total": total, "facets": facets}
+    return {"topics": topics, **page, "facets": facets}
 
 
-def build_topic_detail(topic_name: str, project: str | None = None) -> dict:
+_TOPIC_GROUP_PAYLOAD = ["_mid", "project", "source", "source_type", "chunk_index"]
+_TOPIC_CHUNK_PAYLOAD = ["_mid", "content", "project", "type", "source", "source_type", "chunk_index", "tags"]
+
+
+def build_topic_detail(topic_name: str, project: str | None = None, offset: int = 0,
+                       limit: int | None = None, q: str = "") -> dict:
     """A topic's memories grouped by the source they came from, largest group
     first, optionally within one project. Conversations are named by their
-    first question."""
+    first question.
+
+    With ``limit`` only that page of groups carries its passages (ADR 0150):
+    the grouping reads ids and source fields alone, then the page's memories
+    are fetched. ``q`` keeps the groups whose title or source key contains it.
+    ``source_count`` is how many groups matched; ``total`` stays the topic's
+    memory count (within ``project``)."""
     from imprint import source_snapshots
     client, coll = vs._ensure_collection()
     must = [qm.FieldCondition(key="tags.topics", match=qm.MatchValue(value=topic_name))]
     if project is not None:
         must.append(project_filter(project))
     filt = qm.Filter(must=must)
-    points, offset = [], None
+    paged = limit is not None
+    points, next_offset = [], None
     while True:
-        batch, offset = client.scroll(
-            coll, scroll_filter=filt, limit=256, offset=offset,
-            with_payload=["_mid", "content", "project", "type", "source", "source_type", "chunk_index", "tags"],
+        batch, next_offset = client.scroll(
+            coll, scroll_filter=filt, limit=256 if not paged else 1024, offset=next_offset,
+            with_payload=_TOPIC_GROUP_PAYLOAD if paged else _TOPIC_CHUNK_PAYLOAD,
             with_vectors=False,
         )
         points.extend(batch)
-        if offset is None:
+        if next_offset is None:
             break
     titles = source_snapshots.conversation_titles()
     groups: dict[tuple[str, str], dict] = {}
+    members: dict[tuple[str, str], list] = {}
     for p in points:
         pay = p.payload or {}
         source = pay.get("source", "")
-        group = groups.setdefault((pay.get("project", ""), source), {
+        key = (pay.get("project", ""), source)
+        groups.setdefault(key, {
             "source": source,
             "project": pay.get("project", ""),
             "source_type": pay.get("source_type", ""),
             "title": titles.get(source, ""),
             "chunks": [],
         })
-        group["chunks"].append({
-            "id": pay.get("_mid", str(p.id)),
-            "label": _extract_label(pay.get("content", ""), source),
-            "type": pay.get("type", ""),
-            "chunk_index": pay.get("chunk_index", 0),
-            "tags": pay.get("tags", {}),
-            "content": (pay.get("content") or "")[:300],
-        })
-    sources = sorted(groups.values(), key=lambda g: (-len(g["chunks"]), g["source"]))
-    for group in sources:
+        members.setdefault(key, []).append(p)
+    keys = sorted(groups, key=lambda k: (-len(members[k]), k[1], k[0]))
+    needle = q.strip().lower()
+    if needle:
+        keys = [k for k in keys if needle in groups[k]["source"].lower() or needle in groups[k]["title"].lower()]
+    shown = keys[max(0, int(offset)):max(0, int(offset)) + max(1, int(limit))] if paged else keys
+    if paged:
+        wanted = [p.id for k in shown for p in members[k]]
+        full = {}
+        for start in range(0, len(wanted), 512):
+            for record in client.retrieve(coll, ids=wanted[start:start + 512],
+                                          with_payload=_TOPIC_CHUNK_PAYLOAD, with_vectors=False):
+                full[record.id] = record
+        for k in shown:
+            members[k] = [full.get(p.id, p) for p in members[k]]
+    sources = []
+    for k in shown:
+        group = groups[k]
+        for p in members[k]:
+            pay = p.payload or {}
+            group["chunks"].append({
+                "id": pay.get("_mid", str(p.id)),
+                "label": _extract_label(pay.get("content", ""), group["source"]),
+                "type": pay.get("type", ""),
+                "chunk_index": pay.get("chunk_index", 0),
+                "tags": pay.get("tags", {}),
+                "content": (pay.get("content") or "")[:300],
+            })
         group["chunks"].sort(key=lambda c: c["chunk_index"])
-    return {
+        sources.append(group)
+    detail = {
         "topic": topic_name,
         "project": project,
         "total": len(points),
         "projects": _facet("project", 20, filt),
         "sources": sources,
+        "source_count": len(keys),
     }
+    if paged:
+        detail.update(offset=max(0, int(offset)), limit=max(1, int(limit)), q=q)
+    return detail
 
 
 def build_source_read(source: str, project: str | None = None, topic: str = "",
@@ -805,6 +897,38 @@ def _source_node(name: str, count: int, titles: dict[str, str], **extra) -> dict
     }
 
 
+# A project's topic facet reads this many distinct topics. A topic among the
+# overview's top 60 that is not in a project's top this-many holds too little
+# of the project to rank among the topic's three largest projects.
+_PROJECT_TOPIC_LIMIT = 2000
+
+
+def _project_topic_counts(projects: list[str], topics: set[str], workspace: str | None) -> dict[str, dict[str, int]]:
+    """topic -> {project: memories of the project (related members included) with the topic}."""
+    from concurrent.futures import ThreadPoolExecutor
+    from imprint.project_associations import project_filter
+
+    def one(name: str) -> tuple[str, list[tuple[str, int]]]:
+        return name, _facet("tags.topics", _PROJECT_TOPIC_LIMIT, project_filter(name), workspace=workspace)
+
+    out: dict[str, dict[str, int]] = {}
+    if not projects or not topics:
+        return out
+    with ThreadPoolExecutor(max_workers=min(4, len(projects))) as pool:
+        for name, facets in pool.map(one, projects):
+            for tname, count in facets:
+                if tname in topics and count > 0:
+                    out.setdefault(tname, {})[name] = count
+    return out
+
+
+def get_graph_scope(scope: str = "root", depth: int = 1) -> dict:
+    """The active workspace's graph scope, cached against the data fingerprint."""
+    scope = scope or "root"
+    return _cached(("graph", config.get_active_workspace(), scope, depth),
+                   lambda: build_graph_scope(scope, depth))
+
+
 def build_graph_scope(
     scope: str = "root",
     depth: int = 1,
@@ -820,6 +944,13 @@ def build_graph_scope(
     kind, _, val = scope.partition(":")
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
+    # Kinds listed only up to their cap: the dashboard says more exist.
+    more: set[str] = set()
+
+    def capped(kind_: str, items: list, cap: int) -> list:
+        if len(items) >= cap:
+            more.add(kind_)
+        return items
 
     def add(node_id: str, payload: dict):
         if node_id not in nodes:
@@ -842,7 +973,7 @@ def build_graph_scope(
     titles = source_snapshots.conversation_titles(ws)
 
     if kind == "root":
-        proj_facets = _facet("project", 50, workspace=ws)
+        proj_facets = capped("project", _facet("project", 50, workspace=ws), 50)
         for name, count in proj_facets:
             if not name:
                 continue
@@ -854,10 +985,8 @@ def build_graph_scope(
                 "color": _project_color(name),
             })
 
-        topic_facets = _facet("tags.topics", 60, workspace=ws)
+        topic_facets = [(t, c) for t, c in capped("topic", _facet("tags.topics", 60, workspace=ws), 60) if t]
         for tname, tcount in topic_facets:
-            if not tname:
-                continue
             add(f"topic:{tname}", {
                 "id": f"topic:{tname}",
                 "kind": "topic",
@@ -865,11 +994,16 @@ def build_graph_scope(
                 "count": tcount,
                 "color": _topic_color(tname),
             })
-            tfilt = qm.Filter(must=[qm.FieldCondition(
-                key="tags.topics", match=qm.MatchValue(value=tname))])
-            for pname, pcount in _facet("project", 3, tfilt, workspace=ws):
-                if not pname or f"proj:{pname}" not in nodes:
-                    continue
+        # Each topic links to the (at most) three projects holding most of it.
+        # One topic facet per project, over the project's members including
+        # related ones, replaces a project count per topic: hundreds of Qdrant
+        # requests on a large workspace become one per project.
+        per_project = _project_topic_counts(
+            [n["label"] for n in nodes.values() if n["kind"] == "project"],
+            {t for t, _ in topic_facets}, ws)
+        for tname, _ in topic_facets:
+            ranked = sorted(((c, p) for p, c in per_project.get(tname, {}).items()), key=lambda cp: (-cp[0], cp[1]))
+            for pcount, pname in ranked[:3]:
                 edge(f"proj:{pname}", f"topic:{tname}", pcount, "relates")
 
     elif kind == "project" and val:
@@ -883,7 +1017,7 @@ def build_graph_scope(
             "color": _project_color(val),
             "focus": True,
         })
-        for tname, tcount in _facet("tags.topics", topic_cap, pfilt, workspace=ws):
+        for tname, tcount in capped("topic", _facet("tags.topics", topic_cap, pfilt, workspace=ws), topic_cap):
             if not tname:
                 continue
             add(f"topic:{tname}", {
@@ -894,7 +1028,7 @@ def build_graph_scope(
                 "color": _topic_color(tname),
             })
             edge(f"proj:{val}", f"topic:{tname}", tcount, "contains")
-        for sname, scount in _facet("source", source_cap, pfilt, workspace=ws):
+        for sname, scount in capped("source", _facet("source", source_cap, pfilt, workspace=ws), source_cap):
             if not sname:
                 continue
             add(f"src:{sname}", _source_node(sname, scount, titles, project=val))
@@ -904,6 +1038,7 @@ def build_graph_scope(
         tfilt = qm.Filter(must=[qm.FieldCondition(
             key="tags.topics", match=qm.MatchValue(value=val))])
         # Memberships overlap across projects; the topic still counts points.
+        client, coll = vs._ensure_collection(ws)
         total = client.count(coll, count_filter=tfilt, exact=True).count
         add(f"topic:{val}", {
             "id": f"topic:{val}",
@@ -913,7 +1048,7 @@ def build_graph_scope(
             "color": _topic_color(val),
             "focus": True,
         })
-        for pname, pcount in _facet("project", 20, tfilt, workspace=ws):
+        for pname, pcount in capped("project", _facet("project", 20, tfilt, workspace=ws), 20):
             if not pname:
                 continue
             add(f"proj:{pname}", {
@@ -924,7 +1059,7 @@ def build_graph_scope(
                 "color": _project_color(pname),
             })
             edge(f"proj:{pname}", f"topic:{val}", pcount, "relates")
-        for sname, scount in _facet("source", source_cap, tfilt, workspace=ws):
+        for sname, scount in capped("source", _facet("source", source_cap, tfilt, workspace=ws), source_cap):
             if not sname:
                 continue
             add(f"src:{sname}", _source_node(sname, scount, titles))
@@ -932,7 +1067,10 @@ def build_graph_scope(
 
     elif kind == "source" and val:
         lineage = build_source_lineage(val, workspace=ws)
-        chunks = lineage.get("chunks", [])[: 40 + (depth - 1) * 20]
+        chunk_cap = 40 + (depth - 1) * 20
+        chunks = lineage.get("chunks", [])[:chunk_cap]
+        if lineage.get("total", 0) > chunk_cap:
+            more.add("chunk")
         proj_of_source = chunks[0]["project"] if chunks else ""
         add(f"src:{val}", _source_node(val, lineage.get("total", 0), titles, project=proj_of_source, focus=True))
         if proj_of_source:
@@ -966,6 +1104,8 @@ def build_graph_scope(
                 if not t:
                     continue
                 topic_seen[t] = topic_seen.get(t, 0) + 1
+        if len(topic_seen) > 10:
+            more.add("topic")
         for tname, tcount in sorted(topic_seen.items(), key=lambda kv: -kv[1])[:10]:
             add(f"topic:{tname}", {
                 "id": f"topic:{tname}",
@@ -1037,6 +1177,7 @@ def build_graph_scope(
         "nodes": list(nodes.values()),
         "edges": edges,
         "center": _center_id_for_scope(scope),
+        "more": sorted(more),
     }
 
 
@@ -1111,6 +1252,10 @@ def _get_overview(filters: dict | None = None) -> dict:
     if filters:
         return build_overview(filters)
     return _cached(("overview",), build_overview)
+
+
+def _get_project_list() -> dict:
+    return _cached(("projects",), build_project_list)
 
 
 def _get_project_detail(name: str, filters: dict | None = None) -> dict:

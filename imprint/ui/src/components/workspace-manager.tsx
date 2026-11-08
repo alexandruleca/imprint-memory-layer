@@ -274,7 +274,7 @@ export function WorkspaceManager() {
             onClick={() => setMigrateOpen(true)}
             disabled={state.workspaces.length < 2}
           >
-            Copy / move memories…
+            Copy or move memories…
           </Button>
         </div>
       </div>

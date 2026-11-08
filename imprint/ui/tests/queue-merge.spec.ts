@@ -47,7 +47,7 @@ test('running a command that joins an identical waiting job says so', async ({ p
 test('quick actions say when a job joined an identical waiting one', async ({ page }) => {
   await mockApi(page);
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 1, projects: [], langs: [], domains: [], types: [], topics: [] } }));
-  await page.route('**/api/overview', route => route.fulfill({ json: { projects: [], total_memories: 1, total_facts: 0 } }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: { projects: [], total_memories: 1, total_facts: 0 } }));
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [] } }));
   await mockQueue(page, {});
   await page.route('**/api/commands/learn', route => route.fulfill({ json: { job_id: 'j1', position: 2, merged: true } }));

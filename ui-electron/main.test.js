@@ -13,7 +13,7 @@ const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/wr
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
   mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }),
-  wakeFile = null, onBattery = false } = {}) {
+  wakeFile = null, onBattery = false, themeFile = null } = {}) {
   const windows = [];
   const services = [];
   const calls = [];
@@ -53,6 +53,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
       calls.push('dashboard');
       return dashboardPending ? new Promise(resolve => { this.loaded = resolve; }) : Promise.resolve();
     }
+    setBackgroundColor(color) { this.background = color; }
     show() { this.visible = true; }
     hide() { this.visible = false; }
     focus() {}
@@ -100,6 +101,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     desktopCapturer: { getSources: async () => [{ id: 'screen:0', name: 'Entire screen' }] },
     dialog: { showMessageBox: options => { calls.push(['dialog', options.message]); return messageBox(options); } },
     powerMonitor: Object.assign(new EventEmitter(), { isOnBatteryPower: () => onBattery }),
+    nativeTheme: Object.defineProperty(Object.assign(new EventEmitter(), { themeSource: 'system', systemDark: false }), 'shouldUseDarkColors',
+      { get() { return this.themeSource === 'dark' || (this.themeSource === 'system' && this.systemDark); } }),
   };
   const shortcuts = new Map();
   electron.globalShortcut = { register: (key, action) => { shortcuts.set(key, action); return true; }, unregisterAll: () => shortcuts.clear() };
@@ -124,6 +127,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
   const modules = { electron, 'node:path': path, 'node:http': http, 'node:child_process': childProcess, './runtime': require('./runtime'),
     'node:fs': { readFileSync: file => {
       if (file.endsWith('wake.json')) { if (wakeFile) return wakeFile; throw Error('No choice'); }
+      if (file.endsWith('theme.json')) { if (themeFile) return themeFile; throw Error('No theme'); }
       if (savedPosition) return JSON.stringify(savedPosition); throw Error('No saved position');
     }, mkdirSync() {}, writeFileSync(file, data) { calls.push(['write', path.basename(file), data]); }, renameSync() {} },
     './companion': require('./companion'),
@@ -138,7 +142,7 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     __dirname, console: { warn() {}, error() {} }, setTimeout, clearTimeout, Promise, URL, Date,
     setInterval: tick => { intervals.add(tick); return tick; }, clearInterval: tick => intervals.delete(tick),
   });
-  return { app, windows, services, calls, ipcMain, shortcuts, intervals, handlers, power: electron.powerMonitor, tick: () => intervals.forEach(tick => tick()),
+  return { app, windows, services, calls, ipcMain, shortcuts, intervals, handlers, power: electron.powerMonitor, theme: electron.nativeTheme, tick: () => intervals.forEach(tick => tick()),
     invoke: (name, window, ...args) => handlers[name]({ sender: window.webContents }, ...args),
     emit: (name, window, ...args) => ipcMain.emit(name, { sender: window.webContents }, ...args) };
 }
@@ -958,4 +962,39 @@ test('a refused microphone waits for the user; only a voice page turns listening
   h.emit('wake-listener', listener(h), { type: 'error', kind: 'service' });
   assert.equal(listener(h), undefined);
   assert.equal(h.invoke('voice-wake-state', dashboard).reason, 'retrying');
+});
+
+test('the app follows the dashboard theme choice: validated, from the dashboard only, kept for the next start', async () => {
+  const h = harness({ alreadyUp: true, themeFile: JSON.stringify({ choice: 'dark' }) });
+  await settle();
+  // The saved choice applies before any window opens, so they open in it.
+  assert.equal(h.theme.themeSource, 'dark');
+  const [splash, dashboard] = h.windows;
+  assert.equal(splash.options.backgroundColor, '#0a0a0a');
+  assert.equal(dashboard.options.backgroundColor, '#0a0a0a');
+  dashboard.url = 'http://127.0.0.1:8420/';
+  h.emit('theme-set', dashboard, 'light');
+  assert.equal(h.theme.themeSource, 'light');
+  assert.equal(dashboard.background, '#fafafa');
+  assert.deepEqual(h.calls.filter(call => call[0] === 'write' && call[1] === 'theme.json.tmp').at(-1), ['write', 'theme.json.tmp', '{"choice":"light"}']);
+  // Anything but the three choices, or from another window or origin, is ignored.
+  for (const value of ['purple', '', null, { choice: 'dark' }]) h.emit('theme-set', dashboard, value);
+  assert.equal(h.theme.themeSource, 'light');
+  dashboard.url = 'https://example.com/';
+  h.emit('theme-set', dashboard, 'dark');
+  assert.equal(h.theme.themeSource, 'light');
+  dashboard.url = 'http://127.0.0.1:8420/settings/';
+  h.emit('theme-set', dashboard, 'system');
+  assert.equal(h.theme.themeSource, 'system');
+  // "System" follows the operating system as it changes.
+  h.theme.systemDark = true;
+  h.theme.emit('updated');
+  assert.equal(dashboard.background, '#0a0a0a');
+});
+
+test('without a saved theme the app follows the system', async () => {
+  const h = harness({ alreadyUp: true });
+  await settle();
+  assert.equal(h.theme.themeSource, 'system');
+  assert.equal(h.windows[1].options.backgroundColor, '#fafafa');
 });

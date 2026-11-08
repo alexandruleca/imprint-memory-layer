@@ -1,13 +1,16 @@
 "use client";
 
-import { ChevronRight, House } from "lucide-react";
+import { ChevronRight, House, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { GraphNodeKind } from "@/lib/types";
 import { KINDS } from "./graph-style";
+import type { SearchFilters } from "./graph-search";
 
 export interface ScopeCrumb {
   scope: string;
   label: string;
+  /** A search scope's filters, kept for its URL. */
+  filters?: SearchFilters;
 }
 
 export function scopeKind(scope: string): GraphNodeKind | null {
@@ -28,7 +31,7 @@ export function GraphBreadcrumbs({
         {crumbs.map((c, i) => {
           const isLast = i === crumbs.length - 1;
           const kind = scopeKind(c.scope);
-          const Icon = kind ? KINDS[kind].icon : House;
+          const Icon = c.scope.startsWith("search:") ? Search : kind ? KINDS[kind].icon : House;
           return (
             <li key={`${c.scope}-${i}`} className={`flex items-center gap-0.5 ${isLast ? "min-w-0" : "shrink-0"}`}>
               {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />}

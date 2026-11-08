@@ -59,6 +59,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1000
         queued: Array.from({ length: 10 }, (_, i) => job(i + 1, 'queued')),
         recent: Array.from({ length: 30 }, (_, i) => job(i + 20, ['done', 'failed', 'cancelled'][i % 3])),
       } }));
+      await page.route('**/api/queue/history**', route => route.fulfill({ json: {
+        jobs: Array.from({ length: 25 }, (_, i) => job(i + 20, ['done', 'failed', 'cancelled'][i % 3])), next: 'more', total: 30, counts: null,
+      } }));
       const lines = Array.from({ length: 300 }, (_, i) => `[${i}] stored batch ${i} from /home/user/code/project/src/module_${i}/file.py\n`);
       await page.route('**/api/jobs/*/stream', route => route.fulfill({
         contentType: 'text/event-stream', body: lines.map(text => `data: ${JSON.stringify({ type: 'output', text })}\n\n`).join(''),
@@ -71,9 +74,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1000
 
     test('topics scroll their list and their details apart', async ({ page }) => {
       await mockApi(page);
-      await page.route('**/api/topics', route => route.fulfill({ json: {
-        topics: Array.from({ length: 60 }, (_, i) => ({ id: `t${i}`, name: `topic-${i}`, count: 300 - i, topProjects: [], topLangs: [], color: '#000' })),
-        total: 60, facets: {},
+      await page.route('**/api/topics?**', route => route.fulfill({ json: {
+        topics: Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, name: `topic-${i}`, count: 300 - i, topProjects: [], topLangs: [], color: '#000' })),
+        total: 60, matched: 60, topic_count: 60, offset: 0, limit: 50, sort: 'count', q: '', facets: {},
       } }));
       await page.route('**/api/topic/*', route => route.fulfill({ json: {
         topic: 'topic-1', project: null, total: 40, projects: [['imprint', 40]],

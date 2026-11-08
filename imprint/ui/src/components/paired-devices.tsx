@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, Link2, MonitorSmartphone, MoreHorizontal, Pause, Play, Trash2, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, Link2, MonitorSmartphone, MoreHorizontal, Pause, Play, Search, Trash2, Unlink } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -21,9 +21,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Progress } from "@/components/ui/progress";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Pager } from "@/components/review/pager";
 import { Spinner } from "@/components/loaders";
 import { getPairedDevices, controlPairedDevice, type PairedDevice, type PairedDeviceAction } from "@/lib/sync-api";
+import { useCached } from "@/lib/use-cached";
 
 /** How this device's workspace relates to the peer's, from this side. */
 const DIRECTION = {
@@ -129,12 +134,27 @@ const CONFIRM = {
   },
 } as const;
 
+const WARN = "border-warning/30 bg-warning/10 text-warning";
+
+type Show = "all" | "attention" | "active" | "paused";
+const SHOWS: { value: Show; label: string }[] = [
+  { value: "all", label: "All" }, { value: "attention", label: "Needs attention" },
+  { value: "active", label: "Active" }, { value: "paused", label: "Paused" },
+];
+/** Pairings per page; a short list shows no pager or filters. */
+const PER_PAGE = 8;
+
+/** Removal pending, not seen for a week, or the last connection failed. */
+function needsAttention(peer: PairedDevice) {
+  return peer.state === "forget_pending" || unseenDays(peer) >= STALE_DAYS || !!peer.last_error;
+}
+
 function State({ peer }: { peer: PairedDevice }) {
   const [tone, text] =
     peer.state === "forget_pending"
-      ? ["border-amber-600/25 bg-amber-50 text-amber-800", "Removal pending"]
+      ? [WARN, "Removal pending"]
       : peer.enabled
-        ? ["border-emerald-600/25 bg-emerald-50 text-emerald-800", "Active"]
+        ? ["border-success/30 bg-success/10 text-success", "Active"]
         : ["border-border bg-muted text-foreground", "Paused"];
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
@@ -144,17 +164,26 @@ function State({ peer }: { peer: PairedDevice }) {
   );
 }
 
+const NO_PEERS: PairedDevice[] = [];
+
 export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
-  const [peers, setPeers] = useState<PairedDevice[]>([]);
+  // Pairings are this installation's, in every workspace. The last list shows
+  // at once while it is read again (ADR 0152).
+  const list = useCached("paired-devices", getPairedDevices, { global: true, revalidateOnJobs: false });
+  const peers = list.data ?? NO_PEERS;
   // Whether the list was ever read: a failed read says nothing about pairings.
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
+  const loaded = list.data !== undefined;
+  const [actionError, setError] = useState("");
+  const error = actionError || (list.error ? list.error.message : "");
   // The change under way, so its button shows progress and the others wait.
   const [pending, setPending] = useState<{ id: string; action: PairedDeviceAction } | null>(null);
   // The question the confirmation dialog asks, kept while it animates closed.
   const [confirm, setConfirm] = useState<{ peer: PairedDevice; action: keyof typeof CONFIRM } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const asked = CONFIRM[confirm?.action ?? "forget"];
+  const [query, setQuery] = useState("");
+  const [show, setShow] = useState<Show>("all");
+  const [page, setPage] = useState(0);
   const busy = pending !== null;
 
   function ask(peer: PairedDevice, action: keyof typeof CONFIRM) {
@@ -164,26 +193,17 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
   // Faster while a sync runs, so its progress moves on screen.
   const syncing = peers.some((peer) => peer.activity);
 
+  const { refresh, mutate } = list;
   useEffect(() => {
-    let cancelled = false;
-    async function refresh() {
-      try {
-        const result = await getPairedDevices();
-        if (!cancelled) { setPeers(result); setLoaded(true); setError(""); }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-    void refresh();
-    const timer = setInterval(refresh, syncing ? 2000 : 5000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [syncing]);
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, syncing ? 2000 : 5000);
+    return () => clearInterval(timer);
+  }, [syncing, refresh]);
 
   async function change(peer: PairedDevice, action: PairedDeviceAction) {
     setPending({ id: peer.id, action }); setError("");
     try {
       await controlPairedDevice(peer.id, action, !peer.enabled);
-      setPeers(await getPairedDevices());
+      mutate(await getPairedDevices());
       setConfirmOpen(false);
       const host = peer.peer.hostname;
       toast.success(action === "forget" ? `Forgot ${host} on this device`
@@ -194,16 +214,49 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
     } finally { setPending(null); }
   }
 
+  const hosts = new Set(peers.map((peer) => peer.peer.fingerprint || peer.peer.hostname)).size;
+  const attention = peers.filter(needsAttention).length;
+  const needle = query.trim().toLowerCase();
+  const filtered = peers.filter((peer) => (
+    (show === "all" || (show === "attention" ? needsAttention(peer) : show === "paused" ? !peer.enabled && peer.state !== "forget_pending" : peer.enabled && peer.state !== "forget_pending"))
+    && (!needle || [peer.peer.hostname, peer.workspace, peer.remote_workspace, peer.relay, peer.peer.fingerprint]
+      .some((field) => field?.toLowerCase().includes(needle)))
+  ));
+  const pages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const current = Math.min(page, pages - 1);
+  const shown = filtered.slice(current * PER_PAGE, (current + 1) * PER_PAGE);
+  const controls = peers.length > PER_PAGE || needle || show !== "all";
+
   return (
-    <section aria-labelledby="paired-devices-title" className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border px-5 py-4 sm:px-6">
-        <h3 id="paired-devices-title" className="font-semibold">Paired devices</h3>
-        <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-          Paired devices keep a workspace in step on their own: while Imprint runs on both, they reconnect through the
-          same relay and merge what changed about once a minute. Pausing either side stops transfers. Forgetting a
-          device keeps the memories it already shared. A device that is gone for good, uninstalled or reset, can be
-          removed from this one alone.
-        </p>
+    <section aria-labelledby="paired-devices-title" className="@container/page overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-2 border-b border-border px-4 py-4 sm:px-6">
+        <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+          <h3 id="paired-devices-title" className="font-semibold">Paired devices</h3>
+          <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+            Paired devices keep a workspace in step on their own: while Imprint runs on both, they reconnect through the
+            same relay and merge what changed about once a minute.
+          </p>
+          <Collapsible>
+            <CollapsibleTrigger render={<Button variant="link" size="xs" className="h-auto px-0 text-xs font-normal text-muted-foreground" />}>
+              Pausing, forgetting and removing
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+                Pausing either side stops transfers. Forgetting a device keeps the memories it already shared. A device
+                that is gone for good, uninstalled or reset, can be removed from this one alone.
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+        {loaded && peers.length > 0 && (
+          <p className="text-xs text-muted-foreground tabular-nums" aria-label="Pairings">
+            {count.format(peers.length)} {peers.length === 1 ? "pairing" : "pairings"} · {count.format(hosts)} {hosts === 1 ? "device" : "devices"}
+            {attention > 0 && <span className="ml-1.5 text-warning">· {count.format(attention)} need attention</span>}
+          </p>
+        )}
+        {onPair && loaded && peers.length > 0 && (
+          <Button variant="outline" size="sm" onClick={onPair}><Link2 /> Pair a device</Button>
+        )}
       </div>
       {error && <p role="alert" className="px-5 pt-4 text-sm text-destructive sm:px-6">{error}</p>}
       {!loaded ? (
@@ -230,8 +283,34 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
           )}
         </Empty>
       ) : (
+        <>
+        {controls && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5 sm:px-6">
+            <InputGroup className="w-full sm:w-64">
+              <InputGroupAddon><Search aria-hidden /></InputGroupAddon>
+              <InputGroupInput aria-label="Search paired devices" placeholder="Device, workspace or relay" value={query}
+                onChange={(e) => { setQuery(e.target.value); setPage(0); }} />
+            </InputGroup>
+            <ToggleGroup aria-label="Show" size="sm" variant="outline" value={[show]} className="flex-wrap"
+              onValueChange={(value) => { if (value[0]) { setShow(value[0] as Show); setPage(0); } }}>
+              {SHOWS.map((option) => (
+                <ToggleGroupItem key={option.value} value={option.value}
+                  className="text-muted-foreground aria-pressed:border-foreground/30 aria-pressed:text-foreground">
+                  {option.label}
+                  {option.value === "attention" && attention > 0 && <span className="tabular-nums">{attention}</span>}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        )}
+        {!filtered.length && (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground sm:px-6">
+            No pairing matches.{" "}
+            <Button variant="link" size="sm" className="h-auto p-0" onClick={() => { setQuery(""); setShow("all"); setPage(0); }}>Show all</Button>
+          </p>
+        )}
         <ul className="divide-y divide-border">
-          {peers.map((peer) => {
+          {shown.map((peer) => {
             const direction = DIRECTION[peer.direction] ?? DIRECTION.both;
             const Arrow = direction.icon;
             const removing = peer.state === "forget_pending";
@@ -240,8 +319,8 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
             // Point to local removal when the peer may never answer again.
             const gone = removing || stale;
             return (
-              <li key={peer.id} className="flex items-start gap-4 px-5 py-4 sm:px-6">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+              <li key={peer.id} className="flex items-start gap-3 px-4 py-4 sm:gap-4 sm:px-6">
+                <span className="hidden size-9 shrink-0 place-items-center rounded-lg bg-muted sm:grid">
                   <MonitorSmartphone className="size-4" aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1 space-y-1.5">
@@ -250,15 +329,17 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
                     <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{peer.peer.fingerprint}</span>
                     <State peer={peer} />
                     {stale && (
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-600/25 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                      <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium ${WARN}`}>
                         <AlertTriangle className="size-3" aria-hidden /> Not seen for {unseen} days
                       </span>
                     )}
                   </p>
                   <p className="flex flex-wrap items-center gap-1.5 text-sm">
-                    <span className="font-mono">{peer.workspace}</span>
-                    <Arrow className="size-3.5 text-muted-foreground" aria-label={direction.label} />
-                    <span className="font-mono">{peer.remote_workspace}</span>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-mono">{peer.workspace}</span>
+                      <Arrow className="size-3.5 shrink-0 text-muted-foreground" aria-label={direction.label} />
+                      <span className="truncate font-mono">{peer.remote_workspace}</span>
+                    </span>
                     <span className="text-xs text-muted-foreground">· {direction.label} · {peer.relay.replace(/^wss?:\/\//, "")}</span>
                   </p>
                   <p className="text-xs text-muted-foreground" role="status">
@@ -270,7 +351,7 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
                   <SyncProgress peer={peer} />
                   {peer.last_error && <p className="text-xs text-muted-foreground">Last connection: {peer.last_error}</p>}
                   {gone && (
-                    <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                    <p className="flex items-start gap-1.5 text-xs text-warning">
                       <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
                       If {peer.peer.hostname} was uninstalled or reset, choose Remove from this device in its actions menu.
                     </p>
@@ -303,6 +384,12 @@ export function PairedDevices({ onPair }: { onPair?: () => void } = {}) {
             );
           })}
         </ul>
+        {pages > 1 && (
+          <div className="border-t border-border px-4 pb-2 sm:px-6">
+            <Pager page={current} pages={pages} size={PER_PAGE} shown={shown.length} total={filtered.length} onPage={setPage} />
+          </div>
+        )}
+        </>
       )}
       <AlertDialog open={confirmOpen} onOpenChange={(open) => { if (!open && !busy) setConfirmOpen(false); }}>
         <AlertDialogContent aria-busy={busy}>

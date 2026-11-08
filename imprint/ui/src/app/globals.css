@@ -2,7 +2,8 @@
 @import "tw-animate-css";
 @import "../styles/shadcn.css";
 
-@custom-variant dark (&:is(.dark *));
+/* Dark mode is a class on <html> (lib/theme.ts), not the media query. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -27,6 +28,11 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-mark: var(--mark);
+  --color-mark-strong: var(--mark-strong);
+  --color-mark-edge: var(--mark-edge);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -66,6 +72,14 @@
   --accent: oklch(0.955 0 0);
   --accent-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* Status text and icons: AA (>= 4.5:1) on cards and on their own 10% tints. */
+  --success: oklch(0.508 0.118 165.612);
+  --warning: oklch(0.473 0.137 46.201);
+  /* Marked passages (a match in a source): a fill, a stronger fill for the
+     focused one, and an edge. Text on both fills stays foreground. */
+  --mark: oklch(0.962 0.059 95.617);
+  --mark-strong: oklch(0.924 0.12 95.746);
+  --mark-edge: oklch(0.828 0.189 84.429);
   --border: oklch(0.922 0 0);
   --input: oklch(0.87 0 0);
   --ring: oklch(0.556 0 0);
@@ -83,6 +97,47 @@
   --sidebar-accent-foreground: oklch(0.145 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* Dark: near-black page, raised greys for cards and popovers, the same
+   neutral ink reversed. Muted text keeps WCAG AA (>= 4.5:1) on cards. */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.96 0 0);
+  --card: oklch(0.185 0 0);
+  --card-foreground: oklch(0.96 0 0);
+  --popover: oklch(0.21 0 0);
+  --popover-foreground: oklch(0.96 0 0);
+  --primary: oklch(0.93 0 0);
+  --primary-foreground: oklch(0.185 0 0);
+  --secondary: oklch(0.26 0 0);
+  --secondary-foreground: oklch(0.96 0 0);
+  --muted: oklch(0.25 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.27 0 0);
+  --accent-foreground: oklch(0.96 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.765 0.177 163.223);
+  --warning: oklch(0.828 0.189 84.429);
+  --mark: oklch(0.29 0.045 80);
+  --mark-strong: oklch(0.38 0.07 80);
+  --mark-edge: oklch(0.769 0.188 70.08);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.6 0 0);
+  --chart-1: oklch(0.32 0 0);
+  --chart-2: oklch(0.5 0 0);
+  --chart-3: oklch(0.62 0 0);
+  --chart-4: oklch(0.75 0 0);
+  --chart-5: oklch(0.87 0 0);
+  --sidebar: oklch(0.17 0 0);
+  --sidebar-foreground: oklch(0.96 0 0);
+  --sidebar-primary: oklch(0.93 0 0);
+  --sidebar-primary-foreground: oklch(0.185 0 0);
+  --sidebar-accent: oklch(0.26 0 0);
+  --sidebar-accent-foreground: oklch(0.96 0 0);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.6 0 0);
 }
 
 @keyframes thinking-dot {

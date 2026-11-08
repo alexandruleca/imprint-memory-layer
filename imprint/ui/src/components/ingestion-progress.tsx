@@ -3,12 +3,16 @@
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, X } from "lucide-react";
+import { ArrowRight, RotateCw, X } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Hint } from "@/components/hint";
-import { cancelJob } from "@/lib/api";
+import { cancelJob, retryJob, type QueuedJob } from "@/lib/api";
 import { formatDuration, phaseName, runTime, useQueue } from "@/lib/queue";
 import { Spinner } from "@/components/loaders";
 import type { QueueJob } from "@/lib/types";
@@ -65,7 +69,7 @@ export function RunningJob({ job, children }: { job: QueueJob; children?: React.
         <div className="flex items-start gap-3">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted"><Spinner className="size-4" /></span>
           <JobName job={job} className="min-w-0 flex-1 text-sm" />
-          <CancelButton job={job} label="Cancel job" className="text-muted-foreground hover:text-destructive" iconClassName="size-4">Cancel</CancelButton>
+          <CancelButton job={job} label="Cancel job" className="text-muted-foreground hover:text-destructive" iconClassName="size-4"><span className="max-sm:sr-only">Cancel</span></CancelButton>
         </div>
         <div className="space-y-1.5">
           {total > 0
@@ -89,38 +93,117 @@ export function RunningJob({ job, children }: { job: QueueJob; children?: React.
   );
 }
 
-/** Cancels a running job or removes a queued one. Success shows as the job
- * leaving its list (and a job toast once it ends); a refusal is reported.
- * With children it is a labelled button, otherwise an icon with a hint. */
+/** What a job is called where it is named in a sentence. */
+export function jobTitle(job: Pick<QueueJob, "label" | "command">) {
+  return job.label ?? `imprint ${job.command}`;
+}
+
+/** Cancels a running job or removes a queued one. Cancelling a running job
+ * asks first, since it stops work in progress; removing a waiting one does
+ * not. Success shows as the job leaving its list (and a job toast once it
+ * ends); a refusal is reported. With children it is a labelled button,
+ * otherwise an icon with a hint. */
 export function CancelButton({ job, label, className, iconClassName, children }: {
   job: QueueJob; label: string; className: string; iconClassName: string; children?: React.ReactNode;
 }) {
   const [cancelling, setCancelling] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const running = job.status === "running";
 
   async function cancel() {
+    setConfirming(false);
     setCancelling(true);
     try {
       const result = await cancelJob(job.id);
       if (!result.ok) throw new Error(result.error || "The job could not be cancelled");
     } catch (e) {
       setCancelling(false);
-      toast.error(`Could not cancel ${job.label ?? `imprint ${job.command}`}`, { description: e instanceof Error ? e.message : String(e) });
+      toast.error(`Could not cancel ${jobTitle(job)}`, { description: e instanceof Error ? e.message : String(e) });
     }
   }
 
+  const onClick = running ? () => setConfirming(true) : cancel;
   const icon = cancelling ? <Spinner className={iconClassName} /> : <X className={iconClassName} />;
-  if (children) {
-    return (
-      <Button variant="outline" size="sm" className={className} onClick={cancel} disabled={cancelling} aria-label={label}>
+  const button = children
+    ? (
+      <Button variant="outline" size="sm" className={className} onClick={onClick} disabled={cancelling} aria-label={label}>
         {icon}{children}
       </Button>
+    )
+    : (
+      <Hint label={label}>
+        <Button variant="ghost" size="icon-sm" className={className} onClick={onClick} disabled={cancelling} aria-label={label}>
+          {icon}
+        </Button>
+      </Hint>
     );
+  if (!running) return button;
+  const background = job.command === "tag-backlog";
+  const elapsed = runTime(job);
+  return (
+    <>
+      {button}
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel {jobTitle(job)}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {background
+                ? "Background work pauses until more memories wait, or until you choose Resume now on the Queue page."
+                : `It stops now${elapsed !== null ? ` after ${formatDuration(elapsed)}` : ""}. You can run it again from the queue's History.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep running</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={cancel}>Cancel job</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+/** What retrying a job did, said in a toast: joined an identical waiting
+ * job, started, or waits at a position. */
+export function announceRetry(job: QueueJob, queued: QueuedJob) {
+  const title = jobTitle(job);
+  if (queued.merged) toast(`${title} is already waiting`, { description: "The identical job in the queue runs once for both requests." });
+  else if (queued.position > 0) toast.success(`${title} queued again`, { description: `It waits at position ${queued.position}.` });
+  else toast.success(`${title} queued again`, { description: "It starts now." });
+}
+
+/** Queue a finished job again, reporting the outcome or the refusal. */
+export async function retry(job: QueueJob): Promise<QueuedJob | null> {
+  try {
+    const queued = await retryJob(job.id);
+    announceRetry(job, queued);
+    return queued;
+  } catch (e) {
+    toast.error(`Could not queue ${jobTitle(job)} again`, { description: e instanceof Error ? e.message : String(e) });
+    return null;
+  }
+}
+
+/** "Retry" for a failed job, "Run again" for one that was cancelled or
+ * finished: the same command, arguments and workspace through the queue
+ * (ADR 0068). `onQueued` gets the new (or joined) job's ID. */
+export function RetryButton({ job, onQueued, size = "sm", variant = "outline", compact, className }: {
+  job: QueueJob; onQueued?: (jobId: string) => void; size?: "xs" | "sm"; variant?: "outline" | "ghost" | "default";
+  /** Only the icon on phones. */
+  compact?: boolean; className?: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const label = job.status === "failed" ? "Retry" : "Run again";
+  async function click() {
+    setBusy(true);
+    const queued = await retry(job);
+    setBusy(false);
+    if (queued) onQueued?.(queued.job_id);
   }
   return (
-    <Hint label={label}>
-      <Button variant="ghost" size="icon-sm" className={className} onClick={cancel} disabled={cancelling} aria-label={label}>
-        {icon}
-      </Button>
-    </Hint>
+    <Button variant={variant} size={size} className={className} onClick={click} disabled={busy || !!job.twin}
+      aria-label={`${label} ${jobTitle(job)}`}>
+      {busy ? <Spinner /> : <RotateCw />}<span className={compact ? "max-sm:sr-only" : undefined}>{label}</span>
+    </Button>
   );
 }

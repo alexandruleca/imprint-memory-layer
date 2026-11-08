@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, nativeTheme, shell, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -113,10 +113,34 @@ function finishFloatingGroup(targets) {
   return true;
 }
 
+// The dashboard's theme choice (ADR 0154): the app follows it, so native
+// surfaces and prefers-color-scheme in every window (the orb's ring, the
+// splash) match the dashboard. Kept in the profile so the next start opens in
+// it before any page loads.
+const THEME_FILE = 'theme.json';
+const THEME_BACKGROUND = { light: '#fafafa', dark: '#0a0a0a' }; // the dashboard's --background
+function themeChoice(value) {
+  return value === 'light' || value === 'dark' || value === 'system' ? value : null;
+}
+function savedTheme() {
+  try { return themeChoice(JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), THEME_FILE), 'utf8'))?.choice) ?? 'system'; }
+  catch { return 'system'; }
+}
+function themeBackground() {
+  return nativeTheme?.shouldUseDarkColors ? THEME_BACKGROUND.dark : THEME_BACKGROUND.light;
+}
+function applyTheme(choice) {
+  if (nativeTheme && nativeTheme.themeSource !== choice) nativeTheme.themeSource = choice;
+  // Opaque windows only: the launcher, its ring and Echo stay transparent.
+  for (const window of [win, startupWin]) {
+    if (window && !window.isDestroyed()) window.setBackgroundColor?.(themeBackground());
+  }
+}
+
 const windowOptions = {
   title: 'Imprint',
   icon: path.join(__dirname, 'assets', 'icon.png'),
-  backgroundColor: '#09090b',
+  get backgroundColor() { return themeBackground(); },
   frame: false,
   show: false,
   webPreferences: {
@@ -808,6 +832,19 @@ function trustedDashboardSender(event) {
     && (!event.senderFrame || event.senderFrame === event.sender.mainFrame)
     && sameOrigin(event.sender.getURL(), UI_ORIGIN);
 }
+// Only the dashboard's own page chooses the theme, and only one of three values.
+ipcMain.on('theme-set', (event, value) => {
+  const choice = themeChoice(value);
+  if (!choice || !trustedDashboardSender(event)) return;
+  applyTheme(choice);
+  try {
+    const directory = app.getPath('userData');
+    fs.mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, THEME_FILE);
+    fs.writeFileSync(file + '.tmp', JSON.stringify({ choice }), { mode: 0o600 });
+    fs.renameSync(file + '.tmp', file);
+  } catch { /* Not remembered for the next start; applied all the same. */ }
+});
 // Enable microphone asks the OS first (ADR 0069). Consent can take as long as the
 // user leaves the dialog open, so the sender is checked again afterwards.
 ipcMain.handle('voice-microphone-access', async event => {
@@ -1019,6 +1056,8 @@ app.on('before-quit', event => {
 });
 
 app.whenReady().then(() => {
+  applyTheme(savedTheme());
+  nativeTheme?.on?.('updated', () => applyTheme(nativeTheme.themeSource));
   try { shortcutAvailable = globalShortcut.register(SHORTCUT, () => { void recoverCompanion(); }); }
   catch { shortcutAvailable = false; }
   screen.on('display-removed', () => {

@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { slack } from './slack';
 
-const stats = { total: 0, projects: [], langs: [], domains: [], types: [], topics: [] };
-const overview = { projects: [], total: 0 };
+// The Home page reads one summary (GET /api/dashboard, ADR 0152).
+const summary = (workspace = 'default') => ({ workspace, total: 0, projects: [], timeline: [], recent: [], built_at: Date.now() / 1000, stale: false });
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
@@ -12,8 +12,8 @@ test.beforeEach(async ({ page }) => {
 
 test('an open dashboard recovers after its API becomes reachable', async ({ page }) => {
   let reachable = false;
-  await page.route('**/api/stats', route => reachable ? route.fulfill({ json: stats }) : route.abort('connectionrefused'));
-  await page.route('**/api/overview', route => reachable ? route.fulfill({ json: overview }) : route.abort('connectionrefused'));
+  await page.route('**/api/workspaces', route => reachable ? route.fulfill({ json: { active: 'default', workspaces: ['default'] } }) : route.abort('connectionrefused'));
+  await page.route('**/api/dashboard**', route => reachable ? route.fulfill({ json: summary() }) : route.abort('connectionrefused'));
   await page.goto('/');
   const error = page.getByRole('alert').filter({ hasText: 'Failed to connect to API' });
   await expect(error).toBeVisible();
@@ -23,14 +23,12 @@ test('an open dashboard recovers after its API becomes reachable', async ({ page
   await expect(error).toHaveCount(0);
 });
 
-for (const failing of ['stats', 'overview']) {
-  test(`an HTTP 500 from ${failing} explains the server error and can be retried`, async ({ page }) => {
+{
+  test('an HTTP 500 from the summary explains the server error and can be retried', async ({ page }) => {
     let fail = true;
-    for (const [endpoint, json] of Object.entries({ stats, overview })) {
-      await page.route(`**/api/${endpoint}`, route => fail && endpoint === failing
-        ? route.fulfill({ status: 500, contentType: 'text/plain', body: 'Internal Server Error' })
-        : route.fulfill({ json }));
-    }
+    await page.route('**/api/dashboard**', route => fail
+      ? route.fulfill({ status: 500, contentType: 'text/plain', body: 'Internal Server Error' })
+      : route.fulfill({ json: summary() }));
     await page.goto('/');
     const error = page.getByRole('alert').filter({ hasText: 'Could not load dashboard' });
     await expect(error).toHaveText('Could not load dashboard: Request failed (500)');
@@ -49,14 +47,12 @@ test('an incompatible embedding index explains rebuilding and leaves workspace r
   await page.route('**/api/workspaces', route => route.fulfill({ json: {
     active, workspaces: active === 'default' ? ['default'] : ['default', active],
   } }));
-  for (const [endpoint, json] of Object.entries({ stats, overview })) {
-    await page.route(`**/api/${endpoint}`, route => active === 'default'
-      ? route.fulfill({ status: 409, json: {
-        error: 'embedding_profile_conflict', collection: 'memories',
-        detail: "Embedding profile mismatch for collection 'memories'. Create a new workspace and reindex your sources.",
-      } })
-      : route.fulfill({ json }));
-  }
+  await page.route('**/api/dashboard**', route => active === 'default'
+    ? route.fulfill({ status: 409, json: {
+      error: 'embedding_profile_conflict', collection: 'memories',
+      detail: "Embedding profile mismatch for collection 'memories'. Create a new workspace and reindex your sources.",
+    } })
+    : route.fulfill({ json: summary(active) }));
   await page.route('**/api/workspace/create', async route => {
     actions.push(`create:${route.request().postDataJSON().name}`);
     await route.fulfill({ json: { ok: true, created: true, active, workspaces: ['default', 'rebuilt'] } });

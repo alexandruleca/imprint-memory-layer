@@ -22,6 +22,22 @@ To replace previously persisted helper choices, set both `chat.model_repo` and `
 
 All four roles use one cached GGUF file by default. Chat and tagging reuse the same model object **within a process** when path, context and GPU-layer settings match. Summaries and recall use `tagger.local.*` settings; recall loads the model in the MCP server process, never downloads it, and uses only a model on this computer ([configuration](configuration.md#recall)). A shared inference lock serializes local streaming and classification. Different configurations or separate dashboard/CLI/MCP processes can still load separate instances. For sharing across processes, select an existing Ollama/vLLM endpoint explicitly; no new server is installed or started automatically.
 
+## A larger chat model
+
+`chat.local_model` picks the local chat model in **Settings → Chat** ([ADR 0153](adr/0153-chat-offers-a-larger-qwen-moe-and-custom-models.md)):
+
+- **Qwen3.5 4B (default):** the shared helper above, through `chat.model_repo`, `chat.model_file` and `chat.model_path`.
+- **Qwen3.5 35B-A3B (MoE):** [`unsloth/Qwen3.5-35B-A3B-GGUF`](https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF), Apache-2.0, Q4_K_M, 22.0 GB, pinned to revision `bc014a17be43adabd7066b7a86075ff935c6a4e2` with a source-controlled SHA256. About 3B of its 35B parameters run per token, so it is about as fast per token as the 4B but answers better. It is offered on computers with about 32 GB of memory or more; elsewhere the choice is shown as unavailable with the reason. A GPU that cannot hold it runs it on the CPU (ADR 0087); lower `chat.n_gpu_layers` to keep part of it on the GPU.
+- **Custom:** a GGUF path on this computer, `<owner>/<repo>/<file>.gguf`, or a Hugging Face file link. Repository files download into `data/models/<owner>--<repo>/` from `main`, unverified.
+
+Only chat changes: tagging, summaries and recall keep `tagger.local.*`. The next chat loads the new model and lets the previous one go unless the tagger uses the same file.
+
+```bash
+imprint config set chat.local_model qwen3.5-35b-a3b
+imprint config set chat.local_model bartowski/Qwen3-14B-GGUF/Qwen3-14B-Q4_K_M.gguf
+imprint config reset chat.local_model
+```
+
 ## Bounded generation
 
 The default context is 8192 tokens. Helper GPU layers default to `-1` (all supported layers). On the `gpu` and `auto` profiles setup installs llama.cpp's Vulkan build on Windows and Linux x64 (Metal on macOS) when it finds a GPU, so the helper offloads without a CUDA toolkit ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md)). Each model runs whole on one GPU, the one `model.gpu_device` selects (`auto`: the discrete GPU with the most memory), rather than split across several; a GPU that cannot load it leaves it on the CPU with a note on standard error ([ADR 0087](adr/0087-llama-cpp-runs-each-model-on-one-gpu.md), [ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)). Embeddings use the same GPU when `model.device` allows, so the helper and the embedding model share its memory. Set both `chat.n_gpu_layers` and `tagger.local.n_gpu_layers` to `0` for CPU helper inference. Context, runtime buffers and other applications add memory beyond quantized file size. Larger contexts and a 9B helper remain measured opt-in choices.

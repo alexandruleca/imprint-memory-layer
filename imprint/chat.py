@@ -17,6 +17,7 @@ The first local chat downloads the model; every installation has the binding (AD
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import threading
 import time
@@ -25,6 +26,7 @@ from typing import Any, Callable, Generator, NamedTuple
 
 from . import config
 from . import config_schema
+from . import model_profiles as profiles
 from . import server as _mcp_server
 from . import tool_formats
 from . import chat_memory
@@ -353,6 +355,7 @@ Answer the user's question in two or three spoken sentences from the research no
 
 _llm_lock = threading.Lock()
 _llm: Any = None  # llama_cpp.Llama instance once loaded
+_llm_path: Path | None = None  # the file _llm was loaded from
 
 
 def _models_dir() -> Path:
@@ -366,17 +369,38 @@ def _cfg(key: str) -> Any:
     return v
 
 
+def _model_source() -> dict:
+    """Where the local chat model comes from (ADR 0153): ``repo`` and ``file``
+    to download into the models folder, or ``path``, the user's own file.
+
+    chat.local_model ``default`` keeps chat.model_repo, chat.model_file and
+    chat.model_path; the MoE is a pinned download; any other value is a
+    custom GGUF, kept in its own folder per repository."""
+    from . import config_schema as schema
+    choice = _cfg("chat.local_model") or schema.CHAT_MODEL_DEFAULT
+    if choice == schema.CHAT_MODEL_DEFAULT:
+        explicit = _cfg("chat.model_path")
+        return {"choice": choice, "repo": _cfg("chat.model_repo"), "file": _cfg("chat.model_file"),
+                "path": explicit or None, "local": _cfg("chat.model_file") or None}
+    if choice == schema.CHAT_MODEL_MOE:
+        return {"choice": choice, "repo": profiles.CHAT_MOE_REPO, "file": profiles.CHAT_MOE_FILE,
+                "path": None, "local": profiles.CHAT_MOE_FILE}
+    if os.path.isabs(choice) or ntpath.isabs(choice):
+        return {"choice": choice, "repo": "", "file": Path(choice).name, "path": choice, "local": None}
+    owner, name, file = choice.split("/", 2)
+    return {"choice": choice, "repo": f"{owner}/{name}", "file": file, "path": None,
+            "local": f"{owner}--{name}/{file}"}
+
+
 def _resolve_local_model_path() -> tuple[Path | None, str | None]:
     """Resolve where the model SHOULD live without downloading.
     Returns (path, error). path may not yet exist."""
-    explicit = _cfg("chat.model_path")
-    if explicit:
-        p = Path(explicit)
-        return p, None
-    fname = _cfg("chat.model_file")
-    if not fname:
+    source = _model_source()
+    if source["path"]:
+        return Path(source["path"]), None
+    if not source["local"]:
         return None, "chat.model_file is empty"
-    return _models_dir() / fname, None
+    return _models_dir() / source["local"], None
 
 
 def download_model(progress_cb: Callable[[int, int], None] | None = None,
@@ -391,11 +415,12 @@ def download_model(progress_cb: Callable[[int, int], None] | None = None,
     if target.exists():
         return target, None
 
-    if _cfg("chat.model_path"):
+    source = _model_source()
+    if source["path"]:
         return None, f"model_path does not exist: {target}"
     try:
         from .local_llm import download
-        return download(_cfg("chat.model_repo"), _cfg("chat.model_file"), target, progress_cb), None
+        return download(source["repo"], source["file"], target, progress_cb), None
     except Exception as exc:
         return None, f"download failed: {exc}"
 
@@ -412,16 +437,21 @@ def _resolve_model_path() -> tuple[Path | None, str | None]:
 
 
 def load_model() -> tuple[Any, str | None]:
-    """Lazy-load the Llama model. Thread-safe singleton."""
-    global _llm
-    if _llm is not None:
+    """Lazy-load the Llama model. Thread-safe singleton that follows
+    chat.local_model: another choice releases the loaded model."""
+    global _llm, _llm_path
+    wanted, _ = _resolve_local_model_path()
+    if _llm is not None and wanted == _llm_path:
         return _llm, None
     if _llama() is None:
         return None, _BINDING_BROKEN.format(_llama_import_error)
 
     with _llm_lock:
-        if _llm is not None:
+        if _llm is not None and wanted == _llm_path:
             return _llm, None
+        if _llm is not None:
+            _release_chat_model(_llm_path)
+            _llm, _llm_path = None, None
 
         path, err = _resolve_model_path()
         if err or path is None:
@@ -429,14 +459,30 @@ def load_model() -> tuple[Any, str | None]:
 
         try:
             from .local_llm import load
-            from . import model_profiles as profiles
-            managed = not _cfg("chat.model_path") and (_cfg("chat.model_repo"), _cfg("chat.model_file")) == (profiles.HELPER_REPO, profiles.HELPER_FILE)
+            source = _model_source()
+            pin = None if source["path"] else profiles.pinned(source["repo"], source["file"])
             _llm = load(path, int(_cfg("chat.n_ctx")), int(_cfg("chat.n_gpu_layers")),
-                        expected_sha256=profiles.HELPER_SHA256 if managed else None)
+                        expected_sha256=pin[1] if pin else None)
+            _llm_path = path
         except Exception as e:
             return None, f"model load failed: {e}"
 
     return _llm, None
+
+
+def _release_chat_model(path: Path | None) -> None:
+    """Let the previous chat model go, unless the tagger loads the same file."""
+    if path is None:
+        return
+    try:
+        from .tagger import _resolve_tagger_model_path
+        tagger_path, _ = _resolve_tagger_model_path()
+        if tagger_path is not None and Path(tagger_path).resolve() == Path(path).resolve():
+            return
+    except Exception:
+        pass
+    from .local_llm import release
+    release(path)
 
 
 # ── First-use provisioning ───────────────────────────────────
@@ -484,7 +530,7 @@ def _model_missing() -> bool:
     """The configured model is not downloaded yet. An explicit
     chat.model_path is the user's own file and is never downloaded."""
     path, err = _resolve_local_model_path()
-    return not err and path is not None and not path.exists() and not _cfg("chat.model_path")
+    return not err and path is not None and not path.exists() and not _model_source()["path"]
 
 
 def _provision() -> _Provisioning:
@@ -501,8 +547,9 @@ def _run_provisioning(job: _Provisioning) -> None:
     try:
         if _model_missing():
             path, _ = _resolve_local_model_path()
-            job.emit({"type": "download_start", "file": _cfg("chat.model_file"),
-                      "repo": _cfg("chat.model_repo"), "path": str(path)})
+            source = _model_source()
+            job.emit({"type": "download_start", "file": source["file"],
+                      "repo": source["repo"], "path": str(path)})
             last_emit = 0.0
 
             def _cb(done: int, total: int) -> None:
@@ -543,26 +590,28 @@ def status() -> dict:
     # downloads it. A binding that does not load is a damaged installation.
     installed = _llama() is not None
     broken = None if installed else _BINDING_BROKEN.format(_llama_import_error)
-    explicit = _cfg("chat.model_path")
-    if explicit:
-        p = Path(explicit)
+    source = _model_source()
+    path, _ = _resolve_local_model_path()
+    loaded = _llm is not None and path == _llm_path
+    if source["path"]:
+        p = Path(source["path"])
         return {
             "installed": installed,
             "provider": "local",
-            "model_ready": p.exists() or _llm is not None,
+            "local_model": source["choice"],
+            "model_ready": p.exists() or loaded,
             "model_path": str(p),
             "error": broken or (None if p.exists() else f"model_path does not exist: {p}"),
         }
 
-    fname = _cfg("chat.model_file")
-    local = _models_dir() / fname if fname else None
     return {
         "installed": installed,
         "provider": "local",
-        "model_ready": (local is not None and local.exists()) or _llm is not None,
-        "model_path": str(local) if local else "",
-        "model_repo": _cfg("chat.model_repo"),
-        "model_file": fname,
+        "local_model": source["choice"],
+        "model_ready": (path is not None and path.exists()) or loaded,
+        "model_path": str(path) if path else "",
+        "model_repo": source["repo"],
+        "model_file": source["file"],
         "error": broken,
     }
 

@@ -13,7 +13,7 @@ async function mockApi(page: Page, report: Record<string, unknown>) {
     installer: undefined as string | undefined, restarts: 0, restartTo: '' };
   await page.route('**/api/ping', route => route.fulfill({ json: { ok: true } }));
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 1, projects: [], langs: [], domains: [], types: [], topics: [] } }));
-  await page.route('**/api/overview', route => route.fulfill({ json: { projects: [], total: 1, version: 1, facets: {} } }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: { projects: [], total: 1, version: 1, facets: {} } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/version', route => route.fulfill({ json: { version: state.version } }));
   // The restarted server serves what is installed.

@@ -42,7 +42,7 @@ test('desktop drag handles stand down while an overlay is open', async ({ page }
     Object.assign(window, { electronAPI: { isElectron: true, platform: 'win32', close() {}, quit() {}, minimize() {}, maximize() {} } });
   });
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 0, projects: [], langs: [], domains: [], types: [], topics: [] } }));
-  await page.route('**/api/overview', route => route.fulfill({ json: { projects: [], total_memories: 0, total_facts: 0 } }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: { projects: [], total_memories: 0, total_facts: 0 } }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'alpha', workspaces: ['default', 'alpha', 'beta'] } }));
   await page.route('**/api/workspace/roots?**', route => route.fulfill({ json: { workspace: 'alpha', roots: [], exclusions: [] } }));
   await page.route('**/api/update', route => route.fulfill({ json: {

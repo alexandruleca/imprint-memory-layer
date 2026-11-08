@@ -28,14 +28,15 @@ export function pageNumbers(page: number, pages: number): (number | "gap")[] {
  * Below 512 px of content only "‹ 2 / 5 ›" remains. */
 export function Pager({ page, pages, size, shown, total, onPage, onSize }: {
   page: number; pages: number; size: number; shown: number; total: number;
-  onPage: (page: number) => void; onSize: (size: number) => void;
+  /** Without it the page size is fixed and no "Rows" choice shows. */
+  onPage: (page: number) => void; onSize?: (size: number) => void;
 }) {
   if (!total) return null;
   return (
     <nav aria-label="Pagination" className="flex flex-wrap items-center gap-1 pt-2 text-xs text-muted-foreground">
       <span className="tabular-nums">{rangeLabel(page, size, shown, total)}</span>
       <span className="flex-1" />
-      <label className="flex items-center gap-1.5">
+      {onSize && <label className="flex items-center gap-1.5">
         Rows
         <Select items={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))} value={String(size)}
           onValueChange={(value) => value && onSize(Number(value))}>
@@ -44,7 +45,7 @@ export function Pager({ page, pages, size, shown, total, onPage, onSize }: {
             {PAGE_SIZES.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
           </SelectContent>
         </Select>
-      </label>
+      </label>}
       <Button variant="ghost" size="sm" disabled={page <= 0} onClick={() => onPage(page - 1)} aria-label="Previous page">
         <ChevronLeft aria-hidden /><span className="@max-[520px]/page:hidden">Previous</span>
       </Button>

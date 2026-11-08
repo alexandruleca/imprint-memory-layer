@@ -149,7 +149,7 @@ export function CostNote({ memory, replaces, used, budget }: {
   const cost = approvalCost(memory, replaces);
   const over = memory.scope === EVERYWHERE && cost > 0 && used + cost > budget;
   return (
-    <span className={over ? "font-medium text-amber-700" : undefined}
+    <span className={over ? "font-medium text-warning" : undefined}
       title={memory.scope === EVERYWHERE ? "Tokens approving it adds to every session" : `Tokens approving it adds to sessions in ${memory.scope}`}>
       {cost < 0 ? `−${tokens(-cost)}` : `+${tokens(cost)}`}{over && " · over budget"}
     </span>
@@ -227,7 +227,7 @@ export function coreRow(memory: CoreMemory, ctx: RowContext, o: CoreRowOptions):
           ? <CoreEditor memory={memory} maxText={o.maxText} onSave={o.onSave} onCancel={() => o.onEdit(false)} />
           : <p className={ctx.expanded ? "text-sm leading-relaxed" : "line-clamp-2 text-sm leading-relaxed"}>{memory.text}</p>}
         {replaces && (
-          <div role="group" aria-label="Replaces" className="mt-1.5 rounded-r-md border-l-2 border-amber-600/60 bg-muted/60 px-2 py-1 text-xs leading-relaxed">
+          <div role="group" aria-label="Replaces" className="mt-1.5 rounded-r-md border-l-2 border-warning/60 bg-muted/60 px-2 py-1 text-xs leading-relaxed">
             <span className="font-medium text-foreground">Replaces</span>{" "}
             <span className="text-muted-foreground">{replaces.text}</span>
           </div>
@@ -242,7 +242,7 @@ export function coreRow(memory: CoreMemory, ctx: RowContext, o: CoreRowOptions):
             <Badge variant="outline" className="h-4 px-1.5 text-[11px] font-normal">In a guideline</Badge>
           )}
           {record && isConflict(memory) && (
-            <Badge variant="outline" className="h-4 border-amber-600/50 px-1.5 text-[11px] font-normal text-amber-800 dark:text-amber-300">
+            <Badge variant="outline" className="h-4 border-warning/50 px-1.5 text-[11px] font-normal text-warning">
               Conflicts with an earlier one
             </Badge>
           )}

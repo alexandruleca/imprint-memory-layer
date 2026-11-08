@@ -22,9 +22,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  connectSSE, getOrganize, getOverview, getProjectDetail, listAllSources, type ProjectMove, type SourceRow,
+  connectSSE, getOrganize, getProjectDetail, getProjects, listAllSources, type ProjectMove, type SourceRow,
 } from "@/lib/api";
-import type { OverviewData } from "@/lib/types";
+import { useCached } from "@/lib/use-cached";
 import { useHashTab } from "@/lib/use-hash-tab";
 import { useReviewShortcuts } from "@/lib/use-review-shortcuts";
 import { useStoredNumber } from "@/lib/use-stored";
@@ -72,15 +72,14 @@ function Projects() {
   const root = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const announce = useAnnounce();
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [error, setError] = useState("");
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ project: string; detail: ProjectDetail } | null>(null);
-  const [sources, setSources] = useState<{ project: string; rows: SourceRow[]; error?: string } | null>(null);
-  const [nonce, setNonce] = useState(0);
-  const [stale, setStale] = useState(false);
+  // The project list shows the last answer at once and follows every data change (ADR 0152).
+  const projects = useCached("projects", getProjects, { revalidateOnDataChange: true });
+  const data = projects.data ?? null;
+  const error = projects.error && !data ? message(projects.error) : "";
+  const [chosen, setChosen] = useState<string | null>(() => (typeof window === "undefined" ? null : wanted()));
+  /** When the API last reported a data change; the open sources are stale when they are older. */
+  const [changedAt, setChangedAt] = useState(0);
   const [list, setList] = useState<ReviewTabState>(() => reviewTab(SOURCE_TAB));
-  const [profiles, setProfiles] = useState<Map<string, { text: string; updated: number }> | null>(null);
   const [moving, setMoving] = useState<{ project: string; sources: string[] | null } | null>(null);
   const [migrating, setMigrating] = useState<MigratePreset | null>(null);
   const [associations, setAssociations] = useState<{ initial?: { source: string; project: string } } | null>(null);
@@ -90,77 +89,40 @@ function Projects() {
   const [linkedTab, openTab] = useHashTab(TABS);
   const [size, setSize] = useStoredNumber("imprint.review.page-size", 20, PAGE_SIZES);
   const tab: Tab = linkedTab ?? "overview";
-  const loadedAt = useRef(0);
 
   const names = useMemo(() => data?.projects.map((p) => p.name) ?? [], [data]);
   // A project that went away (merged, moved, purged) gives way to the largest.
   const selected = chosen && names.includes(chosen) ? chosen : names[0] ?? null;
-  const selectedRef = useRef(selected);
-  useEffect(() => { selectedRef.current = selected; }, [selected]);
 
-  // The overview and the open project's facets follow every data change; its
-  // sources wait for Refresh so rows do not move under the cursor.
-  const refreshing = useRef<Promise<void> | null>(null);
-  const again = useRef(false);
-  const refresh = useCallback(async () => {
-    if (refreshing.current) { again.current = true; return refreshing.current; }
-    const run = (async () => {
-      do {
-        again.current = false;
-        const overview = await getOverview();
-        setData(overview);
-        setError("");
-        setChosen((prev) => prev ?? wanted());
-        const name = selectedRef.current;
-        if (name) {
-          const next = await getProjectDetail(name) as ProjectDetail;
-          if (selectedRef.current === name) setDetail({ project: name, detail: next });
-        }
-      } while (again.current);
-    })();
-    refreshing.current = run;
-    try { await run; } finally { refreshing.current = null; }
+  // The open project's facets follow every data change; its sources wait for
+  // Refresh so rows do not move under the cursor (a note offers it).
+  const detail = useCached(selected ? `project:${selected}` : null,
+    () => getProjectDetail(selected ?? "") as Promise<ProjectDetail>, { revalidateOnDataChange: true });
+  const sources = useCached(selected ? `project-sources:${selected}` : null,
+    () => listAllSources(selected ?? "").then((result) => result.sources.filter((row) => row.source)),
+    { revalidateOnFocus: false, revalidateOnJobs: false });
+  const { refresh: refreshProjects } = projects;
+  const { refresh: refreshDetail } = detail;
+  const { refresh: refreshSources } = sources;
+  const refresh = useCallback(() => Promise.all([refreshProjects(), refreshDetail()]).then(() => undefined),
+    [refreshProjects, refreshDetail]);
+  const reloadSources = useCallback(() => { void refreshSources(); void refreshDetail(); }, [refreshSources, refreshDetail]);
+
+  useEffect(() => {
+    const events = connectSSE(() => setChangedAt(Date.now()));
+    return () => events.close();
   }, []);
 
-  useEffect(() => {
-    refresh().catch((e) => setError(message(e)));
-    const events = connectSSE(() => {
-      refresh().catch(() => {});
-      if (Date.now() - loadedAt.current > SETTLE_MS) setStale(true);
-    });
-    return () => events.close();
-  }, [refresh]);
-
-  // The open project's facets and sources, again after a move or Refresh.
-  useEffect(() => {
-    if (!selected) return;
-    let live = true;
-    getProjectDetail(selected).then((next) => { if (live) setDetail({ project: selected, detail: next as ProjectDetail }); }).catch(() => {});
-    listAllSources(selected).then(
-      (result) => {
-        if (!live) return;
-        setSources({ project: selected, rows: result.sources.filter((row) => row.source) });
-        setStale(false);
-        loadedAt.current = Date.now();
-      },
-      (e) => { if (live) setSources({ project: selected, rows: [], error: message(e) }); });
-    return () => { live = false; };
-  }, [selected, nonce]);
-
-  // Organize's profiles, once, for the Overview.
-  useEffect(() => {
-    if (tab !== "overview" || profiles) return;
-    let live = true;
-    getOrganize().then((review) => {
-      if (live) setProfiles(new Map((Array.isArray(review?.profiles) ? review.profiles : []).map((p) => [p.project, { text: p.text, updated: p.updated }])));
-    }, () => { if (live) setProfiles(new Map()); });
-    return () => { live = false; };
-  }, [tab, profiles]);
+  // Organize's profiles for the Overview.
+  const profileList = useCached(tab === "overview" ? "organize-profiles" : null, () => getOrganize().then((review) =>
+    (Array.isArray(review?.profiles) ? review.profiles : []).map((p) => ({ project: p.project, text: p.text, updated: p.updated }))));
+  const profiles = useMemo(() => profileList.data || profileList.error
+    ? new Map((profileList.data ?? []).map((p) => [p.project, { text: p.text, updated: p.updated }]))
+    : null, [profileList.data, profileList.error]);
 
   const select = useCallback((name: string) => {
     setChosen(name);
     setList((prev) => reviewTab({ sort: prev.sort }));
-    setStale(false);
     remember(name);
     window.history.replaceState(null, "", `?project=${encodeURIComponent(name)}${window.location.hash}`);
   }, []);
@@ -176,9 +138,9 @@ function Projects() {
     if (result.whole) select(result.target);
     else {
       setList((prev) => ({ ...prev, selected: new Set(), anchor: null, expanded: null }));
-      setNonce((n) => n + 1);
+      reloadSources();
     }
-    refresh().catch((e) => setError(message(e)));
+    void refresh();
   }
 
   useReviewShortcuts(root, {
@@ -186,8 +148,10 @@ function Projects() {
   });
 
   const project = data?.projects.find((p) => p.name === selected);
-  const shownDetail = detail && detail.project === selected ? detail.detail : null;
-  const rows = sources && sources.project === selected ? sources : null;
+  const shownDetail = detail.data ?? null;
+  const rows = sources.data ? { rows: sources.data, error: undefined }
+    : sources.error ? { rows: [] as SourceRow[], error: message(sources.error) } : null;
+  const stale = !!sources.updatedAt && changedAt - sources.updatedAt > SETTLE_MS;
   const groups: RailGroup[] = (data?.projects ?? []).map((p) => ({ name: p.name, count: p.count, color: p.color }));
 
   const read = (row: SourceRow, chunk?: number) =>
@@ -203,6 +167,7 @@ function Projects() {
 
   const header = (
     <ReviewHeader title="Projects" count={data?.projects.length} info={INFO} infoLabel="About Projects"
+      updating={projects.refreshing || detail.refreshing || sources.refreshing}
       actions={<Button variant="outline" onClick={() => setAssociations({})}><Link2 /> Project associations…</Button>} />
   );
 
@@ -211,7 +176,7 @@ function Projects() {
       <Alert variant="destructive">
         <AlertTitle>Projects could not load: {error}</AlertTitle>
         <AlertDescription>
-          <Button variant="outline" size="sm" className="mt-1" onClick={() => { refresh().catch((e) => setError(message(e))); }}><RefreshCw /> Try again</Button>
+          <Button variant="outline" size="sm" className="mt-1" onClick={() => { void refresh(); }}><RefreshCw /> Try again</Button>
         </AlertDescription>
       </Alert>
     </div>
@@ -257,7 +222,7 @@ function Projects() {
                 onClick={() => router.push(`/graph/?scope=${encodeURIComponent(`project:${selected}`)}`)} />
               <ActionButton icon={<ArrowRightLeft />} label="Move or merge…" hint="Move or merge the whole project into another one"
                 onClick={() => setMoving({ project: selected, sources: null })} />
-              <ActionButton icon={<Copy />} label="Migrate…" hint="Copy or move the project to another workspace"
+              <ActionButton icon={<Copy />} label="Copy to workspace…" hint="Copy or move the project to another workspace"
                 onClick={() => setMigrating({ mode: "project", value: selected })} />
             </div>
           </div>
@@ -277,13 +242,13 @@ function Projects() {
                 onSources={(kind) => { setList((prev) => ({ ...prev, ...RESET, filter: kind })); openTab("sources"); }} />
             </TabsContent>
             <TabsContent value="sources" className="flex min-h-0 flex-1 flex-col gap-2 pt-3">
-              {stale && rows && <StaleNote busy={false} onRefresh={() => setNonce((n) => n + 1)} what="This project" />}
+              {stale && rows && <StaleNote busy={sources.refreshing} onRefresh={reloadSources} what="This project" />}
               {!rows ? <div className="space-y-2" aria-busy="true"><Skeleton className="h-10 w-full rounded-xl" /><ListSkeleton count={8} /></div>
                 : rows.error ? (
                   <Alert variant="destructive">
                     <AlertTitle>Its sources could not load: {rows.error}</AlertTitle>
                     <AlertDescription>
-                      <Button variant="outline" size="sm" className="mt-1" onClick={() => setNonce((n) => n + 1)}><RefreshCw /> Try again</Button>
+                      <Button variant="outline" size="sm" className="mt-1" onClick={reloadSources}><RefreshCw /> Try again</Button>
                     </AlertDescription>
                   </Alert>
                 ) : (
@@ -291,6 +256,7 @@ function Projects() {
                     size={size} onSize={(next) => { setSize(next); setList((prev) => ({ ...prev, page: 0, reveal: false })); }}
                     root={root} label={`Sources of ${selected}`} actions={actions}
                     onMove={(moveRows) => setMoving({ project: selected, sources: moveRows.map((row) => row.source) })}
+                    onMigrate={(values) => setMigrating({ mode: "source", values })}
                     empty={<ReviewEmpty title="No sources." description="This project holds only memories saved without one." />} />
                 )}
             </TabsContent>
@@ -312,14 +278,14 @@ function Projects() {
       <MigrateDialog open={migrating !== null} preset={migrating ?? undefined} onClose={() => setMigrating(null)} onDone={() => setMigrating(null)} />
       {associations && (
         <ProjectAssociations initial={associations.initial} onClose={() => setAssociations(null)}
-          onChanged={() => { refresh().catch((e) => setError(message(e))); setNonce((n) => n + 1); }} />
+          onChanged={() => { void refresh(); reloadSources(); }} />
       )}
       <PurgeDialog open={purging !== null} initial={purging} onClose={() => setPurging(null)}
         onPurged={() => {
           setPurging(null);
           setList((prev) => ({ ...prev, selected: new Set(), anchor: null, expanded: null }));
-          setNonce((n) => n + 1);
-          refresh().catch((e) => setError(message(e)));
+          reloadSources();
+          void refresh();
         }} />
       <SourceReader target={reading} onClose={() => setReading(null)} />
       <ShortcutsDialog open={help} onOpenChange={setHelp} shortcuts={SHORTCUTS} />

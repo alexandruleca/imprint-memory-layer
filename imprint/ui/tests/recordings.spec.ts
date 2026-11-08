@@ -29,6 +29,7 @@ async function mockRecordings(page: Page, { computerAudio = true as boolean | 'e
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 1, projects: [['checkout-service', 3]], langs: [], domains: [], types: [], topics: [], layers: [] } }));
+  await page.route('**/api/projects', route => route.fulfill({ json: { projects: [{ name: 'checkout-service', count: 3, color: '#888888' }], total: 3 } }));
   await page.route('**/api/recordings', async route => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON();

@@ -299,26 +299,36 @@ test('a two-way join names the receiving device and asks before sending', async 
   await expect.poll(() => decision).toEqual({ session_id: 's4', decision: 'accept' });
 });
 
-test('migrate dialog copies by default', async ({ page }) => {
+test('migrate dialog copies by default, after a preview of what it takes', async ({ page }) => {
   let body: Record<string, unknown> = {};
+  let previewed: Record<string, unknown> = {};
   await page.route('**/api/config', route => route.fulfill({ json: { settings: [] } }));
-  await page.route('**/api/overview', route => route.fulfill({ json: { projects: [{ name: 'shared' }], total_memories: 0, total_facts: 0 } }));
+  await page.route('**/api/{overview,projects}', route => route.fulfill({ json: { projects: [{ name: 'shared', count: 2 }], total_memories: 0, total_facts: 0 } }));
+  await page.route('**/api/migrate/preview', async route => {
+    previewed = route.request().postDataJSON();
+    await route.fulfill({ json: { from: 'default', to: 'team', mode: 'project', target_exists: true, total: 2, existing: 0,
+      sources: 1, projects: [['shared', 2]], items: [{ value: 'shared', memories: 2, sources: 1 }] } });
+  });
   await page.route('**/api/commands/migrate', async route => {
     body = route.request().postDataJSON();
     await route.fulfill({ json: { job_id: 'j1', position: 0 } });
   });
   await page.route('**/api/jobs/j1/stream', route => route.fulfill(stream([
-    { type: 'output', text: 'Done: 2 copied of 2 scanned (source unchanged)\n' }, { type: 'done' },
+    { type: 'output', text: 'Done: 2 copied of 2 scanned (source unchanged) + 0 new KG facts\n' }, { type: 'done' },
   ])));
   await page.goto('/settings/');
-  await page.getByRole('button', { name: 'Copy / move memories…' }).click();
-  await expect(page.getByRole('radio', { name: /^Copy/ })).toBeChecked();
-  await page.getByRole('button', { name: 'shared' }).click();
-  await page.getByRole('combobox', { name: 'To', exact: true }).click();
+  await page.getByRole('button', { name: 'Copy or move memories…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Copy or move to another workspace' });
+  await expect(dialog.getByRole('radio', { name: /^Copy/ })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: /^shared/ }).click();
+  await dialog.getByRole('combobox', { name: 'To', exact: true }).click();
   await page.getByRole('option', { name: 'team' }).click();
-  await page.getByRole('button', { name: 'Copy', exact: true }).click();
-  await expect(page.getByText('source unchanged')).toBeVisible();
+  await expect(dialog.getByRole('status', { name: 'Preview' })).toContainText('Copies 2 memories from 1 source to team.');
+  expect(previewed).toEqual({ from: 'default', to: 'team', mode: 'project', values: ['shared'] });
+  await dialog.getByRole('button', { name: 'Copy 2 memories to team' }).click();
+  await expect(dialog.getByText('Done: 2 memories copied from default to team.')).toBeVisible();
   expect(body).toMatchObject({ from: 'default', to: 'team', project: 'shared', copy: true });
+  await expect(dialog.getByRole('button', { name: 'Move back…' })).toHaveCount(0);
 });
 
 test('the page opens on paired devices; each section has a tab the address keeps', async ({ page }) => {

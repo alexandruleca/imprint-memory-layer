@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, type ReactNode, type RefObject } from "react";
-import { ArrowRightLeft, ArrowUpDown } from "lucide-react";
+import { ArrowRightLeft, ArrowUpDown, Copy } from "lucide-react";
 import { Hint } from "@/components/hint";
 import { Facets, FromFilter } from "@/components/review/filters";
 import { RESET, ReviewList, useAnnounce, useReviewNav, type ReviewTabState } from "@/components/review/review-list";
@@ -41,7 +41,7 @@ function sorted(list: Prepared[], sort: string) {
 /** Every source, or one project's, as a paged list: search, a Kind filter,
  * a Project select when not scoped, sorting, and Move for the selection.
  * Sources and a project's Sources tab share it. */
-export function SourceList({ sources, scope, state, onState, size, onSize, root, label, empty, actions, onMove }: {
+export function SourceList({ sources, scope, state, onState, size, onSize, root, label, empty, actions, onMove, onMigrate }: {
   sources: SourceRow[];
   /** The project the list belongs to (the Projects page); undefined lists every project. */
   scope?: string;
@@ -55,6 +55,8 @@ export function SourceList({ sources, scope, state, onState, size, onSize, root,
   actions: Omit<SourceRowOptions, "scope" | "onDetails">;
   /** Move these rows, which share one project, to another project. */
   onMove: (rows: SourceRow[]) => void;
+  /** Copy or move the selected sources to another workspace. */
+  onMigrate?: (sources: string[]) => void;
 }) {
   const announce = useAnnounce();
   const prepared = useMemo<Prepared[]>(() => sources.map((row) => ({
@@ -155,12 +157,22 @@ export function SourceList({ sources, scope, state, onState, size, onSize, root,
   const bulk = (keys: string[]) => {
     const { rows, skipped, why } = movable(keys);
     const hint = why || (skipped ? `${skipped} linked or unrecorded ${skipped === 1 ? "stays" : "stay"} where ${skipped === 1 ? "it is" : "they are"}` : `Move ${rows.length} to another project (M)`);
+    const keyed = keys.filter((key) => byKey.get(key)?.source);
     return (
-      <Hint label={hint}>
-        <Button size="sm" disabled={!!why} focusableWhenDisabled onClick={() => move(keys)}>
-          <ArrowRightLeft /> Move {rows.length || keys.length} to…
-        </Button>
-      </Hint>
+      <>
+        <Hint label={hint}>
+          <Button size="sm" disabled={!!why} focusableWhenDisabled onClick={() => move(keys)}>
+            <ArrowRightLeft /> Move {rows.length || keys.length} to…
+          </Button>
+        </Hint>
+        {onMigrate && keyed.length > 0 && (
+          <Hint label={`Copy or move ${keyed.length} to another workspace`}>
+            <Button size="sm" variant="outline" onClick={() => onMigrate([...new Set(keyed.map((key) => byKey.get(key)!.source))])}>
+              <Copy /> Copy to workspace…
+            </Button>
+          </Hint>
+        )}
+      </>
     );
   };
 

@@ -269,6 +269,70 @@ def migrate(
     return moved, scanned, kg_copied
 
 
+PREVIEW_MODES = ("project", "topic", "source")
+_PREVIEW_VALUES = 200
+
+
+def preview(from_workspace: str, to_workspace: str, mode: str, values: list[str]) -> dict:
+    """What migrating ``values`` (projects, topics or source keys) from one
+    workspace to another would take, changing nothing (ADR 0150).
+
+    Each value is counted with the filter ``migrate`` itself uses; ``total``
+    counts the union, so a memory in two selected topics counts once.
+    ``existing`` is how many of them the target already holds under the same
+    point id (a copy rewrites those, it does not duplicate them). A target
+    that is not a workspace yet holds none; a real run creates it.
+    """
+    if mode not in PREVIEW_MODES:
+        raise ValueError(f"mode must be one of {', '.join(PREVIEW_MODES)}")
+    if not isinstance(values, list) or not values or not all(isinstance(v, str) and v for v in values):
+        raise ValueError("values must be a non-empty list of names")
+    if len(values) > _PREVIEW_VALUES:
+        raise ValueError(f"at most {_PREVIEW_VALUES} values at once")
+    if not isinstance(from_workspace, str) or not isinstance(to_workspace, str) or not from_workspace or not to_workspace:
+        raise ValueError("from and to workspaces are required")
+    if from_workspace == to_workspace:
+        raise ValueError("from_workspace and to_workspace must differ")
+    for name in (from_workspace, to_workspace):
+        error = _config.validate_workspace_name(name)
+        if error:
+            raise ValueError(f"invalid workspace {name!r}: {error}")
+    known = _config.get_known_workspaces()
+    if from_workspace not in known:
+        raise ValueError(f"source workspace {from_workspace!r} does not exist")
+
+    client, coll = vectorstore._ensure_collection(from_workspace)
+    filters = [_build_filter(**{key: (value if key == mode else "") for key in PREVIEW_MODES}) for value in values]
+    union = filters[0] if len(filters) == 1 else qm.Filter(should=filters)
+    items = []
+    for value, flt in zip(values, filters):
+        memories = client.count(coll, count_filter=flt, exact=True).count
+        sources = len(client.facet(coll, "source", facet_filter=flt, limit=100_000).hits) if memories else 0
+        items.append({"value": value, "memories": memories, "sources": sources})
+    total = client.count(coll, count_filter=union, exact=True).count
+    projects = [(hit.value, hit.count) for hit in client.facet(coll, "project", facet_filter=union, limit=20).hits]
+    sources = len(client.facet(coll, "source", facet_filter=union, limit=100_000).hits) if total else 0
+
+    existing = 0
+    target_exists = to_workspace in known
+    if target_exists and total:
+        tgt_client, tgt_coll = vectorstore._ensure_collection(to_workspace)
+        offset = None
+        while True:
+            points, offset = client.scroll(coll, scroll_filter=union, limit=1024, offset=offset,
+                                           with_payload=False, with_vectors=False)
+            if points:
+                existing += len(tgt_client.retrieve(tgt_coll, ids=[p.id for p in points],
+                                                    with_payload=False, with_vectors=False))
+            if offset is None:
+                break
+    return {
+        "from": from_workspace, "to": to_workspace, "mode": mode, "target_exists": target_exists,
+        "total": total, "existing": existing, "sources": sources,
+        "projects": projects, "items": items,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Move or copy memories (by project, topic or source) between workspaces",

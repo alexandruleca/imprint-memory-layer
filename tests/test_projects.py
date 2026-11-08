@@ -82,6 +82,33 @@ class FreshViewTests(ProjectStoreTests):
             build.assert_not_called()
 
 
+class ProjectListTests(ProjectStoreTests):
+    def test_lists_every_project_with_counts_and_follows_writes(self):
+        self.assertEqual(cli_viz._get_project_list(), {'projects': [], 'total': 0})
+        vs.store_batch(self.records(['first document', 'second document']))
+        vs.store_batch(self.records(['notes'], project='fresh', source='fresh/notes.md'))
+        listed = cli_viz._get_project_list()
+        self.assertEqual(listed['total'], 3)
+        self.assertEqual([(p['name'], p['count']) for p in listed['projects']], [('Desktop', 2), ('fresh', 1)])
+        self.assertTrue(all(p['color'].startswith('#') for p in listed['projects']))
+        # A move is a write: the next read follows it.
+        projects.run_move('fresh', 'Desktop', None, workspace='default', apply=True)
+        self.assertEqual([(p['name'], p['count']) for p in cli_viz._get_project_list()['projects']], [('Desktop', 3)])
+
+    def test_counts_a_source_linked_to_another_project_in_both(self):
+        vs.store_batch(self.records(['first document']))
+        vs.store_batch(self.records(['notes'], project='fresh', source='fresh/notes.md'))
+        vs.store_batch(self.records(['other'], project='third', source='third/x.md'))
+        _, coll = vs._ensure_collection()
+        self.client.set_payload(coll, {'related_projects': ['fresh', 'third']}, points=[
+            vs._point_uuid(vs._make_id('first document', 'Desktop', 'Desktop/a.pdf', 0))])
+        vs._wal_log('associate', count=1)
+        counts = {p['name']: p['count'] for p in cli_viz._get_project_list()['projects']}
+        self.assertEqual(counts, {'Desktop': 1, 'fresh': 2, 'third': 2})
+        # The overview counts the same way.
+        self.assertEqual({p['name']: p['count'] for p in cli_viz._get_overview()['projects']}, counts)
+
+
 class MoveTests(ProjectStoreTests):
     def setUp(self):
         super().setUp()

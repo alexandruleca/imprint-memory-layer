@@ -18,6 +18,7 @@ import { applyEvent, pendingReply, turnsFromHistory, type AssistantTurn, type Tu
 import { Composer } from "./_components/composer";
 import { Conversation } from "./_components/conversation";
 import { SessionList } from "./_components/session-list";
+import { useCached } from "@/lib/use-cached";
 
 /** The chat this browser had open last; reopened on the next visit. */
 const LAST_CHAT = "imprint.chat.last";
@@ -87,8 +88,15 @@ function SetupNotice({ status }: { status: ChatStatus | null }) {
   );
 }
 
+const NO_CHATS: ChatSession[] = [];
+
 export default function ChatPage() {
-  const [sessions, setSessions] = useState<ChatSession[] | null>(null);
+  // The chat list shows at once from the last answer while it is fetched
+  // again; kept in memory only, as titles are conversation text (ADR 0152).
+  const chats = useCached("chat-sessions", () => getChatSessions().then(({ sessions }) => sessions), { persist: false });
+  const sessions = chats.data ?? (chats.error ? NO_CHATS : null);
+  const chatsRef = useRef(chats);
+  useEffect(() => { chatsRef.current = chats; });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   // What Imprint reads in place of the chat's earliest exchanges (ADR 0141).
@@ -108,7 +116,13 @@ export default function ChatPage() {
   const view = useRef(0);
 
   function refreshSessions() {
-    getChatSessions().then(({ sessions }) => setSessions(sessions)).catch(() => {});
+    void chatsRef.current.refresh();
+  }
+
+  /** Change the shown list at once, ahead of the server (rename, delete, a new chat). */
+  function setSessions(update: (prev: ChatSession[] | null) => ChatSession[] | null) {
+    const next = update(chatsRef.current.data ?? null);
+    if (next) chatsRef.current.mutate(next);
   }
 
   async function openChat(id: string) {
@@ -153,18 +167,19 @@ export default function ChatPage() {
 
   useEffect(() => {
     getChatStatus().then(setStatus).catch(() => {});
-    getChatSessions()
-      .then(({ sessions }) => {
-        setSessions(sessions);
-        // Reopen the chat this browser was last in, else the latest one;
-        // with no chats yet, the page starts as a new chat.
-        const last = sessions.find((session) => session.id === storedChat()) ?? sessions[0];
-        if (last) void openChat(last.id);
-      })
-      .catch(() => setSessions([]));
-    // Runs once: openChat only touches refs and state setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Once the list is known, reopen the chat this browser was last in, else
+  // the latest one; with no chats yet, the page starts as a new chat.
+  const reopened = useRef(false);
+  useEffect(() => {
+    if (reopened.current || !sessions) return;
+    reopened.current = true;
+    const last = sessions.find((session) => session.id === storedChat()) ?? sessions[0];
+    if (last) void openChat(last.id);
+    // openChat only touches refs and state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
 
   useEffect(() => {
     const el = scrollRef.current;

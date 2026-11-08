@@ -21,6 +21,7 @@ async function mockCore(page: Page, memories: Core[], budget = 3000) {
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/stats', route => route.fulfill({ json: { total: 3, projects: [['shop', 2], ['engine', 1]], langs: [], domains: [], types: [], topics: [], layers: [] } }));
+  await page.route('**/api/projects', route => route.fulfill({ json: { projects: [{ name: 'shop', count: 2, color: '#888888' }, { name: 'engine', count: 1, color: '#888888' }], total: 3 } }));
   await page.route('**/api/core', async route => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON();

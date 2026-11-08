@@ -505,8 +505,9 @@ def _load_tagger_model() -> tuple[Any, str | None]:
         try:
             from .local_llm import load
             from . import model_profiles as profiles
-            managed = not _tagger_cfg("tagger.local.model_path") and (_tagger_cfg("tagger.local.model_repo"), _tagger_cfg("tagger.local.model_file")) == (profiles.HELPER_REPO, profiles.HELPER_FILE)
-            _tagger_llm = load(path, n_ctx, n_gpu, expected_sha256=profiles.HELPER_SHA256 if managed else None)
+            pin = None if _tagger_cfg("tagger.local.model_path") else profiles.pinned(
+                _tagger_cfg("tagger.local.model_repo"), _tagger_cfg("tagger.local.model_file"))
+            _tagger_llm = load(path, n_ctx, n_gpu, expected_sha256=pin[1] if pin else None)
         except Exception as e:
             return None, f"tagger model load failed: {e}"
 

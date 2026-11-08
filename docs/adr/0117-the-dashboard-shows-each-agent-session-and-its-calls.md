@@ -3,8 +3,10 @@ title: ADR 0117 — The dashboard shows each agent session and its calls
 description: Every MCP server process records its client, folder, workspace and tool calls in a per-installation SQLite file; the dashboard's Agents page lists them.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-29
+- Amended by:
+  - [ADR 0151](0151-agent-sessions-page-by-last-activity-with-a-cursor.md) — `GET /api/agents` lists connected sessions apart and pages the others by last activity with a cursor; client totals cover every session
 - Related: [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) (which clients Imprint connects to), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (redaction), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) (session workspaces)
 
 ## Context
