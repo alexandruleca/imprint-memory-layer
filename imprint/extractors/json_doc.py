@@ -552,7 +552,12 @@ def extract(path: str) -> ExtractorResult:
             return ExtractedDoc(text=raw, mime="application/jsonc",
                                 metadata={"source_format": "jsonc"}, chunk_mode="code")
     except _json.JSONDecodeError as e:
-        raise ExtractionError(f"invalid JSON: {e}")
+        # Still a text file (a fixture, a half-edited config): keep it verbatim,
+        # as a source file with a syntax error is kept (ADR 0156). Empty text
+        # has nothing to index.
+        return ExtractedDoc(text=raw, mime="application/json",
+                            metadata={"source_format": "invalid_json", "json_error": str(e)},
+                            chunk_mode="code")
     except OSError as e:
         raise ExtractionError(f"read failed: {e}")
 

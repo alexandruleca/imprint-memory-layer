@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import os
 
-from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, OcrRuntimeMissing, register_ext, register_mime
+from . import (ExtractedDoc, ExtractorUnavailable, ExtractionError, OcrRuntimeMissing, UnreadableDocument,
+               register_ext, register_mime)
 
 
 def _ocr_enabled() -> bool:
@@ -36,6 +37,10 @@ def _extract_text_pypdf(data: bytes) -> tuple[str, dict]:
         raise ExtractorUnavailable("pypdf not installed — `pip install pypdf`") from e
 
     import io
+    import logging
+    # pypdf logs recoverable damage ("EOF marker not found") as warnings, which
+    # Python's last-resort handler prints over ingest's progress line.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     reader = pypdf.PdfReader(io.BytesIO(data))
     pages = []
     for p in reader.pages:
@@ -86,6 +91,11 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     except ExtractorUnavailable:
         raise
     except Exception as e:
+        from pypdf.errors import FileNotDecryptedError, PdfReadError
+        if isinstance(e, FileNotDecryptedError):
+            raise UnreadableDocument("encrypted PDF: it opens only with its password") from e
+        if isinstance(e, PdfReadError):  # PdfStreamError, EmptyFileError: the bytes are not a PDF
+            raise UnreadableDocument(f"not a readable PDF: {e}") from e
         raise ExtractionError(f"pdf parse failed: {e}") from e
 
     # If text layer is empty/near-empty and OCR is enabled, try OCR.

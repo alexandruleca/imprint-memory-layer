@@ -5,7 +5,9 @@ description: A document without extractable text is skipped with a reason instea
 
 - Status: Amended
 - Date: 2026-10-24
-- Amended by: [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) — OCR defaults, tool detection and runtime error handling
+- Amended by:
+  - [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) — OCR defaults, tool detection and runtime error handling
+  - [ADR 0156](0156-a-file-whose-bytes-are-not-its-format-is-an-outcome.md) — parse errors caused by bytes that are not the format become remembered outcomes
 - Related: [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) (source lifecycle), [ADR 0015](0015-workspace-roots-and-source-purge.md)
 - Restructured: 2026-10-25
 

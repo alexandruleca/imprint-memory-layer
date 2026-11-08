@@ -35,6 +35,12 @@ class ExtractionError(RuntimeError):
     """Raised when extraction of an otherwise-supported file fails."""
 
 
+class UnreadableDocument(ExtractionError):
+    """The bytes are not a valid file of their format: empty, truncated, or
+    another kind of file under this extension. The bytes alone decide it, so
+    ingestion records it like a document without text (ADR 0156)."""
+
+
 class DocumentTooLarge(ValueError):
     """A document over ingest.max_doc_size_mb; refused before it is read."""
 
@@ -225,6 +231,7 @@ __all__ = [
     "ExtractorUnavailable",
     "OcrRuntimeMissing",
     "ExtractionError",
+    "UnreadableDocument",
     "DocumentTooLarge",
     "max_doc_bytes",
     "register_ext",

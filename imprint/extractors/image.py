@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 import os
 
-from . import ExtractedDoc, ExtractorUnavailable, ExtractionError, OcrRuntimeMissing, register_ext, register_mime
+from . import ExtractedDoc, ExtractorUnavailable, OcrRuntimeMissing, UnreadableDocument, register_ext, register_mime
 
 
 _IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
@@ -40,8 +40,16 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     except ImportError as e:
         raise OcrRuntimeMissing(f"image OCR runtime missing ({e}) — run imprint bootstrap") from e
 
+    from PIL import UnidentifiedImageError  # type: ignore
     from .ocr import recognize
-    with Image.open(io.BytesIO(data)) as img:
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()  # decode here, so OCR errors below are not mistaken for damage
+    except UnidentifiedImageError as e:
+        raise UnreadableDocument("not a readable image: unrecognized format") from e
+    except (OSError, SyntaxError) as e:  # truncated or corrupt image data
+        raise UnreadableDocument(f"not a readable image: {e}") from e
+    with img:
         text = recognize(img.convert("RGB"), _ocr_lang())
 
     return ExtractedDoc(

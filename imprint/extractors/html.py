@@ -80,7 +80,7 @@ def _extract_with_bs4(raw: str) -> tuple[str, dict] | None:
     return text, ({"title": title} if title else {})
 
 
-def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
+def _page_text(data: bytes, source_url: str = "") -> tuple[str, dict]:
     # Try trafilatura → bs4 → regex strip. None should raise Unavailable
     # because raw-regex fallback needs no deps.
     result = _extract_with_trafilatura(data, source_url)
@@ -90,8 +90,12 @@ def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
     if result is None:
         raw = data.decode("utf-8", errors="ignore")
         result = (_stripping_fallback(raw), {})
-
     text, meta = result
+    return text.strip(), meta
+
+
+def _extract_bytes(data: bytes, source_url: str = "") -> ExtractedDoc:
+    text, meta = _page_text(data, source_url)
     if not text:
         raise ExtractionError("html parse produced empty output")
     return ExtractedDoc(
@@ -154,12 +158,26 @@ def _split_large_text(text: str, meta: dict) -> list[ExtractedDoc]:
     )]
 
 
+# A page declares itself with a doctype or an <html>, <head> or <body> element.
+_PAGE_RE = re.compile(rb"(?i)<(?:!doctype\s+html|html|head|body)[\s>/]")
+
+
 def extract(path: str) -> ExtractorResult:
     with open(path, "rb") as f:
         data = f.read()
-    doc = _extract_bytes(data)
+    filename = os.path.basename(path)
+    if not _PAGE_RE.search(data):
+        # A fragment: a component template (Angular, Vue, server-side includes)
+        # or a test fixture. Its markup is its content, so it is indexed as
+        # source, like the code beside it (ADR 0155).
+        return ExtractedDoc(text=data.decode("utf-8", errors="ignore"), mime="text/html",
+                            metadata={"filename": filename, "source_format": "html_fragment"},
+                            chunk_mode="code")
+    text, meta = _page_text(data)
     del data  # free raw bytes early
-    doc.metadata.setdefault("filename", os.path.basename(path))
+    meta.setdefault("filename", filename)
+    # A page without text (a JavaScript-rendered shell) has nothing to index (ADR 0040).
+    doc = ExtractedDoc(text=text, mime="text/html", metadata=meta, chunk_mode="prose")
 
     if len(doc.text) > _SPLIT_THRESHOLD:
         return _split_large_text(doc.text, doc.metadata)

@@ -334,6 +334,35 @@ class NoTextDocumentTests(ProjectStoreTests):
         self.assertIn('Nothing to index:', output)
         self.assertEqual(self.placed(), [])
 
+    def unreadable_fixture(self):
+        """A test fixture named .pdf whose bytes are not a PDF (ADR 0156)."""
+        (self.folder / 'broken.pdf').write_bytes(b'test\n')
+        readable = extractors.dispatch_by_ext.side_effect
+
+        def extract(path):
+            if Path(path).name == 'broken.pdf':
+                raise extractors.UnreadableDocument('not a readable PDF: Stream has ended unexpectedly')
+            return readable(path)
+        extractors.dispatch_by_ext.side_effect = extract
+
+    def test_unreadable_document_is_skipped_with_its_reason_and_not_retried(self):
+        self.unreadable_fixture()
+        output = self.ingest()
+        self.assertIn('Indexing Complete', output)
+        self.assertIn('broken.pdf: not a readable PDF: Stream has ended unexpectedly', output)
+        self.assertNotIn('Failed:', output)
+        extract = extractors.dispatch_by_ext
+        extract.reset_mock()
+        self.assertIn('No text:  2', self.ingest())
+        extract.assert_not_called()
+
+    def test_single_unreadable_file_is_nothing_to_index(self):
+        self.unreadable_fixture()
+        output = self.ingest('--file', str(self.folder / 'broken.pdf'), '--project', 'Desktop')
+        self.assertIn('Nothing to index:', output)
+        self.assertIn('not a readable PDF', output)
+        self.assertEqual(self.placed(), [])
+
 
 
 class OversizeDocumentTests(ProjectStoreTests):

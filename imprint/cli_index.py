@@ -575,6 +575,8 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
         except extractors.ExtractorUnavailable as e:
             task.note(f"  {C_YELLOW}Extractor unavailable:{C_RESET} {e}")
             sys.exit(1)
+        except extractors.UnreadableDocument as e:
+            reason = str(e)  # nothing to index, remembered like a document without text (ADR 0156)
         except extractors.ExtractionError as e:
             task.note(f"  {C_YELLOW}Extraction failed:{C_RESET} {e}")
             sys.exit(1)
@@ -857,12 +859,16 @@ def _main(command: str = "ingest"):
                 is_doc = extractors.is_doc_extension(ext)
 
                 if is_doc:
+                    unreadable = ""
                     try:
                         from . import audio_ingest
                         with audio_ingest.reporting(task):
                             doc_list = extractors.dispatch_by_ext(os_path(fpath), **({'force': True} if force else {}))
                     except extractors.ExtractorUnavailable as e:
                         raise RuntimeError(str(e)) from e
+                    except extractors.UnreadableDocument as e:
+                        # Its bytes decide this, like a document without text (ADR 0156).
+                        doc_list, unreadable = [], str(e)
                     except extractors.ExtractionError as e:
                         raise RuntimeError(str(e)) from e
 
@@ -887,7 +893,7 @@ def _main(command: str = "ingest"):
                     if not all_records:
                         stamp_records([], fpath, snapshot)
                         file_profile = extraction_profile(fpath)
-                        reason = no_text_reason(fpath, file_profile)
+                        reason = unreadable or no_text_reason(fpath, file_profile)
                         remember_no_text(snapshot["source_hash"], file_profile, reason)
                         return [], reason
                     all_records[0]['_source_document'] = source_document

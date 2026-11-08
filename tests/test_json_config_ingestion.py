@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from imprint.extractors import ExtractionError, dispatch_by_ext
+from imprint.extractors import dispatch_by_ext
 
 
 class JsonConfigIngestionTests(unittest.TestCase):
@@ -24,11 +24,15 @@ class JsonConfigIngestionTests(unittest.TestCase):
         with patch('imprint.config_schema.resolve', return_value=('json', 'default')):
             self.assertIn('.jsonc', _enabled_doc_formats())
 
-    def test_malformed_json_still_reports_an_error(self):
+    def test_malformed_json_is_indexed_verbatim_and_names_its_error(self):
+        # A fixture or a half-edited config is still text in the repository (ADR 0156).
         with tempfile.TemporaryDirectory() as folder:
             for name in ['export.json', 'tsconfig.json', 'settings.jsonc']:
                 with self.subTest(name=name):
                     path = Path(folder) / name
                     path.write_text('{"bad": }')
-                    with self.assertRaisesRegex(ExtractionError, 'invalid JSON'):
-                        dispatch_by_ext(str(path))
+                    doc, = dispatch_by_ext(str(path))
+                    self.assertEqual(doc.text, '{"bad": }')
+                    self.assertEqual(doc.chunk_mode, 'code')
+                    self.assertEqual(doc.metadata['source_format'], 'invalid_json')
+                    self.assertIn('Expecting value', doc.metadata['json_error'])

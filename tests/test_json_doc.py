@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from imprint.extractors import ExtractionError, json_doc
+from imprint.extractors import json_doc
 
 
 class JsoncTests(unittest.TestCase):
@@ -21,9 +21,15 @@ class JsoncTests(unittest.TestCase):
         self.assertIn('"strict": true', doc.text)
         self.assertNotIn('Vite', doc.text)
 
-    def test_invalid_json_still_fails_at_its_line(self):
-        with self.assertRaisesRegex(ExtractionError, 'line 3'):
-            self.extract('{\n  /* a\n  b */ "a": 1 "b": 2\n}')
+    def test_invalid_json_is_kept_verbatim_with_its_error_line(self):
+        text = '{\n  /* a\n  b */ "a": 1 "b": 2\n}'
+        doc = self.extract(text)
+        self.assertEqual(doc.text, text)
+        self.assertEqual(doc.chunk_mode, 'code')
+        self.assertIn('line 3', doc.metadata['json_error'])
+
+    def test_an_empty_file_has_nothing_to_index(self):
+        self.assertEqual(self.extract('').text, '')
 
 
 if __name__ == '__main__':
