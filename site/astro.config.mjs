@@ -144,6 +144,7 @@ export default defineConfig({
             { label: 'Docker', slug: 'docker' },
             { label: 'Building from source', slug: 'building' },
             { label: 'Security scanning', slug: 'security-scanning' },
+            { label: 'CI runners', slug: 'ci-runners' },
           ],
         },
       ],

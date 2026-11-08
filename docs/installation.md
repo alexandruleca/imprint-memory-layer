@@ -164,11 +164,12 @@ The profile selects llama.cpp's build, which runs embeddings and the local LLM: 
 |---|---|---|
 | `claude-code` | `~/.claude/` | Claude Code CLI (stdio MCP + hooks). |
 | `claude-desktop` | macOS `~/Library/Application Support/Claude/` · Windows `%APPDATA%\Claude\` or `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\` (MS Store install) | Anthropic's desktop app. Detects both the standalone and Microsoft Store (MSIX) install layouts. **WSL2-aware**: when run from a WSL shell, writes the config to the Windows-side `claude_desktop_config.json` and wires the command through `wsl.exe -d <distro> -- env <PYTHONPATH=...> <venv-python> -m imprint`, so the Windows app launches the Linux venv directly. No second Windows-side install needed. |
-| `chatgpt-desktop` | — | Detection-only. ChatGPT Desktop wires MCP via in-app hosted connectors (SSE), not a local stdio config, so `setup` reports the install and points at the `supergateway` reverse-proxy pattern. |
+| `chatgpt-desktop` | `~/.codex/config.toml` (shared) | Current ChatGPT desktop versions load local MCP servers from Codex's `config.toml`, so setup registers Imprint there; connecting or disconnecting either app does both. Under WSL it only reports the install: run the native Windows setup for the Windows app. |
 | `cursor` | `~/.cursor/` | MCP + hooks + always-on rule. |
 | `codex` | `~/.codex/` | Codex CLI (TOML config). |
 | `copilot` | `~/.copilot/` (`COPILOT_HOME`) | GitHub Copilot on VS Code 1.143+, the Copilot CLI and JetBrains: `mcp-config.json` entry, managed block in `copilot-instructions.md`, and `hooks/imprint.json` (SessionStart, Stop). Detected from the Copilot home, `copilot` on `PATH` or a VS Code install. `imprint learn` reads its sessions. |
 | `cline` | `~/.cline/` (`CLINE_DIR`; data in `CLINE_DATA_DIR`) | Cline 4 on every surface (VS Code extension and forks, CLI, JetBrains, desktop): MCP entry in `<data>/settings/cline_mcp_settings.json` (or `CLINE_MCP_SETTINGS_PATH`) and the rule `<CLINE_DIR>/rules/imprint.md`. No hooks; `imprint learn` reads its sessions. |
+| `opencode` | `~/.config/opencode/` (`OPENCODE_CONFIG_DIR`, or under `XDG_CONFIG_HOME`) | MCP entry under `mcp` in `opencode.json`, the rule `imprint.md` listed in its `instructions`, and `plugins/imprint.js`, which learns a session when it goes idle. `imprint learn` reads its sessions from OpenCode's SQLite database ([ADR 0124](adr/0124-opencode-sessions-are-exported-from-its-database.md)). |
 | `openclaw` | `~/.openclaw/openclaw.json` | Also recognized as `clawdbot` / `moltbot`. Nested `mcp.servers` key. |
 
 Target a specific host with `imprint setup <target>` (e.g. `imprint setup claude-desktop`).

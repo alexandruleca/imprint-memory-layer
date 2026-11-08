@@ -8,8 +8,8 @@ const stores = [
 ] as const;
 
 const optIn = [
-  { icon: 'sync', title: 'Sync relay', detail: 'only while you run imprint sync; end-to-end encrypted, sees ciphertext only' },
-  { icon: 'cloud', title: 'Cloud LLM tagging', detail: 'off by default; Anthropic, OpenAI, Gemini, or local Ollama / vLLM' },
+  { icon: 'sync', title: 'Sync relay', detail: 'only for sessions you start and devices you pair; end-to-end encrypted, sees ciphertext only' },
+  { icon: 'cloud', title: 'Cloud models', detail: 'off by default; tagging, summaries and chat can each use Anthropic, OpenAI or Gemini, or your own Ollama / vLLM' },
 ] as const;
 ---
 
@@ -20,8 +20,8 @@ const optIn = [
       <h2 class="h2">Private by default. Shared only when you say so.</h2>
       <p class="lede">
         Your agent talks MCP to a local Imprint server. Storage, embeddings and tagging all run on your
-        machine, with no paid API calls. Data leaves only when you sync, encrypted end to end, or switch on a
-        cloud tagger.
+        machine, with no paid API calls. Data leaves only when you sync, encrypted end to end, or pick a cloud
+        model for tagging, summaries or chat.
       </p>
     </div>
 
@@ -46,7 +46,7 @@ const optIn = [
           <span class="icon-tile"><img src="/logo.svg" alt="" width="22" height="22" /></span>
           <div>
             <div class="font-semibold">Imprint MCP server</div>
-            <div class="text-sm text-[color:var(--color-text-muted)]">17 tools · hooks · chunker · tagger</div>
+            <div class="text-sm text-[color:var(--color-text-muted)]">19 tools · hooks · chunker · tagger</div>
           </div>
         </div>
 

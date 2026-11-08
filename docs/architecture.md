@@ -22,7 +22,7 @@ graph LR
     end
 
     subgraph "Python (imprint/)"
-        MCP[FastMCP Server<br/><small>17 tools</small>]
+        MCP[FastMCP Server<br/><small>19 tools</small>]
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
         RED[redaction.py<br/><small>secrets → placeholders</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]

@@ -11,20 +11,26 @@ const sources = [
   {
     icon: 'code',
     title: 'Your codebases',
-    body: 'Code is split along functions and classes, prose by meaning. Refresh re-indexes only the files that changed.',
+    body: 'Files are cut into overlapping spans at paragraph and line breaks, and each whole file is kept, redacted, for agents to read in full. Refresh re-indexes only the files that changed.',
     cmd: 'imprint ingest .',
   },
   {
     icon: 'message',
     title: 'Past conversations',
-    body: 'Bring in your Claude Code history plus Claude and ChatGPT data exports: one searchable memory per conversation.',
+    body: 'Claude Code, Codex, Cursor, Copilot, Cline and OpenCode sessions, WSL profiles included, each kept whole and redacted with its tool calls and their output. Add Claude and ChatGPT data exports with --desktop.',
     cmd: 'imprint learn --desktop',
   },
   {
     icon: 'globe',
     title: 'Docs and web pages',
-    body: 'PDFs, office documents and URLs. Stored pages are re-fetched only when their ETag or Last-Modified changes.',
+    body: 'PDFs, office documents and URLs, or a page you save from Chrome with the preview extension. Stored pages are re-fetched only when their ETag or Last-Modified changes.',
     cmd: 'imprint ingest-url <url>',
+  },
+  {
+    icon: 'mic',
+    title: 'Calls and audio',
+    body: 'Record a call in the dashboard, your microphone and optionally the computer’s audio, or index audio files. They are transcribed on your machine, with timestamps, and the audio stays there.',
+    cmd: 'imprint ingest call.m4a',
   },
   {
     icon: 'braces',
@@ -35,10 +41,10 @@ const sources = [
 ] as const;
 
 const stages = [
-  { label: 'chunk', detail: 'tree-sitter · func RetryWithBackoff' },
+  { label: 'chunk', detail: 'line-boundary spans · bounded overlap' },
   { label: 'embed', detail: 'Qwen3 Embedding · 1024-dim · on-device' },
   { label: 'tag', detail: 'deterministic rules + zero-shot labels' },
-  { label: 'store', detail: 'local Qdrant · facts in SQLite graph' },
+  { label: 'store', detail: 'vectors in local Qdrant · whole redacted file kept' },
 ];
 
 const tags = [

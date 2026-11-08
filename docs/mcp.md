@@ -1,6 +1,6 @@
 ---
 title: MCP Tools & Automatic Updates
-description: The 18 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, per-project workspaces, and more.
+description: The 19 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, per-project workspaces, and more.
 ---
 ## MCP Tools
 

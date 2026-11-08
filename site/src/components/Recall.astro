@@ -1,8 +1,6 @@
 ---
 import { Image } from 'astro:assets';
-import benchmarks from '../data/benchmarks.json';
 import Icon from './Icon.astro';
-import { signed } from '../lib/format';
 import graphShot from '../assets/dashboard-graph.png';
 import searchShot from '../assets/dashboard-search.png';
 import overviewShot from '../assets/dashboard-overview.png';
@@ -12,8 +10,6 @@ const shots = [
   { id: 'search', label: 'Search', src: searchShot, alt: 'Imprint dashboard search: six ranked results for a question about Qdrant, the first open with its source, fingerprint and similarity' },
   { id: 'overview', label: 'Overview', src: overviewShot, alt: 'Imprint dashboard overview: memory totals and breakdowns by project, language, domain and type' },
 ];
-
-const crossCat = benchmarks.categories?.find((c: any) => c.key === 'cross');
 
 const features = [
   {
@@ -29,12 +25,12 @@ const features = [
   {
     icon: 'graph',
     title: 'Cross-project recall',
-    body: `Reuse the fix you already shipped in another repo. Cross-project questions used ${signed(crossCat?.avgTokens, '-90.6%')} tokens in the benchmark.`,
+    body: 'Reuse the fix you already shipped in another repo. Search covers every project in the workspace unless the agent narrows it, and a hit’s nearest neighbors turn up related work elsewhere.',
   },
   {
     icon: 'monitor',
     title: 'A dashboard for humans',
-    body: 'Browse the graph, search, topics and sources, run sync and ingest jobs, or chat with your memory using an optional local model.',
+    body: 'Browse the graph, topics and sources, sort loose sources into projects with Organize, and run ingest and sync jobs. Ask Chat, or Echo by voice: it researches your memory, asks when a question is unclear, and sets reminders, timers and scheduled jobs.',
   },
 ] as const;
 ---
@@ -46,7 +42,7 @@ const features = [
       <h2 class="h2">Answers with sources, not guesses.</h2>
       <p class="lede">
         Your agent gets the few chunks that matter, with enough provenance to verify them. You get a dashboard
-        to see exactly what it knows. Run <code class="cmd">imprint ui</code>.
+        to see exactly what it knows. Run <code class="cmd">imprint ui</code>, or open the desktop app.
       </p>
     </div>
 

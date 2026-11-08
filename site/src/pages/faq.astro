@@ -2,6 +2,13 @@
 import Landing from '../layouts/Landing.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import benchmarks from '../data/benchmarks.json';
+import { signed } from '../lib/format';
+
+// Figures quoted below come from the published benchmark, so they follow BENCHMARK.md.
+const bench = benchmarks.overall;
+const seconds = (ms?: number) => ((ms ?? 0) / 1000).toFixed(1);
+const searchMs = Math.round(benchmarks.retrieval?.groups?.hybrid?.p50Ms ?? 0);
 
 const title = 'FAQ — Imprint MCP Memory Layer';
 const description =
@@ -18,19 +25,19 @@ const faqs = [
   },
   {
     q: 'Does my code ever leave my machine?',
-    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via llama.cpp — no network call. The knowledge graph is local SQLite. Two things send data out, and only when you ask: `imprint sync` streams the workspace you choose through a relay, end-to-end encrypted with the session’s share code so the relay sees only ciphertext, and opt-in LLM topic tagging (`imprint config set tagger.llm true`) calls the provider you pick (Anthropic, OpenAI, Gemini, or local Ollama / vLLM).',
+    a: 'Not by default. The Qdrant daemon runs on 127.0.0.1:6333. Embeddings come from Qwen3-Embedding-0.6B via llama.cpp — no network call. The knowledge graph is local SQLite, and tagging, summaries, the dashboard’s chat and Echo’s speech run on local models. Model weights are downloaded on first use; nothing of yours is sent to fetch them. Two things send your data out, and only when you ask: sync (`imprint sync`, and devices you pair) streams the workspace you choose through a relay, end-to-end encrypted so the relay sees only ciphertext, and LLM tagging (`imprint config set tagger.llm true`), summaries and chat can each be set to a provider you pick (Anthropic, OpenAI, Gemini, or your own Ollama / vLLM) instead of the local model.',
   },
   {
     q: 'Why not just wait for bigger context windows?',
-    a: 'Bigger contexts still pay for every token at inference, still forget between sessions, and still degrade on long conversations. Imprint flips the problem: the context window stays tight, the agent pulls only the 5–10 chunks relevant to the current question. Our benchmark shows Claude Code dropping from 10.3M total tokens to 3.0M across the same 150-run suite — the agent simply did not need the rest.',
+    a: 'Bigger contexts still pay for every token at inference, still forget between sessions, and still degrade on long conversations. Imprint keeps what was learned across sessions and hands the agent bounded excerpts with their sources (five results and about 4,000 characters per search by default), so it can check them before relying on them. Whether that saves tokens depends on the task: in the published benchmark (' + benchmarks.validPairs + ' paired Claude Code trials), total processed tokens changed ' + signed(bench?.tokenPct) + ' and list-price cost ' + signed(bench?.costPct) + ' with Imprint on. The benchmarks page has the intervals and every task.',
   },
   {
     q: 'Which agents does it work with?',
-    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with a once-per-session reminder to search Imprint first, which never blocks a tool), Claude Desktop, Cursor, GitHub Copilot (VS Code agent mode), Codex CLI, Cline and OpenClaw. Adding a new host is a config file and a CLI subcommand away.',
+    a: 'Any MCP-capable host. `imprint setup all` auto-wires Claude Code (with a once-per-session reminder to search Imprint first, which never blocks a tool), Claude Desktop, ChatGPT Desktop (through the Codex profile it shares), Cursor, GitHub Copilot (VS Code, the Copilot CLI and JetBrains), Codex CLI, Cline, OpenCode and OpenClaw; `imprint clients` shows which are connected. Adding a new host is a config file and a CLI subcommand away.',
   },
   {
     q: 'Can I share memory across my machines or with my team?',
-    a: 'Yes. `imprint sync serve` prints a one-time share code; the other machine joins with `imprint sync <code>`, the serving side approves its device, and memories and facts arrive deduplicated. Joining only receives: add `--two-way` to send back as well, and you are shown the serving device and asked before anything leaves. The serving side can be `--send-only` or `--receive-only`. Sessions are end-to-end encrypted: the code becomes the key (SPAKE2) without crossing the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Sync is on demand, not a live shared database.',
+    a: 'Yes. `imprint sync serve` prints a one-time share code; the other machine joins with `imprint sync <code>`, the serving side approves its device, and memories and facts arrive deduplicated. Joining only receives: add `--two-way` to send back as well, and you are shown the serving device and asked before anything leaves. The serving side can be `--send-only` or `--receive-only`. Sessions are end-to-end encrypted: the code becomes the key (SPAKE2) without crossing the relay, so even the default public relay cannot read your memories. Project identity comes from the manifest (package.json, go.mod, pyproject.toml…), so the same repo lines up on every machine. Each machine keeps its own copy: a session merges once, and devices you pair (`--remember` on both sides, or the dashboard’s automatic sync) merge what changed about once a minute while the dashboard or `imprint sync watch` runs on both. It is not a live shared database.',
   },
   {
     q: 'Can I share only part of my memory?',
@@ -38,7 +45,7 @@ const faqs = [
   },
   {
     q: 'Will it slow my agent down?',
-    a: 'Search itself is tens of milliseconds against a local Qdrant. Net turn count can go up slightly (search → answer takes one extra call), but each turn carries a tiny fraction of the tokens. Across the benchmark, duration drops in parallel with cost on debug and cross-project questions, stays flat on creation.',
+    a: 'A search takes about ' + searchMs + ' ms warm in the benchmark (median, hybrid ranking); the first one in a process also loads the embedding model. Searching first adds a tool call or two: the median benchmark trial took ' + seconds(bench?.latency?.on?.p50Ms) + ' s end to end with Imprint on and ' + seconds(bench?.latency?.off?.p50Ms) + ' s with it off, MCP startup included.',
   },
   {
     q: 'Can it index JS-heavy docs sites or complex documents?',
