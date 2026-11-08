@@ -114,6 +114,8 @@ The same catalog names queued jobs: `commands.describe` gives each job in `/api/
 - `wsl setup` and `remove` run from Settings → WSL profiles, where a distribution is chosen. They register the installed Windows runtime in a WSL profile and install nothing.
 - Workspaces, purge, move, sync pairing and updates have their own dashboard flows.
 
+**Scheduled jobs.** A reminder entry of kind `job` ([ADR 0158](adr/0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md)) submits `ingest`, `refresh`, `learn`, `organize`, `refresh-urls` or `retag` through `submit` when it is due, in the workspace it was set in, so it merges with an identical waiting job and is refused outside the workspace's approved roots like any other.
+
 **Non-interactive.** Jobs have no terminal: the dispatcher gives each one the null device as standard input, so a prompt reads end-of-file instead of waiting. Commands that would ask (wipe) are sent with their confirmation flag by the dialog that asked the user.
 
 ## UI

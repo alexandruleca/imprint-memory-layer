@@ -96,6 +96,9 @@ class Tool(NamedTuple):
     params: dict[str, dict] = {}
     required: tuple[str, ...] = ()
     writes: bool = False
+    # The user's own reminders, timers and scheduled jobs (ADR 0158): they
+    # write, but only to this device's schedule, so voice may use them too.
+    personal: bool = False
 
 
 def _param(kind: str, description: str) -> dict:
@@ -113,6 +116,15 @@ def _tool_search(query: str, workspace: str = "", **filters: Any) -> str:
         return error
     _mcp_server._woken_workspaces.add(ws)
     return _mcp_server.search(query=query, workspace=workspace, **filters)
+
+
+def _tool_get_memory(memory_id: str = "", id: str = "", workspace: str = "", start: int = 0,
+                     max_chars: int = 4000) -> str:
+    # search and neighbors name results get_memory(memory_id=...); small
+    # models also write id, the MCP tool's alias.
+    if not (memory_id or id):
+        return "[tool error] bad args for get_memory: missing required memory_id"
+    return _mcp_server.get_memory(memory_id=memory_id or id, workspace=workspace, start=start, max_chars=max_chars)
 
 
 def _tool_kg_add(subject: str, predicate: str, object: str, workspace: str = "", source: str = "") -> str:
@@ -146,6 +158,36 @@ TOOLS: dict[str, Tool] = {
             "source": _param("string", "Exact source path"),
         },
         required=("query",),
+    ),
+    "get_memory": Tool(
+        _tool_get_memory,
+        "Read one memory in full by the ID search, neighbors or file_chunks shows. "
+        "Use it when a search result is truncated or you need the exact text to answer.",
+        {
+            "memory_id": _param("string", "The memory's ID exactly as a result shows it"),
+            "id": _param("string", "Same as memory_id"),
+            "start": _param("integer", "Character offset to continue from (next_start of the last read)"),
+            "max_chars": _param("integer", "Characters to read, 100–12000 (default 4000)"),
+        },
+    ),
+    "neighbors": Tool(
+        _mcp_server.neighbors,
+        "Memories most similar to one memory, across projects. Use after search to find related decisions, "
+        "code or conversations the query words missed.",
+        {
+            "id": _param("string", "The memory's ID exactly as a result shows it"),
+            "k": _param("integer", "Maximum neighbors (default 10)"),
+        },
+        required=("id",),
+    ),
+    "graph_scope": Tool(
+        _mcp_server.graph_scope,
+        "Browse memory as a graph: a project's topics and sources, a topic's sources, a source's chunks. "
+        "Use when search is too narrow or to see what a project holds.",
+        {
+            "scope": _param("string", "root, project:<name>, topic:<name>, source:<path> or chunk:<id>"),
+            "depth": _param("integer", "1–3, higher shows more nodes (default 1)"),
+        },
     ),
     "kg_query": Tool(
         _mcp_server.kg_query,
@@ -252,6 +294,56 @@ TOOLS: dict[str, Tool] = {
     ),
 }
 
+# Reminders, timers and scheduled jobs (ADR 0158). Each result restates the
+# resolved time in the user's local time, so the reply can confirm it.
+from . import schedule as _schedule
+
+_AT = _param("string", "Local ISO-8601 date-time, e.g. 2026-11-09T10:00, from the current time in your instructions")
+_IN = _param("string", "Duration from now instead of at, e.g. 10m, 2h, 1h30m")
+_REPEAT = _param("string", "none (default), daily, weekdays, weekly:mon,thu or every <duration> (at least 5m)")
+TOOLS |= {
+    "set_reminder": Tool(
+        _schedule.tool_set_reminder,
+        "Remind the user of something at a time or after a duration, once or repeating.",
+        {"message": _param("string", "What to remind them of"), "at": _AT, "in": _IN, "recurrence": _REPEAT},
+        required=("message",), writes=True, personal=True,
+    ),
+    "set_timer": Tool(
+        _schedule.tool_set_timer,
+        "Start a countdown timer.",
+        {"duration": _param("string", "e.g. 10m, 90s, 1h"), "label": _param("string", "Optional name, e.g. tea")},
+        required=("duration",), writes=True, personal=True,
+    ),
+    "schedule_job": Tool(
+        _schedule.tool_schedule_job,
+        "Run an Imprint job later or on a schedule: ingest or refresh (re-index) a folder, learn, organize, "
+        "refresh-urls or retag.",
+        {"command": _param("string", "ingest, refresh, learn, organize, refresh-urls or retag"),
+         "folder": _param("string", "Absolute folder path, for ingest and refresh"),
+         "at": _AT, "in": _IN, "recurrence": _REPEAT},
+        required=("command",), writes=True, personal=True,
+    ),
+    "schedule_prompt": Tool(
+        _schedule.tool_schedule_prompt,
+        "Ask Imprint a question at a later time; the answer is written into a new chat and the user is notified.",
+        {"question": _param("string", "The question, self-contained"), "at": _AT, "in": _IN, "recurrence": _REPEAT},
+        required=("question",), writes=True, personal=True,
+    ),
+    "list_reminders": Tool(
+        _schedule.tool_list_reminders,
+        "List upcoming reminders, timers, scheduled jobs and questions, and any that are due now.",
+        {"limit": _param("integer", "Maximum entries (default 10)")},
+        personal=True,
+    ),
+    "cancel_reminder": Tool(
+        _schedule.tool_cancel_reminder,
+        "Cancel a reminder, timer, scheduled job or question.",
+        {"id": _param("string", "Its id as list_reminders shows it"),
+         "match": _param("string", "Or words from its title or message")},
+        writes=True, personal=True,
+    ),
+}
+
 
 def _tool_schemas(read_only: bool, extra: dict[str, Tool] | None = None) -> list[dict]:
     """The offered tools in the function-tool shape that OpenAI-compatible
@@ -259,7 +351,7 @@ def _tool_schemas(read_only: bool, extra: dict[str, Tool] | None = None) -> list
     return [{"type": "function", "function": {
         "name": name, "description": tool.description,
         "parameters": {"type": "object", "properties": tool.params, "required": list(tool.required)},
-    }} for name, tool in (TOOLS | (extra or {})).items() if not (read_only and tool.writes)]
+    }} for name, tool in (TOOLS | (extra or {})).items() if not (read_only and tool.writes and not tool.personal)]
 
 
 _JSON_TYPES: dict[str, tuple[type, ...]] = {
@@ -296,7 +388,7 @@ def _run_tool(name: str, args: dict, workspace: str, read_only: bool, extra: dic
     tool = (extra or {}).get(name) or TOOLS.get(name)
     if tool is None:
         return f"[tool error] unknown tool: {name}"
-    if read_only and tool.writes:
+    if read_only and tool.writes and not tool.personal:
         return "Voice mode is read-only. Use the dashboard to make changes."
     # Session ownership wins over model-supplied workspace arguments.
     args = {key: value for key, value in args.items() if key != "workspace"}
@@ -308,10 +400,69 @@ def _run_tool(name: str, args: dict, workspace: str, read_only: bool, extra: dic
         problems = ([f"missing required {', '.join(missing)}"] if missing else []) + \
                    ([f"unknown {', '.join(unknown)}"] if unknown else []) + wrong
         return f"[tool error] bad args for {name}: {'; '.join(problems)}"
+    if tool.personal:
+        args = {**args, "created_by": "voice" if read_only else "chat"}
     try:
         return tool.run(workspace=workspace, **args)
     except Exception as e:
         return f"[tool error] {name} raised: {e}"
+
+
+# ── Asking the user (ADR 0159) ───────────────────────────────
+# A reply can ask the user a clarifying question and carry on with the answer.
+# The tool loop runs it itself: the question is an event the reply's watchers
+# see, and the reply waits for the answer outside its research time. It is
+# offered only to callers that can deliver an answer, in voice too: asking
+# writes nothing.
+
+ASK_USER = "ask_user"
+ANSWER_TIMEOUT = 30 * 60  # seconds a question waits before the reply goes on without an answer
+MAX_OPTIONS = 5
+
+ASK_USER_TOOL = Tool(
+    lambda workspace="", **_: "[tool error] ask_user needs someone to answer, and nobody can here.",
+    "Ask the user one short clarifying question and wait for the answer, then continue. Use it only when the "
+    "request is ambiguous, the answer changes what you do, and search cannot settle it.",
+    {
+        "question": _param("string", "One short question"),
+        "options": {"type": "array", "items": {"type": "string"},
+                    "description": f"2-{MAX_OPTIONS} short choices the user can pick from"},
+        "allow_other": _param("boolean", "Whether the user may answer in their own words (default true)"),
+    },
+    required=("question",),
+)
+
+ASKING = """
+11. **Ask only when it matters.** When the request is ambiguous, the answer changes what you do (which project, which time range, what time to remind) and search cannot settle it, call ask_user with one short question. Offer options when you can. Never ask more than you need, or what the conversation or memory already says."""
+
+
+def _question_event(args: dict) -> dict | str:
+    """The question an ask_user call poses, or the error the model reads.
+    Options a small model wrote as text are split; fewer than two are none."""
+    question = args.get("question")
+    if not isinstance(question, str) or not question.strip():
+        return "[tool error] bad args for ask_user: missing required question"
+    options = args.get("options") or []
+    if isinstance(options, str):
+        options = options.splitlines() if "\n" in options.strip() else options.split(",")
+    if not isinstance(options, list):
+        return "[tool error] bad args for ask_user: options must be array"
+    choices: list[str] = []
+    for option in options:
+        text = " ".join(str(option).split())[:80]
+        if text and text not in choices:
+            choices.append(text)
+    choices = choices[:MAX_OPTIONS] if len(choices) >= 2 else []
+    allow_other = args.get("allow_other", True)
+    return {"type": "question", "id": os.urandom(6).hex(), "question": " ".join(question.split())[:500],
+            "options": choices, "allow_other": not choices or allow_other is not False}
+
+
+def _answer_result(answer: str | None) -> str:
+    if answer is None:
+        return (f"No answer came within {ANSWER_TIMEOUT // 60} minutes. Continue with your best assumption, "
+                "and say what you assumed.")
+    return f"The user answered: {answer}"
 
 
 SYSTEM_PROMPT = """You are Imprint, a local AI memory assistant. You help users explore, query, and manage their Imprint knowledge base — a semantic index of code, decisions, patterns, conversations, and structured facts. Everything runs locally and offline."""
@@ -323,6 +474,7 @@ TOOL_STRATEGY = """
 
 1. **Start with search** for most questions. Use 2-4 keyword queries, not full sentences. Example: "auth middleware cors" not "what do we know about the authentication middleware and CORS configuration".
 2. **Use filters** to narrow results when you know the domain. Searching for a Python bug? Add lang="python", type="bug".
+2a. **Read what you cite.** A result marked truncated is only an excerpt: read it whole with get_memory before relying on its details, and use neighbors to find related memories the query words missed.
 3. **Drill into files** with the 3-step flow: list_sources → file_summary → file_chunks. Don't jump to file_chunks without knowing the source path.
 4. **Cross-reference** search results with kg_query when you need to understand relationships between entities.
 5. **Store findings** when the user shares a decision, discovers a pattern, or resolves a bug. Good memories are specific, self-contained, and explain WHY.
@@ -330,6 +482,7 @@ TOOL_STRATEGY = """
 7. **Be concise** — summarize tool results, don't parrot them back. Pull out the key insight.
 8. **Chain tools** across turns when needed. Example: search finds a pattern → file_summary gets context → file_chunks reads the actual code.
 9. If the user asks you to remember or save something, use store or kg_add. If they say something is no longer true, use kg_invalidate.
+9a. **Reminders, timers and scheduled jobs:** use set_reminder, set_timer, schedule_job or schedule_prompt with times from the current time below, then confirm the time the result states.
 10. If no tool is needed, answer directly."""
 
 # The reserved answer after research (ADR 0127). Its request holds the
@@ -769,6 +922,17 @@ def _prompt_tokens(llm, items, tools, remote):
         prompt = llm._imprint_formatter(messages=items, tools=tools).prompt
         return len(llm.tokenize(prompt.encode(), add_bos=False, special=True))
 
+def _output_tokens(llm, text, remote):
+    """Tokens a request generated, for refunding its unused allowance."""
+    if not text:
+        return 0
+    if remote:
+        return (len(text.encode()) + 2) // 3
+    from .local_llm import INFERENCE_LOCK
+    with INFERENCE_LOCK:
+        return len(llm.tokenize(text.encode(), add_bos=False, special=True))
+
+
 def _history(prior_messages: list[dict]) -> list[dict]:
     """Stored conversation as native messages. A stored tool exchange is an
     assistant tool call followed by its tool-role result."""
@@ -807,7 +971,7 @@ def _final_messages(messages: list[dict], found: list, reason: str, *, spoken: b
     earlier = [message for message in messages[1:anchor] if message['role'] in ('user', 'assistant')
                and not message.get('tool_calls') and message.get('content', '').strip()]
     system = messages[0]['content']
-    for guidance in (TOOL_STRATEGY, chat_memory.STRATEGY, chat_memory.LOOKUP):
+    for guidance in (TOOL_STRATEGY, ASKING, chat_memory.STRATEGY, chat_memory.LOOKUP):
         system = system.replace(guidance, '')
     system += (SPOKEN_ANSWER if spoken else WRITTEN_ANSWER).format(reason=reason)
     notes = chat_research.digest(found) or 'Research found nothing usable.'
@@ -848,6 +1012,7 @@ def stream_reply(
     cancel_event: threading.Event | None = None,
     read_only: bool = False,
     summary: dict | None = None,
+    ask: Callable[[dict], Any] | None = None,
 ) -> Generator[dict, None, None]:
     """Yield SSE-ready event dicts.
 
@@ -855,6 +1020,11 @@ def stream_reply(
     ``seq`` number when stored. ``summary`` is the conversation's running
     summary (``text``, ``covers``: the last message number it stands in for,
     ``retry_after``), as the last ``summary`` event left it (ADR 0141).
+
+    ``ask`` lets the reply ask the user (ADR 0159): it takes a ``question``
+    event and returns what to wait on, an object whose ``wait(timeout)``
+    gives the answer, or None when the reply was stopped or nobody answered.
+    Without it, ask_user is not offered.
 
     Event types:
       {"type": "download_start", "file", "repo", "path"} / {"type": "download_progress", "downloaded", "total"}
@@ -866,6 +1036,8 @@ def stream_reply(
       {"type": "token", "text": str}
       {"type": "tool_call", "name": str, "args": dict}
       {"type": "tool_result", "name": str, "result": str}
+      {"type": "question", "id", "question", "options": [str], "allow_other": bool}  # waits for the user's answer
+      {"type": "answer", "id", "text": str | None}  # the answer, None when none came in time
       {"type": "assistant_message", "text": str}   # final cleaned assistant text
       {"type": "error", "error": str}
       {"type": "done"}
@@ -931,17 +1103,22 @@ def stream_reply(
     # Build message list
     from .device import current
     device_context = json.dumps({'current_device': current(), 'working_directory': os.getcwd()})
-    instructions = (SYSTEM_PROMPT + ((TOOL_STRATEGY + (chat_memory.STRATEGY if history else "")) if tools else "") +
+    asking = ask is not None and tools is not None
+    instructions = (SYSTEM_PROMPT + ((TOOL_STRATEGY + (ASKING if asking else "") +
+                                      (chat_memory.STRATEGY if history else "")) if tools else "") +
         '\n\n# Device and path context\n' + device_context +
         '\nShared memories and conversations remain useful on every device. '
         'Original paths in historical text and tool results are provenance, not local file instructions. '
         'Only path_context.local_source_path is a verified local path hint; verify live contents before edits.')
+    # The model cannot know the date or time; reminders need them (ADR 0158).
+    instructions += '\n\n# Current time\n' + _schedule.time_context()
     instructions += _guidelines(llm, remote, searchable=bool(tools))
     if read_only:
         instructions += (
             '\n\nThis is an English voice conversation. Keep spoken replies brief, usually two or three sentences. '
             'Use plain speech without markdown or code blocks. Only read tools are available in voice mode. '
-            'Do not attempt to save, change, ingest or delete anything; direct changes to the dashboard.'
+            'Do not attempt to save, change, ingest or delete anything; direct changes to the dashboard. '
+            'Reminders, timers and scheduled jobs are the exception: you may set, list and cancel them.'
         )
     question = {"role": "user", "content": user_message}
 
@@ -960,8 +1137,37 @@ def stream_reply(
     def measure(items, offered):
         return _prompt_tokens(llm, items, offered, remote)
 
+    previous: dict = {}
+
+    def charge(items, offered, allowance):
+        """Reserve a research request. The leading messages it shares with
+        the previous request on this model are not charged again: llama.cpp
+        keeps that prefix evaluated, as provider prompt caches do (ADR 0157)."""
+        shared = 0
+        if previous.get("tools") == offered:
+            for mine, theirs in zip(items, previous.get("items", ())):
+                if mine != theirs:
+                    break
+                shared += 1
+        # Rendering a prefix adds the next turn's header; keep that charged.
+        cached = max(0, measure(items[:shared], offered) - 16) if shared else 0
+        budget.reserve(measure(items, offered), allowance, cached)
+        previous.update(items=list(items), tools=offered)
+
+    def produced(text):
+        return _output_tokens(llm, text, remote)
+
     def worker_generate(items, output_tokens):
-        budget.reserve(measure(items, None), output_tokens)
+        charge(items, None, output_tokens)
+        pieces: list[str] = []
+        try:
+            for piece in _worker_pieces(items, output_tokens):
+                pieces.append(piece)
+                yield piece
+        finally:
+            budget.settle(output_tokens, produced("".join(pieces)))
+
+    def _worker_pieces(items, output_tokens):
         deadline = min(time.monotonic() + WORKER_TIMEOUT, budget.deadline)
         if remote:
             generation = _remote_turn(items, None, output_tokens, 0.1,
@@ -1007,7 +1213,25 @@ def stream_reply(
 
     def extra_tools():
         extra = {chat_memory.TOOL: lookup} if lookup else {}
+        if asking:
+            extra[ASK_USER] = ASK_USER_TOOL
         return extra | ({"read_chat_section": reread} if analysis.sources else {})
+
+    def ask_user(args):
+        """Pose the question, wait for the answer outside the research time,
+        and return the result the model reads (ADR 0159)."""
+        event = _question_event(args)
+        if isinstance(event, str):
+            return event
+        pending = ask(event)
+        yield event
+        started = budget.clock()
+        answer = pending.wait(ANSWER_TIMEOUT)
+        budget.extend(budget.clock() - started)
+        if cancelled():
+            return ""
+        yield {"type": "answer", "id": event["id"], "text": answer}
+        return _answer_result(answer)
 
     def offered_tools():
         return _tool_schemas(read_only, extra_tools()) if tools is not None else None
@@ -1154,7 +1378,7 @@ def stream_reply(
         active_tools = active_offers()
         if not finalizing:
             try:
-                budget.reserve(measure(messages, active_tools), max_tokens)
+                charge(messages, active_tools, max_tokens)
             except ResearchExhausted as error:
                 finish_reason = error.reason
                 continue
@@ -1177,6 +1401,8 @@ def stream_reply(
                 yield {"type": "token", "text": piece}
         except StopIteration as end:
             calls = end.value
+            if not finalizing:
+                budget.settle(max_tokens, produced(text + json.dumps(calls or [], ensure_ascii=False, default=str)))
         except Exception as e:
             if cancelled():
                 return
@@ -1230,7 +1456,11 @@ def stream_reply(
             if cancelled():
                 return
             yield {"type": "tool_call", "name": call["name"], "args": call["args"]}
-            if budget.remaining():
+            if budget.remaining() and asking and call["name"] == ASK_USER:
+                result = yield from ask_user(call["args"])
+                if cancelled():
+                    return
+            elif budget.remaining():
                 result = _run_tool(call["name"], call["args"], workspace, read_only, extra_tools())
             else:
                 # Complete the provider protocol for pending calls without
@@ -1241,7 +1471,8 @@ def stream_reply(
             yield {"type": "tool_result", "name": call["name"], "result": result}
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
             entry = extra_tools().get(call['name']) or TOOLS.get(call['name'])
-            round_results.append((result, bool(entry and entry.writes)))
+            # An answer from the user is progress, like a write (ADR 0159).
+            round_results.append((result, bool(entry and entry.writes) or call['name'] == ASK_USER))
         completed_rounds += 1
         budget.observe(round_results)
 

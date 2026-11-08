@@ -117,6 +117,8 @@ from .browser_api import router as browser_router
 app.include_router(browser_router)
 from .voice_api import router as voice_router
 app.include_router(voice_router)
+from .schedule_api import router as schedule_router
+app.include_router(schedule_router)
 
 
 @app.middleware("http")
@@ -132,6 +134,18 @@ async def invalidate_summaries_after_writes(request: Request, call_next):
     return response
 
 
+def _scheduled_prompt(entry: dict) -> dict:
+    """A scheduled question (ADR 0158): a new chat in the active workspace
+    whose reply runs like any other (ADR 0145); the alert links to it."""
+    question = entry["payload"]["question"]
+    workspace = config.get_active_workspace()
+    sid = chat_store.create_session(title=entry["title"][:80] or "Scheduled question")
+    chat_replies.start(sid, lambda cancel: _chat_events(sid, [], question, workspace, None, cancel),
+                       prepare=lambda: chat_store.append_message(sid, role="user", content=question),
+                       waiting=_WAITING)
+    return {"chat": sid}
+
+
 @app.on_event("startup")
 async def _start_queue_dispatcher():
     job_queue.recover_on_startup()
@@ -139,12 +153,17 @@ async def _start_queue_dispatcher():
     asyncio.create_task(job_queue.reaper_loop())
     from .sync_pairs import run
     app.state.sync_worker = asyncio.create_task(run())
+    # Reminders, timers and scheduled jobs fire from this process (ADR 0158).
+    from . import schedule
+    schedule.start(run_prompt=_scheduled_prompt)
 
 
 @app.on_event('shutdown')
 async def _stop_sync_worker():
     from .voice_api import shutdown
     await shutdown()
+    from . import schedule
+    schedule.stop()
     chat_replies.stop_all()
     task = getattr(app.state, 'sync_worker', None)
     if task:
@@ -869,8 +888,12 @@ def api_chat_get_session(sid: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     sess["messages"] = chat_store.get_messages(unquote(sid))
     sess["summary"] = chat_store.get_summary(unquote(sid))
-    # A reply still being written is watched from /reply (ADR 0145).
-    sess["replying"] = chat_replies.current(unquote(sid)) is not None
+    # A reply still being written is watched from /reply (ADR 0145), with
+    # the question it waits on, if any (ADR 0159).
+    reply = chat_replies.current(unquote(sid))
+    sess["replying"] = reply is not None
+    question = reply.pending() if reply is not None else None
+    sess["question"] = question.event if question is not None else None
     return sess
 
 
@@ -888,6 +911,24 @@ async def api_chat_reply(sid: str):
 def api_chat_stop(sid: str):
     """The user's stop: the only thing that cancels a reply (ADR 0145)."""
     return {"ok": chat_replies.stop(unquote(sid))}
+
+
+@app.post("/api/chat/sessions/{sid}/answer")
+async def api_chat_answer(sid: str, request: Request):
+    """The user's answer to the question the reply in this chat waits on:
+    ``{id, answer}`` (ADR 0159). Any window may answer, not only the one
+    that saw the question."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "id and answer required"}, status_code=400)
+    try:
+        chat_replies.answer(unquote(sid), body.get("id"), body.get("answer"))
+    except chat_replies.Rejected as error:
+        return JSONResponse({"error": str(error)}, status_code=error.status)
+    return {"ok": True}
 
 
 @app.post("/api/chat/sessions/{sid}/rename")
@@ -924,7 +965,10 @@ async def api_chat(request: Request):
     try:
         # The reply runs on its own thread: the request only watches it, so a
         # closed tab or another chat never stops it (ADR 0145).
-        reply = chat_replies.start(sid, lambda cancel: _chat_events(sid, prior, user_msg, workspace, summary, cancel),
+        # The reply can ask the user and wait for the answer (ADR 0159); it is
+        # registered under its chat until it ends, so the lookup finds it.
+        reply = chat_replies.start(sid, lambda cancel: _chat_events(sid, prior, user_msg, workspace, summary, cancel,
+                                                                    ask=lambda event: chat_replies.current(sid).ask(event)),
                                    prepare=lambda: chat_store.append_message(sid, role="user", content=user_msg),
                                    waiting=_WAITING)
     except chat_replies.Busy:
@@ -951,14 +995,17 @@ async def _watch(reply: chat_replies.Reply):
 
 
 def _chat_events(sid: str, prior: list[dict], user_msg: str, workspace: str, summary: dict | None = None,
-                 cancel: threading.Event | None = None):
+                 cancel: threading.Event | None = None, ask=None):
     """Stream one reply as SSE and record it in the session, with the
-    running summary it updates (ADR 0141)."""
+    running summary it updates (ADR 0141). A question the reply asks and its
+    answer are recorded as its ask_user tool exchange (ADR 0159)."""
     pending_tool = None
     # The reply as streamed so far. When the user stops the reply (or this
     # generator is closed), what was already shown stays in the conversation.
     partial, answered = [], False
     options = {"cancel_event": cancel} if cancel is not None else {}
+    if ask is not None:
+        options["ask"] = ask
     try:
         for ev in chat_mod.stream_reply(prior, user_msg, workspace=workspace, summary=summary, **options):
             etype = ev.get("type")

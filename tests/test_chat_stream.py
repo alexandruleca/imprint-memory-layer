@@ -163,7 +163,12 @@ class LocalModel:
         self._imprint_formatter.eos_token = eos_token
 
     def tokenize(self, text, **kwargs):
-        self.prompt = json.loads(text)
+        # Rendered prompts are JSON; generated text counted for the
+        # research budget is not, and is not a request.
+        try:
+            self.prompt = json.loads(text)
+        except ValueError:
+            pass
         return [0]
 
     def n_ctx(self):
@@ -397,7 +402,8 @@ class RemoteProtocolTests(unittest.TestCase):
 
     def test_budget_reserves_a_tools_free_answer_with_the_last_results(self):
         search = Mock(side_effect=['first source', 'last source evidence'])
-        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '2050'}), patch.object(chat, '_prompt_tokens', return_value=1):
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '2050'}), patch.object(chat, '_prompt_tokens', return_value=1), \
+             patch.object(chat, '_output_tokens', return_value=1024):  # Each round uses its whole allowance.
             events, requests = self._reply(
                 [call_chunk(0, 'search', '{"query":"one"}', id='a')],
                 [call_chunk(0, 'search', '{"query":"two"}', id='b')],
@@ -424,7 +430,8 @@ class RemoteProtocolTests(unittest.TestCase):
                 for n, (memory, kind, source, text) in enumerate(blocks, 1)) + 'More results may exist: offset=2; use filters.')
         gateway = ('m1', 'decision', 'docs/gateway.md', 'The gateway books plans through Nexus.')
         retries = ('m2', 'bug', 'conversation/77aa', 'Retries were capped at three.')
-        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '2050'}), patch.object(chat, '_prompt_tokens', return_value=1):
+        with patch.dict(os.environ, {'IMPRINT_CHAT_RESEARCH_TOKENS': '2050'}), patch.object(chat, '_prompt_tokens', return_value=1), \
+             patch.object(chat, '_output_tokens', return_value=1024):  # Each round uses its whole allowance.
             events, requests = self._reply(
                 [call_chunk(0, 'search', '{"query":"gateway"}', id='a')],
                 [call_chunk(0, 'search', '{"query":"gateway booking"}', id='b')],

@@ -11,10 +11,10 @@ import { LogoMark } from "@/components/logo-mark";
 import { cn } from "@/lib/utils";
 import {
   createChatSession, deleteChatSession, followChat, getChatSession, getChatSessions, getChatStatus,
-  renameChatSession, stopChat, streamChat,
+  answerChat, renameChatSession, stopChat, streamChat,
 } from "@/lib/api";
 import type { ChatEvent, ChatMessage, ChatSession, ChatStatus, ChatSummary } from "@/lib/types";
-import { applyEvent, pendingReply, turnsFromHistory, type AssistantTurn, type Turn } from "./_lib/turns";
+import { answerStep, applyEvent, pendingReply, turnsFromHistory, waitingQuestion, type AssistantTurn, type Turn } from "./_lib/turns";
 import { Composer } from "./_components/composer";
 import { Conversation } from "./_components/conversation";
 import { SessionList } from "./_components/session-list";
@@ -223,7 +223,17 @@ export default function ChatPage() {
     }
   }
 
+  /** Answer the question the reply waits on (ADR 0159). Any window may: the
+   * reply belongs to the API, and the answer reaches it through the API. */
+  async function answer(id: string, text: string) {
+    if (!activeId) return;
+    await answerChat(activeId, id, text);
+    updateReply((turn) => answerStep(turn, id, text));
+  }
+
   async function send(text: string) {
+    const question = waitingQuestion(turns[turns.length - 1]);
+    if (streaming && question?.allowOther) { await answer(question.id, text).catch(() => {}); return; }
     if (streaming) return;
     const current = view.current;
     setStreaming(true);
@@ -364,7 +374,7 @@ export default function ChatPage() {
                     <div className="space-y-2"><Skeleton className="h-4 w-11/12" /><Skeleton className="h-4 w-2/3" /></div>
                   </div>
                 ) : (
-                  <Conversation turns={turns} summary={summary} onRetry={retry} />
+                  <Conversation turns={turns} summary={summary} onRetry={retry} onAnswer={answer} />
                 )}
               </div>
               {!atBottom && (
@@ -382,7 +392,7 @@ export default function ChatPage() {
             <div className="mx-auto w-full max-w-3xl space-y-2 px-4 pb-4">
               {status?.error && <SetupNotice status={status} />}
               <Composer ref={composerRef} model={model} streaming={streaming} onSend={send}
-                onStop={stop} />
+                answering={!!waitingQuestion(turns[turns.length - 1])?.allowOther} onStop={stop} />
             </div>
           </>
         )}

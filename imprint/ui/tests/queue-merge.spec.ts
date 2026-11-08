@@ -52,8 +52,13 @@ test('quick actions say when a job joined an identical waiting one', async ({ pa
   await mockQueue(page, {});
   await page.route('**/api/commands/learn', route => route.fulfill({ json: { job_id: 'j1', position: 2, merged: true } }));
   await page.goto('/');
-  await page.getByRole('button', { name: /^Conversations/ }).click();
-  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  // A click before the page hydrates opens nothing; click until the form opens.
+  const run = page.getByRole('button', { name: 'Run', exact: true });
+  await expect(async () => {
+    await page.getByRole('button', { name: /^Conversations/ }).click();
+    await expect(run).toBeVisible({ timeout: 1000 });
+  }).toPass();
+  await run.click();
   await expect(page.getByRole('status')).toContainText('Already queued at position 2');
   await expect(page.getByRole('status')).toContainText('runs once');
 });

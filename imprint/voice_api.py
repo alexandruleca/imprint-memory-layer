@@ -351,6 +351,8 @@ def _guidelines() -> str:
 def tool_label(name: str, args: object) -> str:
     """What Echo shows while a tool runs; the history lookup in plain words."""
     from . import chat_memory
+    if name == "ask_user":
+        return "Asking you"  # the question itself follows (ADR 0159)
     if name != chat_memory.TOOL:
         return f"Checking memory · {name}"
     query = args.get("query") if isinstance(args, dict) else None
@@ -360,8 +362,9 @@ def tool_label(name: str, args: object) -> str:
 
 
 async def chat_events(question: str, history: list, workspace: str, cancelled: threading.Event,
-                      summary: dict | None = None):
-    """Bounded thread bridge; cancellation reaches chat before its next token/tool."""
+                      summary: dict | None = None, ask=None):
+    """Bounded thread bridge; cancellation reaches chat before its next token/tool.
+    ``ask`` lets the reply ask the user and wait for the answer (ADR 0159)."""
     from . import chat
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue(16)
@@ -378,8 +381,8 @@ async def chat_events(question: str, history: list, workspace: str, cancelled: t
 
     def produce():
         try:
-            for event in chat.stream_reply(history, question, workspace=workspace,
-                                            cancel_event=cancelled, read_only=True, summary=summary):
+            for event in chat.stream_reply(history, question, workspace=workspace, cancel_event=cancelled,
+                                            read_only=True, summary=summary, **({"ask": ask} if ask else {})):
                 if cancelled.is_set():
                     break
                 publish(event)
@@ -443,6 +446,21 @@ SPEECH_WORDS = re.compile(r"[a-z0-9']+")
 # What recognizers write for sounds that are not words: "[cough]", "(laughs)", "*sigh*".
 SOUND_LABELS = re.compile(r"\[[^\]]*\]|\([^)]*\)|\*[^*]*\*")
 FILLERS = {"um", "umm", "uh", "uhh", "uhm", "hmm", "hm", "mm", "mmm", "mhm", "ah", "ahh", "oh", "er", "erm", "eh", "huh"}
+
+
+# A question Echo asks waits this long for an answer, as chat.ANSWER_TIMEOUT
+# (ADR 0159); kept here so importing voice does not load the chat agent.
+ANSWER_WAIT = 30 * 60
+
+
+def spoken_question(event: dict) -> str:
+    """A question Echo asks, as said aloud: the question, then its choices."""
+    question = str(event.get("question", "")).strip()
+    options = [str(option) for option in event.get("options") or []]
+    if not options:
+        return question
+    choices = options[0] if len(options) == 1 else f"{', '.join(options[:-1])} or {options[-1]}"
+    return f"{question} You can say {choices}{', or something else' if event.get('allow_other', True) else ''}."
 
 
 def speech_words(text: str) -> list[str]:
@@ -515,10 +533,15 @@ class Turn:
         self.away = False  # finished with no window attached
         self.loaded = False  # an exchange of the chat this conversation carries on (ADR 0146)
         self.kept = False  # its exchange is in the history
+        # The question its reply asked the user, with the answer once given (ADR 0159).
+        self.asking: dict | None = None
 
     def snapshot(self) -> dict:
-        return {"id": self.id, "user": self.question, "answer": self.answer, "state": self.state,
-                "detail": self.detail, "error": self.error, "away": self.away}
+        snapshot = {"id": self.id, "user": self.question, "answer": self.answer, "state": self.state,
+                    "detail": self.detail, "error": self.error, "away": self.away}
+        if self.asking is not None:
+            snapshot["question"] = self.asking  # with its answer once given (ADR 0159)
+        return snapshot
 
 
 class Conversation:
@@ -550,6 +573,31 @@ class Conversation:
         # Read when it starts: turning saving off stops it at once, turning it
         # on saves the next conversation (ADR 0146).
         self.saving = saving_enabled()
+        # The question the reply in progress asked the user, and that turn
+        # (ADR 0159): the next thing the user says or taps answers it.
+        self.question = None
+        self.questioner: Turn | None = None
+
+    def pose(self, turn: Turn, event: dict):
+        """Called on the reply's thread when it asks the user: what it waits on."""
+        from .chat_replies import Question
+        question = Question(event)
+        self.question, self.questioner = question, turn
+        if turn.flag.is_set():
+            question.close()
+        return question
+
+    def answering(self):
+        """The question waiting for the user's answer, if any."""
+        question = self.question
+        if question is None or question.closed or self.questioner is not self.current:
+            return None
+        return question
+
+    def close_question(self, turn: Turn | None = None) -> None:
+        """Stop waiting for an answer: the reply was stopped, failed or ended."""
+        if self.question is not None and (turn is None or self.questioner is turn):
+            self.question.close()
 
     async def load(self, chat: str | None) -> None:
         """Start afresh, or carry on a chat from Chat history: its messages and
@@ -594,7 +642,7 @@ class Conversation:
         return self.current is not None or bool(self.queue)
 
     def snapshot(self) -> dict:
-        shown = [turn.snapshot() for turn in self.turns.values() if turn.replay is None and turn.state != "ignored"]
+        shown = [turn.snapshot() for turn in self.turns.values() if turn.replay is None and turn.state not in {"ignored", "answer"}]
         return {"workspace": self.workspace, "engine": self.engine, "voice": self.voice,
                 "attached": self.socket is not None, "busy": self.busy(), "last_id": self.last_id,
                 "turns": shown[-KEPT_TURNS:], "chat": self.carried(), "saving": self.saving}
@@ -721,9 +769,13 @@ class Conversation:
             self.last_id = turn.id
             return
         self.record(turn)
+        # While the reply waits for an answer, a typed message answers it; a
+        # spoken one does once it is heard (ADR 0159).
+        if not turn.spoken and turn.replay is None and await self.answers(turn, turn.question):
+            return
         turn.waited = self.busy()
         self.queue.append(turn)
-        if turn.waited:
+        if turn.waited and self.answering() is None:
             await self.send({"type": "queued", "id": turn.id, "position": len(self.queue)})
         if turn.spoken:
             turn.heard = asyncio.create_task(self.listen(turn))
@@ -761,17 +813,37 @@ class Conversation:
 
     def echo_of_answer(self, question: str) -> bool:
         answers = [kept.answer for kept in self.turns.values() if kept.answer and kept.replay is None][-2:]
+        # The question Echo asked was spoken aloud too (ADR 0159).
+        asked = self.questioner.asking if self.questioner is not None and self.answering() is not None else None
+        if asked:
+            answers.append(spoken_question(asked))
         return any(echoes(question, answer) for answer in answers)
+
+    async def answers(self, turn: Turn, text: str) -> bool:
+        """Whether what the user said or typed answers the question the reply
+        waits on (ADR 0159). A stop said alone still stops the reply."""
+        question = self.answering()
+        voiced = turn.spoken or turn.message.get("wake") is True
+        if question is None or turn is self.current or turn.replay is not None or (voiced and wake.stop_phrase(text)):
+            return False
+        if not question.give(" ".join(text.split())[:2000]):
+            return False
+        self.drop(turn, "answer")
+        await self.send({"type": "answering", "id": turn.id, "of": self.questioner.id})
+        return True
 
     async def decide(self, turn: Turn, question: str) -> bool:
         """Whether a question is asked. Noise and Echo's own voice are
         ignored; a stop said alone stops the reply and what waits (ADR 0145);
-        a wake conversation's goodbye ends it (ADR 0137)."""
+        a wake conversation's goodbye ends it (ADR 0137); while the reply waits
+        for the user's answer, what they say is that answer (ADR 0159)."""
         if turn.spoken and (unheard(question) or len(question) > 2000
                             or (turn.message.get("overlap") is True and self.echo_of_answer(question))):
             reason = "echo" if not unheard(question) and len(question) <= 2000 else "unheard"
             self.drop(turn, "ignored")
             await self.send({"type": "ignored", "id": turn.id, "reason": reason})
+            return False
+        if turn.spoken and await self.answers(turn, question):
             return False
         await self.emit(turn, {"type": "user", "text": question})
         voiced = turn.spoken or turn.message.get("wake") is True
@@ -838,6 +910,7 @@ class Conversation:
         current, task = self.current, self.task
         if current is not None and current is not keep and (identifier is None or current.id == identifier):
             current.flag.set()
+            self.close_question(current)  # a reply waiting for an answer stops at once (ADR 0159)
             current.state = "cancelled"
             if task and task is not asyncio.current_task():
                 task.cancel()
@@ -934,7 +1007,8 @@ class Conversation:
                 else:
                     pending = ""
                     provisioning = False
-                    async for event in chat_events(question, list(self.history), self.workspace, flag, self.summary):
+                    async for event in chat_events(question, list(self.history), self.workspace, flag, self.summary,
+                                                   ask=lambda asked: self.pose(turn, asked)):
                         kind = event["type"]
                         if provisioning and kind in {"token", "tool_call"}:
                             budget.reschedule(asyncio.get_running_loop().time() + TURN_TIMEOUT)
@@ -959,6 +1033,25 @@ class Conversation:
                                         "text": tool_label(event["name"], event.get("args"))})
                         elif kind == "tool_result" and calls and "result" not in calls[-1]:
                             calls[-1] = {**calls[-1], "result": str(event.get("result", ""))[:TOOL_RESULT_CHARS]}
+                        elif kind == "question":
+                            # Echo asks, aloud and on screen, and waits; the next
+                            # thing the user says or taps is the answer (ADR 0159).
+                            if pending.strip():
+                                await self.speak(pending, emit)
+                                pending = ""
+                            turn.asking = {key: event[key] for key in ("id", "question", "options", "allow_other")}
+                            turn.detail = "Waiting for your answer"
+                            await emit({"type": "question", "question_id": event["id"], "question": event["question"],
+                                        "options": event["options"], "allow_other": event["allow_other"]})
+                            await self.speak(spoken_question(event), emit)
+                            # Waiting for the user is not a stalled reply.
+                            budget.reschedule(asyncio.get_running_loop().time() + ANSWER_WAIT + TURN_TIMEOUT)
+                        elif kind == "answer":
+                            text = event.get("text")
+                            if turn.asking is not None:
+                                turn.asking = {**turn.asking, "answer": text}
+                            await emit({"type": "answered", "question_id": event["id"], "text": text})
+                            await emit({"type": "state", "state": "thinking"})
                         elif kind == "summary":
                             # The summary stands for messages already answered,
                             # so it holds whether or not this reply completes.
@@ -1005,6 +1098,9 @@ class Conversation:
                           else "Echo couldn't finish this answer. Try again, or ask a shorter question.")
             await emit({"type": "error", "error": turn.error})
             await sessions.worker.stop()
+        finally:
+            # A reply that ends while its question waits stops waiting with it (ADR 0159).
+            self.close_question(turn)
 
 
 @router.get("/conversation")
@@ -1141,6 +1237,15 @@ async def stream(websocket: WebSocket):
                 if not valid_turn(message, conversation.last_id):
                     raise VoiceMemoryError("Invalid voice turn.")
                 await conversation.intake(Turn(message["id"], message))
+            elif kind == "answer":
+                # A choice tapped on the question Echo asked (ADR 0159). A
+                # question no longer waiting ignores it: the answer came first.
+                text, identifier = message.get("text"), message.get("question_id")
+                if not isinstance(identifier, str) or not isinstance(text, str) or not text.strip() or len(text) > 2000:
+                    raise VoiceMemoryError("Invalid voice answer.")
+                question = conversation.answering()
+                if question is not None and question.id == identifier:
+                    question.give(" ".join(text.split()))
             elif kind == "end":
                 await conversation.end()
                 break

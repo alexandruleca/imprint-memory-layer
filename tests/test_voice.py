@@ -193,7 +193,7 @@ class VoiceBoundaryTests(unittest.TestCase):
         # ADR 0146: Chat history holds the same messages, numbers and summary.
         seen = []
 
-        async def events(question, history, workspace, cancelled, summary=None):
+        async def events(question, history, workspace, cancelled, summary=None, ask=None):
             seen.append({"question": question, "history": history, "summary": summary})
             if question == "first":
                 yield {"type": "tool_call", "name": "search", "args": {"query": "billing"}}
@@ -247,7 +247,7 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertEqual(chat_store.get_summary(saved["id"])["text"], "- Billing port (#1–#3).")
 
     def test_with_saving_off_a_voice_conversation_writes_nothing(self):
-        async def events(question, history, workspace, cancelled, summary=None):
+        async def events(question, history, workspace, cancelled, summary=None, ask=None):
             yield {"type": "token", "text": "Answer."}
             yield {"type": "done"}
 
@@ -269,7 +269,7 @@ class VoiceBoundaryTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob("chat*.sqlite3")), [])
 
     def test_first_chat_download_has_progress_and_a_separate_budget_without_private_logs(self):
-        async def events(*args):
+        async def events(*args, **kwargs):
             yield {"type": "download_start", "path": "/PRIVATE/model.gguf", "repo": "PRIVATE"}
             await asyncio.sleep(slack(.15))
             yield {"type": "download_progress", "downloaded": 12, "total": 24}
@@ -420,15 +420,25 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
     def fixtures(self, answers, transcripts=None, spoken=None):
         """chat_events answering each question from `answers`: tokens, event
         dicts, and threading.Events it waits on until set. The worker
-        transcribes audio by `transcripts` and speaks every phrase briefly."""
-        flags, histories = {}, {}
+        transcribes audio by `transcripts` and speaks every phrase briefly.
+        A ``question`` event asks the user, as chat does, and waits for the
+        answer (ADR 0159); ``flags["answers"]`` records what came."""
+        flags, histories = {"answers": []}, {}
 
-        async def events(question, history, workspace, cancelled, summary=None):
+        async def events(question, history, workspace, cancelled, summary=None, ask=None):
             flags[question], histories[question] = cancelled, history
             for part in answers[question]:
                 if isinstance(part, threading.Event):
                     while not part.is_set():
                         await asyncio.sleep(.01)
+                elif isinstance(part, dict) and part.get("type") == "question":
+                    pending = ask(part)
+                    yield part
+                    answer = await asyncio.to_thread(pending.wait, slack(10))
+                    flags["answers"].append(answer)
+                    if cancelled.is_set():
+                        return
+                    yield {"type": "answer", "id": part["id"], "text": answer}
                 elif isinstance(part, dict):
                     yield part
                 else:
@@ -753,7 +763,7 @@ class VoiceRunsToCompletionTests(unittest.TestCase):
         _, histories = self.fixtures({"And staging?": ["Same ports."]})
         flags = {}
 
-        async def events(question, history, workspace, cancelled, summary=None):
+        async def events(question, history, workspace, cancelled, summary=None, ask=None):
             flags["summary"], flags["history"] = summary, history
             yield {"type": "token", "text": "Same ports."}
             yield {"type": "done"}
@@ -945,7 +955,10 @@ class VoiceChatPolicyTests(unittest.TestCase):
         write.assert_not_called()
         read.assert_called_once_with(workspace="alpha")
         offered = [t["function"]["name"] for t in client.chat.completions.create.call_args_list[0].kwargs["tools"]]
-        self.assertEqual(offered, ["search", "kg_query", "status", "wake_up", "list_sources", "file_summary", "file_chunks", "read_source"])
+        # Read tools, and the user's own schedule (ADR 0158); never store, kg_add or ingest_url.
+        self.assertEqual(offered, ["search", "get_memory", "neighbors", "graph_scope", "kg_query", "status", "wake_up",
+                                   "list_sources", "file_summary", "file_chunks", "read_source", "set_reminder", "set_timer",
+                                   "schedule_job", "schedule_prompt", "list_reminders", "cancel_reminder"])
 
 
 class LiveRuntimeIntegrityTests(unittest.TestCase):

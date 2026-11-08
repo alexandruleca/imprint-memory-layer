@@ -56,7 +56,8 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     setBackgroundColor(color) { this.background = color; }
     show() { this.visible = true; }
     hide() { this.visible = false; }
-    focus() {}
+    focus() { this.focused = true; }
+    isFocused() { return !!this.focused && this.visible; }
     moveTop() {}
     showInactive() { this.visible = true; this.inactive = (this.inactive || 0) + 1; }
     isVisible() { return this.visible; }
@@ -89,8 +90,13 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     setTitle(text) { calls.title = text; }
     setContextMenu(menu) { calls.menu = menu; }
   }
+  class Notification extends EventEmitter {
+    static isSupported() { return true; }
+    constructor(options) { super(); this.options = options; }
+    show() { calls.push(['notification', this.options.title, this.options.body]); calls.notification = this; }
+  }
   const electron = {
-    app, BrowserWindow: Window, Tray, Menu: { buildFromTemplate: menu => menu },
+    app, BrowserWindow: Window, Tray, Notification, Menu: { buildFromTemplate: menu => menu },
     nativeImage: { createFromPath: () => ({ isEmpty: () => false, getSize: () => ({ width: 32, height: 32 }), resize: size => { calls.traySize = size; return { isEmpty: () => false }; } }) },
     shell: { openExternal(url) { calls.push(['open-external', url]); }, openPath() {} }, ipcMain,
     systemPreferences: { getMediaAccessStatus() { calls.push('media-status'); return mediaStatus; },
@@ -997,4 +1003,28 @@ test('without a saved theme the app follows the system', async () => {
   await settle();
   assert.equal(h.theme.themeSource, 'system');
   assert.equal(h.windows[1].options.backgroundColor, '#fafafa');
+});
+
+test('a reminder that rings notifies while the dashboard is away, and its click opens it there', async () => {
+  const h = harness({ alreadyUp: true });
+  await settle();
+  const dashboard = h.windows[1];
+  dashboard.url = 'http://127.0.0.1:8420/reminders/';
+  const id = 'a'.repeat(32);
+  const notes = () => h.calls.filter(call => call[0] === 'notification');
+  // In front, the dashboard's own toast is enough.
+  h.emit('reminder-notify', dashboard, { id, title: 'Reminder: call Dan', body: '' });
+  assert.deepEqual(notes(), []);
+  dashboard.hide();
+  // Malformed alerts and other origins are ignored.
+  for (const value of [null, { id: 'x', title: 't' }, { id, title: 7 }]) h.emit('reminder-notify', dashboard, value);
+  dashboard.url = 'https://example.com/';
+  h.emit('reminder-notify', dashboard, { id, title: 'Reminder: call Dan', body: '' });
+  assert.deepEqual(notes(), []);
+  dashboard.url = 'http://127.0.0.1:8420/';
+  h.emit('reminder-notify', dashboard, { id, title: 'Reminder: call Dan', body: 'Late: was due today 10:00.' });
+  assert.deepEqual(notes(), [['notification', 'Reminder: call Dan', 'Late: was due today 10:00.']]);
+  h.calls.notification.emit('click');
+  assert.equal(dashboard.visible, true);
+  assert.deepEqual(dashboard.sent.at(-1), ['reminder-open', id]);
 });

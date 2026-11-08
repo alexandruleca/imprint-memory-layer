@@ -33,7 +33,7 @@ class ChatRepliesOutliveTheirRequestTests(unittest.TestCase):
         self.release = threading.Event()
         self.cancelled = []
 
-        def reply(prior, message, workspace="", summary=None, cancel_event=None):
+        def reply(prior, message, workspace="", summary=None, cancel_event=None, ask=None):
             self.cancelled.append(cancel_event)
             yield {"type": "token", "text": "Billing is on "}
             while not self.release.wait(.01):
@@ -156,3 +156,63 @@ class ChatKindTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuestionReleasesTheSlotTests(unittest.TestCase):
+    """A reply waiting on the user's answer does not hold up other chats
+    (ADR 0159): it gives up the writing slot and takes it back after."""
+
+    def test_another_chat_is_answered_while_one_waits_on_the_user(self):
+        asked = threading.Event()
+
+        def first(cancel):
+            yield 'start'
+            answer = chat_replies.current('a').ask({'id': 'q1', 'question': 'Which project?'}).wait(10)
+            yield f'answer:{answer}'
+
+        def second(cancel):
+            yield 'second reply'
+
+        a = chat_replies.start('a', first)
+        deadline = time.monotonic() + 5
+        while chat_replies.current('a').pending() is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        b = chat_replies.start('b', second, waiting='waiting')
+        self.assertEqual(b.wait(0, 5), (['second reply'], True))
+        chat_replies.answer('a', 'q1', 'imprint')
+        seen, finished = [], False
+        while not finished:
+            more, finished = a.wait(len(seen), 5)
+            seen += more
+        self.assertEqual(seen, ['start', 'answer:imprint'])
+
+    def test_a_reply_that_resumes_waits_for_the_slot_another_chat_holds(self):
+        release = threading.Event()
+        order = []
+
+        def first(cancel):
+            chat_replies.current('c').ask({'id': 'q', 'question': 'Which?'}).wait(10)
+            order.append('first resumed')
+            yield 'done'
+
+        def second(cancel):
+            order.append('second started')
+            release.wait(5)
+            order.append('second finished')
+            yield 'done'
+
+        c = chat_replies.start('c', first)
+        deadline = time.monotonic() + 5
+        while chat_replies.current('c').pending() is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        d = chat_replies.start('d', second)
+        while 'second started' not in order and time.monotonic() < deadline:
+            time.sleep(.01)
+        chat_replies.answer('c', 'q', 'x')
+        time.sleep(.3)
+        self.assertEqual(order, ['second started'])  # The first waits for the slot.
+        release.set()
+        self.assertTrue(d.wait(0, 5)[1])
+        while not c.wait(0, 5)[1]:
+            pass
+        self.assertEqual(order, ['second started', 'second finished', 'first resumed'])

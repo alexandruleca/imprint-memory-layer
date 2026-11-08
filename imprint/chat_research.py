@@ -2,7 +2,10 @@
 and the notes the final answer is written from (ADR 0127).
 
 Novelty is a stopping hint, not a relevance or truth classifier. Resource tokens
-are conservative reservations (prompt + maximum output), not billing usage.
+count the work a request does: the prompt tokens past the prefix the previous
+request already processed, plus the output it generated. A request must fit
+its whole output allowance before it starts; what it leaves unused is refunded
+(ADR 0157). They are estimates, not billing usage.
 """
 from __future__ import annotations
 
@@ -37,6 +40,11 @@ class ResearchBudget:
         if not self.remaining():
             raise ResearchExhausted('time')
 
+    def extend(self, seconds):
+        """Time the reply spent waiting for the user's answer is not research
+        time: the deadline moves by it (ADR 0159)."""
+        self.deadline += max(0., seconds)
+
     def reason(self):
         if not self.remaining():
             return 'time'
@@ -46,13 +54,21 @@ class ResearchBudget:
             return 'no_progress'
         return None
 
-    def reserve(self, prompt, output):
+    def reserve(self, prompt, output, cached=0):
+        """Charge a request before it starts: its prompt past the ``cached``
+        prefix the model already holds, plus its whole output allowance."""
         self.check_time()
         if prompt < 0 or output < 1:
             raise ValueError('Research requests need a nonnegative prompt and positive output allowance')
-        if self.reserved + prompt + output > self.tokens:
+        charge = max(0, prompt - max(0, cached)) + output
+        if self.reserved + charge > self.tokens:
             raise ResearchExhausted('tokens')
-        self.reserved += prompt + output
+        self.reserved += charge
+        return charge
+
+    def settle(self, allowance, used):
+        """Refund the output allowance a finished request did not use."""
+        self.reserved -= max(0, allowance - max(0, used))
 
     def observe(self, results):
         """A full completed round: results are (text, writes) pairs.

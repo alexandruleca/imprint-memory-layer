@@ -211,6 +211,22 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | GET | `/api/recordings/{id}/transcript`, `/api/recordings/{id}/audio` | The transcript text; the raw audio. |
 | DELETE | `/api/recordings/{id}/audio`, `/api/recordings/{id}` | Delete the audio only, or the recording with its transcript and memories. |
 
+### Reminders, timers and scheduled jobs
+
+Device-local entries the dashboard API's scheduler fires ([ADR 0158](adr/0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md)). Refused requests answer 400 (409 for done or snooze with nothing waiting) with `{error}` saying why.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/schedule` | One page of entries: `view=upcoming` (scheduled, soonest first) or `past` (fired, done, cancelled, missed; latest first), `limit` (at most 100), `before` (the previous page's `next`). Returns `{entries, next, total}`. Each entry has `id`, `kind` (`reminder`, `timer`, `job`, `prompt`), `title`, `message`, `due_at` (epoch seconds), `timezone`, `recurrence`, `repeat` and `when` (readable), `workspace`, `payload`, `status`, `created_by` (`chat`, `voice`, `dashboard`), `last_fired_at`, `snoozed_until`, `ended_at` and `alert` (its waiting firing, or null). |
+| POST | `/api/schedule` | Create: `{kind, title?, message?, at? \| in?, recurrence?, payload?, timezone?}`. `at` is a local ISO-8601 date-time or a time of day, `in` a duration (`10m`, `1h30m`); a time already past is refused. `recurrence`: `none`, `daily`, `weekdays`, `weekly:mon,thu` or `every 30m` (at least 5 minutes). A job's `payload` is `{command, ...}` with `command` one of `ingest`, `refresh` (both with an absolute `dir` inside the workspace's approved roots, optional `force`), `learn` (`desktop`), `organize` (`no_model`), `refresh-urls`, `retag` (`pending`, `project`); a question's is `{question}`. Returns the entry with `note` when its time was adjusted (a time the clocks skip). |
+| GET | `/api/schedule/{id}` | One entry. |
+| PATCH | `/api/schedule/{id}` | Change an upcoming entry's `title`, `message`, `at`/`in`, `recurrence`, `payload` or `timezone`. |
+| POST | `/api/schedule/{id}/snooze` | `{minutes}` (1–1440): its waiting reminder or timer alert rings again then. |
+| POST | `/api/schedule/{id}/done` | Put its waiting alert away; a one-time entry becomes `done`. |
+| POST | `/api/schedule/{id}/cancel` | It no longer fires, and its waiting alert is put away. |
+| GET | `/api/schedule/alerts` | Firings waiting for the user, latest first: `{alerts: [{id, entry_id, kind, title, message, occurrence_at, fired_at, alerted_at, late, missed, ring, repeats, when, outcome}]}`. `ring` grows each time a snoozed alert rings again; `outcome` holds a job's `job_id`, a question's `chat`, or `error`. |
+| GET | `/api/schedule/options` | The kinds, the job allow-list with each job's fields, this device's time zone and the snooze choices. |
+
 ### Knowledge graph
 
 | Method | Path | Purpose |
@@ -364,9 +380,10 @@ estimates; they do not imply a recognized speaker or an exact recording transcri
 | GET | `/api/chat/status` | Configured provider + model + readiness. For `local`, `error` reports a llama.cpp binding that does not load (a damaged installation). |
 | GET | `/api/chat/sessions` | List chat sessions, each with its `kind` (`chat`, or `voice` for a conversation with Echo) and `replying` while a reply is being written in it. |
 | POST | `/api/chat/sessions` | Create a new session. |
-| GET | `/api/chat/sessions/{sid}` | Session transcript (`messages`, each with its `seq`) and `summary`: the running summary (`text`, `covers`: the last message seq it stands in for, `exchanges`: user messages covered, `retry_after`, `updated_at`), or `null` before the first one; `replying` while a reply is being written. |
+| GET | `/api/chat/sessions/{sid}` | Session transcript (`messages`, each with its `seq`) and `summary`: the running summary (`text`, `covers`: the last message seq it stands in for, `exchanges`: user messages covered, `retry_after`, `updated_at`), or `null` before the first one; `replying` while a reply is being written, and `question`: the question that reply waits on (the `question` event), or `null`. |
 | GET | `/api/chat/sessions/{sid}/reply` | The reply being written, as the same SSE stream as `/api/chat`, from its first event; `404` when none is. |
 | POST | `/api/chat/sessions/{sid}/stop` | Stop the reply being written (`{"ok": false}` when none is). The only thing that cancels it. |
+| POST | `/api/chat/sessions/{sid}/answer` | Answer the question the reply waits on: `{"id", "answer"}`, from any window ([ADR 0159](adr/0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md)). `404` when no reply is being written, `409` when no question with that `id` waits, `400` for an empty answer, one over 2,000 characters, or a choice outside `options` when `allow_other` is false. |
 | POST | `/api/chat/sessions/{sid}/rename` | Rename session. |
 | DELETE | `/api/chat/sessions/{sid}` | Delete session. |
 | POST | `/api/chat` | Send a message. Returns an SSE stream of tokens + tool calls. The reply runs in the API: closing the stream only stops watching it ([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)). `409` while a reply is being written in the session. Replies are written one at a time; one that waits for another chat's first sends `analysis` "Waiting for the reply in another chat to finish…". |
@@ -400,6 +417,12 @@ estimates; they do not imply a recognized speaker or an exact recording transcri
   turn may call several tools; each call is followed by its result before
   the next. Calls use each model's native tool protocol
   ([ADR 0059](adr/0059-chat-speaks-each-models-native-tool-protocol.md)).
+- `question` (`id`, `question`, `options`, `allow_other`), between an
+  `ask_user` call and its result: the reply waits for
+  `POST /api/chat/sessions/{sid}/answer`, then sends `answer` (`id`, `text`;
+  `null` when none came within 30 minutes). The exchange is stored as the
+  `ask_user` tool call and its result
+  ([ADR 0159](adr/0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md)).
 - `assistant_message` (`text`): the complete reply, stored in the session.
 - `error` (`error`), then `done`.
 

@@ -22,9 +22,13 @@ routes:
   interleaved text and audio. Retrieval is fixed by Imprint; the audio model does
   not issue arbitrary MCP calls.
 
-Voice is **read-only**. The chat adapter offers the model only the read tools,
-rejects any write call, and directs writes to the dashboard. The small-model
-prompt likewise has no write interface.
+Voice is **read-only** for memory. The chat adapter offers the model only the read tools,
+rejects any write call, and directs writes to the dashboard. The one exception
+is the user's own schedule: reminders, timers, scheduled jobs and questions
+(`set_reminder`, `set_timer`, `schedule_job`, `schedule_prompt`, `list_reminders`,
+`cancel_reminder`) write only this device's `data/schedule.sqlite3`, so voice
+offers them ([ADR 0158](adr/0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md)).
+The small-model prompt likewise has no write interface.
 Evidence is untrusted reference material; prompting is not a guarantee against
 model prompt injection or incorrect answers. No recorded audio or native prompt
 log is kept. The text of each conversation is saved in Chat history on this device
@@ -277,6 +281,21 @@ waiting (in the floating Echo, "Next: …") with **Remove**, and answers it afte
 the current reply, up to four in a row. While you speak over Echo, its voice is
 lowered, never cut, and the answer stays on screen; **Play again** reads a
 finished answer aloud once more.
+
+**Echo can ask you back**
+([ADR 0159](adr/0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md)). When a question is ambiguous, the
+reasoning model may call `ask_user`: Echo says the question with its choices
+("You can say Imprint or Billing, or something else.") and shows it with a
+button per choice. While it waits, the next thing you say or type, or the
+choice you tap, is the answer, not a new question; it shows on the question.
+Noise, Echo hearing itself (the question included) and a spoken "stop" behave
+as above, and **Stop reply** ends the wait. The reply waits up to 30 minutes,
+outside its research time and turn timeout, then goes on with its stated best
+assumption. The protocol adds the client control `answer` (`question_id`,
+`text`) and the events `question` (`question_id`, `question`, `options`,
+`allow_other`), `answering` (this utterance answered turn `of`) and `answered`
+(`question_id`, `text`, `null` when none came); a turn's snapshot carries its
+`question`.
 
 Not every sound is a question. Speech with less than about a quarter of a second
 of voice never leaves the page. A spoken question is transcribed as soon as the

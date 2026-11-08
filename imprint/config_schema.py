@@ -347,7 +347,7 @@ SETTINGS: list[Setting] = [
     Setting("chat.max_tokens",     "IMPRINT_CHAT_MAX_TOKENS",     1024,                             int,   "Max tokens per chat response"),
     Setting("chat.temperature",    "IMPRINT_CHAT_TEMPERATURE",    0.3,                              float, "Chat sampling temperature"),
     Setting("chat.research_timeout_sec", "IMPRINT_CHAT_RESEARCH_TIMEOUT", 300, research_seconds, "Research time budget in seconds (10–3600), excluding model setup and the reserved final answer"),
-    Setting("chat.research_token_budget", "IMPRINT_CHAT_RESEARCH_TOKENS", 65536, research_tokens, "Research model-token reservations: prompt plus maximum output for every coordinator and section-worker request; remote prompts are estimated"),
+    Setting("chat.research_token_budget", "IMPRINT_CHAT_RESEARCH_TOKENS", 65536, research_tokens, "Research tokens: each coordinator and section-worker request is charged its prompt past the previous request's prefix plus the output it generates (ADR 0157); remote counts are estimated"),
     Setting("chat.research_no_progress_rounds", "IMPRINT_CHAT_RESEARCH_PATIENCE", 4, research_patience, "Consecutive read rounds without new evidence before synthesis (2–20); detects cycles, repeated evidence and recurring errors"),
     Setting("chat.analysis_workers", "IMPRINT_CHAT_ANALYSIS_WORKERS", 2, analysis_worker_count,
             "Sequential workers for oversized questions and evidence; more workers keep separate notes. 0 disables section analysis.",

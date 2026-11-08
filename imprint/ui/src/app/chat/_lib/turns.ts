@@ -2,7 +2,16 @@ import type { ChatEvent, ChatMessage } from "@/lib/types";
 
 export type TextStep = { kind: "text"; text: string };
 export type ToolStep = { kind: "tool"; name: string; args: Record<string, unknown>; result?: string };
-export type Step = TextStep | ToolStep;
+/** A question the reply asked the user (ADR 0159). `answer` is undefined while
+ * it waits, the user's answer once given, and null when none came in time. */
+export type QuestionStep = {
+  kind: "question"; id: string; question: string; options: string[]; allowOther: boolean; answer?: string | null;
+};
+export type Step = TextStep | ToolStep | QuestionStep;
+
+/** The tool a reply asks the user with; it shows as a question, not a tool row. */
+export const ASK_USER = "ask_user";
+const ANSWERED = "The user answered: ";
 
 /** First-use setup of the local model, shown above the reply it unblocks. */
 export type Setup = {
@@ -41,11 +50,38 @@ export function turnsFromHistory(messages: ChatMessage[]): Turn[] {
       reply = { role: "assistant", steps: [], streaming: false };
       turns.push(reply);
     }
+    if (message.role === "tool" && message.tool_name === ASK_USER) {
+      reply.steps.push(storedQuestion(message, reply.steps.length));
+      continue;
+    }
     reply.steps.push(message.role === "tool"
       ? { kind: "tool", name: message.tool_name ?? "tool", args: message.tool_args ?? {}, result: message.content }
       : { kind: "text", text: message.content });
   }
   return turns;
+}
+
+/** A stored ask_user exchange as the question and the answer it got. */
+function storedQuestion(message: ChatMessage, index: number): QuestionStep {
+  const args = message.tool_args ?? {};
+  const options = Array.isArray(args.options) ? args.options.map(String) : [];
+  return {
+    kind: "question", id: `stored-${index}`, question: typeof args.question === "string" ? args.question : "",
+    options, allowOther: args.allow_other !== false,
+    answer: message.content.startsWith(ANSWERED) ? message.content.slice(ANSWERED.length) : null,
+  };
+}
+
+/** The question this reply waits on, if any. */
+export function waitingQuestion(turn: Turn | undefined): QuestionStep | undefined {
+  if (turn?.role !== "assistant" || !turn.streaming) return undefined;
+  const step = turn.steps.findLast((item) => item.kind === "question");
+  return step?.kind === "question" && step.answer === undefined ? step : undefined;
+}
+
+/** Record an answer on its question. */
+export function answerStep(turn: AssistantTurn, id: string, answer: string | null): AssistantTurn {
+  return { ...turn, steps: turn.steps.map((step) => (step.kind === "question" && step.id === id ? { ...step, answer } : step)) };
 }
 
 /** The model produced output, so a pending model load has finished. */
@@ -84,7 +120,15 @@ export function applyEvent(turn: AssistantTurn, ev: ChatEvent): AssistantTurn {
       return { ...turn, steps, analysis: undefined, setup: loaded(turn.setup) };
     }
     case "tool_call":
+      // The question that follows shows the call (ADR 0159).
+      if (ev.name === ASK_USER) return { ...turn, analysis: undefined, setup: loaded(turn.setup) };
       return { ...turn, steps: [...turn.steps, { kind: "tool", name: ev.name, args: ev.args }], analysis: undefined, setup: loaded(turn.setup) };
+    case "question":
+      return { ...turn, analysis: undefined, steps: [...turn.steps, {
+        kind: "question", id: ev.id, question: ev.question, options: ev.options ?? [], allowOther: ev.allow_other !== false,
+      }] };
+    case "answer":
+      return answerStep(turn, ev.id, ev.text);
     case "tool_result": {
       const index = turn.steps.findLastIndex((step) => step.kind === "tool" && step.name === ev.name && step.result === undefined);
       if (index < 0) return turn;

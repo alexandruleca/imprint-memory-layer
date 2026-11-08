@@ -276,6 +276,10 @@ export type ChatEvent =
   | { type: "token"; text: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: string }
+  // The reply asks the user and waits for the answer (ADR 0159); `text` is
+  // null when no answer came in time.
+  | { type: "question"; id: string; question: string; options: string[]; allow_other: boolean }
+  | { type: "answer"; id: string; text: string | null }
   | { type: "assistant_message"; text: string }
   | { type: "error"; error: string }
   | { type: "done" };

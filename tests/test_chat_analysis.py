@@ -223,7 +223,11 @@ class AnalysisChatIntegrationTests(unittest.TestCase):
         budgets = []
         def budget_factory(**kwargs):
             budget = ResearchBudget(**kwargs)
-            budget.reserve = MagicMock(wraps=budget.reserve)
+            charges, refunds = [], []
+            reserve, settle = budget.reserve, budget.settle
+            budget.reserve = MagicMock(side_effect=lambda *a: charges.append(reserve(*a)) or charges[-1])
+            budget.settle = MagicMock(side_effect=lambda allowance, used: refunds.append(max(0, allowance - used)) or settle(allowance, used))
+            budget.charges, budget.refunds = charges, refunds
             budgets.append(budget)
             return budget
 
@@ -252,10 +256,14 @@ class AnalysisChatIntegrationTests(unittest.TestCase):
         workers = [request for request in requests if request["tools"] is None]
         self.assertGreater(len(workers), 1)
         self.assertTrue(all(request["timeout"] == 120 for request in workers))
-        # Every model request, including section workers, reserves its prompt
-        # and output allowance. No worker can silently evade the reply budget.
-        self.assertEqual(budgets[0].reserve.call_count, len(requests))
-        self.assertEqual(budgets[0].reserved, sum(sum(call.args) for call in budgets[0].reserve.call_args_list))
+        # Every model request, including section workers, reserves its new
+        # prompt and output allowance before it starts and is refunded only
+        # the output it did not generate. No worker evades the reply budget.
+        budget = budgets[0]
+        self.assertEqual(budget.reserve.call_count, len(requests))
+        self.assertEqual(budget.settle.call_count, len(requests))
+        self.assertTrue(all(charge > 0 for charge in budget.charges))
+        self.assertEqual(budget.reserved, sum(budget.charges) - sum(budget.refunds))
         self.assertEqual(events[-2], {"type": "assistant_message", "text": "Synthesized tail evidence."})
 
     def test_local_coordinator_can_reread_original_after_tool_free_workers(self):
@@ -263,7 +271,10 @@ class AnalysisChatIntegrationTests(unittest.TestCase):
 
         class Model(LocalModel):
             def tokenize(self, text, **kwargs):
-                self.prompt = json.loads(text)
+                try:
+                    self.prompt = json.loads(text)
+                except ValueError:
+                    pass
                 return [0] * (len(text) // 4 + 1)
 
             def generate(self, tokens, **sampling):

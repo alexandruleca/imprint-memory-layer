@@ -12,7 +12,9 @@ description: Echo's voice conversation and each Chat reply belong to the API ins
   - [ADR 0092](0092-voice-generation-follows-playback.md) — the `played` acknowledgement no longer commits history; playback credit is released for good when the window playing it goes away
   - [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — folded, Echo's page releases the microphone and lets go of the conversation, which goes on in the API, instead of stopping it
   - [ADR 0141](0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md) — voice keeps every completed reply in its in-memory history, played to the end or not
-- Amended by: [ADR 0146](0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md) — the user chose to save voice: each exchange is also written to Chat history unless saving is off, and a reply stopped partway joins the history as far as it got
+- Amended by:
+  - [ADR 0146](0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md) — the user chose to save voice: each exchange is also written to Chat history unless saving is off, and a reply stopped partway joins the history as far as it got
+  - [ADR 0159](0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md) — while a reply waits for the user's answer to its question, what Echo hears or is typed next is that answer, not the next question
 - Related: [ADR 0035](0035-prebuilt-llama-wheels-and-chat-provisioning.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md), [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md), [live voice](../live-voice.md), [dashboard](../dashboard.md)
 
 ## Context

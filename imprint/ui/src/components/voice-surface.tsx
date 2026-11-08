@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { MicrophoneAccessError, VoiceClient, initialVoice, microphoneAccessAllows, microphoneProblem, replying, type CarriedChat, type VoiceMode, type VoiceSnapshot, type VoiceTurn } from "@/lib/voice-client";
+import { MicrophoneAccessError, VoiceClient, initialVoice, microphoneAccessAllows, microphoneProblem, replying, waitingQuestion, type CarriedChat, type VoiceMode, type VoiceSnapshot, type VoiceTurn } from "@/lib/voice-client";
 import { downloadWakeModel, cancelWakeDownload, useWakeState, wakeStatus, wakeSummary } from "@/lib/wake";
 import { readVoicePreferences, saveVoicePreferences } from "@/lib/voice-preferences";
 import { API_BASE } from "@/lib/api-base";
@@ -22,7 +22,28 @@ import "@/styles/voice.css";
 
 const EchoAvatar = dynamic(() => import("./echo-avatar"), { ssr: false });
 type RuntimeStatus = { configured: boolean; installed: boolean; supported: boolean; chat_provider: string; workspace: string };
-type TurnActions = { retry: (id: number) => void; replay: (id: number) => void; withdraw: (id: number) => void };
+type TurnActions = { retry: (id: number) => void; replay: (id: number) => void; withdraw: (id: number) => void;
+  answer: (questionId: string, text: string) => void };
+
+/** A question Echo asked while answering (ADR 0159): read aloud, and shown here
+ * with its choices to tap; saying or typing the answer works as well. */
+function EchoQuestion({ turn, voice, actions }: { turn: VoiceTurn; voice: VoiceSnapshot; actions: TurnActions }) {
+  const question = turn.question!;
+  const waiting = voice.connected && !!waitingQuestion(turn);
+  const heading = `echo-question-${turn.id}`;
+  return <div className="voice-question" role="group" aria-labelledby={heading}>
+    <p id={heading} className="voice-question-text">{question.text}</p>
+    {question.options.length > 0 && <div className="voice-question-options">
+      {question.options.map(option => <Button key={option} type="button" variant="outline" size="xs" disabled={!waiting}
+        aria-pressed={question.answer === option} onClick={() => actions.answer(question.id, option)}>{option}</Button>)}
+    </div>}
+    <p className="voice-turn-status" role="status">
+      {typeof question.answer === "string" ? <span>You answered: {question.answer}</span>
+        : question.answer === null ? <span>No answer came; Echo went on with its best guess</span>
+        : waiting ? <span>{question.allowOther ? "Say or type your answer" : "Say or tap your answer"}</span> : null}
+    </p>
+  </div>;
+}
 
 /** A turn's state in plain words, with what can be done about it (ADR 0145). */
 function TurnStatus({ turn, voice, last, actions }: { turn: VoiceTurn; voice: VoiceSnapshot; last: boolean; actions: TurnActions }) {
@@ -52,8 +73,10 @@ function TurnStatus({ turn, voice, last, actions }: { turn: VoiceTurn; voice: Vo
 function Turns({ voice, actions, variant = "full" }: { voice: VoiceSnapshot; actions: TurnActions; variant?: "full" | "latest" | "panel" }) {
   const lastDone = voice.turns.findLast(turn => turn.state === "done")?.id;
   const latest = variant === "latest";
-  const shown = latest ? voice.turns.filter((turn, index) => index === voice.turns.length - 1 || turn.state === "queued"
-    || turn.state === "thinking") : voice.turns;
+  // An answer to Echo's question shows on the question, not as a question of its own (ADR 0159).
+  const asked = voice.turns.filter(turn => turn.answers === undefined);
+  const shown = latest ? asked.filter((turn, index) => index === asked.length - 1 || turn.state === "queued"
+    || turn.state === "thinking") : asked;
   if (!shown.length) return null;
   const spokenQuestion = (turn: VoiceTurn) => turn.user || (turn.spoken ? "Your spoken question" : "");
   return <>{voice.resumed && variant !== "panel" && <p className="voice-turn-note" role="status">Picked up where you left off</p>}
@@ -67,6 +90,7 @@ function Turns({ voice, actions, variant = "full" }: { voice: VoiceSnapshot; act
       : <li key={turn.id} className="voice-turn" data-state={turn.state}>
         <p className="voice-user">{spokenQuestion(turn)}</p>
         {turn.answer && <p className="voice-answer">{turn.answer}</p>}
+        {turn.question && <EchoQuestion turn={turn} voice={voice} actions={actions}/>}
         {!turn.answer && turn.state === "done" && <p className="voice-answer">…</p>}
         <TurnStatus turn={turn} voice={voice} last={turn.id === lastDone} actions={actions}/>
       </li>)}
@@ -230,7 +254,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   // Echo is answering, has questions waiting, or is reading an answer aloud.
   const busy = voice.connected && (replying(voice) || voice.phase === "speaking");
   const actions: TurnActions = { retry: id => client.current?.retry(id), replay: id => client.current?.replay(id),
-    withdraw: id => client.current?.withdraw(id) };
+    withdraw: id => client.current?.withdraw(id), answer: (question, text) => client.current?.answer(question, text) };
   /** Turn on "Hey Echo": after the explanation, the OS consent step (ADR 0069), then
    * the one-time model download, then the desktop app starts listening (ADR 0137). */
   async function turnOnWake() {

@@ -152,8 +152,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `chat.n_gpu_layers` | `-1` | GPU layers to offload (-1 = all) |
 | `chat.max_tokens` | `1024` | Max tokens per chat response |
 | `chat.temperature` | `0.3` | Chat sampling temperature |
-| `chat.research_timeout_sec` | `300` | Research time budget in seconds (10–3600), excluding setup and the reserved final answer. Env: `IMPRINT_CHAT_RESEARCH_TIMEOUT`. |
-| `chat.research_token_budget` | `65536` | Prompt + maximum output reservations for all research coordinator/worker requests (1024–2000000). Env: `IMPRINT_CHAT_RESEARCH_TOKENS`. |
+| `chat.research_timeout_sec` | `300` | Research time budget in seconds (10–3600), excluding setup, the reserved final answer and time spent waiting for your answer to a question ([ADR 0159](adr/0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md)). Env: `IMPRINT_CHAT_RESEARCH_TIMEOUT`. |
+| `chat.research_token_budget` | `65536` | Tokens research may use across its coordinator and worker requests (1024–2000000): each request is charged for its prompt past the prefix the previous request already processed plus the output it generates; its whole output allowance must fit before it starts (ADR 0157). Env: `IMPRINT_CHAT_RESEARCH_TOKENS`. |
 | `chat.research_no_progress_rounds` | `4` | Consecutive read rounds without new evidence before synthesis (2–20). Env: `IMPRINT_CHAT_RESEARCH_PATIENCE`. |
 | `chat.analysis_workers` | `2` | Logical workers for oversized chat questions/evidence, executed sequentially. `1`–`8` keep separate rolling notes; `0` disables section analysis. Settings → Chat → Sequential analysis workers. Env: `IMPRINT_CHAT_ANALYSIS_WORKERS`. See [local helper models](local-models.md#large-chat-questions-and-evidence). |
 | `chat.tool_format` | `auto` | Tool-call format of the local model: `auto` (detected from the GGUF's chat template), `qwen-xml`, `hermes`, `llama3`, `mistral`, or `none` (chat without tools). Remote providers ignore it. See [local helper models](local-models.md). |

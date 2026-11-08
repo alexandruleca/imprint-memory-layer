@@ -100,6 +100,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('voice-cursor-watch', true);
     return () => { ipcRenderer.removeListener('voice-cursor', listener); ipcRenderer.send('voice-cursor-watch', false); };
   },
+  // Reminders (ADR 0158): the dashboard reports one that rang; a click on
+  // its notification comes back to open it.
+  notifyReminder: alert => ipcRenderer.send('reminder-notify', alert),
+  onReminderOpen: callback => {
+    const listener = (_event, id) => callback(id);
+    ipcRenderer.on('reminder-open', listener);
+    return () => ipcRenderer.removeListener('reminder-open', listener);
+  },
   startupState: () => ipcRenderer.invoke('startup-state'),
   activity: () => ipcRenderer.invoke('activity'),
   retryStartup: () => ipcRenderer.send('startup-retry'),

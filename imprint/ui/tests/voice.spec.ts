@@ -969,3 +969,44 @@ test('Companion settings turn saving in Chat history off; the idle line says whe
   await page.keyboard.press('Escape');
   await expect(page.getByRole('status').filter({ hasText: 'runs locally · not saved' })).toBeVisible();
 });
+
+// ADR 0159: Echo asks a clarifying question while answering; a tap, typed text
+// or the next thing said answers it, and it never shows as a new question.
+test('Echo shows the question it asks with its choices; a tapped choice answers it', async ({ page }) => {
+  const server = await prepare(page);
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await ask(page, 'Which port does it use?');
+  await expect.poll(() => server.controls.find(c => c.type === 'turn')?.id).toBe(1);
+  server.send({ type: 'user', id: 1, text: 'Which port does it use?' });
+  server.send({ type: 'question', id: 1, question_id: 'q1', question: 'Which project?', options: ['Imprint', 'Billing'], allow_other: true });
+  const card = page.getByRole('group', { name: 'Which project?' });
+  await expect(card).toContainText('Say or type your answer');
+  await card.getByRole('button', { name: 'Billing' }).click();
+  await expect.poll(() => server.controls.filter(c => c.type === 'answer'))
+    .toEqual([{ type: 'answer', question_id: 'q1', text: 'Billing' }]);
+  await expect(card).toContainText('You answered: Billing');
+  await expect(card.getByRole('button', { name: 'Imprint' })).toBeDisabled();
+  server.send({ type: 'answered', id: 1, question_id: 'q1', text: 'Billing' });
+  server.send({ type: 'text', id: 1, text: 'Billing uses 8101.' });
+  server.send({ type: 'done', id: 1 });
+  await expect(page.locator('.voice-transcript')).toContainText('Billing uses 8101.');
+  expect(server.controls.filter(c => c.type === 'cancel')).toEqual([]);
+});
+
+test('a typed answer to Echo is shown on its question, not as a new question', async ({ page }) => {
+  const server = await prepare(page);
+  await page.goto('/voice/');
+  await page.getByRole('button', { name: 'Start conversation' }).click();
+  await ask(page, 'Remind me later');
+  await expect.poll(() => server.controls.find(c => c.type === 'turn')?.id).toBe(1);
+  server.send({ type: 'question', id: 1, question_id: 'q2', question: 'What time should I remind you?', options: [], allow_other: true });
+  await expect(page.getByRole('group', { name: 'What time should I remind you?' })).toBeVisible();
+  await ask(page, 'At five');
+  await expect.poll(() => server.controls.filter(c => c.type === 'turn').map(c => c.text)).toEqual(['Remind me later', 'At five']);
+  server.send({ type: 'answering', id: 2, of: 1 });
+  server.send({ type: 'answered', id: 1, question_id: 'q2', text: 'At five' });
+  await expect(page.getByRole('group', { name: 'What time should I remind you?' })).toContainText('You answered: At five');
+  await expect(page.locator('.voice-turn')).toHaveCount(1);
+  await expect(page.locator('.voice-turn[data-state=queued]')).toHaveCount(0);
+});

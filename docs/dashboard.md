@@ -7,7 +7,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 
 ## Layout
 
-**Sidebar.** Dashboard, Graph, Search, Chat, Voice, Topics, Projects, Sources, Sync, Settings, Commands and Queue, with the installed version at the bottom. On narrow screens it shows icons only, each with a hint naming the page.
+**Sidebar.** Dashboard, Graph, Search, Chat, Voice, Recordings, Reminders, Topics, Projects, Sources, Sync, Settings, Commands and Queue, with the installed version at the bottom. On narrow screens it shows icons only, each with a hint naming the page.
 
 **Top bar**, on every page:
 
@@ -46,6 +46,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 - Replies come from the configured chat model, local or a provider. Memory searches and reads it makes show as rows that expand to their results. The first message to a local model sets it up and shows the download and load progress.
 - A notice says when the model chats without tools, with a link to the chat settings. A reply can be stopped, copied or retried.
 - A reply goes on when you open another chat, leave the page or lose the connection; the list marks a chat still answering, and opening it shows the reply so far and the rest as it comes. Only **Stop reply** stops it. Replies are written one at a time: a question in another chat waits, and says so ([ADR 0145](adr/0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md)).
+- A reply can ask you a clarifying question and wait: it shows as a card in the reply, with a button per choice and, when allowed, a box for your own words; the card takes the focus and Enter sends. While it waits, the message box answers it too. Any window, including one opened later, can answer; after 30 minutes without an answer the reply goes on with its stated assumption. Chat history shows the question with its answer ([ADR 0159](adr/0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md)).
 - When a long chat no longer fits the model's context, its oldest exchanges are summarized ("Summarizing the earlier conversation…" shows meanwhile). A divider after the last summarized exchange, **Summary of earlier conversation**, opens the summary the model now reads in their place. The model can still look up anything said earlier in the chat; that step shows as "Searched earlier in this conversation for …" ([ADR 0141](adr/0141-chat-summarizes-what-no-longer-fits-and-can-look-back.md)).
 
 ### Topics
@@ -168,6 +169,16 @@ Records a call or meeting: your microphone and, if you choose, what this compute
 - In the desktop app, with the dashboard hidden, the floating Imprint button's **Record** satellite opens a small panel with the same title, project, computer-audio switch and confirmation. The dashboard records in the background, moving to Recordings first. While recording, the button shows the time and a red rim, and its actions offer **Stop** and the levels. Quitting during a recording asks first and saves what was recorded ([ADR 0135](adr/0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md)).
 - Each recording lists its state, its transcript ("You" for the microphone, "Others" for the computer's audio, with times), **Listen**, **Transcribe again**, **Delete audio** (keeping the transcript) and delete. A recording whose window closed shows **Finish and transcribe**.
 - The audio stays in `data/recordings/` on this device; the transcript is the source `recording/<id>` and syncs like other memories.
+
+### Reminders
+
+Reminders, timers, scheduled jobs and questions for Imprint ([ADR 0158](adr/0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md)). They can also be set in Chat or by voice with Echo: "remind me at 10 to call Dan", "set a timer for 10 minutes", "every weekday at 9 re-index my code folder", "tomorrow at 8 summarize what I worked on yesterday".
+
+- **New** sets a reminder (a message), a timer (a duration), a scheduled job (re-index or index a folder, learn conversations, organize, refresh URLs, retag) or a question for Imprint, at a date and time or in a duration, once or repeating every day, every weekday, weekly on chosen days, or every so many minutes or hours. Entries made here keep the browser's time zone.
+- **Now** lists what rang and waits for you: **Done**, **Snooze** 5, 10 or 30 minutes, or **Open chat** for an answered question.
+- **Upcoming** groups entries by day (Today, Tomorrow, This week, Later); a timer counts down. Each can be edited or cancelled. **Past** lists what rang, was done, cancelled or missed, by period.
+- Whichever page is open, a reminder or timer that rings shows a toast with the snooze choices and **Done** until you choose; a job reports it was queued and a question links to the new chat with its answer. In the desktop app, a reminder also shows a system notification while the dashboard is hidden or in the background; clicking it opens the reminder here.
+- Entries stay on this device (`data/schedule.sqlite3`) and do not sync. They ring only while Imprint's service runs; one missed while it was stopped rings once, marked late, on the next start, and a job or question missed by more than 12 hours is not run late.
 
 ### Voice
 

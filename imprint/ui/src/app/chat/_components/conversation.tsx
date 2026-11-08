@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 import { replyText, type AssistantTurn, type Setup, type Turn } from "../_lib/turns";
 import { SetupProgress } from "./setup-progress";
 import { ToolStepRow } from "./tool-step";
+import { QuestionCard } from "./question-card";
+
+type Answer = (id: string, answer: string) => Promise<void>;
 
 const setupRunning = (setup?: Setup) =>
   !!setup && [setup.download, setup.load].some((step) => step && !step.done);
@@ -57,11 +60,13 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function Reply({ turn, last, onRetry }: { turn: AssistantTurn; last: boolean; onRetry: () => void }) {
+function Reply({ turn, last, onRetry, onAnswer }: { turn: AssistantTurn; last: boolean; onRetry: () => void; onAnswer?: Answer }) {
   const lastStep = turn.steps[turn.steps.length - 1];
-  // Between tool calls the model is still working, with nothing on screen.
+  // Between tool calls, and once a question is answered, the model is still
+  // working, with nothing on screen.
   const thinking = turn.streaming && !turn.error && !setupRunning(turn.setup)
-    && (!lastStep || (lastStep.kind === "tool" && lastStep.result !== undefined));
+    && (!lastStep || (lastStep.kind === "tool" && lastStep.result !== undefined)
+      || (lastStep.kind === "question" && lastStep.answer !== undefined));
   const text = replyText(turn);
   return (
     <article aria-label="Imprint's reply" className="group/reply space-y-3 text-sm">
@@ -78,7 +83,9 @@ function Reply({ turn, last, onRetry }: { turn: AssistantTurn; last: boolean; on
       {turn.steps.map((step, i) =>
         step.kind === "text"
           ? <Markdown key={i} text={step.text} className="leading-relaxed break-words" />
-          : <ToolStepRow key={i} step={step} />,
+          : step.kind === "question"
+            ? <QuestionCard key={step.id} step={step} live={turn.streaming && last} onAnswer={onAnswer} />
+            : <ToolStepRow key={i} step={step} />,
       )}
       {turn.streaming && turn.analysis && <p role="status" className="text-xs text-muted-foreground">{turn.analysis}</p>}
       {thinking && !turn.analysis && <ThinkingIndicator />}
@@ -137,10 +144,12 @@ function SummaryDivider({ summary }: { summary: ChatSummary }) {
 /** A conversation laid out like a document: the user's messages as bubbles
  * on the right, replies as plain text with their tool calls inline. A
  * summary sits after the last exchange it covers. */
-export function Conversation({ turns, summary, onRetry }: {
+export function Conversation({ turns, summary, onRetry, onAnswer }: {
   turns: Turn[];
   summary?: ChatSummary | null;
   onRetry: () => void;
+  /** Answer a question the reply asks (ADR 0159). */
+  onAnswer?: Answer;
 }) {
   // The user turn right after the summarized exchanges.
   const users = turns.flatMap((turn, i) => (turn.role === "user" ? [i] : []));
@@ -155,7 +164,7 @@ export function Conversation({ turns, summary, onRetry }: {
               <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
             </div>
           ) : (
-            <Reply turn={turn} last={i === turns.length - 1} onRetry={onRetry} />
+            <Reply turn={turn} last={i === turns.length - 1} onRetry={onRetry} onAnswer={onAnswer} />
           )}
         </Fragment>
       ))}

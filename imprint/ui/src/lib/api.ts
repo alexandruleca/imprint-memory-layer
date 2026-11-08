@@ -689,6 +689,19 @@ export async function stopChat(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}/stop`, { method: "POST" }).catch(() => {});
 }
 
+/** Answer the question the chat's reply waits on (ADR 0159). Throws with the API's reason when it is refused. */
+export async function answerChat(sessionId: string, id: string, answer: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${encodeURIComponent(sessionId)}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, answer }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.error || `Request failed (${res.status})`);
+  }
+}
+
 async function readChatEvents(res: Response, onEvent: (ev: ChatEvent) => void) {
   if (!res.ok || !res.body) {
     const detail = await res.json().catch(() => ({}));

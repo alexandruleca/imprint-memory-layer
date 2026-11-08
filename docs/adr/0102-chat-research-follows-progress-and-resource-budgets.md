@@ -3,9 +3,12 @@ title: ADR 0102 — Chat research follows progress and resource budgets
 description: Evidence novelty and reply-wide time and token reservations replace the fixed tool-round cutoff while preserving final synthesis.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-28
 - Amends: [ADR 0101](0101-chat-research-always-reserves-an-answer.md) — time, token reservations and evidence novelty replace the fixed round cutoff and identical-batch repetition test
+- Amended by:
+  - [ADR 0157](0157-chat-research-is-charged-for-the-work-each-request-does.md) — a request is charged for its prompt past the prefix the previous request processed and the output it generated, with unused allowance refunded
+  - [ADR 0159](0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md) — time spent waiting for the user's answer to a question does not count against the research time budget, and an answer counts as progress
 - Related: [ADR 0093](0093-sequential-chat-section-analysis.md)
 
 ## Context

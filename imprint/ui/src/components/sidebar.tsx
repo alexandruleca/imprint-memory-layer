@@ -23,6 +23,7 @@ import {
   Sparkles,
   Disc3,
   WandSparkles,
+  AlarmClock,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
@@ -92,6 +93,10 @@ declare global {
       reportWakeListener?: (report: WakeReport) => void;
       /** The running job's progress record, which the app reads directly. */
       activity?: () => Promise<{ command: string; phase?: string; processed?: number; total?: number; unit?: string } | null>;
+      /** A reminder rang (ADR 0158): a native notification while the dashboard is not in front. */
+      notifyReminder?: (alert: { id: string; title: string; body: string }) => void;
+      /** The user clicked a reminder's notification: open it on the Reminders page. */
+      onReminderOpen?: (callback: (id: string) => void) => () => void;
     };
   }
 }
@@ -107,6 +112,7 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
       { href: "/chat", label: "Chat", icon: MessageSquare },
       { href: "/voice", label: "Voice", icon: AudioLines },
       { href: "/recordings", label: "Recordings", icon: Disc3 },
+      { href: "/reminders", label: "Reminders", icon: AlarmClock },
     ],
   },
   {

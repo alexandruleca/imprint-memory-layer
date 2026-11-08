@@ -70,6 +70,24 @@ class ResearchBudgetTests(unittest.TestCase):
         self.assertEqual(stopped.exception.reason, 'tokens')
         self.assertEqual(self.budget.reserved, 4000)
 
+    def test_a_cached_prefix_is_not_charged_again_and_unused_output_is_refunded(self):
+        # ADR 0157: rounds resend the conversation; only its new tail is work.
+        self.assertEqual(self.budget.reserve(1500, 500), 2000)
+        self.budget.settle(500, 120)
+        self.assertEqual(self.budget.reserved, 1620)
+        self.assertEqual(self.budget.reserve(1900, 500, cached=1500), 900)
+        self.budget.settle(500, 500)
+        self.assertEqual(self.budget.reserved, 2520)
+        # The whole allowance must still fit before a request starts.
+        with self.assertRaises(ResearchExhausted):
+            self.budget.reserve(4000, 500, cached=1500)
+        self.assertEqual(self.budget.reserved, 2520)
+
+    def test_a_cached_prefix_never_makes_a_charge_negative(self):
+        self.assertEqual(self.budget.reserve(100, 50, cached=400), 50)
+        self.budget.settle(50, 80)
+        self.assertEqual(self.budget.reserved, 50)
+
     def test_time_stops_new_requests_without_starting_them(self):
         self.now += 30
         self.assertEqual(self.budget.reason(), 'time')

@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, nativeTheme, shell, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, nativeTheme, shell, ipcMain, session, systemPreferences, globalShortcut, screen, dialog, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -844,6 +844,31 @@ ipcMain.on('theme-set', (event, value) => {
     fs.writeFileSync(file + '.tmp', JSON.stringify({ choice }), { mode: 0o600 });
     fs.renameSync(file + '.tmp', file);
   } catch { /* Not remembered for the next start; applied all the same. */ }
+});
+// A reminder rang (ADR 0158). The dashboard, shown or hidden, raises it; the
+// OS shows it unless the dashboard is in front, where its toast is enough.
+// Clicking it shows the dashboard on the reminder.
+const reminderNotes = new Map();
+function reminderAlert(value) {
+  if (!value || typeof value !== 'object') return null;
+  const { id, title, body } = value;
+  if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id) || typeof title !== 'string') return null;
+  return { id, title: title.slice(0, 200), body: typeof body === 'string' ? body.slice(0, 500) : '' };
+}
+ipcMain.on('reminder-notify', (event, value) => {
+  const alert = reminderAlert(value);
+  if (!alert || !trustedDashboardSender(event)) return;
+  if (win && win.isVisible() && win.isFocused()) return;
+  if (!Notification?.isSupported?.()) return;
+  const note = new Notification({ title: alert.title, body: alert.body, silent: false });
+  reminderNotes.set(alert.id, note); // Kept, or the OS loses its click handler.
+  note.on('click', () => {
+    reminderNotes.delete(alert.id);
+    showWindow();
+    if (win && !win.isDestroyed()) win.webContents.send('reminder-open', alert.id);
+  });
+  note.on('close', () => reminderNotes.delete(alert.id));
+  note.show();
 });
 // Enable microphone asks the OS first (ADR 0069). Consent can take as long as the
 // user leaves the dialog open, so the sender is checked again afterwards.

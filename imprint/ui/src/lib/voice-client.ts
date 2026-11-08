@@ -5,6 +5,9 @@ export type VoicePhase = "idle" | "connecting" | "ready" | "listening" | "thinki
 export type VoicePreparation = { stage: "download" | "load"; downloaded: number; total: number };
 /** One question and its answer, as the API records it (ADR 0145). */
 export type VoiceTurnState = "queued" | "thinking" | "done" | "stopped" | "failed";
+/** A question Echo asked while answering (ADR 0159). `answer` is undefined while
+ * it waits, the user's answer once given, and null when none came in time. */
+export type VoiceQuestion = { id: string; text: string; options: string[]; allowOther: boolean; answer?: string | null };
 export type VoiceTurn = {
   id: number; user: string; answer: string; state: VoiceTurnState;
   /** What Echo is doing for it, e.g. "Checking memory · search". */
@@ -13,6 +16,10 @@ export type VoiceTurn = {
   away: boolean;
   /** Asked by voice; its words appear once Echo has heard them. */
   spoken: boolean;
+  /** The question Echo asked while answering it. */
+  question?: VoiceQuestion;
+  /** Said or typed while Echo waited for the answer to turn `answers`'s question: shown there, not as a question. */
+  answers?: number;
 };
 export type VoiceSnapshot = {
   phase: VoicePhase; detail: string; connected: boolean; microphone: boolean;
@@ -182,7 +189,16 @@ export const MIN_SPOKEN_FRAMES = 12;
 const DUCKED_GAIN = .2;
 const KEPT_TURNS = 8;
 
-type ServerTurn = { id: number; user?: string; answer?: string; state?: string; detail?: string; error?: string; away?: boolean };
+type ServerQuestion = { id: string; question: string; options?: string[]; allow_other?: boolean; answer?: string | null };
+type ServerTurn = { id: number; user?: string; answer?: string; state?: string; detail?: string; error?: string; away?: boolean;
+  question?: ServerQuestion };
+const fromServerQuestion = (question: ServerQuestion, answer?: string | null): VoiceQuestion => ({
+  id: question.id, text: question.question, options: Array.isArray(question.options) ? question.options : [],
+  allowOther: question.allow_other !== false, ...answer !== undefined ? { answer } : {} });
+
+/** The question a turn waits on for its answer, if any. */
+export const waitingQuestion = (turn: VoiceTurn) =>
+  turn.state === "thinking" && turn.question && turn.question.answer === undefined ? turn.question : undefined;
 const turnState = (state?: string): VoiceTurnState => state === "running" ? "thinking"
   : state === "cancelled" ? "stopped" : state === "queued" || state === "done" || state === "failed" ? state : "done";
 
@@ -420,7 +436,8 @@ export class VoiceClient {
   private engaged() { return this.snapshot.connected || this.snapshot.phase === "connecting"; }
   private fromServer(turn: ServerTurn): VoiceTurn {
     return { id: turn.id, user: turn.user || "", answer: turn.answer || "", state: turnState(turn.state), detail: turn.detail || "",
-      error: turn.error || "", away: !!turn.away, spoken: false };
+      error: turn.error || "", away: !!turn.away, spoken: false,
+      ...turn.question ? { question: fromServerQuestion(turn.question, turn.question.answer) } : {} };
   }
 
   /** Resolves true once capture runs. The desktop app asks the OS first; the
@@ -580,10 +597,19 @@ export class VoiceClient {
     const id = ++this.id, waits = this.busy;
     if (!waits) this.running = id;
     this.note = "";
+    // While Echo waits for an answer, what is said or typed answers it (ADR 0159).
+    const asking = this.snapshot.turns.find(item => waitingQuestion(item));
     const turn: VoiceTurn = { id, user: content.text || "", answer: "", state: waits ? "queued" : "thinking", detail: "", error: "",
-      away: false, spoken: !!content.audio };
+      away: false, spoken: !!content.audio, ...asking ? { answers: asking.id } : {} };
     this.refresh({ held: false, turns: this.setTurns(turns => [...turns, turn]), resumed: false });
     this.send({ type: "turn", id, ...content, ...this.wakeSession ? { wake: true } : {}, ...overlap ? { overlap: true } : {} });
+  }
+  /** Answer the question Echo asked with one of its choices, or the user's words (ADR 0159). */
+  answer(questionId: string, text: string) {
+    const turn = this.snapshot.turns.find(item => item.question?.id === questionId && waitingQuestion(item));
+    if (!this.snapshot.connected || !turn || !text.trim()) return;
+    this.send({ type: "answer", question_id: questionId, text: text.trim().slice(0, 2000) });
+    this.refresh({ turns: this.patchTurn(turn.id, item => ({ question: { ...item.question!, answer: text.trim() } })) });
   }
   /** Ask a question again after it failed. */
   retry(id: number) {
@@ -630,7 +656,8 @@ export class VoiceClient {
   }
   private receive(event: { type: string; id?: number; text?: string; data?: string; error?: string; state?: string; name?: string; workspace?: string;
     stage?: string; downloaded?: number; total?: number; effect?: string | null; engine?: string; resumed?: boolean; last_id?: number;
-    turns?: ServerTurn[]; reason?: string; chat?: CarriedChat | null; saving?: boolean }) {
+    turns?: ServerTurn[]; reason?: string; chat?: CarriedChat | null; saving?: boolean;
+    question_id?: string; question?: string; options?: string[]; allow_other?: boolean; of?: number }) {
     if (event.type === "connecting") { this.update({ detail: "Loading local voice…" }); return; }
     if (event.type === "ready") { this.ready(event); return; }
     if (event.type === "error" && !event.id) { this.fail(event.error || "Voice unavailable."); return; }
@@ -650,9 +677,22 @@ export class VoiceClient {
         return;
       case "start":
         this.running = id; this.counts.delete(id);
-        this.refresh({ turns: this.patchTurn(id, { state: "thinking" }) });
+        this.refresh({ turns: this.patchTurn(id, { state: "thinking", answers: undefined }) });
         return;
-      case "user": this.refresh({ turns: this.patchTurn(id, { user: event.text || "" }) }); return;
+      // Echo asks and waits; its words are spoken too (ADR 0159).
+      case "question":
+        if (!known || this.stale(id) || !event.question_id) return;
+        this.refresh({ turns: this.patchTurn(id, { detail: "Waiting for your answer", question: fromServerQuestion({ id: event.question_id,
+          question: event.question || "", options: event.options, allow_other: event.allow_other }) }) });
+        return;
+      case "answered":
+        this.refresh({ turns: this.patchTurn(id, turn => turn.question ? { question: { ...turn.question, answer: event.text ?? null } } : {}) });
+        return;
+      // What the user said was taken as the answer: shown on the question, not as a question.
+      case "answering":
+        this.refresh({ turns: this.snapshot.turns.filter(turn => turn.id !== id) });
+        return;
+      case "user": this.refresh({ turns: this.patchTurn(id, { user: event.text || "", answers: undefined }) }); return;
       case "provision": {
         if (!["download", "load"].includes(event.stage || "") || this.running !== id) return;
         const stage = event.stage as VoicePreparation["stage"];
