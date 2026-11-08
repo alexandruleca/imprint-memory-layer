@@ -94,7 +94,7 @@ class ResearchBudget:
 
 
 _VOLATILE = {'timestamp', 'updated_at', 'recorded_at', 'similarity', 'score', 'elapsed', 'duration', 'next_start', 'offset'}
-_EMPTY = re.compile(r'^(?:\[tool error\]|\[research stopped\]|no (?:results|memories|sources|facts|matches|indexed)|not found|error:)', re.I)
+_EMPTY = re.compile(r'^(?:\[tool error\]|\[research stopped\]|\[repeated call\]|no (?:results|memories|sources|facts|matches|indexed)|not found|error:)', re.I)
 _RANK = re.compile(r'^\s*\[\d+\]\s*')
 _SCORE = re.compile(r'\(?\b(?:semantic similarity|similarity|sim|score|elapsed|duration|timestamp|updated_at)\s*[:=]\s*[^|\n)]+\)?', re.I)
 

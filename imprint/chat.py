@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import ntpath
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -105,6 +106,12 @@ def _param(kind: str, description: str) -> dict:
     return {"type": kind, "description": description}
 
 
+# The model's tag filters are guesses: a memory not tagged with the guessed
+# domain or layer drops out of a filtered search however well it matches.
+_GUESSED_FILTERS = ("domain", "layer", "lang", "kind", "type")
+_UNFILTERED_EXTRA = 3
+
+
 def _tool_search(query: str, workspace: str = "", **filters: Any) -> str:
     # Skip the auto-wake preamble that search() prepends on first call.
     # The chat agent has limited context (8k) — the full wake_up output
@@ -115,7 +122,36 @@ def _tool_search(query: str, workspace: str = "", **filters: Any) -> str:
     if error:
         return error
     _mcp_server._woken_workspaces.add(ws)
-    return _mcp_server.search(query=query, workspace=workspace, **filters)
+    result = _mcp_server.search(query=query, workspace=workspace, **filters)
+    guessed = {key: value for key, value in filters.items() if key in _GUESSED_FILTERS and value}
+    if not guessed:
+        return result
+    # Show what the guessed filters left out, so a wrong guess cannot hide
+    # the answer (the chat eval's Qdrant question lost ADR 0063 this way).
+    kept = set(re.findall(r"\bid:([0-9a-f]{8,})", result))
+    loose = {key: value for key, value in filters.items() if key not in guessed}
+    unfiltered = _mcp_server.search(query=query, workspace=workspace, **loose)
+    extra = [block for block in re.split(r"\n(?=\[\d+\] id:)", unfiltered)
+             if (match := re.match(r"\[\d+\] id:([0-9a-f]{8,})", block)) and match.group(1) not in kept]
+    if not extra:
+        return result
+    names = ", ".join(f"{key}={value}" for key, value in guessed.items())
+    return (result.rstrip() + f"\n\nAlso matching without {names} (these memories are not tagged that way):\n"
+            + "\n".join(block.split("\n\nMore results may exist")[0].rstrip() for block in extra[:_UNFILTERED_EXTRA]))
+
+
+def _repeated(call: dict, ran: dict[str, int], extra: dict[str, Tool] | None = None) -> str:
+    """A note instead of running a read call this reply already ran with the
+    same arguments; empty for a new call, a write or a question."""
+    tool = (extra or {}).get(call["name"]) or TOOLS.get(call["name"])
+    if tool is None or tool.writes or getattr(tool, "personal", False) or call["name"] == ASK_USER:
+        return ""
+    key = call["name"] + json.dumps(call["args"], sort_keys=True, ensure_ascii=False, default=str)
+    if key in ran:
+        return (f"[repeated call] {call['name']} already ran with these arguments in this reply (call {ran[key]}); "
+                "its result is above. Change the query or filters, read a result with get_memory, or answer from what you have.")
+    ran[key] = len(ran) + 1
+    return ""
 
 
 def _tool_get_memory(memory_id: str = "", id: str = "", workspace: str = "", start: int = 0,
@@ -1324,6 +1360,7 @@ def stream_reply(
     found: list = []  # What research found, once it ends (ADR 0127).
     finish_reason = None
     completed_rounds = 0
+    ran: dict[str, int] = {}  # Read calls this reply already ran, by name and arguments.
 
     # Tool rounds and answer generation have separate budgets. In particular,
     # the last batch of results must reach an answer turn (ADRs 0101, 0102).
@@ -1460,6 +1497,8 @@ def stream_reply(
                 result = yield from ask_user(call["args"])
                 if cancelled():
                     return
+            elif budget.remaining() and (earlier := _repeated(call, ran, extra_tools())):
+                result = earlier
             elif budget.remaining():
                 result = _run_tool(call["name"], call["args"], workspace, read_only, extra_tools())
             else:

@@ -452,7 +452,8 @@ class RemoteProtocolTests(unittest.TestCase):
         with patch.dict(os.environ, {'IMPRINT_CHAT_MAX_TOOL_ITERS': '6'}), patch.object(chat, '_prompt_tokens', return_value=1):
             events, requests = self._reply(*turns, [text_chunk('Complete project overview.')],
                 tools={**tool('search', Mock(side_effect=[f'New source evidence number {n}' for n in range(16)])), **tool('status', status)})
-        self.assertEqual(status.call_count, 16)
+        # The same status call is run once; later rounds read a note pointing to it.
+        self.assertEqual(status.call_count, 1)
         self.assertEqual(len([event for event in events if event['type'] == 'tool_call']), 32)
         self.assertEqual(len(requests), 17)
         self.assertIsNotNone(requests[-1]['tools'])

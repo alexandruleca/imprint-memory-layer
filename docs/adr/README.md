@@ -210,6 +210,8 @@ The records in force, by area. An amended record is listed with the records that
 
 - [ADR 0157](0157-chat-research-is-charged-for-the-work-each-request-does.md) **Chat research is charged for the work each request does.** The research token budget charges the prompt past the prefix the previous request already processed plus the output generated, refunding unused allowance; every coordinator and section-worker request is still reserved before it starts.
 
+- [ADR 0160](0160-chat-search-filters-are-hints-and-repeated-reads-are-not-run-again.md) **Chat's search filters are hints, and repeated reads are not run again.** A chat search filtered by guessed tags also lists up to three matches the filters left out; a read call repeated with the same arguments in one reply returns a note pointing to the earlier result.
+
 - [ADR 0127](0127-the-final-answer-is-written-from-research-notes.md) **The final answer is written from research notes.** After a budget stop, the reserved answer reads a deduplicated digest of what research found, without the raw research turns, and lists the sources it cites; an answer that cannot finish ends with a short list of findings.
 
 - [ADR 0103](0103-echo-has-a-generated-eye-with-shared-morph-controls.md) **Echo has a generated eye with shared morph controls.** An opaque generated iris follows gaze and the nucleus blinks with it through named morph targets.
@@ -389,6 +391,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0157](0157-chat-research-is-charged-for-the-work-each-request-does.md) | 2026-11-08 | Accepted | Chat research is charged for the work each request does |
 | [0158](0158-reminders-timers-and-scheduled-jobs-fire-from-the-api-process.md) | 2026-11-08 | Accepted | Reminders, timers and scheduled jobs fire from the API process |
 | [0159](0159-a-reply-can-ask-the-user-and-wait-for-the-answer.md) | 2026-11-08 | Accepted | A reply can ask the user and wait for the answer |
+| [0160](0160-chat-search-filters-are-hints-and-repeated-reads-are-not-run-again.md) | 2026-11-08 | Accepted | Chat's search filters are hints, and repeated reads are not run again |
 
 ## How to write and maintain ADRs
 
