@@ -105,18 +105,39 @@ class ParentWatchTests(unittest.TestCase):
 
     @staticmethod
     def reap(proc):
+        # Closing the pipe asks the service to stop; wait for it. A venv's
+        # python.exe on Windows is a launcher whose child is the service:
+        # killing only the launcher would leave the service running, holding
+        # files in the data directory.
         if not proc.stdin.closed:
             proc.stdin.close()
-        if proc.poll() is None:
+        try:
+            proc.wait(timeout=slack(15))
+        except subprocess.TimeoutExpired:
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)
             proc.kill()
             proc.wait()
+
+    @staticmethod
+    def service_pid(proc):
+        """The service's own process: ``proc``, or on Windows the interpreter
+        a venv's python.exe launcher started as its child."""
+        if os.name != 'nt':
+            return proc.pid
+        found = subprocess.run(
+            ['powershell', '-NoProfile', '-Command',
+             f"(Get-CimInstance Win32_Process -Filter 'ParentProcessId={proc.pid}' | "
+             "Where-Object Name -eq 'python.exe').ProcessId"],
+            capture_output=True, text=True).stdout.split()
+        return int(found[0]) if found else proc.pid
 
     def test_real_api_stays_up_until_parent_pipe_closes(self):
         with tempfile.TemporaryDirectory(prefix='imprint desktop ') as data, tempfile.TemporaryFile() as log:
             proc, port = self.serve(data, log)
             # Every launcher's server registers itself while it serves.
             registration = Path(data) / 'imprint_ui.json'
-            self.assertEqual(json.loads(registration.read_text()), {'pid': proc.pid, 'port': port})
+            self.assertEqual(json.loads(registration.read_text()), {'pid': self.service_pid(proc), 'port': port})
             # No UI heartbeat is needed while Electron holds the pipe.
             self.assertIsNone(proc.poll())
             proc.stdin.close()

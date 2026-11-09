@@ -260,8 +260,10 @@ def _canonical_path(value: str) -> str:
     """An absolute path in one spelling: no trailing separator, no ``.`` or
     ``..`` segments, and the platform's case rules. Symlinks are not resolved
     (two names can index under different project roots), and a relative path
-    is left as given: it has no meaning without the submitter's directory."""
-    if not os.path.isabs(value):
+    is left as given: it has no meaning without the submitter's directory.
+    A path rooted at the current drive (``/home/me`` on Windows) counts as
+    absolute, as it did before Python 3.13 changed ``ntpath.isabs``."""
+    if not (os.path.isabs(value) or value.startswith(("/", os.sep))):
         return value
     return os.path.normcase(os.path.normpath(value))
 

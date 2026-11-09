@@ -93,7 +93,10 @@ class WorkspacePolicyTests(unittest.TestCase):
             folder.mkdir()
             with zipfile.ZipFile(folder / 'data-2026-10-24-export.zip', 'w') as export:
                 export.writestr('conversations.json', json.dumps([{'name': folder.name}]))
-        (downloads / 'linked-data-2026-10-24.zip').symlink_to(elsewhere / 'data-2026-10-24-export.zip')
+        try:
+            (downloads / 'linked-data-2026-10-24.zip').symlink_to(elsewhere / 'data-2026-10-24-export.zip')
+        except OSError as error:  # Windows without Developer Mode or elevation
+            self.skipTest(f'this account cannot create symbolic links: {error}')
         with patch.object(desktop, '_downloads_roots', return_value=[downloads]), \
                 patch.object(desktop, '_ingest_json_file', return_value=1) as ingest:
             self.assertEqual(desktop.scan_once_api()['indexed_zips'], 1)

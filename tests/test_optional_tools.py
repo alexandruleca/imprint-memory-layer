@@ -77,7 +77,8 @@ class KreuzbergInstallTests(ToolTestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn('no wheel for this platform', error)
         self.assertIn('imprint bootstrap --non-interactive', error)
-        self.assertEqual(tools.status('kreuzberg'), error)
+        with patch.object(tools, '_kreuzberg_installed', return_value=False):  # whatever this venv holds
+            self.assertEqual(tools.status('kreuzberg'), error)
 
     def test_an_install_that_does_not_load_fails(self):
         _, error = self.install(done(), done(1, err='ImportError: libfoo.so'))

@@ -183,7 +183,9 @@ def local_chat_model(raw: Any) -> str:
     if not value.lower().endswith(".gguf"):
         raise ValueError("expected default, qwen3.5-35b-a3b, a .gguf file path, "
                          "<owner>/<repo>/<file>.gguf or a Hugging Face file URL")
-    if os.path.isabs(value) or ntpath.isabs(value):
+    # A POSIX or Windows path, rooted or with a drive; Python 3.13's ntpath
+    # no longer counts "/models/x.gguf" as absolute on Windows.
+    if os.path.isabs(value) or ntpath.isabs(value) or value.startswith(("/", "\\")):
         return value
     parts = value.split("/")
     if len(parts) < 3 or not all(parts) or ".." in parts:
