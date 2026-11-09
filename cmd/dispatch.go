@@ -39,23 +39,34 @@ type client struct {
 	// learned.
 	store    func() string
 	wslStore func(wslProfile) string
+	// skills are the folders the client reads user-level skills from on this
+	// computer, preferred first, and personas the folder it reads personas
+	// (subagents) from; nil for a client that reads neither. The registry
+	// writes into the fewest of them that reach every connected client
+	// (imprint.registry_files, ADR 0169).
+	skills   func() []string
+	personas func() string
 }
 
 var clients = []client{
 	{name: "claude-code", label: "Claude Code", aliases: []string{"claude"}, connect: SetupClaudeCode, registrations: claudeCodeRegistrations,
 		wslHome: func(p wslProfile) string { return p.ClaudeHome },
-		store:   platform.ClaudeConfigDir, wslStore: func(p wslProfile) string { return p.ClaudeHome }},
+		store:   platform.ClaudeConfigDir, wslStore: func(p wslProfile) string { return p.ClaudeHome },
+		skills: func() []string { return []string{platform.ClaudeSkillsDir()} }, personas: platform.ClaudeAgentsDir},
 	{name: "claude-desktop", label: "Claude Desktop", connect: SetupClaudeDesktop, registrations: claudeDesktopRegistrations},
 	{name: "chatgpt-desktop", label: "ChatGPT Desktop", aliases: []string{"chatgpt"}, connect: SetupChatGPTDesktop, registrations: chatGPTDesktopRegistrations},
 	{name: "cursor", label: "Cursor", connect: SetupCursor, registrations: cursorRegistrations,
 		wslHome: func(p wslProfile) string { return p.CursorHome },
-		store:   platform.CursorConfigDir, wslStore: func(p wslProfile) string { return p.CursorHome }},
+		store:   platform.CursorConfigDir, wslStore: func(p wslProfile) string { return p.CursorHome },
+		skills: platform.CursorSkillsDirs},
 	{name: "codex", label: "Codex", connect: SetupCodex, registrations: codexRegistrations,
 		wslHome: func(p wslProfile) string { return p.CodexHome },
-		store:   platform.CodexHome, wslStore: func(p wslProfile) string { return p.CodexHome }},
+		store:   platform.CodexHome, wslStore: func(p wslProfile) string { return p.CodexHome },
+		skills: func() []string { return []string{platform.AgentsSkillsDir()} }},
 	{name: "copilot", label: "GitHub Copilot", connect: SetupCopilot, registrations: copilotRegistrations,
 		wslHome: func(p wslProfile) string { return p.CopilotHome },
-		store:   platform.CopilotHome, wslStore: func(p wslProfile) string { return p.CopilotHome }},
+		store:   platform.CopilotHome, wslStore: func(p wslProfile) string { return p.CopilotHome },
+		skills: platform.CopilotSkillsDirs},
 	// Cline keeps sessions in its data directory. Its environment overrides
 	// count on this computer; a WSL profile's are not read (ADR 0026), so
 	// there they are in the default place under the probed Cline directory.
@@ -65,7 +76,7 @@ var clients = []client{
 	// OpenCode keeps every session in a SQLite database in its data
 	// directory; learn exports each one to a transcript (ADR 0124).
 	{name: "opencode", label: "OpenCode", connect: SetupOpenCode, registrations: openCodeRegistrations,
-		store: platform.OpenCodeDataDir},
+		store: platform.OpenCodeDataDir, skills: platform.OpenCodeSkillsDirs},
 	{name: "openclaw", label: "OpenClaw", aliases: []string{"clawdbot", "moltbot"}, connect: SetupOpenClaw, registrations: openClawRegistrations},
 }
 
@@ -146,14 +157,29 @@ func connectClients(target string, backend func() backendPaths) bool {
 	if !ok {
 		return false
 	}
+	// Skills and personas reach the clients once one of them used the
+	// runtime (ADR 0169); a run that connected nothing writes nothing.
+	var resolved *backendPaths
+	used := func() backendPaths {
+		if resolved == nil {
+			bp := backend()
+			resolved = &bp
+		}
+		return *resolved
+	}
+	defer func() {
+		if resolved != nil {
+			applySkills(resolved.VenvPython, resolved.ProjectDir, resolved.DataDir)
+		}
+	}()
 	if target != "all" {
-		selected[0].connect(backend)
+		selected[0].connect(used)
 		return true
 	}
 	setupHostsRan = 0
 	for _, c := range selected {
 		output.Header("─── " + c.name + " ───")
-		c.connect(backend)
+		c.connect(used)
 	}
 	if setupHostsRan == 0 {
 		output.Warn("No supported clients found — install Claude Code, Claude Desktop, Cursor, Codex, Copilot, Cline, OpenCode, or OpenClaw, then run this again.")

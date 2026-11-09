@@ -156,6 +156,9 @@ async def _start_queue_dispatcher():
     # Reminders, timers and scheduled jobs fire from this process (ADR 0158).
     from . import schedule
     schedule.start(run_prompt=_scheduled_prompt)
+    # Skills and personas: written into the clients, edits there taken back (ADR 0169).
+    from . import registry_files
+    app.state.registry_pass = asyncio.create_task(registry_files.loop())
 
 
 @app.on_event('shutdown')
@@ -165,10 +168,11 @@ async def _stop_sync_worker():
     from . import schedule
     schedule.stop()
     chat_replies.stop_all()
-    task = getattr(app.state, 'sync_worker', None)
-    if task:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+    for name in ('sync_worker', 'registry_pass'):
+        task = getattr(app.state, name, None)
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 # ── Filter helpers ─────────────────────────────────────────────
@@ -858,6 +862,120 @@ async def api_resolve_core_conflict(memory_id: str, request: Request):
     except KeyError:
         return JSONResponse({'error': 'core memory not found'}, status_code=404)
     except (ValueError, RuntimeError) as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+# ── Skills and personas (ADRs 0168, 0169) ──────────────────────
+
+def _registry_limits() -> dict:
+    from . import registry
+    return {'kinds': list(registry.KINDS), 'main': registry.MAIN, 'max_name': registry.MAX_NAME,
+            'max_description': registry.MAX_DESCRIPTION, 'max_file': registry.MAX_FILE,
+            'max_total': registry.MAX_TOTAL}
+
+
+def _registry_applied() -> dict:
+    """Write every change into the clients' folders; a failure is reported
+    with the change, which is kept either way."""
+    from . import registry_files
+    try:
+        return registry_files.apply()
+    except Exception as error:  # noqa: BLE001 - the change is stored; the page shows why it did not reach the clients
+        return {'error': f'Saved, but not written to the clients: {error}'}
+
+
+@app.get('/api/skills')
+def api_skills():
+    """Every skill and persona without their files, the clients' folders
+    and what the last write into them reported."""
+    from . import registry, registry_files
+    return {'items': registry.list_all(), 'report': registry_files.last_report(), **_registry_limits()}
+
+
+@app.post('/api/skills/apply')
+async def api_apply_skills():
+    """Write the registry into the clients' folders now, taking back edits
+    made there, and list what the clients' folders hold that Imprint does
+    not keep (``found``)."""
+    from . import registry, registry_files
+
+    def run():
+        report = _registry_applied()
+        try:
+            found = registry_files.found()
+        except Exception as error:  # noqa: BLE001 - shown on the page
+            found, report = [], {**report, 'error': report.get('error') or f'Could not list the clients: {error}'}
+        return {'items': registry.list_all(), 'report': report, 'found': found}
+
+    return await asyncio.to_thread(run)
+
+
+@app.get('/api/skills/{item_id}')
+def api_skill(item_id: str):
+    """One item with its files and this device's history of it."""
+    from . import registry
+    item = registry.get(item_id)
+    if item is None:
+        return JSONResponse({'error': 'skill or persona not found'}, status_code=404)
+    return {**item, 'history': [{k: v for k, v in version.items() if k != 'files'} | {'paths': list(version['files'])}
+                                for version in registry.history(item_id)]}
+
+
+@app.post('/api/skills')
+async def api_add_skill(request: Request):
+    """A new skill or persona: ``{kind, files}``, or ``{kind, name,
+    description, instructions}`` from the dashboard's form."""
+    from . import registry
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A skill or persona object is required')
+        kind = body.get('kind')
+        if kind not in registry.KINDS:
+            raise ValueError(f'kind must be one of {", ".join(registry.KINDS)}')
+        files = body.get('files')
+        if files is None:
+            files = registry.compose(kind, body.get('name', ''), body.get('description', ''), body.get('instructions', ''))
+        item = await asyncio.to_thread(registry.create, kind, files)
+        return {**item, 'report': await asyncio.to_thread(_registry_applied)}
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.patch('/api/skills/{item_id}')
+async def api_change_skill(item_id: str, request: Request):
+    """Edit an item's files (``files``), or enable, disable or remove it
+    (``state``: active, disabled, retired); ``restore`` names a version from
+    this device's history to make current."""
+    from . import registry
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('A change object is required')
+        if body.get('restore'):
+            item = await asyncio.to_thread(registry.restore, item_id, str(body['restore']))
+        else:
+            item = await asyncio.to_thread(registry.update, item_id, files=body.get('files'), state=body.get('state'))
+        return {**item, 'report': await asyncio.to_thread(_registry_applied)}
+    except KeyError:
+        return JSONResponse({'error': 'skill, persona or version not found'}, status_code=404)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+
+
+@app.post('/api/skills/adopt')
+async def api_adopt_skill(request: Request):
+    """Keep a skill or persona found in a client's folder: ``{path, kind}``
+    as ``POST /api/skills/apply`` listed it."""
+    from . import registry_files
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('An adopt object is required')
+        return await asyncio.to_thread(registry_files.adopt, str(body.get('path') or ''), str(body.get('kind') or ''))
+    except KeyError:
+        return JSONResponse({'error': 'Not found in a connected client: refresh the page'}, status_code=404)
+    except (ValueError, RuntimeError, OSError) as error:
         return JSONResponse({'error': str(error)}, status_code=400)
 
 

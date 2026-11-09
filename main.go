@@ -86,6 +86,8 @@ func main() {
 		cmd.Disconnect(os.Args[2:])
 	case "clients":
 		cmd.Clients(os.Args[2:])
+	case "skills":
+		cmd.Skills(os.Args[2:])
 	case "uninstall":
 		cmd.Uninstall(os.Args[2:])
 	case "status":
@@ -176,6 +178,8 @@ Usage:
                                installs and starts nothing (client: %[1]s)
   imprint disconnect [client]
                              Remove Imprint from clients, including their recorded WSL profiles; stops nothing
+  imprint skills [list|show|add|found|adopt|enable|disable|remove|apply]
+                             Your skills and personas, written into the connected clients and synced to paired devices
   imprint uninstall [-y] [--keep-data]
                              Disconnect clients, stop Imprint processes, remove runtime and memories (--keep-data keeps memories)
   imprint workspace          List workspaces and show active

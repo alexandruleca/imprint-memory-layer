@@ -56,6 +56,10 @@ type clientStatus struct {
 	Label     string `json:"label"`
 	Connected bool   `json:"connected"`
 	Error     string `json:"error,omitempty"`
+	// Skills are the folders the client reads skills from, preferred first,
+	// and Personas the one it reads personas from (ADR 0169).
+	Skills   []string `json:"skills,omitempty"`
+	Personas string   `json:"personas,omitempty"`
 }
 
 // Clients lists the clients Imprint connects to and whether this runtime is
@@ -72,6 +76,12 @@ func Clients(args []string) {
 		status := clientStatus{Name: c.name, Label: c.label, Connected: connected}
 		if err != nil {
 			status.Error = err.Error()
+		}
+		if c.skills != nil {
+			status.Skills = c.skills()
+		}
+		if c.personas != nil {
+			status.Personas = c.personas()
 		}
 		list = append(list, status)
 	}

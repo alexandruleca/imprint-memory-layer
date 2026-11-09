@@ -667,6 +667,44 @@ func ClineRulesPath() string {
 	return filepath.Join(ClineDir(), "rules", "imprint.md")
 }
 
+// ── Skill and persona folders (ADR 0169) ──────────────────────
+//
+// Where each client reads user-level skills (Agent Skills: a folder per skill
+// with a SKILL.md), as each client's documentation lists them on 2026-11-09,
+// the client's preferred folder first. ~/.agents/skills is the shared one:
+// Codex, Cursor, Copilot and OpenCode all read it; Claude Code reads only its
+// own.
+
+// AgentsSkillsDir is the shared user-level skills folder, ~/.agents/skills.
+func AgentsSkillsDir() string { return filepath.Join(HomeDir(), ".agents", "skills") }
+
+// ClaudeSkillsDir is Claude Code's personal skills folder.
+func ClaudeSkillsDir() string { return filepath.Join(ClaudeConfigDir(), "skills") }
+
+// ClaudeAgentsDir is Claude Code's user-level subagents folder, where
+// personas are written as <name>.md.
+func ClaudeAgentsDir() string { return filepath.Join(ClaudeConfigDir(), "agents") }
+
+// CursorSkillsDirs: Cursor reads ~/.agents/skills and ~/.cursor/skills, and
+// for compatibility ~/.claude/skills and ~/.codex/skills.
+func CursorSkillsDirs() []string {
+	home := HomeDir()
+	return []string{AgentsSkillsDir(), filepath.Join(CursorConfigDir(), "skills"),
+		filepath.Join(home, ".claude", "skills"), filepath.Join(home, ".codex", "skills")}
+}
+
+// CopilotSkillsDirs: Copilot's personal skills, ~/.agents/skills or its home's.
+func CopilotSkillsDirs() []string {
+	return []string{AgentsSkillsDir(), filepath.Join(CopilotHome(), "skills")}
+}
+
+// OpenCodeSkillsDirs: OpenCode reads its config folder's skills and, for
+// compatibility, ~/.agents/skills and ~/.claude/skills.
+func OpenCodeSkillsDirs() []string {
+	return []string{AgentsSkillsDir(), filepath.Join(OpenCodeConfigDir(), "skills"),
+		filepath.Join(HomeDir(), ".claude", "skills")}
+}
+
 // DataDir returns the data directory for imprint storage, redirecting to a
 // writable location when the project dir is inside a read-only app bundle.
 func DataDir(projectDir string) string {

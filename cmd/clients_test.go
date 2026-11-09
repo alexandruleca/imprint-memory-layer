@@ -226,3 +226,32 @@ func TestStaleRegistrationIsNotConnectedButIsCleaned(t *testing.T) {
 		t.Fatalf("stale registration not cleaned: %v %v", entry, err)
 	}
 }
+
+// The clients table says where each client reads skills and personas
+// (ADR 0169): Claude Code its own folders, the others ~/.agents/skills first.
+func TestClientsListTheFoldersTheyReadSkillsFrom(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("COPILOT_HOME", "")
+	shared := filepath.Join(home, ".agents", "skills")
+	want := map[string]string{"claude-code": filepath.Join(home, ".claude", "skills"), "codex": shared,
+		"cursor": shared, "copilot": shared, "opencode": shared}
+	for _, c := range clients {
+		first, ok := want[c.name]
+		if !ok {
+			if c.skills != nil || c.personas != nil {
+				t.Errorf("%s lists skill folders no documentation confirms", c.name)
+			}
+			continue
+		}
+		if c.skills == nil || len(c.skills()) == 0 || c.skills()[0] != first {
+			t.Errorf("%s does not read skills first from %s", c.name, first)
+		}
+	}
+	claude, _ := selectClients("claude-code")
+	if got := claude[0].personas(); got != filepath.Join(home, ".claude", "agents") {
+		t.Errorf("Claude Code personas folder = %s", got)
+	}
+}

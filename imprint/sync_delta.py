@@ -29,11 +29,14 @@ WAIT = 600
 # Records the sender's Privacy Filter goes over between checks for a
 # stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
 FILTER_SLICE = 25
-DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog')
+DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog', 'registry')
 # Datasets a device receives only when its handshake offers each: core
 # memories (ADR 0129), placement rules and Organize's proposals (ADR 0134),
-# and the memories that wait for LLM tagging (ADR 0138).
-EXTRAS = ('core', 'placements', 'organize', 'backlog')
+# the memories that wait for LLM tagging (ADR 0138), and skills and
+# personas (ADR 0168).
+EXTRAS = ('core', 'placements', 'organize', 'backlog', 'registry')
+# Skills and personas go in streams of at most this many bytes of files.
+REGISTRY_CHUNK_BYTES = 4 * 1024 * 1024
 
 
 def offered() -> int | None:
@@ -102,11 +105,12 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
             for row in conn.execute('SELECT subject, predicate, object, valid_from FROM facts'):
                 facts[_fact_key(row)] = 0.0
     sources = {_source_key(meta): float(meta['updated_at']) for meta in source_snapshots.list_metadata(workspace)}
-    # Core memories belong to no workspace: every paired workspace carries them.
-    from . import core_memories, organize, placement_sync
+    # Core memories, skills and personas belong to no workspace: every
+    # paired workspace carries them.
+    from . import core_memories, organize, placement_sync, registry
     return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest(),
             'placements': placement_sync.manifest(workspace), 'organize': organize.manifest(workspace),
-            'backlog': backlog}
+            'backlog': backlog, 'registry': registry.manifest()}
 
 
 def digest(local: dict) -> str:
@@ -233,6 +237,19 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
         records = core_memories.export(keys['core'])
         for start in range(0, len(records), CHUNK_RECORDS):
             yield _stream(core=records[start:start + CHUNK_RECORDS])
+
+    if keys.get('registry'):
+        from . import registry
+        batch, size = [], 0
+        for record in registry.export(keys['registry']):
+            weight = sum(len(text.encode('utf-8')) for text in record['files'].values())
+            if batch and (size + weight > REGISTRY_CHUNK_BYTES or len(batch) >= CHUNK_RECORDS):
+                yield _stream(registry=batch)
+                batch, size = [], 0
+            batch.append(record)
+            size += weight
+        if batch:
+            yield _stream(registry=batch)
 
 
 async def reconcile(channel, workspace: str, local: dict, *, provider: bool, provider_sends: bool,

@@ -7,7 +7,7 @@ This directory is the engineering source of truth. The documentation website rea
 
 ## How Imprint works
 
-Start with the [architecture overview](architecture.md), then the subsystems: [indexing and retrieval](indexing-retrieval.md), [verifiable source memory](source-memory.md), [chunking](chunking.md), [tagging](tagging.md), [embeddings](embeddings.md), [workspaces](workspaces.md) (including [multi-project source links and the unassigned conversation inbox](workspaces.md#associate-one-source-with-several-projects)), the [queue](queue.md), [sync](sync.md), [devices and portable project paths](devices.md) and [secret redaction](redaction.md).
+Start with the [architecture overview](architecture.md), then the subsystems: [indexing and retrieval](indexing-retrieval.md), [verifiable source memory](source-memory.md), [chunking](chunking.md), [tagging](tagging.md), [embeddings](embeddings.md), [workspaces](workspaces.md) (including [multi-project source links and the unassigned conversation inbox](workspaces.md#associate-one-source-with-several-projects)), the [queue](queue.md), [sync](sync.md), [devices and portable project paths](devices.md), [secret redaction](redaction.md) and [skills and personas](skills.md).
 
 ## Using it
 

@@ -399,6 +399,98 @@ export function changeCoreMemory(id: string, change: Partial<Pick<CoreMemory, "t
   return fetchAPI<CoreMemory>(`/api/core/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change), ...init });
 }
 
+// ── Skills and personas (ADRs 0168, 0169) ───────────────────────
+
+export type SkillKind = "skill" | "persona";
+export type SkillState = "active" | "disabled" | "retired";
+export interface SkillItem {
+  id: string;
+  kind: SkillKind;
+  name: string;
+  description: string;
+  hash: string;
+  state: SkillState;
+  /** user: written in Imprint; adopted: from a client's folder; client: first seen as an edit there. */
+  origin: "user" | "adopted" | "client";
+  device: string;
+  created_at: number;
+  updated_at: number;
+  paths: string[];
+  size: number;
+  /** Another item of this kind and name holds it (two devices made it before they synced). */
+  shadowed?: boolean;
+  /** Only on a single item: its files by path. */
+  files?: Record<string, string>;
+}
+export interface SkillVersion {
+  hash: string;
+  state: SkillState;
+  device: string;
+  updated_at: number;
+  replaced_at: number;
+  paths: string[];
+}
+export interface SkillFolder { kind: SkillKind; folder: string; clients: string[] }
+export interface SkillProblem { path: string; problem: string }
+/** What the last write into the clients' folders did. */
+export interface SkillReport {
+  folders: SkillFolder[];
+  written: string[];
+  removed: string[];
+  taken: string[];
+  kept: string[];
+  problems: SkillProblem[];
+  at: number;
+  error?: string;
+}
+/** A skill or persona in a connected client's folder that Imprint does not keep. */
+export interface FoundSkill {
+  kind: SkillKind;
+  name: string;
+  path: string;
+  folder: string;
+  clients: string[];
+  description: string;
+  problem: string;
+}
+export interface Skills {
+  items: SkillItem[];
+  report: SkillReport | null;
+  kinds: SkillKind[];
+  main: Record<SkillKind, string>;
+  max_name: number;
+  max_description: number;
+  max_file: number;
+  max_total: number;
+}
+
+export function getSkills() {
+  return fetchAPI<Skills>("/api/skills");
+}
+
+/** Write into the clients' folders now, take back edits made there, and list what they hold that Imprint does not. */
+export function applySkills() {
+  return fetchAPI<{ items: SkillItem[]; report: SkillReport; found: FoundSkill[] }>("/api/skills/apply", { method: "POST" });
+}
+
+export function getSkill(id: string) {
+  return fetchAPI<SkillItem & { files: Record<string, string>; history: SkillVersion[] }>(`/api/skills/${encodeURIComponent(id)}`);
+}
+
+export function addSkill(body: { kind: SkillKind; name: string; description: string; instructions: string }) {
+  return fetchAPI<SkillItem & { report: SkillReport }>("/api/skills", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** Edit its files, change its state, or restore a version from this device's history. */
+export function changeSkill(id: string, change: { files?: Record<string, string>; state?: SkillState; restore?: string }) {
+  return fetchAPI<SkillItem & { report: SkillReport }>(`/api/skills/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export function adoptSkill(path: string, kind: SkillKind) {
+  return fetchAPI<SkillItem>("/api/skills/adopt", { method: "POST", body: JSON.stringify({ path, kind }) });
+}
+
 /** Restart the dashboard server into the installed code (ADR 0050). */
 export function restartServer() {
   return fetchAPI<{ restarting: boolean }>("/api/restart", { method: "POST" });

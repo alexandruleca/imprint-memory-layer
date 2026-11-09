@@ -24,6 +24,7 @@ import {
   Disc3,
   WandSparkles,
   AlarmClock,
+  Puzzle,
 } from "lucide-react";
 import { getVersion } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
@@ -119,6 +120,7 @@ const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
     title: "Memory",
     items: [
       { href: "/core", label: "Core memories", icon: Sparkles },
+      { href: "/skills", label: "Skills", icon: Puzzle },
       { href: "/organize", label: "Organize", icon: WandSparkles },
       { href: "/graph", label: "Graph", icon: Network },
       { href: "/topics", label: "Topics", icon: Tags },

@@ -70,6 +70,10 @@ The public relay at `wss://sync.alexandruleca.com` is the default — pass `--re
 
 Core memories ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)), guidelines and records alike ([ADR 0143](adr/0143-agents-receive-generalised-guidelines-core-memories-are-kept-as-records.md)), belong to no workspace, so every paired workspace's sync carries them. Each is one record, and the newest change wins: approving, retiring or editing one on any device holds on all of them. A device sends them only to a peer whose handshake offers them and says it tells guidelines from records (`core_tiers`); a release before that would give every record to its sessions, so it is sent none, though its own still arrive and take the tier their origin gives. Only the device that runs LLM tagging for a pair drafts guidelines in the background, so two devices do not propose the same ones. Meeting recordings' audio never syncs; their transcripts do, as ordinary memories.
 
+### Skills and personas
+
+Skills and personas ([ADR 0168](adr/0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md)) also belong to no workspace, and travel the same way: one record per item, the newest change wins, sent only to a peer whose handshake offers them. The version a received change replaces stays in the receiving device's history, which never syncs. A device writes the items it receives into its own clients' folders at once ([ADR 0169](adr/0169-skills-and-personas-are-written-into-the-folders-clients-read.md)); see [skills and personas](skills.md).
+
 ### Automatic sync between paired devices
 
 A one-time sync stays one-time unless **both** devices enable automatic pairing.

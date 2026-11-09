@@ -763,11 +763,12 @@ def process_import_buffer(
                 import_memories(records)
             elif dataset == "facts":
                 import_facts(records)
-            elif dataset in ("core", "placements", "organize", "backlog"):
-                from . import core_memories, organize, placement_sync, tag_backlog
+            elif dataset in ("core", "placements", "organize", "backlog", "registry"):
+                from . import core_memories, organize, placement_sync, registry, tag_backlog
                 stored = (core_memories.import_records(records) if dataset == "core"
                           else placement_sync.import_records(records, workspace) if dataset == "placements"
                           else tag_backlog.adopt(records, workspace) if dataset == "backlog"
+                          else registry.import_records(records) if dataset == "registry"
                           else organize.import_records(records, workspace))
                 held = stats.setdefault(dataset, {})
                 for key, value in stored.items():
@@ -776,6 +777,11 @@ def process_import_buffer(
     snapshot_import.finish()
     if snapshot_import.imported:
         stats['sources'] = {'imported': snapshot_import.imported}
+    received = stats.get('registry', {})
+    if received.get('inserted') or received.get('updated'):
+        # Skills and personas reach this device's clients now (ADR 0169).
+        from . import registry_files
+        registry_files.apply_quietly()
     return stats
 
 
@@ -974,7 +980,7 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
 
 
 # The record datasets a stream may carry; source snapshots travel as parts.
-_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize", "backlog")
+_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize", "backlog", "registry")
 
 
 def _stream_line_ok(msg: dict, after_meta: bool) -> bool:

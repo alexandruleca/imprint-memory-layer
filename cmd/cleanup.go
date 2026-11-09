@@ -324,6 +324,8 @@ func disconnectClients(selected []client, project string) error {
 	if err := cleanupNativeClients(registrationsOf(selected), project); err != nil {
 		failures = append(failures, err)
 	}
+	// Skills and personas leave the folders no connected client reads now.
+	applySkills(platform.VenvPython(project), project, platform.DataDir(project))
 	return errors.Join(failures...)
 }
 
