@@ -23,6 +23,10 @@ type clientCleanup struct {
 	toml               bool
 	hooks, rules, rule string
 	permission         bool
+	// stale marks a layout the client no longer reads, such as an older
+	// Claude Desktop config: disconnect still cleans it, but an entry there
+	// does not make the client connected.
+	stale bool
 	// owned is a file Imprint writes whole, such as Copilot's hooks file.
 	// Like rules and hooks, another runtime's entry in registry protects it.
 	owned string
@@ -46,8 +50,9 @@ func claudeCodeRegistrations() []clientCleanup {
 
 func claudeDesktopRegistrations() []clientCleanup {
 	var registrations []clientCleanup
+	read := platform.ClaudeDesktopConfigPath()
 	for _, file := range platform.ClaudeDesktopConfigPaths() {
-		registrations = append(registrations, clientCleanup{registry: file, keys: []string{"mcpServers"}})
+		registrations = append(registrations, clientCleanup{registry: file, keys: []string{"mcpServers"}, stale: file != read})
 	}
 	return registrations
 }
@@ -162,10 +167,13 @@ func registeredEntry(c clientCleanup) (any, error) {
 }
 
 // isConnected reports whether this runtime is registered in any of the
-// client's registries.
+// registries the client reads.
 func isConnected(c client, project string) (bool, error) {
 	var failures []error
 	for _, r := range c.registrations() {
+		if r.stale {
+			continue
+		}
 		entry, err := registeredEntry(r)
 		if err != nil {
 			failures = append(failures, err)

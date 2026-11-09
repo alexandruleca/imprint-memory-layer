@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -199,5 +200,29 @@ func TestDisconnectingOneClientKeepsOtherWSLSelections(t *testing.T) {
 	selections, _ = os.ReadFile(filepath.Join(project, ".wsl-integrations.txt"))
 	if len(selections) != 0 {
 		t.Fatalf("selections after disconnecting every client: %q", selections)
+	}
+}
+
+// A registration in a layout the client no longer reads (an older Claude
+// Desktop config) is cleaned on disconnect but does not count as connected.
+func TestStaleRegistrationIsNotConnectedButIsCleaned(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "runtime")
+	stale := filepath.Join(home, "old", "claude_desktop_config.json")
+	doc, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"imprint": map[string]any{
+		"command": "python", "env": map[string]any{"PYTHONPATH": project}}}})
+	writeCleanupFixture(t, stale, string(doc))
+	c := client{name: "desktop", label: "Desktop", registrations: func() []clientCleanup {
+		return []clientCleanup{{registry: stale, keys: []string{"mcpServers"}, stale: true}}
+	}}
+	if ok, err := isConnected(c, project); err != nil || ok {
+		t.Fatalf("stale registration counted as connected: %v %v", ok, err)
+	}
+	if err := disconnectClients([]client{c}, project); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := registeredEntry(clientCleanup{registry: stale, keys: []string{"mcpServers"}})
+	if err != nil || entry != nil {
+		t.Fatalf("stale registration not cleaned: %v %v", entry, err)
 	}
 }

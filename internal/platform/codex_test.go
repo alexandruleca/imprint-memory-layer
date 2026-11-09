@@ -68,3 +68,34 @@ func TestDesktopProfileDirIsElectronsProfile(t *testing.T) {
 		t.Fatalf("DesktopProfileDir = %q, want Electron's profile %q", got, want)
 	}
 }
+
+// Current Claude Desktop builds read their config from Claude-Data; the
+// older Store and standalone layouts follow it, and Claude-Data's README is
+// not an install.
+func TestClaudeDesktopCandidatesPutClaudeDataFirst(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "alexa")
+	install := filepath.Join(profile, "AppData", "Local", "Claude-Data", "claude_pzs8sxrjxfjjc")
+	store := filepath.Join(profile, "AppData", "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude")
+	for _, dir := range []string{install, store} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(install), "README.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := claudeDesktopWindowsCandidates(profile)
+	want := []string{
+		filepath.Join(install, "claude_desktop_config.json"),
+		filepath.Join(store, "claude_desktop_config.json"),
+		filepath.Join(profile, "AppData", "Roaming", "Claude", "claude_desktop_config.json"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("candidates = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidates = %q, want %q", got, want)
+		}
+	}
+}

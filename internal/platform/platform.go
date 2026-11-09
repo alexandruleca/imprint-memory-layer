@@ -452,18 +452,21 @@ func resolveFromUsersDir() string {
 // Anthropic's Claude Desktop MCP config. WSL-aware and Microsoft-Store-
 // install aware.
 //
-// Windows (including WSL) supports two install flavours:
+// Windows (including WSL) has three layouts, newest first:
 //
-//  1. **Standalone installer** — config at “%APPDATA%\Claude\claude_desktop_config.json“.
-//  2. **Microsoft Store** (MSIX) — the app is sandboxed and the “%APPDATA%“
+//  1. **Claude-Data** — current builds keep all their data, the config
+//     included, in “%LOCALAPPDATA%\Claude-Data\<install>\claude_desktop_config.json“
+//     (“<install>“ is the package family in lower case for the Store
+//     package, e.g. “claude_pzs8sxrjxfjjc“). Its README says older files
+//     may be left under %APPDATA%\Claude, which these builds no longer read.
+//  2. **Microsoft Store** (MSIX) before Claude-Data — the “%APPDATA%“
 //     virtualisation redirects the config under
 //     “%LOCALAPPDATA%\Packages\Claude_<publisherHash>\LocalCache\Roaming\Claude\claude_desktop_config.json“.
 //     The publisher hash varies per vendor, so we glob “Packages/Claude_*“.
+//  3. **Standalone installer** — config at “%APPDATA%\Claude\claude_desktop_config.json“.
 //
-// Resolution order:
-//  1. If a Store-install config dir already exists, return that path
-//     (even if the file itself hasn't been created yet).
-//  2. Else return the standalone path (create-on-write).
+// Resolution order: the first candidate whose directory already exists
+// (the app has run there), else the first candidate (create-on-write).
 //
 // Returns the empty string if the platform is unsupported or (on WSL) the
 // Windows profile can't be resolved.
@@ -487,6 +490,7 @@ func ClaudeDesktopConfigPath() string {
 
 // ClaudeDesktopConfigPaths returns all supported layouts, including standalone
 // and Store installs, so an uninstall also cleans a previously selected layout.
+// Only ClaudeDesktopConfigPath is the one the app reads.
 func ClaudeDesktopConfigPaths() []string { return claudeDesktopConfigCandidates() }
 
 // claudeDesktopConfigCandidates returns every candidate config path for the
@@ -504,17 +508,7 @@ func claudeDesktopConfigCandidates() []string {
 	}
 
 	if winProfile != "" {
-		// Store install: %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude
-		localPackages := filepath.Join(winProfile, "AppData", "Local", "Packages")
-		matches, _ := filepath.Glob(filepath.Join(localPackages, "Claude_*", "LocalCache", "Roaming", "Claude"))
-		var out []string
-		for _, m := range matches {
-			out = append(out, filepath.Join(m, "claude_desktop_config.json"))
-		}
-		// Standalone: %APPDATA%\Claude (always appended as fallback).
-		roamingClaude := filepath.Join(winProfile, "AppData", "Roaming", "Claude", "claude_desktop_config.json")
-		out = append(out, roamingClaude)
-		return out
+		return claudeDesktopWindowsCandidates(winProfile)
 	}
 
 	switch runtime.GOOS {
@@ -530,6 +524,27 @@ func claudeDesktopConfigCandidates() []string {
 		return []string{filepath.Join(xdg, "Claude", "claude_desktop_config.json")}
 	}
 	return nil
+}
+
+// claudeDesktopWindowsCandidates lists the Windows layouts under one user
+// profile, newest first (see ClaudeDesktopConfigPath).
+func claudeDesktopWindowsCandidates(winProfile string) []string {
+	local := filepath.Join(winProfile, "AppData", "Local")
+	var out []string
+	// Claude-Data: one directory per install; README.txt sits beside them.
+	installs, _ := filepath.Glob(filepath.Join(local, "Claude-Data", "*"))
+	for _, dir := range installs {
+		if DirExists(dir) {
+			out = append(out, filepath.Join(dir, "claude_desktop_config.json"))
+		}
+	}
+	// Store install before Claude-Data: %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude
+	matches, _ := filepath.Glob(filepath.Join(local, "Packages", "Claude_*", "LocalCache", "Roaming", "Claude"))
+	for _, m := range matches {
+		out = append(out, filepath.Join(m, "claude_desktop_config.json"))
+	}
+	// Standalone: %APPDATA%\Claude (always appended as fallback).
+	return append(out, filepath.Join(winProfile, "AppData", "Roaming", "Claude", "claude_desktop_config.json"))
 }
 
 // ClaudeDesktopInstallMarker returns a path whose existence proves Claude
