@@ -6,10 +6,11 @@ them with deterministic, keyword and zero-shot tags only. While ``tagger.llm``
 is on they also mark each memory ``tag_pending`` instead of calling the LLM,
 so they finish once the memories are embedded and searchable.
 
-This module drains that backlog: newest memories first, one classification
-at a time, each written in the same payload update that clears its marker
-(``vectorstore.set_classifications``). A crash, a cancel or a stop loses at
-most the memory being classified.
+This module drains that backlog: newest memories first, or in random order
+while a paired device tags the same backlog (ADR 0167), ``concurrency()``
+memories at a time, each written in the same payload update that clears its
+marker (``vectorstore.set_classifications``). A crash, a cancel or a stop
+loses at most the memories being classified.
 
 Two callers:
 
@@ -112,25 +113,33 @@ def pending_by_workspace() -> dict[str, int]:
     return {name: pending_count(name) for name in known}
 
 
-def classify(payload: dict, workspace: str | None = None) -> tuple[dict, str]:
+def _request(payload: dict) -> dict:
+    """What the tagger is asked about a stored memory."""
+    source = payload.get("source", "")
+    return {"content": payload.get("content", ""), "rel_path": source,
+            "project_hint": source.split("/", 1)[0] if "/" in source else ""}
+
+
+def classify(payload: dict, workspace: str | None = None, classification=None) -> tuple[dict, str]:
     """LLM classification of a stored memory: its new tags and type.
 
     The prompt is redacted inside the tagger before any provider sees it
     (ADR 0060). Deterministic fields the memory got when it was stored stay
     when the classification leaves them blank: conversations carry
     lang=conversation, layer=session, kind=qa that no path rule derives.
+    ``classification`` is the model's answer when a batch already asked it.
     """
     from . import tagger
-    content = payload.get("content", "")
-    source = payload.get("source", "")
+    request = _request(payload)
     existing = payload.get("tags") or {}
     tags = tagger.build_payload_tags(
-        content,
-        rel_path=source,
+        request["content"],
+        rel_path=request["rel_path"],
         llm=True,
         zero_shot=False,
-        project_hint=source.split("/", 1)[0] if "/" in source else "",
+        project_hint=request["project_hint"],
         workspace=workspace,
+        classification=classification,
     )
     kind = tags.pop("_llm_type", "")
     for key in ("lang", "layer", "kind"):
@@ -139,26 +148,31 @@ def classify(payload: dict, workspace: str | None = None) -> tuple[dict, str]:
     return tags, kind
 
 
-def _next_page(client, coll: str, flt) -> list:
+def _next_page(client, coll: str, flt, shuffled: bool = False, limit: int = _PAGE) -> list:
     """The newest memories still on the backlog. Ordering is a preference:
-    a memory without a timestamp, which ordering would skip, comes after."""
+    a memory without a timestamp, which ordering would skip, comes after.
+
+    ``shuffled``: a random page instead, so devices that tag the same
+    backlog at once each take different memories (ADR 0167)."""
     from qdrant_client import models as qm
     fields = ["content", "source", "tags"]
-    points, _ = client.scroll(collection_name=coll, scroll_filter=flt, limit=_PAGE, with_payload=fields,
+    if shuffled:
+        return client.query_points(collection_name=coll, query=qm.SampleQuery(sample=qm.Sample.RANDOM),
+                                   query_filter=flt, limit=limit, with_payload=fields, with_vectors=False).points
+    points, _ = client.scroll(collection_name=coll, scroll_filter=flt, limit=limit, with_payload=fields,
                               with_vectors=False,
                               order_by=qm.OrderBy(key="timestamp", direction=qm.Direction.DESC))
     if not points:
-        points, _ = client.scroll(collection_name=coll, scroll_filter=flt, limit=_PAGE, with_payload=fields,
+        points, _ = client.scroll(collection_name=coll, scroll_filter=flt, limit=limit, with_payload=fields,
                                   with_vectors=False)
     return points
 
 
 def concurrency() -> int:
-    """How many memories to classify at once: the configured number for a
-    server provider; one for the local model, which runs one request at once."""
+    """How many memories to classify at once (``tagger.llm_concurrency``):
+    parallel requests to a server provider, one batch for the local model
+    (ADR 0165)."""
     from .config_schema import resolve
-    if resolve("tagger.llm_provider")[0] == "local":
-        return 1
     return int(resolve("tagger.llm_concurrency")[0])
 
 
@@ -166,6 +180,10 @@ def classify_all(payloads: list[dict], workspace: str | None, workers: int) -> l
     """``classify`` for each payload, ``workers`` at a time; results in order."""
     if workers <= 1 or len(payloads) <= 1:
         return [classify(payload, workspace) for payload in payloads]
+    from . import tagger
+    if tagger._get_llm_provider() == "local":
+        answers = tagger.derive_llm_classify_many([_request(payload) for payload in payloads], workspace, workers)
+        return [classify(payload, workspace, answer) for payload, answer in zip(payloads, answers)]
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=min(workers, len(payloads)), thread_name_prefix="imprint-tag") as pool:
         return list(pool.map(lambda payload: classify(payload, workspace), payloads))
@@ -178,28 +196,32 @@ def drain(
     should_stop: Callable[[], bool] = lambda: False,
     on_tagged: Callable[[int], None] | None = None,
 ) -> tuple[int, bool]:
-    """Tag one workspace's backlog, newest first. Returns ``(tagged, stopped)``.
+    """Tag one workspace's backlog, newest first, or in random order while a
+    paired device in the workspace tags too (ADR 0167). Returns ``(tagged, stopped)``.
 
     ``should_stop`` is asked before each group of memories classified at once
-    (``concurrency()``, one with the local model); a classification once begun
-    is written. Each memory's tags, type, ``tagged_at`` (ADR 0051) and the
-    cleared marker are one payload update.
+    (``concurrency()``); a classification once begun is written. Each
+    memory's tags, type, ``tagged_at`` (ADR 0051) and the cleared marker are
+    one payload update.
     """
     from . import vectorstore as vs
     client, coll = vs._ensure_collection(workspace)
     flt = _pending_filter(project)
     workers = concurrency()
+    shuffled = peers_tag(workspace)
+    page = _PAGE - _PAGE % workers if workers <= _PAGE else workers  # Whole groups.
     tagged = 0
     logged = 0
     seen: set = set()
     stopped = False
     try:
         while not stopped:
-            points = _next_page(client, coll, flt)
+            points = _next_page(client, coll, flt, shuffled, page)
             if not points:
                 break
-            # With a server provider, ``workers`` memories are classified at
-            # once; their results are written in order, one memory at a time.
+            # ``workers`` memories are classified at once (parallel requests,
+            # or one batch on the local model); their results are written in
+            # order, one memory at a time.
             for start in range(0, len(points), workers):
                 if should_stop():
                     stopped = True

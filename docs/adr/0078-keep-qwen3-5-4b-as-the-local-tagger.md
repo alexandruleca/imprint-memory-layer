@@ -3,8 +3,9 @@ title: ADR 0078 — Keep Qwen3.5-4B as the local tagger
 description: Qwen3.5-2B was measured against the default on 50 real memories; it tags 2.2–2.5× faster and no worse at memory types, but worse at the language and topic tags search filters on, so the default stays.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-26
+- Amended by: [ADR 0164](0164-the-tagging-prompt-keeps-its-layout-despite-checkpoints.md) — its invalidation condition on putting the fixed instructions first: with prompt checkpoints it was measured, and it changes the classifications, so the layout stays
 - Related: [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md) (the Qwen defaults), [ADR 0019](0019-reproducible-benchmark-evidence.md) (this evaluation does not meet its bar), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (tagging on the GPU), [ADR 0067](0067-background-llm-tagging-that-yields-to-every-job.md) (tagging runs in the background), [local model selection](../local-model-selection.md), [tagging](../tagging.md)
 
 ## Context

@@ -119,11 +119,65 @@ class BacklogTests(BacklogCase):
         payloads = self.payloads()
         self.assertEqual({payloads[f'note {i}']['tags']['topics'][0] for i in range(6)}, {f'note-{i}' for i in range(6)})
 
-    def test_the_local_model_tags_one_at_a_time_whatever_the_setting(self):
+    def test_the_configured_number_applies_to_the_local_model_too(self):
         with patch.dict(os.environ, {'IMPRINT_LLM_TAGGER_PROVIDER': 'local', 'IMPRINT_LLM_TAGGER_CONCURRENCY': '8'}):
-            self.assertEqual(tag_backlog.concurrency(), 1)
+            self.assertEqual(tag_backlog.concurrency(), 8)
         with patch.dict(os.environ, {'IMPRINT_LLM_TAGGER_PROVIDER': 'ollama', 'IMPRINT_LLM_TAGGER_CONCURRENCY': '4'}):
             self.assertEqual(tag_backlog.concurrency(), 4)
+
+    def test_the_local_model_classifies_the_configured_number_as_one_batch_in_order(self):
+        # ADR 0165: one batch per group, results written in order, a failed
+        # classification keeps the memory's keyword tags.
+        self.store([f'note {i}' for i in range(7)])
+        batches, written = [], []
+
+        def many(items, workspace, slots):
+            batches.append([item['content'] for item in items])
+            return [ValueError('decode failed') if item['content'] == 'note 4' else
+                    {'type': 'decision', 'domains': ['infra'], 'topics': [item['content'].replace(' ', '-')],
+                     'lang': '', 'layer': '', 'kind': ''} for item in items]
+
+        alone = []
+
+        def one(content, **kwargs):
+            alone.append(content)
+            return {'type': 'decision', 'domains': ['infra'], 'topics': ['alone'], 'lang': '', 'layer': '', 'kind': ''}
+
+        local = {'IMPRINT_LLM_TAGGER_PROVIDER': 'local', 'IMPRINT_LLM_TAGGER_CONCURRENCY': '3'}
+        with patch.dict(os.environ, local), patch('imprint.tagger.derive_llm_classify_many', side_effect=many), \
+                patch('imprint.tagger.derive_llm_classify', side_effect=one):
+            tagged, _ = tag_backlog.drain(on_tagged=written.append)
+        self.assertEqual(tagged, 7)
+        # A page holds whole groups (15 with 3 slots); the last memory left is classified alone.
+        self.assertEqual(batches, [['note 6', 'note 5', 'note 4'], ['note 3', 'note 2', 'note 1']])
+        self.assertEqual(alone, ['note 0'])
+        self.assertEqual(written, list(range(1, 8)))
+        payloads = self.payloads()
+        self.assertEqual(payloads['note 6']['tags']['topics'], ['note-6'])
+        self.assertTrue(payloads['note 6']['llm_tagged'])
+        self.assertFalse(payloads['note 4'].get('llm_tagged', False))
+        self.assertEqual(payloads['note 4']['type'], 'architecture')
+        self.assertFalse(any(p['tag_pending'] for p in payloads.values()))
+
+    def test_memories_are_taken_in_random_order_while_a_paired_device_tags(self):
+        # ADR 0167: devices that tag one backlog do not all start at its newest memory.
+        self.store([f'note {i}' for i in range(12)])
+        with patch.object(self.client, 'query_points', wraps=self.client.query_points) as sampled, \
+                patch.object(tag_backlog, 'peers_tag', return_value=False), \
+                patch('imprint.tagger.build_payload_tags', side_effect=classification()):
+            tag_backlog.drain()
+        sampled.assert_not_called()
+        self.store([f'more {i}' for i in range(12)], start=2000.0)
+        order = []
+        with patch.object(self.client, 'query_points', wraps=self.client.query_points) as sampled, \
+                patch.object(tag_backlog, 'peers_tag', return_value=True), \
+                patch('imprint.tagger.build_payload_tags', side_effect=lambda c, **kw: (
+                    order.append(c), classification()(c, **kw))[1]):
+            tagged, _ = tag_backlog.drain()
+        self.assertEqual(tagged, 12)
+        self.assertTrue(sampled.called)
+        self.assertEqual(set(order), {f'more {i}' for i in range(12)})
+        self.assertNotEqual(order, [f'more {i}' for i in reversed(range(12))])  # 1 in 479,001,600 by chance
 
     def test_retag_repairs_memories_stored_as_an_empty_finding_and_skips_good_ones(self):
         from imprint import cli_retag

@@ -124,8 +124,8 @@ HELP: dict[str, dict[str, str]] = {
         "example": "\"http://192.168.1.20:8000/v1\": to tag with a vLLM server on another machine in your network.",
     },
     "tagger.llm_concurrency": {
-        "help": "How many memories LLM tagging and `imprint retag` send to the model at the same time. A server that runs requests in parallel tags several times faster with more: vLLM batches them, Ollama does with OLLAMA_NUM_PARALLEL set, and remote APIs answer them side by side within your rate limit. The local provider always tags one at a time, because one model in memory runs one request at once; more would only wait in line. Results are written in order either way.",
-        "example": "4 with tagger.llm_provider \"vllm\": to tag a large backlog about four times faster on a vLLM server.",
+        "help": "How many memories LLM tagging and `imprint retag` send to the model at the same time. The local provider decodes them as one batch: generating each word reads the whole model once however many memories share the step, so the time spent writing replies is shared, while reading each memory's prompt takes as long as before. Each memory in the batch holds a 4,096-token context, about 180 MB of GPU memory with the default model; if the GPU cannot hold the batch, tagging goes on one at a time. A server that runs requests in parallel also tags faster with more: vLLM batches them, Ollama does with OLLAMA_NUM_PARALLEL set, and remote APIs answer them side by side within your rate limit. Results are written in order either way.",
+        "example": "4 with the local provider on a GPU: four memories share the time spent generating their replies. 4 with tagger.llm_provider \"vllm\": about four times faster on a vLLM server.",
     },
     "tagger.local.model_repo": {
         "help": "The Hugging Face repository the local helper model (a GGUF file) downloads from on first use; the default is the bundled helper, unsloth/Qwen3.5-4B-GGUF. The helper serves LLM tagging, local recall, summaries and model-based project analysis, so a change affects all of them. Set tagger.local.model_file to a file that exists in the new repository.",

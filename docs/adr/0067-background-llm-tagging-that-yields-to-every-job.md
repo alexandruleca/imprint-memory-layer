@@ -9,6 +9,7 @@ description: Storing paths mark memories for LLM tagging instead of running the 
 - Amended by:
   - [ADR 0132](0132-organize-runs-in-the-idle-slot-after-background-tagging.md) — the background job also organizes, after tagging, when `organize.background` is on
   - [ADR 0138](0138-memories-that-wait-for-llm-tagging-travel-to-a-paired-device-that-tags.md) — the markers travel to paired devices, and a device with LLM tagging off marks new memories when a paired device tags
+  - [ADR 0167](0167-devices-that-tag-together-take-waiting-memories-in-random-order.md) — while a paired device also tags, the backlog is taken in random order instead of newest first
 - Related: [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) (provider selection never enables LLM tagging), [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md) (the tagging measurement), [ADR 0051](0051-synced-tags-follow-the-latest-retag.md) (`tagged_at`), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (redacted tagger prompts), [ADR 0068](0068-merge-identical-waiting-jobs.md) (merged submissions), [queue](../queue.md), [tagging](../tagging.md)
 
 ## Context

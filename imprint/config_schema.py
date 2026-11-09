@@ -276,7 +276,7 @@ SETTINGS: list[Setting] = [
             choices=PROVIDER_DEFAULT, custom=True),
     Setting("tagger.llm_base_url", "IMPRINT_LLM_TAGGER_BASE_URL",   "",          str,  "LLM tagger API base URL override"),
     Setting("tagger.llm_concurrency", "IMPRINT_LLM_TAGGER_CONCURRENCY", 1, tagging_concurrency,
-            "Memories classified at once by a server provider (1–8); the local model tags one at a time",
+            "Memories classified at once (1–8): parallel requests to a server provider, one batch on the local model",
             choices=tuple(Choice(n, str(n)) for n in range(1, 9))),
 
     # ── Tagger local model (llama-cpp) ───────────────────────

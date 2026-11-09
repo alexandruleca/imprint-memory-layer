@@ -539,7 +539,10 @@ _LLM_CLASSIFY_PROMPT = (
     "- Never return numbers, single characters, or content copied verbatim\n"
     "- lang/layer/kind must each be a single token from the taxonomy when possible\n"
     "- lang: for code chunks use a programming language (python, go, …). For prose, documentation, conversation, or comment-only chunks use the natural language the text is written in (english, romanian, german, …). Never pick a programming language when the chunk is not code; if you are unsure of the natural language, use 'english'.\n"
-    "- Return ONLY the JSON object, no explanation\n\n"
+    "- Return ONLY the JSON object, no explanation\n"
+    # Indented JSON took about 76 tokens a reply, one line about 36: generating
+    # the reply was most of a memory's time on a GPU (ADR 0163).
+    "- Write the JSON on one line: no line breaks, no indentation\n\n"
 )
 
 # The registry gains labels with almost every classification. The most used
@@ -561,12 +564,36 @@ _CLASSIFY_FALLBACK = {
 }
 
 
+# What asks an OpenAI-compatible server's thinking model to answer without
+# thinking first (ADR 0166). vLLM, llama.cpp's server and SGLang pass
+# chat_template_kwargs to the template; Ollama's /v1 endpoint reads
+# reasoning_effort. Hosted APIs refuse fields they do not know, so they get
+# none: their default tagging models do not think, and Anthropic's think
+# only when asked.
+_NO_THINKING: dict[str, dict] = {
+    "vllm": {"chat_template_kwargs": {"enable_thinking": False}},
+    "ollama": {"reasoning_effort": "none"},
+}
+# (provider, address, model) whose server refused the switch above: it is
+# not sent to them again in this process.
+_thinking_switch_refused: set[tuple[str, str, str]] = set()
+
+
+def _no_thinking(provider: str, configured_url: str) -> dict | None:
+    """The request fields that switch thinking off, or None. The openai
+    provider pointed at another address is taken for a local server."""
+    if provider == "openai" and configured_url:
+        return _NO_THINKING["vllm"]
+    return _NO_THINKING.get(provider)
+
+
 def _call_llm_raw_text(full_input: str) -> str:
     """Call the configured LLM provider and return raw response text.
 
     The one place the tagger hands text to a model: every provider receives
     the prompt with its secrets redacted, so classifications and stored tags
-    are derived from redacted text too (ADR 0060)."""
+    are derived from redacted text too (ADR 0060). No provider is asked to
+    think (ADR 0166); the local model's template already has thinking off."""
     from .redaction import redact
     full_input = redact(full_input)
     provider = _get_llm_provider()
@@ -609,11 +636,27 @@ def _call_llm_raw_text(full_input: str) -> str:
     if base_url:
         kwargs["base_url"] = base_url
     client = openai.OpenAI(**kwargs)
-    resp = client.chat.completions.create(
-        model=_get_llm_model(),
-        max_tokens=200,
-        messages=[{"role": "user", "content": full_input}],
-    )
+    model = _get_llm_model()
+
+    def create(switch: dict | None):
+        return client.chat.completions.create(
+            model=model,
+            max_tokens=200,
+            messages=[{"role": "user", "content": full_input}],
+            **({"extra_body": switch} if switch else {}),
+        )
+
+    switch = _no_thinking(provider, configured_url)
+    server = (provider, base_url or "", model)
+    if not switch or server in _thinking_switch_refused:
+        return _extract_openai_content(create(None))
+    try:
+        resp = create(switch)
+    except openai.BadRequestError:
+        # A server that does not know the field. The same request without
+        # it raises when the request itself was the problem.
+        resp = create(None)
+        _thinking_switch_refused.add(server)
     return _extract_openai_content(resp)
 
 
@@ -734,6 +777,35 @@ def derive_llm_classify(
     Returns {"type": str, "domains": list[str], "topics": list[str]}.
     Raises ClassificationFailed (or the provider's error) when there is no usable classification.
     """
+    prompt = _classification_prompt(content, max_chars, neighbor_context, project_hint, rel_path, workspace)
+    return _classification_result(_call_llm_raw_text(prompt), workspace)
+
+
+def derive_llm_classify_many(items: list[dict], workspace: str | None = None, slots: int = 1) -> list:
+    """``derive_llm_classify(**item)`` for each item with the local model,
+    up to ``slots`` of them decoded as one batch (ADR 0165). Returns, in
+    order, each classification or the exception that stands for it."""
+    from .local_llm import complete_many
+    from .redaction import redact
+    llm, err = _load_tagger_model()
+    if err or llm is None:
+        return [ClassificationFailed(err or "the tagger model did not load") for _ in items]
+    prompts = [redact(_classification_prompt(workspace=workspace, **item)) for item in items]
+    results: list = []
+    for reply in complete_many(llm, prompts, max_tokens=200, slots=slots):
+        try:
+            results.append(reply if isinstance(reply, Exception) else _classification_result(reply, workspace))
+        except Exception as error:
+            results.append(error)
+    return results
+
+
+def _classification_prompt(content: str, max_chars: int = 3000, neighbor_context: str = "",
+                           project_hint: str = "", rel_path: str = "", workspace: str | None = None) -> str:
+    """The chunk's project and file, the instructions with the registry's
+    most used labels, then the chunk. In this order the model classifies by
+    the chunk's content; with the fixed instructions first, so that they
+    could be kept evaluated, it leaned on the file path (ADR 0164)."""
     from . import taxonomy
 
     # Build taxonomy-aware prompt
@@ -758,12 +830,15 @@ def derive_llm_classify(
     if ctx_parts:
         prompt = "\n".join(ctx_parts) + "\n\n" + prompt
 
-    full_input = prompt + content[:max_chars]
+    return prompt + content[:max_chars]
 
+
+def _classification_result(raw_text: str, workspace: str | None) -> dict:
+    """The validated classification in a reply, recorded in the registry."""
+    from . import taxonomy
     # A failed call or an empty or unreadable reply raises: stored as a real
     # classification, it would mark the memory LLM-tagged as an empty "finding",
     # which background tagging and retag then never revisit.
-    raw_text = _call_llm_raw_text(full_input)
     result = _parse_llm_classification(raw_text)
     if result == _CLASSIFY_FALLBACK:
         raise ClassificationFailed("the model's reply held no classification")
@@ -793,6 +868,7 @@ def build_payload_tags(
     neighbor_context: str = "",
     project_hint: str = "",
     workspace: str | None = None,
+    classification: dict | Exception | None = None,
 ) -> dict:
     """Combine all tag sources into the canonical payload shape.
 
@@ -806,6 +882,10 @@ def build_payload_tags(
 
     Provider selection never enables LLM tagging. Explicit llm=False always
     disables it; llm=None follows tagger.llm configuration.
+
+    ``classification`` is the LLM's result for this content when it was
+    already asked, in a batch (``derive_llm_classify_many``): the result, or
+    the exception that stands for it.
     """
     d = derive_deterministic(rel_path) if rel_path else {"lang": "", "layer": "", "kind": ""}
 
@@ -820,7 +900,9 @@ def build_payload_tags(
     if llm:
         # Unified LLM classification: type + domains + topics + lang/layer/kind
         try:
-            result = derive_llm_classify(
+            if isinstance(classification, Exception):
+                raise classification
+            result = classification if classification is not None else derive_llm_classify(
                 content,
                 neighbor_context=neighbor_context,
                 project_hint=project_hint,

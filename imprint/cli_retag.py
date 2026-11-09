@@ -104,8 +104,8 @@ def retag(
             )
 
             # Re-derive tags with LLM enabled (unified classification), keeping
-            # deterministic fields the re-derivation leaves blank; a server
-            # provider classifies tagger.llm_concurrency memories at once.
+            # deterministic fields the re-derivation leaves blank;
+            # tagger.llm_concurrency memories are classified at once.
             for start in range(0, len(points), workers):
                 group = points[start:start + workers]
                 classified = tag_backlog.classify_all([pt.payload or {} for pt in group], workspace, workers)

@@ -46,6 +46,8 @@ Local helper inference uses four CPU threads and a 256-token prompt batch. An op
 
 The embedded GGUF chat template is rendered with `enable_thinking=false`. This replaces the ineffective `/no_think` text prefix for local Qwen3.5. Missing or incompatible templates fail at load. Summaries and recall plans use a JSON-schema grammar; for recall plans it was no slower than unconstrained output on CPU, which spends more tokens on pretty-printed JSON ([ADR 0058](adr/0058-recall-batched-reads-with-optional-local-planning.md)). Classification sends its prompt unconstrained, because on a GPU the grammar cost more than the inference, and its reply is validated like a remote provider's ([ADR 0049](adr/0049-llama-gpu-offload-through-vulkan-wheels.md)). Both are followed by existing application validation. Valid JSON does not establish factual correctness.
 
+The classification prompt asks for the JSON on one line, which takes under half the tokens of indented JSON ([ADR 0163](adr/0163-tagging-asks-for-its-classification-as-one-line-of-json.md)). Unlike chat's, its instructions are not kept evaluated between memories: they follow each memory's project and file, because with them first the model classified differently ([ADR 0164](adr/0164-the-tagging-prompt-keeps-its-layout-despite-checkpoints.md)). With `tagger.llm_concurrency` above 1, a second context on the same model decodes that many memories as one batch, each in its own 4,096-token sequence ([ADR 0165](adr/0165-the-local-model-tags-several-memories-as-one-batch.md)).
+
 Chat calls tools through each model's native protocol ([ADR 0059](adr/0059-chat-speaks-each-models-native-tool-protocol.md)). One registry holds every tool's JSON schema. Locally, the schemas, earlier calls and tool results are rendered by the GGUF's own chat template. The reply is parsed in the call format of the model's family, chosen by `chat.tool_format` (Settings → Chat → Tool-call format; [ADR 0061](adr/0061-local-tool-call-formats.md)):
 
 | Value | Models | A call in the reply |
@@ -130,6 +132,6 @@ preserve uncertainty and reread originals for exact details. Models without a
 supported tool format can use analysis but cannot call the reread tool. The
 small LFM voice route does not use this chat pipeline.
 
-Remote provider configuration remains supported. Non-thinking template control here applies to the in-process runtime; configure thinking controls separately at remote servers. An external model is not automatically equivalent to the pinned GGUF.
+Remote provider configuration remains supported. Non-thinking template control here applies to the in-process runtime. LLM tagging also asks OpenAI-compatible servers not to think (`chat_template_kwargs` for vLLM and an `openai` provider at another address, `reasoning_effort: "none"` for Ollama); other uses of remote servers configure thinking at the server ([ADR 0166](adr/0166-tagging-never-asks-a-model-to-think.md)). An external model is not automatically equivalent to the pinned GGUF.
 
 See [model selection rationale](local-model-selection.md), [tagging](tagging.md) and [ADR 0010](adr/0010-qwen-defaults-and-explicit-reindex.md) for validation and remaining evaluation work.
