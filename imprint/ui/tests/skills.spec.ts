@@ -4,6 +4,13 @@ type Item = { id: string; kind: 'skill' | 'persona'; name: string; description: 
   state: 'active' | 'disabled' | 'retired'; origin: string; device: string; created_at: number; updated_at: number;
   paths: string[]; size: number; shadowed: boolean; files: Record<string, string> };
 
+/** An item as the API lists it: without its files. */
+function withoutFiles(item: Item): Omit<Item, 'files'> {
+  const listed: Partial<Item> = { ...item };
+  delete listed.files;
+  return listed as Omit<Item, 'files'>;
+}
+
 const skillFile = (name: string, description: string, body: string) =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
 
@@ -33,7 +40,7 @@ async function mockSkills(page: Page) {
   const report = { folders, written: [], removed: [], taken: [], kept: [], at: 990,
                    problems: [{ path: '/home/me/.claude/skills/cut-a-release', problem: 'SKILL.md needs a description' }] };
   const state = { patches: [] as object[], posts: [] as object[], adopts: [] as object[] };
-  const listed = () => items.map(({ files: _files, ...rest }) => rest);
+  const listed = () => items.map(withoutFiles);
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/workspaces', route => route.fulfill({ json: { active: 'default', workspaces: ['default'] } }));
   await page.route('**/api/skills', async route => {
@@ -57,8 +64,7 @@ async function mockSkills(page: Page) {
       state.patches.push({ id, ...change });
       Object.assign(item, change.files ? { files: change.files, hash: `h${++clock}` } : {},
                     change.state ? { state: change.state } : {}, { updated_at: ++clock });
-      const { files: _files, ...rest } = item;
-      return route.fulfill({ json: { ...rest, report: { ...report, problems: [] } } });
+      return route.fulfill({ json: { ...withoutFiles(item), report: { ...report, problems: [] } } });
     }
     await route.fulfill({ json: { ...item, history: [{ hash: 'old', state: 'active', device: 'desktop', updated_at: 800,
                                                          replaced_at: 850, paths: ['SKILL.md'] }] } });
@@ -72,8 +78,7 @@ async function mockSkills(page: Page) {
       state: 'active', origin: 'adopted', device: 'laptop', created_at: ++clock, updated_at: clock, paths: ['SKILL.md'], size: 10,
       shadowed: false, files: { 'SKILL.md': skillFile('lint', 'Lint the change', 'Run the linter.') } };
     items.push(adopted);
-    const { files: _files, ...rest } = adopted;
-    await route.fulfill({ json: rest });
+    await route.fulfill({ json: withoutFiles(adopted) });
   });
   return state;
 }
