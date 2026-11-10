@@ -1,27 +1,45 @@
 ---
 title: Skills and personas
-description: How Imprint keeps your skills and personas once, writes them into the folders your coding clients read, takes back edits made there, and syncs them to your paired devices.
+description: How Imprint keeps your skills and personas once, writes them into the folders your coding clients read, offers them to every MCP client, takes back edits made there, and syncs them to your paired devices.
 ---
 
 A **skill** is instructions a coding agent loads when its description matches the task: a folder with a `SKILL.md` (YAML front matter with `name` and `description`, then the instructions) and, optionally, scripts and reference files. A **persona** is a role Claude Code can hand work to as a subagent: one Markdown file with the same front matter followed by the role's prompt.
 
-Imprint keeps each one once, in a registry outside every workspace. It writes them into the folders your connected clients read, takes back edits you make in those folders, and keeps them the same on every paired device. [ADR 0168](adr/0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) records the registry, and [ADR 0169](adr/0169-skills-and-personas-are-written-into-the-folders-clients-read.md) records how items reach the clients.
+Imprint keeps each one once, in a registry outside every workspace. It writes them into the folders your connected clients read, offers them to every client through its MCP server, takes back edits you make in those folders, and keeps them the same on every paired device. [ADR 0168](adr/0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) records the registry. [ADR 0169](adr/0169-skills-and-personas-are-written-into-the-folders-clients-read.md) records how items reach the clients' folders, [ADR 0171](adr/0171-personas-are-written-for-codex-and-cursor.md) the persona folders of Codex and Cursor, and [ADR 0170](adr/0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) the MCP route.
 
 ## Where they go
 
-Each client reads skills from its own folders. Imprint writes each skill into the fewest of them that reach every connected client:
+Each client reads skills and personas from its own folders. Imprint writes each item into the fewest of them that reach every connected client:
 
-| Client | Reads skills from | Personas |
+| Client | Reads skills from | Reads personas from |
 | --- | --- | --- |
 | Claude Code | `~/.claude/skills` | `~/.claude/agents/<name>.md` |
-| Codex | `~/.agents/skills` | — |
-| Cursor | `~/.agents/skills`, `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills` | — |
+| Codex | `~/.agents/skills` | `~/.codex/agents/<name>.toml` (under `CODEX_HOME` when set) |
+| Cursor | `~/.agents/skills`, `~/.cursor/skills`, `~/.claude/skills`, `~/.codex/skills` | `~/.cursor/agents/<name>.md`, `~/.claude/agents/<name>.md` |
 | GitHub Copilot | `~/.agents/skills`, `~/.copilot/skills` | — |
 | OpenCode | `~/.agents/skills`, `~/.config/opencode/skills`, `~/.claude/skills` | — |
 
-With Claude Code and Codex connected, skills go to `~/.claude/skills` and `~/.agents/skills`; Cursor, Copilot and OpenCode read one of those already. Cline, Claude Desktop, ChatGPT Desktop and OpenClaw get none. The Skills page shows the folders in use and which clients read each.
+With Claude Code and Codex connected, skills go to `~/.claude/skills` and `~/.agents/skills`, and personas to `~/.claude/agents` and `~/.codex/agents`; Cursor, Copilot and OpenCode already read one of those skill folders, and Cursor reads Claude Code's agents. Cline, Claude Desktop, ChatGPT Desktop and OpenClaw read no such folders: they reach your items [through Imprint's MCP server](#through-imprints-mcp-server). The Skills page shows the folders in use and which clients read each.
 
-Only this computer's folders are written: WSL profiles connected to a Windows installation get no skills yet.
+Only this computer's folders are written: WSL profiles connected to a Windows installation get no files yet, and their sessions reach your items through the MCP server.
+
+### Personas in Codex
+
+Codex reads a custom agent as a TOML file, so a persona sits in `~/.codex/agents` as `<name>.toml` with its `name`, `description` and, as `developer_instructions`, the text after its front matter. Settings for Codex alone go in the persona's front matter under `codex:` and are written as top-level keys; Claude Code and Cursor ignore them:
+
+```markdown
+---
+name: reviewer
+description: Reviews diffs for bugs before they merge
+tools: Read, Grep
+codex:
+  model_reasoning_effort: high
+---
+
+You review code...
+```
+
+Only text, numbers and true/false values carry over. An edit made in the TOML file comes back into the persona like any other edit: its name, description, instructions and settings. The rest of the persona's front matter stays as it was. A file that sets a table, such as `[mcp_servers]`, is left as it is and reported. Codex spawns a custom agent when you ask for it; Cursor and Claude Code also delegate to a persona on their own when its description fits.
 
 ## What Imprint touches
 
@@ -32,6 +50,14 @@ Each folder Imprint writes into holds `.imprint-managed.json`, listing what Impr
 - **Removing happens in Imprint.** Removing or disabling an item takes it out of every folder, on every paired device, as long as the folder still holds what Imprint wrote. A skill you delete in a client's folder is written again.
 
 Passes run after every change in Imprint, after a sync brings items, when the dashboard starts and every 5 minutes while it runs, after `imprint connect` and `imprint disconnect`, and on `imprint skills apply`.
+
+## Through Imprint's MCP server
+
+Every client connected to Imprint, the desktop apps and WSL sessions included, can find and use your items without any folder:
+
+- **Listed at the start of each session.** The MCP server's instructions name each active skill and persona with its description, after your guidelines, within about 1,500 tokens. A client that already loads them from its own folders on this computer (Claude Code, Codex, Cursor or OpenCode, as the last write reported) is not given that list again.
+- **`skills`** (read-only) lists them with `action="list"` and reads one with `action="get", name=...`: its `SKILL.md` or `PERSONA.md`, or another file of a skill with `path`, paged with `start`.
+- **`skill_edit`** creates one (`action="create"`, from a name, description and instructions, or from its files) or changes one (`action="edit"`: a new description or instructions, files added, replaced or removed with `null`, or `state` `disabled` or `active`). Each change is written into the clients' folders at once and reaches your paired devices with the next sync; the replaced version stays in this device's history. Removing an item is yours to do, here or on the Skills page.
 
 ## Rules for an item
 

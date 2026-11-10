@@ -13,7 +13,7 @@ from imprint import chat, server
 # Tools that change state or this session, or plan with their own model:
 # chat offers its own write tools and recall would nest a model in a model.
 NOT_FOR_CHAT = {"store", "delete", "purge_sources", "kg_edit", "ingest_url", "ingest_content",
-                "use_workspace", "device_context", "recall"}
+                "use_workspace", "device_context", "recall", "skill_edit"}
 
 
 class CoverageTests(unittest.TestCase):

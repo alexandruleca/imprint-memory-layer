@@ -1,11 +1,13 @@
-"""Skills and personas in the folders the clients read (ADR 0169).
+"""Skills and personas in the folders the clients read (ADRs 0169, 0171).
 
 The CLI's clients table says, for each client, the folders it reads skills
-from (in the order it prefers them) and the folder it reads personas from
-(``imprint clients --json``: ``skills`` and ``personas``). ``apply`` writes
-every active item into the fewest folders that reach every connected
-client: a client that already reads a chosen folder gets nothing more, so a
-skill shows up once in it wherever possible.
+and personas from, in the order it prefers them, and how its persona folders
+hold one (``imprint clients --json``: ``skills``, ``personas`` and
+``persona_format``). ``apply`` writes every active item into the fewest
+folders that reach every connected client: a client that already reads a
+chosen folder gets nothing more, so an item shows up once in it wherever
+possible. A persona sits in Codex's folder as a TOML agent file and
+everywhere else as it is kept (``registry_formats``).
 
 A folder Imprint writes into holds ``.imprint-managed.json``: the items it
 wrote there, by name, with the content hash of what it wrote. That makes
@@ -34,6 +36,7 @@ import time
 from pathlib import Path
 
 from . import config, registry
+from .registry_formats import FORMATS, MARKDOWN, SUFFIX, parsed, rendered
 
 MANIFEST = '.imprint-managed.json'
 # The folders this device wrote into, so one no client reads any more is
@@ -57,13 +60,33 @@ def _runtime() -> str:
     return str(config.get_data_dir().resolve())
 
 
-def place(kind: str, folder, name: str) -> Path:
+def place(kind: str, folder, name: str, fmt: str = MARKDOWN) -> Path:
     """Where an item of that name sits in a folder: a skill's folder, or a
-    persona's ``<name>.md``."""
-    return Path(folder) / (name if kind == 'skill' else f'{name}.md')
+    persona's ``<name>.md`` (``<name>.toml`` in Codex's)."""
+    return Path(folder) / (name if kind == 'skill' else f'{name}{SUFFIX[fmt]}')
 
 
 # ── Which folders ─────────────────────────────────────────────────
+
+def _folders(kind: str, client: dict) -> list[str]:
+    """The folders a client reads items of a kind from, preferred first. A
+    client whose persona format this runtime does not know reads none."""
+    if kind == 'skill':
+        return [f for f in client.get('skills') or [] if f]
+    if (client.get('persona_format') or MARKDOWN) not in FORMATS:
+        return []
+    folders = client.get('personas') or []
+    return [folders] if isinstance(folders, str) else [f for f in folders if f]
+
+
+def formats(clients: list[dict]) -> dict[str, str]:
+    """The format of each persona folder the clients read, by folder key."""
+    found: dict[str, str] = {}
+    for client in clients:
+        for folder in _folders('persona', client):
+            found.setdefault(_key(folder), client.get('persona_format') or MARKDOWN)
+    return found
+
 
 def plan(clients: list[dict]) -> dict[str, list[str]]:
     """The folders to write each kind into, for the connected clients.
@@ -71,28 +94,22 @@ def plan(clients: list[dict]) -> dict[str, list[str]]:
     Clients that read the fewest folders choose first; a client that reads a
     folder already chosen adds none, and otherwise its preferred one."""
     connected = [c for c in clients if c.get('connected')]
-    skills: list[str] = []
-    for client in sorted((c for c in connected if c.get('skills')), key=lambda c: len(c['skills'])):
-        chosen = {_key(folder) for folder in skills}
-        if not any(_key(folder) in chosen for folder in client['skills']):
-            skills.append(client['skills'][0])
-    personas: list[str] = []
-    for client in connected:
-        folder = client.get('personas')
-        if folder and _key(folder) not in {_key(p) for p in personas}:
-            personas.append(folder)
-    return {'skill': skills, 'persona': personas}
+    targets: dict[str, list[str]] = {}
+    for kind in registry.KINDS:
+        chosen: list[str] = []
+        for client in sorted((c for c in connected if _folders(kind, c)), key=lambda c: len(_folders(kind, c))):
+            keys = {_key(folder) for folder in chosen}
+            if not any(_key(folder) in keys for folder in _folders(kind, client)):
+                chosen.append(_folders(kind, client)[0])
+        targets[kind] = chosen
+    return targets
 
 
 def readers(kind: str, folder, clients: list[dict]) -> list[str]:
     """The connected clients that read this folder, by label."""
     key = _key(folder)
-    names = []
-    for client in clients:
-        read_by = client.get('skills') or [] if kind == 'skill' else [client.get('personas') or '']
-        if client.get('connected') and key in {_key(f) for f in read_by if f}:
-            names.append(client.get('label') or client.get('name'))
-    return names
+    return [client.get('label') or client.get('name') for client in clients
+            if client.get('connected') and key in {_key(f) for f in _folders(kind, client)}]
 
 
 def _clients() -> list[dict]:
@@ -196,10 +213,12 @@ def _save(folder, doc: dict) -> None:
                                   'items': dict(sorted(doc['items'].items()))}, indent=2) + '\n')
 
 
-def _known() -> list[tuple[str, str]]:
+def _known() -> list[tuple[str, str, str]]:
+    """``(kind, folder, format)`` of each folder this device wrote into."""
     try:
         entries = json.loads((config.get_data_dir() / KNOWN).read_text(encoding='utf-8'))
-        return [(e['kind'], e['folder']) for e in entries if e.get('kind') in registry.KINDS and e.get('folder')]
+        return [(e['kind'], e['folder'], e.get('format') or MARKDOWN) for e in entries
+                if e.get('kind') in registry.KINDS and e.get('folder') and (e.get('format') or MARKDOWN) in FORMATS]
     except (OSError, ValueError, TypeError, AttributeError, KeyError):
         return []
 
@@ -207,7 +226,8 @@ def _known() -> list[tuple[str, str]]:
 def _save_known(folders) -> None:
     path = config.get_data_dir() / KNOWN
     if folders:
-        _write_file(path, json.dumps([{'kind': k, 'folder': f} for k, f in folders], indent=2) + '\n')
+        _write_file(path, json.dumps([{'kind': k, 'folder': f, **({'format': fmt} if fmt != MARKDOWN else {})}
+                                      for k, f, fmt in folders], indent=2) + '\n')
     else:
         path.unlink(missing_ok=True)
 
@@ -258,29 +278,37 @@ def apply(clients: list[dict] | None = None) -> dict:
         if clients is None:
             clients = _clients()
         targets = plan(clients)
-        report = {'folders': [{'kind': kind, 'folder': folder, 'clients': readers(kind, folder, clients)}
+        shapes = formats(clients)
+
+        def shape(kind: str, folder: str) -> str:
+            return shapes.get(_key(folder), MARKDOWN) if kind == 'persona' else MARKDOWN
+
+        report = {'folders': [{'kind': kind, 'folder': folder, 'clients': readers(kind, folder, clients),
+                               **({'format': shape(kind, folder)} if shape(kind, folder) != MARKDOWN else {})}
                               for kind in registry.KINDS for folder in targets[kind]],
                   'written': [], 'removed': [], 'taken': [], 'kept': [], 'problems': [], 'at': time.time()}
         wanted = {(kind, _key(folder)) for kind in registry.KINDS for folder in targets[kind]}
-        folders: dict[tuple[str, str], tuple[str, str]] = {}
-        for kind, folder in [(k, f) for k in registry.KINDS for f in targets[k]] + _known():
-            folders.setdefault((kind, _key(folder)), (kind, folder))
+        known = _known()
+        folders: dict[tuple[str, str], tuple[str, str, str]] = {}
+        for kind, folder, fmt in [(k, f, shape(k, f)) for k in registry.KINDS for f in targets[k]] + known:
+            folders.setdefault((kind, _key(folder)), (kind, folder, fmt))
         manifests: dict[tuple[str, str], dict] = {}
-        unreadable: list[tuple[str, str]] = []
-        for key, (kind, folder) in folders.items():
+        unreadable: list[tuple[str, str, str]] = []
+        for key, (kind, folder, fmt) in folders.items():
             try:
                 manifests[key] = _load(kind, folder)
             except ValueError as error:
                 report['problems'].append({'path': folder, 'problem': str(error)})
-                if (kind, folder) in _known():
-                    unreadable.append((kind, folder))
+                if (kind, folder, fmt) in known:
+                    unreadable.append((kind, folder, fmt))
         held: set[tuple[str, str]] = set()
 
-        # 1. Edits made in the clients come back first.
+        # 1. Edits made in the clients come back first. A manifest records
+        # what was written in the folder's own format.
         for key, doc in manifests.items():
-            kind, folder = folders[key]
+            kind, folder, fmt = folders[key]
             for name, entry in list(doc['items'].items()):
-                path = place(kind, folder, name)
+                path = place(kind, folder, name, fmt)
                 try:
                     files = read(kind, path)
                     if files is None or registry.MAIN[kind] not in files:
@@ -288,8 +316,12 @@ def apply(clients: list[dict] | None = None) -> dict:
                     digest = registry.content_hash(kind, files)
                     if digest == entry['hash']:
                         continue
-                    _take(entry['id'], files, path.stat().st_mtime if kind == 'persona'
-                          else max(f.stat().st_mtime for f in [path, *path.rglob('*')]), report, path)
+                    item = registry.get(entry['id'])
+                    if item is None:
+                        raise LookupError(entry['id'])
+                    _take(entry['id'], parsed(kind, fmt, files, item['files']), path.stat().st_mtime
+                          if kind == 'persona' else max(f.stat().st_mtime for f in [path, *path.rglob('*')]),
+                          report, path)
                     entry['hash'] = digest
                 except LookupError:
                     del doc['items'][name]  # Its item is unknown here: the folder is the user's now.
@@ -301,8 +333,8 @@ def apply(clients: list[dict] | None = None) -> dict:
         # 2. Then each folder gets what its clients should have.
         active = {kind: registry.active(kind) for kind in registry.KINDS}
         for key, doc in manifests.items():
-            kind, folder = folders[key]
-            _settle(kind, folder, doc, active[kind] if key in wanted else [], held, report)
+            kind, folder, fmt = folders[key]
+            _settle(kind, folder, fmt, doc, active[kind] if key in wanted else [], held, report)
             try:
                 _save(folder, doc)
             except OSError as error:
@@ -315,7 +347,7 @@ def apply(clients: list[dict] | None = None) -> dict:
         return report
 
 
-def _settle(kind: str, folder: str, doc: dict, items: list[dict], held: set, report: dict) -> None:
+def _settle(kind: str, folder: str, fmt: str, doc: dict, items: list[dict], held: set, report: dict) -> None:
     managed = doc['items']
     by_name = {item['name']: item for item in items}
     folder_key = _key(folder)
@@ -323,7 +355,7 @@ def _settle(kind: str, folder: str, doc: dict, items: list[dict], held: set, rep
         item = by_name.get(name)
         if (folder_key, name) in held or (item is not None and item['id'] == entry['id']):
             continue
-        path = place(kind, folder, name)
+        path = place(kind, folder, name, fmt)
         try:
             files = read(kind, path)
             if files is not None and registry.content_hash(kind, files) == entry['hash']:
@@ -337,24 +369,35 @@ def _settle(kind: str, folder: str, doc: dict, items: list[dict], held: set, rep
         name = item['name']
         if (folder_key, name) in held:
             continue
-        path = place(kind, folder, name)
+        path = place(kind, folder, name, fmt)
         entry = managed.get(name)
         try:
+            want = rendered(kind, fmt, item['files'])
+            want_hash = registry.content_hash(kind, want)
             files = read(kind, path)
             if files is not None:
                 digest = registry.content_hash(kind, files)
-                if digest == item['hash']:
-                    managed[name] = {'id': item['id'], 'hash': item['hash']}
+                if digest == want_hash:
+                    managed[name] = {'id': item['id'], 'hash': want_hash}
                     continue
                 if entry is None:
+                    # What Imprint did not write may still be the item itself,
+                    # in that folder's format: it is managed from then on.
+                    try:
+                        same = registry.content_hash(kind, parsed(kind, fmt, files, item['files'])) == item['hash']
+                    except ValueError:
+                        same = False
+                    if same:
+                        managed[name] = {'id': item['id'], 'hash': digest}
+                        continue
                     report['problems'].append({'path': str(path), 'problem': f'Imprint did not write this {kind}, so it '
                                                'is left as it is: adopt it, or rename one of the two'})
                     continue
-            _write(kind, path, item['files'])
+            _write(kind, path, want)
         except (OSError, ValueError) as error:
             report['problems'].append({'path': str(path), 'problem': f'Could not be written: {error}'})
             continue
-        managed[name] = {'id': item['id'], 'hash': item['hash']}
+        managed[name] = {'id': item['id'], 'hash': want_hash}
         report['written'].append(str(path))
 
 
@@ -395,15 +438,17 @@ def found(clients: list[dict] | None = None) -> list[dict]:
     did not write and does not hold, for the user to adopt."""
     clients = _clients() if clients is None else clients
     held = {(item['kind'], item['hash']) for item in registry.list_all(with_files=False)}
-    folders: dict[tuple[str, str], tuple[str, str]] = {}
+    shapes = formats(clients)
+    folders: dict[tuple[str, str], tuple[str, str, str]] = {}
     for client in clients:
         if not client.get('connected'):
             continue
-        for kind, folder in [('skill', f) for f in client.get('skills') or []] + [('persona', client.get('personas'))]:
-            if folder:
-                folders.setdefault((kind, _key(folder)), (kind, folder))
+        for kind in registry.KINDS:
+            for folder in _folders(kind, client):
+                fmt = shapes.get(_key(folder), MARKDOWN) if kind == 'persona' else MARKDOWN
+                folders.setdefault((kind, _key(folder)), (kind, folder, fmt))
     results = []
-    for kind, folder in folders.values():
+    for kind, folder, fmt in folders.values():
         try:
             managed = _load(kind, folder)['items']
         except ValueError:
@@ -419,13 +464,13 @@ def found(clients: list[dict] | None = None) -> list[dict]:
                     continue
                 name = child.name
             else:
-                if not (child.is_file() and child.suffix == '.md') or child.stem in managed:
+                if not (child.is_file() and child.suffix == SUFFIX[fmt]) or child.stem in managed:
                     continue
                 name = child.stem
             entry = {'kind': kind, 'name': name, 'path': str(child), 'folder': folder,
-                     'clients': readers(kind, folder, clients), 'description': '', 'problem': ''}
+                     'clients': readers(kind, folder, clients), 'description': '', 'problem': '', 'format': fmt}
             try:
-                files = read(kind, child)
+                files = parsed(kind, fmt, read(kind, child))
                 if (kind, registry.content_hash(kind, files)) in held:
                     continue
                 valid = registry.validate(kind, files)
@@ -446,6 +491,6 @@ def adopt(path: str, kind: str, clients: list[dict] | None = None) -> dict:
         raise KeyError(path)
     if match['problem']:
         raise ValueError(match['problem'])
-    item = registry.create(kind, read(kind, path), origin='adopted')
+    item = registry.create(kind, parsed(kind, match['format'], read(kind, path)), origin='adopted')
     apply(clients)
     return item

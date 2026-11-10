@@ -59,7 +59,20 @@ def _with_core_memories(instructions: str) -> str:
     return instructions.rstrip("\n") + block if block else instructions
 
 
-mcp = FastMCP("imprint", instructions=_with_core_memories(_MCP_INSTRUCTIONS))
+def _instructions(client: str | None = None) -> str:
+    """The handshake instructions for a client: Imprint's, the user's
+    guidelines, and the skills and personas the client does not load from
+    its own folders (ADR 0170). Without a client name every one is listed."""
+    instructions = _with_core_memories(_MCP_INSTRUCTIONS)
+    try:
+        from . import skills_tool
+        block = skills_tool.index(client)
+    except Exception:
+        return instructions
+    return instructions.rstrip("\n") + block if block else instructions
+
+
+mcp = FastMCP("imprint", instructions=_instructions())
 
 
 # ── Session workspace (ADR 0072) ──────────────────────────────────────────
@@ -176,6 +189,44 @@ class _ActivityLog(Middleware):
 
 
 mcp.add_middleware(_ActivityLog())
+
+
+class _ClientInstructions(Middleware):
+    """Fit the handshake's list of skills and personas to the client that
+    names itself (ADR 0170): one that loads them from its own folders on
+    this computer is not given them twice. Clients name themselves in
+    initialize, or on protocol 2026-07-28 in server/discover's ``_meta``; a
+    client that does not gets every one."""
+
+    @staticmethod
+    def _fit(result, name):
+        if result is None or not name:
+            return result
+        fitted = _instructions(name)
+        if isinstance(result, dict):
+            return {**result, 'instructions': fitted} if result.get('instructions') != fitted else result
+        return result.model_copy(update={'instructions': fitted}) if result.instructions != fitted else result
+
+    async def on_initialize(self, context, call_next):
+        result = await call_next(context)
+        try:
+            info = _client_info(getattr(context.message, 'params', None))
+            return self._fit(result, getattr(info, 'name', None))
+        except Exception:
+            return result
+
+    async def on_discover(self, context, call_next):
+        result = await call_next(context)
+        try:
+            meta = getattr(getattr(context.message, 'params', None), 'meta', None) or {}
+            info = meta.get('io.modelcontextprotocol/clientInfo')
+            name = info.get('name') if isinstance(info, dict) else getattr(info, 'name', None)
+            return self._fit(result, name)
+        except Exception:
+            return result
+
+
+mcp.add_middleware(_ClientInstructions())
 
 
 def _accepted_arguments(tool) -> set[str] | None:
@@ -1489,6 +1540,63 @@ def recall(
         return "Error: question must be 1–4000 characters; max_chars must be 1200–12000"
     from .recall import run
     return run(question, plan, max_chars, condense, ws)
+
+
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False})
+def skills(
+    action: Literal["list", "get"] = "list",
+    name: str = "",
+    kind: Literal["skill", "persona", ""] = "",
+    path: str = "",
+    start: Annotated[int, Field(ge=0)] = 0,
+) -> str:
+    """The user's skills and personas, kept in Imprint on every device. A
+    skill is instructions for a kind of task (a SKILL.md and optional
+    files); a persona is a role to hand work to or take on. When one's
+    description fits your task, get it and follow it.
+
+    Args:
+        action: "list" (names and descriptions) or "get" (one item's file)
+        name: The item to get
+        kind: "skill" or "persona", when one of each has the name
+        path: For get, another of a skill's files (default its SKILL.md)
+        start: For get, the character to continue from (next_start)
+    """
+    from . import skills_tool
+    if action == "get":
+        return skills_tool.read(name, kind, path, start)
+    return skills_tool.listing(kind)
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False})
+def skill_edit(
+    action: Literal["create", "edit"],
+    name: str,
+    kind: Literal["skill", "persona", ""] = "",
+    description: str = "",
+    instructions: str = "",
+    files: dict[str, str | None] | None = None,
+    state: Literal["active", "disabled", ""] = "",
+) -> str:
+    """Create or change one of the user's skills or personas when the user
+    asks. Imprint writes it into every connected client's folders and syncs
+    it to the user's paired devices; the replaced version stays in this
+    device's history. Removing one is the user's, in Imprint.
+
+    Args:
+        action: "create" or "edit"
+        name: The item's name: lower-case letters, digits and hyphens
+        kind: "skill" (create's default) or "persona"; on edit, when one of each has the name
+        description: What it does and when to use it; agents choose by it
+        instructions: The body after the front matter (replaces it on edit)
+        files: Files by path, e.g. {"scripts/check.sh": "..."}; a full SKILL.md or
+               PERSONA.md replaces the front matter too. On edit, null removes a file.
+        state: On edit, "disabled" takes it out of the clients, "active" puts it back
+    """
+    from . import skills_tool
+    if action == "create":
+        return skills_tool.create(kind or "skill", name, description, instructions, files)
+    return skills_tool.edit(name, kind, description, instructions, files, state)
 
 
 def _first_meaningful_line(text: str, max_len: int = 200) -> str:

@@ -1,10 +1,10 @@
 ---
 title: MCP Tools & Automatic Updates
-description: The 19 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, per-project workspaces, and more.
+description: The 21 MCP tools Imprint exposes to coding agents — search, batched recall, graph navigation, source cleanup, inline content ingestion, per-project workspaces, the user's skills and personas, and more.
 ---
 ## MCP Tools
 
-The imprint MCP server exposes **19 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
+The imprint MCP server exposes **21 tools**. `wake_up` is internal. Compact search is the default: it returns focused evidence without automatically attaching broad session context. Request `detail="full"` to include workspace context on the first such search in a session.
 
 `purge_sources(target, workspace, kind="source", recursive=False, apply=False)` previews a file/directory cleanup. After user confirmation, repeat with `apply=True` and the explicit reviewed workspace. `kind="path"` matches recorded absolute paths; source mode also supports legacy/synced records. Apply deletes indexed copies, removes matching source-linked graph facts and excludes re-ingestion until restored. It is annotated as destructive even though preview is the default. Original files, other workspaces, logs and backups are unaffected. See [workspaces](workspaces.md).
 
@@ -57,6 +57,15 @@ Use the canonical `memory_id` in recall plan steps: `{"tool":"get_memory","args"
 | `ingest_url` | Fetch an http(s) URL, extract content, chunk + embed + store. Skips unchanged pages (HEAD check against stored ETag/Last-Modified). |
 | `ingest_content` | Chunk + embed + store an inline blob — text, markdown, CSV, JSON, or code (`format="code:python"` etc.). Dedup + replace keyed by `name`: re-sending the same `name` overwrites prior chunks. Valid inline text of 10–99 characters is kept as a single chunk rather than dropped by the file chunker's minimum. Designed for API uploads and external services pushing data into memory. |
 | `use_workspace` | Make a workspace the session's project's workspace on the user's choice: create it if new, approve the project folder, write `.imprint/workspace.json`, switch the session. Without a project folder, create only; pass `workspace` per call. |
+
+### Skills and personas
+
+The user's skills and personas ([skills](skills.md)) reach every MCP client through the server ([ADR 0170](adr/0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md)). The handshake instructions list each active one with its description, after the user's guidelines and within about 1,500 estimated tokens, unless the client loads that kind from its own folders on this computer: Claude Code, Codex, Cursor and OpenCode, by the name they give in `initialize` or `server/discover`, when the last write into the folders reported them as readers and the session is not bridged from WSL.
+
+| Tool | Purpose |
+|------|---------|
+| `skills` | Read-only. `action="list"` names every skill and persona with its description; `action="get", name=...` returns its `SKILL.md` or `PERSONA.md`, or another file of a skill with `path`, 20,000 characters at a time (`start`/`next_start`). `kind` picks between a skill and a persona of the same name. |
+| `skill_edit` | `action="create"` keeps a new item from `name`, `description` and `instructions` (or `files` with its main file); `action="edit"` replaces the description or instructions, adds or replaces `files` (`null` removes one) or sets `state` to `disabled` or `active`. The registry validates and refuses credentials; each change is written into the clients' folders at once and the replaced version stays in this device's history. Removing an item is the user's, in Imprint. |
 
 ### Knowledge graph
 

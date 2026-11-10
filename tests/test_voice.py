@@ -955,10 +955,10 @@ class VoiceChatPolicyTests(unittest.TestCase):
         write.assert_not_called()
         read.assert_called_once_with(workspace="alpha")
         offered = [t["function"]["name"] for t in client.chat.completions.create.call_args_list[0].kwargs["tools"]]
-        # Read tools, and the user's own schedule (ADR 0158); never store, kg_add or ingest_url.
+        # Read tools, the user's skills (ADR 0170) and own schedule (ADR 0158); never store, kg_add or ingest_url.
         self.assertEqual(offered, ["search", "get_memory", "neighbors", "graph_scope", "kg_query", "status", "wake_up",
-                                   "list_sources", "file_summary", "file_chunks", "read_source", "set_reminder", "set_timer",
-                                   "schedule_job", "schedule_prompt", "list_reminders", "cancel_reminder"])
+                                   "list_sources", "file_summary", "file_chunks", "read_source", "skills", "set_reminder",
+                                   "set_timer", "schedule_job", "schedule_prompt", "list_reminders", "cancel_reminder"])
 
 
 class LiveRuntimeIntegrityTests(unittest.TestCase):

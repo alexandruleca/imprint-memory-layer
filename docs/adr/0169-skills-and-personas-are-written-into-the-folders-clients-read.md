@@ -3,8 +3,11 @@ title: ADR 0169 — Skills and personas are written into the folders the clients
 description: Imprint writes each active skill into the fewest of the connected clients' own skill folders that reach every one of them, and each persona into Claude Code's subagents folder, records what it wrote in a manifest there, takes back edits made in those folders, and never touches what it did not write.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-09
+- Amended by:
+  - [ADR 0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) — items also reach clients through Imprint's MCP server: listed in the handshake, read and changed with tools
+  - [ADR 0171](0171-personas-are-written-for-codex-and-cursor.md) — personas reach Codex (as TOML agents) and Cursor, not only Claude Code
 - Related: [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (the registry), [ADR 0053](0053-connect-clients-without-touching-the-runtime.md) (the client table), [ADR 0006](0006-durable-mcp-and-preserved-client-config.md) (preserved client configuration), [skills](../skills.md)
 
 ## Context
