@@ -1,10 +1,12 @@
-"""Skills and personas in the clients' own folders (ADR 0169): the fewest
-folders that reach every connected client, a manifest of what Imprint wrote,
-edits made there taken back, and nothing Imprint did not write touched."""
+"""Skills and personas in the clients' own folders (ADRs 0169, 0171): the
+fewest folders that reach every connected client, a manifest of what Imprint
+wrote, edits made there taken back, nothing Imprint did not write touched,
+and personas as Codex's TOML agents in its folder."""
 import json
 import os
 import tempfile
 import time
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -28,11 +30,15 @@ class RegistryFilesTests(unittest.TestCase):
         self.claude_skills = self.home / '.claude' / 'skills'
         self.claude_agents = self.home / '.claude' / 'agents'
         self.shared = self.home / '.agents' / 'skills'
+        self.codex_agents = self.home / '.codex' / 'agents'
+        self.cursor_agents = self.home / '.cursor' / 'agents'
         self.claude = {'name': 'claude-code', 'label': 'Claude Code', 'connected': True,
-                       'skills': [str(self.claude_skills)], 'personas': str(self.claude_agents)}
-        self.codex = {'name': 'codex', 'label': 'Codex', 'connected': True, 'skills': [str(self.shared)]}
+                       'skills': [str(self.claude_skills)], 'personas': [str(self.claude_agents)]}
+        self.codex = {'name': 'codex', 'label': 'Codex', 'connected': True, 'skills': [str(self.shared)],
+                      'personas': [str(self.codex_agents)], 'persona_format': 'codex'}
         self.cursor = {'name': 'cursor', 'label': 'Cursor', 'connected': True,
-                       'skills': [str(self.shared), str(self.home / '.cursor' / 'skills'), str(self.claude_skills)]}
+                       'skills': [str(self.shared), str(self.home / '.cursor' / 'skills'), str(self.claude_skills)],
+                       'personas': [str(self.cursor_agents), str(self.claude_agents)]}
         self.clients = [self.claude, self.codex, self.cursor]
 
     def apply(self, clients=None):
@@ -44,13 +50,22 @@ class RegistryFilesTests(unittest.TestCase):
     def test_the_fewest_folders_reach_every_connected_client(self):
         plan = registry_files.plan
         self.assertEqual(plan(self.clients), {'skill': [str(self.claude_skills), str(self.shared)],
-                                              'persona': [str(self.claude_agents)]})
+                                              'persona': [str(self.claude_agents), str(self.codex_agents)]})
         # Cursor alone takes the shared folder; with Claude Code it reads Claude's.
         self.assertEqual(plan([self.cursor])['skill'], [str(self.shared)])
         self.assertEqual(plan([self.cursor, self.claude])['skill'], [str(self.claude_skills)])
+        # Personas the same way: Cursor reads Claude Code's agents, not Codex's TOML.
+        self.assertEqual(plan([self.cursor])['persona'], [str(self.cursor_agents)])
+        self.assertEqual(plan([self.cursor, self.claude])['persona'], [str(self.claude_agents)])
+        self.assertEqual(plan([self.cursor, self.codex])['persona'], [str(self.codex_agents), str(self.cursor_agents)])
         self.assertEqual(plan([{**self.claude, 'connected': False}, self.codex]),
-                         {'skill': [str(self.shared)], 'persona': []})
+                         {'skill': [str(self.shared)], 'persona': [str(self.codex_agents)]})
         self.assertEqual(registry_files.readers('skill', self.shared, self.clients), ['Codex', 'Cursor'])
+        self.assertEqual(registry_files.readers('persona', self.claude_agents, self.clients), ['Claude Code', 'Cursor'])
+        # A CLI that gave one folder as a string; a format this runtime does not know reads none.
+        self.assertEqual(plan([{**self.claude, 'personas': str(self.claude_agents)}])['persona'],
+                         [str(self.claude_agents)])
+        self.assertEqual(plan([{**self.codex, 'persona_format': 'yaml'}])['persona'], [])
 
     def test_items_are_written_byte_for_byte_with_a_manifest(self):
         item = registry.create('skill', skill(**{'scripts/run.sh': 'echo hi\r\n'}))
@@ -61,7 +76,8 @@ class RegistryFilesTests(unittest.TestCase):
             self.assertEqual(self.manifest(folder), {'deploy': {'id': item['id'], 'hash': item['hash']}})
         self.assertEqual((self.claude_agents / 'reviewer.md').read_text(), persona()['PERSONA.md'])
         self.assertEqual(self.manifest(self.claude_agents), {'reviewer': {'id': role['id'], 'hash': role['hash']}})
-        self.assertEqual(len(report['written']), 3)
+        self.assertTrue((self.codex_agents / 'reviewer.toml').is_file())
+        self.assertEqual(len(report['written']), 4)
         self.assertEqual(report['problems'], [])
         self.assertEqual(registry_files.last_report()['written'], report['written'])
         again = self.apply()
@@ -172,7 +188,7 @@ class RegistryFilesTests(unittest.TestCase):
         self.assertFalse((self.shared / 'deploy').exists())
         self.assertFalse((self.shared / registry_files.MANIFEST).exists())
         self.assertEqual((mine / 'SKILL.md').read_text(), 'the user\'s own')
-        self.assertEqual(registry_files._known(), [('skill', str(self.claude_skills))])
+        self.assertEqual(registry_files._known(), [('skill', str(self.claude_skills), 'markdown')])
         registry.update(kept['id'], state='disabled')
         self.apply([])
         self.assertFalse((self.claude_skills / 'deploy').exists())
@@ -209,6 +225,85 @@ class RegistryFilesTests(unittest.TestCase):
         self.apply()
         self.assertTrue((victim / 'keep.txt').exists())
         self.assertEqual(list(self.manifest(self.claude_skills)), ['deploy'])
+
+    def codex_text(self, name='reviewer'):
+        return (self.codex_agents / f'{name}.toml').read_text(encoding='utf-8')
+
+    def test_a_persona_is_a_toml_agent_in_codex_and_markdown_in_claude_code_and_cursor(self):
+        role = registry.create('persona', persona())
+        report = self.apply()
+        self.assertEqual(tomllib.loads(self.codex_text()),
+                         {'name': 'reviewer', 'description': 'Reviews diffs for bugs',
+                          'developer_instructions': 'You review code.\n'})
+        self.assertEqual([f.get('format') for f in report['folders'] if f['kind'] == 'persona'], [None, 'codex'])
+        # The manifest records the TOML as written, so a second pass changes nothing.
+        written = registry.content_hash('persona', {'PERSONA.md': self.codex_text()})
+        self.assertEqual(self.manifest(self.codex_agents), {'reviewer': {'id': role['id'], 'hash': written}})
+        again = self.apply()
+        self.assertEqual((again['written'], again['taken'], again['problems']), ([], [], []))
+        self.assertIn(('persona', str(self.codex_agents), 'codex'), registry_files._known())
+        # Cursor alone: its own folder, as Markdown; the others are cleaned.
+        self.apply([self.cursor])
+        self.assertEqual((self.cursor_agents / 'reviewer.md').read_text(), persona()['PERSONA.md'])
+        self.assertFalse((self.codex_agents / 'reviewer.toml').exists())
+        self.assertFalse((self.claude_agents / 'reviewer.md').exists())
+
+    def test_an_edit_made_in_codex_reaches_the_persona_and_keeps_what_codex_does_not_hold(self):
+        role = registry.create('persona', persona())
+        self.apply()
+        path = self.codex_agents / 'reviewer.toml'
+        path.write_text('name = "reviewer"\ndescription = "Reviews diffs for bugs"\nmodel = "gpt-5-codex"\n'
+                        'developer_instructions = """\nYou review code. Be strict.\n"""\n', encoding='utf-8')
+        future = time.time() + 60
+        os.utime(path, (future, future))
+        report = self.apply()
+        self.assertEqual(report['taken'], [str(path)])
+        text = registry.get(role['id'])['files']['PERSONA.md']
+        meta, body = registry.front_matter(text)
+        self.assertEqual((meta['tools'], meta['codex'], body.strip()),
+                         ('Read, Grep', {'model': 'gpt-5-codex'}, 'You review code. Be strict.'))
+        self.assertEqual((self.claude_agents / 'reviewer.md').read_text(encoding='utf-8'), text)
+        # Written back in Imprint's layout, the Codex setting kept, and then left alone.
+        self.assertEqual(tomllib.loads(self.codex_text())['model'], 'gpt-5-codex')
+        self.assertEqual(self.apply()['written'], [])
+        # Only the instructions changed: the front matter stays as it was written.
+        path.write_text(self.codex_text().replace('Be strict.', 'Be kind.'), encoding='utf-8')
+        future += 60
+        os.utime(path, (future, future))
+        self.apply()
+        changed = registry.get(role['id'])['files']['PERSONA.md']
+        self.assertIn('Be kind.', changed)
+        self.assertEqual(changed.split('---')[1], text.split('---')[1])
+
+    def test_a_codex_edit_imprint_cannot_keep_is_left_in_place(self):
+        role = registry.create('persona', persona())
+        self.apply()
+        path = self.codex_agents / 'reviewer.toml'
+        broken = 'name = "reviewer"\ndescription = "x"\ndeveloper_instructions = "y"\n[features]\nweb = true\n'
+        path.write_text(broken, encoding='utf-8')
+        report = self.apply()
+        self.assertEqual(path.read_text(encoding='utf-8'), broken)
+        self.assertIn('features', report['problems'][0]['problem'])
+        self.assertEqual(registry.get(role['id'])['hash'], role['hash'])
+
+    def test_a_codex_agent_found_in_its_folder_can_be_adopted_and_stays_as_written(self):
+        self.codex_agents.mkdir(parents=True)
+        mine = self.codex_agents / 'triage.toml'
+        text = ("name = 'triage'\ndescription = 'Sorts incoming issues'\nmodel_reasoning_effort = 'high'\n"
+                "developer_instructions = '''\nLabel each issue.\n'''\n")
+        mine.write_text(text, encoding='utf-8')
+        (self.codex_agents / 'pr_explorer.toml').write_text(
+            'name = "pr_explorer"\ndescription = "x"\ndeveloper_instructions = "y"\n', encoding='utf-8')
+        found = {f['name']: f for f in registry_files.found(self.clients) if f['kind'] == 'persona'}
+        self.assertEqual((found['triage']['description'], found['triage']['problem']), ('Sorts incoming issues', ''))
+        self.assertIn('lower-case', found['pr_explorer']['problem'])
+        adopted = registry_files.adopt(str(mine), 'persona', self.clients)
+        meta, body = registry.front_matter(adopted['files']['PERSONA.md'])
+        self.assertEqual((meta['codex'], body.strip()), ({'model_reasoning_effort': 'high'}, 'Label each issue.'))
+        self.assertEqual(mine.read_text(encoding='utf-8'), text)  # Left as the user wrote it, and managed.
+        self.assertEqual(self.manifest(self.codex_agents)['triage']['id'], adopted['id'])
+        self.assertTrue((self.claude_agents / 'triage.md').is_file())
+        self.assertEqual([p for p in self.apply()['problems'] if 'triage' in p['path']], [])
 
     def test_the_dashboard_makes_edits_and_adopts_through_the_api(self):
         from fastapi.testclient import TestClient

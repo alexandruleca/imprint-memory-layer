@@ -22,7 +22,7 @@ graph LR
     end
 
     subgraph "Python (imprint/)"
-        MCP[FastMCP Server<br/><small>19 tools</small>]
+        MCP[FastMCP Server<br/><small>21 tools</small>]
         VS[vectorstore.py<br/><small>Qdrant HTTP client</small>]
         RED[redaction.py<br/><small>secrets → placeholders</small>]
         QR[qdrant_runner.py<br/><small>auto-spawn daemon</small>]
@@ -98,7 +98,7 @@ graph LR
 | Source memory | SQLite + zlib | Complete redacted readable sources and versioned span manifests, published after vector replacement. [Read and verify](source-memory.md). |
 | Imprint graph | SQLite | Temporal facts with valid_from/ended |
 | Redaction | `redaction.py` + opt-in `privacy_filter.py` | Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` before IDs and embeddings are computed or a model sees the text: deterministic rules always, OpenAI Privacy Filter's secret and account-number spans when `redact.privacy_filter` is on. Sync imports are redacted on arrival, and each write keeps the most redacted version of a memory, so one `imprint scrub` reaches every synced device. See [secret redaction](redaction.md) and [ADR 0060](adr/0060-redact-secrets-before-memories-are-stored.md). |
-| MCP server | FastMCP (Python) | 19 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`read_source`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats and `use_workspace` for binding. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
+| MCP server | FastMCP (Python) | 21 tools — `search`/`get_memory`/`neighbors`/`graph_scope`/`list_sources`/`file_summary`/`file_chunks`/`read_source`/`device_context` for reads, `recall` for several reads in one call, `store`/`delete`/`ingest_url`/`ingest_content`/`purge_sources` for writes, `kg_query`/`kg_edit` for facts, `status` for stats, `use_workspace` for binding, and `skills`/`skill_edit` for the user's skills and personas. Connects to Qdrant via HTTP. See [MCP tools](mcp.md). |
 | CLI | Go | `setup`, `status`, `enable`, `disable`, `update`, `uninstall`, `ingest`, `learn`, `ingest-url`, `refresh`, `refresh-urls`, `retag`, `scrub`, `migrate`, `server`, `workspace`, `wipe`, `sync`, `relay`, `ui`, `config` |
 | Relay | Go (nhooyr/websocket) | Stateless WebSocket forwarder for P2P sync; sees only ciphertext |
 | Peer sync | `imprint/sync_ws.py` + `imprint/sync_crypto.py` | The one sync implementation, used by `imprint sync` (`imprint/cli_sync.py`) and the dashboard. End-to-end encrypted: SPAKE2 from the PIN in the one-time share code, then AES-256-GCM per direction. Joining receives only unless the user opts in and confirms the receiving device. See [sync](sync.md). |

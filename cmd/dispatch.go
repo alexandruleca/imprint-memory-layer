@@ -40,29 +40,34 @@ type client struct {
 	store    func() string
 	wslStore func(wslProfile) string
 	// skills are the folders the client reads user-level skills from on this
-	// computer, preferred first, and personas the folder it reads personas
-	// (subagents) from; nil for a client that reads neither. The registry
-	// writes into the fewest of them that reach every connected client
-	// (imprint.registry_files, ADR 0169).
-	skills   func() []string
-	personas func() string
+	// computer, preferred first, and personas the folders it reads personas
+	// (subagents) from, preferred first; nil for a client that reads neither.
+	// The registry writes into the fewest of them that reach every connected
+	// client (imprint.registry_files, ADRs 0169, 0171). personaFormat is how
+	// the client's persona folders hold one: "" for Markdown with YAML front
+	// matter (<name>.md), "codex" for Codex's TOML agent files (<name>.toml).
+	skills        func() []string
+	personas      func() []string
+	personaFormat string
 }
 
 var clients = []client{
 	{name: "claude-code", label: "Claude Code", aliases: []string{"claude"}, connect: SetupClaudeCode, registrations: claudeCodeRegistrations,
 		wslHome: func(p wslProfile) string { return p.ClaudeHome },
 		store:   platform.ClaudeConfigDir, wslStore: func(p wslProfile) string { return p.ClaudeHome },
-		skills: func() []string { return []string{platform.ClaudeSkillsDir()} }, personas: platform.ClaudeAgentsDir},
+		skills:   func() []string { return []string{platform.ClaudeSkillsDir()} },
+		personas: func() []string { return []string{platform.ClaudeAgentsDir()} }},
 	{name: "claude-desktop", label: "Claude Desktop", connect: SetupClaudeDesktop, registrations: claudeDesktopRegistrations},
 	{name: "chatgpt-desktop", label: "ChatGPT Desktop", aliases: []string{"chatgpt"}, connect: SetupChatGPTDesktop, registrations: chatGPTDesktopRegistrations},
 	{name: "cursor", label: "Cursor", connect: SetupCursor, registrations: cursorRegistrations,
 		wslHome: func(p wslProfile) string { return p.CursorHome },
 		store:   platform.CursorConfigDir, wslStore: func(p wslProfile) string { return p.CursorHome },
-		skills: platform.CursorSkillsDirs},
+		skills: platform.CursorSkillsDirs, personas: platform.CursorAgentsDirs},
 	{name: "codex", label: "Codex", connect: SetupCodex, registrations: codexRegistrations,
 		wslHome: func(p wslProfile) string { return p.CodexHome },
 		store:   platform.CodexHome, wslStore: func(p wslProfile) string { return p.CodexHome },
-		skills: func() []string { return []string{platform.AgentsSkillsDir()} }},
+		skills:   func() []string { return []string{platform.AgentsSkillsDir()} },
+		personas: func() []string { return []string{platform.CodexAgentsDir()} }, personaFormat: "codex"},
 	{name: "copilot", label: "GitHub Copilot", connect: SetupCopilot, registrations: copilotRegistrations,
 		wslHome: func(p wslProfile) string { return p.CopilotHome },
 		store:   platform.CopilotHome, wslStore: func(p wslProfile) string { return p.CopilotHome },

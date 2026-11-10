@@ -228,7 +228,8 @@ func TestStaleRegistrationIsNotConnectedButIsCleaned(t *testing.T) {
 }
 
 // The clients table says where each client reads skills and personas
-// (ADR 0169): Claude Code its own folders, the others ~/.agents/skills first.
+// (ADRs 0169, 0171): Claude Code its own folders, the others ~/.agents/skills
+// first.
 func TestClientsListTheFoldersTheyReadSkillsFrom(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -250,8 +251,32 @@ func TestClientsListTheFoldersTheyReadSkillsFrom(t *testing.T) {
 			t.Errorf("%s does not read skills first from %s", c.name, first)
 		}
 	}
-	claude, _ := selectClients("claude-code")
-	if got := claude[0].personas(); got != filepath.Join(home, ".claude", "agents") {
-		t.Errorf("Claude Code personas folder = %s", got)
+	// Personas (ADR 0171): Markdown for Claude Code and Cursor, which also
+	// reads Claude Code's folder; TOML for Codex. No other client's
+	// subagent folder is documented.
+	t.Setenv("CODEX_HOME", "")
+	claudeAgents := filepath.Join(home, ".claude", "agents")
+	personas := map[string][]string{"claude-code": {claudeAgents},
+		"cursor": {filepath.Join(home, ".cursor", "agents"), claudeAgents},
+		"codex":  {filepath.Join(home, ".codex", "agents")}}
+	formats := map[string]string{"codex": "codex"}
+	for _, c := range clients {
+		want, ok := personas[c.name]
+		if !ok {
+			if c.personas != nil || c.personaFormat != "" {
+				t.Errorf("%s lists persona folders no documentation confirms", c.name)
+			}
+			continue
+		}
+		var got []string
+		if c.personas != nil {
+			got = c.personas()
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s personas folders = %v, want %v", c.name, got, want)
+		}
+		if c.personaFormat != formats[c.name] {
+			t.Errorf("%s persona format = %q, want %q", c.name, c.personaFormat, formats[c.name])
+		}
 	}
 }

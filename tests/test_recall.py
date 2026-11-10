@@ -345,7 +345,7 @@ class LocalInferenceSwitchTests(unittest.TestCase):
 class RegistrationTests(unittest.TestCase):
     def test_recall_is_a_read_only_tool_beside_the_unchanged_ones(self):
         tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
-        self.assertEqual(len(tools), 19)  # read_source joined in ADR 0081
+        self.assertEqual(len(tools), 21)  # read_source joined in ADR 0081; skills and skill_edit in ADR 0170
         self.assertIn('recall', tools)
         self.assertTrue(tools['recall'].annotations.read_only_hint)
         self.assertFalse(tools['recall'].annotations.destructive_hint)

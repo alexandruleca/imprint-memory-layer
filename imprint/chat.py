@@ -176,6 +176,12 @@ def _tool_kg_invalidate(fact_id: int, workspace: str = "") -> str:
     return _mcp_server.kg_edit(op="end", fact_id=fact_id, workspace=workspace)
 
 
+def _tool_skills(action: str = "list", name: str = "", kind: str = "", path: str = "", start: int = 0,
+                 workspace: str = "") -> str:
+    """The user's skills and personas belong to no workspace (ADR 0170)."""
+    return _mcp_server.skills(action=action, name=name, kind=kind, path=path, start=start)
+
+
 _PROJECT = _param("string", "Only this project")
 _SOURCE = _param("string", "Source path exactly as list_sources or search shows it")
 
@@ -287,6 +293,16 @@ TOOLS: dict[str, Tool] = {
          "version": _param("string", "Source version returned by the first read"),
          "verify": _param("boolean", "Verify indexed chunks against the manifest (default true)")},
         required=("source",),
+    ),
+    "skills": Tool(
+        _tool_skills,
+        "The user's own skills (instructions for a kind of task) and personas (roles). List them, or get one "
+        "and follow it when the user asks for it or its description fits the request.",
+        {"action": _param("string", "list (default) or get"),
+         "name": _param("string", "The skill or persona to get"),
+         "kind": _param("string", "skill or persona, when one of each has the name"),
+         "path": _param("string", "Another of a skill's files (default its SKILL.md)"),
+         "start": _param("integer", "Character offset to continue from (next_start)")},
     ),
     "store": Tool(
         _mcp_server.store,

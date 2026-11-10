@@ -685,6 +685,18 @@ func ClaudeSkillsDir() string { return filepath.Join(ClaudeConfigDir(), "skills"
 // personas are written as <name>.md.
 func ClaudeAgentsDir() string { return filepath.Join(ClaudeConfigDir(), "agents") }
 
+// CursorAgentsDirs: Cursor reads user-level subagents (Markdown with YAML
+// front matter) from ~/.cursor/agents and, for compatibility, Claude Code's
+// ~/.claude/agents (ADR 0171). It also lists ~/.codex/agents, which holds
+// Codex's TOML files; Imprint does not count on Cursor reading those.
+func CursorAgentsDirs() []string {
+	return []string{filepath.Join(CursorConfigDir(), "agents"), filepath.Join(HomeDir(), ".claude", "agents")}
+}
+
+// CodexAgentsDir is where Codex reads personal custom agents, one TOML file
+// each (ADR 0171): ~/.codex/agents, under CODEX_HOME when that is set.
+func CodexAgentsDir() string { return filepath.Join(CodexHome(), "agents") }
+
 // CursorSkillsDirs: Cursor reads ~/.agents/skills and ~/.cursor/skills, and
 // for compatibility ~/.claude/skills and ~/.codex/skills.
 func CursorSkillsDirs() []string {
