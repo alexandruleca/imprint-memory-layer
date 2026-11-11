@@ -227,9 +227,13 @@ HELP: dict[str, dict[str, str]] = {
         "help": "Transcribes audio files (.wav, .mp3, .m4a, .flac, .ogg, .opus and others) during ingestion into timestamped text, with a speech model that runs locally on the CPU; the model chosen in audio.model downloads on first use, and audio never leaves the machine. Off, the file scanner ignores audio. Transcription is CPU-heavy and takes a while for long recordings.",
         "example": "false: if your project folders hold music or sound assets you don't want transcribed.",
     },
+    "audio.diarize": {
+        "help": "Whether a meeting recording's transcript tells voices apart. On the microphone the main voice is \"You\" and anyone else near it is \"In the room 1\"; in the computer's audio each person on the call is \"Speaker 1\", \"Speaker 2\"..., or \"Others\" when only one spoke. You can rename them on the Recordings page without transcribing again. It runs on this computer with two small models (about 32 MB, downloaded on first use), adding roughly a tenth of the recording's length to transcription. Off, each channel is one speaker, as before.",
+        "example": "false: on a slow laptop where every minute of transcription counts and the calls are always one-to-one.",
+    },
     "audio.model": {
-        "help": "The speech-to-text model. Both handle many languages and run locally on the CPU: \"large-v3-turbo\" (the default, about a 1.5 GiB download) is more accurate; \"small\" (about 464 MiB) is faster and lighter but makes more mistakes. A change re-transcribes audio files the next time they are indexed.",
-        "example": "\"small\": on an older laptop where transcribing an hour-long meeting with the default model takes too long.",
+        "help": "The speech-to-text model. All handle many languages and run locally on the CPU. \"large-v3\" (the default, about a 2.9 GiB download) is the most accurate, with clearly fewer mistakes in Romanian, and takes about as long as the audio lasts, roughly twice as long as Turbo. \"large-v3-turbo\" (about 1.5 GiB) is about twice as fast and a little less accurate. \"small\" (about 464 MiB) is the fastest and lightest but makes the most mistakes. A change re-transcribes audio files the next time they are indexed; recordings keep their transcript until you choose Transcribe again.",
+        "example": "\"large-v3-turbo\": on a laptop where transcribing an hour-long meeting with the default model takes too long.",
     },
     "audio.language": {
         "help": "The spoken language. \"auto\" (the default) detects it for each stretch of about 30 seconds and keeps the text in that language, so mixed-language recordings work; a language code forces it and skips detection, which helps when detection guesses wrong on short or accented clips. A change re-transcribes audio the next time it is indexed.",
@@ -373,9 +377,21 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The workspace (a separate set of memories) used by agent sessions that no project assigns one, such as desktop app chats, or folders without an approved .imprint/workspace.json or workspace root. Empty (the default) uses whichever workspace is active in the CLI and dashboard at the time; set it to keep such sessions in one fixed workspace. It resets to empty if that workspace is removed.",
         "example": "\"personal\": so Claude Desktop chats always use your personal workspace, not whichever work workspace is active.",
     },
+    "sync.recordings": {
+        "help": "Whether this device exchanges meeting recordings with paired devices: the audio, the details and the transcript, end-to-end encrypted like the rest of sync. Both devices must turn it on, since recordings hold other people's voices. Once on, finished recordings travel by themselves; the audio goes in 1 MiB pieces, so an interrupted transfer resumes. A recording deleted on one device, or its audio deleted, is deleted on the other too. The transcript's memories sync either way, like any memories. Recordings larger than audio.max_file_size_mb are not received.",
+        "example": "true on your laptop and your desktop: record a call on the laptop, listen to it or transcribe it again on the desktop.",
+    },
+    "desktop.floating_orb": {
+        "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo and Record around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
+        "example": "true: to start a recording or talk to Echo with one click while the dashboard is out of the way.",
+    },
     "update.channel": {
         "help": "Which releases `imprint update` and the dashboard's update check offer. \"stable\" (the default) offers releases from main only; \"dev\" also offers prerelease builds from the dev branch, which are less tested, and stable releases once they are newer. --stable or --dev overrides it for one `imprint update`.",
         "example": "\"dev\": to try fixes before they reach a stable release, on a machine where occasional breakage is acceptable.",
+    },
+    "update.auto": {
+        "help": "Whether the dashboard installs a new release on the update channel by itself. It looks every 30 minutes (asking GitHub at most every 6 hours) and installs only when nothing would be interrupted: no job, recording, chat reply or Echo conversation running, no agent using Imprint in the last 15 minutes, and no keyboard or mouse input for 10 minutes where the system can tell (Windows, macOS). An update restarts the dashboard and, on Windows, closes and reopens the desktop app. macOS package installs still ask, since the Installer needs you. It needs the dashboard to be running; `imprint update` works either way.",
+        "example": "false: on a machine where you want to choose when Imprint changes, for example before a demo.",
     },
     "collection": {
         "help": "The name of the Qdrant collection (the table of vectors) the \"default\" workspace stores its memories in; other workspaces always use \"memories_<workspace>\". Changing it points the default workspace at a different collection, empty or not: the old memories stay where they were but are no longer searched. Use workspaces to keep memories apart, and leave this alone.",

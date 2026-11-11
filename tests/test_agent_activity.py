@@ -36,6 +36,14 @@ class AgentActivityCase(unittest.TestCase):
 
 
 class RecordingTests(AgentActivityCase):
+    def test_the_last_call_says_when_an_agent_last_used_imprint(self):
+        # An automatic update waits for agents to go quiet (ADR 0175).
+        self.assertIsNone(aa.last_call_at())
+        aa.start_session('/home/user/code/app', 'default')
+        aa.record_call('search', 1000.0, 5, ok=True)
+        aa.record_call('store', 2000.0, 5, ok=True)
+        self.assertEqual(aa.last_call_at(), 2000.0)
+
     def test_a_session_records_its_client_calls_and_end(self):
         sid = aa.start_session('/home/user/code/app', 'default')
         aa.name_client('claude-code', '2.1.0')

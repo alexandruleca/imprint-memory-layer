@@ -107,10 +107,25 @@ class HubTokenAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(TOKEN, (await self.request('GET', '/api/config')).text)
         self.assertEqual(config.hub_token(), TOKEN)
 
+        # One setting reads alone, still masked.
+        alone = (await self.request('GET', '/api/config/huggingface.token')).json()
+        self.assertEqual(alone, {'key': 'huggingface.token', 'value': '****wxyz', 'source': 'config'})
+
         removed = await self.request('DELETE', '/api/config/huggingface.token')
         self.assertTrue(removed.json()['removed'])
         self.assertEqual((await self.token_setting())['source'], 'default')
         self.assertIsNone(config.hub_token())
+
+    async def test_the_desktop_app_reads_the_floating_orb_choice_off_by_default(self):
+        # ADR 0174.
+        self.assertEqual((await self.request('GET', '/api/config/desktop.floating_orb')).json(),
+                         {'key': 'desktop.floating_orb', 'value': False, 'source': 'default'})
+        await self.request('PUT', '/api/config/desktop.floating_orb', json={'value': 'true'})
+        self.assertEqual((await self.request('GET', '/api/config/desktop.floating_orb')).json()['value'], True)
+        from imprint.api import app
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=('127.0.0.1', 1234)),
+                                     base_url='http://127.0.0.1:8420') as client:
+            self.assertEqual((await client.get('/api/config/no.such.setting')).status_code, 404)
 
 
 if __name__ == '__main__':

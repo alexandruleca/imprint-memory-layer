@@ -39,6 +39,14 @@ class ModelSpec(NamedTuple):
 
 
 MODELS = {
+    # The default (ADR 0178): the most accurate, about twice as slow as Turbo on a CPU.
+    "large-v3": ModelSpec("Systran/faster-whisper-large-v3", "edaa852ec7e145841d8ffdb056a99866b5f0a478", {
+        "model.bin": (3087284237, "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1"),
+        "config.json": (2394, "a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9"),
+        "preprocessor_config.json": (340, "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711"),
+        "tokenizer.json": (2480617, "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca"),
+        "vocabulary.json": (1068114, "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"),
+    }),
     "small": ModelSpec(REPO, REVISION, FILES),
     "large-v3-turbo": ModelSpec("mobiuslabsgmbh/faster-whisper-large-v3-turbo", "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", {
         "model.bin": (1617884929, "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da"),
@@ -63,7 +71,7 @@ def settings() -> dict:
     options = {key: resolve(key)[0] for key in ("audio.enabled", "audio.model", "audio.language",
             "audio.max_file_size_mb", "audio.max_duration_minutes", "redact.privacy_filter")}
     if options['audio.model'] not in MODELS:
-        raise ValueError('audio.model must be large-v3-turbo or small')
+        raise ValueError('audio.model must be large-v3, large-v3-turbo or small')
     return options
 
 
@@ -254,8 +262,14 @@ def redact_segments(segments):
     return output
 
 
-def transcribe(path: str, *, force=False):
+def transcribe(path: str, *, force=False, words=False):
+    """Timestamped segments of an audio file, and how they were made.
+    ``words`` adds each segment's words as ``[start, end, text, probability]``
+    and its ``avg_logprob``, for telling speakers apart within a segment and
+    finding invented passages (ADRs 0180, 0181); the words' text is not
+    redacted, so a caller that shows it redacts it first."""
     from .source_state import fingerprint
+    words_wanted = words
     options = settings()
     spec = MODELS[str(options['audio.model'])]
     if not options['audio.enabled']:
@@ -272,7 +286,7 @@ def transcribe(path: str, *, force=False):
     identity = profile(options)
     metadata = {'audio_profile': identity, 'transcription_model': spec.repo, 'model_revision': spec.revision}
     before = fingerprint(path)
-    if not force:
+    if not force and not words_wanted:
         result = cached(before["source_hash"], identity)
         if result is not None:
             return redact_segments(result), metadata
@@ -302,7 +316,11 @@ def transcribe(path: str, *, force=False):
                     if characters > MAX_TEXT or len(result) >= MAX_SEGMENTS:
                         raise ValueError("Audio transcript exceeds its text/segment budget")
                     result.append({"text": text, "start": round(start, 3), "end": round(end, 3),
-                                   "language": info.language})
+                                   "language": info.language,
+                                   **({"avg_logprob": round(float(segment.avg_logprob), 3),
+                                       "words": [[round(offset + w.start, 3), round(offset + w.end, 3), w.word,
+                                                  round(float(w.probability), 3)] for w in words]}
+                                      if words_wanted else {})})
                     last_end = end
             report("transcribing_audio", offset + len(samples) / RATE, math.ceil(duration))
         if fingerprint(path) != before:

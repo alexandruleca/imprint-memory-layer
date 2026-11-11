@@ -630,7 +630,7 @@ def _ingest_single_file(task, file_path, rel, project, is_doc, batch_size, force
             stamp_records([], file_path, snapshot)
             held = vs.get_source_summary(source_key)
             if held:
-                vs.delete_by_source(source_key, project=held["project"])
+                vs.delete_by_source(source_key, project=held["project"], propagate="own")
             _empty_snapshot(source_document, source_key, project, snapshot)
             task.finish("Empty file: source snapshot saved; prior chunks cleared")
             return
@@ -1000,7 +1000,7 @@ def _main(command: str = "ingest"):
                 if not records:
                     # A verified empty file is an explicit deletion of its old chunks.
                     if source_key in known_states:
-                        vs.delete_by_source(source_key, project=known_states[source_key].get("project", ""))
+                        vs.delete_by_source(source_key, project=known_states[source_key].get("project", ""), propagate="own")
                         cleaned += 1
                     if source_key in prepared_documents:
                         source_document, provenance = prepared_documents.pop(source_key)
@@ -1017,6 +1017,8 @@ def _main(command: str = "ingest"):
             task.update(processed, stored=stored, skipped=skipped, detail="removing stale sources" if stale_sources else "")
             for source in stale_sources:
                 project = known_states[source].get("project", "")
+                # A file gone from this disk stays on paired devices: its
+                # memories may still matter there (ADR 0176).
                 if vs.delete_by_source(source, project=project):
                     cleaned += 1
 

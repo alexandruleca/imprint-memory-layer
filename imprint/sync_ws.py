@@ -688,6 +688,16 @@ def process_import_buffer(
     def import_memories(records: list[dict]) -> None:
         if not records:
             return
+        # A memory older than a deletion this device holds stays deleted,
+        # whoever sends it (ADR 0176).
+        from . import sync_deletions
+        refused = sync_deletions.blocked(workspace, records)
+        if refused:
+            stats["memories"]["skipped"] += len(refused)
+            records = [r for r in records if r.get("id") not in refused]
+            if not records:
+                progress("memories")
+                return
         from .device import TRANSFER_FIELDS, prepare
         payloads = []
         for r in records:
@@ -763,9 +773,10 @@ def process_import_buffer(
                 import_memories(records)
             elif dataset == "facts":
                 import_facts(records)
-            elif dataset in ("core", "placements", "organize", "backlog", "registry"):
-                from . import core_memories, organize, placement_sync, registry, tag_backlog
+            elif dataset in ("core", "placements", "organize", "backlog", "registry", "recordings"):
+                from . import core_memories, organize, placement_sync, recording_sync, registry, tag_backlog
                 stored = (core_memories.import_records(records) if dataset == "core"
+                          else recording_sync.import_records(records) if dataset == "recordings"
                           else placement_sync.import_records(records, workspace) if dataset == "placements"
                           else tag_backlog.adopt(records, workspace) if dataset == "backlog"
                           else registry.import_records(records) if dataset == "registry"
@@ -980,7 +991,7 @@ async def _receive_stream(channel: _Channel, out, phase: str, cancel: asyncio.Ev
 
 
 # The record datasets a stream may carry; source snapshots travel as parts.
-_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize", "backlog", "registry")
+_STREAM_DATASETS = ("memories", "facts", "core", "placements", "organize", "backlog", "registry", "recordings")
 
 
 def _stream_line_ok(msg: dict, after_meta: bool) -> bool:

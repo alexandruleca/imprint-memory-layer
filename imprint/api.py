@@ -159,6 +159,8 @@ async def _start_queue_dispatcher():
     # Skills and personas: written into the clients, edits there taken back (ADR 0169).
     from . import registry_files
     app.state.registry_pass = asyncio.create_task(registry_files.loop())
+    # New releases install by themselves when nothing would be interrupted (ADR 0175).
+    app.state.update_pass = asyncio.create_task(updates.auto_loop())
 
 
 @app.on_event('shutdown')
@@ -301,12 +303,13 @@ _CACHED_VERSION: str | None = None
 
 @app.get("/api/update")
 def api_update(refresh: bool = False):
-    """Latest release, how this installation updates, and update progress."""
+    """Latest release, how this installation updates, update progress, and
+    whether updates install by themselves (ADR 0175)."""
     try:
         report = updates.check(refresh)
     except Exception as error:
-        return {**updates.status(), "error": str(error)}
-    return {**report, **updates.status()}
+        return {**updates.status(), **updates.auto_status(), "error": str(error)}
+    return {**report, **updates.status(), **updates.auto_status()}
 
 
 @app.post("/api/update")
@@ -702,25 +705,55 @@ def api_transcribe_recording(recording_id: str):
 
 @app.get('/api/recordings/{recording_id}/transcript')
 def api_recording_transcript(recording_id: str):
+    """The transcript, and its speakers by key when they can be renamed (ADR 0180)."""
     from . import recordings
     try:
         path = recordings._folder(recording_id) / 'transcript.md'
-        return {'text': path.read_text(encoding='utf-8')}
+        text = path.read_text(encoding='utf-8')
+        meta = recordings.get(recording_id)
     except (KeyError, FileNotFoundError):
         return JSONResponse({'error': 'no transcript'}, status_code=404)
+    renamable = (recordings._folder(recording_id) / 'segments.json').exists()
+    return {'text': text, 'speakers': (meta.get('speakers') or {}) if renamable else {}}
+
+
+@app.patch('/api/recordings/{recording_id}/speakers')
+async def api_recording_speakers(recording_id: str, request: Request):
+    """Rename a recording's speakers: ``{"speakers": {key: name}}``. The
+    transcript and its memories are written again, not transcribed again."""
+    from . import recordings
+    body = await request.json()
+    changes = body.get('speakers') if isinstance(body, dict) else None
+    if not isinstance(changes, dict) or not changes:
+        return JSONResponse({'error': 'speakers must map speaker keys to names'}, status_code=400)
+    try:
+        meta = await asyncio.to_thread(recordings.rename_speakers, recording_id, changes)
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+    return {**meta, 'speakers': meta.get('speakers') or {}}
 
 
 @app.get('/api/recordings/{recording_id}/audio')
-def api_recording_file(recording_id: str):
+def api_recording_file(recording_id: str, download: bool = False):
+    """The recording's audio, to play or, with ``download``, to save as a
+    file named after its title."""
+    import re
     from fastapi.responses import FileResponse
     from . import recordings
     try:
         path = recordings._folder(recording_id) / 'audio.webm'
+        title = recordings.get(recording_id)['title'] if download else ''
     except KeyError:
         return JSONResponse({'error': 'recording not found'}, status_code=404)
     if not path.exists():
         return JSONResponse({'error': 'no audio'}, status_code=404)
-    return FileResponse(path, media_type='audio/webm')
+    if not download:
+        return FileResponse(path, media_type='audio/webm')
+    # Characters Windows does not allow in a file name, such as the title's "09:58".
+    name = ' '.join(re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', title).split()).strip(' .') or 'recording'
+    return FileResponse(path, media_type='audio/webm', filename=f'{name}.webm')
 
 
 @app.delete('/api/recordings/{recording_id}/audio')
@@ -1542,6 +1575,18 @@ def api_config():
             "custom": s.custom,
         })
     return {"settings": settings}
+
+
+@app.get("/api/config/{key:path}")
+def api_config_get(key: str):
+    """One setting's value and where it comes from; the desktop app reads
+    `desktop.floating_orb` this way (ADR 0174). Secrets stay masked."""
+    from .config_schema import SETTINGS_BY_KEY, display_value, resolve
+    setting = SETTINGS_BY_KEY.get(key)
+    if setting is None:
+        return JSONResponse({"error": f"unknown setting: {key}"}, status_code=404)
+    value, source = resolve(key)
+    return {"key": key, "value": display_value(setting, value), "source": source}
 
 
 @app.put("/api/config/{key:path}")

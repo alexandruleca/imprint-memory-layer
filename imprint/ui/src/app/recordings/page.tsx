@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Disc3, FileText, Play, RotateCcw, Square, Trash2 } from "lucide-react";
+import { Disc3, Download, FileText, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 import {
   AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -19,7 +19,7 @@ import { Markdown } from "@/components/markdown";
 import { PageHeader } from "@/components/split-page";
 import { clock } from "@/components/recording-indicator";
 import {
-  deleteRecording, deleteRecordingAudio, getRecordings, getRecordingTranscript, recordingAudioUrl,
+  deleteRecording, deleteRecordingAudio, getRecordings, getRecordingTranscript, recordingAudioUrl, renameRecordingSpeakers,
   stopRecording, transcribeRecording, type Recording,
 } from "@/lib/api";
 import { levels, startMeeting, stopMeeting, useRecorder } from "@/lib/recorder";
@@ -125,6 +125,51 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
   );
 }
 
+/** A transcript without its title, which the dialog shows, one paragraph per
+ * turn. Transcripts made before ADR 0173 put each turn on a line of its own,
+ * which Markdown would join into one block of text. */
+function transcriptBody(text: string) {
+  return text.replace(/^# [^\n]*\n+/, "").replace(/([^\n])\n(?=[^\n])/g, "$1\n\n");
+}
+
+/** A recording's speakers, by key, renamed in place: the transcript and its
+ * memories are written again without transcribing again (ADR 0180). */
+function SpeakerNames({ id, speakers, onSaved }: {
+  id: string; speakers: Record<string, string>; onSaved: (text: string, speakers: Record<string, string>) => void;
+}) {
+  const [names, setNames] = useState(speakers);
+  const [saving, setSaving] = useState(false);
+  const keys = Object.keys(speakers);
+  if (!keys.length) return null;
+  const changes = Object.fromEntries(keys.filter((k) => (names[k] ?? "").trim() !== speakers[k]).map((k) => [k, (names[k] ?? "").trim()]));
+  const ready = Object.keys(changes).length > 0 && keys.every((k) => (names[k] ?? "").trim());
+
+  async function save() {
+    setSaving(true);
+    try {
+      if (!await attempt(() => renameRecordingSpeakers(id, changes), "Could not rename the speakers")) return;
+      const result = await attempt(() => getRecordingTranscript(id), "Could not open the transcript");
+      if (result) { onSaved(result.text, result.speakers ?? {}); toast.success("Speakers renamed"); }
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="space-y-2 border-b border-border pb-3">
+      <p className="text-xs text-muted-foreground">Speakers: give them names and the transcript and its memories use them.</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {keys.map((k) => (
+          <label key={k} className="grid gap-1 text-xs text-muted-foreground">
+            <span>{speakers[k]}</span>
+            <Input aria-label={`Name for ${speakers[k]}`} value={names[k] ?? ""} maxLength={60}
+              onChange={(e) => setNames({ ...names, [k]: e.target.value })} />
+          </label>
+        ))}
+      </div>
+      <Button size="sm" disabled={!ready || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save names"}</Button>
+    </div>
+  );
+}
+
 function Row({ recording, live, onChange, onTranscript, onDelete }: {
   recording: Recording; live: boolean; onChange: () => Promise<void>;
   onTranscript: (r: Recording) => void; onDelete: (r: Recording, audioOnly: boolean) => void;
@@ -150,7 +195,12 @@ function Row({ recording, live, onChange, onTranscript, onDelete }: {
           )}
           {recording.transcript && <Button size="sm" variant="ghost" onClick={() => onTranscript(recording)}><FileText /> Transcript</Button>}
           {recording.audio_bytes > 0 && recording.status !== "recording" && (
-            <Button size="sm" variant="ghost" aria-pressed={playing} onClick={() => setPlaying(!playing)}><Play /> Listen</Button>
+            <>
+              <Button size="sm" variant="ghost" aria-pressed={playing} onClick={() => setPlaying(!playing)}><Play /> Listen</Button>
+              <a href={recordingAudioUrl(recording.id, true)} download className={buttonVariants({ variant: "ghost", size: "sm" })}>
+                <Download /> Download
+              </a>
+            </>
           )}
           {(recording.status === "ready" || recording.status === "failed" || recording.status === "stopped") && recording.audio_bytes > 0 && (
             <Button size="sm" variant="ghost" onClick={async () => { if (await attempt(() => transcribeRecording(recording.id), "Could not queue it")) { toast.success("Transcription queued"); await onChange(); } }}>
@@ -177,7 +227,7 @@ export default function RecordingsPage() {
   const data = list.data ?? null;
   const error = list.error ? list.error.message : "";
   const projects = useProjectNames({ order: "name" }).names;
-  const [transcript, setTranscript] = useState<{ title: string; text: string } | null>(null);
+  const [transcript, setTranscript] = useState<{ id: string; title: string; text: string; speakers: Record<string, string> } | null>(null);
   const [deleting, setDeleting] = useState<{ recording: Recording; audioOnly: boolean } | null>(null);
 
   const { refresh } = list;
@@ -200,7 +250,7 @@ export default function RecordingsPage() {
 
   async function showTranscript(recording: Recording) {
     const result = await attempt(() => getRecordingTranscript(recording.id), "Could not open the transcript");
-    if (result) setTranscript({ title: recording.title, text: result.text });
+    if (result) setTranscript({ id: recording.id, title: recording.title, text: result.text, speakers: result.speakers ?? {} });
   }
 
   async function confirmDelete() {
@@ -239,7 +289,11 @@ export default function RecordingsPage() {
       <Dialog open={!!transcript} onOpenChange={(open) => { if (!open) setTranscript(null); }}>
         <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-3xl">
           <DialogHeader><DialogTitle>{transcript?.title}</DialogTitle></DialogHeader>
-          <div className="min-h-0 overflow-y-auto"><Markdown text={transcript?.text.replace(/^# [^\n]*\n/, "") ?? ""} className="text-sm leading-relaxed" /></div>
+          {transcript && (
+            <SpeakerNames key={JSON.stringify(transcript.speakers)} id={transcript.id} speakers={transcript.speakers}
+              onSaved={(text, speakers) => setTranscript({ ...transcript, text, speakers })} />
+          )}
+          <div className="min-h-0 overflow-y-auto"><Markdown text={transcriptBody(transcript?.text ?? "")} className="text-sm leading-relaxed" /></div>
         </DialogContent>
       </Dialog>
 

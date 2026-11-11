@@ -61,7 +61,9 @@ class ComputerAudioError extends Error {
   constructor() {
     super(window.electronAPI?.platform === "darwin"
       ? "macOS did not let Imprint record the computer's audio. Allow Imprint under System Settings → Privacy & Security → "
-        + "Screen & System Audio Recording, in System Audio Recording Only, or record your microphone only."
+        + "Screen & System Audio Recording, in System Audio Recording Only. If it is allowed there already, an update made "
+        + "that permission stale: remove Imprint from the list with −, then start again and allow it when macOS asks. "
+        + "Or record your microphone only."
       : "The computer's audio could not be recorded. Try again, or record your microphone only.");
   }
 }

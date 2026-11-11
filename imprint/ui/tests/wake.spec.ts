@@ -160,6 +160,42 @@ test('turning it on explains first, asks the OS, downloads the model with its pr
   expect(await calls(page)).toContainEqual(['control', 'pause']);
 });
 
+test('the tray\'s Turn on "Hey Echo"… opens the explanation, on arrival or on an open page', async ({ page }) => {
+  await desktop(page, { wake: OFF });
+  await voiceApi(page);
+  await page.goto('/voice/?wake=on');
+  const sheet = page.getByRole('dialog', { name: 'Listen for “Hey Echo”?' });
+  await expect(sheet).toBeVisible();
+  await expect(page).toHaveURL(/\/voice\/$/);
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await expect(sheet).toBeHidden();
+  // Already on the page: the desktop app's navigation also sends an event.
+  await page.evaluate(() => window.dispatchEvent(new Event('imprint-wake-setup')));
+  await expect(sheet).toBeVisible();
+});
+
+test('the explanation fits the floating Echo window: its points scroll and Turn on stays in reach', async ({ page }) => {
+  // Echo's window is at most 400 × 640 and can be 420 high; the sheet must not run off it.
+  await page.setViewportSize({ width: 400, height: 420 });
+  await desktop(page, { wake: OFF });
+  await voiceApi(page, () => ({ installed: false, idle_seconds: 20, setup: { stage: 'idle', downloaded: 0, total: 78000000, busy: false } }));
+  await page.goto('/companion/');
+  await page.getByRole('button', { name: 'Companion settings' }).click();
+  await page.getByRole('switch', { name: 'Listen for “Hey Echo”' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Listen for “Hey Echo”?' });
+  await expect(sheet).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('wake-sheet-420.png') });
+  const box = (await sheet.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(420);
+  await expect(sheet.getByRole('button', { name: 'Turn on' })).toBeInViewport();
+  await expect(sheet.getByRole('button', { name: 'Cancel' })).toBeInViewport();
+  const last = sheet.getByText('downloads a 78 MB English speech model once');
+  await last.scrollIntoViewIfNeeded();
+  await expect(last).toBeInViewport();
+  await expect(sheet.getByRole('button', { name: 'Turn on' })).toBeInViewport();
+});
+
 test('a refused microphone keeps it off and says why', async ({ page }) => {
   await desktop(page, { wake: OFF });
   await page.addInitScript(() => { window.electronAPI!.requestMicrophoneAccess = async () => ({ status: 'denied' }); });

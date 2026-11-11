@@ -98,8 +98,12 @@ function syncSummary(peer: PairedDevice): string {
   if (peer.last_sync) {
     const received = moved(peer.last_result?.received);
     const sent = moved(peer.last_result?.sent);
-    parts.push(`last sync ${ago(peer.last_sync)}`
-      + (received ? `: received ${received}` : "") + (sent ? `${received ? ";" : ":"} sent ${sent}` : ""));
+    const deleted = moved(peer.last_result?.deleted);
+    const refused = peer.last_result?.deletions_refused ?? 0;
+    const moves = [received && `received ${received}`, sent && `sent ${sent}`,
+      deleted && `deleted ${deleted} the other device deleted`,
+      refused > 0 && `kept ${count.format(refused)} memories the other device deleted: too many at once`].filter(Boolean);
+    parts.push(`last sync ${ago(peer.last_sync)}` + (moves.length ? `: ${moves.join("; ")}` : ""));
   }
   if (peer.last_checked && (!peer.last_sync || peer.last_checked > peer.last_sync + 1)) {
     parts.push(`up to date, checked ${ago(peer.last_checked)}`);

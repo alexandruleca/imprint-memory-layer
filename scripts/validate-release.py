@@ -162,9 +162,13 @@ def validate(root: Path, platform: str, *, require_voice: bool = False) -> None:
             require_signed_bundle(bundle, arch)
         # The app asks macOS for the microphone itself (ADR 0069); without this
         # text, privacy consent terminates it instead of asking (ADR 0055).
-        purpose = plistlib.loads((app / 'Contents/Info.plist').read_bytes()).get('NSMicrophoneUsageDescription')
-        if not isinstance(purpose, str) or not purpose.strip():
-            raise ValueError(f'macOS desktop app has no microphone usage description: {app}')
+        info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+        # Without the system audio text, macOS 14.2+ hands a meeting recording an
+        # ended track instead of asking (ADR 0131).
+        for key, what in (('NSMicrophoneUsageDescription', 'microphone'), ('NSAudioCaptureUsageDescription', 'system audio')):
+            purpose = info.get(key)
+            if not isinstance(purpose, str) or not purpose.strip():
+                raise ValueError(f'macOS desktop app has no {what} usage description: {app}')
     forbidden = {'.git', '.venv', 'node_modules', '.next', '__pycache__', '.uv-cache'}
     for directory, dirs, files in os.walk(root):
         bad = forbidden.intersection(dirs)

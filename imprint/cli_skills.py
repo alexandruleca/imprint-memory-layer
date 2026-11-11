@@ -27,6 +27,15 @@ def _say(text: str = '') -> None:
     print(text, flush=True)
 
 
+def _utf8_output() -> None:
+    """Write UTF-8 wherever the output goes. Names, paths and the items' own
+    text are Unicode, and Windows gives output redirected to a file or pipe
+    its ANSI code page, which cannot encode them."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='replace')
+
+
 def _report(report: dict, quiet: bool) -> None:
     if not quiet:
         for folder in report['folders']:
@@ -146,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
                           help='Do nothing when there are no items and no folder was written before')
     applying.add_argument('--json', action='store_true')
     args = parser.parse_args(argv)
+    _utf8_output()
 
     try:
         if args.command in (None, 'list'):

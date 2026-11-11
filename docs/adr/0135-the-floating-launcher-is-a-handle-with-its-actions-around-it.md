@@ -11,6 +11,7 @@ description: While the dashboard is hidden, the Imprint button is an orb that dr
 - Amended by:
   - [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) — the orb shows an "ear" dot while the "Hey Echo" listener exists, and a pulse when it hears the phrase
   - [ADR 0145](0145-a-request-runs-until-it-is-answered-or-explicitly-stopped.md) — folded, Echo's page releases the microphone and lets go of the conversation, which goes on in the API and is picked up when Echo shows again, instead of stopping it
+  - [ADR 0174](0174-the-floating-orb-is-off-unless-the-user-turns-it-on.md) — the orb appears while the dashboard is hidden only when the user turned it on, or while a recording runs
 - Related: [ADR 0048](0048-anime-echo-and-desktop-recovery.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md), [ADR 0089](0089-one-progress-record-for-the-running-job.md), [dashboard](../dashboard.md), [live voice](../live-voice.md)
 
 ## Context

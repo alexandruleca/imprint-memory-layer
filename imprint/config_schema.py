@@ -316,9 +316,12 @@ SETTINGS: list[Setting] = [
     Setting("associations.auto_accept_paths", "IMPRINT_ASSOCIATIONS_AUTO_PATHS", False, bool, "Automatically accept exact registered project-path matches; names and model results always need review"),
     Setting("associations.unassigned_workspace", "IMPRINT_CONVERSATION_INBOX_WORKSPACE", "", str, "Explicit inbox workspace for client conversations without directory evidence; never overrides conflicting directories", choices=_inbox_workspaces),
     Setting("audio.enabled", "IMPRINT_AUDIO_ENABLED", True, bool, "Transcribe audio files during ingestion; the selected multilingual model downloads on first use"),
-    Setting("audio.model", "IMPRINT_AUDIO_MODEL", "large-v3-turbo", str, "Multilingual transcription model; both run locally on CPU",
-            choices=(Choice("large-v3-turbo", "Large v3 Turbo", "Larger multilingual model · about 1.51 GiB download"),
-                     Choice("small", "Small", "Smaller multilingual model · about 464 MiB download"))),
+    Setting("audio.model", "IMPRINT_AUDIO_MODEL", "large-v3", str, "Multilingual transcription model; all run locally on CPU (ADR 0178)",
+            choices=(Choice("large-v3", "Large v3", "Most accurate · about twice as slow as Turbo · about 2.88 GiB download"),
+                     Choice("large-v3-turbo", "Large v3 Turbo", "Faster, a little less accurate · about 1.51 GiB download"),
+                     Choice("small", "Small", "Smallest and fastest, more mistakes · about 464 MiB download"))),
+    Setting("audio.diarize", "IMPRINT_AUDIO_DIARIZE", True, bool,
+            "Tell voices apart in meeting recordings: who said what within the microphone and within the computer's audio (ADR 0180)"),
     Setting("audio.language", "IMPRINT_AUDIO_LANGUAGE", "auto", str, "Transcription language; Auto detects each audio window and preserves the spoken language",
             choices=(Choice("auto", "Auto"), Choice("ro", "Romanian"), Choice("en", "English"))),
     Setting("audio.max_file_size_mb", "IMPRINT_AUDIO_MAX_FILE_MB", 1024, int, "Maximum audio file size in MiB"),
@@ -389,6 +392,17 @@ SETTINGS: list[Setting] = [
             "Workspace for agent sessions outside an assigned project, such as desktop app chats (empty: the active workspace)",
             choices=_workspaces),
 
+    # ── Device sync (ADR 0177) ────────────────────────────────
+    # Recordings hold other people's voices: they travel only between devices
+    # where the user turned this on, both of them.
+    Setting("sync.recordings", "IMPRINT_SYNC_RECORDINGS", False, bool,
+            "Send meeting recordings, their audio included, to paired devices that also turned this on, and receive theirs"),
+
+    # ── Desktop app (ADR 0174) ────────────────────────────────
+    # Read by the desktop app each time the dashboard is hidden.
+    Setting("desktop.floating_orb", "IMPRINT_DESKTOP_FLOATING_ORB", False, bool,
+            "Show the floating Imprint button while the dashboard is hidden; it shows during a recording either way"),
+
     # ── Updates (ADR 0108) ────────────────────────────────────
     # Read by `imprint update` when no --stable/--dev is passed, so the
     # dashboard's update check and the terminal follow the same channel.
@@ -396,6 +410,9 @@ SETTINGS: list[Setting] = [
             "Releases this installation updates to: stable, or dev for dev builds as well",
             choices=(Choice("stable", "Stable", "Releases from main"),
                      Choice("dev", "Dev", "Prereleases built from dev, and stable releases once they are newer"))),
+    # Read by the dashboard server's automatic update pass (ADR 0175).
+    Setting("update.auto", "IMPRINT_UPDATE_AUTO", True, bool,
+            "Install new releases by itself when nothing is in progress and the computer is idle"),
 
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),

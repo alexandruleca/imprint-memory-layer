@@ -120,6 +120,11 @@ export function UpdateButton() {
           </DialogHeader>
           <div className="space-y-4 px-6 py-5 text-sm">
             <Body phase={phase} info={info} target={target} log={log} />
+            {info.auto && !info.unsupported && phase.kind === "idle" && (
+              <p className="text-xs text-muted-foreground">
+                {info.auto_state || "Imprint installs it by itself when nothing is in progress and the computer is idle. Update now installs it now."}
+              </p>
+            )}
           </div>
           <DialogFooter className="mx-0 mb-0 px-6 py-3">
             <Button variant="ghost" onClick={() => setOpen(false)}>

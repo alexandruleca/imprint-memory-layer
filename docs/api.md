@@ -208,7 +208,7 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | POST | `/api/recordings/{id}/audio` | The next piece of its audio (raw WebM/Opus bytes). |
 | POST | `/api/recordings/{id}/stop` | Stop it (`{duration}` seconds) and queue its transcription. |
 | POST | `/api/recordings/{id}/transcribe` | Queue its transcription again. |
-| GET | `/api/recordings/{id}/transcript`, `/api/recordings/{id}/audio` | The transcript text; the raw audio. |
+| GET | `/api/recordings/{id}/transcript`, `/api/recordings/{id}/audio` | The transcript text; the raw audio (`?download=1` sends it as a file named after the recording). |
 | DELETE | `/api/recordings/{id}/audio`, `/api/recordings/{id}` | Delete the audio only, or the recording with its transcript and memories. |
 
 ### Reminders, timers and scheduled jobs

@@ -122,7 +122,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `ingest.max_doc_size_mb` | `25` | Largest document in MiB (1–4096) read for extraction: PDFs, Office files, EPUB, RTF, HTML, email, JSON and images on disk (checked by file size before opening), and every URL download (Content-Length, then a streamed byte cap). A refused document is an error, keeps its prior chunks and marks the run incomplete. Text files use `ingest.max_file_bytes`; audio uses `audio.max_file_size_mb`. |
 | **Audio ingestion** | | |
 | `audio.enabled` | `true` | Include audio files in ingestion/refresh; the selected model downloads only on first uncached use |
-| `audio.model` | `large-v3-turbo` | Multilingual CPU model: `large-v3-turbo` (~1.51 GiB) or `small` (~464 MiB) |
+| `audio.model` | `large-v3` | Multilingual CPU model: `large-v3` (~2.88 GiB, most accurate, about as slow as real time), `large-v3-turbo` (~1.51 GiB, about twice as fast) or `small` (~464 MiB) ([ADR 0178](adr/0178-whisper-large-v3-is-the-default-transcription-model.md)) |
+| `audio.diarize` | `true` | Tell voices apart in meeting recordings: who said what within the microphone and within the computer's audio. The two models (about 32 MB) download on the first transcription; adds about 0.07–0.11× each channel's duration ([ADR 0180](adr/0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md)) |
 | `audio.language` | `auto` | Detect each window's language, or pin `ro` / `en`; output is transcribed, not translated |
 | `audio.max_file_size_mb` | `1024` | Positive per-audio-file size limit in MiB, independent of document limits |
 | `audio.max_duration_minutes` | `120` | Positive decoded-audio duration limit in minutes |
@@ -171,8 +172,13 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `organize.auto_move` | `true` | Move catch-all sources with strong evidence without review; weaker proposals still wait ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)) |
 | **Workspace selection** | | |
 | `workspace.unassigned` | — (the active workspace) | Workspace for agent sessions outside an assigned project, such as desktop app chats. Choices are this device's workspaces; deleting the chosen one resets it. Env `IMPRINT_UNASSIGNED_WORKSPACE`. See [workspace per project](workspaces.md#workspace-per-project) |
+| **Device sync** | | |
+| `sync.recordings` | `false` | Exchange meeting recordings, audio included, with paired devices that also turned it on; finished recordings travel by themselves in resumable 1 MiB pieces, and deleting a recording or its audio does the same on the other device. Env `IMPRINT_SYNC_RECORDINGS` ([ADR 0177](adr/0177-recordings-travel-between-devices-that-both-turned-it-on.md)) |
+| **Desktop app** | | |
+| `desktop.floating_orb` | `false` | Show the floating Imprint button while the dashboard is hidden; minimizing then hides to the tray. Off, minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and the button appears only during a recording. Read each time the dashboard is hidden. Env `IMPRINT_DESKTOP_FLOATING_ORB` ([ADR 0174](adr/0174-the-floating-orb-is-off-unless-the-user-turns-it-on.md)) |
 | **Updates** | | |
 | `update.channel` | `stable` | Releases this installation updates to: `stable`, or `dev` for dev builds as well. The dashboard's update notice and `imprint update` follow it; `--stable` or `--dev` overrides it for one run. Env `IMPRINT_UPDATE_CHANNEL`. See [updating an existing install](installation.md#updating-an-existing-install) |
+| `update.auto` | `true` | Install new releases by itself, while the dashboard runs, when nothing would be interrupted: no job, recording, chat reply or Echo conversation, no agent call for 15 minutes, no keyboard or mouse input for 10 minutes (Windows, macOS). macOS package installs still ask. Env `IMPRINT_UPDATE_AUTO` ([ADR 0175](adr/0175-releases-install-by-themselves-when-nothing-would-be-interrupted.md)) |
 | **Other** | | |
 | `collection` | `memories` | Default Qdrant collection name (workspace suffix is appended automatically) |
 

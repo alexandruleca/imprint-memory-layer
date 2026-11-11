@@ -70,6 +70,10 @@ The public relay at `wss://sync.alexandruleca.com` is the default — pass `--re
 
 Core memories ([ADR 0129](adr/0129-core-memories-are-user-approved-and-start-every-session.md)), guidelines and records alike ([ADR 0143](adr/0143-agents-receive-generalised-guidelines-core-memories-are-kept-as-records.md)), belong to no workspace, so every paired workspace's sync carries them. Each is one record, and the newest change wins: approving, retiring or editing one on any device holds on all of them. A device sends them only to a peer whose handshake offers them and says it tells guidelines from records (`core_tiers`); a release before that would give every record to its sessions, so it is sent none, though its own still arrive and take the tier their origin gives. Only the device that runs LLM tagging for a pair drafts guidelines in the background, so two devices do not propose the same ones. Meeting recordings' audio never syncs; their transcripts do, as ordinary memories.
 
+### Meeting recordings
+
+Recordings stay on the device that made them unless **Settings → Device sync → Sync recordings** (`sync.recordings`, off by default) is on at both ends ([ADR 0177](adr/0177-recordings-travel-between-devices-that-both-turned-it-on.md)). Then each finished recording, its audio, details, transcript and speakers' names, reaches the other device by itself, end-to-end encrypted like the rest of sync; the transcript's memories sync either way, as memories. The audio goes in 1 MiB pieces, each stored and acknowledged before the next, into a partial file that becomes the recording only once its size and SHA-256 match, so an interrupted transfer resumes where it stopped, and audio the other device already holds is not sent again. Deleting a recording, or only its audio, on one device does the same on the other. A recording larger than `audio.max_file_size_mb` is not received. The relay forwards ciphertext and keeps nothing, but sees how much passes and when, so it can tell roughly how long a recording is.
+
 ### Skills and personas
 
 Skills and personas ([ADR 0168](adr/0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md)) also belong to no workspace, and travel the same way: one record per item, the newest change wins, sent only to a peer whose handshake offers them. The version a received change replaces stays in the receiving device's history, which never syncs. A device writes the items it receives into its own clients' folders at once ([ADR 0169](adr/0169-skills-and-personas-are-written-into-the-folders-clients-read.md)); see [skills and personas](skills.md).
@@ -195,9 +199,28 @@ themselves were intact, so the first open after updating repairs the file and
 automatic sync resumes. A database the rebuild cannot repair is reported with
 its path. Pair the device again after moving that file aside.
 
-This remains a deduplicating **merge**: local deletions are not remote deletion
-commands. The digest check scans local exported records, and imports can cause
-one extra deduplicating pass. See [ADR 0020](adr/0020-explicit-pairing-and-automatic-workspace-sync.md).
+Sync is a deduplicating **merge** that also carries deletions
+([ADR 0176](adr/0176-deletions-reach-paired-devices-that-hold-the-memory.md)).
+After the manifests, each device names, in the direction data may flow, the
+memories the other holds that it deleted; nothing the other never held is
+named, so no device learns the ID of a memory it did not have. The other device
+deletes its copy when it is older than the deletion and passes the deletion on
+to its own pairings, and no device imports a memory older than a deletion it
+holds, so one that was away cannot bring it back. Deletions are kept 180 days.
+
+| Deleted here by | Deleted on paired devices |
+| --- | --- |
+| You: the `delete` tool, deleting a recording, `imprint purge` | Yes, any memory; a deleted recording's folder too, where recordings sync |
+| A newer version of a file, URL or inline source; an emptied file; a rewritten project profile | The chunks this device recorded; another device's chunks of its own version stay |
+| A file gone from disk (refresh) | No: its memories may still matter on the other device |
+| `imprint scrub` | No deletion record: the redacted version supersedes it as before, and no hash of the removed secret is kept |
+| Moves, wipes, removing a workspace | No: placement rules carry moves |
+
+One sync deletes at most half of a workspace (and at most 200 memories in a
+small one); a larger request is kept, not applied, and the paired device line
+says so. The dashboard's paired devices list what the last sync deleted. The
+digest check scans local exported records, and imports can cause one extra
+deduplicating pass. See [ADR 0020](adr/0020-explicit-pairing-and-automatic-workspace-sync.md).
 
 ### The share code
 

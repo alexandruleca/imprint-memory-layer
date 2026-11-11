@@ -205,6 +205,33 @@ class StorageTests(unittest.TestCase):
         rows, _ = client.scroll(coll, scroll_filter=models.Filter(must=[models.FieldCondition(key='project', match=models.MatchValue(value=project))]), limit=100)
         return sorted(row.payload['content'] for row in rows)
 
+    def test_lexical_candidates_are_not_crowded_out_by_common_terms(self):
+        # A large corpus in miniature (ADR 0172): 30 memories hold the common
+        # terms "2026" and "11", the candidate limit is 8, and the meeting
+        # sorts last by point id and is semantically unrelated to the query.
+        # An any-term scroll read only the first 8 points by id.
+        from imprint import retrieval
+        client, coll = vs._ensure_collection()
+        points = [models.PointStruct(id=i, vector={config.QDRANT_VECTOR_NAME: [1., 0., 0.]}, payload={
+            'content': f'release notes 2026 11 rollout {i}', 'project': 'project', 'source': f'notes/{i}.md',
+            '_mid': f'{i:016x}'}) for i in range(1, 31)]
+        points += [models.PointStruct(id=99, vector={config.QDRANT_VECTOR_NAME: [0., 1., 0.]}, payload={
+            'content': '# meeting 2026-11-11 09:58\nwe planned the launch', 'project': 'meetings',
+            'source': 'recording/abc', '_mid': 'f' * 16}),
+                   models.PointStruct(id=100, vector={config.QDRANT_VECTOR_NAME: [0., 1., 0.]}, payload={
+            'content': 'nu știu ce ședință a fost', 'project': 'meetings', 'source': 'recording/def',
+            '_mid': 'e' * 16})]
+        client.upsert(coll, points)
+        with patch.object(retrieval, 'CANDIDATE_LIMIT', 8):
+            # Every term together finds the exact title.
+            self.assertEqual(vs.search('Meeting 2026-11-11 09:58', limit=3)[0]['source'], 'recording/abc')
+            # No point holds both terms: the rare one is read before the common
+            # one, so its point is ranked at all (an any-term scroll never read it).
+            self.assertIn('recording/def', [r['source'] for r in vs.search('rollout ședință', limit=20)])
+        # The common term fills what the rare one leaves, up to the limit.
+        found = vs._lexical_candidates(client, coll, [], ['rollout', 'launch'], 8)
+        self.assertEqual((len(found), found[0].id), (8, 99))
+
     def test_full_content_identity_and_repeated_chunks(self):
         prefix = 'A' * 220
         records = self.records([prefix + 'one', prefix + 'two', prefix + 'two'])
@@ -435,6 +462,14 @@ class RetrievalTests(unittest.TestCase):
         results = fuse('rotate_refresh_token', semantic, lexical)
         self.assertEqual(results[0]['id'], 'exact')
         self.assertEqual(results[0]['match_type'], 'lexical')
+
+    def test_a_verbatim_query_outranks_rows_merely_in_both_lists(self):
+        both = [{'id': f'both{i}', 'content': 'meeting notes for 2026 and 11 more', 'similarity': .6} for i in range(10)]
+        exact = {'id': 'exact', 'content': '# Meeting  2026-11-11 09:58\nlaunch plan', 'similarity': 0.}
+        results = fuse('Meeting 2026-11-11 09:58', both, [*both, exact])
+        self.assertEqual(results[0]['id'], 'exact')
+        # One term has no separate phrase list: semantic and lexical decide.
+        self.assertEqual(fuse('meeting', both, [*both, exact])[0]['id'], 'both0')
 
     def test_fusion_order_is_deterministic_and_deduplicated(self):
         rows = [{'id': 'b', 'content': 'retry connection'}, {'id': 'a', 'content': 'retry connection'}]

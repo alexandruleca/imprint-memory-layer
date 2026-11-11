@@ -19,12 +19,12 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
         # policy transaction, so in-flight inference cannot restore this source.
         policy.exclude(target, kind, recursive, ws)
     client, collection = vs._get_client(), config.collection_name(ws)
-    sources, point_ids = set(), []
+    sources, point_ids, purged = set(), [], []
     if client.collection_exists(collection):
         offset = None
         while True:
             points, offset = client.scroll(collection_name=collection, limit=256, offset=offset,
-                                           with_payload=['source', 'source_path', 'project', 'source_device', 'source_path_local'], with_vectors=False)
+                                           with_payload=['source', 'source_path', 'project', 'source_device', 'source_path_local', '_mid'], with_vectors=False)
             for point in points:
                 payload = point.payload or {}
                 if kind == 'path':
@@ -34,6 +34,7 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
                 value = payload.get('source_path' if kind == 'path' else 'source', '')
                 if policy.matches(value, target, recursive, kind):
                     point_ids.append(point.id)
+                    purged.append(payload)
                     sources.add((payload.get('project', ''), payload.get('source', '')))
             if offset is None:
                 break
@@ -67,6 +68,8 @@ def purge(target, *, workspace=None, kind='path', recursive=False, apply=False):
                 conn.executemany('DELETE FROM facts WHERE id=?', [(fact_id,) for fact_id in fact_ids])
         # Clear graph facts before their vector provenance disappears, so a
         # partial failure can be retried using the same physical-path target.
+        # A purge is the user's own deletion: paired devices delete these too (ADR 0176).
+        vs._propagate(ws, purged, 'all')
         for start in range(0, len(point_ids), 256):
             client.delete(collection_name=collection,
                           points_selector=qm.PointIdsList(points=point_ids[start:start + 256]), wait=True)

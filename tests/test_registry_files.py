@@ -354,7 +354,8 @@ class RegistryFilesTests(unittest.TestCase):
         source.mkdir(parents=True)
         (source / 'SKILL.md').write_text(skill()['SKILL.md'], newline='')
         out = io.StringIO()
-        with patch.object(registry_files, '_clients', return_value=self.clients), contextlib.redirect_stdout(out):
+        with patch.object(registry_files, '_clients', return_value=self.clients), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(cli_skills.main(['apply', '--if-needed']), 0)  # Nothing yet: not even the store.
             self.assertFalse(registry.exists())
             self.assertEqual(cli_skills.main(['add', str(source / 'SKILL.md')]), 0)  # A SKILL.md names its folder.
@@ -368,6 +369,24 @@ class RegistryFilesTests(unittest.TestCase):
         self.assertIn('Added skill deploy.', out.getvalue())
         self.assertIn('Disabled skill deploy.', out.getvalue())
         self.assertEqual(registry.list_all()[0]['state'], 'retired')
+
+    def test_the_cli_writes_utf8_when_its_output_is_redirected(self):
+        # Windows gives redirected output its ANSI code page (cp1252 here),
+        # which cannot encode the report's arrow or a skill's own text.
+        import io
+        from imprint import cli_skills
+        registry.create('skill', skill(description='Ship it → production', body='Run „make deploy“.'))
+        out = io.TextIOWrapper(io.BytesIO(), encoding='cp1252')
+        err = io.TextIOWrapper(io.BytesIO(), encoding='cp1252')
+        with patch.object(registry_files, '_clients', return_value=self.clients), \
+                patch('sys.stdout', out), patch('sys.stderr', err):
+            self.assertEqual(cli_skills.main(['show', 'deploy']), 0)
+            self.assertEqual(cli_skills.main(['apply']), 0)  # Its report reads "skills → <folder>".
+            out.flush()
+        printed = out.buffer.getvalue().decode('utf-8')
+        self.assertIn('Ship it → production', printed)
+        self.assertIn('Run „make deploy“.', printed)
+        self.assertIn(f'skills → {self.claude_skills}', printed)
 
 
 if __name__ == '__main__':

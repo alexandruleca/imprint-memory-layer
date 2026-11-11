@@ -188,6 +188,11 @@ export interface UpdateInfo {
   installer?: "running" | "succeeded" | "failed";
   log: string[];
   error?: string;
+  /** New releases install by themselves when nothing would be interrupted
+   * (the update.auto setting, ADR 0175). */
+  auto?: boolean;
+  /** What the last automatic look found: what it waits for, or that it is installing. */
+  auto_state?: string;
 }
 
 export function getUpdate(refresh = false) {
@@ -244,11 +249,18 @@ export function transcribeRecording(id: string) {
 }
 
 export function getRecordingTranscript(id: string) {
-  return fetchAPI<{ text: string }>(`/api/recordings/${id}/transcript`);
+  return fetchAPI<{ text: string; speakers?: Record<string, string> }>(`/api/recordings/${id}/transcript`);
 }
 
-export function recordingAudioUrl(id: string) {
-  return `${API_BASE}/api/recordings/${id}/audio`;
+/** Rename a recording's speakers by key; the transcript and its memories follow (ADR 0180). */
+export function renameRecordingSpeakers(id: string, speakers: Record<string, string>) {
+  return fetchAPI<Recording & { speakers: Record<string, string> }>(`/api/recordings/${id}/speakers`, {
+    method: "PATCH", body: JSON.stringify({ speakers }),
+  });
+}
+
+export function recordingAudioUrl(id: string, download = false) {
+  return `${API_BASE}/api/recordings/${id}/audio${download ? "?download=1" : ""}`;
 }
 
 export function deleteRecordingAudio(id: string) {

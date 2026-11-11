@@ -250,6 +250,22 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const devices = useAudioDevices(optionsOpen, voice.microphone);
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
     && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
+  // The tray's Turn on "Hey Echo"… (ADR 0174) arrives as /voice/?wake=on, or as an event when this
+  // page is open already; either way the explanation comes first, as from the switch.
+  const [wakeAsked, setWakeAsked] = useState(false);
+  useEffect(() => {
+    if (compact) return;
+    const ask = () => {
+      if (new URLSearchParams(location.search).has("wake")) history.replaceState(null, "", location.pathname);
+      setWakeError("");
+      setWakeAsked(true);
+    };
+    if (new URLSearchParams(location.search).get("wake") === "on") ask();
+    window.addEventListener("imprint-wake-setup", ask);
+    return () => window.removeEventListener("imprint-wake-setup", ask);
+  }, [compact]);
+  // Asked from the tray, the sheet opens once Echo is set up and while "Hey Echo" is off.
+  const wakeSheetOpen = wakeSheet || (wakeAsked && desktop && !!ready && !wake?.enabled);
   const active = voice.connected || voice.phase === "connecting";
   // Echo is answering, has questions waiting, or is reading an answer aloud.
   const busy = voice.connected && (replying(voice) || voice.phase === "speaking");
@@ -286,6 +302,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       setWakeBusy("saving");
       await api?.setWake?.({ enabled: true, battery: wakeBattery ? "pause" : "listen" });
       setWakeSheet(false);
+      setWakeAsked(false);
     } catch (error) {
       setWakeError(error instanceof Error ? error.message : "“Hey Echo” could not be turned on.");
     } finally { setWakeBusy(null); }
@@ -293,6 +310,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   function closeWakeSheet() {
     if (wakeBusy === "download") void cancelWakeDownload().catch(() => {});
     setWakeSheet(false);
+    setWakeAsked(false);
   }
   /** Any click or key in Echo during a wake-started conversation keeps it open. */
   function takeOver() {
@@ -485,22 +503,25 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </>}
     </div>
     {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href={`/models/imprint-${avatar || "echo"}.glb`} download><Download size={13}/> Download 3D model</a></footer>}
-    <Dialog open={wakeSheet} onOpenChange={open => { if (!open) closeWakeSheet(); }}>
+    <Dialog open={wakeSheetOpen} onOpenChange={open => { if (!open) closeWakeSheet(); }}>
       <DialogContent className="voice-wake-sheet">
         <DialogHeader>
           <DialogTitle>Listen for “Hey Echo”?</DialogTitle>
           <DialogDescription>Say “Hey Echo” and your question, and Echo answers without a click.</DialogDescription>
         </DialogHeader>
-        <ul className="voice-wake-points">
-          <li>The microphone stays on while the Imprint app runs. The Imprint button shows a dot, and your system shows its microphone indicator, the whole time.</li>
-          <li>When you speak, the first two seconds are checked on this computer by a small speech model, then discarded. Nothing is stored or sent anywhere.</li>
-          <li>After “Hey Echo”, the rest of what you say becomes your question. Echo listens hands-free until {idleSeconds} seconds of quiet or until you say “stop”. Like any conversation with Echo, it is saved as text in Chat history unless you turn that off in Companion settings.</li>
-          <li>Listening pauses during recordings, Echo conversations, screen lock and sleep. Pause it or turn it off from the button, the tray or the top bar.</li>
-          <li>Turning it on downloads a 78 MB English speech model once.</li>
-        </ul>
-        <label className="voice-check voice-wake-battery"><Checkbox aria-label="Pause while on battery" checked={wakeBattery} onCheckedChange={value => setWakeBattery(value === true)}/>Pause while on battery</label>
-        {wakeBusy === "download" && <div className="voice-wake-progress" role="status">Downloading the speech model… {wakeProgress}%<progress max={100} value={wakeProgress}/></div>}
-        {wakeError && <p className="voice-wake-error" role="alert">{wakeError}</p>}
+        {/* Only this part scrolls: in Echo's small window the title and the buttons stay in view. */}
+        <div className="voice-wake-body">
+          <ul className="voice-wake-points">
+            <li>The microphone stays on while the Imprint app runs. The Imprint button shows a dot, and your system shows its microphone indicator, the whole time.</li>
+            <li>When you speak, the first two seconds are checked on this computer by a small speech model, then discarded. Nothing is stored or sent anywhere.</li>
+            <li>After “Hey Echo”, the rest of what you say becomes your question. Echo listens hands-free until {idleSeconds} seconds of quiet or until you say “stop”. Like any conversation with Echo, it is saved as text in Chat history unless you turn that off in Companion settings.</li>
+            <li>Listening pauses during recordings, Echo conversations, screen lock and sleep. Pause it or turn it off from the button, the tray or the top bar.</li>
+            <li>Turning it on downloads a 78 MB English speech model once.</li>
+          </ul>
+          <label className="voice-check voice-wake-battery"><Checkbox aria-label="Pause while on battery" checked={wakeBattery} onCheckedChange={value => setWakeBattery(value === true)}/>Pause while on battery</label>
+          {wakeBusy === "download" && <div className="voice-wake-progress" role="status">Downloading the speech model… {wakeProgress}%<progress max={100} value={wakeProgress}/></div>}
+          {wakeError && <p className="voice-wake-error" role="alert">{wakeError}</p>}
+        </div>
         <DialogFooter>
           <Button variant="ghost" onClick={closeWakeSheet}>Cancel</Button>
           <Button onClick={() => void turnOnWake()} disabled={wakeBusy !== null}>
