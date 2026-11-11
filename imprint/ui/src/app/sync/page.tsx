@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiMode } from "@/lib/ui-mode";
 import { useCallback, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -455,6 +456,7 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [direction, setDirection] = useState<SyncDirection>("both");
   const [relay, setRelay] = useState("");
+  const { simple } = useUiMode();
   const [served, setServed] = useState<ServedSession | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [remember, setRemember] = useState(false);
@@ -616,7 +618,8 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
           </div>
           <DirectionField side="serve" value={direction} onChange={setDirection} />
           <AutoSyncOption checked={remember} onChange={setRemember} />
-          <div className="space-y-1.5">
+          {/* The simple dashboard (ADR 0182) always uses the public relay. */}
+          {!simple && <div className="space-y-1.5">
             <label htmlFor={relayId} className="block text-sm font-medium">
               Relay <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
@@ -630,9 +633,9 @@ function ServePanel({ workspaces }: { workspaces: Workspaces }) {
             <p className="text-xs text-muted-foreground">
               A self-hosted relay host, e.g. sync.example.com. Sessions are end-to-end encrypted either way.
             </p>
-          </div>
+          </div>}
           <Button size="lg" onClick={start} disabled={!workspace}>
-            <Radio className="size-4" /> Start Serving
+            <Radio className="size-4" /> {simple ? "Show a code" : "Start Serving"}
           </Button>
         </>
       )}
@@ -1209,6 +1212,8 @@ export default function SyncPage() {
   const [workspaces, setWorkspaces] = useState<Workspaces>({ active: "", workspaces: [] });
   // The static page renders the first tab; the browser then opens the linked one.
   const section = useSyncExternalStore(onHashChange, linkedSection, () => "paired" as Section);
+  // The simple dashboard calls this page Devices and leaves snapshots to the advanced one (ADR 0182).
+  const { simple } = useUiMode();
 
   useEffect(() => {
     let cancelled = false;
@@ -1225,25 +1230,27 @@ export default function SyncPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-10 sm:py-8">
-      <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Sync</h2>
+      <header data-tour="page-header">
+        <h2 className="text-2xl font-semibold tracking-tight">{simple ? "Devices" : "Sync"}</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Share a workspace with another machine or a colleague. Sessions are end-to-end encrypted: the relay never
-          sees the code&apos;s secret, your devices or your memories.
+          {simple
+            ? <>Connect your other computers, or a colleague&apos;s, so they hold the same memory. What they exchange is encrypted from end to end: nobody in between can read it.</>
+            : <>Share a workspace with another machine or a colleague. Sessions are end-to-end encrypted: the relay never
+              sees the code&apos;s secret, your devices or your memories.</>}
         </p>
       </header>
 
       <Tabs value={section} onValueChange={(value) => open(value as Section)} className="gap-6">
-        <TabsList variant="line" className="w-full justify-start overflow-x-auto border-b border-border">
+        <TabsList variant="line" data-tour="devices-tabs" className="w-full justify-start overflow-x-auto border-b border-border">
           <TabsTrigger value="paired" className="flex-none px-2.5 sm:px-3">
             <Link2 className="hidden size-3.5 sm:block" /> Paired devices
           </TabsTrigger>
           <TabsTrigger value="live" className="flex-none px-2.5 sm:px-3">
-            <Radio className="hidden size-3.5 sm:block" /> Live sync
+            <Radio className="hidden size-3.5 sm:block" /> {simple ? "Connect a device" : "Live sync"}
           </TabsTrigger>
-          <TabsTrigger value="snapshots" className="flex-none px-2.5 sm:px-3">
+          {(!simple || section === "snapshots") && <TabsTrigger value="snapshots" className="flex-none px-2.5 sm:px-3">
             <Archive className="hidden size-3.5 sm:block" /> Snapshots
-          </TabsTrigger>
+          </TabsTrigger>}
         </TabsList>
 
         <TabsContent value="paired">
@@ -1255,15 +1262,15 @@ export default function SyncPage() {
             <Tabs defaultValue="serve" className="gap-0">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
                 <div>
-                  <h3 id="live-sync-title" className="font-semibold">Live sync</h3>
-                  <p className="text-xs text-muted-foreground">One workspace per session, one way or both.</p>
+                  <h3 id="live-sync-title" className="font-semibold">{simple ? "Connect a device" : "Live sync"}</h3>
+                  <p className="text-xs text-muted-foreground">{simple ? "One computer shows a code, the other enters it." : "One workspace per session, one way or both."}</p>
                 </div>
                 <TabsList>
                   <TabsTrigger value="serve" className="px-3">
-                    <Radio className="size-3.5" /> Serve
+                    <Radio className="size-3.5" /> {simple ? "Show a code" : "Serve"}
                   </TabsTrigger>
                   <TabsTrigger value="receive" className="px-3">
-                    <Plug className="size-3.5" /> Receive
+                    <Plug className="size-3.5" /> {simple ? "Enter a code" : "Receive"}
                   </TabsTrigger>
                 </TabsList>
               </div>

@@ -102,7 +102,7 @@ export default function SkillsPage() {
           <RefreshCw className={cn(refreshing && "animate-spin")} /> Refresh
         </Button>
         <Button variant="outline" size="sm" onClick={() => setCreating("persona")}><UserRound /> New persona</Button>
-        <Button size="sm" onClick={() => setCreating("skill")}><Plus /> New skill</Button>
+        <Button size="sm" data-tour="skills-new" onClick={() => setCreating("skill")}><Plus /> New skill</Button>
       </>} />
   );
 
@@ -141,7 +141,7 @@ export default function SkillsPage() {
   };
 
   const list = (
-    <nav aria-label="Skills and personas">
+    <nav aria-label="Skills and personas" data-tour="skills-list">
       <PaneHeading>Skills</PaneHeading>
       <div className="space-y-0.5">
         {groups.skill.length ? groups.skill.map(row) : <p className="px-2.5 py-1.5 text-xs text-muted-foreground">None yet</p>}

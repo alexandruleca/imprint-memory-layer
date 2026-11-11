@@ -7,7 +7,7 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 
 ## Layout
 
-**Sidebar.** Dashboard, Graph, Search, Chat, Voice, Recordings, Reminders, Topics, Projects, Sources, Sync, Settings, Commands and Queue, with the installed version at the bottom. On narrow screens it shows icons only, each with a hint naming the page.
+**Sidebar.** The pages of the dashboard this device shows (see [Simple and advanced](#simple-and-advanced)), with the installed version at the bottom. On narrow screens it shows icons only, each with a hint naming the page.
 
 **Top bar**, on every page:
 
@@ -15,12 +15,47 @@ The dashboard is Imprint's local web interface. It shows what your AI tools reme
 - While Echo is being set up, a pill shows its progress and links to Voice.
 - In the desktop app, while Imprint listens for “Hey Echo”, a pill says so, with **1 hour** (pause) and **Off** ([Echo voice](live-voice.md#hey-echo)).
 - **Update to vX.Y.Z** appears when a newer release exists on the update channel: stable releases, or dev builds as well once **Settings → Updates** is set to dev, which the dialog marks as a dev build ([ADR 0108](adr/0108-installations-opt-in-to-dev-builds-in-settings.md)). Its dialog explains the steps for this kind of installation, starts the update, shows the updater's log and reloads once the new version runs. Memories, workspaces and settings are kept, and running jobs finish first. An installation that cannot update itself says why ([ADR 0023](adr/0023-update-by-installation-type.md), [ADR 0050](adr/0050-registered-dashboard-server-and-supervised-restart.md)).
+- **Dashboard: Simple** or **Advanced** switches between the two dashboards ([Simple and advanced](#simple-and-advanced)).
+- The help menu shows the open page's tutorial again, or the welcome, and turns tutorials that start by themselves off or on ([Tutorials](#tutorials)).
 - The theme menu chooses **Light**, **Dark** or **System** (follows the operating system as it changes). The choice is kept in this browser or desktop app and applied before the page first paints; every page open in the same browser or app follows a change at once ([ADR 0154](adr/0154-the-dashboard-and-desktop-app-follow-a-light-dark-or-system-theme.md)).
-- The workspace switcher names the active workspace. Its menu switches to another one (the dashboard reloads), creates one with **New workspace…** and switches to it, and opens **Manage workspaces…**.
+- The workspace switcher names the active workspace. Its menu switches to another one (the dashboard reloads), creates one with **New workspace…** and switches to it, and opens **Manage workspaces…**. The simple dashboard leaves it out while there is one workspace.
 
 **Connection and job notices.** When the local service stops answering, a banner says so and offers **Retry connection**; the dashboard reconnects on its own. A job this tab saw waiting or running is announced when it finishes, fails or is cancelled, whichever page is open; a failure says why and offers **Retry** and **Open queue**.
 
+## Simple and advanced
+
+The dashboard comes in two forms over the same pages, memory and settings ([ADR 0182](adr/0182-the-dashboard-has-a-simple-and-an-advanced-form.md)). **Advanced** is every page and every setting, as the rest of this document describes. **Simple** is for people who use Imprint without setting it up in detail: fewer pages, plainer words, and a short list of settings. Nothing is turned off in either, and every address works in both.
+
+- **Which one shows** is the `ui.mode` setting of this device, so the browser, the desktop app and Echo's window agree. The first start of a version that has it chooses once: Advanced for an installation that had already run a job or served an agent session, Simple for a new one. The top-bar menu, the welcome and Settings switch it at any time; another open window follows at once.
+- **Simple lists eleven pages:** Home (Dashboard), Chat, Search, Echo (Voice), Recordings and Reminders; under *Your memory* Library (Projects), About you (Core memories) and Skills; under *This device* Devices (Sync) and Settings. Graph, Topics, Sources, Organize, Queue, Agents and Commands are not listed. Opened by their address they work, under a note that says the page belongs to the advanced dashboard and offers **Switch to Advanced**.
+- **What Simple leaves out of the shared pages:**
+  - *Home:* the commands behind **Add to memory** and its fetch-again and link-following options, the Topics and Languages tiles, and **What is in memory**. **Needs your review** takes the place of **Needs attention**: a job that did not finish in the last day (**Try again**), up to three sources Organize would move (**Move to …**, **Keep where it is**), up to three guidelines it drafted (**Yes, remember this**, **No, that is wrong**) and up to three contradictions (**Use the newer**, **Keep the earlier**, **Keep both**), each with **Undo** in its toast; more than three link to the full list. These are the writes Organize and Core memories make.
+  - *The running job,* on Home and in the top bar, is named in plain words ("Reading your AI conversations") without its phase and counts; the top-bar pill opens a panel with its progress and what waits, and links to Queue.
+  - *Search:* the memory type and method filters, **Open in graph**, the match type, the content fingerprint and the similarity.
+  - *Chat:* a memory lookup is a line saying what was looked up, not a row that expands to the raw result.
+  - *Reminders:* scheduled jobs.
+  - *Library:* **Project associations…**, **Graph**, **Copy to workspace…**, chunk counts and chunks, and a source's menu, which becomes **Read** and **Move**; the overview shows the project's profile, what it holds and its topics.
+  - *About you:* the session budget and the Recorded and Retired tabs; the others are **To settle**, **Known about you** and **Suggested**. `#recorded` and `#retired` still open their tab.
+  - *Devices:* the relay field and **Snapshots** (`#snapshots` still opens them); Live sync is **Connect a device**, with **Show a code** and **Enter a code**.
+  - *Echo:* nothing. *Recordings* and *Skills:* nothing.
+- **Settings in Simple** is one page of choices in seven groups: Assistant, Echo, Recordings, Keeping memory tidy, Privacy, Devices and App. Each is a switch or a choice among a few options and is saved as it is made. A choice writes settings the advanced page shows too: one of them under plainer names (transcription quality is `audio.model`), or several at once (how far the assistant looks before answering sets `chat.research_timeout_sec` and `chat.research_token_budget`). Values set in the advanced settings that match no option show as **Custom** and stay until an option is picked. A provider whose API key this computer does not have cannot be chosen and says which variable is missing; a setting an environment variable holds is read-only and names it. **What leaves this computer** says which of chat, labels and session recaps send text to a provider, from the settings as they are. Each group links to its sections of the advanced settings, which open on the same page under a note with **Back to the short list**; **All settings (Advanced)** switches the dashboard. The list and its words are `imprint/config_simple.py`, served by `GET /api/settings/simple`.
+
+## Tutorials
+
+Every page has a short tutorial: up to six steps, each a card beside the control it describes, which is outlined while the rest of the page dims ([ADR 0183](adr/0183-each-page-has-a-short-tutorial-that-can-be-skipped.md)). The page stays usable under it.
+
+- **The welcome** starts on a new installation: it offers the Simple or Advanced dashboard, which applies as it is chosen, then points at the sidebar, the dashboard switch and the help menu.
+- **A page's tutorial** starts the first time the page opens, in the words of the dashboard that is showing; Advanced has steps for what Simple leaves out. A step whose control is not on the page (a list without rows, something only the desktop app has) is left out.
+- **Skip**, the ✕ or Escape ends a tutorial; nothing else then starts until another page opens. **Skip all tutorials** turns them off (`ui.tutorials`). Moving to another page ends a tutorial without counting it as seen.
+- **The help menu** in the top bar shows the open page's tutorial or the welcome again whenever asked, switches **Start tutorials by themselves**, and **Show every tutorial again** forgets which were seen.
+- A tutorial does not start over an open dialog or during a recording, and hides while a dialog is open. On a phone a step is a sheet at the bottom of the window.
+- Which tutorials were seen is kept per browser or desktop app. An installation that was already in use when tutorials arrived starts with them off.
+
+The steps are `imprint/ui/src/lib/tours.ts`; a control is named by a `data-tour` attribute. A test keeps one tutorial per page and checks that every step not marked optional points at a control the page shows.
+
 ## Pages
+
+Each page is described as the advanced dashboard shows it; [Simple and advanced](#simple-and-advanced) lists what the simple one leaves out.
 
 ### Dashboard
 
@@ -152,7 +187,7 @@ The CLI's commands as forms, grouped as the CLI lists them. The catalog comes fr
 
 ### Settings
 
-One section at a time, chosen from a list; `#settings-chat`, `#wsl` and the other section ids link to a section. The filter searches every section and counts the matches in each.
+One section at a time, chosen from a list; `#settings-chat`, `#wsl` and the other section ids link to a section. The filter searches every section and counts the matches in each. The simple dashboard shows its short list instead, and an address that names a section still opens it ([Simple and advanced](#simple-and-advanced)).
 
 Each setting has a one-line description and, under **What is this for?**, what it controls, what changing it does (speed, memory, what leaves the machine, what has to be reindexed) and a worked example. The text lives in [`imprint/config_help.py`](../imprint/config_help.py), which a test keeps complete for every setting; the filter searches it too. Settings that currently have no effect say so.
 

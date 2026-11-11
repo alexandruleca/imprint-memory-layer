@@ -170,7 +170,7 @@ export default function CommandsPage() {
         />
       }
       list={
-        <nav aria-label="Commands" aria-busy={!catalog && !catalogError}>
+        <nav aria-label="Commands" data-tour="commands-list" aria-busy={!catalog && !catalogError}>
           {!catalog && !catalogError && Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="m-1 h-12" />)}
           {groups.map((group) => (
             <div key={group}>

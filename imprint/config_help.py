@@ -385,6 +385,14 @@ HELP: dict[str, dict[str, str]] = {
         "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo and Record around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
         "example": "true: to start a recording or talk to Echo with one click while the dashboard is out of the way.",
     },
+    "ui.mode": {
+        "help": "Which dashboard this device shows. Simple keeps the everyday pages (Home, Chat, Search, Echo, Recordings, Reminders, Library, About you, Skills, Devices, Settings), a short list of settings and plain words; Advanced shows every page and every setting. It only changes what is shown: both read and write the same memories and settings, every address works in both, and nothing is turned off. The first start after this setting arrived chose it once: advanced for an installation that had already been used, simple for a new one. The switch is also in the top bar.",
+        "example": "\"advanced\": to see the queue, agent sessions and every setting while you look into a problem; back to \"simple\" afterwards.",
+    },
+    "ui.tutorials": {
+        "help": "Whether a page's short tutorial starts the first time it opens in a browser or in the desktop app. A tutorial points at a few controls of the page, one step at a time, and can be skipped; \"Skip all tutorials\" turns this off. Off, nothing starts by itself, and the help button in the top bar still replays the tutorial of the page you are on. Which tutorials were already seen is kept per browser, not here. An installation that was already in use when tutorials arrived starts with this off.",
+        "example": "false: on a computer whose user knows the dashboard; true again before handing it to someone new.",
+    },
     "update.channel": {
         "help": "Which releases `imprint update` and the dashboard's update check offer. \"stable\" (the default) offers releases from main only; \"dev\" also offers prerelease builds from the dev branch, which are less tested, and stable releases once they are newer. --stable or --dev overrides it for one `imprint update`.",
         "example": "\"dev\": to try fixes before they reach a stable release, on a machine where occasional breakage is acceptable.",

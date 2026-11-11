@@ -172,7 +172,7 @@ export default function TopicsPage() {
       filter={toolbar}
       listFooter={pager}
       list={
-        <nav aria-label="Topics" aria-busy={listLoading} className={cn("space-y-0.5 transition-opacity", listLoading && "opacity-60")}>
+        <nav aria-label="Topics" data-tour="topics-list" aria-busy={listLoading} className={cn("space-y-0.5 transition-opacity", listLoading && "opacity-60")}>
           {listError && <p role="alert" className="px-2.5 py-2 text-xs text-destructive">Could not load this page: {listError}</p>}
           {data.topics.map((t) => (
             <PaneItem key={t.id} selected={selected === t.name} onClick={() => select(t.name)} className="relative items-start overflow-hidden">

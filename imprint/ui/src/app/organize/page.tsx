@@ -291,7 +291,7 @@ export default function OrganizePage() {
             <StatusStrip review={data} running={job} lock={lock} core={core?.proposals ?? null} conflicts={core?.conflicts ?? 0} arrived={arrived} />
             <Tabs value={tab} onValueChange={(value) => { openTab(value as Tab); setArrived(0); }} className="flex min-h-0 flex-1 flex-col gap-0">
               <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background px-4 sm:px-8 lg:static">
-                <TabsList variant="line" className="h-10 min-w-0 justify-start overflow-x-auto">
+                <TabsList variant="line" data-tour="organize-tabs" className="h-10 min-w-0 justify-start overflow-x-auto">
                   <CountTab value="review" name="To review" short="Review" count={pending} pill />
                   <CountTab value="moved" name="Moved automatically" short="Moved" count={count("moved")} fresh={autoFresh} />
                   <CountTab value="decided" name="Decided" count={count("decided")} />

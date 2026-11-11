@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiMode } from "@/lib/ui-mode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRightLeft, Copy, Link2, Network, RefreshCw } from "lucide-react";
@@ -44,6 +45,14 @@ const INFO = (
   </div>
 );
 
+const SIMPLE_INFO = (
+  <div className="space-y-2">
+    <p className="font-medium">What the Library shows</p>
+    <p>Everything Imprint remembers, by project. Open a project to see what it is about and read the documents and conversations in it.</p>
+    <p>If something is in the wrong project, move it. Imprint keeps it there from then on.</p>
+  </div>
+);
+
 const SHORTCUTS: Shortcut[] = [
   [["J", "K"], "Next / previous project"], [["1", "2"], "Overview / Sources"],
   [["j", "↓"], "Next source"], [["k", "↑"], "Previous source"], [["x"], "Select the source"],
@@ -71,6 +80,8 @@ export default function ProjectsPage() {
 function Projects() {
   const root = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  // The simple dashboard calls this page Library and keeps reading and moving (ADR 0182).
+  const { simple } = useUiMode();
   const announce = useAnnounce();
   // The project list shows the last answer at once and follows every data change (ADR 0152).
   const projects = useCached("projects", getProjects, { revalidateOnDataChange: true });
@@ -148,6 +159,7 @@ function Projects() {
   });
 
   const project = data?.projects.find((p) => p.name === selected);
+  const sourcesName = simple ? "Documents and conversations" : "Sources";
   const shownDetail = detail.data ?? null;
   const rows = sources.data ? { rows: sources.data, error: undefined }
     : sources.error ? { rows: [] as SourceRow[], error: message(sources.error) } : null;
@@ -157,6 +169,7 @@ function Projects() {
   const read = (row: SourceRow, chunk?: number) =>
     setReading({ source: row.source, project: row.project ?? selected, chunk, title: row.title || row.source });
   const actions = {
+    simple,
     onRead: read,
     onMove: (row: SourceRow) => { if (selected) setMoving({ project: selected, sources: [row.source] }); },
     onLink: (row: SourceRow) => setAssociations({ initial: { source: row.source, project: row.project ?? selected ?? "" } }),
@@ -166,9 +179,10 @@ function Projects() {
   };
 
   const header = (
-    <ReviewHeader title="Projects" count={data?.projects.length} info={INFO} infoLabel="About Projects"
+    <ReviewHeader title={simple ? "Library" : "Projects"} count={data?.projects.length} info={simple ? SIMPLE_INFO : INFO}
+      infoLabel={simple ? "About the Library" : "About Projects"}
       updating={projects.refreshing || detail.refreshing || sources.refreshing}
-      actions={<Button variant="outline" onClick={() => setAssociations({})}><Link2 /> Project associations…</Button>} />
+      actions={simple ? undefined : <Button variant="outline" onClick={() => setAssociations({})}><Link2 /> Project associations…</Button>} />
   );
 
   const errorAlert = error && (
@@ -198,14 +212,15 @@ function Projects() {
     body = (
       <div className="px-4 sm:px-8">
         <ReviewEmpty title="No projects yet."
-          description="Projects appear as memories are saved: ingest a folder or learn your conversations from Commands." />
+          description={simple ? "Projects appear as you add things: add a folder, a document or your AI conversations on Home."
+            : "Projects appear as memories are saved: ingest a folder or learn your conversations from Commands."} />
       </div>
     );
   } else {
     body = (
       <div className="grid min-h-0 flex-1 gap-4 px-4 pb-4 sm:px-8 lg:grid-rows-[minmax(0,1fr)] @min-[760px]/page:grid-cols-[15rem_minmax(0,1fr)]">
-        <GroupRail label="Projects" groups={groups} total={data.total} value={selected} onChange={select} allLabel={null} />
-        <section aria-label={selected} className="flex min-h-0 min-w-0 flex-col gap-2">
+        <GroupRail label="Projects" groups={groups} total={data.total} value={selected} onChange={select} allLabel={null} tour="library-projects" />
+        <section aria-label={selected} data-tour="library-project" className="flex min-h-0 min-w-0 flex-col gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
             <GroupSelect groups={groups} total={data.total} value={selected} onChange={(next) => next && select(next)} allLabel={null} />
             <h2 className="hidden min-w-0 items-center gap-2 text-lg font-semibold @min-[760px]/page:flex">
@@ -213,31 +228,33 @@ function Projects() {
               <span className="truncate">{selected}</span>
             </h2>
             <span className="text-sm text-muted-foreground tabular-nums @max-[620px]/page:hidden">
-              {(shownDetail?.count ?? project?.count ?? 0).toLocaleString()} memories
-              {rows && !rows.error && ` · ${rows.rows.length.toLocaleString()} ${rows.rows.length === 1 ? "source" : "sources"}`}
+              {simple
+                ? rows && !rows.error && `${rows.rows.length.toLocaleString()} ${rows.rows.length === 1 ? "document or conversation" : "documents and conversations"}`
+                : <>{(shownDetail?.count ?? project?.count ?? 0).toLocaleString()} memories
+                  {rows && !rows.error && ` · ${rows.rows.length.toLocaleString()} ${rows.rows.length === 1 ? "source" : "sources"}`}</>}
             </span>
             <span className="flex-1" />
             <div className="flex items-center gap-1">
-              <ActionButton icon={<Network />} label="Graph" hint="Show the project in the graph"
-                onClick={() => router.push(`/graph/?scope=${encodeURIComponent(`project:${selected}`)}`)} />
+              {!simple && <ActionButton icon={<Network />} label="Graph" hint="Show the project in the graph"
+                onClick={() => router.push(`/graph/?scope=${encodeURIComponent(`project:${selected}`)}`)} />}
               <ActionButton icon={<ArrowRightLeft />} label="Move or merge…" hint="Move or merge the whole project into another one"
                 onClick={() => setMoving({ project: selected, sources: null })} />
-              <ActionButton icon={<Copy />} label="Copy to workspace…" hint="Copy or move the project to another workspace"
-                onClick={() => setMigrating({ mode: "project", value: selected })} />
+              {!simple && <ActionButton icon={<Copy />} label="Copy to workspace…" hint="Copy or move the project to another workspace"
+                onClick={() => setMigrating({ mode: "project", value: selected })} />}
             </div>
           </div>
           <Tabs value={tab} onValueChange={(value) => openTab(value as Tab)} className="flex min-h-0 flex-1 flex-col gap-0">
             <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background lg:static">
-              <TabsList variant="line" className="h-10 min-w-0 justify-start overflow-x-auto">
+              <TabsList variant="line" data-tour="library-tabs" className="h-10 min-w-0 justify-start overflow-x-auto">
                 <TabsTrigger value="overview" className="flex-none px-2.5">Overview</TabsTrigger>
-                {rows && !rows.error ? <CountTab value="sources" name="Sources" count={rows.rows.length} />
-                  : <TabsTrigger value="sources" className="flex-none px-2.5">Sources</TabsTrigger>}
+                {rows && !rows.error ? <CountTab value="sources" name={sourcesName} short={simple ? "Contents" : undefined} count={rows.rows.length} />
+                  : <TabsTrigger value="sources" className="flex-none px-2.5">{sourcesName}</TabsTrigger>}
               </TabsList>
               <span className="flex-1" />
-              <span className="@max-[520px]/page:hidden"><ShortcutsButton onClick={() => setHelp(true)} /></span>
+              {!simple && <span className="@max-[520px]/page:hidden"><ShortcutsButton onClick={() => setHelp(true)} /></span>}
             </div>
             <TabsContent value="overview" className="min-h-0 flex-1 pt-3 lg:overflow-y-auto">
-              <ProjectOverview detail={shownDetail} sources={rows ? rows.rows : null} profile={profiles?.get(selected)}
+              <ProjectOverview simple={simple} detail={shownDetail} sources={rows ? rows.rows : null} profile={profiles?.get(selected)}
                 onTopic={(topic) => router.push(`/topics/?topic=${encodeURIComponent(topic)}`)}
                 onSources={(kind) => { setList((prev) => ({ ...prev, ...RESET, filter: kind })); openTab("sources"); }} />
             </TabsContent>
@@ -256,8 +273,9 @@ function Projects() {
                     size={size} onSize={(next) => { setSize(next); setList((prev) => ({ ...prev, page: 0, reveal: false })); }}
                     root={root} label={`Sources of ${selected}`} actions={actions}
                     onMove={(moveRows) => setMoving({ project: selected, sources: moveRows.map((row) => row.source) })}
-                    onMigrate={(values) => setMigrating({ mode: "source", values })}
-                    empty={<ReviewEmpty title="No sources." description="This project holds only memories saved without one." />} />
+                    onMigrate={simple ? undefined : (values) => setMigrating({ mode: "source", values })}
+                    empty={<ReviewEmpty title={simple ? "Nothing to read here yet." : "No sources."}
+                      description={simple ? "This project holds only short notes your AI tools saved." : "This project holds only memories saved without one."} />} />
                 )}
             </TabsContent>
           </Tabs>

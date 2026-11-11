@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/loaders";
+import { useUiMode } from "@/lib/ui-mode";
 import { createWorkspace, getWorkspaces } from "@/lib/api";
 import {
   activateWorkspace,
@@ -42,6 +43,7 @@ export function WorkspaceSwitcher() {
   const [managing, setManaging] = useState(false);
   const [creating, setCreating] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
+  const { simple } = useUiMode();
 
   useEffect(() => {
     getWorkspaces().then(setState).catch((e) => toast.error("Workspaces could not load", { description: message(e) }));
@@ -59,6 +61,9 @@ export function WorkspaceSwitcher() {
   }
 
   const active = state?.active ?? "";
+  // With one workspace there is nothing to switch between: the simple
+  // dashboard leaves the control out (ADR 0182). Settings still manages them.
+  if (simple && (state?.workspaces?.length ?? 0) <= 1) return null;
   return (
     <>
       <DropdownMenu

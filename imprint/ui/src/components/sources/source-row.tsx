@@ -58,6 +58,8 @@ export interface SourceRowOptions {
   onPurge: (row: SourceRow) => void;
   onDetails: (row: SourceRow) => void;
   onGraph: (row: SourceRow) => void;
+  /** The simple dashboard (ADR 0182): Read and Move only, no chunks. */
+  simple?: boolean;
 }
 
 /** One source as a two-line row: the question or the file's name, then its
@@ -82,12 +84,18 @@ export function sourceRow(row: SourceRow, ctx: RowContext, o: SourceRowOptions):
           {where && <>{row.linked ? <span className="font-medium text-foreground">{where}</span> : where}{" · "}</>}
           {kind}
           {!!row.updated && <> · {ago(row.updated)}</>}
-          <span className="hidden @max-[620px]/page:inline"> · {row.chunks.toLocaleString()} {row.chunks === 1 ? "chunk" : "chunks"}</span>
+          {!o.simple && <span className="hidden @max-[620px]/page:inline"> · {row.chunks.toLocaleString()} {row.chunks === 1 ? "chunk" : "chunks"}</span>}
         </p>
       </>
     ),
-    meta: <>{row.chunks.toLocaleString()} {row.chunks === 1 ? "chunk" : "chunks"}</>,
-    actions: (
+    meta: o.simple ? null : <>{row.chunks.toLocaleString()} {row.chunks === 1 ? "chunk" : "chunks"}</>,
+    actions: o.simple ? (
+      <>
+        <ActionButton icon={<BookOpenText />} label="Read" hint="Read it whole (O)" tabIndex={ctx.tabIndex} onClick={() => o.onRead(row)} />
+        <ActionButton icon={<ArrowRightLeft />} label="Move" hint={unmovable || "Move to another project (M)"} tabIndex={ctx.tabIndex}
+          disabled={!!unmovable} onClick={() => o.onMove(row)} />
+      </>
+    ) : (
       <>
         <ActionButton icon={<BookOpenText />} label="Read" hint="Read it whole (O)" tabIndex={ctx.tabIndex} onClick={() => o.onRead(row)} />
         <DropdownMenu>
@@ -115,7 +123,7 @@ export function sourceRow(row: SourceRow, ctx: RowContext, o: SourceRowOptions):
         </DropdownMenu>
       </>
     ),
-    details: ctx.expanded ? <SourceDetails row={row} project={o.scope ?? row.project ?? ""} tabIndex={ctx.tabIndex} onRead={o.onRead} /> : undefined,
+    details: ctx.expanded ? <SourceDetails row={row} project={o.scope ?? row.project ?? ""} tabIndex={ctx.tabIndex} onRead={o.onRead} simple={o.simple} /> : undefined,
   };
 }
 
@@ -123,8 +131,8 @@ const CHUNKS_SHOWN = 8;
 
 /** An open row: where the source was recorded, its tags and topics, and its
  * chunks a few at a time, each readable in place. Loaded when opened. */
-function SourceDetails({ row, project, tabIndex, onRead }: {
-  row: SourceRow; project: string; tabIndex: number; onRead: (row: SourceRow, chunk?: number) => void;
+function SourceDetails({ row, project, tabIndex, onRead, simple }: {
+  row: SourceRow; project: string; tabIndex: number; onRead: (row: SourceRow, chunk?: number) => void; simple?: boolean;
 }) {
   const [data, setData] = useState<{ summary: SourceSummary | null; lineage: SourceLineage | null; error?: string } | null>(null);
   const [page, setPage] = useState(0);
@@ -164,15 +172,15 @@ function SourceDetails({ row, project, tabIndex, onRead }: {
           <DeviceProvenance origin={summary.recorded_device} paths={summary.path_context} />
           <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             {summary.source_mtime > 0 && <span className="mr-1">Modified {new Date(summary.source_mtime * 1000).toLocaleString()}</span>}
-            {[tags?.lang, tags?.layer, tags?.kind].filter(Boolean).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
-            {tags?.domain?.map((d) => <Badge key={d} variant="secondary">{d}</Badge>)}
-            {tags?.topics?.map((t) => (
+            {!simple && [tags?.lang, tags?.layer, tags?.kind].filter(Boolean).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
+            {!simple && tags?.domain?.map((d) => <Badge key={d} variant="secondary">{d}</Badge>)}
+            {tags?.topics?.map((t) => simple ? <Badge key={t} variant="secondary">{t}</Badge> : (
               <Badge key={t} variant="secondary" render={<Link href={`/topics/?topic=${encodeURIComponent(t)}`} tabIndex={tabIndex} />}>{t}</Badge>
             ))}
           </div>
         </>
       )}
-      {chunks.length > 0 && (
+      {!simple && chunks.length > 0 && (
         <section aria-label="Chunks" className="space-y-1">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Chunks</span>

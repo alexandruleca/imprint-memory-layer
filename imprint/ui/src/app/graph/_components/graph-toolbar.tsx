@@ -68,7 +68,7 @@ export function GraphToolbar({
   const force = (patch: Partial<GraphForces>) => set({ forces: { ...settings.forces, ...patch } });
 
   return (
-    <div className="flex flex-col gap-0.5 rounded-xl border border-border bg-card/90 p-1 shadow-lg backdrop-blur" role="toolbar" aria-label="Graph view" aria-orientation="vertical">
+    <div className="flex flex-col gap-0.5 rounded-xl border border-border bg-card/90 p-1 shadow-lg backdrop-blur" role="toolbar" aria-label="Graph view" aria-orientation="vertical" data-tour="graph-toolbar">
       <ToolButton icon={Share2} label="Graph view" pressed={settings.mode === "graph"} onClick={() => set({ mode: "graph" })} />
       <ToolButton icon={Sparkles} label="Star view" pressed={settings.mode === "stars"} onClick={() => set({ mode: "stars" })} />
       <Separator className="mx-1.5 my-0.5 data-horizontal:w-auto" />

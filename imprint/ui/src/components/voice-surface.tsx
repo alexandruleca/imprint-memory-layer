@@ -402,9 +402,9 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     <header className="voice-header">
       <div className="voice-wordmark"><AudioLines size={17} aria-hidden="true"/><span>IMPRINT <b>/ ECHO</b></span></div>
       <div className="voice-window-actions">
-        {!compact && <Button variant="ghost" onClick={popout} className="voice-popout"><ArrowUpRight size={15}/> Float Echo</Button>}
+        {!compact && <Button variant="ghost" onClick={popout} className="voice-popout" data-tour="voice-float"><ArrowUpRight size={15}/> Float Echo</Button>}
         <Popover open={optionsOpen} onOpenChange={setOptionsOpen}>
-          <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Companion settings"/>}><Settings2 size={16}/></PopoverTrigger>
+          <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Companion settings" data-tour="voice-settings"/>}><Settings2 size={16}/></PopoverTrigger>
           <PopoverContent align="end" className={`voice-options ${compact ? "voice-options-compact" : ""}`} aria-label="Companion settings">
             <PopoverTitle>Companion settings</PopoverTitle>
             {compact && picker && <div className="voice-look"><span>Echo&apos;s look and voice</span>{picker(true)}</div>}
@@ -461,7 +461,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
     </div>
     <div className="voice-control-area">
       {!ready ? compact && <VoiceSetup setup={setup} compact/> : <>
-      <div className="voice-modes" role="group" aria-label="Microphone mode">
+      <div className="voice-modes" role="group" aria-label="Microphone mode" data-tour="voice-modes">
         <Button variant="ghost" aria-pressed={voice.mode === "ptt"} onClick={() => chooseMode("ptt")}>Push to talk</Button>
         <Button variant="ghost" aria-pressed={voice.mode === "handsfree"} onClick={() => chooseMode("handsfree")}>Hands-free</Button>
       </div>
@@ -469,7 +469,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
         {!active ? <>
             {chosenChat
               ? <Button className="voice-start" disabled={!ready} onClick={() => begin(chosenChat)}><AudioLines size={18}/> <span className="voice-start-label">Continue “{chosenChat.title}”</span></Button>
-              : <Button className="voice-start" disabled={!ready} onClick={() => begin()}><AudioLines size={18}/> {voice.resumable ? "Continue conversation" : "Start conversation"}</Button>}
+              : <Button className="voice-start" data-tour="voice-start" disabled={!ready} onClick={() => begin()}><AudioLines size={18}/> {voice.resumable ? "Continue conversation" : "Start conversation"}</Button>}
             {chosenChat && <Button variant="ghost" size={compact ? "icon-sm" : "icon-lg"} aria-label="Start a new conversation instead" title="Start a new conversation instead" onClick={() => setChosenChat(null)}><X size={16}/></Button>}
             {!chosenChat && <EarlierChats compact={compact} onChoose={begin}/>}
             {voice.resumable && !compact && !chosenChat && <Button variant="ghost" size="icon-lg" aria-label="End conversation" title="End conversation" onClick={() => client.current?.stop()}><MicOff size={18}/></Button>}

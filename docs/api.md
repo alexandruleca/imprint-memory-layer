@@ -349,6 +349,9 @@ available.
 | GET | `/api/config` | All resolved config values + their source, and each setting's choices; `model.device`'s say what each value does on this device, and `model.gpu_device`'s list the GPUs llama.cpp finds. |
 | PUT | `/api/config/{key}` | Set a config key. Body: `{"value": ...}`. |
 | DELETE | `/api/config/{key}` | Remove the `config.json` override. |
+| GET | `/api/ui` | `{mode, tutorials}`: the dashboard this device shows (`ui.mode`) and whether tutorials start by themselves (`ui.tutorials`), read by the dashboard before it draws its navigation ([ADR 0182](adr/0182-the-dashboard-has-a-simple-and-an-advanced-form.md)). |
+| GET | `/api/settings/simple` | The simple dashboard's settings: groups of items, each a `switch` (`on`), a `choice` (`options`, `selected` or `null` when the stored values match none), a `link`, the `theme` or the `report` of what leaves the computer. `locked` names the environment variable that holds an item's setting. |
+| PUT | `/api/settings/simple/{item}` | Apply one item: `{"on": bool}` for a switch, `{"option": n}` for a choice, which writes every setting of that option. Returns the keys written and the groups again. 400 for a choice the item does not offer or an option that is unavailable here, 404 for an unknown item. |
 
 PUT answers `{"ok": true, "value": ...}` and DELETE `{"ok": true, "removed": ...}`. No setting installs anything: a change to `model.device` or `model.gpu_device` takes effect in each process once it restarts ([ADR 0086](adr/0086-embeddings-run-on-llama-cpp-without-cuda.md)).
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useUiMode } from "@/lib/ui-mode";
 import Link from "next/link";
 import { ArrowDown, AudioLines, CircleAlert, Info, PanelLeft } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -98,6 +99,7 @@ export default function ChatPage() {
   const chatsRef = useRef(chats);
   useEffect(() => { chatsRef.current = chats; });
   const [activeId, setActiveId] = useState<string | null>(null);
+  const { simple } = useUiMode();
   const [turns, setTurns] = useState<Turn[]>([]);
   // What Imprint reads in place of the chat's earliest exchanges (ADR 0141).
   const [summary, setSummary] = useState<ChatSummary | null>(null);
@@ -327,7 +329,7 @@ export default function ChatPage() {
           <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h2>
           {activeId && !draft && (
             // Echo carries the chat on, by voice; what it says is added here (ADR 0146).
-            <Link href={`/voice/?chat=${encodeURIComponent(activeId)}`}
+            <Link href={`/voice/?chat=${encodeURIComponent(activeId)}`} data-tour="chat-echo"
               className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "shrink-0 text-muted-foreground")}>
               <AudioLines /> Continue with Echo
             </Link>
@@ -340,7 +342,7 @@ export default function ChatPage() {
               <LogoMark className="size-10" />
               <h1 className="text-2xl font-semibold tracking-tight">What do you want to recall?</h1>
               <p className="max-w-md text-sm text-muted-foreground">
-                Imprint answers from your indexed projects, decisions and past conversations.
+                {simple ? "Imprint answers from what you added: your projects, documents and past conversations." : "Imprint answers from your indexed projects, decisions and past conversations."}
               </p>
             </div>
             <Composer ref={composerRef} autoFocus model={model} streaming={streaming} onSend={send}
