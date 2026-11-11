@@ -171,6 +171,8 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | `organize.auto_move` | `true` | Move catch-all sources with strong evidence without review; weaker proposals still wait ([ADR 0133](adr/0133-strong-placements-apply-by-themselves.md)) |
 | **Workspace selection** | | |
 | `workspace.unassigned` | — (the active workspace) | Workspace for agent sessions outside an assigned project, such as desktop app chats. Choices are this device's workspaces; deleting the chosen one resets it. Env `IMPRINT_UNASSIGNED_WORKSPACE`. See [workspace per project](workspaces.md#workspace-per-project) |
+| **Desktop app** | | |
+| `desktop.floating_orb` | `false` | Show the floating Imprint button while the dashboard is hidden; minimizing then hides to the tray. Off, minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and the button appears only during a recording. Read each time the dashboard is hidden. Env `IMPRINT_DESKTOP_FLOATING_ORB` ([ADR 0174](adr/0174-the-floating-orb-is-off-unless-the-user-turns-it-on.md)) |
 | **Updates** | | |
 | `update.channel` | `stable` | Releases this installation updates to: `stable`, or `dev` for dev builds as well. The dashboard's update notice and `imprint update` follow it; `--stable` or `--dev` overrides it for one run. Env `IMPRINT_UPDATE_CHANNEL`. See [updating an existing install](installation.md#updating-an-existing-install) |
 | **Other** | | |

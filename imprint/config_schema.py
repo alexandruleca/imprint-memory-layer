@@ -389,6 +389,11 @@ SETTINGS: list[Setting] = [
             "Workspace for agent sessions outside an assigned project, such as desktop app chats (empty: the active workspace)",
             choices=_workspaces),
 
+    # ── Desktop app (ADR 0174) ────────────────────────────────
+    # Read by the desktop app each time the dashboard is hidden.
+    Setting("desktop.floating_orb", "IMPRINT_DESKTOP_FLOATING_ORB", False, bool,
+            "Show the floating Imprint button while the dashboard is hidden; it shows during a recording either way"),
+
     # ── Updates (ADR 0108) ────────────────────────────────────
     # Read by `imprint update` when no --stable/--dev is passed, so the
     # dashboard's update check and the terminal follow the same channel.

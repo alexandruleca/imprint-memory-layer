@@ -1552,6 +1552,18 @@ def api_config():
     return {"settings": settings}
 
 
+@app.get("/api/config/{key:path}")
+def api_config_get(key: str):
+    """One setting's value and where it comes from; the desktop app reads
+    `desktop.floating_orb` this way (ADR 0174). Secrets stay masked."""
+    from .config_schema import SETTINGS_BY_KEY, display_value, resolve
+    setting = SETTINGS_BY_KEY.get(key)
+    if setting is None:
+        return JSONResponse({"error": f"unknown setting: {key}"}, status_code=404)
+    value, source = resolve(key)
+    return {"key": key, "value": display_value(setting, value), "source": source}
+
+
 @app.put("/api/config/{key:path}")
 async def api_config_set(key: str, request: Request):
     body = await request.json()

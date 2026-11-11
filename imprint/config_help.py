@@ -373,6 +373,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The workspace (a separate set of memories) used by agent sessions that no project assigns one, such as desktop app chats, or folders without an approved .imprint/workspace.json or workspace root. Empty (the default) uses whichever workspace is active in the CLI and dashboard at the time; set it to keep such sessions in one fixed workspace. It resets to empty if that workspace is removed.",
         "example": "\"personal\": so Claude Desktop chats always use your personal workspace, not whichever work workspace is active.",
     },
+    "desktop.floating_orb": {
+        "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo and Record around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
+        "example": "true: to start a recording or talk to Echo with one click while the dashboard is out of the way.",
+    },
     "update.channel": {
         "help": "Which releases `imprint update` and the dashboard's update check offer. \"stable\" (the default) offers releases from main only; \"dev\" also offers prerelease builds from the dev branch, which are less tested, and stable releases once they are newer. --stable or --dev overrides it for one `imprint update`.",
         "example": "\"dev\": to try fixes before they reach a stable release, on a machine where occasional breakage is acceptable.",

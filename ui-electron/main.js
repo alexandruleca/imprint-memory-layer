@@ -163,6 +163,27 @@ function ping() {
   });
 }
 
+// Whether the user wants the floating orb while the dashboard is hidden: the
+// `desktop.floating_orb` setting, off by default (ADR 0174). It is read from
+// the server each time, so a change in Settings applies at the next hide;
+// when the server does not answer, the last answer (at first, off) stands.
+let orbEnabled = false;
+function orbChoice() {
+  return new Promise(resolve => {
+    const done = value => { if (typeof value === 'boolean') orbEnabled = value; resolve(orbEnabled); };
+    const req = http.get(`${UI_URL.replace(/\/$/, '')}/api/config/desktop.floating_orb`, { timeout: 800 }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        try { done(res.statusCode === 200 ? JSON.parse(body).value : undefined); } catch { done(); }
+      });
+    });
+    req.on('error', () => done());
+    req.on('timeout', () => { req.destroy(); done(); });
+  });
+}
+
 function startupState() {
   return { phase, message, logPath: service?.logPath ?? '' };
 }
@@ -234,7 +255,7 @@ async function openDashboard(id) {
     if (!quitting) { e.preventDefault(); closeWindow(window); }
   });
   window.on('closed', () => { if (win === window) win = null; });
-  window.on('minimize', () => { if (!quitting && phase === 'ready') void hideDashboard(); });
+  window.on('minimize', () => { if (!quitting && phase === 'ready') void hideDashboard({ minimized: true }); });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (sameOrigin(url, UI_ORIGIN)) window.loadURL(url).catch(err => showError(err.message));
     else if (externalURL(url)) shell.openExternal(url);
@@ -326,11 +347,26 @@ function showWindow() {
   }
 }
 
-async function hideDashboard() {
+async function hideDashboard({ minimized = false } = {}) {
   if (hidingDashboard || quitting || !win) return;
   hidingDashboard = true;
   wantLauncher = true;
   try {
+    // A closed dashboard leaves at once; a minimized one is out of sight
+    // already. Whether the orb comes up is the user's choice, off by default
+    // (ADR 0174): without it a minimized dashboard stays in the taskbar and a
+    // closed one in the tray. A running recording brings the orb anyway: it
+    // is where a hidden recording shows and stops.
+    if (tray && !minimized) win.hide();
+    const orb = recorder.phase !== 'idle' || await orbChoice();
+    if (!wantLauncher || quitting || !win) return; // Shown again meanwhile.
+    if (!orb) {
+      wantLauncher = false;
+      if (minimized) return;
+      if (tray) showInDock(false);
+      else win.minimize();
+      return;
+    }
     const opening = showLauncher();
     if (tray) win.hide();
     await opening;
@@ -576,6 +612,14 @@ function setRecorder(state) {
     if (window && !window.isDestroyed()) window.webContents.send('recorder-state', recorder);
   }
   notifyLauncher();
+  // A recording brought the orb up although the user keeps it off (ADR 0174):
+  // it goes with the recording.
+  if (recorder.phase === 'idle' && !orbEnabled && launcherWin?.isVisible()) {
+    wantLauncher = false;
+    closeHalo();
+    launcherWin.hide();
+    watchLauncherActivity(false);
+  }
   reconcileWake();
 }
 function stopRecorder() {

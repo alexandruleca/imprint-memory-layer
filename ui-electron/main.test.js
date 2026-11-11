@@ -13,7 +13,8 @@ const RUNTIME_ARGS = ['--project-dir=/source', '--data-dir=/data', '--python=/wr
 function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, dashboardPending = false, packaged = true, savedPosition = null,
   runtimeArgs = RUNTIME_ARGS, cli = () => [new Error('spawn ENOENT'), ''], platform = 'darwin',
   mediaStatus = 'granted', consent = async () => true, activity = null, servicePending = false, messageBox = async () => ({ response: 1 }),
-  wakeFile = null, onBattery = false, themeFile = null } = {}) {
+  wakeFile = null, onBattery = false, themeFile = null, floatingOrb = true } = {}) {
+  // The orb tests run with the floating orb turned on; Imprint's default is off (ADR 0174), tested on its own.
   const windows = [];
   const services = [];
   const calls = [];
@@ -116,7 +117,19 @@ function harness({ alreadyUp = false, failSpawn = false, trayAvailable = true, d
     getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getDisplayMatching: bounds => ({ workArea: { x: bounds.x >= 1920 ? 1920 : 0, y: 0, width: 1920, height: 1080 } }) });
   const http = {
-    get(_url, _options, callback) {
+    get(url, _options, callback) {
+      if (String(url).endsWith('/api/config/desktop.floating_orb')) {
+        calls.push('orb-setting');
+        const req = new EventEmitter();
+        req.destroy = () => {};
+        queueMicrotask(() => {
+          const res = Object.assign(new EventEmitter(), { statusCode: 200, setEncoding() {}, resume() {} });
+          callback(res);
+          res.emit('data', JSON.stringify({ key: 'desktop.floating_orb', value: floatingOrb, source: 'config' }));
+          res.emit('end');
+        });
+        return req;
+      }
       calls.push('ping');
       const req = new EventEmitter();
       req.destroy = () => {};
@@ -775,6 +788,36 @@ test('the orb starts a recording in the hidden dashboard only with consent, and 
   assert.equal(commands.at(-1).type, 'stop');
   h.emit('recorder-state', dashboard, report('idle'));
   assert.equal(dashboard.throttled, true);
+});
+
+test('with the floating orb off, the default, minimize stays in the taskbar and close goes to the tray', async () => {
+  const h = harness({ alreadyUp: true, floatingOrb: false }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.emit('minimize'); await settle();
+  assert.ok(h.calls.includes('orb-setting'), 'the choice is read when the dashboard is hidden');
+  assert.equal(h.windows.length, 2, 'no orb window');
+  assert.equal(dashboard.visible, true, 'left minimized, as the system put it, not hidden');
+  h.emit('win-close', dashboard);
+  assert.equal(dashboard.visible, false, 'closing hides it at once');
+  await settle();
+  assert.equal(h.windows.length, 2, 'still no orb');
+  assert.ok(h.calls.includes('dock-hide'), 'the Dock icon goes with it, as with the orb');
+  h.app.emit('second-instance');
+  assert.equal(dashboard.visible, true);
+});
+
+test('with the floating orb off, a recording brings it up and it goes when the recording ends', async () => {
+  const h = harness({ alreadyUp: true, floatingOrb: false }); await settle();
+  const dashboard = h.windows[1];
+  dashboard.webContents.send = () => {};
+  const report = phase => ({ phase, id: 'r1', title: 'Weekly', project: 'meetings', startedAt: 1000, others: true, error: '' });
+  h.emit('recorder-state', dashboard, report('recording'));
+  dashboard.emit('minimize'); await settle();
+  const orb = h.windows[2];
+  assert.equal(orb?.visible, true, 'the orb shows the hidden recording');
+  assert.equal(dashboard.visible, false);
+  h.emit('recorder-state', dashboard, report('idle'));
+  assert.equal(orb.visible, false, 'and goes with it');
 });
 
 test('Echo folds into the orb and comes back from it in the same window', async () => {
