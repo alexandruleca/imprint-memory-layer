@@ -32,7 +32,7 @@ The records in force, by area. An amended record is listed with the records that
 
 ### Storage and retrieval
 
-- [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) **Source lifecycle and hybrid retrieval.** Content provenance, safe source replacement and bounded hybrid ranking. Amended by [ADR 0110](0110-the-scan-follows-no-links.md) (the scan follows no links).
+- [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md) **Source lifecycle and hybrid retrieval.** Content provenance, safe source replacement and bounded hybrid ranking. Amended by [ADR 0110](0110-the-scan-follows-no-links.md) (the scan follows no links) and [ADR 0172](0172-exact-matches-survive-a-large-corpus.md) (lexical candidates and verbatim matches).
 - [ADR 0021](0021-budgeted-mcp-evidence-and-selective-expansion.md) **Budgeted MCP evidence and selective expansion.** Compact bounded MCP evidence, selective expansion and separately pinned runtime/corpus benchmark provenance.
 - [ADR 0022](0022-http-client-lifetime-during-model-work.md) **Retain HTTP clients during model work.** Keep HTTP Qdrant clients alive through cold model work; retire the embedded-lock idle timer.
 - [ADR 0036](0036-move-memories-between-projects.md) **Move memories between projects.** Projects place memories their writers named; workspace rules applied at every write keep moves through refresh, learning and sync, without changing source keys. Amended by [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md) (rules travel to paired devices).
@@ -43,6 +43,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0081](0081-verifiable-redacted-source-snapshots.md) **Verifiable redacted source snapshots.** Complete redacted readable sources, character-span manifests and bounded verified source reads.
 
 - [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md) **Audio files enter the source ingestion pipeline.** Local audio becomes timestamped neutral-speaker conversations; existing redacted source snapshots provide the workspace-scoped transcript cache.
+- [ADR 0172](0172-exact-matches-survive-a-large-corpus.md) **Exact matches survive a large corpus.** The lexical channel reads the points holding every query term, then each term's points from the rarest up; a query of several terms found verbatim ranks as a third list in the fusion.
 
 ### Workspaces, ingestion and learning
 
@@ -247,7 +248,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0002](0002-build-and-validate-before-publication.md) | 2026-10-23 | Amended by [ADR 0014](0014-main-only-release-packaging.md) | Validate releases before publication |
 | [0003](0003-local-mcp-and-portable-hooks.md) | 2026-10-23 | Accepted | Local MCP and portable hooks |
 | [0004](0004-runtime-dependencies-and-local-boundaries.md) | 2026-10-23 | Amended by [ADR 0007](0007-verified-runtime-and-desktop-baseline.md) | Runtime dependencies and local boundaries |
-| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | 2026-10-23 | Amended by [ADR 0110](0110-the-scan-follows-no-links.md) | Source lifecycle and hybrid retrieval |
+| [0005](0005-source-lifecycle-and-hybrid-retrieval.md) | 2026-10-23 | Amended by [ADR 0110](0110-the-scan-follows-no-links.md), [ADR 0172](0172-exact-matches-survive-a-large-corpus.md) | Source lifecycle and hybrid retrieval |
 | [0006](0006-durable-mcp-and-preserved-client-config.md) | 2026-10-23 | Amended by [ADR 0015](0015-workspace-roots-and-source-purge.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Durable MCP and preserved client configuration |
 | [0007](0007-verified-runtime-and-desktop-baseline.md) | 2026-10-23 | Accepted | Verified runtime and desktop baseline |
 | [0008](0008-dashboard-retrieval-and-accessibility.md) | 2026-10-23 | Amended by [ADR 0039](0039-shadcn-overlays-and-desktop-drag-handles.md), [ADR 0154](0154-the-dashboard-and-desktop-app-follow-a-light-dark-or-system-theme.md) | Dashboard retrieval and accessibility |
@@ -415,6 +416,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0169](0169-skills-and-personas-are-written-into-the-folders-clients-read.md) | 2026-11-09 | Amended by [ADR 0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md), [ADR 0171](0171-personas-are-written-for-codex-and-cursor.md) | Skills and personas are written into the folders the clients read |
 | [0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) | 2026-11-10 | Accepted | Skills and personas reach every MCP client through Imprint's server |
 | [0171](0171-personas-are-written-for-codex-and-cursor.md) | 2026-11-10 | Accepted | Personas are written for Codex and Cursor |
+| [0172](0172-exact-matches-survive-a-large-corpus.md) | 2026-11-11 | Accepted | Exact matches survive a large corpus |
 
 ## How to write and maintain ADRs
 

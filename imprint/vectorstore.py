@@ -987,14 +987,43 @@ def search(
         return [{**row, 'path_context': device.context(row, workspace)} for row in rows]
     if mode == "semantic":
         return present([{**row, "match_type": "semantic"} for row in semantic[offset:offset + limit]])
-    terms = query_terms(query)
-    lexical = []
-    if terms:
-        points, _ = client.scroll(collection_name=coll, scroll_filter=qm.Filter(
-            must=conditions, should=[qm.FieldCondition(key="content", match=qm.MatchText(text=term)) for term in terms]),
-            limit=CANDIDATE_LIMIT, with_payload=True, with_vectors=False)
-        lexical = [result(point) for point in points]
+    lexical = [result(point) for point in _lexical_candidates(client, coll, conditions, query_terms(query),
+                                                              CANDIDATE_LIMIT)]
     return present(fuse(query, semantic, lexical)[offset:offset + limit])
+
+
+def _lexical_candidates(client, coll: str, conditions: list, terms: list[str], limit: int) -> list:
+    """The points the lexical channel ranks, at most ``limit`` (ADR 0172).
+
+    Points holding every term come first, then each term's points from the
+    rarest term up while room is left. Qdrant reads matches in point-id order,
+    so in a large corpus a term like "2026" or "11" would otherwise fill the
+    limit with arbitrary points before an exact phrase match was read."""
+    def has(term: str):
+        return qm.FieldCondition(key="content", match=qm.MatchText(text=term))
+
+    def read(extra: list, count: int) -> list:
+        points, _ = client.scroll(collection_name=coll, scroll_filter=qm.Filter(must=[*conditions, *extra]),
+                                  limit=count, with_payload=True, with_vectors=False)
+        return points
+
+    found: dict = {}
+    order = terms
+    if len(terms) > 1:
+        found.update((point.id, point) for point in read([has(term) for term in terms], limit))
+        if len(found) < limit:
+            counts = {term: client.count(collection_name=coll, count_filter=qm.Filter(must=[*conditions, has(term)]),
+                                         exact=True).count for term in terms}
+            order = sorted((t for t in terms if counts[t]), key=lambda t: (counts[t], terms.index(t)))
+    for term in order:
+        if len(found) >= limit:
+            break
+        # At most len(found) of these are already held, so enough are new.
+        for point in read([has(term)], limit):
+            if len(found) >= limit:
+                break
+            found.setdefault(point.id, point)
+    return list(found.values())
 
 
 def resolve_point_id(memory_id: str) -> str:

@@ -14,6 +14,14 @@ def query_terms(query: str) -> list[str]:
     return list(dict.fromkeys(word for word in words if len(word) >= 2 and word not in STOP_WORDS))[:12]
 
 
+def verbatim(query: str, payload: dict) -> bool:
+    """Whether the whole query appears in the content or source, ignoring
+    case and runs of whitespace."""
+    phrase = ' '.join(query.split()).casefold()
+    return bool(phrase) and any(phrase in ' '.join(str(payload.get(key, '')).split()).casefold()
+                                for key in ('content', 'source'))
+
+
 def lexical_score(query: str, payload: dict) -> float:
     terms = query_terms(query)
     if not terms:
@@ -25,7 +33,7 @@ def lexical_score(query: str, payload: dict) -> float:
     tf = sum(math.log1p(words[term]) for term in terms)
     # Exact identifiers/path fragments deserve more weight than a common word.
     exact = sum(2 for term in terms if ('_' in term or any(c.isdigit() for c in term)) and (words[term] or term in source))
-    phrase = 2 if query.strip().casefold() in content or query.strip().casefold() in source else 0
+    phrase = 2 if verbatim(query, payload) else 0
     return coverage + tf / max(1, math.log2(len(words) + 2)) + exact + phrase
 
 
@@ -34,8 +42,15 @@ def fuse(query: str, semantic: list[dict], lexical: list[dict]) -> list[dict]:
     semantic_rank = {row['id']: rank for rank, row in enumerate(semantic, 1)}
     lexical_order = sorted(candidates.values(), key=lambda row: (-lexical_score(query, row), row['id']))
     lexical_rank = {row['id']: rank for rank, row in enumerate(lexical_order, 1) if lexical_score(query, row) > 0}
+    # A query of several terms found verbatim (a title, a quoted phrase) ranks
+    # in a list of its own, so rows that are merely in both other lists do not
+    # bury it (ADR 0172). A single term is the lexical list already.
+    phrase_rank = {}
+    if len(query_terms(query)) > 1:
+        phrase_rank = {row['id']: rank for rank, row in
+                       enumerate((row for row in lexical_order if verbatim(query, row)), 1)}
     for mid, row in candidates.items():
-        ranks = [rank[mid] for rank in (semantic_rank, lexical_rank) if mid in rank]
+        ranks = [rank[mid] for rank in (semantic_rank, lexical_rank, phrase_rank) if mid in rank]
         row['retrieval_score'] = sum(1 / (60 + rank) for rank in ranks)
         row['match_type'] = 'hybrid' if mid in semantic_rank and mid in lexical_rank else ('lexical' if mid in lexical_rank else 'semantic')
         row['lexical_score'] = round(lexical_score(query, row), 4)

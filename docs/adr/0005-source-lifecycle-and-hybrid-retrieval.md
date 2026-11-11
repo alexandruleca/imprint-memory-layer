@@ -5,7 +5,9 @@ description: Full-content chunk identities, byte provenance, safe source replace
 
 - Status: Amended
 - Date: 2026-10-23
-- Amended by: [ADR 0110](0110-the-scan-follows-no-links.md) — the directory scan keeps files inside the selected root by following no links instead of resolving each file
+- Amended by:
+  - [ADR 0110](0110-the-scan-follows-no-links.md) — the directory scan keeps files inside the selected root by following no links instead of resolving each file
+  - [ADR 0172](0172-exact-matches-survive-a-large-corpus.md) — how the lexical channel picks its candidates, and how a verbatim match of the query is fused
 - Restructured: 2026-10-25
 
 ## Context
