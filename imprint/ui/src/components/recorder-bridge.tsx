@@ -30,6 +30,14 @@ export function RecorderBridge() {
     return () => clearInterval(timer);
   }, [recorder.phase]);
 
+  // The tray's New recording… and Turn on "Hey Echo"… open these pages (ADR 0174).
+  useEffect(() => window.electronAPI?.onDashboardGoto?.((page) => {
+    if (page !== "/recordings/" && page !== "/voice/?wake=on") return;
+    router.push(page);
+    // An open Voice page does not mount again: it is told directly.
+    if (page === "/voice/?wake=on") window.dispatchEvent(new Event("imprint-wake-setup"));
+  }), [router]);
+
   useEffect(() => window.electronAPI?.onRecorderCommand?.(async (command) => {
     if (command.type === "stop") { await stopMeeting(); return; }
     if (command.type !== "start") return;

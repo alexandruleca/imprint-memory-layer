@@ -62,6 +62,7 @@ declare global {
       reportRecorder?: (state: LauncherRecorder) => void;
       reportRecorderLevels?: (levels: [number, number]) => void;
       onRecorderCommand?: (callback: (command: { type: "start"; title: string; project: string; others: boolean } | { type: "stop" }) => void) => () => void;
+      onDashboardGoto?: (callback: (page: string) => void) => () => void;
       getRecorder?: () => Promise<LauncherRecorder | null>;
       startRecording?: (options: { title: string; project: string; others: boolean; consent: true }) => void;
       stopRecording?: () => void;

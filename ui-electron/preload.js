@@ -52,6 +52,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('recorder-command', listener);
     return () => ipcRenderer.removeListener('recorder-command', listener);
   },
+  // The tray opens the dashboard at a page: Recordings, or Voice with "Hey Echo".
+  onDashboardGoto: callback => {
+    const listener = (_event, page) => callback(page);
+    ipcRenderer.on('dashboard-goto', listener);
+    return () => ipcRenderer.removeListener('dashboard-goto', listener);
+  },
   getRecorder: () => ipcRenderer.invoke('launcher-recorder'),
   startRecording: options => ipcRenderer.send('launcher-record', options),
   stopRecording: () => ipcRenderer.send('launcher-record-stop'),

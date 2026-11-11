@@ -250,6 +250,22 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   const devices = useAudioDevices(optionsOpen, voice.microphone);
   const ready = setup.state ? setup.state.installed && setup.state.supported && !setup.state.busy
     && !["error", "blocked", "cancelled"].includes(setup.state.stage) : runtime?.installed && runtime.supported;
+  // The tray's Turn on "Hey Echo"… (ADR 0174) arrives as /voice/?wake=on, or as an event when this
+  // page is open already; either way the explanation comes first, as from the switch.
+  const [wakeAsked, setWakeAsked] = useState(false);
+  useEffect(() => {
+    if (compact) return;
+    const ask = () => {
+      if (new URLSearchParams(location.search).has("wake")) history.replaceState(null, "", location.pathname);
+      setWakeError("");
+      setWakeAsked(true);
+    };
+    if (new URLSearchParams(location.search).get("wake") === "on") ask();
+    window.addEventListener("imprint-wake-setup", ask);
+    return () => window.removeEventListener("imprint-wake-setup", ask);
+  }, [compact]);
+  // Asked from the tray, the sheet opens once Echo is set up and while "Hey Echo" is off.
+  const wakeSheetOpen = wakeSheet || (wakeAsked && desktop && !!ready && !wake?.enabled);
   const active = voice.connected || voice.phase === "connecting";
   // Echo is answering, has questions waiting, or is reading an answer aloud.
   const busy = voice.connected && (replying(voice) || voice.phase === "speaking");
@@ -286,6 +302,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       setWakeBusy("saving");
       await api?.setWake?.({ enabled: true, battery: wakeBattery ? "pause" : "listen" });
       setWakeSheet(false);
+      setWakeAsked(false);
     } catch (error) {
       setWakeError(error instanceof Error ? error.message : "“Hey Echo” could not be turned on.");
     } finally { setWakeBusy(null); }
@@ -293,6 +310,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
   function closeWakeSheet() {
     if (wakeBusy === "download") void cancelWakeDownload().catch(() => {});
     setWakeSheet(false);
+    setWakeAsked(false);
   }
   /** Any click or key in Echo during a wake-started conversation keeps it open. */
   function takeOver() {
@@ -485,7 +503,7 @@ export function VoiceSurface({ compact = false }: { compact?: boolean }) {
       </>}
     </div>
     {!compact && <footer className="voice-footer"><span>ECHO / LOCAL COMPANION</span><a href={`/models/imprint-${avatar || "echo"}.glb`} download><Download size={13}/> Download 3D model</a></footer>}
-    <Dialog open={wakeSheet} onOpenChange={open => { if (!open) closeWakeSheet(); }}>
+    <Dialog open={wakeSheetOpen} onOpenChange={open => { if (!open) closeWakeSheet(); }}>
       <DialogContent className="voice-wake-sheet">
         <DialogHeader>
           <DialogTitle>Listen for “Hey Echo”?</DialogTitle>

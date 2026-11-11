@@ -275,6 +275,7 @@ async function openDashboard(id) {
   window.focus();
   startupWin?.destroy();
   reconcileWake();
+  void orbChoice().then(() => refreshTray(true));
 }
 
 async function start() {
@@ -612,6 +613,7 @@ function setRecorder(state) {
     if (window && !window.isDestroyed()) window.webContents.send('recorder-state', recorder);
   }
   notifyLauncher();
+  refreshTray(true);
   // A recording brought the orb up although the user keeps it off (ADR 0174):
   // it goes with the recording.
   if (recorder.phase === 'idle' && !orbEnabled && launcherWin?.isVisible()) {
@@ -827,10 +829,57 @@ function trayMenu(activity) {
     ...(activity ? [{ label: activity, enabled: false }, { type: 'separator' }] : []),
     ...wakeMenu(),
     { label: 'Open Dashboard', click: showWindow },
+    // What the floating orb offers, whether or not it is shown (ADR 0174).
+    recorder.phase === 'recording' ? { label: 'Stop recording', click: stopRecorder }
+      : { label: 'New recording…', enabled: recorder.phase === 'idle' && phase === 'ready', click: newRecording },
     { label: 'Float Echo', accelerator: SHORTCUT, click: recoverCompanion },
+    ...(wake.intent.enabled ? [] : [{ label: 'Turn on “Hey Echo”…', enabled: phase === 'ready',
+      click: () => openDashboardAt('/voice/?wake=on') }]),
+    { label: 'Floating button', type: 'checkbox', checked: orbEnabled, enabled: phase === 'ready',
+      click: item => void setFloatingOrb(item.checked) },
     { type: 'separator' },
     { label: 'Quit Imprint', click: () => app.quit() },
   ]);
+}
+
+// Pages the main process may open the dashboard at: a recording starts
+// there after its consent box, "Hey Echo" after its explanation.
+const DASHBOARD_PAGES = new Set(['/recordings/', '/voice/?wake=on']);
+function openDashboardAt(page) {
+  if (!DASHBOARD_PAGES.has(page) || phase !== 'ready' || !win || win.isDestroyed()) return;
+  showWindow();
+  win.webContents.send('dashboard-goto', page);
+}
+// A recording starts in the orb's panel when the orb is up, else on the
+// Recordings page: both ask for the same title, project and consent.
+function newRecording() {
+  if (launcherWin?.isVisible()) void openHalo('record');
+  else openDashboardAt('/recordings/');
+}
+// The tray's Floating button writes the same setting as Settings → Desktop
+// app, and shows or hides the orb at once while the dashboard is hidden.
+function setFloatingOrb(on) {
+  return new Promise(resolve => {
+    const body = JSON.stringify({ value: on ? 'true' : 'false' });
+    const req = http.request(`${UI_URL.replace(/\/$/, '')}/api/config/desktop.floating_orb`,
+      { method: 'PUT', timeout: 2000, headers: { 'Content-Type': 'application/json', 'Content-Length': body.length } },  // ASCII JSON
+      res => {
+        res.resume();
+        if (res.statusCode === 200) {
+          orbEnabled = on;
+          const hidden = win && !win.isDestroyed() && !win.isVisible();
+          if (on && hidden && !quitting) { wantLauncher = true; void showLauncher(); }
+          else if (!on && recorder.phase === 'idle' && launcherWin?.isVisible()) {
+            wantLauncher = false; closeHalo(); launcherWin.hide(); watchLauncherActivity(false);
+          }
+        }
+        refreshTray(true);
+        resolve(orbEnabled);
+      });
+    req.on('error', () => { refreshTray(true); resolve(orbEnabled); });
+    req.on('timeout', () => { req.destroy(); });
+    req.end(body);
+  });
 }
 
 function refreshTray(force = false) {
@@ -839,7 +888,7 @@ function refreshTray(force = false) {
   const activity = record ? describeActivity(record) : '';
   // The tray also says whether Imprint is listening for "Hey Echo" (ADR 0137).
   const listening = wakeLabel(wakeView());
-  const key = JSON.stringify([activity, listening]);
+  const key = JSON.stringify([activity, listening, recorder.phase, wake.intent.enabled, orbEnabled, phase]);
   if (key === trayKey && force !== true) return;
   trayKey = key;
   tray.setToolTip(['Imprint', activity, listening].filter(Boolean).join(' · '));

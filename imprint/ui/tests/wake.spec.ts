@@ -160,6 +160,20 @@ test('turning it on explains first, asks the OS, downloads the model with its pr
   expect(await calls(page)).toContainEqual(['control', 'pause']);
 });
 
+test('the tray\'s Turn on "Hey Echo"… opens the explanation, on arrival or on an open page', async ({ page }) => {
+  await desktop(page, { wake: OFF });
+  await voiceApi(page);
+  await page.goto('/voice/?wake=on');
+  const sheet = page.getByRole('dialog', { name: 'Listen for “Hey Echo”?' });
+  await expect(sheet).toBeVisible();
+  await expect(page).toHaveURL(/\/voice\/$/);
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await expect(sheet).toBeHidden();
+  // Already on the page: the desktop app's navigation also sends an event.
+  await page.evaluate(() => window.dispatchEvent(new Event('imprint-wake-setup')));
+  await expect(sheet).toBeVisible();
+});
+
 test('the explanation fits the floating Echo window: its points scroll and Turn on stays in reach', async ({ page }) => {
   // Echo's window is at most 400 × 640 and can be 420 high; the sheet must not run off it.
   await page.setViewportSize({ width: 400, height: 420 });
