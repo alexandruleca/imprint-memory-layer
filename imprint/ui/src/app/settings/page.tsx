@@ -41,7 +41,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
     icon: FolderTree,
   },
   desktop: { title: "Desktop app", desc: "How the desktop app behaves on this computer while its dashboard is hidden.", icon: AppWindow },
-  update: { title: "Updates", desc: "Which releases this installation is offered: stable, or dev builds as well.", icon: ArrowUpCircle },
+  update: { title: "Updates", desc: "Which releases this installation is offered, stable or dev builds as well, and whether it installs them by itself when idle.", icon: ArrowUpCircle },
   collection: { title: "Storage", desc: "The Qdrant collection the default workspace uses; other workspaces get their own automatically.", icon: Layers },
 };
 const SUBGROUPS: Record<string, string> = { "tagger.local": "Local model (llama.cpp)" };

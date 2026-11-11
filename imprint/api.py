@@ -159,6 +159,8 @@ async def _start_queue_dispatcher():
     # Skills and personas: written into the clients, edits there taken back (ADR 0169).
     from . import registry_files
     app.state.registry_pass = asyncio.create_task(registry_files.loop())
+    # New releases install by themselves when nothing would be interrupted (ADR 0175).
+    app.state.update_pass = asyncio.create_task(updates.auto_loop())
 
 
 @app.on_event('shutdown')
@@ -301,12 +303,13 @@ _CACHED_VERSION: str | None = None
 
 @app.get("/api/update")
 def api_update(refresh: bool = False):
-    """Latest release, how this installation updates, and update progress."""
+    """Latest release, how this installation updates, update progress, and
+    whether updates install by themselves (ADR 0175)."""
     try:
         report = updates.check(refresh)
     except Exception as error:
-        return {**updates.status(), "error": str(error)}
-    return {**report, **updates.status()}
+        return {**updates.status(), **updates.auto_status(), "error": str(error)}
+    return {**report, **updates.status(), **updates.auto_status()}
 
 
 @app.post("/api/update")

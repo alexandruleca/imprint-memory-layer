@@ -188,6 +188,11 @@ export interface UpdateInfo {
   installer?: "running" | "succeeded" | "failed";
   log: string[];
   error?: string;
+  /** New releases install by themselves when nothing would be interrupted
+   * (the update.auto setting, ADR 0175). */
+  auto?: boolean;
+  /** What the last automatic look found: what it waits for, or that it is installing. */
+  auto_state?: string;
 }
 
 export function getUpdate(refresh = false) {

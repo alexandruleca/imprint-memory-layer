@@ -156,6 +156,17 @@ def record_call(tool: str, started_at: float, duration_ms: float, *, ok: bool,
            (time.time(), workspace, _session_id))
 
 
+def last_call_at() -> float | None:
+    """When any agent on this device last called an Imprint tool (an update
+    waits for agents to go quiet, ADR 0175); None when none ever did or the
+    record cannot be read."""
+    try:
+        row = _connect().execute("SELECT MAX(started_at) FROM agent_calls").fetchone()
+    except sqlite3.Error:
+        return None
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def end_session() -> None:
     """Mark the session ended and close the database; later calls do nothing."""
     global _session_id

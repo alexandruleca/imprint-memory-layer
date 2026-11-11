@@ -251,6 +251,8 @@ Precedence: CLI flag > `IMPRINT_VERSION` env > `IMPRINT_CHANNEL=dev` env > defau
 
 When a newer release exists on this installation's update channel, the dashboard shows **Update to vX.Y.Z** at the top right. It explains what will happen on this machine, runs the update and reloads the dashboard once the new version is running. The dashboard checks GitHub's releases API at most every six hours while it is open, and again as soon as the channel changes.
 
+While the dashboard runs, new releases also install by themselves (`update.auto`, on by default, **Settings → Updates**; [ADR 0175](adr/0175-releases-install-by-themselves-when-nothing-would-be-interrupted.md)). The dashboard looks every 30 minutes, asking GitHub at most every 6 hours, and installs only when nothing would be interrupted: no job, recording, chat reply or Echo conversation running, no agent using Imprint in the last 15 minutes, and no keyboard or mouse input for 10 minutes on Windows and macOS. Like **Update now**, it restarts the dashboard and, on Windows, closes and reopens the desktop app. A macOS package install still waits for **Update now**, since the Installer needs you. Turn it off to choose when Imprint changes.
+
 The channel is the `update.channel` setting, **Settings → Updates** in the dashboard ([ADR 0108](adr/0108-installations-opt-in-to-dev-builds-in-settings.md)):
 
 - **stable** (the default): only stable releases are offered. An installation running a dev build is offered the stable release that follows it.

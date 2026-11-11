@@ -401,6 +401,9 @@ SETTINGS: list[Setting] = [
             "Releases this installation updates to: stable, or dev for dev builds as well",
             choices=(Choice("stable", "Stable", "Releases from main"),
                      Choice("dev", "Dev", "Prereleases built from dev, and stable releases once they are newer"))),
+    # Read by the dashboard server's automatic update pass (ADR 0175).
+    Setting("update.auto", "IMPRINT_UPDATE_AUTO", True, bool,
+            "Install new releases by itself when nothing is in progress and the computer is idle"),
 
     # ── Collection ────────────────────────────────────────────
     Setting("collection",       "IMPRINT_COLLECTION",       "memories",       str,   "Default Qdrant collection name"),

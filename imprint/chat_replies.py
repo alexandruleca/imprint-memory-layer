@@ -160,6 +160,12 @@ class Busy(Exception):
     """The session already has a reply being written."""
 
 
+def writing() -> bool:
+    """Whether any reply is being written now (an update waits for it, ADR 0175)."""
+    with _lock:
+        return bool(_replies)
+
+
 def current(sid: str) -> Reply | None:
     with _lock:
         return _replies.get(sid)

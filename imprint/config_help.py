@@ -381,6 +381,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "Which releases `imprint update` and the dashboard's update check offer. \"stable\" (the default) offers releases from main only; \"dev\" also offers prerelease builds from the dev branch, which are less tested, and stable releases once they are newer. --stable or --dev overrides it for one `imprint update`.",
         "example": "\"dev\": to try fixes before they reach a stable release, on a machine where occasional breakage is acceptable.",
     },
+    "update.auto": {
+        "help": "Whether the dashboard installs a new release on the update channel by itself. It looks every 30 minutes (asking GitHub at most every 6 hours) and installs only when nothing would be interrupted: no job, recording, chat reply or Echo conversation running, no agent using Imprint in the last 15 minutes, and no keyboard or mouse input for 10 minutes where the system can tell (Windows, macOS). An update restarts the dashboard and, on Windows, closes and reopens the desktop app. macOS package installs still ask, since the Installer needs you. It needs the dashboard to be running; `imprint update` works either way.",
+        "example": "false: on a machine where you want to choose when Imprint changes, for example before a demo.",
+    },
     "collection": {
         "help": "The name of the Qdrant collection (the table of vectors) the \"default\" workspace stores its memories in; other workspaces always use \"memories_<workspace>\". Changing it points the default workspace at a different collection, empty or not: the old memories stay where they were but are no longer searched. Use workspaces to keep memories apart, and leave this alone.",
         "example": "\"memories\", the default: set it back if search suddenly returns nothing after it was changed.",

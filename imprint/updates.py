@@ -9,8 +9,11 @@ from its log.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -20,10 +23,26 @@ from . import queue as job_queue
 
 CHECK_TTL_SECONDS = 6 * 60 * 60
 
+# Automatic updates (ADR 0175): the first look a while after the server
+# starts, then every AUTO_INTERVAL; GitHub is still asked at most every
+# CHECK_TTL_SECONDS. An update runs only when it interrupts nothing.
+AUTO_FIRST = 10 * 60
+AUTO_INTERVAL = 30 * 60
+AGENT_QUIET = 15 * 60        # no agent called an Imprint tool for this long
+USER_IDLE = 10 * 60          # no keyboard or mouse input for this long
+RECORDING_QUIET = 120        # the recorder sends audio every 5 s while it runs
+RETRY_AFTER_FAILURE = 24 * 60 * 60
+# Methods that update without the user: the macOS package opens Installer.
+UNATTENDED = ("windows-setup", "archive")
+
 _lock = threading.Lock()
 _report: dict | None = None
 _checked_at = 0.0
 _process: subprocess.Popen | None = None
+_auto_target = ""            # the release an automatic update last started
+_auto_failed: dict[str, float] = {}
+_auto_state = ""             # what the last automatic look found, for the dashboard
+log = logging.getLogger(__name__)
 
 
 class UpdateConflict(Exception):
@@ -125,3 +144,138 @@ def status(lines: int = 20) -> dict:
         report["failed"] = report["installer"] == "failed"
         report["log"] = (log + installer)[-lines:]
     return report
+
+
+# ── Automatic updates (ADR 0175) ─────────────────────────────────
+
+def user_idle_seconds() -> float | None:
+    """How long the computer has had no keyboard or mouse input, where the
+    system says: Windows and macOS. None where it cannot be told."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class LastInput(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+            info = LastInput(ctypes.sizeof(LastInput), 0)
+            if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+                return None
+            # Both are 32-bit millisecond ticks that wrap together every 49.7 days.
+            return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000
+        if sys.platform == "darwin":
+            out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4", "-r", "-k", "HIDIdleTime"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            match = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
+            return int(match.group(1)) / 1e9 if match else None
+    except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+        return None
+    return None
+
+
+def _recording() -> bool:
+    """A recording is running: started, not stopped, and its audio grew
+    lately. One whose window closed stays "recording" until it is finished,
+    and must not hold updates back forever."""
+    from . import recordings
+    now = time.time()
+    for meta in recordings.list_all():
+        if meta.get("status") != "recording":
+            continue
+        audio = recordings.root() / meta["id"] / "audio.webm"
+        try:
+            latest = audio.stat().st_mtime
+        except OSError:
+            latest = float(meta.get("started_at") or 0)
+        if now - latest < RECORDING_QUIET:
+            return True
+    return False
+
+
+def _echo_talking() -> bool:
+    """A window holds an Echo conversation, or one goes on answering without
+    a window (ADR 0145): the same test voice setup uses before it changes
+    Echo's runtime."""
+    from . import voice_api
+    current = voice_api.sessions.current()
+    return bool(voice_api.sessions.active or (current and current.busy()))
+
+
+def busy() -> str:
+    """What an update would interrupt now, or "" when nothing. An update
+    restarts the dashboard server, on Windows closes and reopens the desktop
+    app, and may stop MCP servers (ADRs 0023, 0050, 0084)."""
+    if running():
+        return "an update is running"
+    if job_queue.active_job():
+        return "a job is running"
+    if _recording():
+        return "a recording is running"
+    from . import chat_replies
+    if chat_replies.writing():
+        return "a chat reply is being written"
+    if _echo_talking():
+        return "an Echo conversation is open"
+    from . import agent_activity
+    last = agent_activity.last_call_at()
+    if last and time.time() - last < AGENT_QUIET:
+        return f"an agent used Imprint in the last {AGENT_QUIET // 60} minutes"
+    idle = user_idle_seconds()
+    if idle is not None and idle < USER_IDLE:
+        return "the computer is in use"
+    return ""
+
+
+def auto_update() -> str:
+    """One automatic look: start the update when one is due and nothing
+    would be interrupted. Returns what it found, for the log and dashboard."""
+    global _auto_target, _auto_state
+    from .config_schema import resolve
+    if _auto_target and not running() and status().get("failed"):
+        _auto_failed[_auto_target] = time.time()
+        _auto_target = ""
+    if not resolve("update.auto")[0]:
+        _auto_state = ""
+        return "automatic updates are off"
+    report = check()
+    target = report.get("latest") or ""
+    if report.get("unsupported") or not report.get("update_available"):
+        _auto_state = ""
+        return "up to date"
+    if report.get("method") not in UNATTENDED:
+        _auto_state = "This installation updates through the macOS Installer, which needs you: use Update."
+        return f"{target} needs the user ({report.get('method')})"
+    if time.time() - _auto_failed.get(target, 0) < RETRY_AFTER_FAILURE:
+        _auto_state = f"Installing {target} by itself failed; it tries again tomorrow, or use Update."
+        return f"{target} failed lately"
+    reason = busy()
+    if reason:
+        _auto_state = f"Installs by itself when Imprint is idle; waiting: {reason}."
+        return f"{target} waits: {reason}"
+    try:
+        start()
+    except UpdateConflict as error:
+        _auto_state = f"Installs by itself when Imprint is idle; waiting: {error}."
+        return f"{target} waits: {error}"
+    _auto_target = target
+    _auto_state = f"Installing {target}."
+    return f"updating to {target}"
+
+
+def auto_status() -> dict:
+    """Whether updates install by themselves, and what the last look found."""
+    from .config_schema import resolve
+    return {"auto": bool(resolve("update.auto")[0]), "auto_state": _auto_state}
+
+
+async def auto_loop() -> None:
+    """The dashboard server's automatic updates: a first look AUTO_FIRST
+    after it starts, then every AUTO_INTERVAL."""
+    import asyncio
+    await asyncio.sleep(AUTO_FIRST)
+    while True:
+        try:
+            log.info("Automatic update: %s", await asyncio.to_thread(auto_update))
+        except Exception as error:  # noqa: BLE001 - a background pass must not stop its server
+            log.warning("Automatic update check failed: %s", error)
+        await asyncio.sleep(AUTO_INTERVAL)
