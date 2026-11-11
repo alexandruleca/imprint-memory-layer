@@ -262,8 +262,13 @@ def redact_segments(segments):
     return output
 
 
-def transcribe(path: str, *, force=False):
+def transcribe(path: str, *, force=False, words=False):
+    """Timestamped segments of an audio file, and how they were made.
+    ``words`` adds each segment's words as ``[start, end, text]``, for
+    telling speakers apart within a segment (ADR 0180); their text is not
+    redacted, so a caller that shows it redacts it first."""
     from .source_state import fingerprint
+    words_wanted = words
     options = settings()
     spec = MODELS[str(options['audio.model'])]
     if not options['audio.enabled']:
@@ -280,7 +285,7 @@ def transcribe(path: str, *, force=False):
     identity = profile(options)
     metadata = {'audio_profile': identity, 'transcription_model': spec.repo, 'model_revision': spec.revision}
     before = fingerprint(path)
-    if not force:
+    if not force and not words_wanted:
         result = cached(before["source_hash"], identity)
         if result is not None:
             return redact_segments(result), metadata
@@ -310,7 +315,9 @@ def transcribe(path: str, *, force=False):
                     if characters > MAX_TEXT or len(result) >= MAX_SEGMENTS:
                         raise ValueError("Audio transcript exceeds its text/segment budget")
                     result.append({"text": text, "start": round(start, 3), "end": round(end, 3),
-                                   "language": info.language})
+                                   "language": info.language,
+                                   **({"words": [[round(offset + w.start, 3), round(offset + w.end, 3), w.word]
+                                                 for w in words]} if words_wanted else {})})
                     last_end = end
             report("transcribing_audio", offset + len(samples) / RATE, math.ceil(duration))
         if fingerprint(path) != before:

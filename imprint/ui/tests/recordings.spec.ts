@@ -150,3 +150,38 @@ test('recordings show their transcript, can be transcribed again, finished after
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByRole('listitem', { name: 'Planning' })).toHaveCount(0);
 });
+
+test('speakers told apart in a transcript can be renamed, and the transcript follows', async ({ page }) => {
+  const id = 'd'.repeat(32);
+  await mockRecordings(page, { recordings: [
+    { id, title: 'Standup', project: 'meetings', others: true, status: 'ready', started_at: 1_790_000_000, stopped_at: 1_790_000_600,
+      duration: 600, error: '', memories: 3, transcribed_at: 1, audio_bytes: 5000, transcript: true },
+  ] });
+  let names: Record<string, string> = { 'mic-1': 'You', 'call-1': 'Speaker 1', 'call-2': 'Speaker 2' };
+  const renames: object[] = [];
+  // Mirrors GET /transcript and PATCH /speakers (ADR 0180).
+  await page.route(`**/api/recordings/${id}/transcript`, route => route.fulfill({ json: {
+    speakers: names,
+    text: `# Standup\n\n**${names['mic-1']}** (00:00:01): Morning.\n\n**${names['call-1']}** (00:00:04): Hi.\n\n**${names['call-2']}** (00:00:09): Booking bug is mine.\n` } }));
+  await page.route(`**/api/recordings/${id}/speakers`, async route => {
+    const body = route.request().postDataJSON() as { speakers: Record<string, string> };
+    renames.push({ method: route.request().method(), ...body });
+    names = { ...names, ...body.speakers };
+    await route.fulfill({ json: { id, speakers: names } });
+  });
+  await page.goto('/recordings/');
+  await page.getByRole('listitem', { name: 'Standup' }).getByRole('button', { name: 'Transcript' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Standup' });
+  await expect(dialog).toContainText('Speaker 2 (00:00:09): Booking bug is mine.');
+  const save = dialog.getByRole('button', { name: 'Save names' });
+  await expect(save).toBeDisabled();
+  const second = dialog.getByRole('textbox', { name: 'Name for Speaker 2' });
+  await second.fill('  ');
+  await expect(save).toBeDisabled();
+  await second.fill('Ana');
+  await save.click();
+  await expect.poll(() => renames).toEqual([{ method: 'PATCH', speakers: { 'call-2': 'Ana' } }]);
+  await expect(dialog).toContainText('Ana (00:00:09): Booking bug is mine.');
+  await expect(dialog.getByRole('textbox', { name: 'Name for Ana' })).toHaveValue('Ana');
+  await expect(save).toBeDisabled();
+});

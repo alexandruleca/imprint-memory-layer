@@ -81,6 +81,9 @@ obscura is an external CLI binary that provides JS-rendered HTML extraction for 
 | BGE-M3 (alternative) | MIT | https://huggingface.co/BAAI/bge-m3 |
 | OpenAI Privacy Filter (opt-in, `redact.privacy_filter`) | Apache-2.0 | https://huggingface.co/openai/privacy-filter (code: https://github.com/openai/privacy-filter) |
 | Model2Vec static embedder (used by chunker) | MIT | https://huggingface.co/minishlab |
+| Whisper large-v3, CTranslate2 conversion (the default transcription model, ADR 0178) | MIT | https://huggingface.co/Systran/faster-whisper-large-v3 (pinned revision in [`imprint/audio_ingest.py`](imprint/audio_ingest.py); original weights: https://github.com/openai/whisper) |
+| pyannote segmentation-3.0, ONNX export (telling voices apart in recordings, ADR 0180) | MIT, Copyright (c) 2023 CNRS | https://huggingface.co/pyannote/segmentation-3.0 (export: https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0; pinned in [`imprint/diarize.py`](imprint/diarize.py)) |
+| WeSpeaker ResNet34-LM (VoxCeleb), ONNX export (telling voices apart in recordings, ADR 0180) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/): "WeSpeaker ResNet34-LM" by the WeSpeaker team, trained on VoxCeleb; converted to ONNX by k2-fsa, used unmodified (an extra graph output is added in memory at load) | https://github.com/wenet-e2e/wespeaker (export: https://huggingface.co/csukuangfj/speaker-embedding-models; pinned in [`imprint/diarize.py`](imprint/diarize.py)) |
 | Whisper `tiny.en`, CTranslate2 conversion (opt-in: downloaded when the user turns on "Hey Echo") | MIT | https://huggingface.co/Systran/faster-whisper-tiny.en (pinned revision in [`imprint/wake.py`](imprint/wake.py); original weights: https://github.com/openai/whisper) |
 
 **Gemma is not Apache/MIT.** Users accept the Gemma Terms when downloading weights from HuggingFace. Imprint does not redistribute Gemma weights in source or Docker images. Switch to a differently-licensed model via `imprint config set model.name <repo>`.
@@ -109,12 +112,15 @@ These services are called via their official SDKs with user-supplied API keys. T
 
 Several secret-format patterns in `imprint/redaction.py` are adapted from the rule definitions of [gitleaks](https://github.com/gitleaks/gitleaks) (MIT, consulted at commit `5f6ec56`). Its license is retained at `licenses/gitleaks/LICENSE`.
 
+`imprint/diarize.py` ports pyannote.audio 3.4.0's speaker diarization pipeline (the speaker-diarization-3.1 configuration) to numpy and ONNX Runtime: pyannote.audio is MIT licensed, Copyright (c) 2020- CNRS, and its notice is kept in that module's docstring. Its clustering reproduces SciPy's centroid linkage and flat clustering (BSD-3-Clause) without SciPy.
+
 The dashboard vendors the static `shadcn@4.22.1` stylesheet at `imprint/ui/src/styles/shadcn.css` without its generator/runtime dependency tree. Its upstream MIT license is retained alongside it in `shadcn-LICENSE.txt`. The stylesheet's CSS body is copied from the pinned npm package; update it deliberately with the attribution intact.
 
 | License | Applies to | Obligation met by |
 |---|---|---|
 | MIT / BSD-3-Clause | Python deps, `uv` (MIT branch), nhooyr/websocket, gitleaks rule patterns | This file lists the packages + upstream repo URLs (where full LICENSE texts live) |
 | Apache 2.0 | Python deps, `uv` (Apache branch), Qdrant, obscura | Same + no modification to upstream code. uv is the only Apache-2.0 component we *redistribute* in binary form; we elect the MIT branch of its dual license to avoid the NOTICE redistribution requirement, but honor either at the recipient's choice |
+| CC-BY-4.0 | WeSpeaker ResNet34-LM weights (downloaded at runtime) | Credit to the WeSpeaker team and VoxCeleb, the license link and the note that it is used unmodified, in the model table above. Imprint does not redistribute the weights |
 | PSF License 2.0 | CPython (downloaded by uv on first run) | Pass-through; CPython is not redistributed by Imprint — `uv` fetches it from python-build-standalone on first bootstrap |
 | Gemma Terms | EmbeddingGemma weights | Pass-through via HuggingFace click-through; noted in [README](README.md) and [docs/embeddings.md](docs/embeddings.md) |
 | ELv2 (Elastic License 2.0) | `kreuzberg` (opt-in only) | User accepts ELv2 when they `pip install kreuzberg`. Imprint does not install or redistribute kreuzberg. SaaS/hosted deployments that expose kreuzberg's extraction to third parties must review ELv2 §2 restrictions before enabling `ingest.use_kreuzberg=true` |

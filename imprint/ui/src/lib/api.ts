@@ -249,7 +249,14 @@ export function transcribeRecording(id: string) {
 }
 
 export function getRecordingTranscript(id: string) {
-  return fetchAPI<{ text: string }>(`/api/recordings/${id}/transcript`);
+  return fetchAPI<{ text: string; speakers?: Record<string, string> }>(`/api/recordings/${id}/transcript`);
+}
+
+/** Rename a recording's speakers by key; the transcript and its memories follow (ADR 0180). */
+export function renameRecordingSpeakers(id: string, speakers: Record<string, string>) {
+  return fetchAPI<Recording & { speakers: Record<string, string> }>(`/api/recordings/${id}/speakers`, {
+    method: "PATCH", body: JSON.stringify({ speakers }),
+  });
 }
 
 export function recordingAudioUrl(id: string, download = false) {

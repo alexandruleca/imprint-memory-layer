@@ -85,6 +85,33 @@ class RecordingSyncTests(unittest.TestCase):
         self.assertIn('hello again', (self.dirs['b'] / 'recordings' / rid / 'transcript.md').read_text())
         self.assertEqual(self.on('b', recordings.get, rid)['audio_bytes'], 10)
 
+    def test_speakers_and_their_parts_travel_and_a_rename_reaches_the_other_device(self):
+        import json
+        rid = self.on('a', self.recorded)
+        parts = {'model': 'large-v3', 'echoes': 0, 'voices': True,
+                 'entries': [{'speaker': 'call-1', 'start': 1.0, 'end': 2.0, 'text': 'hello'}]}
+        (self.dirs['a'] / 'recordings' / rid / 'segments.json').write_text(json.dumps(parts), encoding='utf-8')
+        self.on('a', lambda: recordings.update(rid, speakers={'mic-1': 'You', 'call-1': 'Speaker 1'}))
+        self.on('b', recording_sync.import_records, self.send()[1])
+        self.assertEqual(self.on('b', recordings.get, rid)['speakers'], {'mic-1': 'You', 'call-1': 'Speaker 1'})
+        self.assertEqual(json.loads((self.dirs['b'] / 'recordings' / rid / 'segments.json').read_text()), parts)
+        # A rename is a newer version: the details come again, not the audio.
+        self.on('a', lambda: recordings.update(rid, speakers={'mic-1': 'You', 'call-1': 'Ana'}))
+        planned, records = self.send()
+        self.assertEqual(planned, [f'{rid}@10'])
+        self.on('b', recording_sync.import_records, records)
+        self.assertEqual(self.on('b', recordings.get, rid)['speakers']['call-1'], 'Ana')
+
+    def test_speaker_names_and_parts_from_another_device_are_checked(self):
+        rid = self.on('a', self.recorded)
+        records = self.send()[1]
+        odd = {'mic-1': '**Ana**', 'call-2': '  ', '../x': 'Bob', 'call-3': ['not', 'a', 'name']}
+        final = [dict(r, meta=dict(r['meta'], speakers=odd), segments='{"entries": [{"speaker": 3}]}')
+                 if r['final'] else r for r in records]
+        self.on('b', recording_sync.import_records, final)
+        self.assertEqual(self.on('b', recordings.get, rid)['speakers'], {'mic-1': 'Ana'})
+        self.assertFalse((self.dirs['b'] / 'recordings' / rid / 'segments.json').exists())
+
     def test_audio_deleted_on_one_device_is_deleted_on_the_other(self):
         rid = self.on('a', self.recorded)
         self.on('b', recording_sync.import_records, self.send()[1])

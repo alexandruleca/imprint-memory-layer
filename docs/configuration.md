@@ -123,6 +123,7 @@ Every Imprint process reads the token when it downloads, so a token saved in the
 | **Audio ingestion** | | |
 | `audio.enabled` | `true` | Include audio files in ingestion/refresh; the selected model downloads only on first uncached use |
 | `audio.model` | `large-v3` | Multilingual CPU model: `large-v3` (~2.88 GiB, most accurate, about as slow as real time), `large-v3-turbo` (~1.51 GiB, about twice as fast) or `small` (~464 MiB) ([ADR 0178](adr/0178-whisper-large-v3-is-the-default-transcription-model.md)) |
+| `audio.diarize` | `true` | Tell voices apart in meeting recordings: who said what within the microphone and within the computer's audio. The two models (about 32 MB) download on the first transcription; adds about 0.07–0.11× each channel's duration ([ADR 0180](adr/0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md)) |
 | `audio.language` | `auto` | Detect each window's language, or pin `ro` / `en`; output is transcribed, not translated |
 | `audio.max_file_size_mb` | `1024` | Positive per-audio-file size limit in MiB, independent of document limits |
 | `audio.max_duration_minutes` | `120` | Positive decoded-audio duration limit in minutes |

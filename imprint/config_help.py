@@ -227,6 +227,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "Transcribes audio files (.wav, .mp3, .m4a, .flac, .ogg, .opus and others) during ingestion into timestamped text, with a speech model that runs locally on the CPU; the model chosen in audio.model downloads on first use, and audio never leaves the machine. Off, the file scanner ignores audio. Transcription is CPU-heavy and takes a while for long recordings.",
         "example": "false: if your project folders hold music or sound assets you don't want transcribed.",
     },
+    "audio.diarize": {
+        "help": "Whether a meeting recording's transcript tells voices apart. On the microphone the main voice is \"You\" and anyone else near it is \"In the room 1\"; in the computer's audio each person on the call is \"Speaker 1\", \"Speaker 2\"..., or \"Others\" when only one spoke. You can rename them on the Recordings page without transcribing again. It runs on this computer with two small models (about 32 MB, downloaded on first use), adding roughly a tenth of the recording's length to transcription. Off, each channel is one speaker, as before.",
+        "example": "false: on a slow laptop where every minute of transcription counts and the calls are always one-to-one.",
+    },
     "audio.model": {
         "help": "The speech-to-text model. All handle many languages and run locally on the CPU. \"large-v3\" (the default, about a 2.9 GiB download) is the most accurate, with clearly fewer mistakes in Romanian, and takes about as long as the audio lasts, roughly twice as long as Turbo. \"large-v3-turbo\" (about 1.5 GiB) is about twice as fast and a little less accurate. \"small\" (about 464 MiB) is the fastest and lightest but makes the most mistakes. A change re-transcribes audio files the next time they are indexed; recordings keep their transcript until you choose Transcribe again.",
         "example": "\"large-v3-turbo\": on a laptop where transcribing an hour-long meeting with the default model takes too long.",

@@ -69,6 +69,10 @@ a numeral error even with the larger model. Review names, numbers and important
 quotes against the recording before relying on them. These small functional
 checks do not establish multilingual accuracy or speaker separation.
 
+Meeting recordings made on the dashboard's Recordings page are transcribed by
+the same pipeline and, unlike imported audio files, tell voices apart within
+each channel and name them ([ADR 0180](adr/0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md)).
+
 The pipeline redacts transcript text before indexing and stores the canonical
 transcript in the existing source snapshots. That completed snapshot is also
 the transcript cache, scoped to its workspace and the file hash/transcription

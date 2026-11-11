@@ -33,7 +33,7 @@ SOURCE = 'recording/'
 _ID = re.compile(r'[0-9a-f]{32}')
 # The details paired devices receive with a recording (ADR 0177).
 SYNCED = ('title', 'project', 'others', 'consent', 'status', 'started_at', 'stopped_at', 'duration', 'error',
-          'memories', 'transcribed_at', 'updated_at', 'audio_removed_at')
+          'memories', 'transcribed_at', 'updated_at', 'audio_removed_at', 'speakers')
 _RATE = 16000
 
 
@@ -232,10 +232,157 @@ def without_echo(spoken: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
     return kept
 
 
-def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str, echoes: int = 0) -> str:
+# ── Speakers (ADR 0180) ─────────────────────────────────────────
+#
+# Each channel is told apart into voices (``diarize``); each sentence goes to
+# the voice whose turns its words overlap most, so a segment two people spoke
+# is split between sentences, never inside one. A microphone voice heard
+# while the computer's audio speaks is that audio through the speakers and is
+# left out. Of the rest, the voice with the most speech is "You"; in the
+# computer's audio voices are numbered by when they first speak. Names are
+# kept by key in meta['speakers'] and the parts in segments.json, so a
+# rename rewrites the transcript without transcribing again.
+
+CHANNELS = {'You': 'mic', 'Others': 'call'}
+NAME_CHARS = 60
+# A word this close to a turn, but outside every turn, still goes to it.
+NEAR = 0.5
+# A word ending so ends a sentence; a segment's end does too.
+SENTENCE_END = ('.', '?', '!', '…', '。', '？', '！')
+# A microphone voice that speaks while the computer's audio speaks for at
+# least this share of its time is that audio heard again (ADR 0180).
+ECHO_VOICE = 0.7
+
+
+def _speaker_at(turns, start: float, end: float):
+    """The voice whose turn overlaps [start, end] most, else the nearest
+    within NEAR seconds; None when none is that close."""
+    import numpy as np
+    starts, ends, voices = turns
+    overlap = np.minimum(ends, end) - np.maximum(starts, start)
+    best = int(np.argmax(overlap))
+    if overlap[best] > 0:
+        return int(voices[best])
+    gap = np.maximum(starts - end, start - ends)
+    best = int(np.argmin(gap))
+    return int(voices[best]) if gap[best] <= NEAR else None
+
+
+def _sentences(words: list) -> list[list[int]]:
+    """A segment's words, by index, grouped into sentences by punctuation."""
+    sentences: list[list[int]] = [[]]
+    for at, word in enumerate(words):
+        sentences[-1].append(at)
+        if str(word[2]).strip().endswith(SENTENCE_END):
+            sentences.append([])
+    return [sentence for sentence in sentences if sentence]
+
+
+def speaker_parts(segments: list[dict], turns: list[tuple[float, float, int]]) -> list[dict]:
+    """The segments as parts said by one voice each: ``{start, end, text,
+    voice}``. Each sentence goes to the voice its words' turns cover longest:
+    turns can change voice within a sentence, a speaker does not. A segment
+    one voice said keeps its (redacted) text; split ones are rebuilt from
+    their words and redacted again."""
+    import numpy as np
+    if not turns:
+        return [{'start': seg['start'], 'end': seg['end'], 'text': seg['text'], 'voice': 0} for seg in segments]
+    timeline = tuple(np.array(column, dtype=np.float64) for column in zip(*turns))
+    parts, split = [], []
+    last = 0
+    for seg in segments:
+        words = seg.get('words') or [[seg['start'], seg['end'], seg['text']]]
+        voices = [_speaker_at(timeline, word[0], word[1]) for word in words]
+        # A word no turn reaches belongs to the voice around it.
+        known = [v for v in voices if v is not None]
+        fill = known[0] if known else last
+        for at, voice in enumerate(voices):
+            voices[at] = fill = voice if voice is not None else fill
+        groups = []
+        for sentence in _sentences(words):
+            # Ties go to the voice heard first in the sentence.
+            length: dict[int, float] = {}
+            for at in sentence:
+                length[voices[at]] = length.get(voices[at], 0.0) + max(words[at][1] - words[at][0], 0.01)
+            voice = max(length, key=length.__getitem__)
+            if groups and groups[-1][0] == voice:
+                groups[-1][1].extend(words[at] for at in sentence)
+            else:
+                groups.append((voice, [words[at] for at in sentence]))
+        if len(groups) == 1:
+            parts.append({'start': seg['start'], 'end': seg['end'], 'text': seg['text'], 'voice': groups[0][0]})
+        else:
+            for voice, group in groups:
+                split.append(len(parts))
+                parts.append({'start': round(group[0][0], 3), 'end': round(group[-1][1], 3),
+                              'text': ''.join(word[2] for word in group).strip(), 'voice': voice})
+        last = groups[-1][0]
+    if split:
+        from .redaction import redact_all
+        for index, text in zip(split, redact_all([parts[k]['text'] for k in split])):
+            parts[index]['text'] = text
+    return [part for part in parts if part['text']]
+
+
+def echo_voices(turns: list[tuple[float, float, int]], played: list[tuple[float, float, int]]) -> set[int]:
+    """The microphone's voices that speak while the computer's audio speaks
+    for ECHO_VOICE of their time or more: that audio through the speakers."""
+    if not turns or not played:
+        return set()
+    merged: list[list[float]] = []
+    for start, end, _ in sorted(played):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    talk: dict[int, float] = {}
+    heard: dict[int, float] = {}
+    for start, end, voice in turns:
+        talk[voice] = talk.get(voice, 0.0) + end - start
+        heard[voice] = heard.get(voice, 0.0) + sum(max(0.0, min(end, b) - max(start, a)) for a, b in merged
+                                                 if a < end and b > start)
+    return {voice for voice in talk if talk[voice] > 0 and heard[voice] / talk[voice] >= ECHO_VOICE}
+
+
+def voice_names(channel: str, parts: list[dict]) -> dict[int, str]:
+    """Default names of a channel's voices: on the microphone the one with the
+    most speech is "You"; in the computer's audio one voice is "Others",
+    several are "Speaker 1", "Speaker 2"... by when they first speak."""
+    talk: dict[int, float] = {}
+    first: dict[int, float] = {}
+    for part in parts:
+        talk[part['voice']] = talk.get(part['voice'], 0.0) + part['end'] - part['start']
+        first.setdefault(part['voice'], part['start'])
+    order = sorted(talk, key=lambda voice: first[voice])
+    if channel == 'mic':
+        main = max(order, key=lambda voice: (talk[voice], -first[voice])) if order else 0
+        return {main: 'You', **{voice: f'In the room {n}' for n, voice in
+                                enumerate([v for v in order if v != main], 1)}}
+    if len(order) <= 1:
+        return {voice: 'Others' for voice in order}
+    return {voice: f'Speaker {n}' for n, voice in enumerate(order, 1)}
+
+
+def clean_name(name) -> str:
+    """A speaker's name as the transcript shows it: one line, no Markdown."""
+    name = ' '.join(re.sub(r'[*_`\[\]<>#|\\]', '', str(name or '')).split())[:NAME_CHARS]
+    if not name:
+        raise ValueError('A speaker needs a name')
+    return name
+
+
+def render(meta: dict, entries: list[dict], names: dict[str, str], model: str, echoes: int, voices: bool) -> str:
+    """The transcript from saved parts and the speakers' current names."""
+    spoken = [(names.get(entry['speaker'], entry['speaker']), entry) for entry in entries]
+    return transcript(meta, spoken, model, echoes=echoes, voices=voices)
+
+
+def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str, echoes: int = 0,
+               voices: bool = False) -> str:
     """Markdown: a heading, how it was made, then each turn with its speaker
     and time, a paragraph each. Consecutive segments of one speaker form one
-    turn. ``echoes`` says how many microphone passages were left out."""
+    turn. ``echoes`` says how many microphone passages were left out;
+    ``voices``, that speakers were told apart within each channel."""
     turns: list[list] = []
     for speaker, segment in sorted(spoken, key=lambda item: (item[1]['start'], item[0])):
         if turns and turns[-1][0] == speaker and segment['start'] - turns[-1][2] < 4:
@@ -247,9 +394,12 @@ def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str, echoes: i
     minutes = max(1, math.ceil((meta.get('duration') or 0) / 60))
     left_out = (f' {echoes} microphone passage{"s" if echoes != 1 else ""} that repeated the computer\'s audio '
                 f'{"are" if echoes != 1 else "is"} left out.') if echoes else ''
+    who = ('Voices were told apart on this computer: on its microphone, the main one is "You" and any other an '
+           '"In the room" speaker; in the audio it played, each is a numbered "Speaker", or "Others" when there was '
+           'one. Speakers can be renamed on the Recordings page.' if voices
+           else '"You" is this computer\'s microphone; "Others" is the audio it played.')
     header = [f"# {meta['title']}",
-              f'Recorded {started}, about {minutes} min, transcribed on this computer with {model}. '
-              f'"You" is this computer\'s microphone; "Others" is the audio it played.{left_out}']
+              f'Recorded {started}, about {minutes} min, transcribed on this computer with {model}. {who}{left_out}']
     body = [f"**{speaker}** ({_clock(start)}): {' '.join(texts)}" for speaker, texts, _, start in turns]
     # A blank line between turns makes each one a paragraph: Markdown joins
     # single line breaks into one block of text.
@@ -273,14 +423,22 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
         with Task('transcribe-recording', phase='transcribing_audio', unit='seconds') as task, \
                 tempfile.TemporaryDirectory() as scratch:
             spoken, model = [], ''
-            for speaker, path in split_channels(audio, Path(scratch)):
+            channels = split_channels(audio, Path(scratch))
+            for speaker, path in channels:
                 task.update(detail=speaker)
                 with audio_ingest.reporting(task):
-                    segments, details = audio_ingest.transcribe(str(path), force=True)
+                    segments, details = audio_ingest.transcribe(str(path), force=True, words=True)
                 model = details['transcription_model'].rsplit('/', 1)[-1]
                 spoken += [(speaker, segment) for segment in segments]
             heard = without_echo(spoken)
-            text = transcript(get(recording_id), heard, model or 'Whisper', echoes=len(spoken) - len(heard))
+            echoes = len(spoken) - len(heard)
+            entries, names, voices, left_out = _tell_voices(channels, heard, task)
+            echoes += left_out
+            model = model or 'Whisper'
+            text = render(get(recording_id), entries, names, model, echoes, voices)
+            (_folder(recording_id) / 'segments.json').write_text(json.dumps(
+                {'model': model, 'echoes': echoes, 'voices': voices, 'entries': entries}, ensure_ascii=False),
+                encoding='utf-8')
             stored, status = store_inline_content(
                 text, source_key=SOURCE + recording_id, project=meta['project'], chunk_mode='prose',
                 source_type='recording', rel_path=f'{SOURCE}{recording_id}.md', workspace=workspace)
@@ -291,7 +449,91 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
     except Exception as error:
         update(recording_id, status='failed', error=str(error)[:500])
         raise
-    return update(recording_id, status='ready', memories=stored, transcribed_at=time.time())
+    return update(recording_id, status='ready', memories=stored, transcribed_at=time.time(), speakers=names,
+                  workspace=workspace or '')
+
+
+def _tell_voices(channels, heard, task) -> tuple[list[dict], dict[str, str], bool, int]:
+    """The transcript's parts with a speaker key each, the speakers' default
+    names, whether voices were told apart (``audio.diarize``) and how many
+    microphone parts were left out as the computer's audio heard again. When
+    voices cannot be told apart (a model download fails, say), each channel
+    is one speaker."""
+    import logging
+    from . import audio_ingest
+    from .config_schema import resolve
+    by_channel = {label: [seg for speaker, seg in heard if speaker == label] for label, _ in channels}
+    if resolve('audio.diarize')[0]:
+        try:
+            import wave
+            import numpy as np
+            from . import diarize
+            with audio_ingest.reporting(task):
+                diarize.ensure_models(audio_ingest.report)
+            turns = {}
+            for label, path in channels:
+                with wave.open(str(path)) as audio:
+                    samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype='<i2').astype(np.float32) / 32768
+                task.update(0, total=int(len(samples) / diarize.RATE), phase='telling_voices_apart', unit='seconds',
+                            detail=label)
+                turns[label] = diarize.diarize(samples, progress=lambda done, total: task.update(int(done), total=int(total)))
+            entries, names, left_out = [], {}, 0
+            for label, _ in channels:
+                channel = CHANNELS[label]
+                parts = speaker_parts(by_channel[label], turns[label])
+                if channel == 'mic':
+                    echo = echo_voices(turns[label], turns.get('Others', []))
+                    left_out += sum(part['voice'] in echo for part in parts)
+                    parts = [part for part in parts if part['voice'] not in echo]
+                defaults = voice_names(channel, parts)
+                order = sorted(defaults, key=lambda voice: min(p['start'] for p in parts if p['voice'] == voice))
+                keys = {voice: f'{channel}-{n}' for n, voice in enumerate(order, 1)}
+                names.update({keys[voice]: defaults[voice] for voice in order})
+                entries += [{'speaker': keys[p['voice']], 'start': p['start'], 'end': p['end'], 'text': p['text']}
+                            for p in parts]
+            return sorted(entries, key=lambda e: (e['start'], e['speaker'])), names, True, left_out
+        except Exception as error:  # noqa: BLE001 - the transcript still comes, by channel
+            logging.getLogger(__name__).warning('Voices were not told apart: %s', error)
+    entries = [{'speaker': f'{CHANNELS[label]}-1', 'start': seg['start'], 'end': seg['end'], 'text': seg['text']}
+               for label, _ in channels for seg in by_channel[label]]
+    names = {f'{CHANNELS[label]}-1': label for label, _ in channels if by_channel[label]}
+    return sorted(entries, key=lambda e: (e['start'], e['speaker'])), names, False, 0
+
+
+def rename_speakers(recording_id: str, changes: dict, workspace: str | None = None) -> dict:
+    """Give speakers names: the transcript is written again from its parts
+    and its memories replaced, here and, as the user's own change, on paired
+    devices (ADR 0176). KeyError for an unknown recording, ValueError for an
+    unknown speaker or a recording transcribed before speakers were kept."""
+    from . import vectorstore as vs
+    from .ingest_core import store_inline_content
+    meta = get(recording_id)
+    if meta['status'] in ('recording', 'transcribing'):
+        raise ValueError('Wait until the recording is transcribed')
+    saved = _folder(recording_id) / 'segments.json'
+    if not saved.exists() or not meta.get('speakers'):
+        raise ValueError('Transcribe this recording again to name its speakers')
+    names = dict(meta['speakers'])
+    for key, name in (changes or {}).items():
+        if key not in names:
+            raise ValueError(f'No speaker {key} in this recording')
+        names[key] = clean_name(name)
+    parts = json.loads(saved.read_text(encoding='utf-8'))
+    text = render(meta, parts['entries'], names, parts.get('model') or 'Whisper', int(parts.get('echoes') or 0),
+                  bool(parts.get('voices')))
+    workspace = workspace or meta.get('workspace') or None
+    if workspace:
+        from . import config
+        if workspace not in config.get_known_workspaces():
+            workspace = None
+    vs.delete_by_source(SOURCE + recording_id, workspace, propagate='all')
+    stored, status = store_inline_content(
+        text, source_key=SOURCE + recording_id, project=meta['project'], chunk_mode='prose',
+        source_type='recording', rel_path=f'{SOURCE}{recording_id}.md', workspace=workspace)
+    if status not in ('stored', 'skipped-empty'):
+        raise RuntimeError(f'Storing the transcript failed: {status}')
+    (_folder(recording_id) / 'transcript.md').write_text(text, encoding='utf-8')
+    return update(recording_id, speakers=names, memories=stored)
 
 
 def main():

@@ -705,12 +705,34 @@ def api_transcribe_recording(recording_id: str):
 
 @app.get('/api/recordings/{recording_id}/transcript')
 def api_recording_transcript(recording_id: str):
+    """The transcript, and its speakers by key when they can be renamed (ADR 0180)."""
     from . import recordings
     try:
         path = recordings._folder(recording_id) / 'transcript.md'
-        return {'text': path.read_text(encoding='utf-8')}
+        text = path.read_text(encoding='utf-8')
+        meta = recordings.get(recording_id)
     except (KeyError, FileNotFoundError):
         return JSONResponse({'error': 'no transcript'}, status_code=404)
+    renamable = (recordings._folder(recording_id) / 'segments.json').exists()
+    return {'text': text, 'speakers': (meta.get('speakers') or {}) if renamable else {}}
+
+
+@app.patch('/api/recordings/{recording_id}/speakers')
+async def api_recording_speakers(recording_id: str, request: Request):
+    """Rename a recording's speakers: ``{"speakers": {key: name}}``. The
+    transcript and its memories are written again, not transcribed again."""
+    from . import recordings
+    body = await request.json()
+    changes = body.get('speakers') if isinstance(body, dict) else None
+    if not isinstance(changes, dict) or not changes:
+        return JSONResponse({'error': 'speakers must map speaker keys to names'}, status_code=400)
+    try:
+        meta = await asyncio.to_thread(recordings.rename_speakers, recording_id, changes)
+    except KeyError:
+        return JSONResponse({'error': 'recording not found'}, status_code=404)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
+    return {**meta, 'speakers': meta.get('speakers') or {}}
 
 
 @app.get('/api/recordings/{recording_id}/audio')

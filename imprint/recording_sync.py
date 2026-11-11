@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import re
 import shutil
 
 from . import recordings
@@ -104,10 +105,13 @@ def export(planned: list[str]):
         details = {key: meta.get(key) for key in recordings.SYNCED}
         transcript = folder / 'transcript.md'
         text = transcript.read_text(encoding='utf-8') if transcript.exists() else None
+        # The parts by speaker, so the other device can rename speakers too (ADR 0180).
+        parts = folder / 'segments.json'
+        segments = parts.read_text(encoding='utf-8') if parts.exists() else None
         sha = _sha256(folder / 'audio.webm') if size else ''
         common = {'id': rid, 'meta': details, 'size': size, 'sha256': sha}
         if offset >= size:
-            yield {**common, 'offset': size, 'data': '', 'final': True, 'transcript': text}
+            yield {**common, 'offset': size, 'data': '', 'final': True, 'transcript': text, 'segments': segments}
             continue
         with open(folder / 'audio.webm', 'rb') as audio:
             audio.seek(offset)
@@ -118,7 +122,7 @@ def export(planned: list[str]):
                     break
                 last = at + len(piece) >= size
                 yield {**common, 'offset': at, 'data': base64.b64encode(piece).decode('ascii'), 'final': last,
-                       **({'transcript': text} if last else {})}
+                       **({'transcript': text, 'segments': segments} if last else {})}
                 at += len(piece)
 
 
@@ -138,7 +142,21 @@ def _details(meta) -> dict:
             'duration': number('duration'), 'error': str(meta.get('error') or '')[:500],
             'memories': int(meta['memories']) if type(meta.get('memories')) is int else 0,
             'transcribed_at': number('transcribed_at', True), 'updated_at': number('updated_at'),
-            'audio_removed_at': number('audio_removed_at', True)}
+            'audio_removed_at': number('audio_removed_at', True), **_speakers(meta.get('speakers'))}
+
+
+def _speakers(names) -> dict:
+    """Speaker names from another device, checked (ADR 0180)."""
+    if not isinstance(names, dict):
+        return {}
+    kept = {}
+    for key, name in list(names.items())[:64]:
+        try:
+            if isinstance(key, str) and isinstance(name, str) and re.fullmatch(r'(mic|call)-\d{1,3}', key):
+                kept[key] = recordings.clean_name(name)
+        except ValueError:
+            continue
+    return {'speakers': kept} if kept else {}
 
 
 def import_records(records: list[dict]) -> dict[str, int]:
@@ -201,9 +219,25 @@ def import_records(records: list[dict]) -> dict[str, int]:
         transcript = record.get('transcript')
         if isinstance(transcript, str) and len(transcript.encode('utf-8')) <= MAX_TRANSCRIPT:
             (folder / 'transcript.md').write_text(transcript, encoding='utf-8')
+        segments = record.get('segments')
+        if isinstance(segments, str) and len(segments.encode('utf-8')) <= MAX_TRANSCRIPT and _parts_ok(segments):
+            (folder / 'segments.json').write_text(segments, encoding='utf-8')
         recordings._write_meta({'id': rid, **details})
         stats['completed'] += 1
     return stats
+
+
+def _parts_ok(text: str) -> bool:
+    """Whether saved parts from another device have the shape renaming reads."""
+    import json
+    try:
+        parts = json.loads(text)
+        return (isinstance(parts, dict) and isinstance(parts.get('entries'), list)
+                and all(isinstance(e, dict) and isinstance(e.get('speaker'), str) and isinstance(e.get('text'), str)
+                        and type(e.get('start')) in (int, float) and type(e.get('end')) in (int, float)
+                        for e in parts['entries']))
+    except ValueError:
+        return False
 
 
 def delete_local(recording_id: str) -> None:

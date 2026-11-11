@@ -320,6 +320,8 @@ SETTINGS: list[Setting] = [
             choices=(Choice("large-v3", "Large v3", "Most accurate · about twice as slow as Turbo · about 2.88 GiB download"),
                      Choice("large-v3-turbo", "Large v3 Turbo", "Faster, a little less accurate · about 1.51 GiB download"),
                      Choice("small", "Small", "Smallest and fastest, more mistakes · about 464 MiB download"))),
+    Setting("audio.diarize", "IMPRINT_AUDIO_DIARIZE", True, bool,
+            "Tell voices apart in meeting recordings: who said what within the microphone and within the computer's audio (ADR 0180)"),
     Setting("audio.language", "IMPRINT_AUDIO_LANGUAGE", "auto", str, "Transcription language; Auto detects each audio window and preserves the spoken language",
             choices=(Choice("auto", "Auto"), Choice("ro", "Romanian"), Choice("en", "English"))),
     Setting("audio.max_file_size_mb", "IMPRINT_AUDIO_MAX_FILE_MB", 1024, int, "Maximum audio file size in MiB"),

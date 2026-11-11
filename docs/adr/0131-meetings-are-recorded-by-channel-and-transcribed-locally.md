@@ -9,6 +9,7 @@ description: The dashboard records the microphone and, with the user's consent, 
   - [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — a recording can start and stop from the desktop app's floating button, which relays it to the dashboard window
   - [ADR 0173](0173-a-transcript-leaves-out-the-microphones-echo-of-the-call.md) — the transcript leaves out the microphone's echo of the computer's audio, and each turn is a paragraph
   - [ADR 0177](0177-recordings-travel-between-devices-that-both-turned-it-on.md) — the raw audio can leave the device: to paired devices where the user turned recording sync on, both of them
+  - [ADR 0180](0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md) — the transcript tells voices apart within each channel, not only by channel, and its speakers can be renamed
 - Related: [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md), [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md)
 
 ## Context
