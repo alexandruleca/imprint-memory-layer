@@ -15,7 +15,7 @@
     "electron-builder": "^26.0.0"
   },
   "build": {
-    "appId": "tech.brightspaces.imprint",
+    "appId": "com.alexandruleca.imprint.desktop",
     "productName": "Imprint",
     "copyright": "Copyright © 2025 Brightspaces",
     "directories": {

@@ -47,15 +47,18 @@ ARM64 = 0x0100000C
 
 
 MICROPHONE = 'Imprint uses your microphone for conversations with your local voice companion when you enable it.'
+AUDIO = "Imprint records what this computer plays, such as the other people on a call, when you record a meeting with the computer's audio."
 
 
-def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False, microphone=MICROPHONE):
+def bundle(path, identifier, *, signed=True, signer=None, stale_plist=False, microphone=MICROPHONE, audio=AUDIO):
     """An Electron-style .app whose executable is signed (or not) as a bundle."""
     contents = path / 'Contents'
     (contents / 'MacOS').mkdir(parents=True)
     keys = {'CFBundleExecutable': 'Imprint', 'CFBundleIdentifier': identifier}
     if microphone is not None:
         keys['NSMicrophoneUsageDescription'] = microphone
+    if audio is not None:
+        keys['NSAudioCaptureUsageDescription'] = audio
     info = plistlib.dumps(keys)
     (contents / 'Info.plist').write_bytes(info)
     if not signed:  # What electron-builder ships when it skips signing: a linker signature only.
@@ -132,14 +135,15 @@ class ReleaseValidationTests(unittest.TestCase):
             'Info.plist edited after signing': ({'stale_plist': True}, 'does not seal its Info.plist'),
             'no microphone usage text': ({'microphone': None}, 'no microphone usage description'),
             'empty microphone usage text': ({'microphone': '  '}, 'no microphone usage description'),
+            'no system audio usage text': ({'audio': None}, 'no system audio usage description'),
         }
         for name, (options, error) in cases.items():
             with self.subTest(name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 self.tree(root, machine=183)
                 app = root / 'bin/imprint-ui.app'
-                bundle(app, 'tech.brightspaces.imprint', **options)
-                bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'tech.brightspaces.imprint.helper')
+                bundle(app, 'com.alexandruleca.imprint.desktop', **options)
+                bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'com.alexandruleca.imprint.desktop.helper')
                 if error is None:
                     VALIDATOR.validate(root, 'darwin/arm64')
                 else:
@@ -150,14 +154,15 @@ class ReleaseValidationTests(unittest.TestCase):
         # electron-builder writes extendInfo into the app's Info.plist before signing it.
         build = json.loads((Path(__file__).resolve().parents[1] / 'ui-electron/package.json').read_text())['build']['mac']
         self.assertTrue(build['extendInfo']['NSMicrophoneUsageDescription'].strip())
+        self.assertTrue(build['extendInfo']['NSAudioCaptureUsageDescription'].strip())
 
     def test_unsigned_macos_helper_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.tree(root, machine=183)
             app = root / 'bin/imprint-ui.app'
-            bundle(app, 'tech.brightspaces.imprint')
-            bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'tech.brightspaces.imprint.helper', signed=False)
+            bundle(app, 'com.alexandruleca.imprint.desktop')
+            bundle(app / 'Contents/Frameworks/Imprint Helper.app', 'com.alexandruleca.imprint.desktop.helper', signed=False)
             with self.assertRaisesRegex(ValueError, 'Unsigned macOS bundle.*Imprint Helper'):
                 VALIDATOR.validate(root, 'darwin/arm64')
 

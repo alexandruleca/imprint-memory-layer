@@ -208,6 +208,7 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0074](0074-uninstall-removes-the-shared-desktop-profile.md) **Uninstall removes the shared desktop profile.** An uninstall that deletes data also deletes the desktop shell's Electron profile, which every installation on the account shares.
 
 - [ADR 0075](0075-microphone-purpose-in-the-macos-installer-wrapper.md) **Microphone purpose in the macOS installer wrapper.** The enclosing `.pkg` app declares microphone usage as well as the nested Electron shell.
+- [ADR 0179](0179-the-macos-desktop-app-is-com-alexandruleca-imprint-desktop.md) **The macOS desktop app is com.alexandruleca.imprint.desktop.** The Electron app's bundle identifier moves to the project's namespace, distinct from the installer's enclosing Imprint.app.
 
 - [ADR 0076](0076-default-ocr-with-wheel-installed-models-and-renderer.md) **Default OCR.** Install local models and the PDF renderer with the base runtime; keep OCR enabled unless explicitly disabled. Amended by [ADR 0109](0109-automatic-ocr-runtime-repair.md) (automatic missing-runtime repair), [ADR 0111](0111-intel-macs-are-not-supported.md) (no Intel OpenCV pin).
 - [ADR 0109](0109-automatic-ocr-runtime-repair.md) **Automatic OCR runtime repair.** Release the job lock, attempt noninteractive bootstrap once per managed command and retry in a fresh extraction worker when bundled OCR dependencies are missing.
@@ -429,6 +430,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0176](0176-deletions-reach-paired-devices-that-hold-the-memory.md) | 2026-11-11 | Amended by [ADR 0177](0177-recordings-travel-between-devices-that-both-turned-it-on.md) | Deletions reach paired devices that hold the memory |
 | [0177](0177-recordings-travel-between-devices-that-both-turned-it-on.md) | 2026-11-11 | Accepted | Recordings travel between devices that both turned it on |
 | [0178](0178-whisper-large-v3-is-the-default-transcription-model.md) | 2026-11-11 | Accepted | Whisper large-v3 is the default transcription model |
+| [0179](0179-the-macos-desktop-app-is-com-alexandruleca-imprint-desktop.md) | 2026-11-11 | Accepted | The macOS desktop app is com.alexandruleca.imprint.desktop |
 
 ## How to write and maintain ADRs
 
