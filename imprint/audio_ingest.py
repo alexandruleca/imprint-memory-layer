@@ -264,8 +264,9 @@ def redact_segments(segments):
 
 def transcribe(path: str, *, force=False, words=False):
     """Timestamped segments of an audio file, and how they were made.
-    ``words`` adds each segment's words as ``[start, end, text]``, for
-    telling speakers apart within a segment (ADR 0180); their text is not
+    ``words`` adds each segment's words as ``[start, end, text, probability]``
+    and its ``avg_logprob``, for telling speakers apart within a segment and
+    finding invented passages (ADRs 0180, 0181); the words' text is not
     redacted, so a caller that shows it redacts it first."""
     from .source_state import fingerprint
     words_wanted = words
@@ -316,8 +317,10 @@ def transcribe(path: str, *, force=False, words=False):
                         raise ValueError("Audio transcript exceeds its text/segment budget")
                     result.append({"text": text, "start": round(start, 3), "end": round(end, 3),
                                    "language": info.language,
-                                   **({"words": [[round(offset + w.start, 3), round(offset + w.end, 3), w.word]
-                                                 for w in words]} if words_wanted else {})})
+                                   **({"avg_logprob": round(float(segment.avg_logprob), 3),
+                                       "words": [[round(offset + w.start, 3), round(offset + w.end, 3), w.word,
+                                                  round(float(w.probability), 3)] for w in words]}
+                                      if words_wanted else {})})
                     last_end = end
             report("transcribing_audio", offset + len(samples) / RATE, math.ceil(duration))
         if fingerprint(path) != before:

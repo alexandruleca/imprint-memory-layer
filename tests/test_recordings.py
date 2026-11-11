@@ -163,6 +163,36 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual([(p['voice'], p['text']) for p in parts], [(1, 'Ma gandesc la chestia asta, apropo de birou.'),
                                                                     (0, 'Da?')])
 
+    def test_sentences_whisper_likely_invented_are_left_out_in_any_language_the_recording_uses(self):
+        def said(text, start, language='ro', logprob=-0.2, seconds=0.4, probability=0.9):
+            words = [[start + n * seconds, start + (n + 1) * seconds, ' ' + word, probability]
+                     for n, word in enumerate(text.split())]
+            return {'text': text, 'start': start, 'end': words[-1][1], 'language': language,
+                    'avg_logprob': logprob, 'words': words}
+        romanian = [('Others', said('Am dat eu pe contul gresit si nu am auzit nimic.', n * 10.0)) for n in range(6)]
+        # Heard on the user's meeting: an outro stretched over seconds of the
+        # call's echo, after a real sentence of the same segment.
+        outro = said('Da, sigur. Nu uitati sa va abonati la canal!', 70.0)
+        for word in outro['words'][2:]:
+            word[1] = word[0] + 3.0
+        foreign = said('nao e?', 90.0, language='pt', logprob=-0.92)
+        english = said('Okay, let us go.', 95.0, language='en', logprob=-0.2)
+        bare = {'text': 'Without words.', 'start': 99.0, 'end': 100.0}
+        kept, left_out = recordings.without_invented(romanian + [('You', outro), ('Others', foreign),
+                                                                 ('Others', english), ('Others', bare)])
+        self.assertEqual(left_out, 2)
+        texts = [segment['text'] for _, segment in kept]
+        self.assertIn('Da, sigur.', texts)
+        self.assertNotIn('nao e?', texts)
+        self.assertIn('Okay, let us go.', texts)   # Whisper was sure of it
+        self.assertIn('Without words.', texts)
+        shortened = next(segment for _, segment in kept if segment['text'] == 'Da, sigur.')
+        self.assertEqual((shortened['start'], shortened['end']), (70.0, 70.8))
+        # In a recording that speaks English too, English is not foreign.
+        mixed = romanian + [('You', said('Thanks all for joining us today, really.', 80.0 + n, language='en',
+                                         logprob=-0.6)) for n in range(4)]
+        self.assertEqual(recordings.without_invented(mixed)[1], 0)
+
     def test_a_microphone_voice_heard_while_the_computer_plays_is_its_echo(self):
         played = [(0.0, 5.0, 0), (6.0, 9.0, 1)]
         mic = [(0.5, 4.5, 1), (5.0, 6.0, 0), (6.2, 8.8, 1), (9.0, 12.0, 0), (8.0, 9.5, 0)]
@@ -190,7 +220,10 @@ class RecordingTests(unittest.TestCase):
         said = {'you': [{'text': 'Let us start.', 'start': 0.5, 'end': 1.5, 'words': [[0.5, 1.5, ' Let us start.']]},
                         {'text': 'I can join', 'start': 4.2, 'end': 5.5, 'words': [[4.2, 5.5, ' I can join']]}],
                 'others': [{'text': 'Sure. I can join later.', 'start': 2.0, 'end': 6.0,
-                            'words': [[2.0, 2.5, ' Sure.'], [4.0, 6.0, ' I can join later.']]}]}
+                            'words': [[2.0, 2.5, ' Sure.'], [4.0, 6.0, ' I can join later.']]},
+                           # Whisper's classic: improbable, its first word too short.
+                           {'text': 'Thank you.', 'start': 8.0, 'end': 8.3, 'language': 'en', 'avg_logprob': -0.9,
+                            'words': [[8.0, 8.05, ' Thank', 0.07], [8.05, 8.3, ' you.', 0.9]]}]}
         turns = {'you': [(0.0, 2.0, 0), (4.0, 6.0, 1)], 'others': [(1.8, 3.0, 0), (3.5, 7.0, 1)]}
 
         def transcribe(path, force=False, words=False):
@@ -216,6 +249,8 @@ class RecordingTests(unittest.TestCase):
         self.assertIn('**Speaker 2** (00:00:04): I can join later.', text)
         self.assertIn('Voices were told apart on this computer', text)
         self.assertIn('1 microphone passage that repeated the computer\'s audio is left out', text)
+        self.assertIn('1 sentence the speech model likely invented is left out', text)
+        self.assertNotIn('Thank you', text)
         self.assertNotIn('**In the room', text)
         saved = json.loads((recordings._folder(meta['id']) / 'segments.json').read_text())
         self.assertEqual([e['speaker'] for e in saved['entries']], ['mic-1', 'call-1', 'call-2'])
@@ -229,6 +264,7 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual(renamed['speakers']['call-2'], 'Ana')
         text = store.call_args.args[0]
         self.assertIn('**Ana** (00:00:04): I can join later.', text)
+        self.assertIn('1 sentence the speech model likely invented is left out', text)
         self.assertEqual((recordings._folder(meta['id']) / 'transcript.md').read_text(), text)
         # The old transcript's memories go on paired devices too (ADR 0176).
         self.assertEqual(delete.call_args.kwargs, {'propagate': 'all'})

@@ -232,6 +232,75 @@ def without_echo(spoken: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
     return kept
 
 
+# ── Invented passages (ADR 0181) ────────────────────────────────
+#
+# Whisper writes text where no one said it: outros it learned from video
+# subtitles ("Thank you.", "Nu uitați să vă abonați la canal") and short
+# fragments in other languages. A sentence is left out when Whisper's own
+# signals mark it: the anomaly score of its words (improbable, or too long or
+# too short; faster-whisper's hallucination_silence_threshold uses it), or a
+# language the rest of the recording does not use, decoded with little
+# confidence. A recording that mixes languages keeps each one it uses.
+
+ANOMALY_SHARE = 0.65    # anomaly score per word, of the first ANOMALY_WORDS
+ANOMALY_WORDS = 8
+UNSURE = -0.5           # a segment's average log-probability below this
+LANGUAGE_SHARE = 0.15   # a language holding less of the recording's words is foreign to it
+
+
+def _anomaly(word) -> float:
+    """Whisper's anomaly score of a word (faster-whisper's word_anomaly_score)."""
+    probability = word[3] if len(word) > 3 else 1.0
+    duration = word[1] - word[0]
+    score = 1.0 if probability < 0.15 else 0.0
+    if duration < 0.133:
+        score += (0.133 - duration) * 15
+    if duration > 2.0:
+        score += duration - 2.0
+    return score
+
+
+def without_invented(spoken: list[tuple[str, dict]]) -> tuple[list[tuple[str, dict]], int]:
+    """The segments without the sentences Whisper likely invented, and how
+    many sentences were left out. A segment that loses some sentences is
+    split around them and its kept text is redacted again; segments without
+    word timings are kept."""
+    from .redaction import redact_all
+    languages: dict[str, int] = {}
+    for _, segment in spoken:
+        language = segment.get('language') or ''
+        languages[language] = languages.get(language, 0) + len(segment.get('words') or [segment])
+    total = sum(languages.values()) or 1
+    foreign = {language for language, count in languages.items() if count < LANGUAGE_SHARE * total}
+    kept, rebuilt, left_out = [], [], 0
+    for speaker, segment in spoken:
+        words = segment.get('words')
+        if not words:
+            kept.append((speaker, segment))
+            continue
+        unsure = segment.get('language') in foreign and segment.get('avg_logprob', 0.0) < UNSURE
+        runs: list[list] = [[]]
+        for sentence in _sentences(words):
+            scored = [words[at] for at in sentence][:ANOMALY_WORDS]
+            if unsure or sum(map(_anomaly, scored)) >= ANOMALY_SHARE * len(scored):
+                left_out += 1
+                runs.append([])
+            else:
+                runs[-1].extend(words[at] for at in sentence)
+        runs = [run for run in runs if run]
+        if len(runs) == 1 and len(runs[0]) == len(words):
+            kept.append((speaker, segment))
+            continue
+        for run in runs:
+            rebuilt.append(len(kept))
+            kept.append((speaker, {**segment, 'start': run[0][0], 'end': run[-1][1], 'words': run,
+                                   'text': ''.join(word[2] for word in run).strip()}))
+    if rebuilt:
+        for index, text in zip(rebuilt, redact_all([kept[k][1]['text'] for k in rebuilt])):
+            kept[index][1]['text'] = text
+    return [(speaker, segment) for speaker, segment in kept if segment['text']], left_out
+
+
 # ── Speakers (ADR 0180) ─────────────────────────────────────────
 #
 # Each channel is told apart into voices (``diarize``); each sentence goes to
@@ -371,18 +440,21 @@ def clean_name(name) -> str:
     return name
 
 
-def render(meta: dict, entries: list[dict], names: dict[str, str], model: str, echoes: int, voices: bool) -> str:
+def render(meta: dict, entries: list[dict], names: dict[str, str], model: str, echoes: int, voices: bool,
+           invented: int = 0) -> str:
     """The transcript from saved parts and the speakers' current names."""
     spoken = [(names.get(entry['speaker'], entry['speaker']), entry) for entry in entries]
-    return transcript(meta, spoken, model, echoes=echoes, voices=voices)
+    return transcript(meta, spoken, model, echoes=echoes, voices=voices, invented=invented)
 
 
 def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str, echoes: int = 0,
-               voices: bool = False) -> str:
+               voices: bool = False, invented: int = 0) -> str:
     """Markdown: a heading, how it was made, then each turn with its speaker
     and time, a paragraph each. Consecutive segments of one speaker form one
     turn. ``echoes`` says how many microphone passages were left out;
-    ``voices``, that speakers were told apart within each channel."""
+    ``voices``, that speakers were told apart within each channel;
+    ``invented``, how many sentences the speech model likely invented were
+    left out."""
     turns: list[list] = []
     for speaker, segment in sorted(spoken, key=lambda item: (item[1]['start'], item[0])):
         if turns and turns[-1][0] == speaker and segment['start'] - turns[-1][2] < 4:
@@ -394,6 +466,8 @@ def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str, echoes: i
     minutes = max(1, math.ceil((meta.get('duration') or 0) / 60))
     left_out = (f' {echoes} microphone passage{"s" if echoes != 1 else ""} that repeated the computer\'s audio '
                 f'{"are" if echoes != 1 else "is"} left out.') if echoes else ''
+    left_out += (f' {invented} sentence{"s" if invented != 1 else ""} the speech model likely invented '
+                 f'{"are" if invented != 1 else "is"} left out.') if invented else ''
     who = ('Voices were told apart on this computer: on its microphone, the main one is "You" and any other an '
            '"In the room" speaker; in the audio it played, each is a numbered "Speaker", or "Others" when there was '
            'one. Speakers can be renamed on the Recordings page.' if voices
@@ -430,15 +504,18 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
                     segments, details = audio_ingest.transcribe(str(path), force=True, words=True)
                 model = details['transcription_model'].rsplit('/', 1)[-1]
                 spoken += [(speaker, segment) for segment in segments]
+            spoken, invented = without_invented(spoken)
             heard = without_echo(spoken)
             echoes = len(spoken) - len(heard)
-            entries, names, voices, left_out = _tell_voices(channels, heard, task)
+            turns = _turns(channels, task)
+            entries, names, left_out = _speakers(channels, heard, turns)
             echoes += left_out
+            voices = turns is not None
             model = model or 'Whisper'
-            text = render(get(recording_id), entries, names, model, echoes, voices)
+            text = render(get(recording_id), entries, names, model, echoes, voices, invented)
             (_folder(recording_id) / 'segments.json').write_text(json.dumps(
-                {'model': model, 'echoes': echoes, 'voices': voices, 'entries': entries}, ensure_ascii=False),
-                encoding='utf-8')
+                {'model': model, 'echoes': echoes, 'voices': voices, 'invented': invented, 'entries': entries},
+                ensure_ascii=False), encoding='utf-8')
             stored, status = store_inline_content(
                 text, source_key=SOURCE + recording_id, project=meta['project'], chunk_mode='prose',
                 source_type='recording', rel_path=f'{SOURCE}{recording_id}.md', workspace=workspace)
@@ -453,51 +530,59 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
                   workspace=workspace or '')
 
 
-def _tell_voices(channels, heard, task) -> tuple[list[dict], dict[str, str], bool, int]:
-    """The transcript's parts with a speaker key each, the speakers' default
-    names, whether voices were told apart (``audio.diarize``) and how many
-    microphone parts were left out as the computer's audio heard again. When
-    voices cannot be told apart (a model download fails, say), each channel
-    is one speaker."""
+def _turns(channels, task) -> dict[str, list] | None:
+    """Each channel's speaker turns (``audio.diarize``), or None when voices
+    are not told apart: the setting is off, or the models cannot run (a
+    download fails, say), and each channel is then one speaker."""
     import logging
     from . import audio_ingest
     from .config_schema import resolve
+    if not resolve('audio.diarize')[0]:
+        return None
+    try:
+        import wave
+        import numpy as np
+        from . import diarize
+        with audio_ingest.reporting(task):
+            diarize.ensure_models(audio_ingest.report)
+        turns = {}
+        for label, path in channels:
+            with wave.open(str(path)) as audio:
+                samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype='<i2').astype(np.float32) / 32768
+            task.update(0, total=int(len(samples) / diarize.RATE), phase='telling_voices_apart', unit='seconds',
+                        detail=label)
+            turns[label] = diarize.diarize(samples, progress=lambda done, total: task.update(int(done), total=int(total)))
+        return turns
+    except Exception as error:  # noqa: BLE001 - the transcript still comes, by channel
+        logging.getLogger(__name__).warning('Voices were not told apart: %s', error)
+        return None
+
+
+def _speakers(channels, heard, turns) -> tuple[list[dict], dict[str, str], int]:
+    """The transcript's parts with a speaker key each, the speakers' default
+    names and how many microphone parts were left out as the computer's
+    audio heard again. Without turns, each channel is one speaker."""
     by_channel = {label: [seg for speaker, seg in heard if speaker == label] for label, _ in channels}
-    if resolve('audio.diarize')[0]:
-        try:
-            import wave
-            import numpy as np
-            from . import diarize
-            with audio_ingest.reporting(task):
-                diarize.ensure_models(audio_ingest.report)
-            turns = {}
-            for label, path in channels:
-                with wave.open(str(path)) as audio:
-                    samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype='<i2').astype(np.float32) / 32768
-                task.update(0, total=int(len(samples) / diarize.RATE), phase='telling_voices_apart', unit='seconds',
-                            detail=label)
-                turns[label] = diarize.diarize(samples, progress=lambda done, total: task.update(int(done), total=int(total)))
-            entries, names, left_out = [], {}, 0
-            for label, _ in channels:
-                channel = CHANNELS[label]
-                parts = speaker_parts(by_channel[label], turns[label])
-                if channel == 'mic':
-                    echo = echo_voices(turns[label], turns.get('Others', []))
-                    left_out += sum(part['voice'] in echo for part in parts)
-                    parts = [part for part in parts if part['voice'] not in echo]
-                defaults = voice_names(channel, parts)
-                order = sorted(defaults, key=lambda voice: min(p['start'] for p in parts if p['voice'] == voice))
-                keys = {voice: f'{channel}-{n}' for n, voice in enumerate(order, 1)}
-                names.update({keys[voice]: defaults[voice] for voice in order})
-                entries += [{'speaker': keys[p['voice']], 'start': p['start'], 'end': p['end'], 'text': p['text']}
-                            for p in parts]
-            return sorted(entries, key=lambda e: (e['start'], e['speaker'])), names, True, left_out
-        except Exception as error:  # noqa: BLE001 - the transcript still comes, by channel
-            logging.getLogger(__name__).warning('Voices were not told apart: %s', error)
-    entries = [{'speaker': f'{CHANNELS[label]}-1', 'start': seg['start'], 'end': seg['end'], 'text': seg['text']}
-               for label, _ in channels for seg in by_channel[label]]
-    names = {f'{CHANNELS[label]}-1': label for label, _ in channels if by_channel[label]}
-    return sorted(entries, key=lambda e: (e['start'], e['speaker'])), names, False, 0
+    if turns is None:
+        entries = [{'speaker': f'{CHANNELS[label]}-1', 'start': seg['start'], 'end': seg['end'], 'text': seg['text']}
+                   for label, _ in channels for seg in by_channel[label]]
+        names = {f'{CHANNELS[label]}-1': label for label, _ in channels if by_channel[label]}
+        return sorted(entries, key=lambda e: (e['start'], e['speaker'])), names, 0
+    entries, names, left_out = [], {}, 0
+    for label, _ in channels:
+        channel = CHANNELS[label]
+        parts = speaker_parts(by_channel[label], turns[label])
+        if channel == 'mic':
+            echo = echo_voices(turns[label], turns.get('Others', []))
+            left_out += sum(part['voice'] in echo for part in parts)
+            parts = [part for part in parts if part['voice'] not in echo]
+        defaults = voice_names(channel, parts)
+        order = sorted(defaults, key=lambda voice: min(p['start'] for p in parts if p['voice'] == voice))
+        keys = {voice: f'{channel}-{n}' for n, voice in enumerate(order, 1)}
+        names.update({keys[voice]: defaults[voice] for voice in order})
+        entries += [{'speaker': keys[p['voice']], 'start': p['start'], 'end': p['end'], 'text': p['text']}
+                    for p in parts]
+    return sorted(entries, key=lambda e: (e['start'], e['speaker'])), names, left_out
 
 
 def rename_speakers(recording_id: str, changes: dict, workspace: str | None = None) -> dict:
@@ -520,7 +605,7 @@ def rename_speakers(recording_id: str, changes: dict, workspace: str | None = No
         names[key] = clean_name(name)
     parts = json.loads(saved.read_text(encoding='utf-8'))
     text = render(meta, parts['entries'], names, parts.get('model') or 'Whisper', int(parts.get('echoes') or 0),
-                  bool(parts.get('voices')))
+                  bool(parts.get('voices')), int(parts.get('invented') or 0))
     workspace = workspace or meta.get('workspace') or None
     if workspace:
         from . import config

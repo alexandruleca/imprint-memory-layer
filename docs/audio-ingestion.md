@@ -71,7 +71,7 @@ checks do not establish multilingual accuracy or speaker separation.
 
 Meeting recordings made on the dashboard's Recordings page are transcribed by
 the same pipeline and, unlike imported audio files, tell voices apart within
-each channel and name them ([ADR 0180](adr/0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md)).
+each channel and name them ([ADR 0180](adr/0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md)), and leave out sentences Whisper likely invented ([ADR 0181](adr/0181-a-recordings-transcript-leaves-out-what-whisper-likely-invented.md)).
 
 The pipeline redacts transcript text before indexing and stores the canonical
 transcript in the existing source snapshots. That completed snapshot is also
