@@ -133,7 +133,7 @@ class PlacementSyncTests(ProjectStoreTests):
         self.assertEqual([(keys['placements'], keys['organize']) for keys in sent],
                          [([], []), (['["o", ""]'], ['["o", "s"]'])])
         self.assertEqual(sync_delta.extras_offered(), {'core': True, 'placements': True, 'organize': True, 'backlog': True,
-                                                       'registry': True, 'core_tiers': True, 'deletions': True})
+                                                       'registry': True, 'recordings': False, 'core_tiers': True, 'deletions': True})
         # An importer checks the stream's datasets.
         self.assertTrue(sync_ws._stream_line_ok({'kind': 'meta', 'vectors': True, 'datasets': {'placements': 1}}, False))
         self.assertFalse(sync_ws._stream_line_ok({'kind': 'meta', 'vectors': True, 'datasets': {'other': 1}}, False))

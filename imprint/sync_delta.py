@@ -29,12 +29,13 @@ WAIT = 600
 # Records the sender's Privacy Filter goes over between checks for a
 # stopped session (ADR 0122): bounds how long a cancelled sync waits for it.
 FILTER_SLICE = 25
-DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog', 'registry')
+DATASETS = ('memories', 'facts', 'sources', 'core', 'placements', 'organize', 'backlog', 'registry', 'recordings')
 # Datasets a device receives only when its handshake offers each: core
 # memories (ADR 0129), placement rules and Organize's proposals (ADR 0134),
-# the memories that wait for LLM tagging (ADR 0138), and skills and
-# personas (ADR 0168).
-EXTRAS = ('core', 'placements', 'organize', 'backlog', 'registry')
+# the memories that wait for LLM tagging (ADR 0138), skills and personas
+# (ADR 0168), and meeting recordings, offered only when sync.recordings is on
+# (ADR 0177).
+EXTRAS = ('core', 'placements', 'organize', 'backlog', 'registry', 'recordings')
 # Skills and personas go in streams of at most this many bytes of files.
 REGISTRY_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -57,7 +58,9 @@ def extras_offered() -> dict[str, bool]:
     it: its importer would refuse the dataset. ``core_tiers``: this device
     tells guidelines from recorded core memories (ADR 0143). ``deletions``:
     it swaps deletions after the manifests (ADR 0176)."""
-    return {**{dataset: True for dataset in EXTRAS}, 'core_tiers': True, 'deletions': True}
+    from . import recording_sync
+    return {**{dataset: True for dataset in EXTRAS}, 'recordings': recording_sync.enabled(),
+            'core_tiers': True, 'deletions': True}
 
 
 def extras_of(snapshot: dict) -> frozenset:
@@ -111,10 +114,10 @@ def manifest(workspace: str) -> dict[str, dict[str, float]]:
     sources = {_source_key(meta): float(meta['updated_at']) for meta in source_snapshots.list_metadata(workspace)}
     # Core memories, skills and personas belong to no workspace: every
     # paired workspace carries them.
-    from . import core_memories, organize, placement_sync, registry
+    from . import core_memories, organize, placement_sync, recording_sync, registry
     return {'memories': memories, 'facts': facts, 'sources': sources, 'core': core_memories.manifest(),
             'placements': placement_sync.manifest(workspace), 'organize': organize.manifest(workspace),
-            'backlog': backlog, 'registry': registry.manifest()}
+            'backlog': backlog, 'registry': registry.manifest(), 'recordings': recording_sync.manifest()}
 
 
 def digest(local: dict) -> str:
@@ -242,6 +245,18 @@ def export_chunks(workspace: str, keys: dict[str, list[str]], stop: threading.Ev
         for start in range(0, len(records), CHUNK_RECORDS):
             yield _stream(core=records[start:start + CHUNK_RECORDS])
 
+    # Meeting recordings (ADR 0177): one piece of audio per stream, counted
+    # in bytes, so a large recording on a slow link keeps showing progress.
+    if keys.get('recordings'):
+        from . import recording_sync
+        for record in recording_sync.export(keys['recordings']):
+            stream = _stream(recordings=[record])
+            first = json.loads(stream[0])
+            data = record['data']
+            first['datasets']['recordings'] = len(data) // 4 * 3 - data[-2:].count('=') if data else 0
+            stream[0] = json.dumps(first, separators=(',', ':'))
+            yield stream
+
     if keys.get('registry'):
         from . import registry
         batch, size = [], 0
@@ -307,6 +322,11 @@ async def reconcile(channel, workspace: str, local: dict, *, provider: bool, pro
             for dataset in EXTRAS:
                 if dataset not in extras:
                     keys[dataset] = []
+            if keys.get('recordings'):
+                # From where each recording's audio goes, by what the other device holds.
+                from . import recording_sync
+                keys['recordings'] = await asyncio.to_thread(recording_sync.plan, keys['recordings'],
+                                                             remote.get('recordings', {}))
             async for event in _send(channel, workspace, keys, cancel):
                 yield event
         else:
@@ -322,6 +342,9 @@ async def _send(channel, workspace: str, keys: dict, cancel: asyncio.Event):
     ends early, the chunk being prepared is dropped and its thread awaited."""
     from .sync_ws import _check_cancel, _printable
     totals = {dataset: len(keys[dataset]) for dataset in ('memories', 'facts')}
+    if keys.get('recordings'):
+        from . import recording_sync
+        totals['recordings'] = await asyncio.to_thread(recording_sync.pending_bytes, keys['recordings'])
     sent = dict.fromkeys(totals, 0)
     stop = threading.Event()
     chunks = export_chunks(workspace, keys, stop=stop)

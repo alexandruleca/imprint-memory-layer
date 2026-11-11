@@ -373,6 +373,10 @@ HELP: dict[str, dict[str, str]] = {
         "help": "The workspace (a separate set of memories) used by agent sessions that no project assigns one, such as desktop app chats, or folders without an approved .imprint/workspace.json or workspace root. Empty (the default) uses whichever workspace is active in the CLI and dashboard at the time; set it to keep such sessions in one fixed workspace. It resets to empty if that workspace is removed.",
         "example": "\"personal\": so Claude Desktop chats always use your personal workspace, not whichever work workspace is active.",
     },
+    "sync.recordings": {
+        "help": "Whether this device exchanges meeting recordings with paired devices: the audio, the details and the transcript, end-to-end encrypted like the rest of sync. Both devices must turn it on, since recordings hold other people's voices. Once on, finished recordings travel by themselves; the audio goes in 1 MiB pieces, so an interrupted transfer resumes. A recording deleted on one device, or its audio deleted, is deleted on the other too. The transcript's memories sync either way, like any memories. Recordings larger than audio.max_file_size_mb are not received.",
+        "example": "true on your laptop and your desktop: record a call on the laptop, listen to it or transcribe it again on the desktop.",
+    },
     "desktop.floating_orb": {
         "help": "In the desktop app, whether a small floating Imprint button stays on screen while the dashboard is hidden, with Dashboard, Echo and Record around it. Off (the default), minimizing keeps the dashboard in the taskbar, closing hides it to the tray, and nothing floats over other windows. A running recording shows the button either way, because it is where a hidden recording shows and stops; it goes when the recording ends. A change applies the next time the dashboard is hidden.",
         "example": "true: to start a recording or talk to Echo with one click while the dashboard is out of the way.",

@@ -3,11 +3,12 @@ title: ADR 0176 — Deletions reach paired devices that hold the memory
 description: A device records the memories it deleted on purpose and, after paired devices swap manifests, names to the other only those of its deletions the other holds; the other deletes copies older than the deletion and passes it on, and no device imports a memory older than a deletion it holds.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-11
 - Amends:
   - [ADR 0020](0020-explicit-pairing-and-automatic-workspace-sync.md) — sync carries deletions; it is no longer a pure merge
   - [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) — after the manifests, the devices swap deletions, which change what each then sends
+- Amended by: [ADR 0177](0177-recordings-travel-between-devices-that-both-turned-it-on.md) — deletions also carry deleted recordings, kept once per device rather than per workspace
 - Related: [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) (no hash of a removed secret), [ADR 0015](0015-workspace-roots-and-source-purge.md) (purge), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) (logical IDs), [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md) (moves), [sync](../sync.md)
 
 ## Context

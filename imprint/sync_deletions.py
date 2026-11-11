@@ -23,8 +23,10 @@ from contextlib import contextmanager
 
 from . import config
 
-# Datasets whose deletions travel.
-DATASETS = ('memories',)
+# Datasets whose deletions travel. Recordings belong to the device, not to a
+# workspace: their deletions are kept once and every paired workspace carries them.
+DATASETS = ('memories', 'recordings')
+DEVICE_WIDE = ('recordings',)
 # How long a deletion is kept: a device away longer can bring the memory back.
 RETENTION = 180 * 24 * 3600
 # One sync never deletes more than this share of a workspace's memories, nor
@@ -57,15 +59,15 @@ def _db():
         conn.close()
 
 
-def _workspace(workspace: str | None) -> str:
-    return workspace or config.get_active_workspace()
+def _workspace(workspace: str | None, dataset: str = 'memories') -> str:
+    return '*' if dataset in DEVICE_WIDE else workspace or config.get_active_workspace()
 
 
 def record(workspace: str | None, keys, dataset: str = 'memories', at: float | None = None) -> None:
     """Remember that these were deleted here (``at``, default now). A key
     deleted again keeps the later time."""
     times = keys if isinstance(keys, dict) else dict.fromkeys(keys, at or time.time())
-    rows = [(_workspace(workspace), dataset, key, float(when)) for key, when in times.items()
+    rows = [(_workspace(workspace, dataset), dataset, key, float(when)) for key, when in times.items()
             if isinstance(key, str) and key]
     if not rows:
         return
@@ -79,7 +81,7 @@ def held(workspace: str | None, dataset: str = 'memories') -> dict[str, float]:
     """The deletions kept for a workspace, by key."""
     with _db() as conn:
         rows = conn.execute('SELECT key, deleted_at FROM deletions WHERE workspace = ? AND dataset = ? '
-                            'AND deleted_at >= ?', (_workspace(workspace), dataset, time.time() - RETENTION))
+                            'AND deleted_at >= ?', (_workspace(workspace, dataset), dataset, time.time() - RETENTION))
         return {key: deleted_at for key, deleted_at in rows}
 
 
@@ -105,22 +107,36 @@ def blocked(workspace: str, records: list[dict]) -> set[str]:
 
 
 def apply(workspace: str, requested: dict, local: dict) -> dict[str, list[str]]:
-    """Delete the memories the other device deleted, of those this device
-    holds, when this copy is older than the deletion; record each deletion
-    so it travels on. Returns the keys deleted, per dataset. Raises
-    :class:`MassDeletion`, deleting nothing, when the request is too large."""
-    asked = {key: float(when) for key, when in (requested.get('memories') or {}).items()
-             if key in local.get('memories', {}) and type(when) in (int, float)}
-    if not asked:
-        return {}
-    count = len(local.get('memories', {}))
-    if len(asked) > max(MASS_MIN, MASS_SHARE * count):
-        raise MassDeletion(len(asked), count)
-    from . import vectorstore as vs
-    payloads = vs.retrieve_payloads(list(asked), ['_mid', 'recorded_at', 'timestamp'], workspace, with_vectors=False)
-    gone = [pl['_mid'] for pl in payloads if pl.get('_mid') in asked
-            and float(pl.get('recorded_at') or pl.get('timestamp') or 0) < asked[pl['_mid']]]
-    if gone:
-        vs.delete_memories(gone, workspace)
-        record(workspace, {key: asked[key] for key in gone})
-    return {'memories': gone}
+    """Delete what the other device deleted, of what this device holds, when
+    this copy is older than the deletion; record each deletion so it travels
+    on. Returns the keys deleted, per dataset. Raises :class:`MassDeletion`,
+    deleting nothing, when a request is too large."""
+    asked = {dataset: {key: float(when) for key, when in (requested.get(dataset) or {}).items()
+                       if key in local.get(dataset, {}) and type(when) in (int, float)} for dataset in DATASETS}
+    for dataset, keys in asked.items():
+        count = len([key for key in local.get(dataset, {}) if '#' not in key])
+        if len(keys) > max(MASS_MIN, MASS_SHARE * count):
+            raise MassDeletion(len(keys), count)
+    gone: dict[str, list[str]] = {}
+    if asked['memories']:
+        from . import vectorstore as vs
+        payloads = vs.retrieve_payloads(list(asked['memories']), ['_mid', 'recorded_at', 'timestamp'], workspace,
+                                        with_vectors=False)
+        gone['memories'] = [pl['_mid'] for pl in payloads if pl.get('_mid') in asked['memories']
+                            and float(pl.get('recorded_at') or pl.get('timestamp') or 0) < asked['memories'][pl['_mid']]]
+        if gone['memories']:
+            vs.delete_memories(gone['memories'], workspace)
+    if asked['recordings']:
+        from . import recording_sync, recordings
+        gone['recordings'] = []
+        for rid, when in asked['recordings'].items():
+            try:
+                started = float(recordings.get(rid).get('started_at') or 0)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if started < when:
+                recording_sync.delete_local(rid)
+                gone['recordings'].append(rid)
+    for dataset, keys in gone.items():
+        record(workspace, {key: asked[dataset][key] for key in keys}, dataset=dataset)
+    return {dataset: keys for dataset, keys in gone.items() if keys}

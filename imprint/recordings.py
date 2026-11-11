@@ -31,6 +31,9 @@ STATES = ('recording', 'stopped', 'transcribing', 'ready', 'failed')
 DEFAULT_PROJECT = 'meetings'
 SOURCE = 'recording/'
 _ID = re.compile(r'[0-9a-f]{32}')
+# The details paired devices receive with a recording (ADR 0177).
+SYNCED = ('title', 'project', 'others', 'consent', 'status', 'started_at', 'stopped_at', 'duration', 'error',
+          'memories', 'transcribed_at', 'updated_at', 'audio_removed_at')
 _RATE = 16000
 
 
@@ -75,9 +78,16 @@ def list_all() -> list[dict]:
     return sorted(found, key=lambda m: -m['started_at'])
 
 
+def version(meta: dict) -> float:
+    """When the recording last changed: what paired devices compare (ADR 0177)."""
+    return float(meta.get('updated_at') or meta.get('transcribed_at') or meta.get('stopped_at')
+                 or meta.get('started_at') or 0)
+
+
 def update(recording_id: str, **changes) -> dict:
     meta = get(recording_id)
     meta.update(changes)
+    meta['updated_at'] = max(time.time(), float(meta.get('updated_at') or 0) + 0.001)
     for key in ('audio_bytes', 'transcript'):
         meta.pop(key, None)
     _write_meta(meta)
@@ -94,6 +104,7 @@ def start(title: str, project: str = DEFAULT_PROJECT, others: bool = True, conse
     meta = {'id': uuid.uuid4().hex, 'title': title, 'project': project_name(project or DEFAULT_PROJECT),
             'others': bool(others), 'consent': True, 'status': 'recording', 'started_at': time.time(),
             'stopped_at': None, 'duration': 0.0, 'error': '', 'memories': 0, 'transcribed_at': None}
+    meta['updated_at'] = meta['started_at']
     _folder(meta['id']).mkdir(parents=True)
     _write_meta(meta)
     return get(meta['id'])
@@ -127,12 +138,15 @@ def remove_audio(recording_id: str) -> dict:
     if meta['status'] in ('recording', 'transcribing'):
         raise ValueError('Wait until the recording is stopped and transcribed')
     (_folder(recording_id) / 'audio.webm').unlink(missing_ok=True)
-    return get(recording_id)
+    # A newer version: paired devices that sync recordings delete it too (ADR 0177).
+    return update(recording_id, audio_removed_at=time.time())
 
 
 def delete(recording_id: str, workspace: str | None = None) -> None:
     """Delete the recording, its transcript and the memories made from it."""
     get(recording_id)
+    from . import sync_deletions
+    sync_deletions.record(None, [recording_id], dataset='recordings')  # Its folder goes on paired devices (ADR 0177).
     from . import vectorstore as vs
     vs.delete_by_source(SOURCE + recording_id, workspace, propagate='all')  # On paired devices too (ADR 0176).
     shutil.rmtree(_folder(recording_id), ignore_errors=True)

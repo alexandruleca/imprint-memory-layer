@@ -39,7 +39,7 @@ class DeletionRecordTests(unittest.TestCase):
         remote = {'memories': {'gone': 0.0, 'again': 0.0, 'theirs': 0.0}}
         asked = sync_deletions.doomed('work', local, remote)
         # "secret" was never on the other device: its ID is not sent there.
-        self.assertEqual(asked, {'memories': {'gone': now}})
+        self.assertEqual(asked, {'memories': {'gone': now}, 'recordings': {}})
 
     def test_incoming_memories_older_than_a_deletion_are_refused(self):
         sync_deletions.record('work', {'old': time.time()})

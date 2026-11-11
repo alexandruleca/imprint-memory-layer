@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
-  AppWindow, ArrowUpCircle, Bot, Boxes, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
+  AppWindow, ArrowUpCircle, Bot, Boxes, RefreshCw, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
   Scissors, ShieldCheck, SquareTerminal, Tags, WandSparkles, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +40,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
     desc: "A project's approved .imprint/workspace.json or roots choose an agent session's workspace; this covers the rest.",
     icon: FolderTree,
   },
+  sync: { title: "Device sync", desc: "What paired devices exchange beyond memories. Recordings travel only between devices that both turned this on.", icon: RefreshCw },
   desktop: { title: "Desktop app", desc: "How the desktop app behaves on this computer while its dashboard is hidden.", icon: AppWindow },
   update: { title: "Updates", desc: "Which releases this installation is offered, stable or dev builds as well, and whether it installs them by itself when idle.", icon: ArrowUpCircle },
   collection: { title: "Storage", desc: "The Qdrant collection the default workspace uses; other workspaces get their own automatically.", icon: Layers },

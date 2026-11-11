@@ -389,6 +389,12 @@ SETTINGS: list[Setting] = [
             "Workspace for agent sessions outside an assigned project, such as desktop app chats (empty: the active workspace)",
             choices=_workspaces),
 
+    # ── Device sync (ADR 0177) ────────────────────────────────
+    # Recordings hold other people's voices: they travel only between devices
+    # where the user turned this on, both of them.
+    Setting("sync.recordings", "IMPRINT_SYNC_RECORDINGS", False, bool,
+            "Send meeting recordings, their audio included, to paired devices that also turned this on, and receive theirs"),
+
     # ── Desktop app (ADR 0174) ────────────────────────────────
     # Read by the desktop app each time the dashboard is hidden.
     Setting("desktop.floating_orb", "IMPRINT_DESKTOP_FLOATING_ORB", False, bool,
