@@ -228,8 +228,8 @@ HELP: dict[str, dict[str, str]] = {
         "example": "false: if your project folders hold music or sound assets you don't want transcribed.",
     },
     "audio.model": {
-        "help": "The speech-to-text model. Both handle many languages and run locally on the CPU: \"large-v3-turbo\" (the default, about a 1.5 GiB download) is more accurate; \"small\" (about 464 MiB) is faster and lighter but makes more mistakes. A change re-transcribes audio files the next time they are indexed.",
-        "example": "\"small\": on an older laptop where transcribing an hour-long meeting with the default model takes too long.",
+        "help": "The speech-to-text model. All handle many languages and run locally on the CPU. \"large-v3\" (the default, about a 2.9 GiB download) is the most accurate, with clearly fewer mistakes in Romanian, and takes about as long as the audio lasts, roughly twice as long as Turbo. \"large-v3-turbo\" (about 1.5 GiB) is about twice as fast and a little less accurate. \"small\" (about 464 MiB) is the fastest and lightest but makes the most mistakes. A change re-transcribes audio files the next time they are indexed; recordings keep their transcript until you choose Transcribe again.",
+        "example": "\"large-v3-turbo\": on a laptop where transcribing an hour-long meeting with the default model takes too long.",
     },
     "audio.language": {
         "help": "The spoken language. \"auto\" (the default) detects it for each stretch of about 30 seconds and keeps the text in that language, so mixed-language recordings work; a language code forces it and skips detection, which helps when detection guesses wrong on short or accented clips. A change re-transcribes audio the next time it is indexed.",

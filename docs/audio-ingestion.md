@@ -22,14 +22,19 @@ files and automatic speaker diarization are not implemented.
 ## Models and languages
 
 **Settings → Audio ingestion** controls the model, language and file limits.
-The default **Large v3 Turbo** downloads approximately **1.51 GiB** once. The
-lighter **Small** model downloads approximately **464 MiB**, with lower observed
-accuracy on the Romanian smoke fixture. Opening the dashboard/settings never
+The default **Large v3** downloads approximately **2.88 GiB** once and is the
+most accurate: on OpenAI's published figures it makes about a third fewer
+mistakes than Turbo in Romanian (Common Voice 15), and on a CPU it takes
+about as long as the audio, roughly twice Turbo's time
+([ADR 0178](adr/0178-whisper-large-v3-is-the-default-transcription-model.md)).
+**Large v3 Turbo** (approximately **1.51 GiB**) is about twice as fast and a
+little less accurate. The lighter **Small** model downloads approximately
+**464 MiB**, with lower observed accuracy on the Romanian smoke fixture. Opening the dashboard/settings never
 starts a download; using an uncached audio file does. Weights are shared across
 workspaces and stored under `models/` in the Imprint data directory. Recordings
 and decoded PCM are never copied into that model cache.
 
-Both models are multilingual Whisper models, run locally on CPU with int8
+All three are multilingual Whisper models, run locally on CPU with int8
 inference. PyAV's wheels include the decoder libraries: no system FFmpeg,
 compiler, CUDA toolkit or microphone permission is required. Network access is
 used to fetch the selected pinned model on first use; transcription itself
@@ -45,7 +50,7 @@ can still be misrecognized; the reported language describes that window.
 
 ```bash
 imprint config set audio.language ro
-imprint config set audio.model small
+imprint config set audio.model large-v3-turbo
 imprint config set audio.enabled false
 ```
 
