@@ -17,9 +17,12 @@ class RecordingSyncTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.side = contextvars.ContextVar('device', default='a')
         self.dirs = {side: Path(directory.name) / side for side in 'ab'}
+        # A recording's memories are deleted through the vector store, which
+        # would start (or reach) a real Qdrant: these tests cover the files.
         for patcher in (patch.object(config, 'get_data_dir', side_effect=lambda: self.dirs[self.side.get()]),
                         patch.dict(os.environ, {'IMPRINT_SYNC_RECORDINGS': '1'}),
-                        patch.object(recording_sync, 'PIECE', 4)):
+                        patch.object(recording_sync, 'PIECE', 4),
+                        patch('imprint.vectorstore.delete_by_source')):
             patcher.start()
             self.addCleanup(patcher.stop)
 
