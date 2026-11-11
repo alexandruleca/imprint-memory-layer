@@ -159,7 +159,7 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual(recordings.remove_audio(meta['id'])['audio_bytes'], 0)
         with patch('imprint.vectorstore.delete_by_source') as delete:
             recordings.delete(meta['id'])
-        delete.assert_called_once_with(f"recording/{meta['id']}", None)
+        delete.assert_called_once_with(f"recording/{meta['id']}", None, propagate='all')  # On paired devices too (ADR 0176).
         self.assertFalse(recordings._folder(meta['id']).exists())
 
     def test_the_queue_runs_transcription_for_a_valid_id_only(self):

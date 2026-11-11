@@ -159,7 +159,14 @@ export interface PairedDevice {
   /** What the running automatic sync is doing; absent between attempts. */
   activity?: PairedSyncActivity | null;
   /** What the last completed sync moved, by dataset: records received and sent. */
-  last_result?: { received: Record<string, number>; sent: Record<string, number> } | null;
+  last_result?: {
+    received: Record<string, number>;
+    sent: Record<string, number>;
+    /** Deleted here because the other device deleted them (ADR 0176). */
+    deleted?: Record<string, number>;
+    /** Deletions the other device asked for and this one refused as too many at once. */
+    deletions_refused?: number;
+  } | null;
   /** When the devices last compared, whether or not anything changed. */
   last_checked?: number | null;
 }

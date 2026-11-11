@@ -407,7 +407,7 @@ def write_profile(llm, workspace: str, project: str) -> str | None:
     topics = [' '.join(str(t).split())[:40] for t in answer.get('topics') or [] if str(t).strip()][:6]
     text = f'Project profile: {project}\n\n{profile}' + (f'\n\nMain topics: {", ".join(topics)}' if topics else '')
     source = PROFILE_SOURCE + project
-    vs.delete_by_source(source, workspace, project=project)
+    vs.delete_by_source(source, workspace, project=project, propagate='own')
     vs.store(content=text, project=project, type='summary', source=source, workspace=workspace)
     with _db() as conn:
         conn.execute('INSERT OR REPLACE INTO profiled VALUES (?,?,?)',

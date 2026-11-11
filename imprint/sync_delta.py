@@ -55,17 +55,21 @@ def extras_offered() -> dict[str, bool]:
     """The extra datasets this device exchanges, as its handshake says them
     (``core``: ADR 0129). A device that does not offer one is sent none of
     it: its importer would refuse the dataset. ``core_tiers``: this device
-    tells guidelines from recorded core memories (ADR 0143)."""
-    return {**{dataset: True for dataset in EXTRAS}, 'core_tiers': True}
+    tells guidelines from recorded core memories (ADR 0143). ``deletions``:
+    it swaps deletions after the manifests (ADR 0176)."""
+    return {**{dataset: True for dataset in EXTRAS}, 'core_tiers': True, 'deletions': True}
 
 
 def extras_of(snapshot: dict) -> frozenset:
-    """The extra datasets a peer's handshake offers. Core memories go only
-    to a peer that tells guidelines from records: an older one would hand
-    every record to its sessions as an approved core memory (ADR 0143)."""
+    """The extra datasets a peer's handshake offers, and ``deletions`` when
+    it swaps deletions. Core memories go only to a peer that tells
+    guidelines from records: an older one would hand every record to its
+    sessions as an approved core memory (ADR 0143)."""
     offered = {dataset for dataset in EXTRAS if snapshot.get(dataset) is True}
     if snapshot.get('core_tiers') is not True:
         offered.discard('core')
+    if snapshot.get('deletions') is True:
+        offered.add('deletions')
     return frozenset(offered)
 MANIFEST_BYTES = 256 * 1024 * 1024
 
@@ -267,6 +271,34 @@ async def reconcile(channel, workspace: str, local: dict, *, provider: bool, pro
     else:
         remote = decode((await channel.recv(timeout=WAIT)).get('data'))
         await channel.send({'kind': 'manifest', 'data': encode(local)})
+    if 'deletions' in extras:
+        # ADR 0176: each device names, of the other's own manifest, what it
+        # deleted, in the direction data may flow. Nothing it lacks is named.
+        from . import sync_deletions
+        sends, receives = (provider_sends, consumer_sends) if provider else (consumer_sends, provider_sends)
+        mine = await asyncio.to_thread(sync_deletions.doomed, workspace, local, remote) if sends else {}
+        message = {'kind': 'deletions', 'data': encode(mine)}
+        if provider:
+            await channel.send(message)
+            theirs = decode((await channel.recv(timeout=WAIT)).get('data'))
+        else:
+            theirs = decode((await channel.recv(timeout=WAIT)).get('data'))
+            await channel.send(message)
+        # The other device deletes those, or sends them back when its copy is newer.
+        remote = {dataset: {key: version for key, version in remote.get(dataset, {}).items()
+                            if key not in mine.get(dataset, {})} for dataset in DATASETS}
+        if receives and any(theirs.get(dataset) for dataset in sync_deletions.DATASETS):
+            try:
+                gone = await asyncio.to_thread(sync_deletions.apply, workspace, theirs, local)
+            except sync_deletions.MassDeletion as refused:
+                result['deletions_refused'] = refused.asked
+                yield {'type': 'deletions_refused', 'asked': refused.asked, 'message': str(refused)}
+            else:
+                if any(gone.values()):
+                    local = {dataset: {key: version for key, version in local.get(dataset, {}).items()
+                                       if key not in set(gone.get(dataset, ()))} for dataset in DATASETS}
+                    result['deleted'] = {dataset: len(keys) for dataset, keys in gone.items() if keys}
+                    yield {'type': 'deleted', 'stats': result['deleted']}
     for sender_is_provider, active in ((True, provider_sends), (False, consumer_sends)):
         if not active:
             continue

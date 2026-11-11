@@ -134,7 +134,7 @@ def delete(recording_id: str, workspace: str | None = None) -> None:
     """Delete the recording, its transcript and the memories made from it."""
     get(recording_id)
     from . import vectorstore as vs
-    vs.delete_by_source(SOURCE + recording_id, workspace)
+    vs.delete_by_source(SOURCE + recording_id, workspace, propagate='all')  # On paired devices too (ADR 0176).
     shutil.rmtree(_folder(recording_id), ignore_errors=True)
 
 

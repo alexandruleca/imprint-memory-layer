@@ -707,11 +707,15 @@ def replace_source(records: list[dict], source: str, project: str,
                 points=[_point_uuid(_make_id(row['content'], project, source, row.get('chunk_index')))]))
                 for row in records[start:start + 256]]
             client.batch_update_points(collection_name=coll, update_operations=operations, wait=True)
-    client.delete(collection_name=coll, points_selector=qm.FilterSelector(filter=qm.Filter(
+    obsolete = qm.Filter(
         must=[qm.FieldCondition(key="source", match=qm.MatchValue(value=source)),
               qm.FieldCondition(key="project", match=qm.MatchValue(value=project))],
         must_not=[qm.HasIdCondition(has_id=ids)],
-    )), wait=True)
+    )
+    # The chunks this device recorded that the new version replaces go on
+    # paired devices too; another device's chunks of its own version stay (ADR 0176).
+    _propagate(workspace, _scroll_matching(client, coll, obsolete, ['_mid', 'recorded_device']), 'own')
+    client.delete(collection_name=coll, points_selector=qm.FilterSelector(filter=obsolete), wait=True)
     with _cache_lock:
         _id_caches.pop(coll, None)
     if source_snapshot is not None:
@@ -1037,11 +1041,49 @@ def resolve_point_id(memory_id: str) -> str:
 
 
 # ── delete ─────────────────────────────────────────────────────
+def _scroll_matching(client, coll: str, flt, fields: list[str]) -> list[dict]:
+    """The payloads of the points a filter matches."""
+    found, offset = [], None
+    while True:
+        points, offset = client.scroll(collection_name=coll, scroll_filter=flt, limit=_SCAN_BATCH, offset=offset,
+                                       with_payload=fields, with_vectors=False)
+        found += [p.payload or {} for p in points]
+        if offset is None:
+            return found
+
+
+def _recorded_here(payload: dict) -> bool:
+    from . import device
+    try:
+        here = device.current()['id']
+    except (OSError, ValueError, KeyError):
+        return False
+    origin = payload.get('recorded_device')
+    return isinstance(origin, dict) and bool(here) and origin.get('id') == here
+
+
+def _propagate(workspace: str | None, payloads: list[dict], scope: str | None) -> None:
+    """Record deletions for paired devices (ADR 0176), before they happen, so
+    a failure records one too many rather than one too few: every memory
+    (``'all'``, the user's own deletions) or those this device recorded
+    (``'own'``, chunks a newer version of their source replaced)."""
+    if not scope:
+        return
+    if scope not in ('all', 'own'):
+        raise ValueError("propagate must be 'all', 'own' or None")
+    from . import sync_deletions
+    sync_deletions.record(workspace, [pl['_mid'] for pl in payloads if pl.get('_mid')
+                                      and (scope == 'all' or _recorded_here(pl))])
+
+
 def delete(memory_id: str, workspace: str | None = None) -> bool:
+    """Delete one memory on the user's request; paired devices delete it too
+    (ADR 0176)."""
     client, coll = _ensure_collection(workspace)
     try:
         held = client.retrieve(collection_name=coll, ids=[_point_uuid(memory_id)],
-                               with_payload=['source', 'project'], with_vectors=False)
+                               with_payload=['source', 'project', '_mid'], with_vectors=False)
+        _propagate(workspace, [point.payload or {} for point in held], 'all')
         from . import source_snapshots
         for point in held:
             payload = point.payload or {}
@@ -1064,11 +1106,46 @@ def delete(memory_id: str, workspace: str | None = None) -> bool:
         return False
 
 
-def delete_by_source(source: str, workspace: str | None = None, project: str | None = None) -> bool:
+def delete_memories(memory_ids: Iterable[str], workspace: str | None = None) -> int:
+    """Delete memories another device deleted (ADR 0176). Their sources'
+    snapshots stop being complete, as with :func:`delete`; no deletion is
+    recorded here, the caller records it with its original time."""
+    client, coll = _ensure_collection(workspace)
+    ids = [_point_uuid(mid) for mid in dict.fromkeys(memory_ids)]
+    sources = set()
+    for start in range(0, len(ids), 256):
+        for point in client.retrieve(collection_name=coll, ids=ids[start:start + 256],
+                                     with_payload=['source', 'project'], with_vectors=False):
+            payload = point.payload or {}
+            if payload.get('source'):
+                sources.add((payload.get('project', ''), payload['source']))
+    _wal_log("delete_synced", workspace=workspace, count=len(ids))
+    for start in range(0, len(ids), 256):
+        client.delete(collection_name=coll, points_selector=qm.PointIdsList(points=ids[start:start + 256]), wait=True)
+    from . import source_snapshots
+    for project, source in sources:
+        source_snapshots.remove(source, project, workspace)
+        client.set_payload(coll, {'related_projects': []}, points=qm.Filter(must=[
+            qm.FieldCondition(key='source', match=qm.MatchValue(value=source)),
+            qm.FieldCondition(key='project', match=qm.MatchValue(value=project))]))
+    with _cache_lock:
+        _id_caches.pop(coll, None)
+    return len(ids)
+
+
+def delete_by_source(source: str, workspace: str | None = None, project: str | None = None,
+                     propagate: str | None = None) -> bool:
+    """Delete a source's memories. ``propagate`` says which of them paired
+    devices delete too (ADR 0176): ``'all'`` for the user's own deletion,
+    ``'own'`` for the chunks this device recorded when a newer version of
+    the source replaces them, None (a file gone from disk) for none."""
     client, coll = _ensure_collection(workspace)
     conditions = [qm.FieldCondition(key="source", match=qm.MatchValue(value=source))]
     if project is not None:
         conditions.append(qm.FieldCondition(key="project", match=qm.MatchValue(value=project)))
+    if propagate:
+        _propagate(workspace, _scroll_matching(client, coll, qm.Filter(must=conditions), ['_mid', 'recorded_device']),
+                   propagate)
     _wal_log("delete_by_source", workspace=workspace, source=source)
     client.delete(
         collection_name=coll,

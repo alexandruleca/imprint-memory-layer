@@ -195,9 +195,28 @@ themselves were intact, so the first open after updating repairs the file and
 automatic sync resumes. A database the rebuild cannot repair is reported with
 its path. Pair the device again after moving that file aside.
 
-This remains a deduplicating **merge**: local deletions are not remote deletion
-commands. The digest check scans local exported records, and imports can cause
-one extra deduplicating pass. See [ADR 0020](adr/0020-explicit-pairing-and-automatic-workspace-sync.md).
+Sync is a deduplicating **merge** that also carries deletions
+([ADR 0176](adr/0176-deletions-reach-paired-devices-that-hold-the-memory.md)).
+After the manifests, each device names, in the direction data may flow, the
+memories the other holds that it deleted; nothing the other never held is
+named, so no device learns the ID of a memory it did not have. The other device
+deletes its copy when it is older than the deletion and passes the deletion on
+to its own pairings, and no device imports a memory older than a deletion it
+holds, so one that was away cannot bring it back. Deletions are kept 180 days.
+
+| Deleted here by | Deleted on paired devices |
+| --- | --- |
+| You: the `delete` tool, deleting a recording, `imprint purge` | Yes, any memory |
+| A newer version of a file, URL or inline source; an emptied file; a rewritten project profile | The chunks this device recorded; another device's chunks of its own version stay |
+| A file gone from disk (refresh) | No: its memories may still matter on the other device |
+| `imprint scrub` | No deletion record: the redacted version supersedes it as before, and no hash of the removed secret is kept |
+| Moves, wipes, removing a workspace | No: placement rules carry moves |
+
+One sync deletes at most half of a workspace (and at most 200 memories in a
+small one); a larger request is kept, not applied, and the paired device line
+says so. The dashboard's paired devices list what the last sync deleted. The
+digest check scans local exported records, and imports can cause one extra
+deduplicating pass. See [ADR 0020](adr/0020-explicit-pairing-and-automatic-workspace-sync.md).
 
 ### The share code
 

@@ -688,6 +688,16 @@ def process_import_buffer(
     def import_memories(records: list[dict]) -> None:
         if not records:
             return
+        # A memory older than a deletion this device holds stays deleted,
+        # whoever sends it (ADR 0176).
+        from . import sync_deletions
+        refused = sync_deletions.blocked(workspace, records)
+        if refused:
+            stats["memories"]["skipped"] += len(refused)
+            records = [r for r in records if r.get("id") not in refused]
+            if not records:
+                progress("memories")
+                return
         from .device import TRANSFER_FIELDS, prepare
         payloads = []
         for r in records:

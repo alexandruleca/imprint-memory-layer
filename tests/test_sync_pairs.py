@@ -642,6 +642,51 @@ class PairedSyncTests(unittest.TestCase):
             self.export.assert_not_called()  # no whole-workspace export
         self.scenario(scenario)
 
+    def deleted_on(self, side, workspace, keys):
+        from imprint import sync_deletions
+        token = self.side.set(side)
+        try:
+            sync_deletions.record(workspace, {key: time.time() for key in keys})
+        finally:
+            self.side.reset(token)
+
+    def applying(self, applied):
+        from imprint import sync_deletions
+
+        def apply(workspace, requested, local):
+            applied.append((self.side.get(), workspace, set(requested['memories'])))
+            return {'memories': sorted(requested['memories'])}
+        return patch.object(sync_deletions, 'apply', side_effect=apply)
+
+    def test_a_deletion_reaches_the_other_device_naming_only_what_it_holds(self):
+        # ADR 0176.
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint)
+            # a deleted a memory b holds, and one b never had.
+            self.manifests['b']['memories']['c' * 16] = 0.0
+            self.deleted_on('a', 'from-a', ['c' * 16, 's' * 16])
+            self.sent.clear()
+            applied = []
+            with self.applying(applied):
+                await self.repeat()
+            self.assertEqual(applied, [('b', 'from-b', {'c' * 16})])
+            # b does not send back what it deleted.
+            self.assertEqual(dict(self.sent)['b'], {'memories': ['b' * 16]})
+            self.assertEqual(self.record('b')['last_result']['deleted'], {'memories': 1})
+            self.assertNotIn('deleted', self.record('a')['last_result'])
+        self.scenario(scenario)
+
+    def test_a_device_that_may_not_send_cannot_make_the_other_delete(self):
+        async def scenario(endpoint, relay):
+            await self.initial(endpoint, direction='receive')  # b only receives
+            self.manifests['b']['memories']['c' * 16] = 0.0
+            self.deleted_on('b', 'from-b', ['a' * 16])
+            applied = []
+            with self.applying(applied):
+                await self.repeat()
+            self.assertEqual(applied, [])
+        self.scenario(scenario)
+
     def test_an_interrupted_sync_keeps_what_was_stored_and_records_no_sync(self):
         async def scenario(endpoint, relay):
             await self.initial(endpoint)

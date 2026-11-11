@@ -304,6 +304,10 @@ class _Activity:
         self.pair_id, self.started, self.written, self.stage = pair_id, time.time(), 0.0, ''
         self.sent: dict[str, int] = {}
         self.received: dict[str, int] = {}
+        # Deleted here because the other device deleted them, and how many
+        # such deletions were refused as too many at once (ADR 0176).
+        self.deleted: dict[str, int] = {}
+        self.refused = 0
 
     def event(self, event):
         kind = event['type']
@@ -314,6 +318,12 @@ class _Activity:
             if stage == 'sending':
                 self.sent[event['dataset']] = event['done']
             self.write(stage, dataset=event['dataset'], done=event['done'], total=event['total'])
+        elif kind == 'deleted' and isinstance(event.get('stats'), dict):
+            for dataset, count in event['stats'].items():
+                if isinstance(count, int):
+                    self.deleted[dataset] = self.deleted.get(dataset, 0) + count
+        elif kind == 'deletions_refused' and isinstance(event.get('asked'), int):
+            self.refused += event['asked']
         elif kind in ('pull_complete', 'push_complete') and isinstance(event.get('stats'), dict):
             for dataset, counts in event['stats'].items():
                 if isinstance(counts, dict):
@@ -362,7 +372,9 @@ async def _attempt(pair):
                         # writes. Imports may cause one extra deduplicating next pass.
                         now = time.time()
                         update(pair['id'], last_sync=now, last_checked=now, last_error='',
-                               last_result={'received': activity.received, 'sent': activity.sent},
+                               last_result={'received': activity.received, 'sent': activity.sent,
+                                            **({'deleted': activity.deleted} if activity.deleted else {}),
+                                            **({'deletions_refused': activity.refused} if activity.refused else {})},
                                local_digest=pair.get('_local_digest'), remote_digest=pair.get('_remote_digest'))
     except TimeoutError:
         # The authenticated exchange records last_seen. Before it, only the
