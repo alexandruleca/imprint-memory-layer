@@ -5,7 +5,9 @@ description: The dashboard records the microphone and, with the user's consent, 
 
 - Status: Amended
 - Date: 2026-11-04
-- Amended by: [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — a recording can start and stop from the desktop app's floating button, which relays it to the dashboard window
+- Amended by:
+  - [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) — a recording can start and stop from the desktop app's floating button, which relays it to the dashboard window
+  - [ADR 0173](0173-a-transcript-leaves-out-the-microphones-echo-of-the-call.md) — the transcript leaves out the microphone's echo of the computer's audio, and each turn is a paragraph
 - Related: [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md), [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md)
 
 ## Context

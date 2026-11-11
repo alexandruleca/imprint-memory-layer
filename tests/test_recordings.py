@@ -90,12 +90,30 @@ class RecordingTests(unittest.TestCase):
                   ('You', {'start': 10.0, 'end': 11.0, 'text': 'today.'}),
                   ('Others', {'start': 3700.0, 'end': 3701.0, 'text': 'Thanks.'})]
         text = recordings.transcript(meta, spoken, 'faster-whisper-large-v3-turbo')
-        lines = text.splitlines()
-        self.assertEqual(lines[0], '# Planning')
-        self.assertIn('about 2 min, transcribed on this computer with faster-whisper-large-v3-turbo', lines[2])
-        self.assertEqual(lines[4:], ['**You** (00:00:01): Morning.', '**Others** (00:00:05): Can you take the booking bug?',
-                                     '**You** (00:00:08): Yes, today.', '**Others** (01:01:40): Thanks.'])
+        # Every turn is a paragraph of its own (ADR 0173).
+        paragraphs = text.rstrip('\n').split('\n\n')
+        self.assertEqual(paragraphs[0], '# Planning')
+        self.assertIn('about 2 min, transcribed on this computer with faster-whisper-large-v3-turbo', paragraphs[1])
+        self.assertNotIn('left out', paragraphs[1])
+        self.assertEqual(paragraphs[2:], ['**You** (00:00:01): Morning.', '**Others** (00:00:05): Can you take the booking bug?',
+                                          '**You** (00:00:08): Yes, today.', '**Others** (01:01:40): Thanks.'])
         self.assertIn('No speech was recognized.', recordings.transcript(meta, [], 'model'))
+
+    def test_microphone_passages_that_repeat_the_computers_audio_are_left_out(self):
+        # The microphone hears a call played through the speakers; Whisper
+        # writes that echo a little differently from the clean computer audio.
+        played = ('Others', {'start': 350.0, 'end': 356.0,
+                             'text': 'Deci eu acum de când am rămas cu Daria la birou, nivelul de productivitate a crescut'})
+        echo = ('You', {'start': 351.0, 'end': 357.5,
+                        'text': 'Deci eu acum de când am rămas cu Daria la video, nivelul de productivitate'})
+        reply = ('You', {'start': 358.0, 'end': 361.0, 'text': 'Da, se vede, și la mine la fel de bine'})
+        short = ('You', {'start': 352.0, 'end': 352.5, 'text': 'Da, crescut.'})
+        later = ('You', {'start': 400.0, 'end': 404.0, 'text': 'Deci eu acum de când am rămas cu Daria'})
+        kept = recordings.without_echo([played, echo, reply, short, later])
+        self.assertEqual(kept, [played, reply, short, later])
+        text = recordings.transcript({'title': 'Sync', 'started_at': 0, 'duration': 404}, kept, 'model', echoes=1)
+        self.assertIn("1 microphone passage that repeated the computer's audio is left out.", text)
+        self.assertNotIn('la video', text)
 
     def test_transcribing_stores_the_transcript_as_a_replaceable_source(self):
         meta = recordings.start('Sync', project='meetings', consent=True)
@@ -115,7 +133,7 @@ class RecordingTests(unittest.TestCase):
         text, kwargs = store.call_args.args[0], store.call_args.kwargs
         self.assertEqual((kwargs['source_key'], kwargs['project'], kwargs['source_type']),
                          (f"recording/{meta['id']}", 'meetings', 'recording'))
-        self.assertIn('**You** (00:00:00): you speaking\n**Others** (00:00:02): others speaking', text)
+        self.assertIn('**You** (00:00:00): you speaking\n\n**Others** (00:00:02): others speaking', text)
         self.assertEqual((recordings._folder(meta['id']) / 'transcript.md').read_text(), text)
 
     def test_a_failed_transcription_says_why_and_can_run_again(self):
@@ -172,6 +190,31 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual((stopped['status'], stopped['job']), ('stopped', {'job_id': 'j1', 'merged': False}))
         submit.assert_called_once_with('transcribe-recording', {'id': started['id']})
         self.assertEqual(listed['recordings'][0]['id'], started['id'])
+
+    def test_the_audio_downloads_as_a_file_named_after_the_recording(self):
+        import httpx
+        from imprint.api import app
+        meta = recordings.start('Meeting 2026-11-11 09:58', consent=True)
+        recordings.append(meta['id'], b'opus-bytes')
+        recordings.stop(meta['id'], duration=3)
+
+        async def run():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8420') as client:
+                return (await client.get(f"/api/recordings/{meta['id']}/audio"),
+                        await client.get(f"/api/recordings/{meta['id']}/audio?download=1"),
+                        await client.get(f"/api/recordings/{'0' * 32}/audio?download=1"))
+
+        played, saved, missing = asyncio.run(run())
+        self.assertEqual((played.content, played.headers.get('content-disposition')), (b'opus-bytes', None))
+        self.assertEqual(saved.content, b'opus-bytes')
+        # The time's colon is not allowed in a Windows file name. A name with
+        # spaces is sent percent-encoded (RFC 5987), which browsers decode.
+        from urllib.parse import unquote
+        disposition = saved.headers['content-disposition']
+        self.assertTrue(disposition.startswith('attachment;'))
+        self.assertIn('Meeting 2026-11-11 09-58.webm', unquote(disposition))
+        self.assertEqual(missing.status_code, 404)
 
 
 if __name__ == '__main__':

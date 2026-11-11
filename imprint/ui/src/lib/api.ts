@@ -247,8 +247,8 @@ export function getRecordingTranscript(id: string) {
   return fetchAPI<{ text: string }>(`/api/recordings/${id}/transcript`);
 }
 
-export function recordingAudioUrl(id: string) {
-  return `${API_BASE}/api/recordings/${id}/audio`;
+export function recordingAudioUrl(id: string, download = false) {
+  return `${API_BASE}/api/recordings/${id}/audio${download ? "?download=1" : ""}`;
 }
 
 export function deleteRecordingAudio(id: string) {

@@ -186,9 +186,42 @@ def _clock(seconds: float) -> str:
     return f'{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}'
 
 
-def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str) -> str:
+# A microphone passage is the computer's audio heard again through the
+# speakers when this share of its words was played within ECHO_MARGIN
+# seconds of it (ADR 0173). Echo cancellation removes only what Imprint
+# itself plays, not a call in another app. Shorter passages are kept: a
+# "yes" said while the others say "yes" is not an echo.
+ECHO_SHARE = 0.6
+ECHO_MARGIN = 5.0
+ECHO_MIN_WORDS = 4
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r'\w+', text.casefold())
+
+
+def without_echo(spoken: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """The segments without the microphone's passages that repeat what the
+    computer played at the same time."""
+    import difflib
+    played = sorted((segment for speaker, segment in spoken if speaker == 'Others'), key=lambda s: s['start'])
+    kept = []
+    for speaker, segment in spoken:
+        words = _words(segment['text']) if speaker == 'You' else []
+        if len(words) >= ECHO_MIN_WORDS:
+            heard = [word for other in played if other['end'] >= segment['start'] - ECHO_MARGIN
+                     and other['start'] <= segment['end'] + ECHO_MARGIN for word in _words(other['text'])]
+            matcher = difflib.SequenceMatcher(None, words, heard, autojunk=False)
+            if sum(block.size for block in matcher.get_matching_blocks()) >= ECHO_SHARE * len(words):
+                continue
+        kept.append((speaker, segment))
+    return kept
+
+
+def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str, echoes: int = 0) -> str:
     """Markdown: a heading, how it was made, then each turn with its speaker
-    and time. Consecutive segments of one speaker form one turn."""
+    and time, a paragraph each. Consecutive segments of one speaker form one
+    turn. ``echoes`` says how many microphone passages were left out."""
     turns: list[list] = []
     for speaker, segment in sorted(spoken, key=lambda item: (item[1]['start'], item[0])):
         if turns and turns[-1][0] == speaker and segment['start'] - turns[-1][2] < 4:
@@ -198,11 +231,15 @@ def transcript(meta: dict, spoken: list[tuple[str, dict]], model: str) -> str:
             turns.append([speaker, [segment['text']], segment['end'], segment['start']])
     started = time.strftime('%Y-%m-%d %H:%M', time.localtime(meta['started_at']))
     minutes = max(1, math.ceil((meta.get('duration') or 0) / 60))
-    header = [f"# {meta['title']}", '',
+    left_out = (f' {echoes} microphone passage{"s" if echoes != 1 else ""} that repeated the computer\'s audio '
+                f'{"are" if echoes != 1 else "is"} left out.') if echoes else ''
+    header = [f"# {meta['title']}",
               f'Recorded {started}, about {minutes} min, transcribed on this computer with {model}. '
-              '"You" is this computer\'s microphone; "Others" is the audio it played.', '']
+              f'"You" is this computer\'s microphone; "Others" is the audio it played.{left_out}']
     body = [f"**{speaker}** ({_clock(start)}): {' '.join(texts)}" for speaker, texts, _, start in turns]
-    return '\n'.join(header + (body or ['No speech was recognized.'])) + '\n'
+    # A blank line between turns makes each one a paragraph: Markdown joins
+    # single line breaks into one block of text.
+    return '\n\n'.join(header + (body or ['No speech was recognized.'])) + '\n'
 
 
 def transcribe(recording_id: str, workspace: str | None = None) -> dict:
@@ -228,7 +265,8 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
                     segments, details = audio_ingest.transcribe(str(path), force=True)
                 model = details['transcription_model'].rsplit('/', 1)[-1]
                 spoken += [(speaker, segment) for segment in segments]
-            text = transcript(get(recording_id), spoken, model or 'Whisper')
+            heard = without_echo(spoken)
+            text = transcript(get(recording_id), heard, model or 'Whisper', echoes=len(spoken) - len(heard))
             stored, status = store_inline_content(
                 text, source_key=SOURCE + recording_id, project=meta['project'], chunk_mode='prose',
                 source_type='recording', rel_path=f'{SOURCE}{recording_id}.md', workspace=workspace)

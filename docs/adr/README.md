@@ -183,7 +183,8 @@ The records in force, by area. An amended record is listed with the records that
 - [ADR 0146](0146-echo-saves-its-conversations-in-chat-history-and-carries-chats-on.md) **Echo saves its conversations in Chat history and carries chats on.** Echo's exchanges are saved as text in Chat history on this device unless the user turns that off; audio never is. A look or model change keeps the conversation, and Echo can carry on any chat from Chat history.
 
 - [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md) **CPU Whisper runtime for audio imports.** Locked native wheels provide CPU transcription with pinned multilingual models downloaded on first audio use. Amended by [ADR 0137](0137-echo-wakes-on-hey-echo-from-a-hidden-desktop-listener.md) (the wake word's English model).
-- [ADR 0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) **Meetings are recorded by channel and transcribed locally.** With the user's confirmed consent, the dashboard records the microphone and what the computer plays as two channels kept on the device; each is transcribed locally, so the transcript says who spoke, and stored as a replaceable source. Amended by [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) (recording from the floating button).
+- [ADR 0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) **Meetings are recorded by channel and transcribed locally.** With the user's confirmed consent, the dashboard records the microphone and what the computer plays as two channels kept on the device; each is transcribed locally, so the transcript says who spoke, and stored as a replaceable source. Amended by [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) (recording from the floating button) and [ADR 0173](0173-a-transcript-leaves-out-the-microphones-echo-of-the-call.md) (the microphone's echo left out).
+- [ADR 0173](0173-a-transcript-leaves-out-the-microphones-echo-of-the-call.md) **A transcript leaves out the microphone's echo of the call.** Microphone passages that repeat what the computer played at the same moment are left out and counted; each turn is a paragraph.
 ### Runtime, installers and release
 
 - [ADR 0002](0002-build-and-validate-before-publication.md) **Validate releases before publication.** Build all release artifacts and run native checks before publication. Amended by [ADR 0014](0014-main-only-release-packaging.md) (which branches build and publish releases).
@@ -375,7 +376,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0128](0128-the-dashboard-follows-the-windows-installer-to-the-end.md) | 2026-11-04 | Accepted | The dashboard follows the Windows installer to the end |
 | [0129](0129-core-memories-are-user-approved-and-start-every-session.md) | 2026-11-04 | Amended by [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md), [ADR 0143](0143-agents-receive-generalised-guidelines-core-memories-are-kept-as-records.md) | Core memories are user-approved and start every session |
 | [0130](0130-reorganization-is-proposed-by-a-background-job-and-reviewed.md) | 2026-11-04 | Amended by [ADR 0132](0132-organize-runs-in-the-idle-slot-after-background-tagging.md), [ADR 0133](0133-strong-placements-apply-by-themselves.md), [ADR 0134](0134-placement-rules-and-organize-proposals-sync.md), [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) | Reorganization is proposed by a background job and reviewed |
-| [0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) | 2026-11-04 | Amended by [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md) | Meetings are recorded by channel and transcribed locally |
+| [0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) | 2026-11-04 | Amended by [ADR 0135](0135-the-floating-launcher-is-a-handle-with-its-actions-around-it.md), [ADR 0173](0173-a-transcript-leaves-out-the-microphones-echo-of-the-call.md) | Meetings are recorded by channel and transcribed locally |
 | [0132](0132-organize-runs-in-the-idle-slot-after-background-tagging.md) | 2026-11-05 | Accepted | Organize runs in the idle slot after background tagging |
 | [0133](0133-strong-placements-apply-by-themselves.md) | 2026-11-05 | Amended by [ADR 0136](0136-review-pages-use-paged-tabs-and-decisions-reopen.md) | Strong placements apply by themselves |
 | [0134](0134-placement-rules-and-organize-proposals-sync.md) | 2026-11-05 | Accepted | Placement rules and Organize's proposals sync between paired devices |
@@ -417,6 +418,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0170](0170-skills-and-personas-reach-every-mcp-client-through-imprints-server.md) | 2026-11-10 | Accepted | Skills and personas reach every MCP client through Imprint's server |
 | [0171](0171-personas-are-written-for-codex-and-cursor.md) | 2026-11-10 | Accepted | Personas are written for Codex and Cursor |
 | [0172](0172-exact-matches-survive-a-large-corpus.md) | 2026-11-11 | Accepted | Exact matches survive a large corpus |
+| [0173](0173-a-transcript-leaves-out-the-microphones-echo-of-the-call.md) | 2026-11-11 | Accepted | A transcript leaves out the microphone's echo of the call |
 
 ## How to write and maintain ADRs
 

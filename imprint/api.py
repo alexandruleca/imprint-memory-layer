@@ -711,16 +711,24 @@ def api_recording_transcript(recording_id: str):
 
 
 @app.get('/api/recordings/{recording_id}/audio')
-def api_recording_file(recording_id: str):
+def api_recording_file(recording_id: str, download: bool = False):
+    """The recording's audio, to play or, with ``download``, to save as a
+    file named after its title."""
+    import re
     from fastapi.responses import FileResponse
     from . import recordings
     try:
         path = recordings._folder(recording_id) / 'audio.webm'
+        title = recordings.get(recording_id)['title'] if download else ''
     except KeyError:
         return JSONResponse({'error': 'recording not found'}, status_code=404)
     if not path.exists():
         return JSONResponse({'error': 'no audio'}, status_code=404)
-    return FileResponse(path, media_type='audio/webm')
+    if not download:
+        return FileResponse(path, media_type='audio/webm')
+    # Characters Windows does not allow in a file name, such as the title's "09:58".
+    name = ' '.join(re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', title).split()).strip(' .') or 'recording'
+    return FileResponse(path, media_type='audio/webm', filename=f'{name}.webm')
 
 
 @app.delete('/api/recordings/{recording_id}/audio')
