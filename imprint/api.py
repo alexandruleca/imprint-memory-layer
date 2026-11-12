@@ -167,6 +167,9 @@ async def _start_queue_dispatcher():
     app.state.registry_pass = asyncio.create_task(registry_files.loop())
     # New releases install by themselves when nothing would be interrupted (ADR 0175).
     app.state.update_pass = asyncio.create_task(updates.auto_loop())
+    # Recordings whose audio states no length get it, so players can show it and seek (ADR 0184).
+    from . import recordings
+    app.state.recordings_pass = asyncio.create_task(asyncio.to_thread(recordings.index_all))
 
 
 @app.on_event('shutdown')

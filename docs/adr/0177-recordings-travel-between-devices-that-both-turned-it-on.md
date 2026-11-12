@@ -8,7 +8,9 @@ description: With sync.recordings on at both ends, off by default, a finished me
 - Amends:
   - [ADR 0131](0131-meetings-are-recorded-by-channel-and-transcribed-locally.md) — the raw audio can leave the device: to paired devices where the user turned recording sync on, both of them
   - [ADR 0176](0176-deletions-reach-paired-devices-that-hold-the-memory.md) — deletions also carry deleted recordings, kept once per device rather than per workspace
-- Amended by: [ADR 0180](0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md) — a recording also carries its speakers' names and the transcript's parts, so either device can rename them
+- Amended by:
+  - [ADR 0180](0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md) — a recording also carries its speakers' names and the transcript's parts, so either device can rename them
+  - [ADR 0184](0184-a-recordings-audio-states-its-length-and-can-be-sought.md) — a device that receives audio without a length copies it the same way, and that newer version goes back to the sender
 - Related: [ADR 0116](0116-paired-devices-send-only-what-the-other-lacks-in-stored-chunks.md) (stored chunks), [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) (encryption), [ADR 0168](0168-skills-and-personas-are-kept-once-and-synced-to-paired-devices.md) (data that belongs to no workspace), [sync](../sync.md)
 
 ## Context

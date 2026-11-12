@@ -206,7 +206,7 @@ curl -s "http://localhost:8420/api/search?q=chunking&project=imprint&type=decisi
 | GET | `/api/recordings` | Recordings, newest first ([ADR 0131](adr/0131-meetings-are-recorded-by-channel-and-transcribed-locally.md)). |
 | POST | `/api/recordings` | Start one: `{title, project, others, consent: true}`; refused without consent. |
 | POST | `/api/recordings/{id}/audio` | The next piece of its audio (raw WebM/Opus bytes). |
-| POST | `/api/recordings/{id}/stop` | Stop it (`{duration}` seconds) and queue its transcription. |
+| POST | `/api/recordings/{id}/stop` | Stop it (`{duration}` seconds), give its audio its length and seek index ([ADR 0184](adr/0184-a-recordings-audio-states-its-length-and-can-be-sought.md)) and queue its transcription. |
 | POST | `/api/recordings/{id}/transcribe` | Queue its transcription again. |
 | GET | `/api/recordings/{id}/transcript`, `/api/recordings/{id}/audio` | The transcript text; the raw audio (`?download=1` sends it as a file named after the recording). |
 | DELETE | `/api/recordings/{id}/audio`, `/api/recordings/{id}` | Delete the audio only, or the recording with its transcript and memories. |

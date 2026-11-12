@@ -209,13 +209,23 @@ def import_records(records: list[dict]) -> dict[str, int]:
                 out.write(data)
         if not record.get('final'):
             continue
+        arrived = False
         if size and part.exists():
             if part.stat().st_size != size or _sha256(part) != record.get('sha256'):
                 log.warning('The audio of recording %s did not arrive whole; the next sync sends it again', rid)
                 part.unlink(missing_ok=True)
                 stats['skipped'] += 1
                 continue
-            part.replace(audio)
+            try:
+                part.replace(audio)
+            except OSError as error:
+                # Windows refuses while the audio is open, say being played.
+                log.warning('The audio of recording %s could not replace the one held (%s); the next sync sends it again',
+                            rid, error)
+                part.unlink(missing_ok=True)
+                stats['skipped'] += 1
+                continue
+            arrived = True
         transcript = record.get('transcript')
         if isinstance(transcript, str) and len(transcript.encode('utf-8')) <= MAX_TRANSCRIPT:
             (folder / 'transcript.md').write_text(transcript, encoding='utf-8')
@@ -223,6 +233,10 @@ def import_records(records: list[dict]) -> dict[str, int]:
         if isinstance(segments, str) and len(segments.encode('utf-8')) <= MAX_TRANSCRIPT and _parts_ok(segments):
             (folder / 'segments.json').write_text(segments, encoding='utf-8')
         recordings._write_meta({'id': rid, **details})
+        if arrived:
+            # Audio from a release before ADR 0184 states no length: indexed
+            # here, a newer version, it goes back to the device that sent it.
+            recordings.index_audio(rid)
         stats['completed'] += 1
     return stats
 

@@ -173,6 +173,51 @@ class RecordingSyncTests(unittest.TestCase):
         with patch.dict(os.environ, {'IMPRINT_SYNC_RECORDINGS': '0'}):
             self.assertEqual(self.on('b', recording_sync.import_records, records), {'completed': 0, 'skipped': 3})
 
+    def test_audio_from_a_release_before_indexing_is_indexed_on_arrival_and_goes_back(self):
+        from test_recordings import CUES, length, tone, webm
+        source = Path(tempfile.mkdtemp()) / 'live.webm'
+        self.addCleanup(source.unlink, missing_ok=True)
+        webm(source, tone(2.0), tone(2.0, 660), live=True)
+        # Device a runs a release before ADR 0184: its audio states no length.
+        with patch.object(recordings, 'index_audio', return_value=False):
+            rid = self.on('a', self.recorded, source.read_bytes())
+        with patch.object(recording_sync, 'PIECE', 4096):
+            self.assertEqual(self.on('b', recording_sync.import_records, self.send()[1]), {'completed': 1, 'skipped': 0})
+        held = self.dirs['b'] / 'recordings' / rid / 'audio.webm'
+        self.assertAlmostEqual(length(held), 2.0, delta=0.1)
+        self.assertIn(CUES, held.read_bytes())
+        # Indexed on b, a newer version: it goes back to a, whole.
+        remote, local = self.on('a', recording_sync.manifest), self.on('b', recording_sync.manifest)
+        self.assertGreater(local[rid], remote[rid])
+        wanted = [k for k, v in local.items() if k not in remote or v > remote[k]]
+        planned = self.on('b', recording_sync.plan, wanted, remote)
+        self.assertEqual(planned, [f'{rid}@0'])
+        with patch.object(recording_sync, 'PIECE', 4096):
+            records = self.on('b', lambda: list(recording_sync.export(planned)))
+        self.assertEqual(self.on('a', recording_sync.import_records, records), {'completed': 1, 'skipped': 0})
+        self.assertEqual((self.dirs['a'] / 'recordings' / rid / 'audio.webm').read_bytes(), held.read_bytes())
+        # Both hold the same version now: nothing more travels.
+        self.assertEqual(self.on('a', recording_sync.manifest), self.on('b', recording_sync.manifest))
+
+    def test_audio_that_cannot_replace_the_one_held_is_sent_again(self):
+        rid = self.on('a', self.recorded)
+        records = self.send()[1]
+        replace = Path.replace
+
+        def refused(path, target):
+            if path.name == recording_sync.PART:
+                raise PermissionError(32, 'The process cannot access the file because it is being used by another process')
+            return replace(path, target)
+
+        # Windows refuses to replace audio another process has open, say being played.
+        with patch.object(Path, 'replace', refused):
+            self.assertEqual(self.on('b', recording_sync.import_records, records), {'completed': 0, 'skipped': 1})
+        self.assertFalse((self.dirs['b'] / 'recordings' / rid / recording_sync.PART).exists())
+        self.assertNotIn(rid, self.on('b', recording_sync.manifest))
+        planned, records = self.send()
+        self.assertEqual(planned, [f'{rid}@0'])
+        self.assertEqual(self.on('b', recording_sync.import_records, records), {'completed': 1, 'skipped': 0})
+
 
 if __name__ == '__main__':
     unittest.main()
