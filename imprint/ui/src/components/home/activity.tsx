@@ -55,7 +55,7 @@ export function Attention({ summary, queue }: { summary: DashboardSummary | unde
     notices.push({ id: "summary", tone: "problem", title: "The summary could not be refreshed", detail: summary.refresh_error, href: "/queue/", action: "Open queue" });
   }
   return (
-    <Card className="gap-3">
+    <Card className="gap-3" data-tour="home-review">
       <CardHeader><CardTitle className="text-sm"><h2>Needs attention</h2></CardTitle></CardHeader>
       <CardContent>
         {notices.length === 0 ? (
@@ -92,7 +92,7 @@ const basename = (source: string) => source.replace(/[\\/]+$/, "").split(/[\\/]/
 /** Where the newest memories came from, newest first. */
 export function RecentSources({ recent }: { recent: DashboardSummary["recent"] }) {
   return (
-    <Card className="gap-3">
+    <Card className="gap-3" data-tour="home-recent">
       <CardHeader><CardTitle className="text-sm"><h2>Recently added</h2></CardTitle></CardHeader>
       <CardContent>
         {recent.length === 0 ? (

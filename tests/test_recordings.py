@@ -12,15 +12,34 @@ import numpy as np
 from imprint import config, queue as job_queue, recordings
 
 
-def webm(path: Path, left: np.ndarray, right: np.ndarray, rate: int = 48000):
-    """A stereo WebM/Opus file, the format the dashboard's recorder makes."""
+def webm(path: Path, left: np.ndarray, right: np.ndarray, rate: int = 48000, live: bool = False):
+    """A stereo WebM/Opus file, the format the dashboard's recorder makes.
+    ``live``: written as the browser writes it, without its length or seek
+    index (ADR 0184)."""
     import av
-    with av.open(str(path), 'w', format='webm') as container:
+    with av.open(str(path), 'w', format='webm', options={'live': '1'} if live else {}) as container:
         stream = container.add_stream('libopus', rate=rate, layout='stereo')
         frame = av.AudioFrame.from_ndarray(np.stack([left, right]).astype(np.float32), format='fltp', layout='stereo')
         frame.sample_rate = rate
         for packet in [*stream.encode(frame), *stream.encode(None)]:
             container.mux(packet)
+
+
+def packets(path: Path) -> list[tuple[int, bytes]]:
+    """The audio's packets as stored: their times and their bytes."""
+    import av
+    with av.open(str(path)) as container:
+        return [(p.pts, bytes(p)) for p in container.demux(audio=0) if p.dts is not None]
+
+
+def length(path: Path) -> float | None:
+    """The length the file states, in seconds."""
+    import av
+    with av.open(str(path)) as container:
+        return None if container.duration is None else container.duration / 1e6
+
+
+CUES = b'\x1c\x53\xbb\x6b'  # The Matroska seek index's element ID.
 
 
 def tone(seconds: float, hz: float = 440, rate: int = 48000) -> np.ndarray:
@@ -66,6 +85,80 @@ class RecordingTests(unittest.TestCase):
         recordings.update(late['id'], started_at=late['started_at'] + 60)
         titles = [m['title'] for m in recordings.list_all()]
         self.assertEqual((titles[0], titles[-1], len(titles)), ('Too long', 'Weekly sync', 3))
+
+    def recorded_live(self, title: str, seconds: float = 2.0, index: bool = True) -> tuple[str, Path]:
+        """A recording whose audio arrived in pieces as the browser writes it,
+        stopped; ``index`` False stops it as a release before ADR 0184 did."""
+        source = self.data / f'{title}.webm'
+        webm(source, tone(seconds, 440), tone(seconds, 660), live=True)
+        data = source.read_bytes()
+        meta = recordings.start(title, consent=True)
+        for start in range(0, len(data), 1000):
+            recordings.append(meta['id'], data[start:start + 1000])
+        if index:
+            recordings.stop(meta['id'], duration=seconds)
+        else:
+            with patch.object(recordings, 'index_audio', return_value=False):
+                recordings.stop(meta['id'], duration=seconds)
+        return meta['id'], source
+
+    def test_stopping_gives_the_audio_its_length_and_seek_index_without_changing_its_sound(self):
+        rid, source = self.recorded_live('Standup', index=False)
+        audio = recordings._folder(rid) / 'audio.webm'
+        self.assertIsNone(length(audio))  # the browser's file states no length
+        self.assertNotIn(CUES, audio.read_bytes())
+        before = recordings.get(rid)['updated_at']
+        self.assertTrue(recordings.index_audio(rid))
+        self.assertAlmostEqual(length(audio), 2.0, delta=0.1)
+        self.assertIn(CUES, audio.read_bytes())
+        # The same packets, copied, not encoded again.
+        self.assertEqual(packets(audio), packets(source))
+        meta = recordings.get(rid)
+        self.assertEqual(meta['audio_bytes'], audio.stat().st_size)
+        self.assertGreater(meta['updated_at'], before)  # a newer version, for paired devices (ADR 0177)
+        self.assertFalse((audio.parent / recordings.INDEXING).exists())
+        # Audio that states its length is not written again.
+        self.assertFalse(recordings.index_audio(rid))
+        # Stopping indexes it.
+        stopped, _ = self.recorded_live('Retro')
+        self.assertAlmostEqual(length(recordings._folder(stopped) / 'audio.webm'), 2.0, delta=0.1)
+
+    def test_earlier_recordings_are_indexed_and_other_audio_stays_as_it_was(self):
+        earlier, _ = self.recorded_live('Earlier', index=False)
+        recordings.update(earlier, status='ready')
+        busy, _ = self.recorded_live('Busy', index=False)
+        recordings.update(busy, status='transcribing')
+        live = recordings.start('Live', consent=True)
+        recordings.append(live['id'], (recordings._folder(busy) / 'audio.webm').read_bytes())
+        odd = recordings.start('Not audio', consent=True)
+        recordings.append(odd['id'], b'not-webm')
+        recordings.stop(odd['id'])
+        held = {rid: (recordings._folder(rid) / 'audio.webm').read_bytes() for rid in (busy, live['id'], odd['id'])}
+        self.assertEqual(recordings.index_all(), 1)
+        self.assertAlmostEqual(length(recordings._folder(earlier) / 'audio.webm'), 2.0, delta=0.1)
+        # Being transcribed, still recording, or not audio: left as it was.
+        for rid, data in held.items():
+            self.assertEqual((recordings._folder(rid) / 'audio.webm').read_bytes(), data)
+            self.assertFalse((recordings._folder(rid) / recordings.INDEXING).exists())
+        self.assertEqual(recordings.index_all(), 0)
+
+    def test_audio_that_cannot_be_replaced_stays_and_is_indexed_later(self):
+        rid, _ = self.recorded_live('Playing', index=False)
+        audio = recordings._folder(rid) / 'audio.webm'
+        data, version = audio.read_bytes(), recordings.get(rid)['updated_at']
+        replace = Path.replace
+
+        def refused(path, target):
+            if path.name == recordings.INDEXING:
+                raise PermissionError(32, 'The process cannot access the file because it is being used by another process')
+            return replace(path, target)
+
+        # Windows refuses to replace a file another process has open, say being played.
+        with patch.object(Path, 'replace', refused):
+            self.assertFalse(recordings.index_audio(rid))
+        self.assertEqual((audio.read_bytes(), recordings.get(rid)['updated_at']), (data, version))
+        self.assertFalse((audio.parent / recordings.INDEXING).exists())
+        self.assertEqual(recordings.index_all(), 1)
 
     def test_audio_stops_at_the_size_limit(self):
         meta = recordings.start('Long call', consent=True)

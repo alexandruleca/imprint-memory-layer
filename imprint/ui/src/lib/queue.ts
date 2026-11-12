@@ -53,6 +53,27 @@ export function describeJob(job: { command: string; label?: string; phase?: stri
   return parts.join(" · ");
 }
 
+// What a job is doing, in the simple dashboard's words (ADR 0182).
+const PLAIN: Record<string, string> = {
+  ingest: "Reading files", learn: "Reading your AI conversations", refresh: "Checking files for changes",
+  "ingest-url": "Reading a web page", "refresh-urls": "Checking web pages for changes", retag: "Labelling memories",
+  scrub: "Removing passwords and keys", organize: "Sorting memories into projects", "associate-projects": "Linking memories to projects",
+  "tag-backlog": "Tidying memory in the background", "apply-placements": "Sorting memories into projects",
+  migrate: "Copying memories", "transcribe-recording": "Writing a recording's transcript", sync: "Saving a copy of memory",
+};
+
+/** A job in plain words: "Reading files", else its label. */
+export function plainJob(job: { command: string; label?: string }) {
+  return PLAIN[job.command] ?? job.label ?? job.command;
+}
+
+/** A job's progress in plain words: "Reading files · 3 of 112 files". */
+export function describeJobPlainly(job: { command: string; label?: string; processed?: number; total?: number; unit?: string }) {
+  const name = plainJob(job);
+  if (!job.total) return name;
+  return `${name} · ${(job.processed ?? 0).toLocaleString()} of ${job.total.toLocaleString()} ${job.unit ?? "files"}`;
+}
+
 export function formatDuration(seconds: number): string {
   if (seconds < 1) return "<1s";
   if (seconds < 60) return `${Math.round(seconds)}s`;

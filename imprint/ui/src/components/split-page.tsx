@@ -19,7 +19,7 @@ export function PageHeader({ title, count, description, actions, className, upda
   className?: string;
 }) {
   return (
-    <header className={cn("flex flex-wrap items-end justify-between gap-x-6 gap-y-3 px-4 pt-6 pb-4 sm:px-8", className)}>
+    <header data-tour="page-header" className={cn("flex flex-wrap items-end justify-between gap-x-6 gap-y-3 px-4 pt-6 pb-4 sm:px-8", className)}>
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-x-3">
           <h1 className="flex items-baseline gap-2 text-2xl font-semibold tracking-tight">

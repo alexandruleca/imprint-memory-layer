@@ -33,6 +33,8 @@ import { Hint } from "@/components/hint";
 import type { HaloLayout, LauncherRecorder, LauncherState } from "@/lib/launcher";
 import type { WakeView } from "@/lib/wake";
 import type { WakeReport } from "@/lib/wake-listener";
+import { PAGES, pageName, type Page } from "@/lib/pages";
+import { useUiMode } from "@/lib/ui-mode";
 
 declare global {
   interface Window {
@@ -105,45 +107,33 @@ declare global {
 
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard };
 
-// Everyday pages first, without a heading; the rest in groups that collapse.
-const NAV_GROUPS: { title?: string; items: NavItem[] }[] = [
-  {
-    items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/search", label: "Search", icon: Search },
-      { href: "/chat", label: "Chat", icon: MessageSquare },
-      { href: "/voice", label: "Voice", icon: AudioLines },
-      { href: "/recordings", label: "Recordings", icon: Disc3 },
-      { href: "/reminders", label: "Reminders", icon: AlarmClock },
-    ],
-  },
-  {
-    title: "Memory",
-    items: [
-      { href: "/core", label: "Core memories", icon: Sparkles },
-      { href: "/skills", label: "Skills", icon: Puzzle },
-      { href: "/organize", label: "Organize", icon: WandSparkles },
-      { href: "/graph", label: "Graph", icon: Network },
-      { href: "/topics", label: "Topics", icon: Tags },
-      { href: "/projects", label: "Projects", icon: FolderOpen },
-      { href: "/sources", label: "Sources", icon: FileCode },
-    ],
-  },
-  {
-    title: "Activity",
-    items: [
-      { href: "/queue", label: "Queue", icon: ListOrdered },
-      { href: "/agents", label: "Agents", icon: Bot },
-      { href: "/sync", label: "Sync", icon: RefreshCw },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { href: "/settings", label: "Settings", icon: Settings },
-      { href: "/commands", label: "Commands", icon: Terminal },
-    ],
-  },
+const ICONS: Record<string, typeof LayoutDashboard> = {
+  "/": LayoutDashboard, "/search": Search, "/chat": MessageSquare, "/voice": AudioLines, "/recordings": Disc3,
+  "/reminders": AlarmClock, "/core": Sparkles, "/skills": Puzzle, "/organize": WandSparkles, "/graph": Network,
+  "/topics": Tags, "/projects": FolderOpen, "/sources": FileCode, "/queue": ListOrdered, "/agents": Bot,
+  "/sync": RefreshCw, "/settings": Settings, "/commands": Terminal,
+};
+
+function items(pages: Page[], simple: boolean): NavItem[] {
+  return pages.map((page) => ({ href: page.href, label: pageName(page, simple), icon: ICONS[page.href] }));
+}
+
+// Advanced: everyday pages first, without a heading; the rest in groups that collapse.
+const ADVANCED_NAV: { title?: string; items: NavItem[] }[] = [
+  { items: items(PAGES.filter((page) => page.group === "everyday"), false) },
+  { title: "Memory", items: items(PAGES.filter((page) => page.group === "memory"), false) },
+  { title: "Activity", items: items(PAGES.filter((page) => page.group === "activity"), false) },
+  { title: "System", items: items(PAGES.filter((page) => page.group === "system"), false) },
+];
+
+// Simple (ADR 0182): the pages with a simple name, in three short runs that
+// never collapse. Chat comes before Search there: asking is the usual start.
+const SIMPLE_ORDER = ["/", "/chat", "/search", "/voice", "/recordings", "/reminders", "/projects", "/core", "/skills", "/sync", "/settings"];
+const SIMPLE_PAGES = SIMPLE_ORDER.map((href) => PAGES.find((page) => page.href === href)!);
+const SIMPLE_NAV: { title?: string; plain?: boolean; items: NavItem[] }[] = [
+  { items: items(SIMPLE_PAGES.filter((page) => page.simpleGroup === "everyday"), true) },
+  { title: "Your memory", plain: true, items: items(SIMPLE_PAGES.filter((page) => page.simpleGroup === "memory"), true) },
+  { title: "This device", plain: true, items: items(SIMPLE_PAGES.filter((page) => page.simpleGroup === "device"), true) },
 ];
 
 // Groups the viewer collapsed, remembered per browser; Memory starts open.
@@ -204,6 +194,7 @@ function NavLink({ href, label, icon: Icon, active }: NavItem & { active: boolea
     <Hint label={label} side="right" className="sm:hidden">
       <Link
         aria-label={label}
+        data-tour={`nav-${href === "/" ? "home" : href.slice(1)}`}
         aria-current={active ? "page" : undefined}
         href={href}
         className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
@@ -254,6 +245,11 @@ export function Sidebar() {
   const collapsed = useMemo(() => parseCollapsed(collapsedRaw), [collapsedRaw]);
 
   const isElectron = useSyncExternalStore(() => () => {}, () => !!window.electronAPI?.isElectron, () => false);
+  const ui = useUiMode();
+  // Nothing is drawn until the mode is known, so the simple dashboard never
+  // flashes the advanced pages (this browser remembers the mode after the
+  // first answer).
+  const groups = !ui.known ? [] : ui.simple ? SIMPLE_NAV : ADVANCED_NAV;
 
   return (
     <aside className="w-16 sm:w-56 border-r border-border bg-card flex flex-col shrink-0 overflow-y-auto z-30">
@@ -263,32 +259,37 @@ export function Sidebar() {
           <LogoMark className="size-7 shrink-0" />
           <div className="hidden sm:block">
             <h1 className="text-lg font-bold leading-tight tracking-tight">Imprint</h1>
-            <p className="text-xs text-muted-foreground">AI Memory Dashboard</p>
+            <p className="text-xs text-muted-foreground">{ui.known && ui.simple ? "Your AI memory" : "AI Memory Dashboard"}</p>
           </div>
         </div>
       </div>
-      <nav aria-label="Pages" className="flex-1 p-2 space-y-0.5">
-        {NAV_GROUPS.map(({ title, items }) => {
+      <nav aria-label="Pages" data-tour="sidebar" className="flex-1 p-2 space-y-0.5">
+        {groups.map(({ title, items, ...group }) => {
+          const plain = "plain" in group && group.plain === true;
           const current = items.some(({ href }) => isActive(href, pathname));
           // The open page's group stays open; the narrow sidebar shows every icon.
-          const open = !title || current || !collapsed.includes(title);
-          const id = title ? `nav-${title.toLowerCase()}` : undefined;
+          const open = !title || plain || current || !collapsed.includes(title);
+          const id = title ? `nav-${title.toLowerCase().replace(/\s+/g, "-")}` : undefined;
           return (
             <div key={title ?? "main"} className={title ? "pt-2" : undefined}>
               {title && (
                 <>
                   <div className="mx-3 mb-1 border-t border-border sm:hidden" aria-hidden="true" />
-                  <button
-                    type="button"
-                    aria-expanded={open}
-                    aria-controls={id}
-                    disabled={current}
-                    onClick={() => toggleCollapsed(title)}
-                    className="hidden w-full items-center gap-1 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground sm:flex"
-                  >
-                    <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />
-                    {title}
-                  </button>
+                  {plain ? (
+                    <p id={`${id}-title`} className="hidden px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:block">{title}</p>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      aria-controls={id}
+                      disabled={current}
+                      onClick={() => toggleCollapsed(title)}
+                      className="hidden w-full items-center gap-1 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground sm:flex"
+                    >
+                      <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />
+                      {title}
+                    </button>
+                  )}
                 </>
               )}
               <div id={id} className={`space-y-0.5 ${open ? "" : "sm:hidden"}`}>

@@ -23,9 +23,11 @@ export interface RailGroup {
 /** Target projects by count beside the list, from 760 px of content up. A
  * chosen project that emptied stays listed, with a check. `allLabel` null
  * leaves out the "All projects" row (the Projects page always has one open). */
-export function GroupRail({ label, groups, total, value, onChange, allLabel = "All projects" }: {
+export function GroupRail({ label, groups, total, value, onChange, allLabel = "All projects", tour }: {
   label: string; groups: RailGroup[]; total: number; value: string; onChange: (group: string) => void;
   allLabel?: string | null;
+  /** The rail's name for a tutorial step (ADR 0183). */
+  tour?: string;
 }) {
   const [filter, setFilter] = useState("");
   const pane = useRef<HTMLDivElement>(null);
@@ -43,7 +45,7 @@ export function GroupRail({ label, groups, total, value, onChange, allLabel = "A
   }, [value]);
 
   return (
-    <nav aria-label={label} className="hidden min-h-0 flex-col gap-2 @min-[760px]/page:flex">
+    <nav aria-label={label} data-tour={tour} className="hidden min-h-0 flex-col gap-2 @min-[760px]/page:flex">
       {groups.length > 8 && <PaneFilter label="Filter projects" value={filter} onChange={setFilter} />}
       <ScrollArea className="max-h-[70vh] rounded-xl bg-card ring-1 ring-foreground/10 lg:max-h-none lg:min-h-0 lg:flex-1">
         <div ref={pane} className="relative space-y-0.5 p-1.5">

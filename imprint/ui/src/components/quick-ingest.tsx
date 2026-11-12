@@ -13,6 +13,7 @@ import { Spinner } from "@/components/loaders";
 import { enqueueCommand } from "@/lib/api";
 import { PathBrowserDialog } from "@/components/path-browser-dialog";
 import { ArrowRight, Globe, FileText, FolderOpen, GraduationCap, Mic, X, Play, CheckCircle2, CircleAlert } from "lucide-react";
+import { useUiMode } from "@/lib/ui-mode";
 
 type Command = "ingest-url" | "ingest" | "learn";
 
@@ -23,6 +24,8 @@ type Field = {
   type?: "text" | "checkbox";
   // Offers the server-side path picker for this field.
   browse?: "dir" | "file";
+  // Left out of the simple dashboard (ADR 0182).
+  advanced?: boolean;
   showWhen?: { key: string; value: boolean };
 };
 
@@ -79,9 +82,9 @@ const ACTIONS: Action[] = [
     fields: [
       { key: "url", label: "URL", placeholder: "https://example.com/page.html" },
       { key: "project", label: "Project (optional)", placeholder: "my-project" },
-      { key: "force", label: "Fetch again", type: "checkbox" },
-      { key: "follow", label: "Follow links", type: "checkbox" },
-      { key: "follow_depth", label: "Follow depth", placeholder: "1", showWhen: { key: "follow", value: true } },
+      { key: "force", label: "Fetch again", type: "checkbox", advanced: true },
+      { key: "follow", label: "Follow links", type: "checkbox", advanced: true },
+      { key: "follow_depth", label: "Follow depth", placeholder: "1", showWhen: { key: "follow", value: true }, advanced: true },
     ],
     required: ["url"],
   },
@@ -106,6 +109,7 @@ export function QuickIngest() {
   const [params, setParams] = useState<Record<string, string | boolean>>({});
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [browsing, setBrowsing] = useState<Field | null>(null);
+  const { simple } = useUiMode();
 
   function selectAction(id: string | undefined) {
     setActive(id ?? null);
@@ -155,15 +159,17 @@ export function QuickIngest() {
   const submitting = status.kind === "submitting";
 
   return (
-    <Card>
+    <Card data-tour="home-add">
       <CardHeader className="max-sm:has-data-[slot=card-action]:grid-cols-1">
         <CardTitle><h2>Add to memory</h2></CardTitle>
-        <CardDescription>Index something new. It runs in the queue, one job at a time.</CardDescription>
-        <CardAction className="max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:-ml-2.5 max-sm:justify-self-start">
-          <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/commands/" />} className="text-muted-foreground">
-            Refresh, retag and more <ArrowRight aria-hidden />
-          </Button>
-        </CardAction>
+        <CardDescription>{simple ? "Add something new for Imprint to remember. It reads one thing at a time." : "Index something new. It runs in the queue, one job at a time."}</CardDescription>
+        {!simple && (
+          <CardAction className="max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:-ml-2.5 max-sm:justify-self-start">
+            <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/commands/" />} className="text-muted-foreground">
+              Refresh, retag and more <ArrowRight aria-hidden />
+            </Button>
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         <ToggleGroup
@@ -199,11 +205,13 @@ export function QuickIngest() {
             {activeAction.id === "ingest-audio" && <p className="text-xs text-muted-foreground">
               Import a WAV, MP3, M4A, AAC, FLAC, OGG, Opus, AIFF or WMA file. The first import downloads
               the selected model (about 1.51 GiB by default); transcription runs locally.
-              Choose a lighter model or language under <Link href="/settings/#settings-audio" className="underline">Audio ingestion settings</Link>.
+              {simple
+                ? <>Choose the quality or the language under <Link href="/settings/" className="underline">Settings</Link>, in Recordings.</>
+                : <>Choose a lighter model or language under <Link href="/settings/#settings-audio" className="underline">Audio ingestion settings</Link>.</>}
             </p>}
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
-                <code className="bg-muted px-1.5 py-0.5 rounded">imprint {activeAction.command}</code>
+                {simple ? activeAction.desc : <code className="bg-muted px-1.5 py-0.5 rounded">imprint {activeAction.command}</code>}
               </p>
               <Button variant="ghost" size="icon-sm" onClick={() => setActive(null)} aria-label="Close">
                 <X />
@@ -211,7 +219,7 @@ export function QuickIngest() {
             </div>
             <div className="space-y-2">
               {activeAction.fields.filter((f) =>
-                !f.showWhen || !!params[f.showWhen.key] === f.showWhen.value
+                (!simple || !f.advanced) && (!f.showWhen || !!params[f.showWhen.key] === f.showWhen.value)
               ).map((f) => {
                 const id = `quick-${activeAction.id}-${f.key}`;
                 return (
@@ -254,8 +262,9 @@ export function QuickIngest() {
               })}
               {activeAction.fields.some((f) => f.browse) && (
                 <p className="text-[11px] text-muted-foreground sm:pl-[152px]">
-                  Paths are resolved on the server (not in your browser). The
-                  picker browses the filesystem of the device running Imprint.
+                  {simple
+                    ? "The picker shows the folders of the computer Imprint runs on."
+                    : "Paths are resolved on the server (not in your browser). The picker browses the filesystem of the device running Imprint."}
                 </p>
               )}
             </div>
@@ -263,7 +272,7 @@ export function QuickIngest() {
             <div className="flex items-center gap-2">
               <Button onClick={run} disabled={submitting}>
                 {submitting ? <Spinner /> : <Play aria-hidden />}
-                {submitting ? "Queuing…" : "Run"}
+                {submitting ? (simple ? "Adding…" : "Queuing…") : simple ? "Add" : "Run"}
               </Button>
             </div>
 
@@ -272,7 +281,11 @@ export function QuickIngest() {
                 <CheckCircle2 className="text-success" aria-hidden />
                 <AlertDescription className="flex items-center gap-2 text-xs text-foreground">
                   <span className="flex-1">
-                    {status.merged ? (
+                    {simple ? (
+                      status.position > 0
+                        ? <>Waiting its turn: Imprint finishes what it is reading first. The top of the window shows how far it is.</>
+                        : <>Started. The top of the window shows how far it is.</>
+                    ) : status.merged ? (
                       <>
                         Already queued
                         {status.position > 0 && <> at position <strong>{status.position}</strong></>}: an
@@ -287,12 +300,14 @@ export function QuickIngest() {
                       <>Started now.</>
                     )}
                   </span>
-                  <Link
-                    href="/queue"
-                    className="text-success no-underline underline-offset-2 hover:underline shrink-0"
-                  >
-                    view queue
-                  </Link>
+                  {!simple && (
+                    <Link
+                      href="/queue"
+                      className="text-success no-underline underline-offset-2 hover:underline shrink-0"
+                    >
+                      view queue
+                    </Link>
+                  )}
                 </AlertDescription>
               </Alert>
             )}

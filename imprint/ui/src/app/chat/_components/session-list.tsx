@@ -124,7 +124,7 @@ function Row({ session, active, onSelect, onRename, onDelete }: {
 export function SessionList({ sessions, activeId, onSelect, onNew, onRename, onDelete }: Props) {
   const [deleting, setDeleting] = useState<ChatSession | null>(null);
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" data-tour="chat-list">
       <div className="p-3">
         <Button variant="outline" className="w-full justify-start" onClick={onNew}>
           <SquarePen /> New chat

@@ -6,8 +6,9 @@ Each recording lives in ``data/recordings/<id>/``: ``meta.json``, the raw
 ``audio.webm`` (the microphone on the left channel, the computer's audio on
 the right) and, once transcribed, ``transcript.md``. The transcript is stored
 as the source ``recording/<id>`` in the recording's project, and transcribing
-again replaces it. The raw audio stays on this device: sync carries the
-transcript's memories, never the audio.
+again replaces it. Once the recording stops, its audio is copied into a file
+that states its length and can be sought (ADR 0184). The audio stays on this
+device unless recordings sync with a paired device (ADR 0177).
 
 Transcription splits the channels and runs each through the audio ingestion
 pipeline (ADR 0095, 0096), with its model, limits, voice detection and
@@ -17,6 +18,7 @@ redaction, so the transcript can say who spoke: "You" (the microphone) or
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import shutil
@@ -26,6 +28,8 @@ import uuid
 from pathlib import Path
 
 from . import config
+
+log = logging.getLogger(__name__)
 
 STATES = ('recording', 'stopped', 'transcribing', 'ready', 'failed')
 DEFAULT_PROJECT = 'meetings'
@@ -129,7 +133,9 @@ def stop(recording_id: str, duration: float | None = None) -> dict:
         return meta
     elapsed = time.time() - meta['started_at']
     seconds = elapsed if duration is None else max(0.0, min(float(duration), elapsed + 5))
-    return update(recording_id, status='stopped', stopped_at=time.time(), duration=round(seconds, 1))
+    update(recording_id, status='stopped', stopped_at=time.time(), duration=round(seconds, 1))
+    index_audio(recording_id)  # Players get its length and can seek (ADR 0184).
+    return get(recording_id)
 
 
 def remove_audio(recording_id: str) -> dict:
@@ -140,6 +146,75 @@ def remove_audio(recording_id: str) -> dict:
     (_folder(recording_id) / 'audio.webm').unlink(missing_ok=True)
     # A newer version: paired devices that sync recordings delete it too (ADR 0177).
     return update(recording_id, audio_removed_at=time.time())
+
+
+# Where the indexed copy is written before it replaces the audio; not the
+# partial download sync writes (``audio.webm.part``).
+INDEXING = 'audio.webm.indexing'
+# A finished recording's states: one still recording or transcribing is left alone.
+FINISHED = ('stopped', 'ready', 'failed')
+
+
+def index_audio(recording_id: str) -> bool:
+    """Give the recording's audio its length and seek index (ADR 0184).
+
+    The browser's recorder writes WebM as a live stream, without the
+    Duration and the Cues a player needs to show the length and to seek, and
+    the pieces are stored as they come. Copying its packets into a new file,
+    without decoding them, writes both. Audio that has them already, cannot
+    be read, or changes meanwhile stays as it is. The new audio is a newer
+    version of the recording, so paired devices that sync recordings take it
+    (ADR 0177). Returns whether the audio was rewritten."""
+    folder = _folder(recording_id)
+    audio, staged = folder / 'audio.webm', folder / INDEXING
+    try:
+        import av
+        before = audio.stat()
+        options = {'protocol_whitelist': 'file', 'format_whitelist': 'matroska,webm'}
+        with av.open(str(audio), mode='r', options=options) as source:
+            if source.duration is not None or not source.streams.audio:
+                return False
+            stream = source.streams.audio[0]
+            with av.open(str(staged), mode='w', format='webm') as target:
+                copy = target.add_stream_from_template(stream)
+                for packet in source.demux(stream):
+                    if packet.dts is None:
+                        continue  # the demuxer's empty packet at the end
+                    packet.stream = copy
+                    target.mux(packet)
+    except Exception as error:  # noqa: BLE001 - no audio, not WebM, or no PyAV: the audio stays as it was
+        staged.unlink(missing_ok=True)
+        log.info('Recording %s: its audio was not indexed: %s', recording_id, error)
+        return False
+    try:
+        with av.open(str(staged), mode='r') as check:
+            if check.duration is None:
+                raise ValueError('the copy states no length')
+        after = audio.stat()
+        if (after.st_size, after.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+            raise ValueError('the audio changed meanwhile')
+        # On Windows this fails while the audio is open, say being played; the next start tries again.
+        staged.replace(audio)
+    except Exception as error:  # noqa: BLE001 - the audio stays as it was
+        staged.unlink(missing_ok=True)
+        log.warning('Recording %s: its audio was not indexed: %s', recording_id, error)
+        return False
+    update(recording_id)
+    return True
+
+
+def index_all() -> int:
+    """Index the audio of every finished recording that lacks it (ADR 0184):
+    those recorded before audio was indexed, and those a paired device on an
+    older release sent. Returns how many were rewritten."""
+    done = 0
+    for meta in list_all():
+        if meta['status'] in FINISHED and meta['audio_bytes']:
+            try:
+                done += index_audio(meta['id'])
+            except KeyError:
+                continue  # deleted meanwhile
+    return done
 
 
 def delete(recording_id: str, workspace: str | None = None) -> None:

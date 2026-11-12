@@ -149,6 +149,12 @@ def _scheduled_prompt(entry: dict) -> dict:
 @app.on_event("startup")
 async def _start_queue_dispatcher():
     job_queue.recover_on_startup()
+    # The first start with the two dashboards chooses one for this installation (ADR 0182).
+    from . import ui_mode
+    try:
+        ui_mode.settle()
+    except OSError as error:
+        print(f"[imprint] could not record the dashboard mode: {error}", file=sys.stderr)
     asyncio.create_task(job_queue.dispatcher_loop(_after_job))
     asyncio.create_task(job_queue.reaper_loop())
     from .sync_pairs import run
@@ -161,6 +167,9 @@ async def _start_queue_dispatcher():
     app.state.registry_pass = asyncio.create_task(registry_files.loop())
     # New releases install by themselves when nothing would be interrupted (ADR 0175).
     app.state.update_pass = asyncio.create_task(updates.auto_loop())
+    # Recordings whose audio states no length get it, so players can show it and seek (ADR 0184).
+    from . import recordings
+    app.state.recordings_pass = asyncio.create_task(asyncio.to_thread(recordings.index_all))
 
 
 @app.on_event('shutdown')
@@ -1550,6 +1559,13 @@ def api_job_cancel(job_id: str):
 
 # ── Config ─────────────────────────────────────────────────────
 
+@app.get("/api/ui")
+def api_ui():
+    """The dashboard's mode and whether tutorials start by themselves (ADRs 0182, 0183)."""
+    from . import ui_mode
+    return ui_mode.state()
+
+
 @app.get("/api/config")
 def api_config():
     # Secret values never leave the process; display_value masks them.
@@ -1575,6 +1591,31 @@ def api_config():
             "custom": s.custom,
         })
     return {"settings": settings}
+
+
+@app.get("/api/settings/simple")
+def api_settings_simple():
+    """The simple dashboard's settings: plain choices over the same keys (ADR 0182)."""
+    from . import config_simple
+    return {"groups": config_simple.catalog()}
+
+
+@app.put("/api/settings/simple/{item}")
+async def api_settings_simple_set(item: str, request: Request):
+    """Apply one choice: ``{"on": bool}`` for a switch, ``{"option": n}`` for a choice."""
+    from . import config_simple
+    from .config_schema import resolve
+    body = await request.json()
+    try:
+        keys = config_simple.apply(item, on=body.get("on"), option=body.get("option"))
+    except KeyError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    for key in keys:
+        _tagging_settings_changed(key)
+        _optional_tool_changed(key, resolve(key)[0])
+    return {"ok": True, "keys": keys, "groups": config_simple.catalog()}
 
 
 @app.get("/api/config/{key:path}")

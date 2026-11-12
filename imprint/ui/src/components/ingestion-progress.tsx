@@ -13,22 +13,26 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Hint } from "@/components/hint";
 import { cancelJob, retryJob, type QueuedJob } from "@/lib/api";
-import { formatDuration, phaseName, runTime, useQueue } from "@/lib/queue";
+import { formatDuration, phaseName, plainJob, runTime, useQueue } from "@/lib/queue";
+import { useUiMode } from "@/lib/ui-mode";
 import { Spinner } from "@/components/loaders";
 import type { QueueJob } from "@/lib/types";
 
 /** The dashboard's view of the queue: the running job, and how many wait. */
 export function IngestionProgress() {
   const data = useQueue();
+  const { simple } = useUiMode();
   if (!data) return null;
   const running = data.active ?? (data.background?.state === "running" ? data.background.job : null);
   if (!running && data.queued.length === 0) return null;
   return (
     <div className="space-y-2">
-      {running && <RunningJob job={running} />}
+      {running && <RunningJob job={running} plain={simple} />}
       {data.queued.length > 0 && (
         <Link href="/queue/" className="flex items-center gap-2 rounded-lg px-1 text-xs text-muted-foreground hover:text-foreground">
-          {data.queued.length} more {data.queued.length === 1 ? "job waits" : "jobs wait"} in the queue
+          {simple
+            ? `${data.queued.length} more ${data.queued.length === 1 ? "thing waits its turn" : "things wait their turn"}`
+            : `${data.queued.length} more ${data.queued.length === 1 ? "job waits" : "jobs wait"} in the queue`}
           <ArrowRight className="size-3.5" aria-hidden />
         </Link>
       )}
@@ -54,7 +58,11 @@ export function JobName({ job, className }: { job: QueueJob; className?: string 
 /** The running job: what it is, how far it has got, how long it has run
  * and how long it has left, and a way to stop it. Every page shows a
  * running job this way. */
-export function RunningJob({ job, children }: { job: QueueJob; children?: React.ReactNode }) {
+export function RunningJob({ job, children, plain }: {
+  job: QueueJob; children?: React.ReactNode;
+  /** The simple dashboard's words (ADR 0182): what it is doing and how far, without phases and counts. */
+  plain?: boolean;
+}) {
   const pct = Math.min(job.percent ?? 0, 100);
   const total = job.total ?? 0;
   const unit = job.unit ?? (job.phase === "llm_tagging" ? "memories" : "files");
@@ -64,11 +72,13 @@ export function RunningJob({ job, children }: { job: QueueJob; children?: React.
     job.skipped ? `${job.skipped.toLocaleString()} skipped` : "",
   ].filter(Boolean);
   return (
-    <Card size="sm" aria-label={`Running: ${job.label ?? job.command}`} role="region">
+    <Card size="sm" aria-label={`Running: ${plain ? plainJob(job) : job.label ?? job.command}`} role="region">
       <CardContent className="space-y-3">
         <div className="flex items-start gap-3">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted"><Spinner className="size-4" /></span>
-          <JobName job={job} className="min-w-0 flex-1 text-sm" />
+          {plain
+            ? <span className="min-w-0 flex-1 truncate text-sm font-medium">{plainJob(job)}</span>
+            : <JobName job={job} className="min-w-0 flex-1 text-sm" />}
           <CancelButton job={job} label="Cancel job" className="text-muted-foreground hover:text-destructive" iconClassName="size-4"><span className="max-sm:sr-only">Cancel</span></CancelButton>
         </div>
         <div className="space-y-1.5">
@@ -76,11 +86,15 @@ export function RunningJob({ job, children }: { job: QueueJob; children?: React.
             ? <Progress value={pct} aria-label={`${job.label ?? job.command} progress`} className="[&_[data-slot=progress-track]]:h-2" />
             : <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full w-1/3 animate-pulse rounded-full bg-foreground/30" /></div>}
           <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums">
-            <span>
-              {job.phase && <span className="inline-block font-medium text-foreground first-letter:uppercase">{phaseName(job.phase)}</span>}
-              {total > 0 && <>{job.phase && " · "}{(job.processed ?? 0).toLocaleString()} of {total.toLocaleString()} {unit} · {Math.round(pct)}%</>}
-              {counts.length > 0 && <> · {counts.join(", ")}</>}
-            </span>
+            {plain ? (
+              <span>{total > 0 ? <>{(job.processed ?? 0).toLocaleString()} of {total.toLocaleString()} {unit} · {Math.round(pct)}%</> : "Working…"}</span>
+            ) : (
+              <span>
+                {job.phase && <span className="inline-block font-medium text-foreground first-letter:uppercase">{phaseName(job.phase)}</span>}
+                {total > 0 && <>{job.phase && " · "}{(job.processed ?? 0).toLocaleString()} of {total.toLocaleString()} {unit} · {Math.round(pct)}%</>}
+                {counts.length > 0 && <> · {counts.join(", ")}</>}
+              </span>
+            )}
             <span>
               {elapsed !== null && `${formatDuration(elapsed)} so far`}
               {job.eta_seconds != null && job.eta_seconds > 0 && ` · about ${formatDuration(job.eta_seconds)} left`}

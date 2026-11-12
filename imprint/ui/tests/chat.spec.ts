@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { mockUi } from './ui-fixtures';
 import { slack } from './slack';
 
 type Session = { id: string; title: string; created_at: number; updated_at: number; kind?: 'chat' | 'voice' };
@@ -137,6 +138,25 @@ test('reopens the chat this browser was last in', async ({ page }) => {
   const tool = page.getByRole('button', { name: /Searched memory for “naming questionnaire”/ });
   await tool.click();
   await expect(page.getByText('Naming Questionnaire General UPDATE.pdf …')).toBeVisible();
+});
+
+test('the simple dashboard says what a reply looked up, without the raw result', async ({ page }) => {
+  await mockUi(page, { mode: 'simple', tutorials: false });
+  await mockChat(page, {
+    sessions: [{ id: 'older', title: 'Naming questionnaire', created_at: now, updated_at: now }],
+    messages: {
+      older: [
+        { role: 'user', content: 'What do you know about the naming questionnaire?' },
+        { role: 'tool', content: 'Naming Questionnaire General UPDATE.pdf …', tool_name: 'search', tool_args: { query: 'naming questionnaire' } },
+        { role: 'assistant', content: 'It is a **branding** questionnaire.' },
+      ],
+    },
+  });
+  await page.goto('/chat/');
+  await expect(page.getByText('It is a branding questionnaire.')).toBeVisible();
+  await expect(page.getByText('Searched memory for “naming questionnaire”')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Searched memory for/ })).toHaveCount(0);
+  await expect(page.getByText('Naming Questionnaire General UPDATE.pdf …')).toHaveCount(0);
 });
 
 test('without chats the page is a new chat whose first message sets up local chat', async ({ page }) => {

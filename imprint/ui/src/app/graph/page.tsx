@@ -331,7 +331,7 @@ function GraphPageContent({ initial }: { initial: URLSearchParams }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2.5">
+      <header data-tour="page-header" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2.5">
         <h2 className="text-lg font-semibold">Graph</h2>
         <GraphBreadcrumbs crumbs={crumbs} onGo={(i) => goTo(trail.slice(0, i + 1))} />
         <InputGroup className="w-full sm:ml-auto sm:w-72">

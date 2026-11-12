@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
-  AppWindow, ArrowUpCircle, Bot, Boxes, RefreshCw, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
+  AppWindow, ArrowUpCircle, Bot, LayoutDashboard, Boxes, RefreshCw, Cpu, Database, FileInput, FolderTree, Gpu, KeyRound, Layers, MessageSquare, Mic, ScrollText, Search,
   Scissors, ShieldCheck, SquareTerminal, Tags, WandSparkles, type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { getConfig, getFsRoots, resetConfigValue, setConfigValue } from "@/lib/api";
 import { useCached } from "@/lib/use-cached";
+import { refreshUiState, useUiMode } from "@/lib/ui-mode";
+import { buttonVariants } from "@/components/ui/button";
+import { SimpleSettings } from "./_components/simple-settings";
 import { ListSkeleton } from "@/components/loaders";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader, PaneHeading, PaneLink, SplitPage } from "@/components/split-page";
@@ -42,6 +45,7 @@ const GROUPS: Record<string, { title: string; desc: string; icon: LucideIcon }> 
   },
   sync: { title: "Device sync", desc: "What paired devices exchange beyond memories. Recordings travel only between devices that both turned this on.", icon: RefreshCw },
   desktop: { title: "Desktop app", desc: "How the desktop app behaves on this computer while its dashboard is hidden.", icon: AppWindow },
+  ui: { title: "Dashboard", desc: "Which dashboard this device shows, simple or advanced, and whether a page's tutorial starts the first time it opens. Neither changes what Imprint stores or does.", icon: LayoutDashboard },
   update: { title: "Updates", desc: "Which releases this installation is offered, stable or dev builds as well, and whether it installs them by itself when idle.", icon: ArrowUpCircle },
   collection: { title: "Storage", desc: "The Qdrant collection the default workspace uses; other workspaces get their own automatically.", icon: Layers },
 };
@@ -82,7 +86,18 @@ function matches(s: ConfigSetting, query: string) {
 
 const NO_SETTINGS: ConfigSetting[] = [];
 
+/** The simple dashboard shows its short list (ADR 0182); an address that
+ * names a section, such as #settings-chat or #workspaces, still opens it. */
 export default function SettingsPage() {
+  const ui = useUiMode();
+  const hash = useHash();
+  const section = hash.startsWith("settings-") || DEVICE_SECTIONS.some((d) => d.id === hash);
+  if (!ui.known) return <div className="px-4 pt-6 sm:px-8"><Skeleton className="h-96 w-full rounded-xl" /></div>;
+  if (ui.simple && !section) return <SimpleSettings />;
+  return <AdvancedSettings simple={ui.simple} />;
+}
+
+function AdvancedSettings({ simple }: { simple: boolean }) {
   // Configuration is the installation's, the same in every workspace. It is
   // kept in memory only and not fetched again on focus, so a row being
   // edited never changes under the cursor (ADR 0152).
@@ -109,6 +124,7 @@ export default function SettingsPage() {
     try {
       await setConfigValue(key, value);
       await load();
+      if (key.startsWith("ui.")) void refreshUiState();
       return true;
     } catch (e) {
       toast.error(`Could not save ${key}`, { description: e instanceof Error ? e.message : String(e) });
@@ -120,6 +136,7 @@ export default function SettingsPage() {
     try {
       await resetConfigValue(s.key);
       await load();
+      if (s.key.startsWith("ui.")) void refreshUiState();
       return true;
     } catch (e) {
       toast.error(`Could not ${s.secret ? "remove" : "reset"} ${s.key}`, { description: e instanceof Error ? e.message : String(e) });
@@ -170,7 +187,7 @@ export default function SettingsPage() {
       header={header}
       listWidth="14rem"
       list={
-        <nav aria-label="Settings sections">
+        <nav aria-label="Settings sections" data-tour="settings-sections">
           <PaneHeading>Configuration</PaneHeading>
           <div className="space-y-0.5">
             {groups.map(([name, items]) => {
@@ -204,6 +221,12 @@ export default function SettingsPage() {
         </nav>
       }
     >
+      {simple && (
+        <div role="note" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2.5 text-sm">
+          <p>These are the advanced settings: every setting, with its technical name.</p>
+          <a href="#" className={buttonVariants({ variant: "outline", size: "sm" })}>Back to the short list</a>
+        </div>
+      )}
       {error && <p role="alert" className="text-sm text-destructive">Settings could not load: {error}</p>}
 
       {found.map(([name, items]) => {

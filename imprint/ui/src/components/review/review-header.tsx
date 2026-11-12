@@ -16,7 +16,7 @@ export function ReviewHeader({ title, count, info, infoLabel, actions, updating 
   updating?: boolean;
 }) {
   return (
-    <header className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 pt-4 pb-3 sm:px-8">
+    <header data-tour="page-header" className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 pt-4 pb-3 sm:px-8">
       <h1 className="flex items-baseline gap-2 text-2xl font-semibold tracking-tight">
         {title}
         {count !== undefined && <span className="text-base font-normal text-muted-foreground tabular-nums">{count.toLocaleString()}</span>}

@@ -4,6 +4,7 @@ import { BookOpen, ChevronRight, Database, FileText, Globe, History, Library, Se
 import type { LucideIcon } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Spinner } from "@/components/ui/spinner";
+import { useUiMode } from "@/lib/ui-mode";
 import type { ToolStep } from "../_lib/turns";
 
 type Describe = (args: Record<string, unknown>) => [running: string, done: string];
@@ -38,12 +39,22 @@ export function ToolStepRow({ step }: { step: ToolStep }) {
   const tool = TOOLS[step.name] ?? { icon: Wrench, describe: () => [`Running ${step.name}`, `Ran ${step.name}`] };
   const [running, done] = tool.describe(step.args);
   const Icon = tool.icon;
+  const { simple } = useUiMode();
 
   if (step.result === undefined) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
         <Spinner className="size-3.5" aria-hidden />
         <span className="animate-pulse">{running}…</span>
+      </div>
+    );
+  }
+  // The simple dashboard (ADR 0182) says what was looked up, without the raw result.
+  if (simple) {
+    return (
+      <div className="flex max-w-full items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{TOOLS[step.name] ? done : "Looked something up"}</span>
       </div>
     );
   }

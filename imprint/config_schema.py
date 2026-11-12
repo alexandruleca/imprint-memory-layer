@@ -403,6 +403,16 @@ SETTINGS: list[Setting] = [
     Setting("desktop.floating_orb", "IMPRINT_DESKTOP_FLOATING_ORB", False, bool,
             "Show the floating Imprint button while the dashboard is hidden; it shows during a recording either way"),
 
+    # ── Dashboard (ADR 0182, 0183) ────────────────────────────
+    # Presentation only: both dashboards read and write the same settings and
+    # data. The API settles ui.mode once per installation (ui_mode.settle).
+    Setting("ui.mode", "IMPRINT_UI_MODE", "simple", str,
+            "The dashboard this device shows: simple, with the everyday pages and choices in plain words, or advanced, with every page and setting",
+            choices=(Choice("simple", "Simple", "The everyday pages, a short list of settings, plain words"),
+                     Choice("advanced", "Advanced", "Every page and every setting"))),
+    Setting("ui.tutorials", "IMPRINT_UI_TUTORIALS", True, bool,
+            "Show a page's short tutorial the first time it opens; every tutorial can be skipped and replayed"),
+
     # ── Updates (ADR 0108) ────────────────────────────────────
     # Read by `imprint update` when no --stable/--dev is passed, so the
     # dashboard's update check and the terminal follow the same channel.

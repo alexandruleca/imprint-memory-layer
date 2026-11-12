@@ -9,6 +9,7 @@ import { RecorderBridge } from "@/components/recorder-bridge";
 import { RootApprovalDialog } from "@/components/root-approval-dialog";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Tours } from "@/components/tour/tours";
 
 const inter = localFont({
   src: "./fonts/Inter-Variable.ttf",
@@ -40,7 +41,7 @@ export default function RootLayout({
       </head>
       <body className="h-full bg-background text-foreground flex">
         <TooltipProvider>
-          <DashboardShell overlays={<><Heartbeat /><RootApprovalDialog /><JobToasts /><ReminderAlerts /><RecorderBridge /><Toaster /></>}>{children}</DashboardShell>
+          <DashboardShell overlays={<><Heartbeat /><RootApprovalDialog /><JobToasts /><ReminderAlerts /><RecorderBridge /><Tours /><Toaster /></>}>{children}</DashboardShell>
         </TooltipProvider>
       </body>
     </html>

@@ -14,6 +14,8 @@ import { MemoryHero, StatTile } from "@/components/home/overview";
 import { Breakdown } from "@/components/home/breakdown";
 import { Attention, Freshness, RecentSources } from "@/components/home/activity";
 import { Code, Database, FileCode, FolderOpen, Tags } from "lucide-react";
+import { ReviewInbox } from "@/components/home/review-inbox";
+import { useUiMode } from "@/lib/ui-mode";
 
 const list = (value: unknown): [string, number][] =>
   Array.isArray(value) ? value.filter((row): row is [string, number] => Array.isArray(row) && typeof row[1] === "number") : [];
@@ -45,6 +47,9 @@ export default function DashboardPage() {
     workspaceOf: (d) => d.workspace || null,
   });
   const queue = useQueue();
+  // The simple dashboard (ADR 0182): the same summary with the review inbox
+  // in place of the job notices, and without the technical breakdowns.
+  const { simple } = useUiMode();
 
   const serverResponded = error instanceof ApiError;
   const profileConflict = serverResponded && error.body.error === "embedding_profile_conflict";
@@ -54,8 +59,8 @@ export default function DashboardPage() {
   return (
     <div className="pb-12">
       <PageHeader
-        title="Dashboard"
-        description="What your AI tools remember, and where it came from."
+        title={simple ? "Home" : "Dashboard"}
+        description={simple ? "What Imprint remembers for you, and what is waiting for you." : "What your AI tools remember, and where it came from."}
         actions={summary && <Freshness builtAt={summary.built_at || null} updating={updating} failed={!!error} onRefresh={() => void refresh()} />}
       />
       <div className="space-y-6 px-4 sm:px-8">
@@ -68,6 +73,8 @@ export default function DashboardPage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 {profileConflict
                   ? <>Use the workspace menu to create and switch to a new workspace, then reindex your sources. Your old workspace is preserved; its memories are not copied automatically.</>
+                  : simple
+                  ? <>Imprint reconnects by itself. If this stays, quit Imprint and start it again.</>
                   : serverResponded
                   ? <>The API server responded with an error. Check its log with <code>imprint ui log</code>, then try again.</>
                   : <>Reconnecting automatically. Check the server with <code>imprint ui status</code>. If it is stopped, run <code>imprint ui start</code>.</>}
@@ -86,8 +93,12 @@ export default function DashboardPage() {
             <EmptyHeader className="max-w-xl">
               <EmptyMedia variant="icon"><Database aria-hidden /></EmptyMedia>
               <EmptyTitle><h2 className="font-semibold">Build your first memory</h2></EmptyTitle>
-              <EmptyDescription>1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</EmptyDescription>
-              <EmptyDescription className="text-xs">Only selected sources are indexed. Secrets and files outside a selected folder are excluded.</EmptyDescription>
+              {simple
+                ? <EmptyDescription>1. Add a folder, a document or your AI conversations below. 2. Imprint reads it; the top of the window shows how far it is. 3. Ask about it in Chat, or look it up in Search.</EmptyDescription>
+                : <EmptyDescription>1. Index a project folder or document below. 2. Check its progress in Queue. 3. Search what was indexed, or connect your AI client from Settings.</EmptyDescription>}
+              <EmptyDescription className="text-xs">{simple
+                ? "Only what you choose is added. Passwords and keys are removed before anything is stored."
+                : "Only selected sources are indexed. Secrets and files outside a selected folder are excluded."}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
@@ -97,21 +108,30 @@ export default function DashboardPage() {
 
         {summary && !empty && (
           <>
-            <section aria-label="Overview" className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+            <section aria-label="Overview" data-tour="home-memory" className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
               <MemoryHero summary={summary} />
-              <div className="grid grid-cols-2 gap-4">
-                <StatTile label="Projects" value={summary.project_count} icon={FolderOpen} href="/projects/"
-                  detail={summary.projects[0] ? `Largest: ${summary.projects[0][0]}` : undefined} />
-                <StatTile label="Sources" value={summary.source_count} icon={FileCode} href="/sources/" detail="Files and conversations" />
-                <StatTile label="Topics" value={summary.topic_count} icon={Tags} href="/topics/"
-                  detail={summary.topics[0] ? `Most common: ${summary.topics[0][0]}` : undefined} />
-                <StatTile label="Languages" value={summary.lang_count} icon={Code}
-                  detail={summary.langs.slice(0, 3).map(([name]) => name).join(", ") || undefined} />
-              </div>
+              {simple ? (
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-1">
+                  <StatTile label="Projects" value={summary.project_count} icon={FolderOpen} href="/projects/"
+                    detail={summary.projects[0] ? `Largest: ${summary.projects[0][0]}` : undefined} />
+                  <StatTile label="Documents and conversations" value={summary.source_count} icon={FileCode} href="/projects/#sources"
+                    detail="Everything you added, by project" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <StatTile label="Projects" value={summary.project_count} icon={FolderOpen} href="/projects/"
+                    detail={summary.projects[0] ? `Largest: ${summary.projects[0][0]}` : undefined} />
+                  <StatTile label="Sources" value={summary.source_count} icon={FileCode} href="/sources/" detail="Files and conversations" />
+                  <StatTile label="Topics" value={summary.topic_count} icon={Tags} href="/topics/"
+                    detail={summary.topics[0] ? `Most common: ${summary.topics[0][0]}` : undefined} />
+                  <StatTile label="Languages" value={summary.lang_count} icon={Code}
+                    detail={summary.langs.slice(0, 3).map(([name]) => name).join(", ") || undefined} />
+                </div>
+              )}
             </section>
 
             <div className="grid items-start gap-4 lg:grid-cols-2">
-              <Attention summary={summary} queue={queue} />
+              {simple ? <ReviewInbox queue={queue} /> : <Attention summary={summary} queue={queue} />}
               <RecentSources recent={summary.recent} />
             </div>
           </>
@@ -119,7 +139,7 @@ export default function DashboardPage() {
 
         {!empty && !profileConflict && <QuickIngest />}
 
-        {summary && !empty && (
+        {summary && !empty && !simple && (
           <section aria-labelledby="breakdown-heading" className="space-y-3">
             <h2 id="breakdown-heading" className="text-sm font-medium text-muted-foreground">What is in memory</h2>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

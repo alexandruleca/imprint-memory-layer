@@ -3,6 +3,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./top-bar";
+import { AdvancedPageNotice } from "./advanced-page-notice";
 /** The window is a fixed frame: the sidebar and top bar stay put and <main> is
  * the one page scroller. <main> is positioned so that it is also the containing
  * block of the page: absolutely positioned content (sr-only labels, overlays)
@@ -19,5 +20,5 @@ export function DashboardShell({ children, overlays }: { children: React.ReactNo
     document.documentElement.classList.toggle("launcher-document", launcher);
     return () => document.documentElement.classList.remove("companion-document", "launcher-document"); }, [companion, launcher]);
   return <>{!floating && <><a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-background focus:p-3">Skip to content</a><Sidebar/></>}<div className="flex h-full min-w-0 flex-1 flex-col">{!floating && <TopBar/>}
-    <main id="main-content" tabIndex={-1} className={`relative min-h-0 flex-1 ${floating ? "overflow-hidden" : "overflow-y-auto"}`}>{children}</main></div>{!floating && overlays}</>;
+    <main id="main-content" tabIndex={-1} className={`relative min-h-0 flex-1 ${floating ? "overflow-hidden" : "overflow-y-auto"}`}>{!floating && <AdvancedPageNotice />}{children}</main></div>{!floating && overlays}</>;
 }

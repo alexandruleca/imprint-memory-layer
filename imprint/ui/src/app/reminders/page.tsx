@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiMode } from "@/lib/ui-mode";
 import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/schedule";
 
 const DESCRIPTION = "Reminders, timers, scheduled jobs and questions for Imprint. Set them here, or ask in Chat or Echo: “remind me at 10 to call Dan”, “every weekday at 9 re-index my code folder”. They stay on this device.";
+const SIMPLE_DESCRIPTION = "Reminders, timers and questions for Imprint to answer later. Set them here, or ask in Chat or Echo: “remind me at 10 to call Dan”, “tomorrow at 8 summarize what I worked on”. They stay on this device.";
 const KIND_LABEL: Record<ScheduleKind, string> = { reminder: "Reminder", timer: "Timer", job: "Job", prompt: "Question" };
 const KIND_ICON: Record<ScheduleKind, typeof Bell> = { reminder: Bell, timer: Clock, job: Terminal, prompt: MessageSquare };
 const STATUS_LABEL: Record<ScheduleEntry["status"], string> = { scheduled: "Scheduled", fired: "Rang", done: "Done", cancelled: "Cancelled", missed: "Missed" };
@@ -109,6 +111,7 @@ function EntryDialog({ entry, open, onClose }: { entry?: ScheduleEntry; open: bo
   const [draft, setDraft] = useState<Draft>(() => draftOf(entry));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const { simple } = useUiMode();
   const set = (change: Partial<Draft>) => setDraft((d) => ({ ...d, ...change }));
   const job = JOB_COMMANDS.find((c) => c.value === draft.command);
 
@@ -136,7 +139,8 @@ function EntryDialog({ entry, open, onClose }: { entry?: ScheduleEntry; open: bo
               <select aria-label="Kind" className={SELECT} value={draft.kind} onChange={(e) => set({ kind: e.target.value as ScheduleKind, mode: e.target.value === "timer" ? "in" : draft.mode })}>
                 <option value="reminder">Reminder</option>
                 <option value="timer">Timer</option>
-                <option value="job">Scheduled job</option>
+                {/* The simple dashboard (ADR 0182) leaves scheduled jobs to the advanced one. */}
+                {!simple && <option value="job">Scheduled job</option>}
                 <option value="prompt">Question for Imprint</option>
               </select>
             </label>
@@ -307,6 +311,7 @@ function RemindersContent() {
   const upcoming = usePaged("upcoming");
   const past = usePaged("past");
   const [editing, setEditing] = useState<{ entry?: ScheduleEntry } | null>(null);
+  const { simple } = useUiMode();
   const timing = upcoming.entries.some((e) => e.kind === "timer");
   const now = useNow(timing);
   const groups = useMemo(() => upcomingGroups(upcoming.entries, new Date(now)), [upcoming.entries, now]);
@@ -322,8 +327,8 @@ function RemindersContent() {
 
   return (
     <div className="mx-auto max-w-4xl pb-10">
-      <PageHeader title="Reminders" count={upcoming.total} description={DESCRIPTION} updating={false}
-        actions={<Button onClick={() => setEditing({})}><Plus /> New</Button>} />
+      <PageHeader title="Reminders" count={upcoming.total} description={simple ? SIMPLE_DESCRIPTION : DESCRIPTION} updating={false}
+        actions={<Button data-tour="reminders-new" onClick={() => setEditing({})}><Plus /> New</Button>} />
       <div className="space-y-6 px-4 sm:px-8">
         {alerts && alerts.length > 0 && (
           <section aria-labelledby="ringing" className="space-y-2">
@@ -331,7 +336,7 @@ function RemindersContent() {
             <Card className="gap-0 py-0"><ul className="divide-y divide-border">{alerts.map((a) => <AlertRow key={`${a.id}:${a.ring}`} alert={a} />)}</ul></Card>
           </section>
         )}
-        <section aria-labelledby="upcoming" className="space-y-2">
+        <section aria-labelledby="upcoming" data-tour="reminders-upcoming" className="space-y-2">
           <h2 id="upcoming" className="text-sm font-semibold">Upcoming</h2>
           {upcoming.error && <p role="alert" className="text-sm text-destructive">Could not load reminders: {upcoming.error.message}</p>}
           {upcoming.loading ? <Skeleton className="h-24 w-full rounded-xl" /> : upcoming.entries.length ? (

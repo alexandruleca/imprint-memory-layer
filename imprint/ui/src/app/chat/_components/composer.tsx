@@ -34,6 +34,7 @@ export function Composer({ onSend, onStop, streaming, answering, model, autoFocu
   return (
     <form
       className={cn("w-full", className)}
+      data-tour="chat-composer"
       onSubmit={(event) => { event.preventDefault(); send(); }}
     >
       <div className="rounded-2xl border border-input bg-card shadow-sm transition-[border-color,box-shadow] focus-within:border-ring/60 focus-within:shadow-md">

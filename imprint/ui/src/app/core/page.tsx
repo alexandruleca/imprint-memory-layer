@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiMode } from "@/lib/ui-mode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Plus, RefreshCw, Check, History, Layers, RotateCcw, Sparkles, X } from "lucide-react";
@@ -38,6 +39,13 @@ const INFO = (
     <p><span className="font-medium">Guidelines</span> are what every agent session starts with: how you like things done, rules to follow, facts about you. Organize drafts them from recorded core memories and only you approve them. You can also write your own.</p>
     <p><span className="font-medium">Recorded</span> core memories are the specific things agents and Organize noticed about you. They are kept for reference and search, and sessions do not receive them.</p>
     <p>Newer information that contradicts an older core memory is shown under <span className="font-medium">Conflicts</span> for you to settle.</p>
+  </div>
+);
+const SIMPLE_INFO = (
+  <div className="space-y-2">
+    <p>What Imprint knows about you: how you like things done, rules to follow and facts about you. Your AI tools are told these at the start of every session, so you do not have to repeat yourself.</p>
+    <p>Imprint suggests new ones from what it notices, and nothing is used until you say yes. You can also write your own.</p>
+    <p>When something newer disagrees with something older, you choose which one holds.</p>
   </div>
 );
 const TABS = ["conflicts", "guidelines", "proposed", "recorded", "retired"] as const;
@@ -300,6 +308,7 @@ export default function CoreMemoriesPage() {
   const [help, setHelp] = useState(false);
   const [reading, setReading] = useState<ReaderTarget | null>(null);
   const [linked, openTab] = useHashTab(TABS);
+  const { simple } = useUiMode();
   const [size, setSize] = useStoredNumber("imprint.review.page-size", 20, PAGE_SIZES);
   const reload = useRef<() => void>(() => {});
   // The tab a link without a hash opens, chosen once from the first load so
@@ -459,8 +468,9 @@ export default function CoreMemoriesPage() {
   return (
     <Announcer>
       <div ref={root} className="@container/page flex min-h-full flex-col lg:h-full">
-        <ReviewHeader title="Core memories" info={INFO} infoLabel="About core memories"
-          actions={<Button onClick={() => write()}><Plus /> Write a guideline <Kbd aria-hidden className="bg-primary-foreground/15 text-primary-foreground @max-[620px]/page:hidden">N</Kbd></Button>} />
+        <ReviewHeader title={simple ? "About you" : "Core memories"} info={simple ? SIMPLE_INFO : INFO} infoLabel={simple ? "About this page" : "About core memories"}
+          actions={<Button data-tour="core-write" onClick={() => write()}><Plus /> {simple ? "Tell Imprint something" : "Write a guideline"}{" "}
+            {!simple && <Kbd aria-hidden className="bg-primary-foreground/15 text-primary-foreground @max-[620px]/page:hidden">N</Kbd>}</Button>} />
         {error && (
           <div className="px-4 pb-3 sm:px-8">
             <Alert variant="destructive">
@@ -481,7 +491,8 @@ export default function CoreMemoriesPage() {
           </div>
         )) : (
           <>
-            <div className="mx-4 mb-3 space-y-1.5 sm:mx-8">
+            {/* The simple dashboard (ADR 0182) leaves out the session budget, the records and what was retired. */}
+            {!simple && <div className="mx-4 mb-3 space-y-1.5 sm:mx-8">
               <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span>Each session receives up to {data.budget.toLocaleString()} tokens of guidelines</span>
                 <span className={left ? "font-medium text-warning tabular-nums" : "tabular-nums"}>
@@ -490,18 +501,18 @@ export default function CoreMemoriesPage() {
                 </span>
               </div>
               <Progress value={Math.min(100, (100 * shownUsed) / data.budget)} aria-label="Session budget used" />
-            </div>
+            </div>}
             <Tabs value={tab} onValueChange={(value) => openTab(value as Tab)} className="flex min-h-0 flex-1 flex-col gap-0">
               <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background px-4 sm:px-8 lg:static">
-                <TabsList variant="line" className="h-10 min-w-0 justify-start overflow-x-auto">
-                  <CountTab value="conflicts" name="Conflicts" count={count("conflicts")} pill />
-                  <CountTab value="guidelines" name="Guidelines" count={count("guidelines")} />
-                  <CountTab value="proposed" name="Proposed" count={count("proposed")} pill />
-                  <CountTab value="recorded" name="Recorded" count={count("recorded")} />
-                  <CountTab value="retired" name="Retired" count={count("retired")} />
+                <TabsList variant="line" data-tour="core-tabs" className="h-10 min-w-0 justify-start overflow-x-auto">
+                  <CountTab value="conflicts" name={simple ? "To settle" : "Conflicts"} count={count("conflicts")} pill />
+                  <CountTab value="guidelines" name={simple ? "Known about you" : "Guidelines"} count={count("guidelines")} />
+                  <CountTab value="proposed" name={simple ? "Suggested" : "Proposed"} count={count("proposed")} pill />
+                  {(!simple || tab === "recorded") && <CountTab value="recorded" name="Recorded" count={count("recorded")} />}
+                  {(!simple || tab === "retired") && <CountTab value="retired" name="Retired" count={count("retired")} />}
                 </TabsList>
                 <span className="flex-1" />
-                <ShortcutsButton onClick={() => setHelp(true)} />
+                {!simple && <ShortcutsButton onClick={() => setHelp(true)} />}
               </div>
               {TABS.map((which) => (
                 <TabsContent key={which} value={which} className="flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 sm:px-8">

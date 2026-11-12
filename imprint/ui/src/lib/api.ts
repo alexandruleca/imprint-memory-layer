@@ -828,6 +828,31 @@ async function readChatEvents(res: Response, onEvent: (ev: ChatEvent) => void) {
 
 // ── Config ──────────────────────────────────────────────────────
 
+/** The dashboard's mode and whether tutorials start by themselves (ADRs 0182, 0183). */
+export async function getUiState() {
+  return fetchAPI<{ mode?: string; tutorials?: boolean }>("/api/ui");
+}
+
+/** The simple dashboard's settings (ADR 0182): plain choices over the same keys. */
+export type SimpleItem = { id: string; title: string; desc: string; desktop: boolean } & (
+  | { kind: "switch"; on: boolean; locked: string; keys: string[] }
+  | { kind: "choice"; selected: number | null; locked: string; keys: string[];
+      options: { label: string; detail: string; unavailable: string }[] }
+  | { kind: "link"; href: string; label: string }
+  | { kind: "theme" }
+  | { kind: "report"; ok: boolean; lines: string[]; note: string }
+);
+export type SimpleGroup = { id: string; title: string; desc: string; advanced: { id: string; title: string }[]; items: SimpleItem[] };
+export async function getSimpleSettings() {
+  return fetchAPI<{ groups: SimpleGroup[] }>("/api/settings/simple");
+}
+export async function applySimpleSetting(id: string, choice: { on: boolean } | { option: number }) {
+  return fetchAPI<{ ok: boolean; keys: string[]; groups: SimpleGroup[] }>(`/api/settings/simple/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(choice),
+  });
+}
+
 export async function getConfig() {
   return fetchAPI<{ settings: ConfigSetting[] }>("/api/config");
 }

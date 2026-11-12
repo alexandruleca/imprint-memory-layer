@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiMode } from "@/lib/ui-mode";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Disc3, Download, FileText, Play, RotateCcw, Square, Trash2 } from "lucide-react";
@@ -70,6 +71,7 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
   const [project, setProject] = useState(defaultProject);
   const [others, setOthers] = useState(true);
   const [consent, setConsent] = useState(false);
+  const { simple } = useUiMode();
   const [now, setNow] = useState(0);
   const recording = recorder.phase === "recording" || recorder.phase === "stopping";
   useEffect(() => {
@@ -96,10 +98,10 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
   );
 
   return (
-    <Card>
+    <Card data-tour="recordings-start">
       <CardHeader>
         <CardTitle>New recording</CardTitle>
-        <CardDescription>The microphone is the one chosen in Voice → Companion settings. The desktop app records what the computer plays directly (macOS asks you to allow it once); a browser asks which tab or screen to share, with its audio.</CardDescription>
+        <CardDescription>The microphone is the one chosen in {simple ? "Echo" : "Voice"} → Companion settings. The desktop app records what the computer plays directly (macOS asks you to allow it once); a browser asks which tab or screen to share, with its audio.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -268,7 +270,7 @@ export default function RecordingsPage() {
         {data ? <Start projects={projects} defaultProject={data.default_project} /> : <Skeleton className="h-48 w-full rounded-xl" />}
         {error && <p role="alert" className="text-sm text-destructive">Could not load recordings: {error}</p>}
         {data && (data.recordings.length ? (
-          <Card className="gap-0 py-0">
+          <Card className="gap-0 py-0" data-tour="recordings-list">
             <ul className="divide-y divide-border">
               {data.recordings.map((r) => (
                 <Row key={r.id} recording={r} live={recorder.recording?.id === r.id} onChange={load}
@@ -277,7 +279,7 @@ export default function RecordingsPage() {
             </ul>
           </Card>
         ) : (
-          <Empty className="border border-dashed border-border">
+          <Empty className="border border-dashed border-border" data-tour="recordings-list">
             <EmptyHeader>
               <EmptyTitle>No recordings yet</EmptyTitle>
               <EmptyDescription>Start one above when a call begins; the transcript appears here and in search once it is transcribed.</EmptyDescription>
