@@ -173,6 +173,46 @@ class BrowserAPITests(TemporaryData, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status_code, code, response.text)
             enqueue.assert_not_called()
 
+    async def test_local_discovery_and_captures_need_no_pairing_and_pin_the_selected_workspace(self):
+        browser.revoke(EXTENSION)
+        prefix = '/api/browser/local/'
+        headers = {'X-Imprint-Extension-Id': EXTENSION}
+        result = await self.request(prefix + 'status', headers=headers)
+        self.assertEqual(result.json()['workspaces'], ['default', 'other'])
+        self.assertEqual(result.json()['active'], 'default')
+        headers['Origin'] = browser.extension_origin(EXTENSION)
+        for content in (capture(), {'url': 'https://example.com/article', 'project': 'reading'}):
+            result = await self.request(prefix + 'captures', method='POST', headers=headers,
+                                        json={**content, 'workspace': 'other'})
+            self.assertEqual(result.status_code, 202, result.text)
+            job_id = result.json()['job_id']
+            body = queue.get_job(job_id)['body']
+            self.assertEqual(body['_workspace'], 'other')
+            self.assertNotIn('_browser_pairing_hash', body)
+            self.assertEqual(config.get_active_workspace(), 'default')
+            result = await self.request(prefix + 'jobs/' + job_id, headers=headers)
+            self.assertEqual(result.status_code, 200)
+            self.assertNotIn('body', result.json())
+            other = {'X-Imprint-Extension-Id': OTHER, 'Origin': browser.extension_origin(OTHER)}
+            self.assertEqual((await self.request(prefix + 'jobs/' + job_id, headers=other)).status_code, 404)
+        for body in (capture(), {**capture(), 'workspace': 'missing'},
+                     {'workspace': 'other', 'url': 'https://user:secret@example.com/'},
+                     {**capture(), 'workspace': 'other', 'url': 'https://example.com'}):
+            result = await self.request(prefix + 'captures', method='POST', headers=headers, json=body)
+            self.assertEqual(result.status_code, 400)
+
+    async def test_local_routes_reject_website_origins_and_container_peers(self):
+        from imprint.api import app
+        path = '/api/browser/local/captures'
+        for origin in (None, 'https://example.com', 'null', 'http://127.0.0.1:8420', browser.extension_origin(OTHER)):
+            headers = {'X-Imprint-Extension-Id': EXTENSION}
+            if origin is not None:
+                headers['Origin'] = origin
+            result = await self.request(path, method='POST', headers=headers, json={**capture(), 'workspace': 'other'})
+            self.assertEqual(result.status_code, 403)
+        with patch.object(app.state, 'container_bind', True):
+            self.assertEqual((await self.request('/api/browser/local/status', peer=('172.17.0.1', 80))).status_code, 403)
+
 
 class WorkerTests(TemporaryData, unittest.TestCase):
     def make_job(self):
@@ -183,6 +223,26 @@ class WorkerTests(TemporaryData, unittest.TestCase):
         with queue._connect() as conn:
             conn.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
         return job_id
+
+    def test_token_free_jobs_use_the_existing_ingestion_modes_and_report_url_failures(self):
+        def running(content):
+            job_id = queue.enqueue('browser-capture', {**content, 'workspace': 'other',
+                                                      '_browser_extension_id': EXTENSION})
+            with queue._connect() as conn:
+                conn.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
+            return job_id
+
+        job_id = running(capture())
+        with patch('imprint.ingest_core.store_inline_content', return_value=(1, 'stored')) as store:
+            browser_worker.run(job_id)
+        self.assertEqual(store.call_args.kwargs['workspace'], 'other')
+        job_id = running({'url': 'https://example.com/article', 'project': 'reading'})
+        with patch('imprint.vectorstore.get_url_sources', return_value={}) as sources, \
+                patch('imprint.cli_ingest_url.ingest_one', return_value=(0, 'error: HTTP 401')) as ingest:
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 401'):
+                browser_worker.run(job_id)
+            sources.assert_called_once_with('other')
+            ingest.assert_called_once_with('https://example.com/article', 'reading', {}, workspace='other')
 
     def test_worker_uses_shared_pipeline_lock_and_provenance(self):
         job_id = self.make_job()

@@ -1,6 +1,6 @@
 ---
 title: Chrome capture extension (WIP)
-description: Download the Chrome extension ZIP, install it manually, pair one workspace, and preview pages or selected text before indexing.
+description: Connect to local Imprint, choose a workspace, and save page text, selected text, or a URL from Chrome.
 ---
 
 ## Status and scope
@@ -8,11 +8,13 @@ description: Download the Chrome extension ZIP, install it manually, pair one wo
 The Manifest V3 extension lives in [`extensions/chrome`](../extensions/chrome/)
 and is distributed as `imprint-chrome-extension.zip` in GitHub releases. This is
 a preview, installed manually rather than through the Chrome Web Store. No cloud capture service or Gmail OAuth client
-is required. It sends the text you explicitly preview and save to the local
-Imprint HTTP API, then the existing queue runs the inline ingestion pipeline.
+is required. The popup connects automatically to the local Imprint HTTP API and lists existing
+workspaces. Choose a destination and preview what you want to save.
 
-Available now: ordinary readable HTTP(S) pages and selected text. The preview is
-editable. Saving shows queued/running/completed status; accepted jobs continue
+**Page text** and **Selection** save editable snapshots of readable text already
+rendered in the tab, including on signed-in pages. **URL** queues a fresh fetch
+by Imprint, which has no access to your browser session and fetches only the
+submitted page without crawling links. Saving shows queued/running/completed status; accepted jobs continue
 after the popup closes. Reopening the popup checks the last submitted job.
 
 **Coming soon:** Gmail, PDFs and attachments, Google Docs/Sheets, OCR, background
@@ -27,19 +29,19 @@ links to the newest published stable release containing the extension ZIP. A
 newer desktop release without that asset does not break the previous download.
 
 1. Install and start Imprint from the same release as the ZIP. Older backends
-   without `/api/browser` need an update; development setup is below.
+   without `/api/browser/local/status` need an update; development setup is below.
 2. Download and extract `imprint-chrome-extension.zip` to a permanent folder.
 3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
    and select the extracted `imprint-chrome-extension` folder containing
    `manifest.json`. Pin the extension from Chrome's Extensions menu.
-4. Open its **Settings**, run the pairing command with the backend's interpreter
-   and data directory, paste the token and choose **Connect and save**.
+4. Open the popup and choose a workspace. Use **Settings** only if Imprint runs
+   on a port other than 8420.
 
 The ZIP includes `INSTALL.txt` with standalone instructions and the project's
 `LICENSE`. Chrome loads the
 extracted folder; it does not install this ZIP directly. For updates, replace
 the files in that same folder and click **Reload** in `chrome://extensions`.
-Moving the folder can change the unpacked extension ID and require pairing again.
+Keep the same folder to preserve the extension ID and saved preferences.
 
 Build locally with `make chrome-extension-zip`, or
 `python3 scripts/package_chrome_extension.py`. Outputs:
@@ -54,27 +56,15 @@ including it in the complete release and `SHA256SUMS`. See [ADR 0030](adr/0030-c
 1. Use this branch's backend and an interpreter with Imprint's base requirements.
    From the repository root, start it with
    `python -m imprint.api --dev --no-browser`. Default address:
-   `http://127.0.0.1:8420`. An older installed backend has no browser API; stop
-   the old listener or use `--port 8421` and set that address in the extension.
-2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
-   and select the repository's `extensions/chrome` directory. No npm install or
-   build is needed. Pin **Imprint Capture (WIP)** to the toolbar.
-3. Open the extension's **Settings**. It shows a pairing command containing its
-   actual extension ID. Run that command from this checkout with the backend's
-   interpreter and the same `IMPRINT_DATA_DIR`, if overridden:
-
-   ```bash
-   python -m imprint.browser_capture EXTENSION_ID --workspace default
-   ```
-
-   The workspace must already exist. Each pairing grants one workspace;
-   re-pairing rotates its token and can select another workspace. Paste the
-   printed token into settings, confirm the local address, then **Connect and
-   save**. Do not commit or share tokens. Loading from a different checkout path
-   can change the unpacked extension ID and require a new pairing.
-4. On a page, click the toolbar icon, choose **Preview page** or
-   **Preview selection**, review/edit the extracted text, choose a project,
-   then **Save to Imprint**. The paired workspace is shown in the popup.
+   `http://127.0.0.1:8420`. If that port is taken, use `--port 8421` and enter
+   the new address in extension **Settings**.
+2. In `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
+   and select `extensions/chrome`. Pin **Imprint Capture** to the toolbar.
+3. Open a web page and click the toolbar icon. Pick a workspace and project,
+   choose **Page text**, **Selection**, or **URL**, review the preview, then
+   click **Save to Imprint**. The first popup defaults to the active local
+   workspace and remembers subsequent choices. Choosing a workspace here
+   leaves the dashboard's active workspace as it was.
 
 Gmail account settings are hidden in this preview. The backend retains the
 initial message identity scaffold for future development; it does not make
@@ -88,26 +78,22 @@ persistent content scripts, access cookies, or automatically follow browsing.
 Generic extraction excludes forms, editable regions, hidden text and common
 navigation elements. Review the preview on sites with unusual markup.
 
-The API preserves its loopback peer and Host checks. Only `/api/browser/*`
-admits the exact paired `chrome-extension://ID` origin, with an ID header and
-Bearer token. Chrome may omit Origin on extension GETs; the ID and token are
-still required. Preflights allow only GET/POST and the three required headers.
-The extension uses fixed capture/status routes and refuses redirects and
-non-loopback addresses. Pairing credentials live in `chrome.storage.local`
-with `TRUSTED_CONTEXTS` access; they are never passed into the captured page.
-The worker accepts messages only from this extension's popup/settings pages.
-The existing unauthenticated local dashboard/native-client API remains local;
-pairing is not a general defense against other software on the same machine.
+The credential-free capture routes under `/api/browser/local/` require an
+actual loopback peer, a loopback Host, a Chrome extension ID header, and an
+exact extension Origin on submissions. Chrome can omit Origin on GET requests. Website origins are rejected, and an extension cannot
+use this header to reach general dashboard routes. Any installed extension
+with loopback host access can use the capture routes. This is a local trust
+boundary. The automatic connection requires a native loopback backend and
+does not traverse Docker NAT. Older extensions can keep using the original
+paired routes described in the [HTTP API docs](api.md#browser-capture).
 
-Pairings are stored as token hashes in `browser-pairings.sqlite3`, bound to an
-extension ID and workspace. POSIX creates this file with mode 0600; on Windows
-the data directory's ACL governs access. Capture JSON is bounded to 1,000,000
-UTF-8 bytes, at most 50 documents, with 10–800,000 characters per document.
-Only text and bounded metadata are accepted, never commands or filesystem
-paths. The queue pins the workspace at submission. The worker takes the shared
-ingestion lock and rechecks the grant before indexing; revoked/rotated queued
-captures fail before writing. Revoking a grant does not interrupt a job already
-indexing. Multi-message jobs can partially complete if a later message fails.
+The extension refuses redirects and non-loopback addresses. The worker
+accepts messages from its own popup and settings, and page scripts cannot
+access its saved settings. Capture JSON is bounded to 1,000,000 UTF-8 bytes,
+with at most 50 documents and 10–800,000 characters per document. A request
+submits either text with bounded metadata or one HTTP(S) URL. The queue pins
+the chosen workspace at submission and validates it again before ingestion.
+Job status returns status and timing fields for the submitting extension ID.
 
 Captured text and metadata are retained in the local queue database/history
 as well as indexed memories. Browser job status excludes raw payloads; the
@@ -128,14 +114,6 @@ even below the file chunker's 100-character minimum. Browser-supplied provenance
 is not verified source authenticity.
 `source_type=browser` keeps these snapshots out of URL auto-refresh.
 
-To revoke backend access, run:
-
-```bash
-python -m imprint.browser_capture EXTENSION_ID --revoke
-```
-
-**Forget local connection** removes the browser's saved token/settings and last
-job pointer. It does not revoke backend access or delete indexed memories.
 Use Imprint's existing source purge workflow to remove indexed captures.
 
 ## Coming soon and validation
@@ -160,7 +138,8 @@ node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
 ```
 
 The browser smoke extracts the actual ZIP and uses a disposable Chromium profile
-and synthetic pages to test page/selection capture and coming-soon gates;
+and synthetic pages to test discovery, workspace choice, signed-in page text,
+URL submission, selection extraction, and coming-soon gates;
 it never opens a real Gmail account or contributor profile. See
 [platform validation](platform-validation.md) for executed checks and limits.
-The design and alternatives are recorded in [ADR 0029](adr/0029-paired-browser-capture.md).
+The local connection and its trust boundary are recorded in [ADR 0185](adr/0185-local-chrome-capture.md).

@@ -85,6 +85,12 @@ def capture_url(value):
     return urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path or '/', parsed.query, parsed.fragment))
 
 
+def normalize_url_ingest(body):
+    if 'documents' in body:
+        raise ValueError('Submit a URL or captured documents')
+    return {'url': capture_url(body.get('url')), 'project': _text(body.get('project', 'browser'), 'Project', 128)}
+
+
 def normalize_capture(body):
     if not isinstance(body, dict):
         raise ValueError('Expected a capture object')

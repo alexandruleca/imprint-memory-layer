@@ -2,91 +2,160 @@ import {extractCapture} from "./capture.js";
 import {send, showError} from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
-let documents = [];
-let polling = false;
-$("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
+const captureActions = ["page", "selection", "url"];
+let capture;
+let connected = false;
+let jobTimer;
+let latestPoll = 0;
+
+function setBusy(busy) {
+  for (const id of captureActions) $(id).disabled = busy || !connected;
+  $("save").disabled = busy || !connected;
+  $("workspace").disabled = busy || !connected;
+}
+
+function showMessage(id, message) {
+  $(id).classList.remove("error");
+  $(id).textContent = message;
+}
 
 async function pollJob() {
-  if (polling) return;
-  polling = true;
+  clearTimeout(jobTimer);
+  const poll = ++latestPoll;
   try {
     const job = await send("job");
-    if (!job) return;
-    $("job").textContent = ({queued: "Capture queued. It will continue if you close this popup.", running: "Indexing capture…", done: "Capture indexed in Imprint.", failed: "Indexing failed. Check this job in Imprint's queue for details.", cancelled: "Capture cancelled."})[job.status] || job.status;
-    if (["queued", "running"].includes(job.status)) setTimeout(pollJob, 1500);
+    if (!job || poll !== latestPoll) return;
+    showMessage("job", ({
+      queued: "Queued in Imprint.",
+      running: "Indexing in Imprint…",
+      done: "Indexed in Imprint.",
+      failed: "Indexing failed. Open Imprint’s queue for details.",
+      cancelled: "Capture cancelled.",
+    })[job.status] || job.status);
+    if (["queued", "running"].includes(job.status)) jobTimer = setTimeout(pollJob, 1500);
   } catch (error) {
-    showError($("job"), error);
-  } finally {
-    polling = false;
+    if (poll === latestPoll) showError($("job"), error);
   }
 }
 
-async function preview(mode) {
-  $("feedback").textContent = "Reading the current tab…";
-  $("capture-form").hidden = true;
-  documents = [];
-  try {
-    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-    const results = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: extractCapture, args: [mode]});
-    if (results[0]?.error) throw new Error(results[0].error.message || "Page extraction failed.");
-    if (results[0]?.result?.error) throw new Error(results[0].result.error);
-    documents = results[0]?.result;
-    if (!Array.isArray(documents) || !documents.length) throw new Error("Could not extract this page. Try selecting text or another tab.");
-    const bytes = new TextEncoder().encode(JSON.stringify({documents, project: $("project").value})).length;
-    if (bytes > 950000 || documents.length > 50) throw new Error("Capture is too large. Select a smaller passage.");
-    $("preview").replaceChildren();
-    for (const [index, doc] of documents.entries()) {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.id = `title-${index}`;
-      input.value = doc.title;
-      input.maxLength = 1000;
-      input.required = true;
-      input.addEventListener("input", () => {doc.title = input.value;});
-      label.htmlFor = input.id;
-      label.textContent = doc.kind === "gmail" ? "Email subject" : "Title";
-      const source = document.createElement("p");
-      source.className = "source";
-      source.textContent = doc.url + (doc.account ? `\nAccount: ${doc.account}` : "");
-      const textLabel = document.createElement("label");
-      const text = document.createElement("textarea");
-      text.id = `text-${index}`;
-      text.value = doc.text;
-      text.rows = 9;
-      text.minLength = 10;
-      text.maxLength = 800000;
-      text.required = true;
-      text.addEventListener("input", () => {doc.text = text.value;});
-      textLabel.htmlFor = text.id;
-      textLabel.textContent = "Content to save";
-      $("preview").append(label, input, source, textLabel, text);
-    }
-    $("capture-form").hidden = false;
-    $("feedback").textContent = `${documents.length} document(s). Review the text, then save.`;
-  } catch (error) {showError($("feedback"), error);}
+function previewDocument(doc, index) {
+  const title = document.createElement("input");
+  title.id = `title-${index}`;
+  title.value = doc.title;
+  title.maxLength = 1000;
+  title.required = true;
+  title.addEventListener("input", () => { doc.title = title.value; });
+  const titleLabel = document.createElement("label");
+  titleLabel.htmlFor = title.id;
+  titleLabel.textContent = "Title";
+
+  const source = document.createElement("p");
+  source.className = "source";
+  source.textContent = doc.url;
+
+  const text = document.createElement("textarea");
+  text.id = `text-${index}`;
+  text.value = doc.text;
+  text.rows = 5;
+  text.minLength = 10;
+  text.maxLength = 800000;
+  text.required = true;
+  text.addEventListener("input", () => { doc.text = text.value; });
+  const textLabel = document.createElement("label");
+  textLabel.htmlFor = text.id;
+  textLabel.textContent = "Content to save";
+  $("preview").append(titleLabel, title, source, textLabel, text);
 }
 
-$("page").addEventListener("click", () => preview("page"));
-$("selection").addEventListener("click", () => preview("selection"));
+async function preview(mode) {
+  setBusy(true);
+  showMessage("feedback", "Reading the current tab…");
+  $("capture-form").hidden = true;
+  $("preview").replaceChildren();
+  capture = undefined;
+  try {
+    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+    if (!tab?.id || !/^https?:\/\//i.test(tab.url || "")) {
+      throw new Error("Open an HTTP or HTTPS page to capture this tab.");
+    }
+    if (mode === "url") {
+      capture = {url: tab.url};
+      const source = document.createElement("p");
+      source.className = "source";
+      source.textContent = tab.url;
+      $("preview").append(source);
+    } else {
+      const [result] = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: extractCapture, args: [mode]});
+      if (result?.error || result?.result?.error) throw new Error(result.error?.message || result.result?.error || "Page extraction failed.");
+      const documents = result?.result;
+      if (!Array.isArray(documents) || !documents.length) {
+        throw new Error("Could not extract this page. Try selecting text or another tab.");
+      }
+      capture = {documents};
+      documents.forEach(previewDocument);
+    }
+    showMessage("feedback", "");
+    $("capture-form").hidden = false;
+  } catch (error) {
+    showError($("feedback"), error);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function connect() {
+  $("retry").hidden = true;
+  showMessage("connection", "Connecting to local Imprint…");
+  try {
+    const [settings, status] = await Promise.all([send("settings"), send("status")]);
+    $("project").value = settings.project;
+    $("workspace").replaceChildren(...status.workspaces.map((name) => new Option(name, name)));
+    $("workspace").value = status.workspaces.includes(settings.workspace) ? settings.workspace : status.active;
+    connected = Boolean($("workspace").value);
+    if (!connected) throw new Error("No active workspace. Create or select one in Imprint.");
+    showMessage("connection", "Connected to local Imprint");
+    $("connection").classList.add("connected");
+    setBusy(false);
+    await pollJob();
+  } catch (error) {
+    showError($("connection"), error);
+    $("retry").hidden = false;
+  }
+}
+
+$("settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
+$("retry").addEventListener("click", connect);
+for (const mode of captureActions) $(mode).addEventListener("click", () => preview(mode));
+$("workspace").addEventListener("change", async () => {
+  try {
+    await send("workspace", {workspace: $("workspace").value});
+  } catch (error) {
+    showError($("feedback"), error);
+  }
+});
 $("capture-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  $("save").disabled = true;
+  if (!capture) return;
+  setBusy(true);
   try {
-    if (!$("project").value.trim()) throw new Error("Enter a project name.");
-    await send("save", {capture: {project: $("project").value.trim(), documents}});
+    const project = $("project").value.trim();
+    if (!project) throw new Error("Enter a project name.");
+    const workspace = $("workspace").value;
+    const payload = {...capture, project, workspace};
+    if (new TextEncoder().encode(JSON.stringify(payload)).length > 1000000) {
+      throw new Error("Capture is too large. Select a smaller passage.");
+    }
+    await send("save", {capture: payload});
+    capture = undefined;
     $("capture-form").hidden = true;
-    $("feedback").textContent = "Sent to local Imprint.";
+    $("preview").replaceChildren();
+    showMessage("feedback", `Sent to ${workspace}.`);
     await pollJob();
-  } catch (error) {showError($("feedback"), error);}
-  finally {$("save").disabled = false;}
+  } catch (error) {
+    showError($("feedback"), error);
+  } finally {
+    setBusy(false);
+  }
 });
 
-try {
-  const settings = await send("settings");
-  $("project").value = settings.project;
-  const status = await send("status");
-  $("connection").textContent = `Connected · workspace: ${status.workspace}`;
-  $("page").disabled = false;
-  $("selection").disabled = false;
-  await pollJob();
-} catch (error) {showError($("connection"), error);}
+await connect();

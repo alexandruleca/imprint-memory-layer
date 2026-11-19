@@ -6,7 +6,9 @@ description: A workspace-bound Chrome extension capture API, explicit previews, 
 - Status: Amended
 - Date: 2026-10-23
 - Scope: WIP implementation on `wip/chrome-extension`; not a released integration
-- Amended by: [ADR 0030](0030-chrome-extension-release-zip.md) — Gmail availability and unpacked-only distribution; the original rationale below is preserved
+- Amended by:
+  - [ADR 0030](0030-chrome-extension-release-zip.md) — Gmail availability and unpacked-only distribution; the original rationale below is preserved
+  - [ADR 0185](0185-local-chrome-capture.md) — local discovery and workspace selection for new clients
 - Related: [ADR 0024](0024-enforce-local-service-boundaries.md) and [ADR 0005](0005-source-lifecycle-and-hybrid-retrieval.md), which this record extends
 - Restructured: 2026-10-25
 

@@ -4,6 +4,7 @@ import hashlib
 import secrets
 
 from . import browser_capture as browser, queue, queue_lock
+from .workspace_policy import workspace_name
 
 
 def run(job_id):
@@ -15,10 +16,22 @@ def run(job_id):
     if descriptor is None:
         raise RuntimeError('Could not acquire ingestion queue lock')
     try:
-        pairing = browser.grant(body['_browser_extension_id'])
-        if (not pairing or pairing['workspace'] != body['_workspace']
-                or not secrets.compare_digest(pairing['token_hash'], body['_browser_pairing_hash'])):
-            raise ValueError('Browser pairing was revoked or changed before ingestion')
+        workspace = workspace_name(body['_workspace'])
+        if '_browser_pairing_hash' in body:
+            pairing = browser.grant(body['_browser_extension_id'])
+            if (not pairing or pairing['workspace'] != workspace
+                    or not secrets.compare_digest(pairing['token_hash'], body['_browser_pairing_hash'])):
+                raise ValueError('Browser pairing was revoked or changed before ingestion')
+        if 'url' in body:
+            from .cli_ingest_url import ingest_one
+            from .vectorstore import get_url_sources
+
+            target = browser.normalize_url_ingest(body)
+            count, status = ingest_one(target['url'], target['project'], get_url_sources(workspace), workspace=workspace)
+            if status not in ('stored', 'skipped-unchanged'):
+                raise RuntimeError('URL ingestion did not complete: ' + status)
+            print(f'URL ingestion complete: {count} new chunks', flush=True)
+            return
         content = browser.normalize_capture(body)
         from .ingest_core import store_inline_content
         captured_at = job['created_at']
@@ -30,7 +43,7 @@ def run(job_id):
             text = doc['title'] + '\n\n' + doc['text']
             count, status = store_inline_content(
                 text, source_key=doc['source_key'], project=content['project'],
-                source_type='browser', rel_path='browser-capture.txt', workspace=pairing['workspace'],
+                source_type='browser', rel_path='browser-capture.txt', workspace=workspace,
                 extra_fields={'source_url': doc['url'], 'doc_metadata': metadata,
                               'source_mtime': captured_at,
                               'source_hash': hashlib.sha256(text.encode('utf-8')).hexdigest(),
