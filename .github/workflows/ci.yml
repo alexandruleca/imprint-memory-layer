@@ -123,6 +123,8 @@ jobs:
       - run: make dashboard-build
       - run: npm run lint
         working-directory: imprint/ui
+      - run: npm run test:voice
+        working-directory: imprint/ui
       # The self-hosted runner images lack Chromium's runtime libraries
       # (libnspr4 and others), which hosted Ubuntu preinstalled (ADR 0112).
       - run: npx playwright install --with-deps chromium
