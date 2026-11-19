@@ -30,6 +30,8 @@ A fresh local Trivy scan and the [hosted remediation scan](https://github.com/al
 
 On 2026-11-18 the scan failed on picomatch `CVE-2026-112366` (high, no fixed release) in the dashboard, website and Electron locks. GitHub withdrew the advisory, GHSA-fc5q-39xc-vjpf, the same day after picomatch's maintainer rejected the report, and the next Trivy database no longer reports it, so nothing changed here. The 2026-11-19 follow-up clears the medium and low findings that have a fix: Next 16.4.6 (GHSA-vc7v-qv4w-wrv8, GHSA-mfr8-8qww-v76h), typescript-eslint 8.73.0, whose parser moved to minimatch 11 (GHSA-g3hv-75wg-m249), Astro 7.4.13 (GHSA-r3h5-4585-7x3w, GHSA-mh32-jxcr-mh9f) and opentelemetry-api 1.45.2 in the base lock (GHSA-mf5v-w3w3-f6cg). The diskcache finding above is unchanged: llama-cpp-python 0.3.37 still requires `diskcache>=5.6.1`, and no fixed diskcache exists.
 
+The same minimatch advisory sits in the desktop build, where no electron-builder release requires minimatch 11 yet. `ui-electron/package.json` overrides only the copies in the vulnerable range (`minimatch@>=7.0.0 <11.0.1`). Builds with and without the override package the same files, and a replay of every packaging decision on the Linux, Windows and macOS matching rules found no difference ([ADR 0186](adr/0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md)).
+
 ## Reproduction and maintenance
 
 Use the workflow's pinned Trivy version (initially 0.76.1), with a separate output directory:

@@ -117,7 +117,8 @@ The records in force, by area. An amended record is listed with the records that
 ### Security and privacy
 
 - [ADR 0011](0011-nightly-trivy-security-scanning.md) **Nightly Trivy security scanning.** Nightly Trivy repository scans, retained reports and a high/critical failure gate.
-- [ADR 0013](0013-remediate-security-scan-dependencies.md) **Remediate security scan dependencies.** Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching.
+- [ADR 0013](0013-remediate-security-scan-dependencies.md) **Remediate security scan dependencies.** Patched website/build dependencies, non-root relay and explicitly disabled LLM disk caching. Amended by [ADR 0186](0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md) (one range-scoped minimatch override in the desktop build).
+- [ADR 0186](0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md) **electron-builder matches the desktop app's files with minimatch 11.** A `minimatch@>=7.0.0 <11.0.1` override moves only the vulnerable copies in the desktop build to minimatch 11, after builds and a replay of every packaging decision showed it packages the same files.
 - [ADR 0024](0024-enforce-local-service-boundaries.md) **Enforce local service boundaries.** Loopback-only managed Qdrant, dashboard peer validation, legacy graph browser checks and explicit container isolation.
 - [ADR 0033](0033-stored-secret-settings.md) **Stored secret settings.** Hugging Face token as a masked secret setting in config.json, resolved per download with `HF_TOKEN` taking precedence.
 - [ADR 0060](0060-redact-secrets-before-memories-are-stored.md) **Redact secrets before memories are stored.** Every memory and fact write, and every tagger or summarizer prompt, replaces credentials with `[REDACTED:<kind>:<length>]` first; the most redacted version of a memory wins on every synced device; OpenAI Privacy Filter is opt-in. Amended by [ADR 0122](0122-the-sending-device-filters-on-its-gpu.md) (GPU, q4 export, the receiver trusts a sender's filter mark).
@@ -269,7 +270,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0010](0010-qwen-defaults-and-explicit-reindex.md) | 2026-10-23 | Amended by [ADR 0049](0049-llama-gpu-offload-through-vulkan-wheels.md), [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md) | Qwen defaults and explicit reindex |
 | [0011](0011-nightly-trivy-security-scanning.md) | 2026-10-23 | Accepted | Nightly Trivy security scanning |
 | [0012](0012-native-package-runtime-and-silent-installs.md) | 2026-10-23 | Amended by [ADR 0086](0086-embeddings-run-on-llama-cpp-without-cuda.md), [ADR 0111](0111-intel-macs-are-not-supported.md) | Native package runtime and silent installs |
-| [0013](0013-remediate-security-scan-dependencies.md) | 2026-10-23 | Accepted | Remediate security scan dependencies |
+| [0013](0013-remediate-security-scan-dependencies.md) | 2026-10-23 | Amended by [ADR 0186](0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md) | Remediate security scan dependencies |
 | [0014](0014-main-only-release-packaging.md) | 2026-10-23 | Amended by [ADR 0066](0066-dev-prereleases-from-the-dev-branch.md) | Main-only release packaging |
 | [0015](0015-workspace-roots-and-source-purge.md) | 2026-10-23 | Amended by [ADR 0034](0034-learn-from-client-stores-by-conversation-ownership.md), [ADR 0072](0072-projects-name-their-workspace-and-each-device-approves-it.md) | Workspace roots and source purge |
 | [0016](0016-sync-direction-and-workspace-sharing.md) | 2026-10-23 | Amended by [ADR 0018](0018-single-sync-implementation-and-end-to-end-encryption.md) | Sync direction and workspace sharing |
@@ -443,6 +444,7 @@ Every record in number order. *Date* is when the decision was made.
 | [0183](0183-each-page-has-a-short-tutorial-that-can-be-skipped.md) | 2026-11-11 | Accepted | Each page has a short tutorial that can be skipped |
 | [0184](0184-a-recordings-audio-states-its-length-and-can-be-sought.md) | 2026-11-12 | Accepted | A recording's audio states its length and can be sought |
 | [0185](0185-local-chrome-capture.md) | 2026-11-19 | Accepted | Chrome capture discovers local workspaces |
+| [0186](0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md) | 2026-11-19 | Accepted | electron-builder matches the desktop app's files with minimatch 11 |
 
 ## How to write and maintain ADRs
 
