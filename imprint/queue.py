@@ -274,8 +274,37 @@ def read_browser_file(digest: str) -> bytes:
     with _connect() as conn:
         row = conn.execute('SELECT data FROM browser_files WHERE digest=?', (digest,)).fetchone()
     if row is None:
-        raise ValueError('The captured file is missing; submit it again')
+        raise ValueError(BROWSER_FILE_GONE)
     return row['data']
+
+
+# A failed or cancelled capture keeps its file this long, for Retry (ADR 0189).
+BROWSER_FILE_RETRY_SECONDS = 7 * 86400
+BROWSER_FILE_GONE = 'The captured file is no longer stored; capture it again from Chrome'
+
+
+def collect_browser_files() -> int:
+    """Delete the captured files no job can still use, and return how many.
+
+    A file stays while a job that names it waits or runs, or failed or was
+    cancelled within the retry window. A capture that finished has been
+    indexed and keeps nothing. Freed pages are zeroed, and the write-ahead log
+    is truncated when no reader holds it, so the bytes do not linger on disk
+    (ADR 0189)."""
+    _init_db()
+    with _db_lock, _connect() as conn:
+        conn.execute('PRAGMA secure_delete=ON')
+        # Active and recently ended jobs first: only their bodies are parsed.
+        deleted = conn.execute(
+            "DELETE FROM browser_files WHERE digest NOT IN ("
+            " SELECT json_extract(body_json, '$.file_digest') FROM jobs"
+            " WHERE (status IN ('queued','running') OR (status IN ('failed','cancelled') AND ended_at>=?))"
+            " AND command='browser-capture' AND json_extract(body_json, '$.file_digest') IS NOT NULL)",
+            (time.time() - BROWSER_FILE_RETRY_SECONDS,),
+        ).rowcount
+        if deleted:
+            conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    return deleted
 
 
 # Options that take a value, as the CLI parses them; other options are switches.
@@ -489,6 +518,10 @@ def resubmit(job_id: str) -> dict:
     if job["status"] not in FINISHED:
         raise NotRetryable(f"The job is {job['status']}.")
     body = {key: value for key, value in job["body"].items() if key not in ("_merged", "_workspace")}
+    if job["command"] == "browser-capture" and "file_digest" in body:
+        with _connect() as conn:
+            if conn.execute("SELECT 1 FROM browser_files WHERE digest=?", (body["file_digest"],)).fetchone() is None:
+                raise NotRetryable(BROWSER_FILE_GONE + ".")
     return {**submit(job["command"], body, workspace=job["body"].get("_workspace")), "retry_of": job_id}
 
 
@@ -609,6 +642,7 @@ def recover_on_startup() -> None:
         conn.execute("UPDATE jobs SET status='cancelled', error=?, ended_at=? WHERE status='queued' AND command=?",
                      ("api_restart", now, BACKGROUND))
     queue_lock.clear_stale()
+    collect_browser_files()
 
 
 # ── Dispatcher ─────────────────────────────────────────────────
@@ -1004,6 +1038,12 @@ async def _run_job(job: dict, after_job=None) -> None:
             status = "failed"
 
         _finalize(job_id, status=status, exit_code=exit_code, error=None)
+        if command == "browser-capture":
+            try:
+                await loop.run_in_executor(None, collect_browser_files)
+            except sqlite3.Error as error:
+                # The next capture or API start collects; the job's outcome stands.
+                print(f"[queue] could not remove captured files: {error}", file=sys.stderr)
 
         # The server running this dispatcher refreshes what the job changed.
         # It hands in the callback: `python -m imprint.api` serves from

@@ -61,7 +61,19 @@ CREATE TABLE jobs (
 -- Indexes: (status, created_at), (created_at DESC), and (ended_at DESC, id DESC) for paging history.
 CREATE INDEX idx_jobs_status  ON jobs(status, created_at);
 CREATE INDEX idx_jobs_created ON jobs(created_at DESC);
+
+CREATE TABLE browser_files (
+    digest TEXT PRIMARY KEY,            -- SHA-256 of the bytes; a capture job's body names it as file_digest
+    data   BLOB NOT NULL                -- a Chrome file capture, at most 25 MiB (ADR 0187)
+);
 ```
+
+A captured file stays only while a job can use it: while its capture waits or
+runs, or for seven days after it failed or was cancelled, so **Retry** needs no
+new upload. `collect_browser_files()` deletes the rest when any Chrome capture
+ends and when the API starts, with `secure_delete` on, then truncates the WAL.
+A retry or **Run again** whose file is gone is refused with a message to capture
+it again ([ADR 0189](adr/0189-captured-files-are-kept-only-while-a-job-can-use-them.md)).
 
 ### Lock file body
 
