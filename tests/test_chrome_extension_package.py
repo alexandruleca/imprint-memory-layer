@@ -26,7 +26,14 @@ class ChromePackageTests(unittest.TestCase):
             output = package.package(source, root / 'extension.zip')
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(set(archive.namelist()), {'imprint-chrome-extension/' + name for name in package.FILES})
-                self.assertEqual(json.loads(archive.read('imprint-chrome-extension/manifest.json'))['manifest_version'], 3)
+                manifest = json.loads(archive.read('imprint-chrome-extension/manifest.json'))
+                self.assertEqual(manifest['manifest_version'], 3)
+                self.assertEqual(set(manifest['icons']), {'16', '32', '48', '128'})
+                icons = {**manifest['icons'], **manifest['action']['default_icon']}
+                for size, name in icons.items():
+                    icon = archive.read('imprint-chrome-extension/' + name)
+                    self.assertEqual(icon[:8], b'\x89PNG\r\n\x1a\n')
+                    self.assertEqual(int.from_bytes(icon[16:20], 'big'), int(size))
                 self.assertIn(b'Load unpacked', archive.read('imprint-chrome-extension/INSTALL.txt'))
                 self.assertEqual(archive.read('imprint-chrome-extension/LICENSE'), (ROOT / 'LICENSE').read_bytes())
                 self.assertIsNone(archive.testzip())

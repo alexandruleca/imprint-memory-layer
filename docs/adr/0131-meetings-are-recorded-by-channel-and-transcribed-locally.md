@@ -12,6 +12,7 @@ description: The dashboard records the microphone and, with the user's consent, 
   - [ADR 0180](0180-a-recordings-transcript-tells-voices-apart-within-each-channel.md) — the transcript tells voices apart within each channel, not only by channel, and its speakers can be renamed
   - [ADR 0181](0181-a-recordings-transcript-leaves-out-what-whisper-likely-invented.md) — the transcript leaves out the sentences Whisper likely invented
   - [ADR 0184](0184-a-recordings-audio-states-its-length-and-can-be-sought.md) — the stored audio is no longer the recorder's pieces as they came: once stopped, it is their copy with a length and a seek index
+  - [ADR 0188](0188-browser-dashboard-handoff.md) — Chrome can prefill the dashboard recorder and bind the transcript workspace
 - Related: [ADR 0095](0095-audio-files-enter-the-source-ingestion-pipeline.md), [ADR 0096](0096-cpu-whisper-runtime-for-audio-imports.md), [ADR 0060](0060-redact-secrets-before-memories-are-stored.md), [ADR 0064](0064-single-slot-command-queue-and-shared-lock.md), [ADR 0069](0069-echo-opens-the-microphone-only-on-the-users-intent.md)
 
 ## Context

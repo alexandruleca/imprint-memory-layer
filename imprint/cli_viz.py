@@ -269,7 +269,7 @@ def build_node_page(project: str = "", type_: str = "", domain: str = "",
 
 
 def search_nodes(query: str, project: str = "", type_: str = "",
-                 domain: str = "", limit: int = 20, mode: str = "hybrid") -> dict:
+                 domain: str = "", limit: int = 20, mode: str = "hybrid", workspace: str | None = None) -> dict:
     """Semantic search wrapper."""
     tag_filters = {}
     if domain:
@@ -280,7 +280,7 @@ def search_nodes(query: str, project: str = "", type_: str = "",
         limit=limit,
         project=project,
         type=type_,
-        tag_filters=tag_filters if tag_filters else None, mode=mode,
+        tag_filters=tag_filters if tag_filters else None, mode=mode, workspace=workspace,
     )
     for row in results:
         row["label"] = _extract_label(row.get("content", ""), row.get("source", ""))

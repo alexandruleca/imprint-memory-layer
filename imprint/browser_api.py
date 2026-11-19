@@ -1,20 +1,25 @@
-"""Narrow authenticated API for the WIP Chrome capture extension."""
+"""Narrow local API for Chrome capture, including legacy paired clients."""
 import json
 import secrets
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
-from . import browser_capture as browser, queue
+from . import browser_capture as browser, config, queue
+from .http_security import loopback_address
 from .workspace_policy import workspace_name
 
 router = APIRouter(prefix='/api/browser')
-_HEADERS = {'authorization', 'content-type', 'x-imprint-extension-id'}
+_HEADERS = {'authorization', 'content-type', 'x-imprint-extension-id', 'x-imprint-file'}
 
 
 async def boundary(request, call_next):
     """Called only after the API's existing peer and Host checks."""
     origin = request.headers.get('origin')
+    local = request.url.path.startswith('/api/browser/local/')
+    if local and (request.client is None or not loopback_address(request.client.host)):
+        return JSONResponse({'detail': 'Browser discovery requires a loopback connection'}, status_code=403)
     cors = {}
     try:
         if request.method == 'OPTIONS':
@@ -23,10 +28,12 @@ async def boundary(request, call_next):
         else:
             extension_id = request.headers.get('x-imprint-extension-id', '')
         expected = browser.extension_origin(extension_id)
-        pairing = browser.grant(extension_id)
+        if local and request.method == 'POST' and origin is None:
+            raise ValueError('Capture submission requires a Chrome extension origin')
         if origin is not None and origin != expected:
-            raise ValueError('Extension origin does not match pairing')
-        if not pairing:
+            raise ValueError('Extension origin does not match extension ID')
+        pairing = None if local else browser.grant(extension_id)
+        if not local and not pairing:
             raise ValueError('Extension is not paired with this Imprint')
         if origin:
             cors = {'Access-Control-Allow-Origin': origin, 'Vary': 'Origin'}
@@ -37,15 +44,17 @@ async def boundary(request, call_next):
             return Response(status_code=204, headers={**cors,
                 'Access-Control-Allow-Methods': 'GET, POST',
                 'Access-Control-Allow-Headers': ', '.join(sorted(_HEADERS))})
-        authorization = request.headers.get('authorization', '')
-        token = authorization.removeprefix('Bearer ')
-        if (not authorization.startswith('Bearer ') or not 20 <= len(token) <= 128
-                or not secrets.compare_digest(browser.token_hash(token), pairing['token_hash'])):
-            return JSONResponse({'detail': 'Invalid pairing token; pair again in extension settings'}, status_code=401, headers=cors)
-        workspace_name(pairing['workspace'])
+        if pairing:
+            authorization = request.headers.get('authorization', '')
+            token = authorization.removeprefix('Bearer ')
+            if (not authorization.startswith('Bearer ') or not 20 <= len(token) <= 128
+                    or not secrets.compare_digest(browser.token_hash(token), pairing['token_hash'])):
+                return JSONResponse({'detail': 'Invalid pairing token; pair again in extension settings'}, status_code=401, headers=cors)
+            workspace_name(pairing['workspace'])
     except ValueError as error:
         return JSONResponse({'detail': str(error)}, status_code=403, headers=cors)
     request.state.browser_pairing = pairing
+    request.state.browser_extension_id = extension_id
     response = await call_next(request)
     response.headers.update(cors)
     response.headers['Cache-Control'] = 'no-store'
@@ -57,6 +66,49 @@ def status(request: Request):
     return {'workspace': request.state.browser_pairing['workspace'], 'max_capture_bytes': browser.MAX_REQUEST_BYTES}
 
 
+@router.get('/local/status')
+def local_status():
+    return {'active': config.get_active_workspace(), 'workspaces': config.get_known_workspaces(),
+            'max_capture_bytes': browser.MAX_REQUEST_BYTES, 'max_file_bytes': browser.file_limit(),
+            'file_extensions': sorted(browser.FILE_EXTENSIONS)}
+
+
+@router.post('/local/files', status_code=202)
+async def capture_file(request: Request):
+    from starlette.concurrency import run_in_threadpool
+
+    if request.headers.get('content-type') != 'application/octet-stream':
+        return JSONResponse({'detail': 'Expected application/octet-stream'}, status_code=415)
+    try:
+        header = request.headers.get('x-imprint-file', '')
+        if not 1 <= len(header) <= 8192:
+            raise ValueError('Missing or oversized attachment metadata')
+        body = json.loads(unquote(header, errors='strict'))
+        content = browser.normalize_file_capture(body)
+        workspace = body.get('workspace')
+        if not isinstance(workspace, str) or not workspace:
+            raise ValueError('Choose an existing workspace')
+        workspace = workspace_name(workspace)
+        limit = browser.file_limit()
+        length = request.headers.get('content-length')
+        if length is not None and int(length) > limit:
+            return JSONResponse({'detail': 'Attachment exceeds the local file limit'}, status_code=413)
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > limit:
+                return JSONResponse({'detail': 'Attachment exceeds the local file limit'}, status_code=413)
+            data.extend(chunk)
+        if not data:
+            raise ValueError('The attachment is empty')
+        job_id = await run_in_threadpool(queue.submit_browser_file, {
+            **content, 'workspace': workspace, '_browser_extension_id': request.state.browser_extension_id,
+        }, data)
+    except (ValueError, UnicodeError) as error:
+        return JSONResponse({'detail': str(error)}, status_code=400)
+    return {'job_id': job_id, 'status': 'queued', 'workspace': workspace}
+
+
+@router.post('/local/captures', status_code=202)
 @router.post('/captures', status_code=202)
 async def capture(request: Request):
     if request.headers.get('content-type', '').split(';')[0].strip().lower() != 'application/json':
@@ -68,17 +120,27 @@ async def capture(request: Request):
             return JSONResponse({'detail': 'Capture exceeds 1 MB'}, status_code=413)
     try:
         body = json.loads(raw)
-        content = browser.normalize_capture(body)
         pairing = request.state.browser_pairing
-        if body.get('workspace', pairing['workspace']) != pairing['workspace']:
-            raise ValueError('Pairing is bound to a different workspace')
-        job_id = queue.enqueue('browser-capture', {**content, 'workspace': pairing['workspace'],
-            '_browser_extension_id': pairing['extension_id'], '_browser_pairing_hash': pairing['token_hash']})
+        if not isinstance(body, dict):
+            raise ValueError('Expected a capture object')
+        if pairing:
+            workspace = pairing['workspace']
+            if body.get('workspace', workspace) != workspace:
+                raise ValueError('Pairing is bound to a different workspace')
+            content = {**browser.normalize_capture(body), '_browser_pairing_hash': pairing['token_hash']}
+        else:
+            if not isinstance(body.get('workspace'), str) or not body['workspace']:
+                raise ValueError('Choose an existing workspace')
+            workspace = workspace_name(body['workspace'])
+            content = browser.normalize_url_ingest(body) if 'url' in body else browser.normalize_capture(body)
+        job_id = queue.enqueue('browser-capture', {**content, 'workspace': workspace,
+            '_browser_extension_id': request.state.browser_extension_id})
     except (ValueError, UnicodeError) as error:
         return JSONResponse({'detail': str(error)}, status_code=400)
-    return {'job_id': job_id, 'status': 'queued', 'workspace': pairing['workspace']}
+    return {'job_id': job_id, 'status': 'queued', 'workspace': workspace}
 
 
+@router.get('/local/jobs/{job_id}')
 @router.get('/jobs/{job_id}')
 def job_status(job_id: str, request: Request):
     queue._init_db()
@@ -86,8 +148,8 @@ def job_status(job_id: str, request: Request):
     pairing = request.state.browser_pairing
     body = job.get('body', {}) if job else {}
     if (not job or job['command'] != 'browser-capture'
-            or body.get('_browser_extension_id') != pairing['extension_id']
-            or body.get('_browser_pairing_hash') != pairing['token_hash']
-            or body.get('_workspace') != pairing['workspace']):
+            or body.get('_browser_extension_id') != request.state.browser_extension_id
+            or body.get('_browser_pairing_hash') != (pairing['token_hash'] if pairing else None)
+            or (pairing and body.get('_workspace') != pairing['workspace'])):
         return JSONResponse({'detail': 'Capture job not found'}, status_code=404)
     return {key: job[key] for key in ('id', 'status', 'exit_code', 'created_at', 'ended_at')}

@@ -2,8 +2,43 @@
 import argparse
 import hashlib
 import secrets
+import tempfile
+from pathlib import Path
 
 from . import browser_capture as browser, queue, queue_lock
+from .workspace_policy import workspace_name
+
+
+def ingest_file(body, workspace, captured_at):
+    from .extractors import dispatch_by_ext
+    from .ingest_core import store_inline_content
+
+    capture = browser.normalize_file_capture(body)
+    data = queue.read_browser_file(body['file_digest'])
+    if len(data) > browser.file_limit():
+        raise ValueError('Attachment exceeds the local file limit')
+    filename = capture['filename']
+    with tempfile.TemporaryDirectory(prefix='imprint-browser-') as directory:
+        path = Path(directory) / ('document' + Path(filename).suffix.lower())
+        path.write_bytes(data)
+        documents = dispatch_by_ext(str(path))
+    text = '\n\n'.join(doc.text.strip() for doc in documents if doc.text.strip())
+    if len(text.strip()) < 10:
+        raise ValueError('No readable text was extracted from the attachment')
+    url = capture['source_url']
+    kind = capture['kind']
+    identity = body['file_digest'] if kind == 'screenshot' or not url else url
+    source = f'browser:{kind}:' + browser.token_hash(identity)
+    metadata = {**documents[0].metadata, 'title': capture['title'], 'filename': filename,
+                'capture_kind': kind, 'captured_at': captured_at}
+    count, status = store_inline_content(
+        capture['title'] + '\n\n' + text, source_key=source, project=capture['project'],
+        source_type='browser', rel_path=filename, workspace=workspace,
+        extra_fields={'source_url': url, 'doc_metadata': metadata, 'source_mtime': captured_at,
+                      'source_hash': body['file_digest'], 'source_size': len(data)})
+    if status != 'stored':
+        raise RuntimeError('Attachment ingestion did not complete: ' + status)
+    print(f'Indexed attachment: {count} new chunks', flush=True)
 
 
 def run(job_id):
@@ -15,10 +50,25 @@ def run(job_id):
     if descriptor is None:
         raise RuntimeError('Could not acquire ingestion queue lock')
     try:
-        pairing = browser.grant(body['_browser_extension_id'])
-        if (not pairing or pairing['workspace'] != body['_workspace']
-                or not secrets.compare_digest(pairing['token_hash'], body['_browser_pairing_hash'])):
-            raise ValueError('Browser pairing was revoked or changed before ingestion')
+        workspace = workspace_name(body['_workspace'])
+        if '_browser_pairing_hash' in body:
+            pairing = browser.grant(body['_browser_extension_id'])
+            if (not pairing or pairing['workspace'] != workspace
+                    or not secrets.compare_digest(pairing['token_hash'], body['_browser_pairing_hash'])):
+                raise ValueError('Browser pairing was revoked or changed before ingestion')
+        if 'file_digest' in body:
+            ingest_file(body, workspace, job['created_at'])
+            return
+        if 'url' in body:
+            from .cli_ingest_url import ingest_one
+            from .vectorstore import get_url_sources
+
+            target = browser.normalize_url_ingest(body)
+            count, status = ingest_one(target['url'], target['project'], get_url_sources(workspace), workspace=workspace)
+            if status not in ('stored', 'skipped-unchanged'):
+                raise RuntimeError('URL ingestion did not complete: ' + status)
+            print(f'URL ingestion complete: {count} new chunks', flush=True)
+            return
         content = browser.normalize_capture(body)
         from .ingest_core import store_inline_content
         captured_at = job['created_at']
@@ -30,7 +80,7 @@ def run(job_id):
             text = doc['title'] + '\n\n' + doc['text']
             count, status = store_inline_content(
                 text, source_key=doc['source_key'], project=content['project'],
-                source_type='browser', rel_path='browser-capture.txt', workspace=pairing['workspace'],
+                source_type='browser', rel_path='browser-capture.txt', workspace=workspace,
                 extra_fields={'source_url': doc['url'], 'doc_metadata': metadata,
                               'source_mtime': captured_at,
                               'source_hash': hashlib.sha256(text.encode('utf-8')).hexdigest(),

@@ -3,8 +3,9 @@ title: ADR 0013 — Remediate security scan dependencies
 description: Upgrade the website, remove vulnerable build dependencies, harden the relay and constrain optional LLM caching.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-10-23
+- Amended by: [ADR 0186](0186-electron-builder-matches-the-desktop-apps-files-with-minimatch-11.md) — one glob-library override, scoped to minimatch's vulnerable versions in the desktop build and shown not to change which files are packaged
 - Related: [ADR 0007](0007-verified-runtime-and-desktop-baseline.md), [ADR 0008](0008-dashboard-retrieval-and-accessibility.md), [ADR 0010](0010-qwen-defaults-and-explicit-reindex.md), [ADR 0011](0011-nightly-trivy-security-scanning.md)
 - Restructured: 2026-10-25
 

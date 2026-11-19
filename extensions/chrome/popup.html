@@ -2,17 +2,54 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Imprint Capture</title><link rel="stylesheet" href="style.css"></head>
 <body class="popup">
-  <header><strong>imprint <span>capture · WIP</span></strong><button id="settings" type="button">Settings</button></header>
-  <p id="connection" role="status">Connecting to local Imprint…</p>
-  <label for="project">Project</label><input id="project" value="browser" maxlength="128" required>
-  <div class="actions"><button id="page" type="button" disabled>Preview page</button><button id="selection" type="button" disabled>Preview selection</button></div>
-  <p class="hint">Only the preview you save is sent to Imprint.</p>
-  <details class="roadmap"><summary>Coming soon</summary><p class="hint">Gmail · PDFs &amp; attachments · Google Docs &amp; Sheets · OCR · background capture &amp; mailbox sync · offline retries · search</p></details>
-  <form id="capture-form" hidden>
-    <div id="preview"></div>
-    <button id="save" type="submit">Save to Imprint</button>
-  </form>
-  <p id="feedback" role="status" aria-live="polite"></p>
-  <p id="job" role="status" aria-live="polite"></p>
+  <header class="topbar">
+    <img class="logo" src="icon-48.png" width="32" height="32" alt="">
+    <strong>Imprint <span>Capture</span></strong>
+    <button id="settings" type="button">Settings</button>
+  </header>
+  <main>
+    <div class="connection">
+      <p id="connection" role="status">Connecting to local Imprint…</p>
+      <button id="retry" type="button" hidden>Retry</button>
+    </div>
+    <section class="card" aria-labelledby="destination">
+      <h2 id="destination">Save to</h2>
+      <div class="fields">
+        <label>Workspace<select id="workspace" disabled><option value="">Select workspace</option></select></label>
+        <label>Project<input id="project" value="browser" maxlength="128" required form="capture-form"></label>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="capture-heading">
+      <h2 id="capture-heading">Capture this tab</h2>
+      <div id="tab-actions" class="actions">
+        <button id="page" class="primary" type="button" disabled>Page text</button>
+        <button id="selection" type="button" disabled>Selection</button>
+        <button id="url" type="button" disabled>URL</button>
+        <button id="file" type="button" disabled>Tab file</button>
+        <button id="screenshot" type="button" disabled>OCR visible tab</button>
+        <button id="upload" type="button" disabled>Upload file</button>
+      </div>
+      <p id="tab-hint" class="hint">Use Tab file for Google Docs, Sheets, or a selected attachment link.</p>
+      <div id="upload-picker" hidden>
+        <label for="attachment">Choose a file</label>
+        <input id="attachment" type="file" disabled>
+        <p class="hint">Upload a PDF, Office export, text file, or image. Imprint runs OCR on images and scanned PDFs.</p>
+      </div>
+      <form id="capture-form" hidden>
+        <div id="preview"></div>
+        <button id="save" class="primary" type="submit">Save to Imprint</button>
+      </form>
+      <p id="feedback" role="status"></p>
+    </section>
+    <p id="job" role="status"></p>
+    <section class="card" id="dashboard-actions" aria-label="Open in Imprint">
+      <form id="search-form" class="search-row" role="search">
+        <input id="query" aria-label="Search memory" placeholder="Search this workspace" maxlength="4000" required>
+        <button id="search" type="submit" disabled>Search</button>
+      </form>
+      <button class="meeting" id="record" type="button" disabled>Record meeting</button>
+      <p id="dashboard-feedback" role="status"></p>
+    </section>
+  </main>
   <script type="module" src="popup.js"></script>
 </body></html>

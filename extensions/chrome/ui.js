@@ -5,5 +5,6 @@ export async function send(type, fields = {}) {
 }
 
 export function showError(element, error) {
+  element.classList.add("error");
   element.textContent = error.message === "Failed to fetch" ? "Cannot reach local Imprint. Start the backend and check the address in settings." : error.message;
 }

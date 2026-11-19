@@ -7,15 +7,11 @@ import releases from '../data/releases.json';
 import {latestChromeExtension} from '../lib/chrome-extension.mjs';
 
 const extension = latestChromeExtension(releases);
-const needsPreviewBackend = !extension;
 const title = 'Chrome extension — Save web pages to Imprint';
 const description = 'Save a web page or selected passage to your local Imprint memory. Download the Chrome extension ZIP, preview what you save, and install it manually in a few steps.';
 const comingSoon = [
   {icon: 'message', title: 'Gmail', body: 'Bring useful emails and conversations into your memory.'},
-  {icon: 'file', title: 'PDFs & attachments', body: 'Capture the documents behind the page, with OCR for scanned text.'},
-  {icon: 'layers', title: 'Google Docs & Sheets', body: 'Save documents and spreadsheets through dedicated export adapters.'},
   {icon: 'sync', title: 'Background capture', body: 'Choose sites to capture automatically and connect mailbox sync.'},
-  {icon: 'search', title: 'Search in Chrome', body: 'Find what you saved without leaving the page you are reading.'},
   {icon: 'history', title: 'Offline retries', body: 'Keep a capture ready until your local Imprint is available again.'},
 ] as const;
 ---
@@ -37,10 +33,10 @@ const comingSoon = [
             )}
             <a href="#install" class="btn btn-ghost">How to install <Icon name="arrowRight" size={16} /></a>
           </div>
-          <p class="mt-4 text-xs text-[color:var(--color-text-dim)]">Manual installation · {extension ? `${extension.asset.sizeLabel} · ${extension.release.tag}` : 'ZIP appears here when published'} · Pages &amp; selected text</p>
+          <p class="mt-4 text-xs text-[color:var(--color-text-dim)]">Manual installation · {extension ? `${extension.asset.sizeLabel} · ${extension.release.tag}` : 'ZIP appears here when published'} · Pages, files &amp; meetings</p>
           <div class="mt-7 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-4 max-w-lg text-sm">
-            <strong class="font-semibold">Pair with a browser-enabled Imprint backend.</strong>
-            <p class="mt-1 text-[color:var(--color-text-muted)]">{needsPreviewBackend ? <>This preview uses the backend from the <code class="cmd">wip/chrome-extension</code> branch. The original v0.15.1 desktop release does not include browser pairing. </> : <>Keep the Imprint backend from the matching release running on this computer. </>}<a href="/browser-extension/#install-from-this-checkout" class="underline underline-offset-2">Backend setup →</a></p>
+            <strong class="font-semibold">Keep local Imprint running.</strong>
+            <p class="mt-1 text-[color:var(--color-text-muted)]">Run the Imprint backend from the same release as your extension ZIP. <a href="/browser-extension/#install-from-this-checkout" class="underline underline-offset-2">Backend setup →</a></p>
           </div>
         </div>
 
@@ -52,7 +48,8 @@ const comingSoon = [
           <div class="capture-panel island">
             <div class="flex items-center justify-between gap-3"><img src="/logo-lockup-dark.svg" width="88" height="21" alt="Imprint" /><span class="text-xs text-[color:var(--color-text-dim)]">capture · preview</span></div>
             <div class="capture-connected"><span></span> Connected to local Imprint</div>
-            <div class="text-xs text-[color:var(--color-text-muted)] mt-5">Project</div><div class="mock-field mt-1">Research</div>
+            <div class="text-xs text-[color:var(--color-text-muted)] mt-5">Workspace</div><div class="mock-field mt-1">Personal</div>
+            <div class="text-xs text-[color:var(--color-text-muted)] mt-4">Project</div><div class="mock-field mt-1">Research</div>
             <div class="text-xs text-[color:var(--color-text-muted)] mt-4">Content to save</div><div class="mock-field mt-1 leading-relaxed">Capture the details while they are in front of you.</div>
             <div class="mock-save"><Icon name="check" size={15} /> Save to Imprint</div>
             <p class="mt-3 text-[11px] text-[color:var(--color-text-dim)]">You choose what becomes memory.</p>
@@ -64,9 +61,9 @@ const comingSoon = [
 
     <section class="section">
       <div class="wrap grid gap-5 md:grid-cols-3">
-        <article class="card p-7"><Icon name="file" size={22} /><h2 class="mt-5 text-lg font-semibold">Save a page or a passage</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Capture readable page text, or highlight just the part you want to keep.</p></article>
-        <article class="card p-7"><Icon name="check" size={22} /><h2 class="mt-5 text-lg font-semibold">Review before you save</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Edit the title and text. Pick a project inside your paired workspace.</p></article>
-        <article class="card p-7"><Icon name="server" size={22} /><h2 class="mt-5 text-lg font-semibold">Keep it in your Imprint</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Captures go to the local service. Recall them from Imprint or your connected coding tools.</p></article>
+        <article class="card p-7"><Icon name="file" size={22} /><h2 class="mt-5 text-lg font-semibold">Save a page or a passage</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Save signed-in page text, Google Docs and Sheets, PDFs, attachments, and OCR from images or the visible tab.</p></article>
+        <article class="card p-7"><Icon name="check" size={22} /><h2 class="mt-5 text-lg font-semibold">Review before you save</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Edit the title and text. Choose a local workspace and project in the popup.</p></article>
+        <article class="card p-7"><Icon name="server" size={22} /><h2 class="mt-5 text-lg font-semibold">Keep it in your Imprint</h2><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">Search the chosen workspace or open the local recorder with your Meet or Teams title.</p></article>
       </div>
     </section>
 
@@ -76,19 +73,19 @@ const comingSoon = [
         <ol class="install-steps">
           <li><span class="step-number">01</span><div><h3>Download and extract</h3><p>Download the latest ZIP above and extract it. Inside is an <code class="cmd">imprint-chrome-extension</code> folder with <code class="cmd">manifest.json</code> and an install guide.</p></div></li>
           <li><span class="step-number">02</span><div><h3>Load it in Chrome</h3><p>Open <code class="cmd">chrome://extensions</code>, turn on <strong>Developer mode</strong>, then click <strong>Load unpacked</strong>. Select the extracted folder containing the manifest.</p><button class="copy-address" data-copy="chrome://extensions" data-track="copy_command" data-track-command="chrome-extensions" type="button"><Icon name="copy" size={14} /> Copy chrome://extensions</button></div></li>
-          <li><span class="step-number">03</span><div><h3>Connect your local memory</h3><p>Start your browser-enabled Imprint backend. Open the extension’s <strong>Settings</strong>, run the pairing command it shows for your workspace, and paste the token into <strong>Connect and save</strong>.</p></div></li>
-          <li><span class="step-number">04</span><div><h3>Pin it. Preview it. Save it.</h3><p>Pin Imprint Capture from Chrome’s Extensions menu. On a page, choose <strong>Preview page</strong> or <strong>Preview selection</strong>, review the text, and save.</p></div></li>
+          <li><span class="step-number">03</span><div><h3>Connect your local memory</h3><p>Start local Imprint. Open the extension and choose a workspace. If Imprint uses a custom port, update the address in <strong>Settings</strong>. Older extension ZIPs use the setup instructions bundled with that version.</p></div></li>
+          <li><span class="step-number">04</span><div><h3>Pin it. Preview it. Save it.</h3><p>Pin Imprint Capture from Chrome’s Extensions menu. On a page, choose a capture action, then review and save. Use <strong>Search</strong> or <strong>Record meeting</strong> to continue in the dashboard.</p></div></li>
         </ol>
       </div>
     </section>
 
     <section class="section" id="coming-soon">
-      <div class="wrap"><div class="eyebrow">Coming soon</div><h2 class="mt-3 text-3xl sm:text-4xl font-bold tracking-tight">More of your world,<br />one memory.</h2><p class="mt-4 max-w-2xl text-[color:var(--color-text-muted)]">This preview starts with pages and selected text. These integrations are planned and are not enabled in the downloadable extension yet.</p>
+      <div class="wrap"><div class="eyebrow">Coming soon</div><h2 class="mt-3 text-3xl sm:text-4xl font-bold tracking-tight">More of your world,<br />one memory.</h2><p class="mt-4 max-w-2xl text-[color:var(--color-text-muted)]">This preview supports page and file capture, OCR, search, and meeting setup. These integrations are planned and are not enabled in the downloadable extension yet.</p>
         <div class="grid gap-4 mt-9 sm:grid-cols-2 lg:grid-cols-3">{comingSoon.map((item) => <article class="card p-6"><div class="flex justify-between items-center gap-3"><Icon name={item.icon} size={21} /><span class="soon-badge">Coming soon</span></div><h3 class="mt-5 font-semibold text-lg">{item.title}</h3><p class="mt-2 text-sm text-[color:var(--color-text-muted)]">{item.body}</p></article>)}</div>
       </div>
     </section>
 
-    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">The title, source URL and text you explicitly save go to your local Imprint. The extension does not read cookies or passwords. Captures follow your workspace’s existing sync and model settings, including any remote providers you have chosen.</p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Download the latest ZIP and replace the files in the same extracted folder. Open <code class="cmd">chrome://extensions</code> and click <strong>Reload</strong> for Imprint Capture. Keeping the same folder helps preserve the extension ID and pairing.</p></div></div></section>
+    <section class="section border-t border-[color:var(--color-border)]"><div class="wrap grid gap-9 md:grid-cols-2"><div><h2 class="text-lg font-semibold">What leaves my browser?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">The text, file or screenshot you explicitly save go to your local Imprint. The extension does not read cookies or passwords. Captures follow your workspace’s existing sync and model settings, including any remote providers you have chosen.</p></div><div><h2 class="text-lg font-semibold">How do I update it?</h2><p class="mt-3 text-sm text-[color:var(--color-text-muted)]">Download the latest ZIP and replace the files in the same extracted folder. Open <code class="cmd">chrome://extensions</code> and click <strong>Reload</strong> for Imprint Capture. Keeping the same folder helps preserve the extension ID and settings.</p></div></div></section>
   </main>
   <Footer />
 </Landing>

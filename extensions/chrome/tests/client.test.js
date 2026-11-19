@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {apiBase, requestAPI, trustedSender} from "../client.js";
+import {meetingTitle} from "../files.js";
 
 test("only literal loopback HTTP API addresses are accepted", () => {
   assert.equal(apiBase("http://127.0.0.1:8420"), "http://127.0.0.1:8420");
@@ -19,21 +20,28 @@ test("content scripts and other extensions cannot use the privileged bridge", ()
   assert.equal(trustedSender({...sender, id: "b".repeat(32)}, id), false);
 });
 
-test("capture credentials stay on the fixed browser API and redirects are refused", async () => {
+test("requests use the fixed local browser API and redirects are refused", async () => {
   let request;
-  const result = await requestAPI({base: "http://127.0.0.1:8420", extensionId: "extension", token: "token"},
+  const result = await requestAPI({base: "http://127.0.0.1:8420", extensionId: "extension"},
     "captures", {documents: []}, async (...args) => {
       request = args;
       return {ok: true, json: async () => ({job_id: "job"})};
     });
   assert.equal(result.job_id, "job");
-  assert.equal(request[0], "http://127.0.0.1:8420/api/browser/captures");
-  assert.equal(request[1].headers.Authorization, "Bearer token");
+  assert.equal(request[0], "http://127.0.0.1:8420/api/browser/local/captures");
+  assert.equal(request[1].headers["X-Imprint-Extension-Id"], "extension");
+  assert.equal(request[1].headers.Authorization, undefined);
   assert.equal(request[1].redirect, "error");
   assert.equal(request[1].credentials, "omit");
 });
 
 test("backend validation errors reach the UI", async () => {
-  await assert.rejects(requestAPI({token: "token"}, "status", undefined,
-    async () => ({ok: false, json: async () => ({detail: "Pairing revoked"})})), /Pairing revoked/);
+  await assert.rejects(requestAPI({}, "status", undefined,
+    async () => ({ok: false, json: async () => ({detail: "Unknown workspace"})})), /Unknown workspace/);
+});
+
+test("meeting titles use the active provider tab's title", () => {
+  assert.equal(meetingTitle({url: "https://teams.microsoft.com/v2/", title: "(2) Planning call | Microsoft Teams"}), "Planning call");
+  assert.equal(meetingTitle({url: "https://meet.google.com/abc-defg-hij", title: "Google Meet"}), "Google Meet · abc-defg-hij");
+  assert.equal(meetingTitle({url: "https://example.com/", title: "Planning call | Microsoft Teams"}), "");
 });

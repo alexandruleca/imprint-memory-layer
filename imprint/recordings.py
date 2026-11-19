@@ -98,7 +98,8 @@ def update(recording_id: str, **changes) -> dict:
     return get(recording_id)
 
 
-def start(title: str, project: str = DEFAULT_PROJECT, others: bool = True, consent: bool = False) -> dict:
+def start(title: str, project: str = DEFAULT_PROJECT, others: bool = True, consent: bool = False,
+          workspace: str | None = None) -> dict:
     """A new recording, before any audio arrives. Recording other people
     needs their consent; the user confirms they have it."""
     if consent is not True:
@@ -109,6 +110,11 @@ def start(title: str, project: str = DEFAULT_PROJECT, others: bool = True, conse
             'others': bool(others), 'consent': True, 'status': 'recording', 'started_at': time.time(),
             'stopped_at': None, 'duration': 0.0, 'error': '', 'memories': 0, 'transcribed_at': None}
     meta['updated_at'] = meta['started_at']
+    if workspace is not None:
+        from .workspace_policy import workspace_name
+        if not isinstance(workspace, str) or not workspace:
+            raise ValueError('Choose an existing recording workspace')
+        meta['workspace'] = workspace_name(workspace)
     _folder(meta['id']).mkdir(parents=True)
     _write_meta(meta)
     return get(meta['id'])
@@ -219,11 +225,11 @@ def index_all() -> int:
 
 def delete(recording_id: str, workspace: str | None = None) -> None:
     """Delete the recording, its transcript and the memories made from it."""
-    get(recording_id)
+    meta = get(recording_id)
     from . import sync_deletions
     sync_deletions.record(None, [recording_id], dataset='recordings')  # Its folder goes on paired devices (ADR 0177).
     from . import vectorstore as vs
-    vs.delete_by_source(SOURCE + recording_id, workspace, propagate='all')  # On paired devices too (ADR 0176).
+    vs.delete_by_source(SOURCE + recording_id, workspace or meta.get('workspace') or None, propagate='all')
     shutil.rmtree(_folder(recording_id), ignore_errors=True)
 
 
@@ -560,6 +566,7 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
     from . import audio_ingest
     from .ingest_core import store_inline_content
     from .progress import Task
+    from .workspace_policy import workspace_name
 
     meta = get(recording_id)
     if meta['status'] == 'recording':
@@ -567,6 +574,7 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
     audio = _folder(recording_id) / 'audio.webm'
     if not audio.exists() or not audio.stat().st_size:
         raise ValueError('The recording has no audio to transcribe')
+    workspace = workspace_name(workspace or meta.get('workspace'))
     update(recording_id, status='transcribing', error='')
     try:
         with Task('transcribe-recording', phase='transcribing_audio', unit='seconds') as task, \
@@ -602,7 +610,7 @@ def transcribe(recording_id: str, workspace: str | None = None) -> dict:
         update(recording_id, status='failed', error=str(error)[:500])
         raise
     return update(recording_id, status='ready', memories=stored, transcribed_at=time.time(), speakers=names,
-                  workspace=workspace or '')
+                  workspace=workspace)
 
 
 def _turns(channels, task) -> dict[str, list] | None:

@@ -8,8 +8,9 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ('manifest.json', 'background.js', 'capture.js', 'client.js', 'ui.js',
-         'popup.html', 'popup.js', 'options.html', 'options.js', 'style.css', 'INSTALL.txt', 'LICENSE')
+FILES = ('manifest.json', 'background.js', 'capture.js', 'files.js', 'client.js', 'ui.js',
+         'popup.html', 'popup.js', 'options.html', 'options.js', 'style.css',
+         'icon-16.png', 'icon-32.png', 'icon-48.png', 'icon-128.png', 'INSTALL.txt', 'LICENSE')
 ARCHIVE_NAME = 'imprint-chrome-extension.zip'
 
 

@@ -1,40 +1,43 @@
 import {apiBase, requestAPI, trustedSender} from "./client.js";
 
-// Content scripts never receive the pairing token or the ability to call this bridge.
 const storageReady = chrome.storage.local.setAccessLevel({accessLevel: "TRUSTED_CONTEXTS"});
+const defaultBase = "http://127.0.0.1:8420";
 
 async function handle(message) {
   await storageReady;
-  const {settings = {}} = await chrome.storage.local.get("settings");
-  const request = (path, body, override = settings) => requestAPI({...override, extensionId: chrome.runtime.id}, path, body);
+  const {settings = {}, workspace, project, lastJob} = await chrome.storage.local.get(
+    ["settings", "workspace", "project", "lastJob"],
+  );
+  const base = settings.base || defaultBase;
+  const request = (path, body, address = base) => requestAPI({base: address, extensionId: chrome.runtime.id}, path, body);
+
   switch (message.type) {
     case "settings":
-      return {base: settings.base || "http://127.0.0.1:8420", project: settings.project || "browser", paired: Boolean(settings.token)};
+      return {base, workspace, project: project || settings.project || "browser"};
     case "connect": {
-      const updated = {base: apiBase(message.base), token: message.token.trim() || settings.token,
-        project: settings.project || "browser"};
-      const status = await request("status", undefined, updated);
-      await chrome.storage.local.set({settings: updated});
-      await chrome.storage.local.remove("lastJob");
+      const address = apiBase(message.base);
+      const status = await request("status", undefined, address);
+      await chrome.storage.local.set({settings: {base: address}});
       return status;
     }
-    case "disconnect":
-      await chrome.storage.local.remove(["settings", "lastJob"]);
-      return {};
     case "status":
       return request("status");
+    case "workspace":
+      await chrome.storage.local.set({workspace: message.workspace});
+      return {};
     case "save": {
       const result = await request("captures", message.capture);
-      await chrome.storage.local.set({lastJob: result.job_id,
-        settings: {...settings, project: message.capture.project}});
+      await chrome.storage.local.set({lastJob: {id: result.job_id, base}, project: message.capture.project});
       return result;
     }
-    case "job": {
-      const {lastJob} = await chrome.storage.local.get("lastJob");
-      if (!lastJob) return null;
-      if (!/^[a-f0-9]{32}$/.test(lastJob)) throw new Error("Invalid stored job ID.");
-      return request("jobs/" + lastJob);
-    }
+    case "fileJob":
+      if (base === message.base && /^[a-f0-9]{32}$/.test(message.id)) {
+        await chrome.storage.local.set({lastJob: {id: message.id, base}, project: message.project});
+      }
+      return {};
+    case "job":
+      if (lastJob?.base !== base || !/^[a-f0-9]{32}$/.test(lastJob?.id)) return null;
+      return request("jobs/" + lastJob.id);
     default:
       throw new Error("Unknown extension action.");
   }

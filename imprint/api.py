@@ -41,6 +41,7 @@ from . import commands
 from . import queue as job_queue
 from . import updates
 from .http_security import local_origin, local_host, loopback_address
+from .workspace_policy import workspace_name
 from .processes import is_alive
 
 from .cli_viz import (
@@ -255,13 +256,18 @@ def api_search(
     domain: str = "",
     limit: int = Query(30, ge=1, le=50),
     mode: str = Query("hybrid", pattern="^(hybrid|semantic)$"),
+    workspace: str = "",
 ):
     if len(q) > 4000:
         return JSONResponse({"detail": "Search query exceeds 4000 characters"}, status_code=422)
     if not q.strip():
         return {"nodes": [], "total": 0}
     from .cli_viz import search_nodes
-    return search_nodes(q, project=project, type_=type, domain=domain, limit=limit, mode=mode)
+    try:
+        scope = workspace_name(workspace) if workspace else None
+    except ValueError as error:
+        return JSONResponse({"detail": str(error)}, status_code=400)
+    return search_nodes(q, project=project, type_=type, domain=domain, limit=limit, mode=mode, workspace=scope)
 
 
 @app.get("/api/neighbors")
@@ -360,8 +366,12 @@ def api_cross_project():
 
 
 @app.get("/api/memory/{mid:path}")
-def api_memory(mid: str):
-    data = get_memory(unquote(mid))
+def api_memory(mid: str, workspace: str = ""):
+    try:
+        scope = workspace_name(workspace) if workspace else None
+    except ValueError as error:
+        return JSONResponse({"detail": str(error)}, status_code=400)
+    data = get_memory(unquote(mid), workspace=scope)
     return JSONResponse(data, status_code=404) if data.get("error") else data
 
 
@@ -421,11 +431,12 @@ def api_sources(
 
 
 @app.get("/api/sources/read")
-def api_source_read(source: str, project: str | None = None, topic: str = ""):
+def api_source_read(source: str, project: str | None = None, topic: str = "", workspace: str = ""):
     """A source's full redacted snapshot in readable blocks, marked where
     ``topic`` applies. A source in several projects needs ``project``."""
     try:
-        data = build_source_read(source, project, topic)
+        scope = workspace_name(workspace) if workspace else None
+        data = build_source_read(source, project, topic, workspace=scope)
     except ValueError as error:
         return JSONResponse({"error": str(error), "source": source}, status_code=409)
     return data if data["available"] else JSONResponse({
@@ -645,9 +656,9 @@ async def api_decide_project_association(request: Request):
 
 # ── Recordings (ADR 0131) ──────────────────────────────────────
 
-def _transcribe_recording(recording_id: str) -> dict:
+def _transcribe_recording(recording_id: str, workspace: str | None = None) -> dict:
     """Queue a recording's transcription (the queue's lock keeps it to one heavy job)."""
-    return job_queue.submit('transcribe-recording', {'id': recording_id})
+    return job_queue.submit('transcribe-recording', {'id': recording_id, **({'workspace': workspace} if workspace else {})})
 
 
 @app.get('/api/recordings')
@@ -665,7 +676,8 @@ async def api_start_recording(request: Request):
         if not isinstance(body, dict):
             raise ValueError('A recording object is required')
         return await asyncio.to_thread(recordings.start, body.get('title', ''), body.get('project') or recordings.DEFAULT_PROJECT,
-                                       bool(body.get('others', True)), body.get('consent') is True)
+                                       bool(body.get('others', True)), body.get('consent') is True,
+                                       workspace=body.get('workspace'))
     except ValueError as error:
         return JSONResponse({'error': str(error)}, status_code=400)
 
@@ -695,9 +707,11 @@ async def api_stop_recording(recording_id: str, request: Request):
         meta = await asyncio.to_thread(recordings.stop, recording_id, duration if isinstance(duration, (int, float)) else None)
         if not meta['audio_bytes']:
             return {**meta, 'job': None}
-        return {**meta, 'job': _transcribe_recording(recording_id)}
+        return {**meta, 'job': _transcribe_recording(recording_id, meta.get('workspace'))}
     except KeyError:
         return JSONResponse({'error': 'recording not found'}, status_code=404)
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
 
 
 @app.post('/api/recordings/{recording_id}/transcribe')
@@ -709,7 +723,10 @@ def api_transcribe_recording(recording_id: str):
         return JSONResponse({'error': 'recording not found'}, status_code=404)
     if meta['status'] == 'recording' or not meta['audio_bytes']:
         return JSONResponse({'error': 'Stop the recording first; it needs audio to transcribe'}, status_code=409)
-    return {'job': _transcribe_recording(recording_id)}
+    try:
+        return {'job': _transcribe_recording(recording_id, meta.get('workspace'))}
+    except ValueError as error:
+        return JSONResponse({'error': str(error)}, status_code=400)
 
 
 @app.get('/api/recordings/{recording_id}/transcript')

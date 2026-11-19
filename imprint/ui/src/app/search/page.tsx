@@ -32,6 +32,7 @@ const MODES = [
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
+  const [workspace, setWorkspace] = useState("");
   const [type, setType] = useState("");
   const [mode, setMode] = useState<"hybrid" | "semantic">("hybrid");
   const [results, setResults] = useState<MemoryNode[]>([]);
@@ -60,10 +61,10 @@ export default function SearchPage() {
 
   async function doSearch(event: React.FormEvent) {
     event.preventDefault();
-    await run(query.trim(), { project: project.trim(), type, mode });
+    await run(query.trim(), { project: project.trim(), type, mode, workspace });
   }
 
-  async function run(text: string, filters: { project: string; type: string; mode: "hybrid" | "semantic" }) {
+  async function run(text: string, filters: { project: string; type: string; mode: "hybrid" | "semantic"; workspace: string }) {
     if (!text) return;
     request.current?.abort();
     const controller = new AbortController();
@@ -90,12 +91,15 @@ export default function SearchPage() {
   // The graph's results link here with ?q= and its filters: search at once,
   // after the first render (the page is prerendered without an address).
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const handoff = new URLSearchParams(window.location.hash.slice(1));
+    const params = handoff.has("q") ? handoff : new URLSearchParams(window.location.search);
     const q = params.get("q")?.trim();
     if (!q) return;
-    const given = { project: params.get("project") ?? "", type: params.get("type") ?? "", mode: params.get("mode") === "semantic" ? "semantic" as const : "hybrid" as const };
+    const given = { project: params.get("project") ?? "", type: params.get("type") ?? "",
+      mode: params.get("mode") === "semantic" ? "semantic" as const : "hybrid" as const,
+      workspace: params.get("workspace") ?? "" };
     const timer = setTimeout(() => {
-      setQuery(q); setProject(given.project); setType(given.type); setMode(given.mode);
+      setQuery(q); setProject(given.project); setType(given.type); setMode(given.mode); setWorkspace(given.workspace);
       void run(q, given);
     }, 0);
     return () => clearTimeout(timer);
@@ -109,7 +113,7 @@ export default function SearchPage() {
     setOpening(true);
     setError("");
     try {
-      const memory = await getMemory(selected.id, controller.signal);
+      const memory = await getMemory(selected.id, controller.signal, workspace);
       if (!controller.signal.aborted) setChunk(memory);
     } catch (cause) {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not open this memory.");
@@ -122,6 +126,7 @@ export default function SearchPage() {
     <div className="p-4 sm:p-8 space-y-5 max-w-7xl mx-auto">
       <header>
         <h1 className="text-2xl font-bold">Search your memory</h1>
+        {workspace && <p className="mt-1 text-sm text-muted-foreground">Workspace <strong>{workspace}</strong></p>}
         <p className="text-sm text-muted-foreground mt-1">{simple ? "Find something you worked on or talked about. Type a few words, a name or a file name." : "Find decisions, code and prior work. Use a phrase, symbol or filename."} <Kbd>Ctrl / ⌘ K</Kbd></p>
       </header>
       <form onSubmit={doSearch} className="space-y-3" aria-label="Search memories">
@@ -207,7 +212,7 @@ export default function SearchPage() {
         </section>
       </div>
       <ChunkDialog chunk={chunk} onClose={() => setChunk(null)}
-        onReadSource={(c) => { setChunk(null); setReading({ source: c.source!, project: c.project, chunk: c.chunk_index }); }} />
+        onReadSource={(c) => { setChunk(null); setReading({ source: c.source!, project: c.project, chunk: c.chunk_index, workspace }); }} />
       <SourceReader target={reading} onClose={() => setReading(null)} />
     </div>
   );

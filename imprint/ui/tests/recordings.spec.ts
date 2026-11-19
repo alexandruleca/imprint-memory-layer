@@ -103,6 +103,26 @@ test('without the computer\'s audio only the microphone is recorded, and says so
   await expect(page.getByRole('button', { name: 'Start recording' })).toBeVisible();
 });
 
+test('a Chrome meeting handoff prefills the title and workspace but still requires consent', async ({ page }) => {
+  const state = await mockRecordings(page);
+  await page.goto('/recordings/#workspace=research&title=Weekly+planning&project=Meetings');
+  const title = page.getByRole('textbox', { name: 'Recording title' });
+  await expect(title).toHaveValue('Weekly planning');
+  await expect(page.getByText('Transcript workspace research')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Project' })).toHaveValue('Meetings');
+  const start = page.getByRole('button', { name: 'Start recording' });
+  await expect(start).toBeDisabled();
+  expect(state.starts).toEqual([]);
+  await title.fill('Weekly planning with notes');
+  await page.getByRole('checkbox', { name: 'Everyone knows it is being recorded' }).click();
+  await start.click();
+  await expect.poll(() => state.starts).toEqual([
+    { title: 'Weekly planning with notes', project: 'Meetings', workspace: 'research', others: true, consent: true },
+  ]);
+  await page.getByRole('button', { name: 'Stop and transcribe' }).click();
+  await expect(start).toBeVisible();
+});
+
 test('the desktop app on macOS says how to allow the computer\'s audio instead of recording silence', async ({ page }) => {
   const state = await mockRecordings(page, { computerAudio: 'ended', desktop: 'darwin' });
   await page.goto('/recordings/');

@@ -477,27 +477,44 @@ transports. Pick the one that matches your integration:
 | Streaming | Native | SSE |
 | Best for | Agent integrations | Local services, CI, dashboards |
 
-## Browser capture (WIP branch)
+## Browser capture
 
-The [experimental Chrome extension](browser-extension.md) uses a separate local
-router. All requests require `Authorization: Bearer TOKEN` and
-`X-Imprint-Extension-Id: ID`; any supplied Origin must exactly match the paired
-`chrome-extension://ID`. Pairings grant one existing workspace. This router does
-not expose CLI commands, arbitrary filesystem access, or general dashboard data.
+The [Chrome extension](browser-extension.md) uses credential-free local
+capture routes. Requests require a loopback peer, loopback Host and
+`X-Imprint-Extension-Id: ID`. Submissions require Origin to match
+`chrome-extension://ID`. GETs can omit it. See [ADR 0185](adr/0185-local-chrome-capture.md).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/browser/status` | Paired workspace and maximum request bytes. |
-| POST | `/api/browser/captures` | JSON `{project, documents:[{kind, url, title, text, account?, message_id?}]}`. Returns 202 `{job_id, status, workspace}`. Kinds: `page`, `selection`, `gmail`. Gmail requires account identity and a message ID. |
-| GET | `/api/browser/jobs/{id}` | Only this pairing's capture job status, without payload or logs. |
+| GET | `/api/browser/local/status` | Active workspace, available workspace names, and maximum request bytes, file size limit, and supported file suffixes. |
+| POST | `/api/browser/local/captures` | JSON `{workspace, project, documents: [{kind, url, title, text}]}` or `{workspace, project, url}`. Returns 202 `{job_id, status, workspace}`. |
+| POST | `/api/browser/local/files` | Raw `application/octet-stream` file with URL-encoded JSON in `X-Imprint-File`. Returns 202 `{job_id, status, workspace}`. |
+| GET | `/api/browser/local/jobs/{id}` | Capture job status and timing for the submitting extension ID. |
 
-Captures use the shared queue and inline ingestion pipeline. Request limit:
-1,000,000 UTF-8 bytes; 1–50 documents; 10–800,000 characters per document.
-Indexed provenance uses `source_type=browser`, `source_url` and `doc_metadata`.
-See [ADR 0029](adr/0029-paired-browser-capture.md) for the boundary and WIP limits.
-The downloadable extension currently sends pages and selections. Gmail support
-is marked **Coming soon**; its original backend payload scaffold remains for
-future development. See [ADR 0030](adr/0030-chrome-extension-release-zip.md).
+The selected workspace must already exist. The extension submits `page` or
+`selection` documents. Text uses the inline pipeline and indexes
+`source_type=browser`, `source_url` and `doc_metadata`. The URL mode reuses
+the single-page URL ingestion pipeline. Limits are 1,000,000 UTF-8 request bytes
+and, for documents, 1–50 entries with 10–800,000 characters each.
+
+File metadata is `{workspace, project, filename, title?, source_url?, kind?}`.
+The metadata header is at most 8,192 ASCII bytes after encoding. Filenames
+must have a supported suffix and may contain no filesystem path. Payloads
+are capped at the smaller of 25 MiB and `ingest.max_doc_size_mb`. File bytes
+persist in the local queue for retries. See [ADR 0187](adr/0187-browser-file-capture.md).
+
+The extension searches via the dashboard. `GET /api/search`,
+`GET /api/memory/{id}` and `GET /api/sources/read` accept an optional
+`workspace` name. `POST /api/recordings` accepts an optional `workspace`
+for the transcript, and still requires explicit recording consent.
+See [ADR 0188](adr/0188-browser-dashboard-handoff.md).
+
+The legacy `/api/browser/status`, `/api/browser/captures` and
+`/api/browser/jobs/{id}` routes retain the workspace-bound Bearer token
+protocol for older extensions and queued jobs. That protocol accepts the
+backend's dormant `gmail` payload shape with account and message ID. Gmail
+capture remains unavailable in the extension. See [ADR 0029](adr/0029-paired-browser-capture.md)
+and [ADR 0030](adr/0030-chrome-extension-release-zip.md).
 
 ## Versioning
 

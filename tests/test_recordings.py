@@ -461,6 +461,18 @@ class RecordingTests(unittest.TestCase):
         submit.assert_called_once_with('transcribe-recording', {'id': started['id']})
         self.assertEqual(listed['recordings'][0]['id'], started['id'])
 
+    def test_an_explicit_workspace_persists_when_a_recording_is_transcribed(self):
+        with patch.object(config, 'get_known_workspaces', return_value=['default', 'reviews']):
+            meta = recordings.start('Design review', consent=True, workspace='reviews')
+            webm(recordings._folder(meta['id']) / 'audio.webm', tone(1), tone(1, 660))
+            recordings.stop(meta['id'])
+            with patch('imprint.audio_ingest.transcribe', return_value=(
+                [{'text': 'A decision from the design review.', 'start': 0, 'end': 1}], {'transcription_model': 'm'}
+            )), patch('imprint.ingest_core.store_inline_content', return_value=(1, 'stored')) as store:
+                done = recordings.transcribe(meta['id'])
+        self.assertEqual(done['workspace'], 'reviews')
+        self.assertEqual(store.call_args.kwargs['workspace'], 'reviews')
+
     def test_the_audio_downloads_as_a_file_named_after_the_recording(self):
         import httpx
         from imprint.api import app

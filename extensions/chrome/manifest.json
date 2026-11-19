@@ -1,15 +1,37 @@
 {
   "manifest_version": 3,
-  "name": "Imprint Capture (WIP)",
-  "version": "0.1.1",
-  "description": "Preview and save web pages or selected text to local Imprint. Gmail and document integrations are coming soon.",
+  "name": "Imprint Capture",
+  "version": "0.3.0",
+  "description": "Capture pages, files and meetings, and search your local Imprint.",
   "minimum_chrome_version": "114",
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["http://127.0.0.1/*"],
-  "background": {"service_worker": "background.js", "type": "module"},
-  "action": {"default_popup": "popup.html", "default_title": "Save to Imprint"},
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Save to Imprint",
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png"
+    }
+  },
   "options_page": "options.html",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:*"
+  },
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
   }
 }

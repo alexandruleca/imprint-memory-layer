@@ -139,7 +139,7 @@ export async function getNodes(params: {
 }
 
 export async function searchMemories(q: string, options: {
-  limit?: number; project?: string; type?: string; mode?: "hybrid" | "semantic"; signal?: AbortSignal;
+  limit?: number; project?: string; type?: string; mode?: "hybrid" | "semantic"; workspace?: string; signal?: AbortSignal;
 } = {}) {
   const { signal, ...filters } = options;
   const params = new URLSearchParams({ q, limit: "30" });
@@ -227,7 +227,7 @@ export function getRecordings() {
   return fetchAPI<{ recordings: Recording[]; default_project: string }>("/api/recordings");
 }
 
-export function startRecording(body: { title: string; project: string; others: boolean; consent: boolean }) {
+export function startRecording(body: { title: string; project: string; others: boolean; consent: boolean; workspace?: string }) {
   return fetchAPI<Recording>("/api/recordings", { method: "POST", body: JSON.stringify(body) });
 }
 
@@ -512,8 +512,9 @@ export async function getJobs(): Promise<{ jobs: IngestionJob[] }> {
   return fetchAPI("/api/jobs");
 }
 
-export async function getMemory(id: string, signal?: AbortSignal) {
-  return fetchAPI<import("./types").MemoryNode>(`/api/memory/${encodeURIComponent(id)}`, { signal });
+export async function getMemory(id: string, signal?: AbortSignal, workspace?: string) {
+  const scope = workspace ? `?workspace=${encodeURIComponent(workspace)}` : "";
+  return fetchAPI<import("./types").MemoryNode>(`/api/memory/${encodeURIComponent(id)}${scope}`, { signal });
 }
 
 export async function getTimeline(project = "", limit = 500) {
@@ -579,10 +580,11 @@ export function previewMigrate(body: { from: string; to: string; mode: MigrateMo
 }
 
 /** A source's full snapshot in readable blocks, marked where `topic` applies. */
-export async function readSource(params: { source: string; project?: string | null; topic?: string }, signal?: AbortSignal) {
+export async function readSource(params: { source: string; project?: string | null; topic?: string; workspace?: string }, signal?: AbortSignal) {
   const q = new URLSearchParams({ source: params.source });
   if (params.project != null) q.set("project", params.project);
   if (params.topic) q.set("topic", params.topic);
+  if (params.workspace) q.set("workspace", params.workspace);
   return fetchAPI<import("./types").SourceRead>(`/api/sources/read?${q}`, { signal });
 }
 
