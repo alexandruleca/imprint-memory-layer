@@ -69,11 +69,22 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
   const recorder = useRecorder();
   const [title, setTitle] = useState("");
   const [project, setProject] = useState(defaultProject);
+  const [workspace, setWorkspace] = useState("");
   const [others, setOthers] = useState(true);
   const [consent, setConsent] = useState(false);
   const { simple } = useUiMode();
   const [now, setNow] = useState(0);
   const recording = recorder.phase === "recording" || recorder.phase === "stopping";
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    if (!params.has("workspace")) return;
+    const timer = setTimeout(() => {
+      setTitle((params.get("title") ?? "").slice(0, 200));
+      setProject((params.get("project") || defaultProject).slice(0, 256));
+      setWorkspace((params.get("workspace") ?? "").slice(0, 40));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [defaultProject]);
   useEffect(() => {
     if (!recording) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -104,6 +115,7 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
         <CardDescription>The microphone is the one chosen in {simple ? "Echo" : "Voice"} → Companion settings. The desktop app records what the computer plays directly (macOS asks you to allow it once); a browser asks which tab or screen to share, with its audio.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {workspace && <p className="text-sm text-muted-foreground">Transcript workspace <strong>{workspace}</strong></p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <Input aria-label="Recording title" placeholder="Weekly sync" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           <Input aria-label="Project" list="recording-projects" value={project} maxLength={256} onChange={(e) => setProject(e.target.value)} />
@@ -119,7 +131,8 @@ function Start({ projects, defaultProject }: { projects: string[]; defaultProjec
         </label>
         {recorder.error && <p role="alert" className="text-sm text-destructive">{recorder.error}</p>}
         <Button disabled={!consent || !project.trim() || recorder.phase === "starting"}
-          onClick={() => void startMeeting({ title, project: project.trim(), others, inputDevice: readVoicePreferences().inputDevice })}>
+          onClick={() => void startMeeting({ title, project: project.trim(), workspace: workspace || undefined,
+            others, inputDevice: readVoicePreferences().inputDevice })}>
           <Disc3 /> {recorder.phase === "starting" ? "Starting…" : "Start recording"}
         </Button>
       </CardContent>

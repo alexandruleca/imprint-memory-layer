@@ -1,6 +1,7 @@
 """Narrow local API for Chrome capture, including legacy paired clients."""
 import json
 import secrets
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
@@ -10,7 +11,7 @@ from .http_security import loopback_address
 from .workspace_policy import workspace_name
 
 router = APIRouter(prefix='/api/browser')
-_HEADERS = {'authorization', 'content-type', 'x-imprint-extension-id'}
+_HEADERS = {'authorization', 'content-type', 'x-imprint-extension-id', 'x-imprint-file'}
 
 
 async def boundary(request, call_next):
@@ -68,7 +69,43 @@ def status(request: Request):
 @router.get('/local/status')
 def local_status():
     return {'active': config.get_active_workspace(), 'workspaces': config.get_known_workspaces(),
-            'max_capture_bytes': browser.MAX_REQUEST_BYTES}
+            'max_capture_bytes': browser.MAX_REQUEST_BYTES, 'max_file_bytes': browser.file_limit(),
+            'file_extensions': sorted(browser.FILE_EXTENSIONS)}
+
+
+@router.post('/local/files', status_code=202)
+async def capture_file(request: Request):
+    from starlette.concurrency import run_in_threadpool
+
+    if request.headers.get('content-type') != 'application/octet-stream':
+        return JSONResponse({'detail': 'Expected application/octet-stream'}, status_code=415)
+    try:
+        header = request.headers.get('x-imprint-file', '')
+        if not 1 <= len(header) <= 8192:
+            raise ValueError('Missing or oversized attachment metadata')
+        body = json.loads(unquote(header, errors='strict'))
+        content = browser.normalize_file_capture(body)
+        workspace = body.get('workspace')
+        if not isinstance(workspace, str) or not workspace:
+            raise ValueError('Choose an existing workspace')
+        workspace = workspace_name(workspace)
+        limit = browser.file_limit()
+        length = request.headers.get('content-length')
+        if length is not None and int(length) > limit:
+            return JSONResponse({'detail': 'Attachment exceeds the local file limit'}, status_code=413)
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > limit:
+                return JSONResponse({'detail': 'Attachment exceeds the local file limit'}, status_code=413)
+            data.extend(chunk)
+        if not data:
+            raise ValueError('The attachment is empty')
+        job_id = await run_in_threadpool(queue.submit_browser_file, {
+            **content, 'workspace': workspace, '_browser_extension_id': request.state.browser_extension_id,
+        }, data)
+    except (ValueError, UnicodeError) as error:
+        return JSONResponse({'detail': str(error)}, status_code=400)
+    return {'job_id': job_id, 'status': 'queued', 'workspace': workspace}
 
 
 @router.post('/local/captures', status_code=202)

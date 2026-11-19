@@ -486,8 +486,9 @@ capture routes. Requests require a loopback peer, loopback Host and
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/browser/local/status` | Active workspace, available workspace names, and maximum request bytes. |
+| GET | `/api/browser/local/status` | Active workspace, available workspace names, and maximum request bytes, file size limit, and supported file suffixes. |
 | POST | `/api/browser/local/captures` | JSON `{workspace, project, documents: [{kind, url, title, text}]}` or `{workspace, project, url}`. Returns 202 `{job_id, status, workspace}`. |
+| POST | `/api/browser/local/files` | Raw `application/octet-stream` file with URL-encoded JSON in `X-Imprint-File`. Returns 202 `{job_id, status, workspace}`. |
 | GET | `/api/browser/local/jobs/{id}` | Capture job status and timing for the submitting extension ID. |
 
 The selected workspace must already exist. The extension submits `page` or
@@ -495,6 +496,18 @@ The selected workspace must already exist. The extension submits `page` or
 `source_type=browser`, `source_url` and `doc_metadata`. The URL mode reuses
 the single-page URL ingestion pipeline. Limits are 1,000,000 UTF-8 request bytes
 and, for documents, 1–50 entries with 10–800,000 characters each.
+
+File metadata is `{workspace, project, filename, title?, source_url?, kind?}`.
+The metadata header is at most 8,192 ASCII bytes after encoding. Filenames
+must have a supported suffix and may contain no filesystem path. Payloads
+are capped at the smaller of 25 MiB and `ingest.max_doc_size_mb`. File bytes
+persist in the local queue for retries. See [ADR 0187](adr/0187-browser-file-capture.md).
+
+The extension searches via the dashboard. `GET /api/search`,
+`GET /api/memory/{id}` and `GET /api/sources/read` accept an optional
+`workspace` name. `POST /api/recordings` accepts an optional `workspace`
+for the transcript, and still requires explicit recording consent.
+See [ADR 0188](adr/0188-browser-dashboard-handoff.md).
 
 The legacy `/api/browser/status`, `/api/browser/captures` and
 `/api/browser/jobs/{id}` routes retain the workspace-bound Bearer token

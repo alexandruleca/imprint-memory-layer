@@ -20,6 +20,7 @@ export type ReaderTarget = {
   source: string;
   /** Needed when the source exists in more than one project; null is the empty project. */
   project?: string | null;
+  workspace?: string;
   topic?: string;
   chunk?: number;
   /** Shown while the source loads. */
@@ -91,7 +92,7 @@ function Reader({ target }: { target: ReaderTarget }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    readSource({ source: target.source, project: target.project, topic: target.topic }, controller.signal)
+    readSource({ source: target.source, project: target.project, topic: target.topic, workspace: target.workspace }, controller.signal)
       .then((data) => setState({ data }))
       .catch((e) => { if (!controller.signal.aborted) setState({ error: e instanceof Error ? e.message : String(e) }); });
     return () => controller.abort();

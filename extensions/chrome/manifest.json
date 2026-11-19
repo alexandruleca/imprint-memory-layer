@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Imprint Capture",
-  "version": "0.2.0",
-  "description": "Save tab text, selections, or URLs to a workspace in your local Imprint.",
+  "version": "0.3.0",
+  "description": "Capture pages, files and meetings, and search your local Imprint.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",

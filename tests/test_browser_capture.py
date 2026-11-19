@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import quote
 
 import httpx
 
@@ -213,6 +214,35 @@ class BrowserAPITests(TemporaryData, unittest.IsolatedAsyncioTestCase):
         with patch.object(app.state, 'container_bind', True):
             self.assertEqual((await self.request('/api/browser/local/status', peer=('172.17.0.1', 80))).status_code, 403)
 
+    async def test_binary_upload_is_bounded_and_can_be_retried_without_reuploading(self):
+        path = '/api/browser/local/files'
+        metadata = {'filename': 'résumé.txt', 'project': 'reading', 'workspace': 'other'}
+        headers = {'X-Imprint-Extension-Id': EXTENSION, 'Origin': browser.extension_origin(EXTENSION),
+                   'Content-Type': 'application/octet-stream', 'X-Imprint-File': quote(json.dumps(metadata))}
+        payload = b'This attachment contains private notes for indexing.'
+        with patch.object(browser, 'file_limit', return_value=10):
+            async def chunks():
+                yield payload[:8]
+                yield payload[8:]
+            self.assertEqual((await self.request(path, method='POST', headers=headers, content=chunks())).status_code, 413)
+        for change in ({'filename': '../private.txt'}, {'workspace': 'unknown'}, {'filename': 'script.exe'}):
+            invalid = {**headers, 'X-Imprint-File': quote(json.dumps({**metadata, **change}))}
+            self.assertEqual((await self.request(path, method='POST', headers=invalid, content=payload)).status_code, 400)
+        wrong_origin = {**headers, 'Origin': 'https://example.com'}
+        self.assertEqual((await self.request(path, method='POST', headers=wrong_origin, content=payload)).status_code, 403)
+        response = await self.request(path, method='POST', headers=headers, content=payload)
+        self.assertEqual(response.status_code, 202, response.text)
+        job_id = response.json()['job_id']
+        body = queue.get_job(job_id)['body']
+        self.assertEqual(body['_workspace'], 'other')
+        self.assertEqual(body['filename'], 'résumé.txt')
+        self.assertNotIn(payload.decode(), str(body))
+        self.assertEqual(queue.read_browser_file(body['file_digest']), payload)
+        with queue._connect() as conn:
+            conn.execute("UPDATE jobs SET status='failed' WHERE id=?", (job_id,))
+        retry = queue.resubmit(job_id)
+        self.assertEqual(queue.get_job(retry['job_id'])['body']['file_digest'], body['file_digest'])
+
 
 class WorkerTests(TemporaryData, unittest.TestCase):
     def make_job(self):
@@ -243,6 +273,28 @@ class WorkerTests(TemporaryData, unittest.TestCase):
                 browser_worker.run(job_id)
             sources.assert_called_once_with('other')
             ingest.assert_called_once_with('https://example.com/article', 'reading', {}, workspace='other')
+
+    def test_file_jobs_extract_spreadsheet_rows_and_keep_the_original_source(self):
+        from io import BytesIO
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        workbook.active.title = 'Budget'
+        workbook.active.append(['Quarter', 'Budget'])
+        workbook.active.append(['Q1', 1200])
+        buffer = BytesIO()
+        workbook.save(buffer)
+        url = 'https://docs.google.com/spreadsheets/d/fixture/edit'
+        job_id = queue.submit_browser_file(
+            {'filename': 'Cost.xlsx', 'workspace': 'other', 'kind': 'google-sheet',
+             'source_url': url, '_browser_extension_id': EXTENSION}, buffer.getvalue())
+        with queue._connect() as conn:
+            conn.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
+        with patch('imprint.ingest_core.store_inline_content', return_value=(1, 'stored')) as store:
+            browser_worker.run(job_id)
+        self.assertIn('Quarter: Q1 | Budget: 1200', store.call_args.args[0])
+        self.assertEqual(store.call_args.kwargs['workspace'], 'other')
+        self.assertEqual(store.call_args.kwargs['extra_fields']['source_url'], url)
 
     def test_worker_uses_shared_pipeline_lock_and_provenance(self):
         job_id = self.make_job()

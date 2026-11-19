@@ -61,6 +61,24 @@ test('service errors are visible and retry succeeds', async ({ page }) => {
   await expect(page.getByRole('button', { name: /1. Installer decision/ })).toBeVisible();
 });
 
+test('an extension handoff searches and opens results in its chosen workspace', async ({ page }) => {
+  await page.route('**/api/search?**', async route => {
+    const params = new URL(route.request().url()).searchParams;
+    expect(params.get('workspace')).toBe('reading');
+    expect(params.get('q')).toBe('installer & decisions');
+    await route.fulfill({ json: { nodes: [memory] } });
+  });
+  await page.route('**/api/memory/**', async route => {
+    expect(new URL(route.request().url()).searchParams.get('workspace')).toBe('reading');
+    await route.fulfill({ json: memory });
+  });
+  await page.goto('/search/#workspace=reading&q=installer+%26+decisions');
+  await expect(page.getByText('Workspace reading')).toBeVisible();
+  await expect(page.getByLabel('Search query', { exact: true })).toHaveValue('installer & decisions');
+  await page.getByRole('button', { name: 'Open full memory' }).click();
+  await expect(page.getByRole('dialog')).toContainText(memory.content);
+});
+
 test('shared memory shows origin and current device without treating foreign paths as local', async ({ page }) => {
   const shared = { ...memory, recorded_device: { id: 'aaaaaaaa', name: 'Laptop A', os: 'windows' },
     path_context: { current_device: { id: 'bbbbbbbb', name: 'Desktop B', os: 'linux' },

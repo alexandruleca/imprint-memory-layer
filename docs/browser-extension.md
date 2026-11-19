@@ -1,6 +1,6 @@
 ---
 title: Chrome capture extension (WIP)
-description: Connect to local Imprint, choose a workspace, and save page text, selected text, or a URL from Chrome.
+description: Connect to local Imprint, choose a workspace, and capture pages and files, start meetings, and search Imprint from Chrome.
 ---
 
 ## Status and scope
@@ -17,10 +17,37 @@ by Imprint, which has no access to your browser session and fetches only the
 submitted page without crawling links. Saving shows queued/running/completed status; accepted jobs continue
 after the popup closes. Reopening the popup checks the last submitted job.
 
-**Coming soon:** Gmail, PDFs and attachments, Google Docs/Sheets, OCR, background
-capture, mailbox sync, offline retries, extension search and Chrome Web Store
-distribution. Gmail and Google Docs/Sheets show a coming-soon message instead
-of being captured, including when selected text is requested on those sites.
+### Files, Google Workspace and OCR
+
+- **Tab file** reads a supported file at the current HTTP(S) address or a same-origin
+  attachment link you have selected or focused. For a Google Docs or Sheets tab,
+  use **Save Google Doc** or **Save Google Sheet** to export it to DOCX or XLSX
+  using the browser session. The workbook export includes all sheets.
+- **Upload file** opens a file picker in an extension tab. Use it for downloads,
+  local PDFs, attachments behind a restricted viewer, or a Google export if the
+  direct export is unavailable. Supported files are PDF, DOCX, XLSX, PPTX, TXT,
+  Markdown, CSV, TSV, PNG, JPEG, WebP, GIF, BMP and TIFF. The file limit is the
+  smaller of 25 MiB and Imprint's `ingest.max_doc_size_mb`.
+- **OCR visible tab** previews a screenshot of the current viewport. Save it to
+  queue local text recognition. Image uploads and PDFs with little or no text
+  also use Imprint's existing OCR pipeline when it is enabled. For all pages of
+  a scanned PDF, upload the PDF itself.
+
+Chrome can withhold direct access to its built-in PDF viewer, and sites can
+block exports or cross-origin file reads. Use the viewer's download button or
+Google's **File → Download**, then select the resulting file. The capture
+does not read the browser's downloads folder on its own.
+
+### Search and meetings
+
+- **Search** opens the dashboard with the query in the selected workspace.
+  Results, individual memories and source reading use that workspace.
+- **Record meeting** opens the dashboard recording form with the chosen
+  workspace and project. Google Meet and Microsoft Teams tab titles are used as
+  editable suggestions. Confirm that participants know about the recording,
+  click **Start recording**, and choose the call tab with audio in Chrome's
+  sharing picker. Keep the dashboard tab open and use **Stop and transcribe**
+  when the meeting ends.
 
 ## Download and install
 
@@ -54,15 +81,14 @@ including it in the complete release and `SHA256SUMS`. See [ADR 0030](adr/0030-c
 ## Install from this checkout
 
 1. Use this branch's backend and an interpreter with Imprint's base requirements.
-   From the repository root, start it with
-   `python -m imprint.api --dev --no-browser`. Default address:
+   From the repository root, run `make dashboard-build`, then
+   `python -m imprint.api --no-browser`. Default address:
    `http://127.0.0.1:8420`. If that port is taken, use `--port 8421` and enter
    the new address in extension **Settings**.
 2. In `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
    and select `extensions/chrome`. Pin **Imprint Capture** to the toolbar.
 3. Open a web page and click the toolbar icon. Pick a workspace and project,
-   choose **Page text**, **Selection**, or **URL**, review the preview, then
-   click **Save to Imprint**. The first popup defaults to the active local
+   choose a capture action, review the preview, then click **Save to Imprint**. The first popup defaults to the active local
    workspace and remembers subsequent choices. Choosing a workspace here
    leaves the dashboard's active workspace as it was.
 
@@ -91,12 +117,14 @@ The extension refuses redirects and non-loopback addresses. The worker
 accepts messages from its own popup and settings, and page scripts cannot
 access its saved settings. Capture JSON is bounded to 1,000,000 UTF-8 bytes,
 with at most 50 documents and 10–800,000 characters per document. A request
-submits either text with bounded metadata or one HTTP(S) URL. The queue pins
+submits text with bounded metadata, one HTTP(S) URL, or a bounded binary file. The queue pins
 the chosen workspace at submission and validates it again before ingestion.
 Job status returns status and timing fields for the submitting extension ID.
 
 Captured text and metadata are retained in the local queue database/history
-as well as indexed memories. Browser job status excludes raw payloads; the
+as well as indexed memories. Uploaded bytes are retained locally in the queue
+for retries and deduplicated by digest. They do not appear in job status, logs
+or command arguments. Browser job status excludes raw payloads; the
 local dashboard still has its normal queue access. These captures inherit the
 selected workspace's sync settings and Imprint's model/tagger configuration;
 an explicitly configured remote provider may receive content through existing
@@ -118,10 +146,9 @@ Use Imprint's existing source purge workflow to remove indexed captures.
 
 ## Coming soon and validation
 
-Gmail, PDF bytes, attachments, OCR, Google Docs/Sheets exports, iframe/shadow-DOM
-coverage, background capture, mailbox synchronization, offline retries, search
-inside the extension and Chrome Web Store publication are coming soon. Restricted
-Chrome pages cannot be captured. Planned features have no announced delivery date.
+Gmail message capture, iframe/shadow-DOM text capture, background capture,
+mailbox synchronization, offline retries and Chrome Web Store publication
+remain outside this preview.
 
 Run from the repository root:
 
@@ -139,7 +166,8 @@ node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
 
 The browser smoke extracts the actual ZIP and uses a disposable Chromium profile
 and synthetic pages to test discovery, workspace choice, signed-in page text,
-URL submission, selection extraction, and coming-soon gates;
+URL submission, selection extraction, file upload, synthetic Workspace exports,
+screenshot preview and search/recording links;
 it never opens a real Gmail account or contributor profile. See
 [platform validation](platform-validation.md) for executed checks and limits.
-The local connection and its trust boundary are recorded in [ADR 0185](adr/0185-local-chrome-capture.md).
+See [ADR 0185](adr/0185-local-chrome-capture.md), [ADR 0187](adr/0187-browser-file-capture.md), and [ADR 0188](adr/0188-browser-dashboard-handoff.md) for the connection, file storage and dashboard handoff decisions.

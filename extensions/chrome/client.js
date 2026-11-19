@@ -8,17 +8,21 @@ export function apiBase(value) {
 
 export function trustedSender(sender, extensionId) {
   return sender.id === extensionId &&
-    ["popup.html", "options.html"].some((page) => sender.url === `chrome-extension://${extensionId}/${page}`);
+    ["popup.html", "popup.html?upload", "options.html"].some((page) => sender.url === `chrome-extension://${extensionId}/${page}`);
 }
 
 export async function requestAPI(settings, path, body, fetcher = fetch) {
   const base = apiBase(settings.base || "http://127.0.0.1:8420");
+  const isFile = path === "files";
+  const metadata = isFile ? encodeURIComponent(JSON.stringify(body.metadata)) : "";
+  if (metadata.length > 8192) throw new Error("This file’s name or source URL is too long.");
   const response = await fetcher(base + "/api/browser/local/" + path, {
     method: body === undefined ? "GET" : "POST",
     headers: {"X-Imprint-Extension-Id": settings.extensionId,
-      ...(body === undefined ? {} : {"Content-Type": "application/json"})},
-    ...(body === undefined ? {} : {body: JSON.stringify(body)}),
-    credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(10000),
+      ...(body === undefined ? {} : {"Content-Type": isFile ? "application/octet-stream" : "application/json"}),
+      ...(isFile ? {"X-Imprint-File": metadata} : {})},
+    ...(body === undefined ? {} : {body: isFile ? body.file : JSON.stringify(body)}),
+    credentials: "omit", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(isFile ? 60000 : 10000),
   });
   if (response.status === 404 && path.startsWith("jobs/")) {
     throw new Error("This capture job is no longer available.");

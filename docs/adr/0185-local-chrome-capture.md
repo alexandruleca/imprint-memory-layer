@@ -3,9 +3,12 @@ title: ADR 0185 — Chrome capture discovers local workspaces
 description: Use the native loopback trust boundary for Chrome capture and let the user choose a destination for each submission.
 ---
 
-- Status: Accepted
+- Status: Amended
 - Date: 2026-11-19
 - Amends: [ADR 0029](0029-paired-browser-capture.md) — connection and workspace selection for new Chrome extensions
+- Amended by:
+  - [ADR 0187](0187-browser-file-capture.md) — bounded binary files through the capture queue
+  - [ADR 0188](0188-browser-dashboard-handoff.md) — dashboard search and recording handoff
 - Related: [ADR 0024](0024-enforce-local-service-boundaries.md) and [ADR 0030](0030-chrome-extension-release-zip.md)
 
 ## Context

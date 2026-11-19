@@ -8,8 +8,10 @@ it to a permanent folder, and load the extracted folder containing `manifest.jso
 Start the Imprint backend from the same release and choose a workspace in the
 popup. Save editable page text or a selection from the open tab, or submit the
 URL for Imprint to fetch. Use **Settings** if your backend uses a custom port.
-Gmail, PDFs, attachments, Google Docs/Sheets, OCR, background capture, mailbox
-sync, offline retries and extension search are **Coming soon**.
+Choose **Tab file** for attachments and Google Docs/Sheets, **Upload file**
+for local downloads, or **OCR visible tab** for a screenshot. **Search**
+and **Record meeting** continue in the local dashboard using the selected
+workspace. The recording form prefills available Meet or Teams titles.
 
 See [setup, permissions, data retention and validation](../../docs/browser-extension.md).
 

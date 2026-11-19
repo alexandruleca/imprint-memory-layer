@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_ended ON jobs(ended_at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS browser_files (
+    digest TEXT PRIMARY KEY,
+    data BLOB NOT NULL
+);
 """
 
 
@@ -124,6 +128,11 @@ CREATE INDEX IF NOT EXISTS idx_jobs_ended ON jobs(ended_at DESC, id DESC);
 def _connect():
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Browser captures can contain private page text and uploaded document bytes.
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(fd)
+    if os.name != 'nt':
+        path.chmod(0o600)
     conn = sqlite3.connect(str(path), timeout=10.0, isolation_level=None)
     try:
         conn.row_factory = sqlite3.Row
@@ -243,6 +252,30 @@ def _insert_job(conn, command: str, body: dict) -> str:
         (job_id, command, json.dumps(body), time.time()),
     )
     return job_id
+
+
+def submit_browser_file(body: dict, data: bytes | bytearray) -> str:
+    """Commit an attachment and its queued job together. Retries reuse the blob."""
+    from hashlib import sha256
+    from .workspace_policy import workspace_name
+
+    workspace = workspace_name(body['workspace'])
+    digest = sha256(data).hexdigest()
+    _init_db()
+    with _db_lock, _connect() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        conn.execute('INSERT OR IGNORE INTO browser_files VALUES (?, ?)', (digest, data))
+        job_id = _insert_job(conn, 'browser-capture', {**body, '_workspace': workspace, 'file_digest': digest})
+    _notify_dispatcher()
+    return job_id
+
+
+def read_browser_file(digest: str) -> bytes:
+    with _connect() as conn:
+        row = conn.execute('SELECT data FROM browser_files WHERE digest=?', (digest,)).fetchone()
+    if row is None:
+        raise ValueError('The captured file is missing; submit it again')
+    return row['data']
 
 
 # Options that take a value, as the CLI parses them; other options are switches.

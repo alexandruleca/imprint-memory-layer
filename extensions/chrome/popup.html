@@ -21,12 +21,20 @@
     </section>
     <section class="card" aria-labelledby="capture-heading">
       <h2 id="capture-heading">Capture this tab</h2>
-      <div class="actions">
+      <div id="tab-actions" class="actions">
         <button id="page" class="primary" type="button" disabled>Page text</button>
         <button id="selection" type="button" disabled>Selection</button>
         <button id="url" type="button" disabled>URL</button>
+        <button id="file" type="button" disabled>Tab file</button>
+        <button id="screenshot" type="button" disabled>OCR visible tab</button>
+        <button id="upload" type="button" disabled>Upload file</button>
       </div>
-      <p class="hint">Use page text for signed-in pages. Choose URL to let Imprint fetch the page directly.</p>
+      <p id="tab-hint" class="hint">Use Tab file for Google Docs, Sheets, or a selected attachment link.</p>
+      <div id="upload-picker" hidden>
+        <label for="attachment">Choose a file</label>
+        <input id="attachment" type="file" disabled>
+        <p class="hint">Upload a PDF, Office export, text file, or image. Imprint runs OCR on images and scanned PDFs.</p>
+      </div>
       <form id="capture-form" hidden>
         <div id="preview"></div>
         <button id="save" class="primary" type="submit">Save to Imprint</button>
@@ -34,7 +42,14 @@
       <p id="feedback" role="status"></p>
     </section>
     <p id="job" role="status"></p>
-    <details><summary>Coming soon</summary><p class="hint">Gmail, PDFs and attachments, Google Docs and Sheets, OCR, background capture, offline retries, and search.</p></details>
+    <section class="card" id="dashboard-actions" aria-label="Open in Imprint">
+      <form id="search-form" class="search-row" role="search">
+        <input id="query" aria-label="Search memory" placeholder="Search this workspace" maxlength="4000" required>
+        <button id="search" type="submit" disabled>Search</button>
+      </form>
+      <button class="meeting" id="record" type="button" disabled>Record meeting</button>
+      <p id="dashboard-feedback" role="status"></p>
+    </section>
   </main>
   <script type="module" src="popup.js"></script>
 </body></html>

@@ -30,6 +30,11 @@ async function handle(message) {
       await chrome.storage.local.set({lastJob: {id: result.job_id, base}, project: message.capture.project});
       return result;
     }
+    case "fileJob":
+      if (base === message.base && /^[a-f0-9]{32}$/.test(message.id)) {
+        await chrome.storage.local.set({lastJob: {id: message.id, base}, project: message.project});
+      }
+      return {};
     case "job":
       if (lastJob?.base !== base || !/^[a-f0-9]{32}$/.test(lastJob?.id)) return null;
       return request("jobs/" + lastJob.id);

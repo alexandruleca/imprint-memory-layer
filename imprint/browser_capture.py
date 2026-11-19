@@ -7,12 +7,18 @@ import re
 import secrets
 import sqlite3
 import time
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from . import config, private_store
 from .workspace_policy import workspace_name
 
 MAX_REQUEST_BYTES = 1_000_000
+MAX_FILE_BYTES = 25 * 1024 * 1024
+FILE_EXTENSIONS = frozenset({
+    '.pdf', '.docx', '.xlsx', '.pptx', '.txt', '.md', '.csv', '.tsv',
+    '.png', '.jpeg', '.jpg', '.webp', '.gif', '.bmp', '.tiff', '.tif',
+})
 EXTENSION_ID = re.compile(r'[a-p]{32}')
 
 
@@ -89,6 +95,28 @@ def normalize_url_ingest(body):
     if 'documents' in body:
         raise ValueError('Submit a URL or captured documents')
     return {'url': capture_url(body.get('url')), 'project': _text(body.get('project', 'browser'), 'Project', 128)}
+
+
+def file_limit():
+    from .extractors import max_doc_bytes
+    return min(MAX_FILE_BYTES, max_doc_bytes())
+
+
+def normalize_file_capture(body):
+    if not isinstance(body, dict):
+        raise ValueError('Expected file capture metadata')
+    filename = _text(body.get('filename'), 'Filename', 255)
+    if any(char in filename for char in '/\\:') or any(ord(char) < 32 for char in filename):
+        raise ValueError('Use a filename without a path')
+    if Path(filename).suffix.lower() not in FILE_EXTENSIONS:
+        raise ValueError('Unsupported attachment type')
+    kind = body.get('kind', 'file')
+    if kind not in ('file', 'screenshot', 'google-doc', 'google-sheet'):
+        raise ValueError('Unsupported file capture kind')
+    url = capture_url(body['source_url']) if body.get('source_url') else ''
+    return {'filename': filename, 'title': _text(body.get('title', filename), 'Title', 1000),
+            'project': _text(body.get('project', 'browser'), 'Project', 128),
+            'source_url': url, 'kind': kind}
 
 
 def normalize_capture(body):

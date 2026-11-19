@@ -10,10 +10,10 @@ export function extractCapture(mode = "page") {
       throw new Error("Open an ordinary web page to capture its content.");
     }
     if (document.contentType === "application/pdf") {
-      throw new Error("PDF capture is coming soon. Download the PDF and ingest it with Imprint for now.");
+      throw new Error("Use Tab file for a PDF, or download it and choose Upload file.");
     }
     if (location.hostname === "mail.google.com") throw new Error("Gmail capture is coming soon. Web pages and selected text on other sites are available now.");
-    if (location.hostname === "docs.google.com") throw new Error("Google Docs & Sheets capture is coming soon. Export the document and ingest it with Imprint for now.");
+    if (location.hostname === "docs.google.com") throw new Error("Use Tab file to export this document or spreadsheet.");
     const common = {url: location.href, title: document.title.slice(0, 1000) || location.hostname};
     if (mode === "selection") {
       const selection = window.getSelection();

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {apiBase, requestAPI, trustedSender} from "../client.js";
+import {meetingTitle} from "../files.js";
 
 test("only literal loopback HTTP API addresses are accepted", () => {
   assert.equal(apiBase("http://127.0.0.1:8420"), "http://127.0.0.1:8420");
@@ -37,4 +38,10 @@ test("requests use the fixed local browser API and redirects are refused", async
 test("backend validation errors reach the UI", async () => {
   await assert.rejects(requestAPI({}, "status", undefined,
     async () => ({ok: false, json: async () => ({detail: "Unknown workspace"})})), /Unknown workspace/);
+});
+
+test("meeting titles use the active provider tab's title", () => {
+  assert.equal(meetingTitle({url: "https://teams.microsoft.com/v2/", title: "(2) Planning call | Microsoft Teams"}), "Planning call");
+  assert.equal(meetingTitle({url: "https://meet.google.com/abc-defg-hij", title: "Google Meet"}), "Google Meet · abc-defg-hij");
+  assert.equal(meetingTitle({url: "https://example.com/", title: "Planning call | Microsoft Teams"}), "");
 });

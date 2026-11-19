@@ -88,22 +88,28 @@ function release() {
   live = null;
 }
 
-export async function startMeeting(options: { title: string; project: string; others: boolean; inputDevice: string }) {
+export async function startMeeting(options: { title: string; project: string; workspace?: string; others: boolean; inputDevice: string }) {
   if (state.phase !== "idle") return;
   set({ phase: "starting", error: "" });
   const streams: MediaStream[] = [];
   try {
+    // In Chrome, open the share picker while Start still has user activation.
+    let computer: MediaStream | null = null;
+    if (options.others && !window.electronAPI) {
+      computer = await computerAudio();
+      if (computer) streams.push(computer);
+    }
     const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
     const microphone = await navigator.mediaDevices.getUserMedia({
       audio: options.inputDevice ? { ...audio, deviceId: { ideal: options.inputDevice } } : audio, video: false,
     });
     streams.push(microphone);
-    let computer: MediaStream | null = null;
-    if (options.others) {
+    if (options.others && window.electronAPI) {
       computer = await computerAudio();
       if (computer) streams.push(computer);
     }
-    const recording = await startRecording({ title: options.title, project: options.project, others: !!computer, consent: true });
+    const recording = await startRecording({ title: options.title, project: options.project, workspace: options.workspace,
+      others: !!computer, consent: true });
     const context = new AudioContext();
     const merger = context.createChannelMerger(2);
     const analysers: AnalyserNode[] = [];
