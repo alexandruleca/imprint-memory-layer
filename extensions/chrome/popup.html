@@ -2,54 +2,136 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Imprint Capture</title><link rel="stylesheet" href="style.css"></head>
 <body class="popup">
+  <svg width="0" height="0" hidden aria-hidden="true">
+    <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></symbol>
+    <symbol id="i-selection" viewBox="0 0 24 24"><path d="M4 5h16M4 19h10"/><rect x="4" y="9" width="13" height="6" rx="1.5"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M12 10v7M9 14l3 3 3-3"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 10h8M8 14h5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m6 12.5 4 4 8-9"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 7v6M12 16.5v.5"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/></symbol>
+  </svg>
+
   <header class="topbar">
-    <img class="logo" src="icon-48.png" width="32" height="32" alt="">
-    <strong>Imprint <span>Capture</span></strong>
-    <button id="settings" type="button">Settings</button>
+    <img class="logo" src="icon-48.png" width="24" height="24" alt="">
+    <strong class="brand">Imprint <span>Capture</span></strong>
+    <p id="connection" class="status" role="status" data-state="connecting"><span class="dot" aria-hidden="true"></span><span id="connection-text">Connecting…</span></p>
+    <button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"><svg class="icon"><use href="#i-settings"/></svg></button>
   </header>
+
   <main>
-    <div class="connection">
-      <p id="connection" role="status">Connecting to local Imprint…</p>
-      <button id="retry" type="button" hidden>Retry</button>
+    <section id="offline" class="card notice" aria-labelledby="offline-title" hidden>
+      <svg class="notice-icon" aria-hidden="true"><use href="#i-plug"/></svg>
+      <h2 id="offline-title">Imprint isn’t running</h2>
+      <p id="offline-text" class="muted">Open the Imprint app on this computer. Capture connects by itself.</p>
+      <div class="notice-actions">
+        <button id="retry" class="primary" type="button">Try again</button>
+        <button id="change-address" type="button">Change address</button>
+        <button id="open-imprint" type="button" hidden>Open Imprint <svg class="icon small"><use href="#i-out"/></svg></button>
+      </div>
+    </section>
+
+    <div id="home">
+      <section id="tab-context" class="tab-context" aria-label="Current tab">
+        <span id="tab-kind" class="chip">Web page</span>
+        <p id="tab-title" class="tab-title" title="">This tab</p>
+      </section>
+
+      <section id="destination" class="destination" aria-label="Save to">
+        <label>Workspace<select id="workspace" disabled><option value="">Loading…</option></select></label>
+        <label>Project<input id="project" value="browser" maxlength="128" required list="recent-projects" autocomplete="off" spellcheck="false"></label>
+        <datalist id="recent-projects"></datalist>
+      </section>
+
+      <section id="job-card" class="job-card" data-status="" hidden aria-label="Last capture">
+        <span class="job-icon" aria-hidden="true"></span>
+        <div class="job-text">
+          <p id="job-title" class="job-title"></p>
+          <p id="job" role="status"></p>
+        </div>
+        <button id="job-open" class="link-button" type="button" hidden></button>
+        <button id="job-dismiss" class="icon-button" type="button" aria-label="Dismiss" title="Dismiss"><svg class="icon small"><use href="#i-close"/></svg></button>
+      </section>
+
+      <section id="capture" class="actions-card" aria-labelledby="capture-heading">
+        <h2 id="capture-heading" class="section-label visually-hidden">Save from this tab</h2>
+        <div id="tab-actions" class="action-list">
+          <button id="page" class="action" type="button" disabled aria-labelledby="page-label" aria-describedby="page-hint">
+            <svg class="icon" aria-hidden="true"><use href="#i-page"/></svg>
+            <span class="action-text"><span id="page-label" class="action-label">Page text</span><span id="page-hint" class="action-hint">Text as you see it, signed-in pages too</span></span>
+          </button>
+          <button id="selection" class="action" type="button" disabled aria-labelledby="selection-label" aria-describedby="selection-hint">
+            <svg class="icon" aria-hidden="true"><use href="#i-selection"/></svg>
+            <span class="action-text"><span id="selection-label" class="action-label">Selection</span><span id="selection-hint" class="action-hint">Only the text you highlighted</span></span>
+          </button>
+          <button id="url" class="action" type="button" disabled aria-labelledby="url-label" aria-describedby="url-hint">
+            <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>
+            <span class="action-text"><span id="url-label" class="action-label">Link</span><span id="url-hint" class="action-hint">Imprint fetches it, without your sign-ins</span></span>
+          </button>
+          <button id="file" class="action" type="button" disabled aria-labelledby="file-label" aria-describedby="file-hint">
+            <svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>
+            <span class="action-text"><span id="file-label" class="action-label">File in this tab</span><span id="file-hint" class="action-hint">This PDF or attachment, or a selected link</span></span>
+          </button>
+          <div id="ocr" class="action split" role="group" aria-labelledby="ocr-label" aria-describedby="ocr-hint">
+            <svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>
+            <span class="action-text"><span id="ocr-label" class="action-label">Screenshot text</span><span id="ocr-hint" class="action-hint">Read locally with OCR</span></span>
+            <span class="segmented">
+              <button id="screenshot" type="button" disabled aria-label="Screenshot of the visible area" title="What you see now">Visible</button>
+              <button id="fullpage" type="button" disabled aria-label="Full-page screenshot" title="Scrolls through the whole page">Full page</button>
+            </span>
+          </div>
+          <button id="upload" class="action" type="button" disabled aria-labelledby="upload-label" aria-describedby="upload-hint">
+            <svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>
+            <span class="action-text"><span id="upload-label" class="action-label">Upload a file</span><span id="upload-hint" class="action-hint">PDF, Office, text or image · opens a tab</span></span>
+            <svg class="icon small trailing" aria-hidden="true"><use href="#i-out"/></svg>
+          </button>
+        </div>
+        <p id="tab-blocked" class="blocked" hidden>Chrome doesn’t let extensions read its own pages or this browser view. Open a website, or upload a file.</p>
+        <div id="upload-picker" hidden>
+          <label id="drop-zone" class="drop-zone" for="attachment">
+            <svg class="icon large" aria-hidden="true"><use href="#i-upload"/></svg>
+            <span class="drop-title">Choose a file</span>
+            <span class="muted">or drop it here, or paste an image</span>
+          </label>
+          <input id="attachment" class="visually-hidden" type="file" disabled>
+          <p class="hint">PDF, Office exports, text files and images. Imprint reads images and scanned PDFs with OCR.</p>
+        </div>
+        <p id="feedback" role="status"></p>
+      </section>
     </div>
-    <section class="card" aria-labelledby="destination">
-      <h2 id="destination">Save to</h2>
-      <div class="fields">
-        <label>Workspace<select id="workspace" disabled><option value="">Select workspace</option></select></label>
-        <label>Project<input id="project" value="browser" maxlength="128" required form="capture-form"></label>
+
+    <section id="review" class="review" aria-labelledby="review-heading" hidden>
+      <div class="review-head">
+        <button id="back" class="icon-button" type="button" aria-label="Back" title="Back (Esc)"><svg class="icon"><use href="#i-back"/></svg></button>
+        <h2 id="review-heading">Review</h2>
       </div>
-    </section>
-    <section class="card" aria-labelledby="capture-heading">
-      <h2 id="capture-heading">Capture this tab</h2>
-      <div id="tab-actions" class="actions">
-        <button id="page" class="primary" type="button" disabled>Page text</button>
-        <button id="selection" type="button" disabled>Selection</button>
-        <button id="url" type="button" disabled>URL</button>
-        <button id="file" type="button" disabled>Tab file</button>
-        <button id="screenshot" type="button" disabled>OCR visible tab</button>
-        <button id="upload" type="button" disabled>Upload file</button>
-      </div>
-      <p id="tab-hint" class="hint">Use Tab file for Google Docs, Sheets, or a selected attachment link.</p>
-      <div id="upload-picker" hidden>
-        <label for="attachment">Choose a file</label>
-        <input id="attachment" type="file" disabled>
-        <p class="hint">Upload a PDF, Office export, text file, or image. Imprint runs OCR on images and scanned PDFs.</p>
-      </div>
-      <form id="capture-form" hidden>
+      <form id="capture-form">
         <div id="preview"></div>
-        <button id="save" class="primary" type="submit">Save to Imprint</button>
+        <div id="save-bar" class="save-bar">
+          <button id="save" class="primary" type="submit">Save to Imprint</button>
+          <p class="kbd-hint" aria-hidden="true"><kbd>Ctrl</kbd> <kbd>Enter</kbd> to save</p>
+        </div>
       </form>
-      <p id="feedback" role="status"></p>
-    </section>
-    <p id="job" role="status"></p>
-    <section class="card" id="dashboard-actions" aria-label="Open in Imprint">
-      <form id="search-form" class="search-row" role="search">
-        <input id="query" aria-label="Search memory" placeholder="Search this workspace" maxlength="4000" required>
-        <button id="search" type="submit" disabled>Search</button>
-      </form>
-      <button class="meeting" id="record" type="button" disabled>Record meeting</button>
-      <p id="dashboard-feedback" role="status"></p>
+      <p id="review-feedback" role="alert"></p>
     </section>
   </main>
+
+  <footer id="dashboard-actions" class="footer" aria-label="Open in Imprint">
+    <form id="search-form" class="search" role="search">
+      <svg class="icon search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="query" aria-label="Search memory" placeholder="Search Imprint" maxlength="4000" required>
+      <button id="search" class="icon-button" type="submit" disabled aria-label="Search" title="Search in the dashboard"><svg class="icon small"><use href="#i-out"/></svg></button>
+    </form>
+    <button class="meeting" id="record" type="button" disabled title="Opens the dashboard's recording form"><svg class="icon" aria-hidden="true"><use href="#i-mic"/></svg><span>Record meeting</span></button>
+  </footer>
+  <p id="dashboard-feedback" class="footer-feedback" role="status"></p>
   <script type="module" src="popup.js"></script>
 </body></html>

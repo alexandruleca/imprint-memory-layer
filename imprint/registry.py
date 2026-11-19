@@ -270,7 +270,10 @@ def find(name: str, kind: str | None = None) -> dict:
 def history(item_id: str) -> list[dict]:
     """The versions this device replaced, newest first."""
     with _db() as conn:
-        rows = conn.execute('SELECT * FROM versions WHERE item_id=? ORDER BY replaced_at DESC', (item_id,)).fetchall()
+        # A replacement in the same clock tick as the last (Windows' clock is coarse)
+        # is newer by rowid: INSERT OR REPLACE gives each kept version a new one.
+        rows = conn.execute('SELECT * FROM versions WHERE item_id=? ORDER BY replaced_at DESC, rowid DESC',
+                            (item_id,)).fetchall()
     versions = []
     for row in rows:
         version = dict(row)
@@ -294,7 +297,7 @@ def _keep(conn, row, replaced_at: float) -> None:
                  'VALUES (?, ?, ?, ?, ?, ?, ?)', (row['id'], row['hash'], row['files'], row['state'], row['device'],
                                                  row['updated_at'], replaced_at))
     conn.execute('DELETE FROM versions WHERE item_id=? AND hash NOT IN (SELECT hash FROM versions WHERE item_id=? '
-                 'ORDER BY replaced_at DESC LIMIT ?)', (row['id'], row['id'], HISTORY))
+                 'ORDER BY replaced_at DESC, rowid DESC LIMIT ?)', (row['id'], row['id'], HISTORY))
 
 
 def _stamp(previous: float) -> float:

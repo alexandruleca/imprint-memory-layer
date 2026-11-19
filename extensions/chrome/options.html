@@ -3,19 +3,28 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Imprint Capture settings</title><link rel="stylesheet" href="style.css"></head>
 <body class="options">
   <header class="topbar">
-    <img class="logo" src="icon-48.png" width="32" height="32" alt="">
-    <strong>Imprint <span>Capture</span></strong>
+    <img class="logo" src="icon-48.png" width="24" height="24" alt="">
+    <strong class="brand">Imprint <span>Capture</span></strong>
+    <span id="version" class="version"></span>
   </header>
   <main>
-    <section class="card">
-      <h1>Local connection</h1>
-      <p class="hint">Imprint Capture connects automatically on port 8420. Change the address if your local service uses another port.</p>
+    <section class="card" aria-labelledby="connection-heading">
+      <h1 id="connection-heading">Local connection</h1>
+      <p class="hint">Capture finds Imprint on this computer at port 8420. Change the address only if Imprint runs on another port.</p>
       <form id="connect">
         <label for="base">Local Imprint address</label>
-        <input id="base" type="url" value="http://127.0.0.1:8420" required disabled>
-        <button class="primary" type="submit" id="save" disabled>Check and save</button>
+        <input id="base" type="url" value="http://127.0.0.1:8420" required disabled spellcheck="false">
+        <div class="row">
+          <button class="primary" type="submit" id="save" disabled>Check and save</button>
+          <button type="button" id="reset" disabled>Use default</button>
+        </div>
       </form>
       <p id="feedback" role="status"></p>
+    </section>
+    <section class="card" aria-labelledby="shortcut-heading">
+      <h2 id="shortcut-heading">Keyboard shortcut</h2>
+      <p class="hint">Open Capture without the mouse. Chrome keeps extension shortcuts on its own page.</p>
+      <div class="row"><button type="button" id="shortcuts">Set a shortcut</button><span id="shortcut" class="hint"></span></div>
     </section>
   </main>
   <script type="module" src="options.js"></script>

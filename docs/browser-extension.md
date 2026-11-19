@@ -11,27 +11,46 @@ a preview, installed manually rather than through the Chrome Web Store. No cloud
 is required. The popup connects automatically to the local Imprint HTTP API and lists existing
 workspaces. Choose a destination and preview what you want to save.
 
+The popup names the current tab's kind (web page, PDF, Google Doc or Sheet,
+Gmail, meeting, or a browser page) and puts the action that suits it first.
+Actions the tab cannot support are disabled with the reason in place of their
+description; on Chrome's own pages only **Upload a file** is offered. Choosing
+an action opens a review step with the title, the content or image, and the
+workspace and project next to **Save to Imprint** (Ctrl+Enter; Esc goes back). The project field suggests the last six projects used.
+
 **Page text** and **Selection** save editable snapshots of readable text already
-rendered in the tab, including on signed-in pages. **URL** queues a fresh fetch
+rendered in the tab, including on signed-in pages. **Link** queues a fresh fetch
 by Imprint, which has no access to your browser session and fetches only the
-submitted page without crawling links. Saving shows queued/running/completed status; accepted jobs continue
-after the popup closes. Reopening the popup checks the last submitted job.
+submitted page without crawling links. After saving, a card shows the capture's
+title and its queued, indexing, indexed or failed status, with **View** (search
+for it in the dashboard) or **Open queue**; accepted jobs continue after the
+popup closes. Reopening the popup checks the last submitted job for a day, and
+the card can be dismissed. If Imprint is not running, the popup says so and
+connects again by itself once it starts.
 
 ### Files, Google Workspace and OCR
 
-- **Tab file** reads a supported file at the current HTTP(S) address or a same-origin
-  attachment link you have selected or focused. For a Google Docs or Sheets tab,
-  use **Save Google Doc** or **Save Google Sheet** to export it to DOCX or XLSX
+- **File in this tab** reads a supported file at the current HTTP(S) address or a same-origin
+  attachment link you have selected or focused. On a Google Docs or Sheets tab
+  the action is named **Google Doc** or **Google Sheet** and exports it to DOCX or XLSX
   using the browser session. The workbook export includes all sheets.
-- **Upload file** opens a file picker in an extension tab. Use it for downloads,
+- **Upload a file** opens an extension tab where you choose, drop or paste a file
+  (a pasted screenshot uploads as an image). Use it for downloads,
   local PDFs, attachments behind a restricted viewer, or a Google export if the
   direct export is unavailable. Supported files are PDF, DOCX, XLSX, PPTX, TXT,
   Markdown, CSV, TSV, PNG, JPEG, WebP, GIF, BMP and TIFF. The file limit is the
   smaller of 25 MiB and Imprint's `ingest.max_doc_size_mb`.
-- **OCR visible tab** previews a screenshot of the current viewport. Save it to
-  queue local text recognition. Image uploads and PDFs with little or no text
-  also use Imprint's existing OCR pipeline when it is enabled. For all pages of
-  a scanned PDF, upload the PDF itself.
+- **Screenshot text** reads a screenshot with local text recognition. **Visible**
+  captures the current viewport. **Full page** scrolls the tab one screen at a
+  time, about two screens a second, and stitches them into one image: fixed
+  banners are left out, a sticky header appears once at the top, and the page
+  returns to where it was. A page that scrolls inside a panel, such as Gmail,
+  gives its visible area, and a very long page is cut at 32,000 px
+  ([ADR 0191](adr/0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md)).
+  Imprint reads images taller than 2,000 px in overlapping bands, so long
+  captures stay legible ([ADR 0190](adr/0190-ocr-reads-tall-images-in-bands.md)).
+  Image uploads and PDFs with little or no text also use Imprint's existing OCR
+  pipeline when it is enabled. For all pages of a scanned PDF, upload the PDF itself.
 
 Chrome can withhold direct access to its built-in PDF viewer, and sites can
 block exports or cross-origin file reads. Use the viewer's download button or
@@ -62,7 +81,8 @@ newer desktop release without that asset does not break the previous download.
    and select the extracted `imprint-chrome-extension` folder containing
    `manifest.json`. Pin the extension from Chrome's Extensions menu.
 4. Open the popup and choose a workspace. Use **Settings** only if Imprint runs
-   on a port other than 8420.
+   on a port other than 8420. Settings also links to Chrome's shortcuts page,
+   where you can give Capture a keyboard shortcut.
 
 The ZIP includes `INSTALL.txt` with standalone instructions and the project's
 `LICENSE`. Chrome loads the
@@ -170,7 +190,7 @@ node extensions/chrome/tests/browser-smoke.mjs dist/imprint-chrome-extension.zip
 The browser smoke extracts the actual ZIP and uses a disposable Chromium profile
 and synthetic pages to test discovery, workspace choice, signed-in page text,
 URL submission, selection extraction, file upload, synthetic Workspace exports,
-screenshot preview and search/recording links;
+visible and full-page screenshot previews and search/recording links;
 it never opens a real Gmail account or contributor profile. See
 [platform validation](platform-validation.md) for executed checks and limits.
-See [ADR 0185](adr/0185-local-chrome-capture.md), [ADR 0187](adr/0187-browser-file-capture.md), and [ADR 0188](adr/0188-browser-dashboard-handoff.md) for the connection, file storage and dashboard handoff decisions.
+See [ADR 0185](adr/0185-local-chrome-capture.md), [ADR 0187](adr/0187-browser-file-capture.md), [ADR 0188](adr/0188-browser-dashboard-handoff.md) and [ADR 0191](adr/0191-chrome-full-page-screenshots-are-stitched-in-the-popup.md) for the connection, file storage, dashboard handoff and full-page screenshot decisions.

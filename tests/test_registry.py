@@ -106,6 +106,15 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             registry.update('0' * 32, state='disabled')
 
+    def test_versions_kept_in_one_clock_tick_list_the_later_first_and_prune_the_earlier(self):
+        # Windows' clock can return the same time for two replacements in a row.
+        item = registry.create('skill', skill())
+        with patch.object(registry.time, 'time', return_value=1_800_000_000.0):
+            for index in range(registry.HISTORY + 1):
+                registry.keep_version(item['id'], skill(body=f'Kept {index}'), float(index))
+        bodies = [v['files']['SKILL.md'].split('\n\n')[1].strip() for v in registry.history(item['id'])]
+        self.assertEqual(bodies, [f'Kept {index}' for index in range(registry.HISTORY, 0, -1)])
+
     def test_an_edit_dated_before_the_last_change_is_still_dated_after_it(self):
         item = registry.create('skill', skill())
         edited = registry.update(item['id'], files=skill(body='Edited'), at=item['updated_at'] - 100)

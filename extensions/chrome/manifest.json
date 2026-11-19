@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Imprint Capture",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Capture pages, files and meetings, and search your local Imprint.",
   "minimum_chrome_version": "114",
   "permissions": [
@@ -23,6 +23,9 @@
       "16": "icon-16.png",
       "32": "icon-32.png"
     }
+  },
+  "commands": {
+    "_execute_action": {}
   },
   "options_page": "options.html",
   "content_security_policy": {

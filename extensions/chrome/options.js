@@ -1,6 +1,9 @@
 import {send, showError} from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
+const defaultBase = "http://127.0.0.1:8420";
+
+$("version").textContent = `Version ${chrome.runtime.getManifest().version}`;
 
 try {
   const settings = await send("settings");
@@ -8,16 +11,30 @@ try {
 } catch (error) {
   showError($("feedback"), error);
 } finally {
-  $("base").disabled = false;
-  $("save").disabled = false;
+  for (const id of ["base", "save", "reset"]) $(id).disabled = false;
 }
+
+chrome.commands?.getAll?.().then((commands) => {
+  const shortcut = commands.find((command) => command.name === "_execute_action")?.shortcut;
+  $("shortcut").textContent = shortcut ? `Current: ${shortcut}` : "None set";
+}, () => {});
+
+$("shortcuts").addEventListener("click", () => chrome.tabs.create({url: "chrome://extensions/shortcuts"}));
+$("reset").addEventListener("click", () => {
+  $("base").value = defaultBase;
+  $("connect").requestSubmit();
+});
 
 $("connect").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("save").disabled = true;
+  $("feedback").classList.remove("error", "success");
+  $("feedback").textContent = "Checking…";
   try {
     const status = await send("connect", {base: $("base").value});
-    $("feedback").textContent = `Connected · ${status.workspaces.length} local workspace(s)`;
+    const count = status.workspaces.length;
+    $("feedback").classList.add("success");
+    $("feedback").textContent = `Connected · ${count} local workspace${count === 1 ? "" : "s"}`;
   } catch (error) {
     showError($("feedback"), error);
   } finally {

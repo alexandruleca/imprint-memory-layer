@@ -7,11 +7,11 @@ Download `imprint-chrome-extension.zip` from the latest GitHub release, extract
 it to a permanent folder, and load the extracted folder containing `manifest.json`.
 Start the Imprint backend from the same release and choose a workspace in the
 popup. Save editable page text or a selection from the open tab, or submit the
-URL for Imprint to fetch. Use **Settings** if your backend uses a custom port.
-Choose **Tab file** for attachments and Google Docs/Sheets, **Upload file**
-for local downloads, or **OCR visible tab** for a screenshot. **Search**
-and **Record meeting** continue in the local dashboard using the selected
-workspace. The recording form prefills available Meet or Teams titles.
+**Link** for Imprint to fetch. Use **Settings** if your backend uses a custom port.
+Choose **File in this tab** for attachments and Google Docs/Sheets, **Upload a file**
+for local downloads, or **Screenshot text** (**Visible** or **Full page**) for
+OCR. **Search** and **Record meeting** continue in the local dashboard using the
+selected workspace. The recording form prefills available Meet or Teams titles.
 
 See [setup, permissions, data retention and validation](../../docs/browser-extension.md).
 

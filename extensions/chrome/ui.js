@@ -4,7 +4,19 @@ export async function send(type, fields = {}) {
   return response.data;
 }
 
+// Fetch failures cross the service worker as bare messages.
+export function unreachable(message = "") {
+  return /Failed to fetch|NetworkError|timed out|TimeoutError/i.test(message);
+}
+
+export function friendlyMessage(message = "") {
+  if (/timed out|TimeoutError/i.test(message)) return "Imprint didn’t answer in time. Check that it is running, then try again.";
+  if (unreachable(message)) return "Can’t reach Imprint on this computer. Open the Imprint app, then try again.";
+  return message;
+}
+
 export function showError(element, error) {
   element.classList.add("error");
-  element.textContent = error.message === "Failed to fetch" ? "Cannot reach local Imprint. Start the backend and check the address in settings." : error.message;
+  element.classList.remove("busy");
+  element.textContent = friendlyMessage(error.message);
 }
